@@ -290,7 +290,7 @@ describe('panel refresh flows', () => {
 
     const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
     expect(html).toContain('data-page-target="models"');
-    expect(html).not.toContain('data-page-target="testing"');
+    expect(html).toContain('data-page-target="testing"');
     expect(html).toContain('.settings-page.fallback-visible {');
     expect(html).toContain('.settings-pages-ready .settings-page.active {');
     expect(html).not.toContain('.settings-page:target');
@@ -405,19 +405,19 @@ describe('panel refresh flows', () => {
     expect(html).not.toContain('window.location.hash');
   });
 
-  it('keeps the legacy settings testing page reachable by deep-link while removing it from the primary nav', () => {
+  it('renders the settings testing page with a primary nav tab and deep-link support', () => {
     SettingsPanel.createOrShow({
       extensionUri: { fsPath: '/ext', path: '/ext' },
       extension: { packageJSON: { version: '0.49.15' } },
     } as never, { page: 'testing', section: 'testingInventoryCard' });
 
     const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
-    expect(html).not.toContain('id="tab-testing" data-page-target="testing"');
+    expect(html).toContain('id="tab-testing" data-page-target="testing"');
     expect(html).toContain('id="page-testing" class="settings-page active fallback-visible"');
     expect(html).toContain('id="testingInventoryCard" class="settings-card"');
-    expect(html).toContain('Test inventory');
-    expect(html).toContain('Coverage report');
-    expect(html).toContain('Associated settings');
+    expect(html).toContain('Discovered test files');
+    expect(html).toContain('Coverage and test config');
+    expect(html).toContain('Verification settings');
   });
 
   it('routes Local LLM configure to the local endpoints settings card', async () => {

@@ -11,6 +11,7 @@ import { RECOMMENDED_MCP_SERVERS, getRecommendedMcpStarterDetails } from './cons
 import { buildSkillDraftPrompt, extractGeneratedSkillCode, toSuggestedSkillId } from './core/skillDrafting.js';
 import { formatCostAdaptive } from './core/currencyFormatter.js';
 import { pickWorkspaceFolder } from './utils/workspacePicker.js';
+import { hasAiInstructionSyncFile, scanAiInstructionFiles, syncAiInstructionFiles } from './utils/aiInstructionSync.js';
 import { getSelectedSessionRenameTarget, postSidebarSummaryToChat } from './views/treeViews.js';
 import { findCommandExecutable, getKnownCommandInstallHint } from './mcp/mcpClient.js';
 import type { ChatSessionTreeItem, McpServerTreeItem, ModelProviderTreeItem, ModelTreeItem, SessionFolderTreeItem, SkillFolderTreeItem, SkillTreeItem } from './views/treeViews.js';
@@ -335,8 +336,25 @@ export function registerCommands(
     const result = await importProject(workspaceFolder.uri, atlas);
     await syncProjectMemoryFreshnessContext(workspaceFolder);
     const typeNote = result.projectType ? ` Detected type: ${result.projectType}.` : '';
+
+    // Auto-sync any AI instruction files found in the workspace (CLAUDE.md, .cursorrules, etc.)
+    const workspaceRoot = workspaceFolder.uri.fsPath;
+    let instructionNote = '';
+    if (!hasAiInstructionSyncFile(workspaceRoot)) {
+      const instructionFiles = scanAiInstructionFiles(workspaceRoot);
+      if (instructionFiles.length > 0) {
+        const syncResult = await syncAiInstructionFiles(
+          workspaceRoot,
+          instructionFiles.map(f => f.relativePath),
+        );
+        instructionNote = syncResult.success
+          ? ` AI instructions synced from ${syncResult.synced.length} file${syncResult.synced.length === 1 ? '' : 's'}.`
+          : ` AI instruction sync failed: ${syncResult.summary}`;
+      }
+    }
+
     vscode.window.showInformationMessage(
-      `${successPrefix}: ${result.entriesCreated} memory entries created, ${result.entriesSkipped} skipped.${typeNote}`,
+      `${successPrefix}: ${result.entriesCreated} memory entries created, ${result.entriesSkipped} skipped.${typeNote}${instructionNote}`,
     );
   };
 
@@ -351,27 +369,32 @@ export function registerCommands(
 
     vscode.commands.registerCommand('atlasmind.openSettings', async (target?: SettingsPageId | SettingsPanelTarget) => {
       const { SettingsPanel } = await import('./views/settingsPanel.js');
-      SettingsPanel.createOrShow(context, target);
+      SettingsPanel.createOrShow(context, target, getAtlas());
     }),
 
     vscode.commands.registerCommand('atlasmind.openSettingsChat', async () => {
       const { SettingsPanel } = await import('./views/settingsPanel.js');
-      SettingsPanel.createOrShow(context, 'chat');
+      SettingsPanel.createOrShow(context, 'chat', getAtlas());
     }),
 
     vscode.commands.registerCommand('atlasmind.openSettingsModels', async () => {
       const { SettingsPanel } = await import('./views/settingsPanel.js');
-      SettingsPanel.createOrShow(context, 'models');
+      SettingsPanel.createOrShow(context, 'models', getAtlas());
     }),
 
     vscode.commands.registerCommand('atlasmind.openSettingsSafety', async () => {
       const { SettingsPanel } = await import('./views/settingsPanel.js');
-      SettingsPanel.createOrShow(context, 'safety');
+      SettingsPanel.createOrShow(context, 'safety', getAtlas());
     }),
 
     vscode.commands.registerCommand('atlasmind.openSettingsProject', async () => {
       const { SettingsPanel } = await import('./views/settingsPanel.js');
-      SettingsPanel.createOrShow(context, 'project');
+      SettingsPanel.createOrShow(context, 'project', getAtlas());
+    }),
+
+    vscode.commands.registerCommand('atlasmind.openSettingsTesting', async () => {
+      const { SettingsPanel } = await import('./views/settingsPanel.js');
+      SettingsPanel.createOrShow(context, 'testing', getAtlas());
     }),
 
     vscode.commands.registerCommand('atlasmind.collapseAllSidebarTrees', async () => {

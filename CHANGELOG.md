@@ -8,6 +8,122 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.76.0] - 2026-06-09
+
+### Added
+- **AI instruction sync** (`src/utils/aiInstructionSync.ts`, `src/views/chatPanel.ts`, `media/chatPanel.js`): AtlasMind now detects AI instruction files from other tools in the open workspace and surfaces a nudge banner in the chat panel prompting the user to sync them into AtlasMind's SSOT memory (`project_memory/domain/ai-instructions-sync.md`). Supported sources: GitHub Copilot (`.github/copilot-instructions.md`), Claude Code (`CLAUDE.md`), Cursor (`.cursorrules`, `.cursor/rules/`), Cline (`.clinerules`), Continue (`.continue/config.json`), OpenAI Codex (`AGENTS.md`), Gemini CLI (`GEMINI.md`), Windsurf (`WINDSURF.md`, `.windsurf/rules/`), and Aider (`.aider.system.md`). The sync merges selected files into a single annotated memory document marked as advisory context (Personality Profile settings take precedence). Path traversal is rejected at both scan and write time.
+
+### Changed
+- **Orchestrator default prompt** (`src/core/orchestrator.ts`): agents are now instructed to read project memory, `CLAUDE.md`, `README.md`, or equivalent documentation before invoking executable skills when answering knowledge questions (e.g. "what is the publish policy?", "how do we branch?").
+- **npmScripts skill** (`src/skills/npmScripts.ts`): description clarified to distinguish execution (start, build, test) from knowledge queries; added `routingHints` and a 120-second `timeoutMs` to improve model routing accuracy.
+
+## [0.75.8] - 2026-06-09
+
+### Added
+- **AI token impact field on every methodology** (`src/types.ts`, `src/views/settingsPanel.ts`): each of the 23 testing methodologies now carries `tokenImpactLevel` (`low` / `medium` / `high`) and `tokenImpact` (a plain-English explanation of what drives usage). The expandable ⓘ info row in the Settings Panel Testing matrix displays these as a fourth block alongside *When to use*, *Key tools*, and *Trade-offs*. The level is shown as a colour-coded badge — green for low, amber for medium, red for high — so users can see the cost implication at a glance before enabling a methodology. The info grid layout was adjusted from 3 to 2 columns (2×2) to give each block adequate reading space.
+
+## [0.75.7] - 2026-06-09
+
+### Fixed
+- **Auto-detect signal gaps for three new methodologies** (`src/views/settingsPanel.ts`, `src/types.ts`):
+  - **SDD**: the API spec file detector now adds `"openapi swagger api-first"` to the corpus (previously only `"api consumer provider"`), so projects with `openapi.yaml` / `swagger.json` correctly surface the Spec-Driven methodology.
+  - **Continuous / Shift-Left**: added CI config file detection — checks for `.github/workflows/`, `.gitlab-ci.yml`, `Jenkinsfile`, `.circleci/config.yml`, `azure-pipelines.yml`, and `.buildkite/`. Any found file adds the matching CI tool name (e.g. `"github actions"`, `"circleci"`) plus `"continuous integration pipeline"` to the corpus.
+  - **MBT**: added `"xstate"` to `autoDetectSignals` for the Model-Based methodology — XState is the dominant JS/TS state-machine library and a strong MBT signal.
+
+## [0.75.6] - 2026-06-09
+
+### Added
+- **9 new testing methodologies** (`src/types.ts`, `media/projectDashboard.js`): the registry grows from 14 to 23 entries. All new methodologies appear in the Settings Panel Testing matrix (with info rows, agent assignment, and model override), the Project Dashboard Testing card, the bootstrap/import auto-detect flow, and the Agent Editor Testing Roles section.
+
+  | ID | Label | Category |
+  |---|---|---|
+  | `sdd` | Spec-Driven (SDD) | Design-time |
+  | `v-model` | V-Model | Design-time |
+  | `continuous` | Continuous / Shift-Left | Structural |
+  | `white-box` | White-Box | Structural |
+  | `mbt` | Model-Based (MBT) | Behavioral |
+  | `test-design` | Test Design Techniques (EP + BVA) | Behavioral |
+  | `black-box` | Black-Box | Behavioral |
+  | `gray-box` | Gray-Box | Behavioral |
+  | `agile-testing` | Agile Testing | Exploratory |
+
+  Each entry carries the full `whenToUse`, `keyTools`, `tradeoffs`, and `autoDetectSignals` fields. Auto-detect signals are already wired — for example, OpenAPI/Swagger files trigger SDD, ISO 26262 / safety-critical keywords trigger V-Model, GitHub Actions / CI pipeline files trigger Continuous/Shift-Left, and Agile/Scrum keywords trigger Agile Testing.
+
+## [0.75.5] - 2026-06-09
+
+### Changed
+- **Richer auto-assess corpus** (`src/views/settingsPanel.ts`): `buildTestingAutoDetectCorpus` now gathers five additional signal categories beyond package.json deps and test config files:
+  - **Web/UI surface** — detects any `.html`, `.jsx`, `.tsx`, `.vue`, or `.svelte` source file; adds `"web app frontend"` to the corpus, boosting E2E and Visual Regression recommendations.
+  - **API spec** — detects OpenAPI/Swagger spec files (`openapi.yaml`, `swagger.json`, etc.); adds `"api consumer provider"`, boosting Contract testing.
+  - **Security posture** — presence of `SECURITY.md` adds `"auth authentication pii"`, boosting Security testing.
+  - **Contributor count** — runs `git shortlog -s HEAD`; if more than one contributor is found, adds `"product team user story acceptance criteria"`, boosting BDD and ATDD (which rely on stakeholder collaboration). Solo projects generate no team signals.
+  - **Library/SDK** — `package.json` without `"private": true` (i.e., a publishable package) adds `"library sdk package"`, boosting Mutation and Property-Based testing.
+  - **README audience context** — the first 3 kB of `README.md` is included verbatim, allowing free-text project descriptions ("enterprise", "high-performance", "consumer") to surface as organic signals.
+
+## [0.75.4] - 2026-06-09
+
+### Added
+- **Auto-assess project button on Testing Strategy page** (`src/views/settingsPanel.ts`): a new "Auto-assess project" button sits next to "Save Testing Strategy" in the methodology matrix. Clicking it scans the workspace — reading `package.json` dependencies/scripts and locating testing config files (jest, vitest, cypress, playwright, stryker, k6, pact, etc.) — and runs the same signal-matching heuristics as the bootstrap/import auto-detect. The flow starts with an Auto / Manual / Skip picker; in Auto mode the inferred recommendations are pre-selected in a customisable QuickPick. After confirming methodologies, if a test-focused agent exists, an offer is made to assign it as the primary agent for all enabled methodologies. The accepted config is merged with any existing notes and model overrides before being saved.
+- **`buildTestingAutoDetectCorpus`** (`src/views/settingsPanel.ts`): internal helper that reads `package.json` dependencies and searches for test-framework config files in the workspace, returning a lowercase corpus string for signal matching.
+
+## [0.75.3] - 2026-06-09
+
+### Fixed
+- **Primary Agent dropdown empty in Testing Strategy matrix** (`src/commands.ts`): all `SettingsPanel.createOrShow` calls in command registrations omitted the third `atlasContext` argument, so `this.atlasContext` inside the panel was always `undefined`. `collectTestingDashboardSnapshot` therefore fell through to the empty-array fallback for `availableAgentSummaries`, leaving the agent dropdowns unpopulated. Fixed by passing `getAtlas()` as the third argument on all six Settings Panel command registrations (`openSettings`, `openSettingsChat`, `openSettingsModels`, `openSettingsSafety`, `openSettingsProject`, `openSettingsTesting`).
+
+## [0.75.2] - 2026-06-09
+
+### Added
+- **Testing Strategy section on Project Dashboard** (`media/projectDashboard.js`, `src/views/projectDashboardPanel.ts`): the Project Dashboard Testing page now includes a "Testing Strategy" panel card at the bottom, showing all 14 methodologies grouped by category with an active/off status badge and a checkbox toggle per methodology. Toggling a methodology saves immediately to `project_memory/index/testing-config.json` via a new `saveTestingConfig` message type. An "Open Testing Strategy →" link navigates to Settings → Testing for agent assignments, model overrides, and detailed notes.
+- **`atlasmind.openSettingsTesting` command** (`src/commands.ts`): new command to open the Settings Panel directly on the Testing page. Added to `ALLOWED_DASHBOARD_COMMANDS` so the dashboard Testing page's "Open Testing Strategy" button can dispatch it.
+- **`atlasContext` passed to `collectTestingDashboardSnapshot` in dashboard** (`src/views/projectDashboardPanel.ts`): fixed the `syncState` call that was omitting the atlas context, so agent registry data is now available when building the testing snapshot for the dashboard.
+
+## [0.75.1] - 2026-06-09
+
+### Fixed
+- **Testing nav tab missing** (`src/views/settingsPanel.ts`): the Testing page was rendered in the HTML but had no nav button, making it completely unreachable. Added a "Testing" tab between Safety & Verification and Project Runs in the settings navigation, with full `data-search` keywords for the settings search bar.
+- **`collectTestingDashboardSnapshot` missing atlasContext** (`src/views/settingsPanel.ts`): the call in `getHtml()` was missing the `atlasContext` argument, so agent registry data (used for the agent assignment dropdowns in the Testing matrix) was unavailable.
+
+## [0.75.0] - 2026-06-09
+
+### Added
+- **Testing Roles section in Agent Editor** (`src/views/agentManagerPanel.ts`): the agent editor now shows a Testing Roles section below Skills. When testing methodologies are assigned to the agent in `testing-config.json`, the section renders read-only chips for each assigned methodology plus per-methodology model override text inputs (blank = follow global model routing). When no methodologies are assigned, a "Configure in Testing Strategy →" button opens the Settings Panel Testing page directly.
+- **Methodology info expansion in Settings Testing page** (`src/views/settingsPanel.ts`): each row in the Testing Strategy Matrix now has a ⓘ info button. Clicking it toggles an expandable info row beneath the methodology row showing `When to use`, `Key tools`, and `Trade-offs` sourced from the enriched `TESTING_METHODOLOGY_DEFINITIONS`. The button uses `aria-expanded` for accessibility.
+- **Enriched `TestingMethodologyDefinition`** (`src/types.ts`): all 14 methodology definitions now include `whenToUse`, `keyTools`, `tradeoffs`, and `autoDetectSignals` fields to support both the info UI and auto-detection heuristics.
+- **Auto-detect mode for bootstrap testing selection** (`src/bootstrap/bootstrapper.ts`): the testing methodology QuickPick now starts with a three-way choice — **Auto** (AtlasMind infers recommendations from project type, tech stack, and third-party tools), **Manual** (full 14-item list), or **Skip** (apply TDD + Unit defaults). In Auto mode, inferred methodologies are pre-selected in a follow-up QuickPick that the user can accept or trim before confirming.
+- **Auto-detect mode for import testing selection** (`src/bootstrap/bootstrapper.ts`): the post-import testing methodology offer follows the same Auto / Manual / Skip pattern, with inference driven by the scanned project type and workspace file names.
+- **`inferTestingMethodologiesFromIntake` / `inferTestingMethodologiesFromSnapshot`** (`src/bootstrap/bootstrapper.ts`): internal helper functions that match `autoDetectSignals` against the available project context corpus and return ranked recommendations with a short rationale string shown in the QuickPick description.
+
+## [0.74.0] - 2026-06-09
+
+### Added
+- **Testing Methodology System** (`src/types.ts`): introduced `TestingMethodologyId` (14 methodologies: TDD, BDD, ATDD, Unit, Integration, E2E, Mutation, Property-Based, Snapshot, Contract, Performance, Security, Visual Regression, Exploratory), `TESTING_METHODOLOGY_DEFINITIONS` catalog with labels/descriptions/categories, `ProjectTestingConfig` and `ProjectTestingMethodologyConfig` interfaces. Configuration is stored in `project_memory/index/testing-config.json`.
+- **Testing Strategy Matrix** (`src/views/settingsPanel.ts`): the Testing page is overhauled — the single "Testing policy" stat card is replaced by a full methodology matrix table. Each of the 14 methodologies can be independently toggled, assigned a primary agent (via dropdown from the agent registry), given a per-methodology model ID override, and annotated with notes. The matrix groups methodologies by category (design-time, structural, behavioral, non-functional, exploratory). Changes persist to `project_memory/index/testing-config.json` on save.
+- **Bootstrap methodology prompt** (`src/bootstrap/bootstrapper.ts`): the guided bootstrap intake now includes a multi-select QuickPick step asking which testing methodologies the project will use. TDD and Unit Testing are pre-selected as defaults. The selection is written to `testing-config.json` as part of the bootstrap artifact generation.
+- **Import Project methodology prompt** (`src/bootstrap/bootstrapper.ts`): after importing an existing project, if no `testing-config.json` exists yet, an info message offers to configure methodologies with the same multi-select picker.
+- **Agent testing role fields** (`src/types.ts`): `AgentDefinition` gains `testingMethodologies?: TestingMethodologyId[]` (which methodologies an agent handles) and `testingModelOverrides?: Partial<Record<TestingMethodologyId, string>>` (per-methodology model ID overrides that take precedence over the agent's global `allowedModels` during test tasks).
+- **SubTask methodology tagging** (`src/types.ts`): `SubTaskExecutionArtifacts` gains `testingMethodologyId?: TestingMethodologyId` to record which methodology a subtask's verification ran under.
+
+### Changed
+- **Testing policy stat card** replaced by "Active methodologies: N / 14" to reflect the multi-methodology model.
+
+## [0.73.7] - 2026-06-09
+
+### Fixed
+- **Weak models invoking executable skills for knowledge/policy questions** (`src/core/orchestrator.ts`): added a rule to `DEFAULT_AGENT_SYSTEM_PROMPT` directing the model to read project memory, CLAUDE.md, README.md, or equivalent documentation files first when answering questions about project policy, workflows, conventions, or instructions — and explicitly not to invoke executable skills or run commands to answer questions that are already documented. This prevents local models (e.g. qwen3:14b) from reaching for `npm-scripts` or other executable skills when a simpler file read would answer the question.
+- **`npm-scripts` skill invoked for documentation questions** (`src/skills/npmScripts.ts`): tightened the skill description to state explicitly that this skill runs commands and should not be used to answer policy or documentation questions. Added `routingHints` scoped to execution intents (run npm script, start dev server, run build, run tests, execute npm run, list package.json scripts) so the skill selection scorer does not surface it for knowledge queries.
+- **`npm-scripts` outer timeout kills long-running scripts** (`src/skills/npmScripts.ts`): `npmScriptsSkill` now sets `timeoutMs: 120_000`, fixing the mismatch between the inner `runCommand` timeout (120 s) and the default outer skill-wrapper timeout (15 s). Previously any `npm run <script>` that took more than 15 seconds was killed by the wrapper regardless of the inner timeout setting.
+
+## [0.73.6] - 2026-06-09
+
+### Added
+- **AI instruction sync utility** (`src/utils/aiInstructionSync.ts`): extracted `scanAiInstructionFiles`, `syncAiInstructionFiles`, and `hasAiInstructionSyncFile` into a shared utility so the scan/sync logic is available outside the Settings Panel. Supports CLAUDE.md, `.cursorrules`, `.clinerules`, `.github/copilot-instructions.md`, AGENTS.md, GEMINI.md, WINDSURF.md, `.aider.system.md`, `.continue/config.json`, and `.cursor/rules/` / `.windsurf/rules/` multi-file rule directories.
+- **Auto-sync on Import Project** (`src/commands.ts`): `runProjectMemoryImport` now scans for AI instruction files immediately after the memory import completes. If files are found and no sync file exists yet, they are merged automatically into `project_memory/domain/ai-instructions-sync.md` and the count is reported in the success notification. This ensures a local model receives the project's instruction set (e.g. publish policy from CLAUDE.md) as part of first-time setup rather than relying on a separate manual sync step.
+- **AI instruction nudge in Chat Panel welcome screen** (`src/views/chatPanel.ts`, `media/chatPanel.js`): when the Chat Panel opens and AI instruction files exist in the workspace but have not yet been synced, a dismissible banner is shown above the transcript. The banner lists the detected files and provides a one-click **Sync Now** button that auto-syncs all found files. Dismissed state is retained for the VS Code session; the nudge reappears after restart if files remain unsynced.
+
+### Changed
+- **Settings Panel AI instructions refactored to use shared utility** (`src/views/settingsPanel.ts`): `handleScanAiInstructions` and `handleSyncAiInstructions` are now thin wrappers around the shared utility, eliminating ~120 lines of duplicated scan/sync logic.
+
 ## [0.73.5] - 2026-06-09
 
 ### Fixed

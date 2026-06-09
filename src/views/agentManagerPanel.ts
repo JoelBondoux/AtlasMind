@@ -1,7 +1,9 @@
 import * as vscode from 'vscode';
 import type { AtlasMindContext } from '../extension.js';
-import type { AgentAutoUpdateCadence, AgentDefinition } from '../types.js';
+import type { AgentAutoUpdateCadence, AgentDefinition, TestingMethodologyId } from '../types.js';
+import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
+import { readProjectTestingConfig } from './settingsPanel.js';
 
 // ── Globalstate key for persisted user agents ────────────────────
 const STORAGE_KEY = 'atlasmind.userAgents';
@@ -20,7 +22,8 @@ type AgentPanelMessage =
   | { type: 'cancel' }
   | { type: 'refresh' }
   | { type: 'openModelProviders' }
-  | { type: 'openSettingsModels' };
+  | { type: 'openSettingsModels' }
+  | { type: 'openTestingStrategy' };
 
 const AGENT_AUTO_UPDATE_CADENCES: readonly AgentAutoUpdateCadence[] = ['never', 'every-use', 'daily', 'weekly', 'monthly'];
 
@@ -49,6 +52,8 @@ interface AgentFormData {
   autoUpdateExcluded: boolean;
   /** When true, skill assignments are managed automatically based on agent role and context. */
   skillsAutoManaged: boolean;
+  /** JSON-serialised Partial<Record<TestingMethodologyId, string>>; empty string means no overrides. */
+  testingModelOverridesJson: string;
 }
 
 export function isAgentPanelMessage(msg: unknown): msg is AgentPanelMessage {
@@ -57,7 +62,7 @@ export function isAgentPanelMessage(msg: unknown): msg is AgentPanelMessage {
   return t === 'select' || t === 'save' || t === 'delete' || t === 'toggleEnabled' ||
     t === 'setAutoUpdateCadence' || t === 'resetBuiltIn' ||
     t === 'newAgent' || t === 'cancel' || t === 'refresh' ||
-    t === 'openModelProviders' || t === 'openSettingsModels';
+    t === 'openModelProviders' || t === 'openSettingsModels' || t === 'openTestingStrategy';
 }
 
 // ── ID helpers ────────────────────────────────────────────────────
@@ -66,6 +71,22 @@ const ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,62}$/;
 
 function isValidId(id: string): boolean {
   return ID_PATTERN.test(id);
+}
+
+function parseTestingModelOverrides(json: string): Partial<Record<TestingMethodologyId, string>> {
+  if (!json.trim()) return {};
+  try {
+    const parsed = JSON.parse(json) as Record<string, unknown>;
+    const result: Partial<Record<TestingMethodologyId, string>> = {};
+    for (const [k, v] of Object.entries(parsed)) {
+      if (typeof v === 'string' && v.trim()) {
+        result[k as TestingMethodologyId] = v.trim();
+      }
+    }
+    return result;
+  } catch {
+    return {};
+  }
 }
 
 function slugify(text: string): string {
@@ -266,6 +287,8 @@ export class AgentManagerPanel {
         const existing = isNew ? undefined : this.atlas.agentRegistry.get(newId);
         const isEditingBuiltIn = !isNew && existing?.builtIn === true;
 
+        const parsedOverrides = parseTestingModelOverrides(data.testingModelOverridesJson);
+
         let definition: AgentDefinition;
         if (isEditingBuiltIn && existing) {
           // Built-in agents: preserve identity fields (name, role, id, allowedModels).
@@ -278,6 +301,7 @@ export class AgentManagerPanel {
             autoUpdateExcluded: data.autoUpdateExcluded || undefined,
             skillsAutoManaged: data.skillsAutoManaged || undefined,
             costLimitUsd: data.costLimitUsd.trim() ? Number(data.costLimitUsd.trim()) : undefined,
+            testingModelOverrides: Object.keys(parsedOverrides).length > 0 ? parsedOverrides : undefined,
           };
         } else {
           definition = {
@@ -302,6 +326,7 @@ export class AgentManagerPanel {
             skillsAutoManaged: data.skillsAutoManaged || undefined,
             // Preserve lastAutoUpdated so the cadence clock isn't reset on every save.
             lastAutoUpdated: existing?.lastAutoUpdated,
+            testingModelOverrides: Object.keys(parsedOverrides).length > 0 ? parsedOverrides : undefined,
           };
         }
 
@@ -337,6 +362,10 @@ export class AgentManagerPanel {
 
       case 'openSettingsModels':
         void vscode.commands.executeCommand('atlasmind.openSettingsModels');
+        return;
+
+      case 'openTestingStrategy':
+        void vscode.commands.executeCommand('atlasmind.openSettings', 'testing');
         return;
     }
 
@@ -488,6 +517,44 @@ export class AgentManagerPanel {
         return `<label><input type="checkbox" class="skill-cb" value="${escapeHtml(skill.id)}" ${checked}> ${escapeHtml(skill.name)}</label>`;
       }).join('');
 
+      // ── Testing Roles ─────────────────────────────────────────────
+      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      const testingConfig = workspaceRoot ? readProjectTestingConfig(workspaceRoot) : undefined;
+      const agentIdForRoles = isNew ? '' : (agent?.id ?? '');
+      const assignedMethodologyIds = testingConfig?.methodologies
+        .filter(m => m.enabled && m.assignedAgentId === agentIdForRoles)
+        .map(m => m.id) ?? [];
+      const currentOverrides = agent?.testingModelOverrides ?? {};
+      const currentOverridesJson = escapeHtml(JSON.stringify(currentOverrides));
+
+      let testingRolesHtml: string;
+      if (isNew || assignedMethodologyIds.length === 0) {
+        testingRolesHtml = `
+          <div class="hint">No testing methodologies are currently assigned to this agent.</div>
+          <button type="button" class="btn-link" id="open-testing-strategy-link" style="margin-top:6px">Configure in Testing Strategy →</button>`;
+      } else {
+        const chips = assignedMethodologyIds.map(mid => {
+          const def = TESTING_METHODOLOGY_DEFINITIONS.find(d => d.id === mid);
+          return `<span class="methodology-chip">${escapeHtml(def?.label ?? mid)}</span>`;
+        }).join('');
+        const overrideInputs = assignedMethodologyIds.map(mid => {
+          const def = TESTING_METHODOLOGY_DEFINITIONS.find(d => d.id === mid);
+          const val = escapeHtml(currentOverrides[mid] ?? '');
+          const inputId = `override-model-${escapeHtml(mid)}`;
+          return `<div class="override-row">
+            <label for="${inputId}" class="override-label">${escapeHtml(def?.label ?? mid)}</label>
+            <input type="text" id="${inputId}" class="override-model-input" data-methodology-id="${escapeHtml(mid)}"
+              value="${val}" placeholder="Model override (blank = global routing)" />
+          </div>`;
+        }).join('');
+        testingRolesHtml = `
+          <div class="methodology-chips">${chips}</div>
+          <div class="hint" style="margin:6px 0 8px">Override the model for each methodology, or leave blank to follow global routing.</div>
+          <input type="hidden" id="testingModelOverridesJson" value="${currentOverridesJson}" />
+          ${overrideInputs}
+          <div style="margin-top:8px"><button type="button" class="btn-link" id="open-testing-strategy-link">Configure in Testing Strategy →</button></div>`;
+      }
+
       const errorHtml = this.formError
         ? `<div class="form-error">${escapeHtml(this.formError)}</div>`
         : '';
@@ -557,6 +624,11 @@ export class AgentManagerPanel {
               <div id="skillsManualSection" ${skillsAutoManaged ? 'style="display:none"' : ''}>
                 <div class="skill-list">${skillCheckboxes || '<em>No skills registered.</em>'}</div>
               </div>
+            </div>
+
+            <label>Testing Roles</label>
+            <div>
+              ${testingRolesHtml}
             </div>
           </div>
           <div class="button-row">
@@ -659,6 +731,12 @@ export class AgentManagerPanel {
         const autoManaged = document.getElementById('skillsAutoManaged')?.checked ?? true;
         const skillEls = autoManaged ? [] : Array.from(document.querySelectorAll('.skill-cb:checked'));
         const skills = skillEls.map(el => el.value).join('\\n');
+        const overrides = {};
+        document.querySelectorAll('.override-model-input').forEach(el => {
+          const mid = el.getAttribute('data-methodology-id');
+          const val = el.value.trim();
+          if (mid && val) { overrides[mid] = val; }
+        });
         vscode.postMessage({
           type: 'save',
           payload: {
@@ -672,6 +750,7 @@ export class AgentManagerPanel {
             skills,
             autoUpdateExcluded: document.getElementById('agentAutoUpdateExcluded')?.checked ?? false,
             skillsAutoManaged: autoManaged,
+            testingModelOverridesJson: JSON.stringify(overrides),
           }
         });
       }
@@ -732,6 +811,13 @@ export class AgentManagerPanel {
           if (id) {
             vscode.postMessage({ type: 'resetBuiltIn', payload: { id } });
           }
+        });
+      }
+
+      const openTestingStrategyLink = document.getElementById('open-testing-strategy-link');
+      if (openTestingStrategyLink) {
+        openTestingStrategyLink.addEventListener('click', () => {
+          vscode.postMessage({ type: 'openTestingStrategy' });
         });
       }
 
@@ -835,6 +921,12 @@ export class AgentManagerPanel {
       .skill-auto-label { display: flex; align-items: center; gap: 6px; font-weight: normal; cursor: pointer; }
       .skill-list { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; }
       .skill-list label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+      .methodology-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
+      .methodology-chip { display: inline-block; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--atlas-border); background: color-mix(in srgb, var(--atlas-accent) 14%, transparent); font-size: 0.82em; }
+      .override-row { display: grid; grid-template-columns: 140px 1fr; gap: 6px; align-items: center; margin-bottom: 4px; }
+      .override-label { font-size: 0.88em; color: var(--atlas-muted); }
+      .override-model-input { width: 100%; box-sizing: border-box; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, #444); padding: 3px 7px; border-radius: 2px; font-family: inherit; font-size: inherit; }
+      .btn-link { background: none; border: none; color: var(--atlas-accent); cursor: pointer; padding: 0; font: inherit; font-size: 0.88em; text-decoration: underline; }
       table { margin-top: 12px; }
       tr[data-agent-search] { cursor: pointer; }
       tr[data-agent-search]:hover { background: color-mix(in srgb, var(--atlas-accent) 8%, transparent); }

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.73.4</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.73.5</strong> · </sub></p>
 
 
 <p align="center">
@@ -267,8 +267,8 @@ MIT License — see [LICENSE]
 <!-- atlasmind-import
 entry-path: architecture/project-overview.md
 generator-version: 2
-generated-at: 2026-06-08T20:16:44.581Z
+generated-at: 2026-06-09T14:21:07.938Z
 source-paths: README.md
-source-fingerprint: 04fc2ba1
-body-fingerprint: e7b18d6c
+source-fingerprint: 597f78fe
+body-fingerprint: 0b1b532b
 -->

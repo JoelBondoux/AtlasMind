@@ -9,8 +9,10 @@ import { getLocalModelRecommendationCandidates, type LocalRecommendationWorkload
 import { getCachedLocalModelCatalog } from '../providers/localModelCatalogSync.js';
 import { RECOMMENDED_MCP_SERVERS, getRecommendedMcpStarterDetails } from '../constants.js';
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
+import { scanAiInstructionFiles, syncAiInstructionFiles } from '../utils/aiInstructionSync.js';
 import { getDisplayCurrency } from '../core/currencyFormatter.js';
 import { isLocalSyncStale, LOCAL_MODEL_SYNC_CACHE_KEY, syncLocalModels, type LocalModelSyncResult } from '../providers/localModelSync.js';
+import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -131,6 +133,10 @@ export interface TestingDashboardSnapshot {
   categoryCounts: TestingDashboardCategoryCount[];
   verificationEnabled: boolean;
   verificationScripts: string[];
+  /** Project-level methodology configuration read from testing-config.json. */
+  projectTestingConfig: import('../types.js').ProjectTestingConfig | undefined;
+  /** Agents available for methodology assignment. */
+  availableAgentSummaries: Array<{ id: string; name: string }>;
 }
 
 interface LocalHardwareSnapshot {
@@ -226,7 +232,9 @@ type SettingsMessage =
   | { type: 'openCoverageReport' }
   | { type: 'openWorkspaceFile'; payload: string }
   | { type: 'scanAiInstructions' }
-  | { type: 'syncAiInstructions'; payload: string[] };
+  | { type: 'syncAiInstructions'; payload: string[] }
+  | { type: 'saveTestingConfig'; payload: import('../types.js').ProjectTestingConfig }
+  | { type: 'autoAssessTestingConfig' };
 
 /**
  * Settings webview panel – budget/speed modes plus /project execution controls.
@@ -234,17 +242,6 @@ type SettingsMessage =
 export class SettingsPanel {
   public static currentPanel: SettingsPanel | undefined;
   private static readonly viewType = 'atlasmind.settings';
-  private static readonly AI_INSTRUCTION_SOURCES = [
-    { tool: 'GitHub Copilot', paths: ['.github/copilot-instructions.md'] },
-    { tool: 'Claude Code', paths: ['CLAUDE.md', '.claude/CLAUDE.md'] },
-    { tool: 'Cursor', paths: ['.cursorrules'] },
-    { tool: 'Cline', paths: ['.clinerules', '.cline/system_prompt.md'] },
-    { tool: 'Continue', paths: ['.continue/config.json', '.continuerc.json'] },
-    { tool: 'OpenAI Codex', paths: ['AGENTS.md'] },
-    { tool: 'Gemini CLI', paths: ['GEMINI.md', '.gemini/system.md'] },
-    { tool: 'Windsurf', paths: ['WINDSURF.md'] },
-    { tool: 'Aider', paths: ['.aider.system.md'] },
-  ] as const;
   private readonly panel: vscode.WebviewPanel;
   private readonly extensionVersion: string;
   private initialTarget?: SettingsPanelTarget;
@@ -560,6 +557,14 @@ export class SettingsPanel {
         await this.openCoverageReport();
         return;
 
+      case 'saveTestingConfig':
+        await this.saveTestingConfig(message.payload);
+        return;
+
+      case 'autoAssessTestingConfig':
+        await this.runAutoAssessTestingConfig();
+        return;
+
       case 'openWorkspaceFile':
         await this.openWorkspaceFile(message.payload);
         return;
@@ -617,90 +622,7 @@ export class SettingsPanel {
       await this.panel.webview.postMessage({ type: 'aiInstructionScanResult', payload: [] });
       return;
     }
-
-    interface AiInstructionEntry {
-      tool: string;
-      label: string;
-      relativePath: string;
-      preview: string;
-      sizeLabel: string;
-    }
-
-    const entries: AiInstructionEntry[] = [];
-
-    for (const source of SettingsPanel.AI_INSTRUCTION_SOURCES) {
-      for (const relativePath of source.paths) {
-        const resolved = resolveWorkspaceRelativePath(workspaceRoot, relativePath);
-        if (!resolved || !existsSync(resolved)) {
-          continue;
-        }
-        try {
-          const stats = statSync(resolved);
-          const sizeLabel = stats.size < 1024
-            ? `${stats.size} B`
-            : `${(stats.size / 1024).toFixed(1)} KB`;
-          const raw = readFileSync(resolved, { encoding: 'utf8' });
-          let preview = raw.trim();
-          if (relativePath.endsWith('.json')) {
-            try {
-              const parsed = JSON.parse(raw) as Record<string, unknown>;
-              const msg = parsed['systemMessage'] ?? parsed['system'] ?? parsed['instructions'];
-              if (typeof msg === 'string' && msg.trim().length > 0) {
-                preview = msg.trim();
-              }
-            } catch {
-              // Use raw content
-            }
-          }
-          entries.push({
-            tool: source.tool,
-            label: relativePath,
-            relativePath,
-            preview: preview.slice(0, 300).replace(/\r\n/g, '\n'),
-            sizeLabel,
-          });
-        } catch {
-          // Skip unreadable files
-        }
-      }
-    }
-
-    // Scan .cursor/rules/ and .windsurf/rules/ for multi-file rule sets
-    for (const [tool, rulesDir] of [['Cursor', '.cursor/rules'], ['Windsurf', '.windsurf/rules']] as [string, string][]) {
-      const absRulesDir = resolveWorkspaceRelativePath(workspaceRoot, rulesDir);
-      if (!absRulesDir || !existsSync(absRulesDir)) {
-        continue;
-      }
-      try {
-        for (const file of readdirSync(absRulesDir)) {
-          if (!/\.(md|mdc|txt)$/.test(file)) {
-            continue;
-          }
-          const relPath = `${rulesDir}/${file}`;
-          const absFile = resolveWorkspaceRelativePath(workspaceRoot, relPath);
-          if (!absFile) {
-            continue;
-          }
-          try {
-            const stats = statSync(absFile);
-            const sizeLabel = stats.size < 1024 ? `${stats.size} B` : `${(stats.size / 1024).toFixed(1)} KB`;
-            const raw = readFileSync(absFile, { encoding: 'utf8' });
-            entries.push({
-              tool,
-              label: relPath,
-              relativePath: relPath,
-              preview: raw.trim().slice(0, 300).replace(/\r\n/g, '\n'),
-              sizeLabel,
-            });
-          } catch {
-            // Skip
-          }
-        }
-      } catch {
-        // Skip unreadable directory
-      }
-    }
-
+    const entries = scanAiInstructionFiles(workspaceRoot);
     await this.panel.webview.postMessage({ type: 'aiInstructionScanResult', payload: entries });
   }
 
@@ -722,100 +644,8 @@ export class SettingsPanel {
       return;
     }
 
-    const safePaths = selectedPaths.filter(
-      (p): p is string => typeof p === 'string' && isSafeWorkspaceRelativePath(p),
-    );
-
-    if (safePaths.length === 0) {
-      await this.panel.webview.postMessage({
-        type: 'aiInstructionSyncResult',
-        payload: { success: false, summary: 'No valid paths selected.' },
-      });
-      return;
-    }
-
-    const sections: string[] = [];
-    const synced: string[] = [];
-
-    for (const relativePath of safePaths) {
-      const resolved = resolveWorkspaceRelativePath(workspaceRoot, relativePath);
-      if (!resolved || !existsSync(resolved)) {
-        continue;
-      }
-      try {
-        const raw = readFileSync(resolved, { encoding: 'utf8' });
-        let content = raw.trim();
-        if (relativePath.endsWith('.json')) {
-          try {
-            const parsed = JSON.parse(raw) as Record<string, unknown>;
-            const msg = parsed['systemMessage'] ?? parsed['system'] ?? parsed['instructions'];
-            if (typeof msg === 'string' && msg.trim().length > 0) {
-              content = msg.trim();
-            }
-          } catch {
-            // Use raw content
-          }
-        }
-        if (content.length > 0) {
-          sections.push(`## From \`${relativePath}\`\n\n${content}`);
-          synced.push(relativePath);
-        }
-      } catch {
-        // Skip unreadable files
-      }
-    }
-
-    if (sections.length === 0) {
-      await this.panel.webview.postMessage({
-        type: 'aiInstructionSyncResult',
-        payload: { success: false, summary: 'Could not read any of the selected files.' },
-      });
-      return;
-    }
-
-    const timestamp = new Date().toISOString().slice(0, 10);
-    const outputContent = [
-      '# AI Instructions Sync',
-      '',
-      `> Synced on ${timestamp} from ${synced.length} source file${synced.length === 1 ? '' : 's'}.`,
-      '> **Advisory context only.** AtlasMind\'s Personality Profile settings take precedence over this content.',
-      '> When instructions here conflict with the Workspace Identity Profile, the profile wins.',
-      '',
-      ...sections,
-    ].join('\n');
-
-    const outputRelPath = 'project_memory/domain/ai-instructions-sync.md';
-    const outputResolved = resolveWorkspaceRelativePath(workspaceRoot, outputRelPath);
-    if (!outputResolved) {
-      await this.panel.webview.postMessage({
-        type: 'aiInstructionSyncResult',
-        payload: { success: false, summary: 'Output path resolution failed.' },
-      });
-      return;
-    }
-
-    try {
-      await vscode.workspace.fs.writeFile(
-        vscode.Uri.file(outputResolved),
-        Buffer.from(outputContent, 'utf8'),
-      );
-      const sourceList = synced.map(s => `\`${s}\``).join(', ');
-      await this.panel.webview.postMessage({
-        type: 'aiInstructionSyncResult',
-        payload: {
-          success: true,
-          summary: `Merged ${synced.length} source file${synced.length === 1 ? '' : 's'} (${sourceList}) into AtlasMind's workspace context.`,
-        },
-      });
-    } catch (err) {
-      await this.panel.webview.postMessage({
-        type: 'aiInstructionSyncResult',
-        payload: {
-          success: false,
-          summary: `Failed to write sync file: ${err instanceof Error ? err.message : String(err)}`,
-        },
-      });
-    }
+    const result = await syncAiInstructionFiles(workspaceRoot, selectedPaths as string[]);
+    await this.panel.webview.postMessage({ type: 'aiInstructionSyncResult', payload: result });
   }
 
   private async createTestFile(): Promise<void> {
@@ -850,7 +680,7 @@ export class SettingsPanel {
       return;
     }
 
-    const snapshot = collectTestingDashboardSnapshot();
+    const snapshot = collectTestingDashboardSnapshot(this.atlasContext);
     const reportRelativePath = snapshot.coverageReportRelativePath ?? snapshot.coverageDataRelativePath;
     const resolved = reportRelativePath ? resolveWorkspaceRelativePath(workspaceRoot, reportRelativePath) : undefined;
     if (!resolved || !existsSync(resolved)) {
@@ -859,6 +689,150 @@ export class SettingsPanel {
     }
 
     await vscode.env.openExternal(vscode.Uri.file(resolved));
+  }
+
+  private async saveTestingConfig(config: import('../types.js').ProjectTestingConfig): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      return;
+    }
+    try {
+      await writeProjectTestingConfig(workspaceRoot, config);
+      this.panel.webview.html = this.getHtml();
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      void vscode.window.showErrorMessage(`Failed to save testing configuration: ${detail}`);
+    }
+  }
+
+  private async runAutoAssessTestingConfig(): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      void vscode.window.showInformationMessage('No workspace open — open a folder first.');
+      return;
+    }
+
+    const corpus = await buildTestingAutoDetectCorpus(workspaceRoot);
+
+    const inferred = TESTING_METHODOLOGY_DEFINITIONS
+      .filter(def =>
+        def.autoDetectSignals.includes('*') ||
+        def.autoDetectSignals.some(s => corpus.includes(s.toLowerCase())),
+      )
+      .map(def => ({
+        id: def.id,
+        label: def.label,
+        reason: def.autoDetectSignals.includes('*')
+          ? 'Recommended for all projects'
+          : `Detected: ${def.autoDetectSignals.filter(s => corpus.includes(s.toLowerCase())).slice(0, 2).join(', ')}`,
+      }));
+
+    const modeChoice = await vscode.window.showQuickPick(
+      [
+        {
+          label: '$(sparkle) Auto',
+          description: `AtlasMind recommends ${inferred.length} methodolog${inferred.length === 1 ? 'y' : 'ies'} for this project`,
+          value: 'auto' as const,
+        },
+        {
+          label: '$(list-unordered) Manual',
+          description: 'Choose from the full list of 14 methodologies',
+          value: 'manual' as const,
+        },
+        {
+          label: '$(dash) Skip',
+          description: 'Keep the current configuration unchanged',
+          value: 'skip' as const,
+        },
+      ],
+      { placeHolder: 'How should testing methodologies be selected?', ignoreFocusOut: true, title: 'Auto-Assess Testing Strategy' },
+    );
+
+    if (!modeChoice || modeChoice.value === 'skip') {
+      return;
+    }
+
+    let selectedIds: import('../types.js').TestingMethodologyId[] | undefined;
+
+    if (modeChoice.value === 'auto') {
+      const accepted = await vscode.window.showQuickPick(
+        inferred.map(item => ({ label: item.label, description: item.reason, picked: true, id: item.id })),
+        {
+          placeHolder: 'Recommended methodologies — deselect any you do not need, then press Enter',
+          canPickMany: true,
+          ignoreFocusOut: true,
+          title: 'Auto-Assessed Methodologies',
+        },
+      );
+      if (accepted === undefined) { return; }
+      selectedIds = accepted.map(p => p.id as import('../types.js').TestingMethodologyId);
+    } else {
+      const picked = await vscode.window.showQuickPick(
+        TESTING_METHODOLOGY_DEFINITIONS.map(def => ({
+          label: def.label,
+          description: def.description,
+          picked: def.id === 'tdd' || def.id === 'unit',
+          id: def.id,
+        })),
+        {
+          placeHolder: 'Select the testing methodologies for this project',
+          canPickMany: true,
+          ignoreFocusOut: true,
+          title: 'Testing Methodologies',
+        },
+      );
+      if (picked === undefined) { return; }
+      selectedIds = picked.map(p => p.id as import('../types.js').TestingMethodologyId);
+    }
+
+    if (selectedIds.length === 0) {
+      void vscode.window.showInformationMessage('No methodologies selected — configuration unchanged.');
+      return;
+    }
+
+    const enabledIds = new Set(selectedIds);
+
+    // Offer to assign a test-focused agent to all enabled methodologies.
+    const agentAssignments = new Map<string, string>();
+    const agents = this.atlasContext?.agentRegistry?.listAgents() ?? [];
+    const testAgent = agents.find(a =>
+      a.role?.toLowerCase().includes('test') || a.name?.toLowerCase().includes('test'),
+    );
+    if (testAgent && selectedIds.length > 0) {
+      const assignChoice = await vscode.window.showInformationMessage(
+        `Assign "${testAgent.name}" as the primary agent for all ${selectedIds.length} enabled methodolog${selectedIds.length === 1 ? 'y' : 'ies'}?`,
+        'Yes, assign',
+        'No, skip',
+      );
+      if (assignChoice === 'Yes, assign') {
+        for (const id of selectedIds) {
+          agentAssignments.set(id, testAgent.id);
+        }
+      }
+    }
+
+    // Merge with existing config to preserve notes/model overrides.
+    const existing = readProjectTestingConfig(workspaceRoot);
+    const savedMap = new Map(existing?.methodologies?.map(m => [m.id, m]) ?? []);
+    const newConfig: import('../types.js').ProjectTestingConfig = {
+      version: 1,
+      updatedAt: new Date().toISOString(),
+      methodologies: TESTING_METHODOLOGY_DEFINITIONS.map(def => {
+        const prev = savedMap.get(def.id);
+        return {
+          ...prev,
+          id: def.id,
+          enabled: enabledIds.has(def.id),
+          assignedAgentId: agentAssignments.get(def.id) ?? prev?.assignedAgentId,
+        };
+      }),
+    };
+
+    await writeProjectTestingConfig(workspaceRoot, newConfig);
+    this.panel.webview.html = this.getHtml();
+    void vscode.window.showInformationMessage(
+      `Testing strategy updated: ${selectedIds.length} methodolog${selectedIds.length === 1 ? 'y' : 'ies'} active.`,
+    );
   }
 
   private async handleRecommendLocalModels(): Promise<void> {
@@ -1054,7 +1028,7 @@ export class SettingsPanel {
     const projectDependencyMonitoringIssueTemplate = configuration.get<boolean>('projectDependencyMonitoringIssueTemplate', true);
     const experimentalSkillLearningEnabled = configuration.get<boolean>('experimentalSkillLearningEnabled', false);
     const maxToolIterations = getPositiveInteger(configuration.get<number>('maxToolIterations'), 20);
-    const testingDashboard = collectTestingDashboardSnapshot();
+    const testingDashboard = collectTestingDashboardSnapshot(this.atlasContext);
 
     const initialPage = this.initialTarget?.page ?? 'overview';
     const hasExplicitInitialPage = this.initialTarget?.page !== undefined;
@@ -1095,6 +1069,7 @@ export class SettingsPanel {
           <button type="button" class="nav-link ${initialPage === 'chat' ? 'active' : ''}" id="tab-chat" data-page-target="chat" data-search="chat sidebar sessions import project carry-forward turns context max chars" role="tab" aria-selected="${initialPage === 'chat' ? 'true' : 'false'}" aria-controls="page-chat" ${initialPage === 'chat' ? '' : 'tabindex="-1"'}>Chat & Sidebar</button>
           <button type="button" class="nav-link ${initialPage === 'models' ? 'active' : ''}" id="tab-models" data-page-target="models" data-search="models integrations providers local endpoint local endpoints ollama lm studio azure bedrock voice vision exa specialist" role="tab" aria-selected="${initialPage === 'models' ? 'true' : 'false'}" aria-controls="page-models" ${initialPage === 'models' ? '' : 'tabindex="-1"'}>Models & Integrations</button>
           <button type="button" class="nav-link ${initialPage === 'safety' ? 'active' : ''}" id="tab-safety" data-page-target="safety" data-search="safety verification approvals tool approval terminal write scripts timeout max tool iterations loop limit" role="tab" aria-selected="${initialPage === 'safety' ? 'true' : 'false'}" aria-controls="page-safety" ${initialPage === 'safety' ? '' : 'tabindex="-1"'}>Safety & Verification</button>
+          <button type="button" class="nav-link ${initialPage === 'testing' ? 'active' : ''}" id="tab-testing" data-page-target="testing" data-search="testing methodology tdd bdd unit integration e2e mutation property snapshot contract performance security visual exploratory test strategy agent override model" role="tab" aria-selected="${initialPage === 'testing' ? 'true' : 'false'}" aria-controls="page-testing" ${initialPage === 'testing' ? '' : 'tabindex="-1"'}>Testing</button>
           <button type="button" class="nav-link ${initialPage === 'project' ? 'active' : ''}" id="tab-project" data-page-target="project" data-search="project runs approval threshold estimated files changed file references report folder dependency monitoring dependabot renovate governance updates" role="tab" aria-selected="${initialPage === 'project' ? 'true' : 'false'}" aria-controls="page-project" ${initialPage === 'project' ? '' : 'tabindex="-1"'}>Project Runs</button>
           <button type="button" class="nav-link ${initialPage === 'experimental' ? 'active' : ''}" id="tab-experimental" data-page-target="experimental" data-search="experimental skill learning generated drafts" role="tab" aria-selected="${initialPage === 'experimental' ? 'true' : 'false'}" aria-controls="page-experimental" ${initialPage === 'experimental' ? '' : 'tabindex="-1"'}>Experimental</button>
           <button type="button" class="nav-link ${initialPage === 'ai-instructions' ? 'active' : ''}" id="tab-ai-instructions" data-page-target="ai-instructions" data-search="ai instructions sync copilot claude cursor cline continue codex gemini windsurf aider import instruction sets" role="tab" aria-selected="${initialPage === 'ai-instructions' ? 'true' : 'false'}" aria-controls="page-ai-instructions" ${initialPage === 'ai-instructions' ? '' : 'tabindex="-1"'}>AI Instructions</button>
@@ -2293,6 +2268,8 @@ export class SettingsPanel {
           padding: 0;
           list-style: none;
         }
+        /* ── Testing Methodology Matrix ───────────────────── */
+        ${renderTestingPageStyles()}
         .test-file-row {
           display: grid;
           grid-template-columns: minmax(0, 1fr) auto;
@@ -2787,6 +2764,59 @@ export class SettingsPanel {
           bindCommandButton('refreshTestingInventory', 'refreshTestingInventory');
           bindCommandButton('createTestFile', 'createTestFile');
           bindCommandButton('openCoverageReport', 'openCoverageReport');
+
+          (function() {
+            const saveBtn = document.getElementById('saveTestingStrategy');
+            if (!saveBtn) return;
+            saveBtn.addEventListener('click', function() {
+              const rows = document.querySelectorAll('.methodology-row');
+              const methodologies = Array.from(rows).map(function(row) {
+                const id = row.getAttribute('data-methodology-id');
+                const checkbox = row.querySelector('.methodology-enabled-checkbox');
+                const agentSel = row.querySelector('.methodology-agent-select');
+                const modelInput = row.querySelector('.methodology-model-input');
+                const notesInput = row.querySelector('.methodology-notes-input');
+                return {
+                  id: id,
+                  enabled: checkbox ? checkbox.checked : false,
+                  assignedAgentId: agentSel && agentSel.value ? agentSel.value : undefined,
+                  assignedModelId: modelInput && modelInput.value.trim() ? modelInput.value.trim() : undefined,
+                  notes: notesInput && notesInput.value.trim() ? notesInput.value.trim() : undefined,
+                };
+              });
+              vscode.postMessage({ type: 'saveTestingConfig', payload: { version: 1, updatedAt: new Date().toISOString(), methodologies: methodologies } });
+              saveBtn.textContent = 'Saved ✓';
+              setTimeout(function() { saveBtn.textContent = 'Save Testing Strategy'; }, 2000);
+            });
+            document.querySelectorAll('.methodology-enabled-checkbox').forEach(function(cb) {
+              cb.addEventListener('change', function() {
+                const row = cb.closest('.methodology-row');
+                if (row) { row.classList.toggle('methodology-enabled', cb.checked); }
+              });
+            });
+
+            document.querySelectorAll('.methodology-info-btn').forEach(function(btn) {
+              btn.addEventListener('click', function() {
+                const targetId = btn.getAttribute('data-info-target');
+                if (!targetId) return;
+                const infoRow = document.getElementById(targetId);
+                if (!infoRow) return;
+                const isExpanded = btn.getAttribute('aria-expanded') === 'true';
+                infoRow.style.display = isExpanded ? 'none' : '';
+                btn.setAttribute('aria-expanded', String(!isExpanded));
+                btn.classList.toggle('methodology-info-btn--open', !isExpanded);
+              });
+            });
+
+            const autoAssessBtn = document.getElementById('autoAssessTestingConfig');
+            if (autoAssessBtn) {
+              autoAssessBtn.addEventListener('click', function() {
+                autoAssessBtn.textContent = 'Assessing…';
+                autoAssessBtn.disabled = true;
+                vscode.postMessage({ type: 'autoAssessTestingConfig' });
+              });
+            }
+          })();
 
           document.querySelectorAll('[data-open-file]').forEach(element => {
             if (!(element instanceof HTMLButtonElement)) {
@@ -3634,27 +3664,162 @@ function renderTestingPage(snapshot: TestingDashboardSnapshot, isActive: boolean
 
   const coverageDisabled = snapshot.coverageReportRelativePath || snapshot.coverageDataRelativePath ? '' : 'disabled';
 
+  // Build a lookup from the saved config so we can pre-populate the matrix rows.
+  const savedConfig = snapshot.projectTestingConfig;
+  const savedMap = new Map(savedConfig?.methodologies.map(m => [m.id, m]) ?? []);
+
+  // Group methodologies by category for visual separation
+  const categories: Array<{ label: string; key: string }> = [
+    { label: 'Design-time (drive implementation from tests)', key: 'design-time' },
+    { label: 'Structural (validate internal correctness)', key: 'structural' },
+    { label: 'Behavioral (validate observable behavior)', key: 'behavioral' },
+    { label: 'Non-functional (quality attributes)', key: 'non-functional' },
+    { label: 'Exploratory', key: 'exploratory' },
+  ];
+
+  const enabledCount = TESTING_METHODOLOGY_DEFINITIONS.filter(def => {
+    const saved = savedMap.get(def.id);
+    return saved ? saved.enabled : (def.id === 'tdd' || def.id === 'unit');
+  }).length;
+
+  const methodologyMatrixRows = categories.map(cat => {
+    const defsInCat = TESTING_METHODOLOGY_DEFINITIONS.filter(d => d.category === cat.key);
+    if (defsInCat.length === 0) return '';
+    const rows = defsInCat.map(def => {
+      const saved = savedMap.get(def.id);
+      const isEnabled = saved ? saved.enabled : (def.id === 'tdd' || def.id === 'unit');
+      const assignedAgent = saved?.assignedAgentId ?? '';
+      const assignedModel = saved?.assignedModelId ?? '';
+      const notes = saved?.notes ?? '';
+
+      // Build agent dropdown with pre-selected value
+      const agentDropdown = [
+        '<option value="">— None assigned —</option>',
+        ...snapshot.availableAgentSummaries.map(a => {
+          const selected = a.id === assignedAgent ? ' selected' : '';
+          return `<option value="${escapeHtml(a.id)}"${selected}>${escapeHtml(a.name)}</option>`;
+        }),
+      ].join('');
+
+      const infoRowId = `info-row-${escapeHtml(def.id)}`;
+      return `
+        <tr class="methodology-row${isEnabled ? ' methodology-enabled' : ''}" data-methodology-id="${escapeHtml(def.id)}">
+          <td class="methodology-toggle-cell">
+            <label class="toggle-switch" title="${isEnabled ? 'Enabled' : 'Disabled'}">
+              <input type="checkbox" class="methodology-enabled-checkbox" data-id="${escapeHtml(def.id)}"${isEnabled ? ' checked' : ''}>
+              <span class="toggle-track"></span>
+            </label>
+          </td>
+          <td class="methodology-name-cell">
+            <div class="methodology-name-row">
+              <strong>${escapeHtml(def.label)}</strong>
+              <button type="button" class="methodology-info-btn" data-info-target="${infoRowId}" title="Show methodology details" aria-expanded="false" aria-controls="${infoRowId}">ⓘ</button>
+            </div>
+            <div class="methodology-desc">${escapeHtml(def.description)}</div>
+          </td>
+          <td class="methodology-agent-cell">
+            <select class="methodology-agent-select compact-select" data-id="${escapeHtml(def.id)}" title="Assign an agent as primary handler for ${escapeHtml(def.label)} tasks">
+              ${agentDropdown}
+            </select>
+          </td>
+          <td class="methodology-model-cell">
+            <input type="text" class="methodology-model-input compact-input" data-id="${escapeHtml(def.id)}"
+              value="${escapeHtml(assignedModel)}"
+              placeholder="Model ID (optional)"
+              title="Override model ID for ${escapeHtml(def.label)} tasks. Leave blank to use the assigned agent's default.">
+          </td>
+          <td class="methodology-notes-cell">
+            <input type="text" class="methodology-notes-input compact-input" data-id="${escapeHtml(def.id)}"
+              value="${escapeHtml(notes)}"
+              placeholder="Notes…"
+              title="Free-form notes for this methodology">
+          </td>
+        </tr>
+        <tr id="${infoRowId}" class="methodology-info-row" style="display:none">
+          <td></td>
+          <td colspan="4" class="methodology-info-cell">
+            <div class="methodology-info-grid">
+              <div class="info-block">
+                <span class="info-block-label">When to use</span>
+                <span class="info-block-body">${escapeHtml(def.whenToUse)}</span>
+              </div>
+              <div class="info-block">
+                <span class="info-block-label">Key tools</span>
+                <span class="info-block-body">${escapeHtml(def.keyTools)}</span>
+              </div>
+              <div class="info-block">
+                <span class="info-block-label">Trade-offs</span>
+                <span class="info-block-body">${escapeHtml(def.tradeoffs)}</span>
+              </div>
+              <div class="info-block">
+                <span class="info-block-label">AI token impact <span class="token-impact-badge token-impact-${escapeHtml(def.tokenImpactLevel)}">${escapeHtml(def.tokenImpactLevel.charAt(0).toUpperCase() + def.tokenImpactLevel.slice(1))}</span></span>
+                <span class="info-block-body">${escapeHtml(def.tokenImpact)}</span>
+              </div>
+            </div>
+          </td>
+        </tr>`;
+    }).join('');
+    return `
+      <tbody class="methodology-category-group">
+        <tr class="methodology-category-header">
+          <td colspan="5" class="methodology-category-label">${escapeHtml(cat.label)}</td>
+        </tr>
+        ${rows}
+      </tbody>`;
+  }).join('');
+
   return `
           <section id="page-testing" class="settings-page ${isActive ? 'active fallback-visible' : ''}" role="region" aria-label="Testing" tabindex="0">
             <div class="page-header">
               <p class="page-kicker">Testing</p>
-              <h2>Test inventory, coverage, and maintenance</h2>
-              <p>Review the project test suite, open existing specs for editing, seed new ones, and jump to the settings that affect verification behavior.</p>
+              <h2>Testing Strategy &amp; Methodology Management</h2>
+              <p>Configure which testing methodologies AtlasMind enforces, assign specialist agents, and set per-methodology model overrides. Changes are saved to <code>project_memory/index/testing-config.json</code>.</p>
             </div>
 
             <div class="stats-grid">
               ${renderTestingStatCard('Framework', snapshot.frameworkLabel, 'Detected from package scripts and dependencies.')}
-              ${renderTestingStatCard('Testing policy', snapshot.testingPolicyLabel, snapshot.testingPolicyDetail)}
-              ${renderTestingStatCard('Discovered files', String(snapshot.totalFiles), `${snapshot.unitFiles} unit • ${snapshot.integrationFiles} integration • ${snapshot.e2eFiles} e2e`) }
+              ${renderTestingStatCard('Active methodologies', String(enabledCount), `${TESTING_METHODOLOGY_DEFINITIONS.length} available across 5 categories`)}
+              ${renderTestingStatCard('Discovered files', String(snapshot.totalFiles), `${snapshot.unitFiles} unit • ${snapshot.integrationFiles} integration • ${snapshot.e2eFiles} e2e`)}
               ${renderTestingStatCard('Test cases', String(snapshot.totalCases), `${snapshot.totalSuites} describe blocks across the visible suite.`)}
-              ${renderTestingStatCard('Coverage report', snapshot.coveragePercent ?? '—', snapshot.coverageDetail)}
+              ${renderTestingStatCard('Coverage', snapshot.coveragePercent ?? '—', snapshot.coverageDetail)}
             </div>
+
+            <article class="settings-card full-width-card" id="testingStrategyMatrix">
+              <div class="card-header">
+                <p class="card-kicker">Strategy</p>
+                <h3>Testing Methodology Matrix</h3>
+              </div>
+              <p class="card-copy">
+                Enable the methodologies your project uses. Assign an agent as the primary handler and optionally override the model used for test-generation or verification tasks under that methodology.
+                ${savedConfig ? `<em>Last saved: ${escapeHtml(new Date(savedConfig.updatedAt).toLocaleString())}</em>` : '<em>No config saved yet — defaults shown. Save to persist.</em>'}
+              </p>
+              <div class="methodology-table-wrapper">
+                <table class="methodology-table">
+                  <thead>
+                    <tr>
+                      <th class="col-toggle">On</th>
+                      <th class="col-name">Methodology</th>
+                      <th class="col-agent">Primary Agent</th>
+                      <th class="col-model">Model Override</th>
+                      <th class="col-notes">Notes</th>
+                    </tr>
+                  </thead>
+                  ${methodologyMatrixRows}
+                </table>
+              </div>
+              <div class="button-stack top-gap">
+                <button id="saveTestingStrategy" type="button">Save Testing Strategy</button>
+                <button id="autoAssessTestingConfig" type="button" class="secondary-button" title="Scan the project and automatically recommend testing methodologies based on the tech stack and dependencies">Auto-assess project</button>
+                <button id="refreshTestingInventory" type="button" class="secondary-button">Refresh inventory</button>
+              </div>
+              <p class="info-note top-gap">Saved configuration is written to <strong>project_memory/index/testing-config.json</strong> and is read by Atlas agents when planning test tasks.</p>
+            </article>
 
             <div class="page-grid two-up">
               <article id="testingInventoryCard" class="settings-card">
                 <div class="card-header">
-                  <p class="card-kicker">Review</p>
-                  <h3>Test inventory</h3>
+                  <p class="card-kicker">Inventory</p>
+                  <h3>Discovered test files</h3>
                 </div>
                 <p class="card-copy">Recently changed and discoverable test files in the workspace.</p>
                 <ul class="test-file-list">${fileMarkup}</ul>
@@ -3663,10 +3828,9 @@ function renderTestingPage(snapshot: TestingDashboardSnapshot, isActive: boolean
               <article class="settings-card">
                 <div class="card-header">
                   <p class="card-kicker">Actions</p>
-                  <h3>Manage tests</h3>
+                  <h3>Test management</h3>
                 </div>
                 <div class="button-stack">
-                  <button id="refreshTestingInventory" type="button">Refresh inventory</button>
                   <button id="createTestFile" type="button">Create Test File</button>
                   <button id="openCoverageReport" type="button" ${coverageDisabled}>Open Coverage Report</button>
                 </div>
@@ -3681,8 +3845,8 @@ function renderTestingPage(snapshot: TestingDashboardSnapshot, isActive: boolean
 
               <article class="settings-card">
                 <div class="card-header">
-                  <p class="card-kicker">Configuration</p>
-                  <h3>Associated settings</h3>
+                  <p class="card-kicker">Settings</p>
+                  <h3>Verification settings</h3>
                 </div>
                 <div class="button-stack">
                   <button type="button" class="secondary-button" data-settings-page="safety" data-settings-section="autoVerifyScripts">Verification scripts</button>
@@ -3704,6 +3868,50 @@ function renderTestingPage(snapshot: TestingDashboardSnapshot, isActive: boolean
           </section>`;
 }
 
+function renderTestingPageStyles(): string {
+  return `
+    /* ── Testing Strategy Matrix ─────────────────────────── */
+    .methodology-table-wrapper { overflow-x: auto; }
+    .methodology-table { width: 100%; border-collapse: collapse; font-size: 0.88em; }
+    .methodology-table th { padding: 6px 10px; text-align: left; font-weight: 600; color: var(--vscode-descriptionForeground); border-bottom: 1px solid var(--vscode-panel-border); white-space: nowrap; }
+    .methodology-table td { padding: 6px 10px; vertical-align: middle; border-bottom: 1px solid color-mix(in srgb, var(--vscode-panel-border) 40%, transparent); }
+    .methodology-category-label { font-size: 0.78em; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--vscode-descriptionForeground); padding: 12px 10px 4px; background: color-mix(in srgb, var(--vscode-editor-background) 60%, transparent); }
+    .methodology-row { transition: background 0.15s; }
+    .methodology-row:hover { background: color-mix(in srgb, var(--vscode-list-hoverBackground) 40%, transparent); }
+    .methodology-row.methodology-enabled .methodology-name-cell strong { color: var(--vscode-testing-iconPassed); }
+    .methodology-name-cell .methodology-desc { font-size: 0.82em; color: var(--vscode-descriptionForeground); margin-top: 2px; }
+    .col-toggle { width: 48px; }
+    .col-name { min-width: 160px; }
+    .col-agent { min-width: 160px; }
+    .col-model { min-width: 160px; }
+    .col-notes { min-width: 120px; }
+    .compact-select, .compact-input { font-size: 0.85em; padding: 3px 6px; border-radius: 3px; border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); width: 100%; }
+    .compact-input::placeholder { color: var(--vscode-input-placeholderForeground); }
+    .full-width-card { grid-column: 1 / -1; }
+    /* Toggle switch */
+    .toggle-switch { display: inline-flex; align-items: center; cursor: pointer; }
+    .toggle-switch input[type="checkbox"] { position: absolute; opacity: 0; width: 0; height: 0; }
+    .toggle-track { display: inline-block; width: 32px; height: 18px; border-radius: 9px; background: var(--vscode-input-border); position: relative; transition: background 0.2s; }
+    .toggle-switch input:checked + .toggle-track { background: var(--vscode-testing-iconPassed); }
+    .toggle-track::after { content: ''; position: absolute; top: 3px; left: 3px; width: 12px; height: 12px; border-radius: 50%; background: var(--vscode-editor-background); transition: transform 0.2s; }
+    .toggle-switch input:checked + .toggle-track::after { transform: translateX(14px); }
+    /* Info button and expandable detail rows */
+    .methodology-name-row { display: flex; align-items: center; gap: 6px; }
+    .methodology-info-btn { background: none; border: none; cursor: pointer; color: var(--vscode-textLink-foreground); font-size: 0.95em; padding: 0 2px; line-height: 1; opacity: 0.7; transition: opacity 0.15s; }
+    .methodology-info-btn:hover, .methodology-info-btn--open { opacity: 1; }
+    .methodology-info-btn--open { color: var(--vscode-testing-iconPassed); }
+    .methodology-info-row td { padding: 0; }
+    .methodology-info-cell { padding: 10px 10px 14px !important; background: color-mix(in srgb, var(--vscode-editor-background) 80%, var(--vscode-sideBar-background) 20%); border-bottom: 2px solid color-mix(in srgb, var(--vscode-textLink-foreground) 30%, transparent); }
+    .methodology-info-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .info-block { display: flex; flex-direction: column; gap: 4px; }
+    .info-block-label { font-size: 0.74em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--vscode-descriptionForeground); display: flex; align-items: center; gap: 6px; }
+    .info-block-body { font-size: 0.85em; color: var(--vscode-foreground); line-height: 1.5; }
+    .token-impact-badge { display: inline-block; font-size: 0.8em; font-weight: 700; letter-spacing: 0.04em; padding: 1px 6px; border-radius: 3px; text-transform: uppercase; }
+    .token-impact-low { background: color-mix(in srgb, var(--vscode-testing-iconPassed) 20%, transparent); color: var(--vscode-testing-iconPassed); }
+    .token-impact-medium { background: color-mix(in srgb, var(--vscode-problemsWarningIcon-foreground) 20%, transparent); color: var(--vscode-problemsWarningIcon-foreground); }
+    .token-impact-high { background: color-mix(in srgb, var(--vscode-testing-iconFailed) 20%, transparent); color: var(--vscode-testing-iconFailed); }`;
+}
+
 function renderTestingStatCard(label: string, value: string, meta: string): string {
   return `
     <article class="stat-card">
@@ -3713,7 +3921,146 @@ function renderTestingStatCard(label: string, value: string, meta: string): stri
     </article>`;
 }
 
-export function collectTestingDashboardSnapshot(): TestingDashboardSnapshot {
+const TESTING_CONFIG_SSOT_PATH = 'project_memory/index/testing-config.json';
+
+export function readProjectTestingConfig(workspaceRoot: string): import('../types.js').ProjectTestingConfig | undefined {
+  const configPath = path.join(workspaceRoot, TESTING_CONFIG_SSOT_PATH);
+  if (!existsSync(configPath)) {
+    return undefined;
+  }
+  try {
+    const raw = readFileSync(configPath, 'utf8');
+    const parsed = JSON.parse(raw) as import('../types.js').ProjectTestingConfig;
+    if (parsed.version === 1 && Array.isArray(parsed.methodologies)) {
+      return parsed;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function writeProjectTestingConfig(
+  workspaceRoot: string,
+  config: import('../types.js').ProjectTestingConfig,
+): Promise<void> {
+  const configUri = vscode.Uri.file(path.join(workspaceRoot, TESTING_CONFIG_SSOT_PATH));
+  const updated: import('../types.js').ProjectTestingConfig = { ...config, updatedAt: new Date().toISOString() };
+  await vscode.workspace.fs.writeFile(configUri, Buffer.from(JSON.stringify(updated, null, 2), 'utf-8'));
+}
+
+/**
+ * Builds a lowercase corpus string used by the auto-assess heuristics.
+ * Sources: package.json deps/scripts/private flag, test config file names,
+ * UI/web surface presence, API spec presence, SECURITY.md, git contributor
+ * count, and the first 3 kB of README.md for audience/context signals.
+ */
+async function buildTestingAutoDetectCorpus(workspaceRoot: string): Promise<string> {
+  const parts: string[] = [];
+
+  // ── package.json ──────────────────────────────────────────────
+  try {
+    const raw = readFileSync(path.join(workspaceRoot, 'package.json'), 'utf8');
+    const pkg = JSON.parse(raw) as Record<string, unknown>;
+    const allDeps = Object.assign(
+      {},
+      pkg['dependencies'] as Record<string, string> | undefined,
+      pkg['devDependencies'] as Record<string, string> | undefined,
+    );
+    parts.push(Object.keys(allDeps).join(' '));
+    if (typeof pkg['name'] === 'string') { parts.push(pkg['name']); }
+    const scripts = pkg['scripts'] as Record<string, string> | undefined;
+    if (scripts) { parts.push(Object.values(scripts).join(' ')); }
+    // Publishable (non-private) package → library / SDK heuristics apply
+    if (pkg['private'] !== true && typeof pkg['name'] === 'string') {
+      parts.push('library sdk package');
+    }
+  } catch { /* no package.json or not parseable */ }
+
+  // ── Test framework config files ───────────────────────────────
+  try {
+    const configFiles = await vscode.workspace.findFiles(
+      '**/{jest,vitest,cypress,playwright,mocha,.mocharc,karma,jasmine,stryker,k6,artillery,locust,pact,backstop,cucumber}.config.{js,ts,mjs,cjs,json}',
+      '**/node_modules/**',
+      40,
+    );
+    parts.push(configFiles.map(f => path.basename(f.fsPath)).join(' '));
+  } catch { /* ignore */ }
+
+  // ── Web / UI surface detection ────────────────────────────────
+  // Presence of any UI source file → boost E2E and Visual Regression signals
+  try {
+    const uiFiles = await vscode.workspace.findFiles(
+      '**/*.{html,htm,svelte,vue,jsx,tsx}',
+      '**/node_modules/**',
+      1,
+    );
+    if (uiFiles.length > 0) {
+      parts.push('web app frontend');
+    }
+  } catch { /* ignore */ }
+
+  // ── API spec detection ────────────────────────────────────────
+  // OpenAPI / Swagger specs → Contract testing (consumer/provider) AND SDD (openapi/swagger)
+  try {
+    const apiSpecFiles = await vscode.workspace.findFiles(
+      '**/{openapi,swagger,api-spec}.{yaml,yml,json}',
+      '**/node_modules/**',
+      1,
+    );
+    if (apiSpecFiles.length > 0) {
+      parts.push('api consumer provider openapi swagger api-first');
+    }
+  } catch { /* ignore */ }
+
+  // ── CI / CD config detection ──────────────────────────────────
+  // Detects CI pipelines for Continuous / Shift-Left methodology
+  try {
+    const ciSignals: string[] = [];
+    if (existsSync(path.join(workspaceRoot, '.github', 'workflows'))) { ciSignals.push('github actions'); }
+    if (existsSync(path.join(workspaceRoot, '.gitlab-ci.yml'))) { ciSignals.push('gitlab ci'); }
+    if (existsSync(path.join(workspaceRoot, 'Jenkinsfile'))) { ciSignals.push('jenkins'); }
+    if (existsSync(path.join(workspaceRoot, '.circleci', 'config.yml'))) { ciSignals.push('circleci'); }
+    if (existsSync(path.join(workspaceRoot, 'azure-pipelines.yml'))) { ciSignals.push('azure devops'); }
+    if (existsSync(path.join(workspaceRoot, '.buildkite'))) { ciSignals.push('buildkite'); }
+    if (ciSignals.length > 0) {
+      parts.push(ciSignals.join(' ') + ' continuous integration pipeline');
+    }
+  } catch { /* ignore */ }
+
+  // ── Security posture ──────────────────────────────────────────
+  if (existsSync(path.join(workspaceRoot, 'SECURITY.md'))) {
+    parts.push('auth authentication pii');
+  }
+
+  // ── Contributor count (git) ───────────────────────────────────
+  // Team projects benefit from BDD / ATDD stakeholder collaboration signals
+  try {
+    const { stdout } = await execFileAsync(
+      'git', ['shortlog', '-s', 'HEAD'],
+      { cwd: workspaceRoot, timeout: 4000 },
+    );
+    const count = stdout.trim().split('\n').filter(Boolean).length;
+    if (count > 1) {
+      parts.push('product team user story acceptance criteria');
+    }
+  } catch { /* git not available or no commits — assume solo, add no team signals */ }
+
+  // ── README audience / context ─────────────────────────────────
+  // First 3 kB captures project type and audience without loading the whole file
+  try {
+    const readmePath = path.join(workspaceRoot, 'README.md');
+    if (existsSync(readmePath)) {
+      parts.push(readFileSync(readmePath, 'utf8').slice(0, 3000));
+    }
+  } catch { /* ignore */ }
+
+  return parts.join(' ').toLowerCase();
+}
+
+export function collectTestingDashboardSnapshot(
+  atlasContext?: import('../extension.js').AtlasMindContext,
+): TestingDashboardSnapshot {
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const configuration = vscode.workspace.getConfiguration('atlasmind');
   const verificationEnabled = configuration.get<boolean>('autoVerifyAfterWrite', true);
@@ -3728,6 +4075,11 @@ export function collectTestingDashboardSnapshot(): TestingDashboardSnapshot {
     : verificationEnabled
       ? 'Default Atlas policy: capture the smallest relevant failing test first, then turn it green.'
       : 'Default Atlas policy still prefers tests-first behavior changes, but verification is currently more manual.';
+
+  const availableAgentSummaries: Array<{ id: string; name: string }> =
+    typeof atlasContext?.agentRegistry?.listAgents === 'function'
+      ? atlasContext.agentRegistry.listAgents().map((a: { id: string; name: string }) => ({ id: a.id, name: a.name }))
+      : [];
 
   if (!workspaceRoot) {
     return {
@@ -3754,8 +4106,12 @@ export function collectTestingDashboardSnapshot(): TestingDashboardSnapshot {
       ],
       verificationEnabled,
       verificationScripts,
+      projectTestingConfig: undefined,
+      availableAgentSummaries,
     };
   }
+
+  const projectTestingConfig = readProjectTestingConfig(workspaceRoot);
 
   let packageScripts: string[] = [];
   let frameworkLabel = 'Workspace tests';
@@ -3854,6 +4210,8 @@ export function collectTestingDashboardSnapshot(): TestingDashboardSnapshot {
     ],
     verificationEnabled,
     verificationScripts,
+    projectTestingConfig,
+    availableAgentSummaries,
   };
 }
 
@@ -4290,7 +4648,8 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
   if (
     message.type === 'refreshTestingInventory' ||
     message.type === 'createTestFile' ||
-    message.type === 'openCoverageReport'
+    message.type === 'openCoverageReport' ||
+    message.type === 'autoAssessTestingConfig'
   ) {
     return true;
   }
@@ -4315,6 +4674,19 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
     return Array.isArray(message.payload) && message.payload.every(
       (p: unknown) => typeof p === 'string' && isSafeWorkspaceRelativePath(p),
     );
+  }
+
+  if (message.type === 'saveTestingConfig') {
+    if (typeof message.payload !== 'object' || message.payload === null) {
+      return false;
+    }
+    const payload = message.payload as Record<string, unknown>;
+    return payload['version'] === 1 && Array.isArray(payload['methodologies'])
+      && payload['methodologies'].every((m: unknown) => {
+        if (typeof m !== 'object' || m === null) return false;
+        const item = m as Record<string, unknown>;
+        return typeof item['id'] === 'string' && typeof item['enabled'] === 'boolean';
+      });
   }
 
   return false;

@@ -33,6 +33,7 @@ import {
 import { classifyToolInvocation, getToolApprovalMode, requiresToolApproval } from '../core/toolPolicy.js';
 import { extractSessionCarryForwardImages, resolvePickedImageAttachments } from '../chat/imageAttachments.js';
 import { getWebviewHtmlShell } from './webviewUtils.js';
+import { hasAiInstructionSyncFile, scanAiInstructionFiles, syncAiInstructionFiles } from '../utils/aiInstructionSync.js';
 
 type ComposerSendMode = 'send' | 'steer' | 'new-chat' | 'new-session';
 
@@ -79,7 +80,9 @@ type ChatPanelMessage =
   | { type: 'importSessionContext'; payload: string }
   | { type: 'searchSession'; payload: { query: string } }
   | { type: 'deleteMessage'; payload: string }
-  | { type: 'sendToTerminal'; payload: { code: string } };
+  | { type: 'sendToTerminal'; payload: { code: string } }
+  | { type: 'syncAiInstructions' }
+  | { type: 'dismissAiInstructionNudge' };
 
 interface ChatComposerAttachment {
   id: string;
@@ -406,6 +409,7 @@ export class ChatPanel {
     }, null, this.disposables);
 
     void this.syncState();
+    this.checkAiInstructionNudge();
     if (initialTarget?.autoSubmit && initialTarget.draftPrompt) {
       void this.runPrompt(initialTarget.draftPrompt, initialTarget.sendMode ?? 'send');
     }
@@ -649,7 +653,64 @@ export class ChatPanel {
         terminal.sendText(message.payload.code, false);
         return;
       }
+      case 'syncAiInstructions': {
+        await this.handleSyncAiInstructionNudge();
+        return;
+      }
+      case 'dismissAiInstructionNudge': {
+        ChatPanel.dismissedNudgeWorkspaces.add(
+          vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '',
+        );
+        await this.host.webview.postMessage({ type: 'hideAiInstructionNudge' });
+        return;
+      }
     }
+  }
+
+  private static readonly dismissedNudgeWorkspaces = new Set<string>();
+
+  private async handleSyncAiInstructionNudge(): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      return;
+    }
+    const files = scanAiInstructionFiles(workspaceRoot);
+    if (files.length === 0) {
+      await this.host.webview.postMessage({ type: 'hideAiInstructionNudge' });
+      return;
+    }
+    const result = await syncAiInstructionFiles(workspaceRoot, files.map(f => f.relativePath));
+    if (result.success) {
+      await this.host.webview.postMessage({ type: 'hideAiInstructionNudge' });
+      await this.host.webview.postMessage({
+        type: 'status',
+        payload: `AI instructions synced: ${result.summary}`,
+      });
+    } else {
+      await this.host.webview.postMessage({
+        type: 'status',
+        payload: `AI instruction sync failed: ${result.summary}`,
+      });
+    }
+  }
+
+  private checkAiInstructionNudge(): void {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot || ChatPanel.dismissedNudgeWorkspaces.has(workspaceRoot)) {
+      return;
+    }
+    if (hasAiInstructionSyncFile(workspaceRoot)) {
+      return;
+    }
+    const files = scanAiInstructionFiles(workspaceRoot);
+    if (files.length === 0) {
+      return;
+    }
+    const fileList = files.map(f => f.relativePath).join(', ');
+    void this.host.webview.postMessage({
+      type: 'showAiInstructionNudge',
+      payload: { files: fileList },
+    });
   }
 
   private async handleAssistantVote(entryId: string, vote: 'up' | 'down' | 'clear'): Promise<void> {
@@ -1995,6 +2056,17 @@ export class ChatPanel {
                 </div>
               </section>
               <div id="status" class="status-label">Ready.</div>
+              <section id="aiInstructionNudge" class="ai-instruction-nudge hidden" aria-live="polite">
+                <div class="ai-instruction-nudge-body">
+                  <span class="ai-instruction-nudge-icon">&#9432;</span>
+                  <div class="ai-instruction-nudge-text">
+                    <strong>AI instruction files found.</strong>
+                    <span id="aiInstructionNudgeDetail"> Sync them so AtlasMind knows your project&rsquo;s rules and policies.</span>
+                  </div>
+                  <button id="syncAiInstructions" class="nudge-btn nudge-btn-primary" type="button">Sync Now</button>
+                  <button id="dismissAiInstructionNudge" class="nudge-btn" type="button" aria-label="Dismiss">&#x2715;</button>
+                </div>
+              </section>
               <section id="recoveryNotice" class="recovery-notice hidden" aria-live="polite">
                 <div id="recoveryNoticeTitle" class="recovery-notice-title">Direct recovery mode</div>
                 <div id="recoveryNoticeSummary" class="recovery-notice-summary"></div>
@@ -4167,6 +4239,8 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
     || message.type === 'attachOpenFiles'
     || message.type === 'clearAttachments'
     || message.type === 'toggleAutopilot'
+    || message.type === 'syncAiInstructions'
+    || message.type === 'dismissAiInstructionNudge'
   ) {
     return true;
   }
