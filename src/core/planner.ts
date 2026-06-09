@@ -52,6 +52,8 @@ Rules:
 - Prefer the tester role for explicit regression and coverage subtasks, and engineer roles for implementation or refactor subtasks.
 - Be concrete: descriptions should state what deliverable the agent should produce.
 - No circular dependencies.
+- Chained sequential operations: when the goal chains git operations with "and", "then", or commas (e.g., "commit and push", "commit then open a PR", "stage, commit, and push"), model each as a separate subtask with an explicit dependency on the previous one. The commit subtask must always precede the push subtask; the push must precede any PR-creation subtask.
+- Release hygiene: when the goal involves committing in a project that enforces release hygiene (version bump + changelog), include a release-hygiene subtask (role: devops, skills: file-edit, file-write) before the commit subtask, and make the commit depend on it.
 - Respond with JSON only — nothing else.
 ${DEPENDENCY_GOVERNANCE_HINT}`;
 

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.72.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.73.4</strong> · </sub></p>
 
 
 <p align="center">
@@ -252,6 +252,7 @@ See [Funding and Sponsorship](wiki/Funding-and-Sponsorship.md) for details.
 - Core runtime: `src/core/`, `src/runtime/`, `src/chat/`, `src/commands.ts`, `src/extension.ts`
 - Provider adapters and catalogs: `src/providers/` (including `localModelSync.ts` and `localModelRecommendationRegistry.ts`)
 - Skills and tool handlers: `src/skills/`
+- Shared utilities: `src/utils/` (including `secretRedactor.ts` — pattern-based secret scanner used to scrub credentials from memory context before LLM dispatch)
 - Webview and sidebar surfaces: `src/views/`
 - Memory and MCP layers: `src/memory/`, `src/mcp/`
 
@@ -266,8 +267,8 @@ MIT License — see [LICENSE]
 <!-- atlasmind-import
 entry-path: architecture/project-overview.md
 generator-version: 2
-generated-at: 2026-06-07T17:52:00.466Z
+generated-at: 2026-06-08T20:16:44.581Z
 source-paths: README.md
-source-fingerprint: fad0b9f1
-body-fingerprint: 132ca778
+source-fingerprint: 04fc2ba1
+body-fingerprint: e7b18d6c
 -->

@@ -10,29 +10,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-## [0.72.1] - 2026-06-07
+## [0.73.4] - 2026-06-08
 
-### Added
-- **`completionCriteria` field on `AgentDefinition`** (`src/types.ts`): optional `incompletePatterns` regex array that the orchestrator matches against the final response before accepting task completion. When a match is found, a re-prompt is injected asking the agent to either finish outstanding work or declare explicit unresolved blockers.
-- **`definitionOfDoneChecker` hook on `OrchestratorHooks`** (`src/types.ts`): caller-injectable async gate invoked once after the agentic loop produces its final response. Returns `{ passed, blockers }` — when blockers are present the orchestrator re-prompts for one additional turn before surfacing the response.
-- **Completion-integrity reprompt gate** (`src/core/orchestrator.ts` `runAgenticLoop`): before any loop exit, AtlasMind now checks the final response for language that signals incomplete delivery (e.g. "not yet wired", "important follow-up", "focused verification is still incomplete"). On a match a single structured re-prompt is injected requiring the agent to either complete the work or write an explicit **Unresolved blockers** section. The gate fires at most once per task to avoid infinite loops.
-- **`looksLikeIncompleteDelivery` / `buildCompletionIntegrityReprompt` helpers** (`src/core/orchestrator.ts`): pure functions backing the completion gate; independently testable.
+### Fixed
+- **Responses ending with code or bare headings** (`src/core/orchestrator.ts`, `src/chat/participant.ts`): `looksLikeIncompleteDelivery` now also detects structural truncation — an odd number of fenced code blocks (unclosed fence) or a lone markdown heading at the very end of a response with no body. A new `sanitizeResponseTail` utility closes any unclosed code fence and strips the dangling heading before the text enters the session transcript, preventing the stale artifact from contaminating subsequent turns.
+- **"New Session" mode silently discarded when selected while busy** (`media/chatPanel.js`): `applyComposerModePreference` previously cleared the `queuedComposerMode` when `isBusy` was true at the moment the user selected "New Session" from the send-mode dropdown (webview state lag). The queued intent is now always stored; `submitPrompt` already guards against submitting it as a `new-session` while still busy (it overrides to `steer`), and the queued mode is now preserved across that steer submission so the intent is honoured on the next idle message instead of being silently lost.
+
+## [0.73.3] - 2026-06-08
 
 ### Changed
-- **Synthesis prompt** (`src/core/orchestrator.ts` `synthesize`): rewritten from a descriptive request into five strict rules. Rule 1: a task is only complete when wired end-to-end and verified. Rule 2: unresolved work must appear as a prominent **Unresolved blockers** section. Rule 3: test files invisible to the runner must be flagged as verification gaps. Rule 4: a passing overall test suite cannot mask absence of coverage for the specific change. Rule 5: be concise about successes, explicit about failures.
-- **TDD missing-status warning** (`src/chat/participant.ts`): when `tddStatus === 'missing'`, an explicit ⚠️ bullet is now emitted in the thought summary reminding the user to verify test coverage manually and confirm test files are visible to the project's test runner.
+- **Comparison matrix rewritten** (`wiki/Comparison.md`): replaced single 7-column table with structured sections (Editor Integration, Model Routing, Memory & Context, Skills & Tools, Safety & Operations, I/O & Integrations, Licensing). Added **Windsurf** and **Continue** as new comparison targets. Added rows for inline completions (honest ❌), speed-aware routing, local model sync, adaptive routing from outcomes, deprecation-aware routing, dispatch-time secret redaction, per-session context carry-forward, auto-synthesized skills, workspace sandbox, TDD gate, webhook integration, and CLI companion. Expanded Key Differentiators with vs. Cline, vs. Windsurf, and vs. Continue sections. Added an explicit "Honest Gaps" section (no inline completions, no diff UI, no cloud agent pool).
 
-## [0.72.0] - 2026-06-07
+## [0.73.2] - 2026-06-08
+
+### Changed
+- **Documentation updated** for all 0.72.2, 0.73.0, and 0.73.1 changes: `README.md` project structure, `docs/architecture.md`, `docs/model-routing.md`, `docs/ssot-memory.md`, `wiki/Architecture.md`, `wiki/Changelog.md`, `wiki/Memory-System.md`, `wiki/Model-Routing.md`, `wiki/Security.md`, `wiki/Tool-Execution.md`.
+
+## [0.73.1] - 2026-06-08
 
 ### Added
-- **Live local model catalog sync** (`src/providers/localModelCatalogSync.ts`): fetches currently trending models from Ollama (via ollamadb.dev) and Hugging Face Hub (GGUF models sorted by downloads) and caches results in VS Code `globalState` with a 24-hour TTL. A bundled fallback (`data/local-model-catalog.json`) is used when both APIs are unreachable. The catalog feeds into `getLocalModelRecommendationCandidates` with priority: workspace override JSON > live/bundled synced 
+- **Secret redactor utility** (`src/utils/secretRedactor.ts`): new pattern-based secret scanner covers Anthropic keys, OpenAI keys, GitHub tokens, bearer tokens, PEM private keys, database connection strings, and generic key/secret assignments. `redactSecrets()` returns a `RedactionResult` with match count and matched pattern n
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-06-07T17:52:00.466Z
+generated-at: 2026-06-08T20:16:44.581Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: 0b0b6069
-body-fingerprint: 8e08acfd
+source-fingerprint: 9bef74a5
+body-fingerprint: 74d09e34
 -->

@@ -92,6 +92,7 @@ src/
     gitBranch.ts
     ... (22 more entries)
   utils/
+    secretRedactor.ts
     workspacePicker.ts
   views/
     agentManagerPanel.ts
@@ -346,8 +347,8 @@ project_memory/
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-06-07T18:57:14.707Z
+generated-at: 2026-06-08T18:15:14.132Z
 source-paths: src | tests | docs | wiki | project_memory | .github
-source-fingerprint: 4e0cf1fc
-body-fingerprint: 53ad739e
+source-fingerprint: 101d681f
+body-fingerprint: 6f5a46cf
 -->
