@@ -218,6 +218,29 @@
   });
 
   root?.addEventListener('change', event => {
+    const target = event.target instanceof HTMLInputElement ? event.target : null;
+    if (!target || !target.classList.contains('dashboard-methodology-cb')) {
+      return;
+    }
+    const methodologyId = target.getAttribute('data-methodology-id');
+    if (!methodologyId || !state.snapshot) {
+      return;
+    }
+    const config = state.snapshot.testing && state.snapshot.testing.projectTestingConfig;
+    const baseMethodologies = METHODOLOGY_DEFS.map(def => {
+      const existing = config && config.methodologies ? config.methodologies.find(m => m.id === def.id) : undefined;
+      return existing ? { ...existing } : { id: def.id, enabled: def.id === 'tdd' || def.id === 'unit' };
+    });
+    const updated = baseMethodologies.map(m => m.id === methodologyId ? { ...m, enabled: target.checked } : m);
+    const newConfig = { version: 1, updatedAt: new Date().toISOString(), methodologies: updated };
+    // Optimistically update local snapshot so re-renders stay consistent without a full refresh.
+    if (state.snapshot.testing) {
+      state.snapshot.testing.projectTestingConfig = newConfig;
+    }
+    vscode.postMessage({ type: 'saveTestingConfig', payload: newConfig });
+  });
+
+  root?.addEventListener('change', event => {
     const target = event.target instanceof HTMLElement ? event.target : null;
     if (!(target instanceof HTMLSelectElement)) {
       return;
@@ -927,7 +950,86 @@
             </div>
           </article>
         </div>
+
+        ${renderMethodologyStrategy(testing)}
       </section>
+    `;
+  }
+
+  const METHODOLOGY_DEFS = [
+    { id: 'tdd',              label: 'TDD',               category: 'design-time' },
+    { id: 'bdd',              label: 'BDD',               category: 'design-time' },
+    { id: 'atdd',             label: 'ATDD',              category: 'design-time' },
+    { id: 'unit',             label: 'Unit Testing',      category: 'structural' },
+    { id: 'integration',      label: 'Integration',       category: 'structural' },
+    { id: 'mutation',         label: 'Mutation Testing',  category: 'structural' },
+    { id: 'property',         label: 'Property-Based',    category: 'structural' },
+    { id: 'e2e',              label: 'End-to-End',        category: 'behavioral' },
+    { id: 'snapshot',         label: 'Snapshot',          category: 'behavioral' },
+    { id: 'contract',         label: 'Contract',          category: 'behavioral' },
+    { id: 'performance',      label: 'Performance',       category: 'non-functional' },
+    { id: 'security-testing', label: 'Security',          category: 'non-functional' },
+    { id: 'visual',           label: 'Visual Regression', category: 'non-functional' },
+    { id: 'exploratory',      label: 'Exploratory',       category: 'exploratory' },
+  ];
+
+  const METHODOLOGY_CATEGORIES = [
+    { key: 'design-time',    label: 'Design-time' },
+    { key: 'structural',     label: 'Structural' },
+    { key: 'behavioral',     label: 'Behavioral' },
+    { key: 'non-functional', label: 'Non-functional' },
+    { key: 'exploratory',    label: 'Exploratory' },
+  ];
+
+  function renderMethodologyStrategy(testing) {
+    const config = testing.projectTestingConfig;
+    const enabledIds = new Set(
+      config ? config.methodologies.filter(m => m.enabled).map(m => m.id) : ['tdd', 'unit'],
+    );
+    const enabledCount = enabledIds.size;
+
+    const categoryGroups = METHODOLOGY_CATEGORIES.map(cat => ({
+      ...cat,
+      items: METHODOLOGY_DEFS.filter(d => d.category === cat.key),
+    }));
+
+    const rows = categoryGroups.map(cat => `
+      <tr>
+        <td colspan="2" class="methodology-category-header">${escapeHtml(cat.label)}</td>
+      </tr>
+      ${cat.items.map(def => {
+        const isEnabled = enabledIds.has(def.id);
+        return `<tr>
+          <td class="methodology-name-cell">
+            <label class="methodology-toggle-label">
+              <input type="checkbox" class="dashboard-methodology-cb" data-methodology-id="${escapeAttr(def.id)}" ${isEnabled ? 'checked' : ''} />
+              ${escapeHtml(def.label)}
+            </label>
+          </td>
+          <td><span class="tag ${isEnabled ? 'tag-good' : ''}">${isEnabled ? 'Active' : 'Off'}</span></td>
+        </tr>`;
+      }).join('')}
+    `).join('');
+
+    return `
+      <article class="panel-card" style="margin-top:16px">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap">
+          <div>
+            <p class="section-kicker">Methodology configuration</p>
+            <h3>Testing Strategy</h3>
+          </div>
+          <span class="tag tag-good">${escapeHtml(String(enabledCount))} / 14 active</span>
+        </div>
+        <div class="stat-detail" style="margin-bottom:12px">Toggle methodologies to enable or disable them. Changes are saved immediately to <code>project_memory/index/testing-config.json</code>. Use <strong>Open Testing Strategy</strong> for agent assignments, model overrides, and detailed notes.</div>
+        <table class="methodology-dashboard-table">
+          <tbody>
+            ${rows}
+          </tbody>
+        </table>
+        <div class="tag-row" style="margin-top:14px">
+          <button type="button" class="action-link" data-action="command" data-payload="atlasmind.openSettingsTesting">Open Testing Strategy →</button>
+        </div>
+      </article>
     `;
   }
 

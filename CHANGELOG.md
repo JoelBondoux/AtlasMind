@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.75.2] - 2026-06-09
+
+### Added
+- **Testing Strategy section on Project Dashboard** (`media/projectDashboard.js`, `src/views/projectDashboardPanel.ts`): the Project Dashboard Testing page now includes a "Testing Strategy" panel card at the bottom, showing all 14 methodologies grouped by category with an active/off status badge and a checkbox toggle per methodology. Toggling a methodology saves immediately to `project_memory/index/testing-config.json` via a new `saveTestingConfig` message type. An "Open Testing Strategy →" link navigates to Settings → Testing for agent assignments, model overrides, and detailed notes.
+- **`atlasmind.openSettingsTesting` command** (`src/commands.ts`): new command to open the Settings Panel directly on the Testing page. Added to `ALLOWED_DASHBOARD_COMMANDS` so the dashboard Testing page's "Open Testing Strategy" button can dispatch it.
+- **`atlasContext` passed to `collectTestingDashboardSnapshot` in dashboard** (`src/views/projectDashboardPanel.ts`): fixed the `syncState` call that was omitting the atlas context, so agent registry data is now available when building the testing snapshot for the dashboard.
+
 ## [0.75.1] - 2026-06-09
 
 ### Fixed

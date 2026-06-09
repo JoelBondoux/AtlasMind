@@ -9,7 +9,7 @@ import type { AtlasMindContext } from '../extension.js';
 import type { TaskImageAttachment } from '../types.js';
 import { buildAssistantResponseMetadata, buildWorkstationContext, reconcileAssistantResponse } from '../chat/participant.js';
 import { resolvePickedImageAttachments } from '../chat/imageAttachments.js';
-import { collectTestingDashboardSnapshot, type TestingDashboardSnapshot } from './settingsPanel.js';
+import { collectTestingDashboardSnapshot, writeProjectTestingConfig, type TestingDashboardSnapshot } from './settingsPanel.js';
 import { getWebviewHtmlShell } from './webviewUtils.js';
 
 const execFileAsync = promisify(execFile);
@@ -36,6 +36,7 @@ const ALLOWED_DASHBOARD_COMMANDS = new Set([
   'atlasmind.openProjectRunCenter',
   'atlasmind.openSettingsProject',
   'atlasmind.openSettingsSafety',
+  'atlasmind.openSettingsTesting',
   'atlasmind.openToolWebhooks',
   'atlasmind.openAgentPanel',
   'atlasmind.openVoicePanel',
@@ -80,7 +81,8 @@ type ProjectDashboardMessage =
   | { type: 'addressGap'; payload: string }
   | { type: 'resolveGapItem'; payload: string }
   | { type: 'resolveGapGroup'; payload: string }
-  | { type: 'openGapFiles'; payload: string };
+  | { type: 'openGapFiles'; payload: string }
+  | { type: 'saveTestingConfig'; payload: import('../types.js').ProjectTestingConfig };
 
 type DashboardWebviewMessage =
   | { type: 'state'; payload: DashboardSnapshot }
@@ -1046,6 +1048,15 @@ export class ProjectDashboardPanel {
       case 'saveRoadmap':
         await this.saveRoadmap(message.payload);
         return;
+      case 'saveTestingConfig':
+        {
+          const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          if (workspaceRoot) {
+            await writeProjectTestingConfig(workspaceRoot, message.payload);
+            await this.syncState();
+          }
+        }
+        return;
       case 'runIdeationLoop':
         await this.runIdeationLoop(message.payload);
         return;
@@ -1473,6 +1484,11 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return isDashboardRoadmapSavePayload(candidate['payload']);
   }
 
+  if (candidate['type'] === 'saveTestingConfig') {
+    const p = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof p === 'object' && p !== null && p['version'] === 1 && Array.isArray(p['methodologies']);
+  }
+
   return false;
 }
 
@@ -1524,7 +1540,7 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
   ]);
   const versionSnapshot = await collectVersionSnapshot(workspaceRoot, gitSnapshot.currentBranch, packageSnapshot.version);
 
-  const testingSnapshot = collectTestingDashboardSnapshot();
+  const testingSnapshot = collectTestingDashboardSnapshot(atlas);
   const providers = atlas.modelRouter.listProviders();
   const totalProviders = providers.length;
   const healthyProviders = providers.filter(provider => atlas.modelRouter.isProviderHealthy(provider.id)).length;
@@ -5070,4 +5086,9 @@ const DASHBOARD_CSS = `
     from { transform: scaleY(0.2); opacity: 0.25; }
     to { transform: scaleY(1); opacity: 0.92; }
   }
+  .methodology-dashboard-table { width: 100%; border-collapse: collapse; }
+  .methodology-dashboard-table td { padding: 5px 8px; border-bottom: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.2)); font-size: 0.88em; }
+  .methodology-category-header { font-weight: 700; font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.07em; color: var(--vscode-descriptionForeground); padding-top: 10px !important; border-bottom: none !important; }
+  .methodology-toggle-label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+  .methodology-name-cell { width: 60%; }
 `;
