@@ -8,6 +8,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.75.6] - 2026-06-09
+
+### Added
+- **9 new testing methodologies** (`src/types.ts`, `media/projectDashboard.js`): the registry grows from 14 to 23 entries. All new methodologies appear in the Settings Panel Testing matrix (with info rows, agent assignment, and model override), the Project Dashboard Testing card, the bootstrap/import auto-detect flow, and the Agent Editor Testing Roles section.
+
+  | ID | Label | Category |
+  |---|---|---|
+  | `sdd` | Spec-Driven (SDD) | Design-time |
+  | `v-model` | V-Model | Design-time |
+  | `continuous` | Continuous / Shift-Left | Structural |
+  | `white-box` | White-Box | Structural |
+  | `mbt` | Model-Based (MBT) | Behavioral |
+  | `test-design` | Test Design Techniques (EP + BVA) | Behavioral |
+  | `black-box` | Black-Box | Behavioral |
+  | `gray-box` | Gray-Box | Behavioral |
+  | `agile-testing` | Agile Testing | Exploratory |
+
+  Each entry carries the full `whenToUse`, `keyTools`, `tradeoffs`, and `autoDetectSignals` fields. Auto-detect signals are already wired — for example, OpenAPI/Swagger files trigger SDD, ISO 26262 / safety-critical keywords trigger V-Model, GitHub Actions / CI pipeline files trigger Continuous/Shift-Left, and Agile/Scrum keywords trigger Agile Testing.
+
 ## [0.75.5] - 2026-06-09
 
 ### Changed

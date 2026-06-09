@@ -333,6 +333,8 @@ export type TestingMethodologyId =
   | 'tdd'
   | 'bdd'
   | 'atdd'
+  | 'sdd'
+  | 'v-model'
   | 'unit'
   | 'integration'
   | 'e2e'
@@ -340,10 +342,17 @@ export type TestingMethodologyId =
   | 'property'
   | 'snapshot'
   | 'contract'
+  | 'continuous'
+  | 'white-box'
   | 'performance'
   | 'security-testing'
   | 'visual'
-  | 'exploratory';
+  | 'mbt'
+  | 'test-design'
+  | 'black-box'
+  | 'gray-box'
+  | 'exploratory'
+  | 'agile-testing';
 
 export interface TestingMethodologyDefinition {
   id: TestingMethodologyId;
@@ -351,23 +360,178 @@ export interface TestingMethodologyDefinition {
   description: string;
   /** Broad grouping for UI organisation. */
   category: 'design-time' | 'structural' | 'behavioral' | 'non-functional' | 'exploratory';
+  /** Concise guidance on when this methodology is most appropriate. */
+  whenToUse: string;
+  /** Common tools and frameworks associated with this methodology. */
+  keyTools: string;
+  /** Primary trade-off or cost to consider before adopting. */
+  tradeoffs: string;
+  /** Project types or signals that suggest this methodology. Used by auto-detect heuristics. */
+  autoDetectSignals: string[];
 }
 
 export const TESTING_METHODOLOGY_DEFINITIONS: TestingMethodologyDefinition[] = [
-  { id: 'tdd',            label: 'TDD',               description: 'Test-Driven Development — red-green-refactor loop',             category: 'design-time' },
-  { id: 'bdd',            label: 'BDD',               description: 'Behavior-Driven Development — Gherkin / Given-When-Then specs',  category: 'design-time' },
-  { id: 'atdd',           label: 'ATDD',              description: 'Acceptance Test-Driven Development — customer-facing criteria first', category: 'design-time' },
-  { id: 'unit',           label: 'Unit Testing',      description: 'Isolated function and class-level tests',                       category: 'structural' },
-  { id: 'integration',    label: 'Integration',       description: 'Multi-component interaction and service-boundary tests',        category: 'structural' },
-  { id: 'e2e',            label: 'End-to-End',        description: 'Full user-flow simulation (Playwright, Cypress, etc.)',         category: 'behavioral' },
-  { id: 'mutation',       label: 'Mutation Testing',  description: 'Fault injection to measure suite kill-rate (Stryker, Pitest)', category: 'structural' },
-  { id: 'property',       label: 'Property-Based',    description: 'Generative input testing (fast-check, Hypothesis)',            category: 'structural' },
-  { id: 'snapshot',       label: 'Snapshot',          description: 'UI and serialised-output regression snapshots',                category: 'behavioral' },
-  { id: 'contract',       label: 'Contract',          description: 'Consumer-driven API contract verification (Pact)',             category: 'behavioral' },
-  { id: 'performance',    label: 'Performance',       description: 'Load, stress, and latency benchmarks (k6, Artillery, JMeter)', category: 'non-functional' },
-  { id: 'security-testing', label: 'Security',        description: 'SAST / DAST and dependency vulnerability scanning',            category: 'non-functional' },
-  { id: 'visual',         label: 'Visual Regression', description: 'Pixel-diff screenshots (Percy, Chromatic, Playwright)',       category: 'non-functional' },
-  { id: 'exploratory',    label: 'Exploratory',       description: 'Session-based manual discovery and charter testing',           category: 'exploratory' },
+  {
+    id: 'tdd', label: 'TDD', description: 'Test-Driven Development — red-green-refactor loop', category: 'design-time',
+    whenToUse: 'Any project where correctness matters and requirements can be expressed as assertions before the code is written. Especially valuable for greenfield features and critical business logic.',
+    keyTools: 'Jest, Vitest, Mocha, pytest, JUnit, RSpec, Go testing',
+    tradeoffs: 'Requires discipline to write the test first; initial velocity feels slower before the refactor payoff. Poorly scoped tests can become brittle.',
+    autoDetectSignals: ['*'],
+  },
+  {
+    id: 'bdd', label: 'BDD', description: 'Behavior-Driven Development — Gherkin / Given-When-Then specs', category: 'design-time',
+    whenToUse: 'Projects with a non-technical product owner or QA team who needs to co-author acceptance criteria. Works best when requirements arrive as user stories.',
+    keyTools: 'Cucumber, SpecFlow, Behave, Gherkin, Codecept, Playwright BDD plugin',
+    tradeoffs: 'Scenario maintenance overhead grows quickly if stakeholders do not actively contribute. Can drift into redundant unit + scenario coverage.',
+    autoDetectSignals: ['cucumber', 'gherkin', 'specflow', 'behave', 'product team', 'user story', 'bdd'],
+  },
+  {
+    id: 'atdd', label: 'ATDD', description: 'Acceptance Test-Driven Development — customer-facing criteria first', category: 'design-time',
+    whenToUse: 'When the delivery team works directly from customer acceptance criteria. Bridges the gap between BDD storytelling and executable acceptance tests.',
+    keyTools: 'Robot Framework, FitNesse, Cucumber, SpecFlow, Gauge',
+    tradeoffs: 'Requires close collaboration with customers to define criteria up-front; misaligned criteria produce tests that pass but miss intent.',
+    autoDetectSignals: ['robot framework', 'fitnesse', 'gauge', 'acceptance criteria', 'atdd'],
+  },
+  {
+    id: 'unit', label: 'Unit Testing', description: 'Isolated function and class-level tests', category: 'structural',
+    whenToUse: 'All projects. Start here. Fast, cheap, and gives precise regression signals. Should be the largest layer of your test pyramid.',
+    keyTools: 'Jest, Vitest, Mocha, pytest, JUnit, NUnit, xUnit, Go testing, Minitest',
+    tradeoffs: 'Tests of implementation details (not behaviour) become expensive to maintain. Mocking boundaries can give false confidence at integration points.',
+    autoDetectSignals: ['*'],
+  },
+  {
+    id: 'integration', label: 'Integration', description: 'Multi-component interaction and service-boundary tests', category: 'structural',
+    whenToUse: 'Any project with multiple collaborating services, a database, a message bus, or a third-party API. Catches contract mismatches that unit tests cannot.',
+    keyTools: 'Supertest, pytest-httpx, Testcontainers, WireMock, Spring Boot Test, go-sqlmock',
+    tradeoffs: 'Slower and more environment-dependent than unit tests. Flaky tests are common without proper isolation (e.g. Testcontainers).',
+    autoDetectSignals: ['api', 'backend', 'service', 'database', 'postgres', 'mysql', 'mongodb', 'redis', 'kafka', 'rabbitmq', 'microservice'],
+  },
+  {
+    id: 'e2e', label: 'End-to-End', description: 'Full user-flow simulation (Playwright, Cypress, etc.)', category: 'behavioral',
+    whenToUse: 'Web and mobile applications with critical user journeys (checkout, login, onboarding). High confidence at the cost of speed.',
+    keyTools: 'Playwright, Cypress, Puppeteer, WebdriverIO, Detox (mobile), Appium',
+    tradeoffs: 'Slowest tests in the suite; brittle to DOM changes. High maintenance burden if driven by selectors rather than accessible roles.',
+    autoDetectSignals: ['playwright', 'cypress', 'puppeteer', 'webdriverio', 'detox', 'appium', 'react', 'vue', 'angular', 'svelte', 'next', 'nuxt', 'remix', 'web app', 'frontend'],
+  },
+  {
+    id: 'mutation', label: 'Mutation Testing', description: 'Fault injection to measure suite kill-rate (Stryker, Pitest)', category: 'structural',
+    whenToUse: 'Mature suites where you want to measure test quality, not just quantity. Excellent for libraries and shared utilities where coverage alone is misleading.',
+    keyTools: 'Stryker Mutator (JS/TS/C#), Pitest (Java/Kotlin), mutmut (Python), Infection (PHP)',
+    tradeoffs: 'Very slow on large codebases; often run nightly rather than on every push. Tuning timeout and survivor thresholds takes experimentation.',
+    autoDetectSignals: ['stryker', 'pitest', 'mutmut', 'infection', 'library', 'sdk', 'package', 'utility'],
+  },
+  {
+    id: 'property', label: 'Property-Based', description: 'Generative input testing (fast-check, Hypothesis)', category: 'structural',
+    whenToUse: 'Pure functions, parsers, data transformers, and algorithmic code. Generates hundreds of random inputs to find edge cases no human would enumerate.',
+    keyTools: 'fast-check (JS/TS), Hypothesis (Python), QuickCheck (Haskell/Erlang), jqwik (Java), gopter (Go)',
+    tradeoffs: 'Requires learning the property-definition mindset; not suitable for code with side effects or non-deterministic I/O.',
+    autoDetectSignals: ['fast-check', 'hypothesis', 'quickcheck', 'jqwik', 'gopter', 'library', 'sdk', 'parser', 'transformer', 'algorithm'],
+  },
+  {
+    id: 'snapshot', label: 'Snapshot', description: 'UI and serialised-output regression snapshots', category: 'behavioral',
+    whenToUse: 'Component libraries, serialisers, and any code with stable, human-reviewable output. Great at catching unintended regressions without custom assertions.',
+    keyTools: 'Jest snapshots, Vitest snapshots, Storybook Storyshots, react-test-renderer',
+    tradeoffs: 'Snapshots become noisy if updated carelessly ("just update the snapshot"). Reviewers must read diffs critically or the guardrail erodes.',
+    autoDetectSignals: ['react', 'vue', 'angular', 'svelte', 'storybook', 'component library', 'serialiser', 'renderer'],
+  },
+  {
+    id: 'contract', label: 'Contract', description: 'Consumer-driven API contract verification (Pact)', category: 'behavioral',
+    whenToUse: 'Microservice architectures where multiple teams own their own services. Consumers write the contract; providers verify it — eliminating integration environment dependency.',
+    keyTools: 'Pact (JS, Java, Go, .NET, Ruby, Python), Spring Cloud Contract, Dredd',
+    tradeoffs: 'Requires buy-in from all service teams to publish and verify contracts. Initial setup cost is high; payoff grows with the number of services.',
+    autoDetectSignals: ['pact', 'spring cloud contract', 'dredd', 'microservice', 'consumer', 'provider', 'api contract'],
+  },
+  {
+    id: 'performance', label: 'Performance', description: 'Load, stress, and latency benchmarks (k6, Artillery, JMeter)', category: 'non-functional',
+    whenToUse: 'APIs, real-time systems, or any application with SLA targets. Run before a major release or infrastructure change to validate throughput and latency under load.',
+    keyTools: 'k6, Artillery, Apache JMeter, Gatling, Locust, autocannon, wrk',
+    tradeoffs: 'Requires a representative test environment; results on localhost are misleading. Defining realistic load scenarios takes time and domain knowledge.',
+    autoDetectSignals: ['k6', 'artillery', 'jmeter', 'gatling', 'locust', 'autocannon', 'performance', 'real-time', 'high-load', 'throughput', 'sla', 'latency'],
+  },
+  {
+    id: 'security-testing', label: 'Security', description: 'SAST / DAST and dependency vulnerability scanning', category: 'non-functional',
+    whenToUse: 'Any application handling authentication, payments, PII, or sensitive data. Should be part of CI for all production software.',
+    keyTools: 'Snyk, OWASP ZAP, Semgrep, Trivy, CodeQL, Dependabot, npm audit, OWASP Dependency-Check',
+    tradeoffs: 'SAST tools produce false positives that need triage. DAST requires a running environment. Both add CI time and require a process for managing findings.',
+    autoDetectSignals: ['auth', 'authentication', 'oauth', 'jwt', 'password', 'payment', 'stripe', 'pii', 'gdpr', 'snyk', 'semgrep', 'trivy', 'codeql'],
+  },
+  {
+    id: 'visual', label: 'Visual Regression', description: 'Pixel-diff screenshots (Percy, Chromatic, Playwright)', category: 'non-functional',
+    whenToUse: 'Design systems, component libraries, and marketing sites where visual correctness is a first-class requirement. Catches CSS regressions that functional tests miss.',
+    keyTools: 'Percy (BrowserStack), Chromatic (Storybook), Playwright screenshot API, BackstopJS, Applitools',
+    tradeoffs: 'Requires a consistent rendering environment to avoid flaky diffs. Cloud services add cost. Anti-aliasing and font rendering differences across OS can produce noise.',
+    autoDetectSignals: ['percy', 'chromatic', 'backstopjs', 'applitools', 'storybook', 'design system', 'component library', 'marketing', 'react', 'vue', 'angular', 'svelte'],
+  },
+  {
+    id: 'exploratory', label: 'Exploratory', description: 'Session-based manual discovery and charter testing', category: 'exploratory',
+    whenToUse: 'New features, usability-sensitive workflows, and any area where automation has not yet caught up. Pairs well with a formal charter to keep sessions focused.',
+    keyTools: 'Session-based testing charters, TestRail, Zephyr, Xray, Notion test logs, PractiTest',
+    tradeoffs: 'Not repeatable and depends on tester skill. Should complement automation, not replace it. Results are only as good as the debrief and reporting discipline.',
+    autoDetectSignals: ['exploratory', 'manual', 'usability', 'ux', 'new feature', 'charter'],
+  },
+  {
+    id: 'sdd', label: 'Spec-Driven (SDD)', description: 'Specification-first development — API contracts and schemas drive implementation', category: 'design-time',
+    whenToUse: 'API and service projects where the interface contract is the primary deliverable. Ideal for public APIs, microservices, and SDKs where consumers need a stable spec before implementation begins.',
+    keyTools: 'OpenAPI/Swagger, AsyncAPI, Stoplight, Redocly, Prism (mock server), Dredd, Spectral',
+    tradeoffs: 'Specs drift from implementation without automated sync tooling. Writing a complete spec upfront requires significant domain knowledge and can delay the first working prototype.',
+    autoDetectSignals: ['openapi', 'swagger', 'asyncapi', 'stoplight', 'prism', 'api-first', 'api first', 'spectral', 'redocly', 'sdd', 'spec-driven'],
+  },
+  {
+    id: 'v-model', label: 'V-Model', description: 'Phase-paired verification — each development phase maps to a corresponding test phase', category: 'design-time',
+    whenToUse: 'Projects with strict phase gating or compliance requirements — medical devices (ISO 13485), automotive (ISO 26262), safety-critical systems (IEC 61508). Also a useful mental model for clarifying test-level responsibilities on any team.',
+    keyTools: 'Requirements traceability matrices, IBM DOORS, Polarion, HP ALM / Micro Focus ALM, IBM Rational Quality Manager, formal test plans',
+    tradeoffs: 'Rigid phase boundaries slow feedback loops and make iterative changes expensive. Produces large plan artifacts that rapidly become stale. Not well suited to discovery-heavy or Agile workstreams.',
+    autoDetectSignals: ['v-model', 'verification and validation', 'requirements traceability', 'rtm', 'iso 26262', 'iec 61508', 'iec 62443', 'fda', 'regulated', 'medical device', 'safety-critical', 'functional safety'],
+  },
+  {
+    id: 'continuous', label: 'Continuous / Shift-Left', description: 'Automated testing embedded throughout CI/CD — tests run on every commit, earliest possible feedback', category: 'structural',
+    whenToUse: 'Any project with a CI/CD pipeline. Essential for teams delivering frequent releases or practising trunk-based development. Shift-left means pushing tests earlier: linting, type checks, and unit tests on pre-commit; integration and E2E on PR; performance and security on merge.',
+    keyTools: 'GitHub Actions, GitLab CI, Jenkins, CircleCI, Azure DevOps, Buildkite, Husky / pre-commit hooks, Test Impact Analysis (Vitest, Jest)',
+    tradeoffs: 'Requires significant upfront investment in pipeline configuration and test suite speed. Slow suites become a bottleneck on developer velocity. Shallow-but-fast suites give false safety if coverage is insufficient.',
+    autoDetectSignals: ['github actions', 'gitlab ci', 'jenkins', 'circleci', 'azure devops', 'buildkite', 'ci/cd', 'pipeline', 'continuous integration', 'shift-left', 'husky', 'pre-commit', 'trunk-based'],
+  },
+  {
+    id: 'white-box', label: 'White-Box', description: 'Structure-aware testing — code paths, branches, and conditions guided by internal knowledge', category: 'structural',
+    whenToUse: 'Security-sensitive modules, complex algorithms, and codebases where path or branch coverage is a compliance requirement (DO-178C, IEC 61508). Augments unit tests with precise coverage metrics to identify dead code and untested logic.',
+    keyTools: 'Istanbul / nyc (JS/TS), coverage.py, JaCoCo (Java/Kotlin), gcov / lcov (C/C++), LLVM coverage, SonarQube, Codecov, Coveralls',
+    tradeoffs: 'High coverage percentages do not guarantee correctness — every line can be executed while semantic bugs remain. Tests tightly coupled to implementation details become expensive to maintain during refactors.',
+    autoDetectSignals: ['coverage', 'istanbul', 'nyc', 'jacoco', 'gcov', 'lcov', 'sonarqube', 'codecov', 'coveralls', 'branch coverage', 'path coverage', 'white-box', 'whitebox', 'do-178', 'iec 61508'],
+  },
+  {
+    id: 'mbt', label: 'Model-Based (MBT)', description: 'Derive test cases from formal system models — state machines, UML diagrams, decision tables', category: 'behavioral',
+    whenToUse: 'Complex systems with many state transitions: embedded software, protocol implementations, workflow engines, and telecom or automotive stacks. MBT generates optimised test suites that cover the model more completely than hand-authored cases.',
+    keyTools: 'GraphWalker, TestOptimal, Conformiq, MBTsuite, Selenium + custom state model wrappers',
+    tradeoffs: 'Requires expertise in formal modelling. Model creation and maintenance adds overhead. Overkill for simple CRUD applications where a direct test is faster to write than a model.',
+    autoDetectSignals: ['state machine', 'finite automata', 'finite state', 'workflow engine', 'graphwalker', 'mbt', 'model-based', 'protocol', 'embedded', 'state diagram'],
+  },
+  {
+    id: 'test-design', label: 'Test Design Techniques', description: 'Systematic input partitioning — Equivalence Partitioning, Boundary Value Analysis, decision tables', category: 'behavioral',
+    whenToUse: 'Any function or API accepting bounded inputs — form validators, parsers, calculators, pricing engines, and state machines. EP and BVA systematically identify which representative values and edge cases to test without exhaustive enumeration. Use decision tables for logic with many input combinations.',
+    keyTools: 'Applied within any test framework (Jest, Vitest, pytest, JUnit). Combinatorial design tools: Hexawise, ACTS (NIST), Allpairs. Documented as test design artefacts alongside code.',
+    tradeoffs: 'Techniques require up-front domain analysis of input spaces. EP and BVA address individual parameters; combinatorial explosion occurs when testing interactions between many inputs simultaneously (use pairwise testing to manage this).',
+    autoDetectSignals: ['equivalence partitioning', 'boundary value', 'equivalence class', 'decision table', 'test design', 'pairwise', 'combinatorial', 'hexawise', 'acts testing'],
+  },
+  {
+    id: 'black-box', label: 'Black-Box', description: 'Behaviour-only testing — derive cases from requirements and specs without inspecting internals', category: 'behavioral',
+    whenToUse: 'System, acceptance, and regression testing where the tester does not need implementation access. Ideal for testing third-party components, validating compliance against public specifications, or running tests as an end-user proxy.',
+    keyTools: 'Postman, REST-assured, Selenium, Playwright, TestRail (test case management), acceptance criteria checklists, OWASP testing guides',
+    tradeoffs: 'Cannot target specific code paths; internal logic coverage is unknown. May duplicate work already covered by unit tests if test layers are not coordinated. Defect root-cause analysis is harder without internal visibility.',
+    autoDetectSignals: ['acceptance testing', 'system testing', 'functional testing', 'black-box', 'blackbox', 'postman', 'requirements-based testing', 'specification testing'],
+  },
+  {
+    id: 'gray-box', label: 'Gray-Box', description: 'Hybrid approach — partial internal visibility informs test design while tests operate through the public interface', category: 'behavioral',
+    whenToUse: 'Integration and API testing where you know the data schema or internal state model but test through the public interface. Common in security testing (knowing the DB schema to craft SQL edge cases) and API contract verification with schema awareness.',
+    keyTools: 'Postman with schema validation, REST-assured, Playwright + DevTools protocol, Burp Suite (security), OpenAPI-driven test generators (Schemathesis, Dredd)',
+    tradeoffs: 'The boundary between gray-box and white-box testing is often subjective and team-dependent. Partial visibility can create a false sense of coverage completeness if the unknown internals contain the actual bugs.',
+    autoDetectSignals: ['gray-box', 'greybox', 'gray box', 'grey box', 'schemathesis', 'schema-driven testing', 'api schema validation'],
+  },
+  {
+    id: 'agile-testing', label: 'Agile Testing', description: 'Whole-team quality ownership — testing is continuous and collaborative throughout every sprint', category: 'exploratory',
+    whenToUse: 'Agile, Scrum, or Kanban teams where developers and testers share quality ownership. Testing activities are distributed throughout the sprint rather than blocked at the end. Works alongside TDD, BDD, and Exploratory testing rather than replacing them.',
+    keyTools: 'Jira, Azure Boards, Linear, Zephyr Squad, TestRail, three-amigos sessions, Definition of Done checklists, retrospective practices',
+    tradeoffs: 'Without explicit ownership, testing responsibility diffuses and gaps appear. Requires cultural buy-in across the whole team — it is a collaboration model, not a tooling choice. Easy to declare Agile Testing without actually shifting quality left.',
+    autoDetectSignals: ['agile', 'scrum', 'kanban', 'sprint', 'three amigos', 'definition of done', 'dod', 'backlog refinement', 'story points', 'retrospective'],
+  },
 ];
 
 /**
