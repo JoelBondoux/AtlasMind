@@ -3644,7 +3644,7 @@
       var detail = document.getElementById('aiInstructionNudgeDetail');
       if (nudge) {
         if (detail && message.payload && message.payload.files) {
-          detail.textContent = ‘ Found: ‘ + message.payload.files + ". Sync them so AtlasMind knows your project’s rules and policies.";
+          detail.textContent = ' Found: ' + message.payload.files + ". Sync them so AtlasMind knows your project's rules and policies.";
         }
         nudge.classList.remove('hidden');
       }
