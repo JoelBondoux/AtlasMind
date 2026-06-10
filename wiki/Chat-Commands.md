@@ -17,6 +17,7 @@ Short continuation prompts such as `Proceed`, `Continue`, or `Proceed autonomous
 | `/import` | Scan an existing project and populate memory with metadata |
 | `/project` | Decompose a goal into subtasks, preview impact, and execute autonomously |
 | `/runs` | Open the Project Run Center to review recent autonomous runs |
+| `/ship` | Run the project's default publish/release routine. `/ship <id>` runs a named routine |
 | `/agents` | List and manage registered agents |
 | `/skills` | List and manage registered skills |
 | `/memory` | Query the SSOT memory system |
@@ -98,6 +99,22 @@ Opens the Project Run Center to review, re-run, or inspect past autonomous runs.
 ```
 @atlas /runs
 ```
+
+---
+
+## `/ship`
+
+Runs a project routine — a saved sequence of shell commands (test, commit, push, deploy, etc.) defined in `project_memory/routines/`.
+
+```
+@atlas /ship                          # runs the default routine
+@atlas /ship publish                  # runs the routine with id: publish
+@atlas /ship publish fix: auth bug    # runs publish, sets ${message}
+```
+
+Routines are defined as markdown files with YAML frontmatter in `project_memory/routines/`. See `project_memory/routines/README.md` for the format and examples.
+
+Each step streams a live checklist into chat. If a step fails and `on_fail: abort` is set, execution stops and the stderr output is shown. The run is recorded in Project Run History.
 
 ---
 

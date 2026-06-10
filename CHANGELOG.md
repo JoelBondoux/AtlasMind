@@ -8,6 +8,53 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.77.2] - 2026-06-10
+
+### Added
+- **Bootstrapper routine extraction** (`src/bootstrap/bootstrapper.ts`): `/import` now scans `CLAUDE.md`, `.github/copilot-instructions.md`, and `docs/development.md` for ordered procedure sections (Publishing Routine, Release Workflow, Deploy Process, etc.) and writes a starter routine file to `project_memory/routines/<id>.md`. Steps are extracted from numbered list items with a **Label** and a `command` in backticks; `<angle-bracket-placeholders>` become `${VAR}` interpolation tokens. The fingerprint system prevents overwriting manually edited routine files, and unchanged files are skipped on re-import. After writing, `RoutineRegistry` is reloaded automatically so the new routine is immediately available to `/ship`.
+- **Chat routine-edit intent** (`src/chat/participant.ts`): freeform messages matching "edit/update/change/open [the] [X] routine" now open the matching routine's source `.md` file directly in the editor, bypassing the LLM. AtlasMind identifies the target routine by matching the routine name or ID in the prompt, falling back to the default routine. If no routines exist, the response explains how to scaffold one via `/import`.
+
+## [0.77.1] - 2026-06-10
+
+### Changed
+- **Routine card UI in Project Run Center** (`src/views/projectRunCenterPanel.ts`): replaced the `<select>` dropdown in the Ship card with run-card–style tiles matching the panel's design language. Each routine renders as a clickable card showing its name, description, and step count. The action strip inside each card contains a **Ship** button and an **Edit** button; Edit opens the routine's source `.md` file directly in the editor. The separate standalone Run Routine button has been removed.
+
+## [0.77.0] - 2026-06-10
+
+### Added
+- **Project Routines** (`src/core/routineRegistry.ts`, `src/core/routineRunner.ts`): named, executable workflows stored as YAML-frontmatter markdown files in `project_memory/routines/`. The registry scans that folder on startup and makes all valid routines available to the rest of the extension. The runner executes steps sequentially, streams per-step progress, respects `on_fail: abort | prompt | continue` policies, and persists run results to `ProjectRunHistory`.
+- **`/ship` chat command** (`src/chat/participant.ts`, `package.json`): `/ship` runs the project's default routine (first file with `default: true`, or first file in the folder). `/ship <id>` runs a named routine. Text after the ID is passed as `${message}` for interpolation in step commands (e.g. commit messages). Each step streams a live checklist into chat.
+- **Run Routine card in Project Run Center** (`src/views/projectRunCenterPanel.ts`): a new "Ship" card above the hero grid shows a dropdown of all loaded routines and a **Run Routine** button. Step progress streams live into the card; the final result updates the run history.
+- **`project_memory/routines/README.md`**: format reference and worked examples shipped with the extension so users know the routine file format without external docs.
+
+## [0.76.5] - 2026-06-10
+
+### Added
+- **Animated logo on active-agent session tiles** (`media/chatPanel.js`, `src/views/chatPanel.ts`): session tiles in the Sessions panel now display a small animated AtlasMind globe (the same spinning-axis logo used in the thinking indicator, scaled to 14 px) when an agent is actively working in that session. The animation reuses the existing `atlas-spin` and `atlas-float` keyframes and disappears automatically once the run completes.
+
+## [0.76.4] - 2026-06-10
+
+### Changed
+- **Model & provider info cards** (`src/views/treeViews.ts`): clicking "info" on a model or provider in the Models tree now routes the summary into a dedicated **"Model & Provider Info"** session instead of appending it to the currently active working session. If the dedicated session has been deleted or archived the next info request recreates it automatically. The user's active working session is never interrupted.
+
+## [0.76.3] - 2026-06-10
+
+### Fixed
+- **Chat panel completely non-functional** (`media/chatPanel.js`): Unicode curly/smart single-quote characters (`‘`/`’`) were embedded in a JS string literal on line 3647, introduced when the AI instruction nudge text was written. JavaScript does not recognise curly quotes as string delimiters, so the entire IIFE failed to parse and no event handlers were ever registered. This caused the Send button, model-info output, and session panel toggle to all stop working simultaneously. Fixed by replacing the three curly quotes with plain ASCII single quotes (`'`).
+
+## [0.76.2] - 2026-06-10
+
+### Fixed
+- **AI instruction nudge** (`src/views/chatPanel.ts`, `media/chatPanel.js`): three bugs introduced in 0.76.0 are resolved:
+  1. Missing CSS for `.ai-instruction-nudge`, `.nudge-btn`, `.nudge-btn-primary`, and related classes caused the nudge banner to render as unstyled HTML that disrupted the chat layout.
+  2. The "Sync Now" button stayed permanently disabled after a sync failure; the extension now sends `resetSyncButton` on failure and the webview re-enables the button.
+  3. Nudge dismiss state was stored in an in-memory `Set` and lost on every extension reload; it is now persisted via `workspaceState` (`atlasmind.aiInstructionNudgeDismissed`).
+
+## [0.76.1] - 2026-06-09
+
+### Docs
+- **Testing methodology system documented** across `README.md`, `docs/agents-and-skills.md`, `wiki/Agents.md`, `wiki/Changelog.md`, `wiki/Getting-Started.md`, and `wiki/Home.md`: added the full 23-methodology registry table, Settings Panel Testing matrix reference, auto-assess scan description, Project Dashboard Testing page, Agent Testing Roles section, and bootstrap/import flow. Updated all "red-green testing policy" references to reflect the broader configurable methodology system.
+
 ## [0.76.0] - 2026-06-09
 
 ### Added

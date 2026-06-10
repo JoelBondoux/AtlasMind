@@ -254,6 +254,10 @@ const NATURAL_LANGUAGE_COMMAND_INTENTS: AtlasCommandIntentDefinition[] = [
   },
 ];
 
+/** Matches natural-language requests to open/edit a routine file. */
+const ROUTINE_EDIT_PATTERN =
+  /\b(?:edit|update|change|modify|open|show\s+me)\s+(?:the\s+|my\s+)?(?:(?:ship|publish(?:ing)?|deploy(?:ment)?|build|release|commit|push)\s+)?routine\b/i;
+
 export interface WorkspaceSnapshotEntry {
   signature: string;
   relativePath: string;
@@ -635,6 +639,10 @@ async function handleChatRequest(
       await handleRunsCommand(stream);
       break;
 
+    case 'ship':
+      await handleShipCommand(request.prompt, stream, atlas);
+      break;
+
     case 'voice':
       await handleVoiceCommand(stream);
       break;
@@ -980,6 +988,89 @@ export async function runProjectCommand(
   }
 }
 
+async function handleShipCommand(
+  prompt: string,
+  stream: vscode.ChatResponseStream,
+  atlas: AtlasMindContext,
+): Promise<void> {
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!workspaceRoot) {
+    stream.markdown('Open a workspace folder first, then run `/ship` again.');
+    return;
+  }
+
+  // Resolve routine: named ID in prompt takes precedence, else default.
+  const routineId = prompt.trim();
+  const routine = routineId
+    ? atlas.routineRegistry.get(routineId)
+    : atlas.routineRegistry.getDefault();
+
+  if (!routine) {
+    const available = atlas.routineRegistry.list();
+    if (available.length === 0) {
+      stream.markdown(
+        '### No routines found\n\n' +
+        'Create a routine file in `project_memory/routines/` to get started.\n\n' +
+        'See `project_memory/routines/README.md` for the file format.',
+      );
+    } else {
+      const list = available.map(r => `- \`${r.id}\` — ${r.name}`).join('\n');
+      stream.markdown(`Routine \`${routineId}\` not found. Available routines:\n\n${list}`);
+    }
+    return;
+  }
+
+  // Extract commit message from prompt if present (text after routine ID, or full prompt when no ID).
+  const vars: Record<string, string> = {};
+  const messageMatch = prompt.match(/(?:^|\S+\s+)(.*)/);
+  if (messageMatch?.[1]) {
+    vars['message'] = messageMatch[1].trim();
+  }
+
+  stream.markdown(`### ${routine.name}\n\n${routine.description}\n\n`);
+
+  const lines: string[] = [];
+  const { RoutineRunner } = await import('../core/routineRunner.js');
+  const runner = new RoutineRunner(atlas.projectRunHistory);
+
+  const result = await runner.run(
+    routine,
+    vars,
+    workspaceRoot,
+    (step, index, total) => {
+      lines.push(`- ⏳ **Step ${index + 1}/${total}:** ${step.label}`);
+      stream.markdown(lines.join('\n'));
+    },
+    async (step, stepResult) => {
+      stream.markdown(
+        `\n\n**Step failed:** ${step.label}\n\n` +
+        `\`\`\`\n${stepResult.stderr || stepResult.stdout || 'No output'}\n\`\`\`\n\n` +
+        'The step is configured to stop on failure.',
+      );
+      return 'abort';
+    },
+  );
+
+  // Replace pending indicators with final status
+  const finalLines = result.steps.map((s, i) => {
+    const icon = s.skipped ? '⏭️' : s.exitCode === 0 ? '✅' : '❌';
+    return `- ${icon} **Step ${i + 1}/${result.steps.length}:** ${s.label}`;
+  });
+  stream.markdown(finalLines.join('\n'));
+
+  if (result.succeeded) {
+    stream.markdown('\n\n**Routine completed successfully.**');
+  } else {
+    const failedStep = result.steps.find(s => s.stepId === result.failedStep);
+    stream.markdown(
+      `\n\n**Routine aborted at step:** ${failedStep?.label ?? result.failedStep}\n\n` +
+      (failedStep?.stderr ? `\`\`\`\n${failedStep.stderr}\n\`\`\`` : ''),
+    );
+  }
+
+  atlas.routinesRefresh.fire();
+}
+
 async function handleRunsCommand(stream: vscode.ChatResponseStream): Promise<void> {
   stream.markdown(
     '### Project Run Center\n\n' +
@@ -1088,8 +1179,67 @@ async function handleFreeformMessage(
     stream.markdown(roadmapStatusMarkdown);
     return;
   }
+  if (await handleRoutineEditIntent(prompt, stream, atlas)) {
+    return;
+  }
   const imageAttachments = await resolveInlineImageAttachments(prompt);
   await runChatTask(prompt, stream, atlas, imageAttachments, sessionId);
+}
+
+/**
+ * Detects "edit/update/change the [X] routine" intent and opens the matching
+ * routine file in the VS Code editor so the user can modify it directly.
+ * Returns true if the intent was handled (caller should return early).
+ */
+async function handleRoutineEditIntent(
+  prompt: string,
+  stream: vscode.ChatResponseStream,
+  atlas: AtlasMindContext,
+): Promise<boolean> {
+  if (!ROUTINE_EDIT_PATTERN.test(prompt)) { return false; }
+
+  const routines = atlas.routineRegistry.list();
+  if (routines.length === 0) {
+    stream.markdown(
+      'No routines found in `project_memory/routines/`.\n\n' +
+      'Run `@atlas /import` to scaffold a routine from your project instructions, ' +
+      'or create a routine file manually (see `project_memory/routines/README.md` for the format).',
+    );
+    return true;
+  }
+
+  // Find the best matching routine: check if any routine name or ID appears in the prompt
+  let target = routines.find(r => {
+    const idPattern = new RegExp(`\\b${r.id.replace(/-/g, '[\\s-]')}\\b`, 'i');
+    const namePattern = new RegExp(`\\b${r.name.replace(/\s+/g, '\\s+')}\\b`, 'i');
+    return idPattern.test(prompt) || namePattern.test(prompt);
+  });
+  if (!target) { target = atlas.routineRegistry.getDefault() ?? routines[0]; }
+
+  if (!target.source) {
+    stream.markdown(
+      `Routine **${target.name}** has no source file path. ` +
+      'It may be a built-in routine — create a file in `project_memory/routines/` to override it.',
+    );
+    return true;
+  }
+
+  try {
+    const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(target.source));
+    await vscode.window.showTextDocument(doc);
+    stream.markdown(
+      `Opened **${target.name}** for editing.\n\n` +
+      `File: \`${target.source}\`\n\n` +
+      'Edit the YAML steps and save. The routine will be picked up automatically on the next `/ship` run.',
+    );
+  } catch {
+    stream.markdown(
+      `Could not open \`${target.source}\`. ` +
+      'The file may have been moved or deleted. Run `@atlas /import` to re-scaffold it.',
+    );
+  }
+
+  return true;
 }
 
 async function handleVisionCommand(
@@ -2202,6 +2352,12 @@ export function buildFollowups(
         { prompt: '/project', label: 'Run a new project' },
         { prompt: '/cost', label: 'Review session cost' },
         { prompt: '/memory operations', label: 'Search operations memory' },
+      ];
+
+    case 'ship':
+      return [
+        { prompt: '/runs', label: 'View run history' },
+        { prompt: '/cost', label: 'Review session cost' },
       ];
 
     case 'voice':

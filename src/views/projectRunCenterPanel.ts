@@ -67,7 +67,9 @@ type ProjectRunCenterMessage =
   | { type: 'setInjectOutputIntoFollowUp'; payload: boolean }
   | { type: 'openRunChat'; payload: string }
   | { type: 'feedbackToOriginIdeation'; payload: string }
-  | { type: 'createIdeationFromRun'; payload: string };
+  | { type: 'createIdeationFromRun'; payload: string }
+  | { type: 'runRoutine'; payload: { routineId: string; vars: Record<string, string> } }
+  | { type: 'editRoutine'; payload: string };
 
 interface ProjectRunPreviewState {
   runId: string;
@@ -106,6 +108,8 @@ export class ProjectRunCenterPanel {
   private pauseBeforeNextBatch = false;
   private approvalResolver: (() => void) | undefined;
   private resumeResolver: (() => void) | undefined;
+  private selectedRoutineId: string | undefined;
+  private routineRunning = false;
 
   public static createOrShow(
     context: vscode.ExtensionContext,
@@ -269,6 +273,80 @@ export class ProjectRunCenterPanel {
           injectOutputIntoFollowUp: message.payload,
         }), message.payload ? 'Completed run output will be carried into queued follow-up runs.' : 'Queued follow-up runs will not inherit the completed run synthesis.');
         return;
+      case 'runRoutine':
+        this.selectedRoutineId = message.payload.routineId;
+        await this.runRoutine(message.payload.routineId, message.payload.vars);
+        return;
+      case 'editRoutine':
+        await this.editRoutineFile(message.payload);
+        return;
+    }
+  }
+
+  private async runRoutine(routineId: string, vars: Record<string, string>): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      this.liveStatus = 'No workspace folder open.';
+      await this.syncState();
+      return;
+    }
+
+    const routine = this.atlas.routineRegistry.get(routineId);
+    if (!routine) {
+      this.liveStatus = `Routine '${routineId}' not found.`;
+      await this.syncState();
+      return;
+    }
+
+    this.routineRunning = true;
+    this.liveStatus = `Running routine: ${routine.name}…`;
+    await this.syncState();
+
+    try {
+      const { RoutineRunner } = await import('../core/routineRunner.js');
+      const runner = new RoutineRunner(this.atlas.projectRunHistory);
+
+      const result = await runner.run(
+        routine,
+        vars,
+        workspaceRoot,
+        async (step, index, total) => {
+          this.liveStatus = `[${index + 1}/${total}] ${step.label}…`;
+          await this.panel.webview.postMessage({
+            type: 'routineStep',
+            payload: { label: step.label, index, total, status: 'running' },
+          });
+        },
+        async (_step, _stepResult) => {
+          return 'abort';
+        },
+      );
+
+      this.liveStatus = result.succeeded
+        ? `Routine '${routine.name}' completed.`
+        : `Routine '${routine.name}' failed at step: ${result.failedStep ?? 'unknown'}`;
+
+      await this.panel.webview.postMessage({
+        type: 'routineDone',
+        payload: { succeeded: result.succeeded, steps: result.steps },
+      });
+    } catch (err) {
+      this.liveStatus = `Routine error: ${err instanceof Error ? err.message : String(err)}`;
+    } finally {
+      this.routineRunning = false;
+      this.atlas.routinesRefresh.fire();
+    }
+
+    await this.syncState();
+  }
+
+  private async editRoutineFile(sourcePath: string): Promise<void> {
+    try {
+      const uri = vscode.Uri.file(sourcePath);
+      const doc = await vscode.workspace.openTextDocument(uri);
+      await vscode.window.showTextDocument(doc);
+    } catch {
+      void vscode.window.showErrorMessage(`Could not open routine file: ${sourcePath}`);
     }
   }
 
@@ -1050,6 +1128,9 @@ export class ProjectRunCenterPanel {
         preview: previewState ? serializePreview(previewState) : null,
         runs: runs.map(run => serializeRun(run)),
         selectedRun: selectedRun ? serializeRun(selectedRun) : null,
+        routines: (this.atlas.routineRegistry?.list() ?? []).map(r => ({ id: r.id, name: r.name, description: r.description, stepCount: r.steps.length, source: r.source ?? null })),
+        selectedRoutineId: this.selectedRoutineId,
+        routineRunning: this.routineRunning,
       },
     });
   }
@@ -1078,6 +1159,16 @@ export class ProjectRunCenterPanel {
               <button id="refreshRuns" class="dashboard-button dashboard-button-ghost" type="button">Refresh Runs</button>
             </div>
           </div>
+
+          <section class="routines-card-section">
+            <article class="panel-card panel-card-routines">
+              <p class="section-kicker">Project routines</p>
+              <h2>Ship</h2>
+              <p class="section-copy">Run a saved routine — tests, commit, push, deploy. Add <code>.md</code> files to <code>project_memory/routines/</code> to define routines, or use <code>/ship</code> in chat.</p>
+              <div id="routineList" class="routine-list"></div>
+              <div id="routineProgress" class="routine-progress"></div>
+            </article>
+          </section>
 
           <section class="hero-grid">
             <article class="hero-card">
@@ -2517,7 +2608,9 @@ function buildScript(): string {
   const workflowStepper = document.getElementById('workflowStepper');
   const subtaskTracker = document.getElementById('subtaskTracker');
   const subtaskTrackerSummary = document.getElementById('subtaskTrackerSummary');
-  const clientState = { payload: { runs: [], selectedRun: null, preview: null, executionOptions: {} }, search: '' };
+  const routineList = document.getElementById('routineList');
+  const routineProgress = document.getElementById('routineProgress');
+  const clientState = { payload: { runs: [], selectedRun: null, preview: null, executionOptions: {}, routines: [], selectedRoutineId: '', routineRunning: false }, search: '' };
 
   function escapeHtml(value) {
     return String(value)
@@ -3296,7 +3389,91 @@ function buildScript(): string {
     renderPreview(payload.preview || null);
     renderRunCards(payload.runs || [], payload.selectedRun ? payload.selectedRun.id : '');
     renderSelectedRun(payload.selectedRun || null);
+    renderRoutineSelector(payload.routines || [], payload.selectedRoutineId || '', Boolean(payload.routineRunning));
   });
+
+  window.addEventListener('message', event => {
+    const message = event.data;
+    if (!message) { return; }
+    if (message.type === 'routineStep') {
+      const { label, index, total, status } = message.payload || {};
+      if (routineProgress) {
+        const icon = status === 'running' ? '⏳' : '✅';
+        const existing = routineProgress.querySelector('[data-step="' + index + '"]');
+        if (existing) {
+          existing.textContent = icon + ' ' + escapeHtml(label);
+        } else {
+          const li = document.createElement('div');
+          li.setAttribute('data-step', String(index));
+          li.className = 'routine-step';
+          li.textContent = icon + ' ' + escapeHtml(String(index + 1)) + '/' + escapeHtml(String(total)) + ' ' + escapeHtml(label);
+          routineProgress.appendChild(li);
+        }
+      }
+    }
+    if (message.type === 'routineDone') {
+      const { steps } = message.payload || {};
+      if (routineProgress && Array.isArray(steps)) {
+        routineProgress.innerHTML = steps.map((s, i) => {
+          const icon = s.skipped ? '⏭️' : s.exitCode === 0 ? '✅' : '❌';
+          return '<div class="routine-step">' + icon + ' ' + escapeHtml(String(i + 1)) + '/' + escapeHtml(String(steps.length)) + ' ' + escapeHtml(s.label) + '</div>';
+        }).join('');
+      }
+      renderRoutineSelector(clientState.payload.routines || [], clientState.payload.selectedRoutineId || '', false);
+    }
+  });
+
+  function renderRoutineSelector(routines, activeId, running) {
+    if (!routineList) { return; }
+    if (!Array.isArray(routines) || routines.length === 0) {
+      routineList.innerHTML = renderEmptyCard('No routines defined', 'Add <code>.md</code> files to <code>project_memory/routines/</code>. See README.md in that folder for the format.');
+      return;
+    }
+    routineList.innerHTML = routines.map(r => {
+      const isActive = r.id === activeId;
+      const isRunning = running && isActive;
+      const editBtn = r.source
+        ? '<button type="button" data-action="edit-routine" data-routine-id="' + escapeHtml(r.id) + '">Edit<' + '/button>'
+        : '';
+      return '<article class="run-card run-row routine-card' + (isActive ? ' active' : '') + '" data-routine-id="' + escapeHtml(r.id) + '">' +
+        '<div class="run-card-header run-row-header">' +
+          '<div class="run-card-header-inner">' +
+            '<div>' +
+              '<h3>' + escapeHtml(r.name) + '<' + '/h3>' +
+              (r.description ? '<p class="section-copy run-row-copy">' + escapeHtml(r.description) + '<' + '/p>' : '') +
+            '<' + '/div>' +
+          '<' + '/div>' +
+          '<span class="meta-pill">' + escapeHtml(String(r.stepCount)) + ' step' + (r.stepCount !== 1 ? 's' : '') + '<' + '/span>' +
+        '<' + '/div>' +
+        '<div class="action-strip">' +
+          '<button type="button" class="' + (isRunning ? 'is-loading' : '') + '" data-action="run-routine" data-routine-id="' + escapeHtml(r.id) + '"' + (isRunning ? ' disabled' : '') + '>Ship<' + '/button>' +
+          editBtn +
+        '<' + '/div>' +
+      '<' + '/article>';
+    }).join('');
+  }
+
+  if (routineList) {
+    routineList.addEventListener('click', event => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) { return; }
+      const btn = target.closest('[data-action]');
+      const routineId = btn instanceof HTMLElement ? (btn.getAttribute('data-routine-id') || '') : '';
+      if (btn instanceof HTMLElement && btn.getAttribute('data-action') === 'run-routine' && routineId) {
+        if (routineProgress) { routineProgress.innerHTML = ''; }
+        renderRoutineSelector(clientState.payload.routines || [], routineId, true);
+        vscode.postMessage({ type: 'runRoutine', payload: { routineId, vars: {} } });
+        return;
+      }
+      if (btn instanceof HTMLElement && btn.getAttribute('data-action') === 'edit-routine' && routineId) {
+        const routine = (clientState.payload.routines || []).find(r => r.id === routineId);
+        if (routine && routine.source) {
+          vscode.postMessage({ type: 'editRoutine', payload: routine.source });
+        }
+        return;
+      }
+    });
+  }
 
   function buildExecutionMessage(liveMessage, run, approvalEnabled) {
     if (!run) {

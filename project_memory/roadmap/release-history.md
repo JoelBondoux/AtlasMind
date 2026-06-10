@@ -10,23 +10,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-## [0.73.5] - 2026-06-09
+## [0.76.5] - 2026-06-10
+
+### Added
+- **Animated logo on active-agent session tiles** (`media/chatPanel.js`, `src/views/chatPanel.ts`): session tiles in the Sessions panel now display a small animated AtlasMind globe (the same spinning-axis logo used in the thinking indicator, scaled to 14 px) when an agent is actively working in that session. The animation reuses the existing `atlas-spin` and `atlas-float` keyframes and disappears automatically once the run completes.
+
+## [0.76.4] - 2026-06-10
+
+### Changed
+- **Model & provider info cards** (`src/views/treeViews.ts`): clicking "info" on a model or provider in the Models tree now routes the summary into a dedicated **"Model & Provider Info"** session instead of appending it to the currently active working session. If the dedicated session has been deleted or archived the next info request recreates it automatically. The user's active working session is never interrupted.
+
+## [0.76.3] - 2026-06-10
 
 ### Fixed
-- **`github-operator` agent — chained instructions, auto commit messages, context-aware policy, publish routine** (`src/runtime/core.ts`): the built-in GitHub Operator agent now handles the full set of operational patterns exposed by the transcript review: (1) *Chained sequential ops* — requests like "commit and push" or "stage, commit, and push" are now executed sequentially in a single turn without pausing for confirmation between steps. (2) *Auto commit-message generation* — when no message is supplied, the agent runs `git diff --staged --stat` and composes a conventional commit message (feat:/fix:/docs:/chore:/refactor:) from the actual diff instead of asking the user or producing verbose explanations. (3) *Context-aware push target* — the agent derives the correct push-target branch, protected-branch rules, release-hygiene requirements, and publish routine from the injected workspace context (populated by the AI Instructions sync from CLAUDE.md, `.github/copilot-instructions.md`, or equivalent) rather than reading project files at runtime. (4) *Release-hygiene enforcement* — version-bump and changelog requirements are read from the workspace context and carried out in the same commit. (5) *Publishing routine* — when asked to publish or ship, the agent follows the routine from the workspace context and executes every step in sequence, reporting the outcome per step. (6) *Policy persistence* — when a requested policy (push target, version-bump rules, publish routine) is missing from the workspace context and the user supplies it, the agent records it immediately to `project_memory/domain/ai-instructions-sync.md` so it is available to all future tasks without the user repeating it.
-- **Planner — chained git operations and release hygiene** (`src/core/planner.ts`): two new rules added to `PLANNER_SYSTEM_PROMPT`. The *chained sequential operations* rule directs the planner to model each operation in a "commit and push"-style request as a separate subtask with explicit `dependsOn` ordering. The *release hygiene* rule directs the planner to include a release-hygiene subtask (version bump + changelog) before the commit subtask and wire the commit to depend on it when the project enforces this policy.
+- **Chat panel completely non-functional** (`media/chatPanel.js`): Unicode curly/smart single-quote characters (`‘`/`’`) were embedded in a JS string literal on line 3647, introduced when the AI instruction nudge text was written. JavaScript does not recognise curly quotes as string delimiters, so the entire IIFE failed to parse and no event handlers were ever registered. This caused the Send button, model-info output, and session panel toggle to all stop working simultaneously. Fixed by replacing the three curly quotes with plain ASCII single quotes (`'`).
 
-## [0.73.4] - 2026-06-08
+## [0.76.2] - 2026-06-10
 
 ### Fixed
-- **Responses ending with code or bare headings** (`src/core/orchestrator.ts`, `src/chat/participant.ts`): `looksLikeIncompleteDelivery` now also detects structural truncation — an odd number of fenced code blocks (unclosed fence) or a lone markdown heading at the very end of a response with no body. A new `sanitizeResponseTail` utility closes any unclosed code fence and strips the dangl
+- **AI instruction nudge** (`src/views/chatPanel.ts`, `media/chatPanel.js`): three bugs introduced in 0.76.0 are resolved:
+  1. Missing CSS for `.ai-instruction-nudge`, `.nudge-btn`, `.nudge-btn-primary`, and related classes caused the nudge banner to render as unstyled HTML that disrupted the chat layout.
+  2. The "Sync Now" button stayed permanently disabled after a sync failure; the extension now sends `resetSyncButton` on failure and the webview re-enables the button.
+  3. Nudge dismiss state was stored in an in-memory `Set` and lost on every extension reload; it is now persisted via `workspaceState` (`atlasmind.aiInstructionNudgeDismissed`).
+
+## [0.76.1] - 2026-06-09
+
+### Docs
+- **Testing methodology system documented** across `README.md`, `docs/agents-and-skills.md`, `wiki/Agents.md`, `wiki/Changelog.md`, `wiki/Getting-Started.md`, and `wiki/Home.md`: added the full 23-methodology registry table, Settings Panel Testing matrix reference, auto-assess scan description, Project Dashboard Testing page, Agent Testing Roles section, and bootstrap/import flow. Updated all "red-green testing polic
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-06-09T14:21:07.938Z
+generated-at: 2026-06-10T17:53:13.662Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: 6c6e5cc3
-body-fingerprint: c96ecf1f
+source-fingerprint: 19cfcd56
+body-fingerprint: 550a2269
 -->

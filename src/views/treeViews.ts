@@ -117,22 +117,27 @@ export function registerTreeViews(
   );
 }
 
+const INFO_SESSION_TITLE = 'Model & Provider Info';
+
 export async function postSidebarSummaryToChat(
   atlas: AtlasMindContext,
   heading: string,
   body: string,
 ): Promise<void> {
-  const sessionId = atlas.sessionConversation.getActiveSessionId();
+  // Route info cards to a dedicated session so they never interrupt the active
+  // working session. Recreate the session if the user has deleted or archived it.
+  const existing = atlas.sessionConversation.listSessions().find(s => s.title === INFO_SESSION_TITLE);
+  const infoSessionId = existing?.id ?? atlas.sessionConversation.spawnSession(INFO_SESSION_TITLE);
   const messageId = atlas.sessionConversation.appendMessage(
     'assistant',
     `## ${heading}\n\n${body.trim()}`,
-    sessionId,
+    infoSessionId,
     undefined,
     // Sidebar info cards are reference material, not part of the task dialogue.
     // Exclude them from session context so they don't distort routing or cost.
     { classification: 'irrelevant', relevanceWeight: 0 },
   );
-  await ChatViewProvider.open({ sessionId, messageId });
+  await ChatViewProvider.open({ sessionId: infoSessionId, messageId });
 }
 
 // ── Sessions ───────────────────────────────────────────────────

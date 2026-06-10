@@ -513,7 +513,7 @@
     cancelComposerFocusRestore();
   });
 
-  function renderSessions(sessions, selectedSessionId, runs, selectedRunId) {
+  function renderSessions(sessions, selectedSessionId, runs, selectedRunId, busySessionId) {
     var count = Array.isArray(sessions) ? sessions.length : 0;
     sessionCountBadge.textContent = String(count);
     sessionList.innerHTML = '';
@@ -550,6 +550,25 @@
       const title = document.createElement('div');
       title.className = 'session-item-title';
       title.textContent = session.title;
+
+      if (session.id === busySessionId) {
+        button.classList.add('session-item-running');
+        var busyLogo = document.createElement('span');
+        busyLogo.className = 'session-item-busy-logo';
+        busyLogo.setAttribute('aria-label', 'Agent active');
+        busyLogo.title = 'Agent active in this session';
+        busyLogo.innerHTML = [
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">',
+          '<circle class="atlas-outline" cx="12" cy="12" r="10"/>',
+          '<g class="atlas-axis">',
+          '<path d="M12 2 C7 7, 7 17, 12 22"/>',
+          '<path d="M12 2 C17 7, 17 17, 12 22"/>',
+          '<line x1="2" y1="12" x2="22" y2="12"/>',
+          '</g>',
+          '</svg>',
+        ].join('');
+        title.appendChild(busyLogo);
+      }
 
       const meta = document.createElement('div');
       meta.className = 'session-meta';
@@ -3557,7 +3576,7 @@
         status.textContent = 'Loaded a Project Dashboard prompt. Review it, then send when ready.';
         focusPromptInputAtEnd({ force: true });
       }
-      var standaloneRuns = renderSessions(state.sessions, state.selectedSessionId, state.projectRuns, state.selectedRunId || (state.selectedRun ? state.selectedRun.id : undefined));
+      var standaloneRuns = renderSessions(state.sessions, state.selectedSessionId, state.projectRuns, state.selectedRunId || (state.selectedRun ? state.selectedRun.id : undefined), state.busySessionId);
       renderRuns(standaloneRuns, state.selectedRunId || (state.selectedRun ? state.selectedRun.id : undefined));
       renderPendingApprovals(state.pendingToolApprovals);
       renderPendingRunReview(state.pendingRunReview, state.selectedRunId || (state.selectedRun ? state.selectedRun.id : undefined));
@@ -3644,7 +3663,7 @@
       var detail = document.getElementById('aiInstructionNudgeDetail');
       if (nudge) {
         if (detail && message.payload && message.payload.files) {
-          detail.textContent = ‘ Found: ‘ + message.payload.files + ". Sync them so AtlasMind knows your project’s rules and policies.";
+          detail.textContent = ' Found: ' + message.payload.files + ". Sync them so AtlasMind knows your project's rules and policies.";
         }
         nudge.classList.remove('hidden');
       }
@@ -3654,6 +3673,14 @@
       var nudgeEl = document.getElementById('aiInstructionNudge');
       if (nudgeEl) {
         nudgeEl.classList.add('hidden');
+      }
+    }
+
+    if (message.type === 'resetSyncButton') {
+      var syncBtnEl = document.getElementById('syncAiInstructions');
+      if (syncBtnEl) {
+        syncBtnEl.disabled = false;
+        syncBtnEl.textContent = 'Sync Now';
       }
     }
   });

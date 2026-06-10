@@ -6,6 +6,34 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.77.2 — Bootstrapper Routine Extraction and Chat Routine-Edit Intent
+
+- **Bootstrapper routine extraction**: `/import` now scans `CLAUDE.md`, `.github/copilot-instructions.md`, and `docs/development.md` for ordered procedure sections and writes a starter routine file to `project_memory/routines/<id>.md`. Steps are extracted from numbered list items with a **Label** and a backtick-quoted `command`; `<angle-bracket-placeholders>` become `${VAR}` interpolation tokens. Manual edits to routine files are detected via body fingerprint and preserved — the file is never overwritten. After writing, `RoutineRegistry` is reloaded so the new routine is immediately available to `/ship`.
+- **Chat routine-edit intent**: freeform messages like "edit the ship routine" or "update my publish routine" now open the matching routine's source `.md` file directly in the VS Code editor, bypassing the LLM. AtlasMind matches the routine name or ID from the prompt, falls back to the default, and explains how to scaffold one via `/import` if no routines exist.
+
+## v0.77.0–0.77.1 — Project Routines and `/ship` Command
+
+- **Project Routines**: named, executable workflows stored as YAML-frontmatter `.md` files in `project_memory/routines/`. The registry scans on startup; the runner executes steps sequentially with `on_fail: abort | prompt | continue` policies and persists run results to ProjectRunHistory.
+- **`/ship` command**: runs the default routine (or a named routine via `/ship <id>`). Trailing text is passed as `${message}` for commit message interpolation. Each step streams a live checklist into chat.
+- **Run Routine card in Project Run Center**: routine tiles replace the dropdown, matching the panel's run-card design language. Each tile has a Ship button and an Edit button that opens the source file.
+
+## v0.76.0 — AI Instruction Sync and Agent Quality Improvements
+
+- **AI instruction sync** (`src/utils/aiInstructionSync.ts`): AtlasMind detects AI instruction files from 9 other tools in the open workspace (GitHub Copilot, Claude Code, Cursor, Cline, Continue, OpenAI Codex, Gemini CLI, Windsurf, Aider) and surfaces a nudge banner in the chat panel. Clicking **Sync** merges selected files into `project_memory/domain/ai-instructions-sync.md` as advisory context; Personality Profile settings take precedence. Path traversal is rejected at both scan and write time.
+- **Orchestrator default prompt**: agents now read project memory, `CLAUDE.md`, or `README.md` before invoking executable skills when answering knowledge questions ("what is the publish policy?", "how do we branch?").
+- **npmScripts skill**: description clarified to distinguish execution from knowledge queries; added routing hints and a 120-second timeout.
+
+## v0.75.x — Testing Methodology Overhaul (0.74.0 → 0.75.8)
+
+AtlasMind's testing system was rebuilt from a single TDD default into a full 23-methodology strategy registry. Changes shipped across eight patch releases:
+
+- **23-methodology registry** (`src/types.ts`): each methodology carries label, description, category, *When to use*, *Key tools*, *Trade-offs*, `autoDetectSignals`, and a new **AI token impact** level (Low / Medium / High) with explanation. Categories: Design-time (TDD, BDD, ATDD, SDD, V-Model), Structural (Unit, Integration, Mutation, Property-Based, Continuous/Shift-Left, White-Box), Behavioral (E2E, Snapshot, Contract, MBT, Test Design Techniques, Black-Box, Gray-Box), Non-functional (Performance, Security, Visual Regression), Exploratory (Exploratory, Agile Testing).
+- **Settings Panel → Testing tab**: full 23-row methodology matrix with enable/disable toggles, expandable ⓘ info rows (When to use / Key tools / Trade-offs / **AI token impact** badge), per-methodology agent assignment dropdown, model override input, and notes field. Colour-coded token impact badges: green = Low, amber = Medium, red = High.
+- **Auto-assess project button**: scans the workspace (package.json deps, test config files, CI pipeline configs, UI source files, OpenAPI/Swagger specs, `SECURITY.md`, git contributor count, README) and signal-matches against each methodology's `autoDetectSignals` to recommend a pre-selected set via an Auto / Manual / Skip QuickPick.
+- **Project Dashboard → Testing page**: live methodology toggle matrix with immediate save to `project_memory/index/testing-config.json`.
+- **Agent Editor → Testing Roles section**: read-only methodology chips for assigned methodologies plus per-methodology model override inputs.
+- **Bootstrap and import**: Auto / Manual / Skip picker presented before the methodology list; Auto mode pre-selects inferred methodologies; Skip defaults to TDD + Unit.
+
 ## v0.73.5 — GitHub Operator: Chained Ops, Auto Commit Messages, Policy Awareness, and Publish Routine
 
 - **`github-operator` system prompt overhaul** (`src/runtime/core.ts`): the built-in GitHub Operator now executes chained git instructions ("commit and push") sequentially in a single turn; auto-generates conventional commit messages from `git diff --staged --stat` when none is supplied; derives push-target branch, protected-branch rules, release-hygiene requirements, and publish routine from the injected workspace context (populated by the AI Instructions sync from CLAUDE.md, `.github/copilot-instructions.md`, or equivalent) rather than reading project files at runtime.
