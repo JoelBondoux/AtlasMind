@@ -92,6 +92,7 @@ src/
     gitBranch.ts
     ... (22 more entries)
   utils/
+    aiInstructionSync.ts
     secretRedactor.ts
     workspacePicker.ts
   views/
@@ -296,6 +297,7 @@ project_memory/
     .gitkeep
     import-catalog.md
     import-freshness.md
+    testing-config.json
   misadventures/
     .gitkeep
     security-policy-sync.md
@@ -347,8 +349,8 @@ project_memory/
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-06-08T18:15:14.132Z
+generated-at: 2026-06-09T17:35:57.087Z
 source-paths: src | tests | docs | wiki | project_memory | .github
-source-fingerprint: 101d681f
-body-fingerprint: 6f5a46cf
+source-fingerprint: 483f758e
+body-fingerprint: a22de4f0
 -->
