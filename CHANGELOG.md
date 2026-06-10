@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.76.4] - 2026-06-10
+
+### Changed
+- **Model & provider info cards** (`src/views/treeViews.ts`): clicking "info" on a model or provider in the Models tree now routes the summary into a dedicated **"Model & Provider Info"** session instead of appending it to the currently active working session. If the dedicated session has been deleted or archived the next info request recreates it automatically. The user's active working session is never interrupted.
+
 ## [0.76.3] - 2026-06-10
 
 ### Fixed
