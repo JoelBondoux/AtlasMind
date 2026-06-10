@@ -3952,6 +3952,13 @@ export class ChatPanel {
           50% { opacity: 0.75; transform: scale(1.08); }
         }
 
+        /* ---- Session tile busy indicator ---- */
+        .session-item-running .session-item-title { display: flex; align-items: center; gap: 4px; }
+        .session-item-busy-logo { flex: 0 0 14px; width: 14px; height: 14px; margin-left: auto; }
+        .session-item-busy-logo svg { width: 14px; height: 14px; color: var(--vscode-button-background); animation: atlas-float 1.8s ease-in-out infinite; }
+        .session-item-busy-logo .atlas-outline { opacity: 0.9; }
+        .session-item-busy-logo .atlas-axis { transform-origin: center; animation: atlas-spin 2.6s linear infinite; transform-box: view-box; }
+
         /* ---- Run inspector ---- */
         .run-card {
           border: 1px solid var(--vscode-widget-border, #444);
