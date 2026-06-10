@@ -851,6 +851,52 @@ export interface SkillScanResult {
   issues: SkillScanIssue[];
 }
 
+// ── Project Routines ─────────────────────────────────────────────
+
+/** A single shell-command step within a routine. */
+export interface RoutineStep {
+  id: string;
+  label: string;
+  /** Shell command to execute. Supports ${message} and ${version} interpolation. */
+  run: string;
+  on_fail: 'abort' | 'prompt' | 'continue';
+}
+
+/** A named, executable workflow stored in project_memory/routines/. */
+export interface RoutineDefinition {
+  id: string;
+  name: string;
+  description: string;
+  /** When true this routine is selected by /ship when no routine ID is specified. */
+  default?: boolean;
+  steps: RoutineStep[];
+  /** Absolute path to the source .md file. Absent for built-in routines. */
+  source?: string;
+  builtIn?: boolean;
+}
+
+/** Result of executing a single step. */
+export interface RoutineStepResult {
+  stepId: string;
+  label: string;
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  durationMs: number;
+  skipped?: boolean;
+}
+
+/** Aggregate result of a full routine run. */
+export interface RoutineRunResult {
+  routineId: string;
+  routineName: string;
+  steps: RoutineStepResult[];
+  succeeded: boolean;
+  /** ID of the first step that failed, if any. */
+  failedStep?: string;
+  durationMs: number;
+}
+
 // ── Scanner rule configuration ────────────────────────────────────
 
 /**
@@ -916,6 +962,7 @@ export const SSOT_FOLDERS = [
   'skills',
   'index',
   'sessions',
+  'routines',
 ] as const;
 
 export type SsotFolder = (typeof SSOT_FOLDERS)[number];

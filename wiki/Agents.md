@@ -75,6 +75,44 @@ For freeform code work, the built-in agents now also carry a shared tests-first 
 
 When AtlasMind observes TDD state for a freeform task, the chat Thinking summary now shows a red-to-green status cue. Verified runs surface observed red-to-green evidence directly in chat, while blocked or missing states are called out visibly instead of being buried in verification prose.
 
+### Testing Methodology System
+
+AtlasMind ships a 23-methodology testing strategy registry, replacing the earlier single-policy TDD default. Every methodology carries a label, description, category, *When to use*, *Key tools*, *Trade-offs*, and an **AI token impact** level (Low / Medium / High) with a plain-English explanation of what drives usage.
+
+#### Methodology registry
+
+| Category | Methodologies |
+|---|---|
+| **Design-time** | TDD, BDD, ATDD, Spec-Driven (SDD), V-Model |
+| **Structural** | Unit, Integration, Mutation, Property-Based, Continuous/Shift-Left, White-Box |
+| **Behavioral** | End-to-End, Snapshot, Contract, Model-Based (MBT), Test Design Techniques, Black-Box, Gray-Box |
+| **Non-functional** | Performance, Security, Visual Regression |
+| **Exploratory** | Exploratory, Agile Testing |
+
+#### Configuration — Settings Panel → Testing
+
+Open **AtlasMind: Open Settings Panel** and navigate to the **Testing** tab. The methodology matrix shows all 23 rows grouped by category. Each row provides:
+
+- **Enable/disable toggle** — controls whether the methodology is active for this project.
+- **ⓘ info button** — expands a detail row showing *When to use*, *Key tools*, *Trade-offs*, and the colour-coded **AI token impact** badge (green = Low, amber = Medium, red = High).
+- **Primary Agent dropdown** — assigns a specific agent as the handler for this methodology.
+- **Model override** — pins a model ID for tasks running under this methodology; blank follows global model routing.
+- **Notes** — free-form per-methodology notes saved to `project_memory/index/testing-config.json`.
+
+The **Auto-assess project** button scans the workspace — package.json dependencies and scripts, test framework config files, CI pipeline configs (`.github/workflows/`, `.gitlab-ci.yml`, `Jenkinsfile`, etc.), UI source files, OpenAPI/Swagger specs, `SECURITY.md`, git contributor count, and the first 3 kB of `README.md` — and uses signal matching against each methodology's `autoDetectSignals` to generate a pre-selected recommendation set. An Auto / Manual / Skip picker controls how the result is applied.
+
+#### Project Dashboard — Testing page
+
+The **Project Dashboard → Testing** page includes a methodology toggle matrix with immediate save. Toggling a methodology writes directly to `project_memory/index/testing-config.json`. An **Open Testing Strategy →** link navigates to the Settings Panel for agent assignment and model overrides.
+
+#### Agent Testing Roles
+
+The **Agent Editor** shows a **Testing Roles** section below Skills. When a methodology is assigned to the agent in `testing-config.json`, the section renders read-only chips for each methodology plus per-methodology model override inputs. When no methodologies are assigned, a **Configure in Testing Strategy →** link opens the Settings Panel Testing page.
+
+#### Bootstrap and import
+
+During `@atlas /bootstrap` (new project) and `@atlas /import` (existing project), AtlasMind presents an **Auto / Manual / Skip** picker before the methodology list. In Auto mode the inferred methodology set is pre-selected in a customisable QuickPick; Manual lets you choose freely; Skip defaults to TDD + Unit. After confirming, if a test-focused agent exists, an offer is made to assign it as the primary agent for all enabled methodologies.
+
 Freeform execution also now emits lightweight live progress updates while a response is still running. In the dedicated chat surface, AtlasMind shows interim thinking-style notes such as agent selection, tool rounds, workspace-investigation retries, and escalation or anti-churn nudges before the final answer replaces those transient updates.
 
 AtlasMind also reflects part of the routing trace back in the assistant footer. The Thinking summary now includes the selected agent, any detected routing hints, whether workspace-investigation bias was applied before execution, the completed turn's token and cost usage, and any observed red-to-green TDD status.

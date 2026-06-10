@@ -2,7 +2,7 @@
 
 If you only need the shortest path: install AtlasMind, configure one model provider, then run `@atlas /bootstrap` for a new repo or `@atlas /import` for an existing one.
 
-If you are deciding whether to adopt it, the short answer is that AtlasMind is aimed at developers who want autonomous help without losing reviewability. The core workflow is safety-first, approval-aware, and well suited to red/green TDD-style execution instead of unchecked implementation-first edits.
+If you are deciding whether to adopt it, the short answer is that AtlasMind is aimed at developers who want autonomous help without losing reviewability. The core workflow is safety-first, approval-aware, and backed by a configurable 23-methodology testing strategy system — from TDD and BDD through E2E, security, performance, and more — so you get evidence-backed delivery rather than unchecked implementation-first edits.
 
 ## Prerequisites
 

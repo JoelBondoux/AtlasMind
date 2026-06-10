@@ -2,7 +2,7 @@
 
 AtlasMind is a VS Code extension for developers who want AI help with more control: model choice, persistent project memory, approvals, cost visibility, and extensibility through custom skills or MCP servers.
 
-It is built for teams that want autonomy without hand-waving. AtlasMind keeps safety and security controls visible, prefers evidence over blind execution, and is designed to support red/green TDD-style delivery instead of implementation-first guesswork.
+It is built for teams that want autonomy without hand-waving. AtlasMind keeps safety and security controls visible, prefers evidence over blind execution, and ships a configurable 23-methodology testing strategy system — covering TDD, BDD, E2E, security, performance, and more — so delivery is evidence-backed rather than implementation-first guesswork.
 
 This wiki is the reference layer behind the shorter repository README. Use it for setup details, command reference, architecture notes, and configuration depth.
 
