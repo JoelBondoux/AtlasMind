@@ -635,6 +635,10 @@ async function handleChatRequest(
       await handleRunsCommand(stream);
       break;
 
+    case 'ship':
+      await handleShipCommand(request.prompt, stream, atlas);
+      break;
+
     case 'voice':
       await handleVoiceCommand(stream);
       break;
@@ -978,6 +982,89 @@ export async function runProjectCommand(
     }
     return { hasFailures: true, hasChangedFiles: false, failedSubtaskTitles: ['Project execution failed'] };
   }
+}
+
+async function handleShipCommand(
+  prompt: string,
+  stream: vscode.ChatResponseStream,
+  atlas: AtlasMindContext,
+): Promise<void> {
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!workspaceRoot) {
+    stream.markdown('Open a workspace folder first, then run `/ship` again.');
+    return;
+  }
+
+  // Resolve routine: named ID in prompt takes precedence, else default.
+  const routineId = prompt.trim();
+  const routine = routineId
+    ? atlas.routineRegistry.get(routineId)
+    : atlas.routineRegistry.getDefault();
+
+  if (!routine) {
+    const available = atlas.routineRegistry.list();
+    if (available.length === 0) {
+      stream.markdown(
+        '### No routines found\n\n' +
+        'Create a routine file in `project_memory/routines/` to get started.\n\n' +
+        'See `project_memory/routines/README.md` for the file format.',
+      );
+    } else {
+      const list = available.map(r => `- \`${r.id}\` — ${r.name}`).join('\n');
+      stream.markdown(`Routine \`${routineId}\` not found. Available routines:\n\n${list}`);
+    }
+    return;
+  }
+
+  // Extract commit message from prompt if present (text after routine ID, or full prompt when no ID).
+  const vars: Record<string, string> = {};
+  const messageMatch = prompt.match(/(?:^|\S+\s+)(.*)/);
+  if (messageMatch?.[1]) {
+    vars['message'] = messageMatch[1].trim();
+  }
+
+  stream.markdown(`### ${routine.name}\n\n${routine.description}\n\n`);
+
+  const lines: string[] = [];
+  const { RoutineRunner } = await import('../core/routineRunner.js');
+  const runner = new RoutineRunner(atlas.projectRunHistory);
+
+  const result = await runner.run(
+    routine,
+    vars,
+    workspaceRoot,
+    (step, index, total) => {
+      lines.push(`- ⏳ **Step ${index + 1}/${total}:** ${step.label}`);
+      stream.markdown(lines.join('\n'));
+    },
+    async (step, stepResult) => {
+      stream.markdown(
+        `\n\n**Step failed:** ${step.label}\n\n` +
+        `\`\`\`\n${stepResult.stderr || stepResult.stdout || 'No output'}\n\`\`\`\n\n` +
+        'The step is configured to stop on failure.',
+      );
+      return 'abort';
+    },
+  );
+
+  // Replace pending indicators with final status
+  const finalLines = result.steps.map((s, i) => {
+    const icon = s.skipped ? '⏭️' : s.exitCode === 0 ? '✅' : '❌';
+    return `- ${icon} **Step ${i + 1}/${result.steps.length}:** ${s.label}`;
+  });
+  stream.markdown(finalLines.join('\n'));
+
+  if (result.succeeded) {
+    stream.markdown('\n\n**Routine completed successfully.**');
+  } else {
+    const failedStep = result.steps.find(s => s.stepId === result.failedStep);
+    stream.markdown(
+      `\n\n**Routine aborted at step:** ${failedStep?.label ?? result.failedStep}\n\n` +
+      (failedStep?.stderr ? `\`\`\`\n${failedStep.stderr}\n\`\`\`` : ''),
+    );
+  }
+
+  atlas.routinesRefresh.fire();
 }
 
 async function handleRunsCommand(stream: vscode.ChatResponseStream): Promise<void> {
@@ -2202,6 +2289,12 @@ export function buildFollowups(
         { prompt: '/project', label: 'Run a new project' },
         { prompt: '/cost', label: 'Review session cost' },
         { prompt: '/memory operations', label: 'Search operations memory' },
+      ];
+
+    case 'ship':
+      return [
+        { prompt: '/runs', label: 'View run history' },
+        { prompt: '/cost', label: 'Review session cost' },
       ];
 
     case 'voice':

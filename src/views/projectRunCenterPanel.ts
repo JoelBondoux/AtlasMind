@@ -67,7 +67,8 @@ type ProjectRunCenterMessage =
   | { type: 'setInjectOutputIntoFollowUp'; payload: boolean }
   | { type: 'openRunChat'; payload: string }
   | { type: 'feedbackToOriginIdeation'; payload: string }
-  | { type: 'createIdeationFromRun'; payload: string };
+  | { type: 'createIdeationFromRun'; payload: string }
+  | { type: 'runRoutine'; payload: { routineId: string; vars: Record<string, string> } };
 
 interface ProjectRunPreviewState {
   runId: string;
@@ -106,6 +107,8 @@ export class ProjectRunCenterPanel {
   private pauseBeforeNextBatch = false;
   private approvalResolver: (() => void) | undefined;
   private resumeResolver: (() => void) | undefined;
+  private selectedRoutineId: string | undefined;
+  private routineRunning = false;
 
   public static createOrShow(
     context: vscode.ExtensionContext,
@@ -269,7 +272,68 @@ export class ProjectRunCenterPanel {
           injectOutputIntoFollowUp: message.payload,
         }), message.payload ? 'Completed run output will be carried into queued follow-up runs.' : 'Queued follow-up runs will not inherit the completed run synthesis.');
         return;
+      case 'runRoutine':
+        this.selectedRoutineId = message.payload.routineId;
+        await this.runRoutine(message.payload.routineId, message.payload.vars);
+        return;
     }
+  }
+
+  private async runRoutine(routineId: string, vars: Record<string, string>): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      this.liveStatus = 'No workspace folder open.';
+      await this.syncState();
+      return;
+    }
+
+    const routine = this.atlas.routineRegistry.get(routineId);
+    if (!routine) {
+      this.liveStatus = `Routine '${routineId}' not found.`;
+      await this.syncState();
+      return;
+    }
+
+    this.routineRunning = true;
+    this.liveStatus = `Running routine: ${routine.name}…`;
+    await this.syncState();
+
+    try {
+      const { RoutineRunner } = await import('../core/routineRunner.js');
+      const runner = new RoutineRunner(this.atlas.projectRunHistory);
+
+      const result = await runner.run(
+        routine,
+        vars,
+        workspaceRoot,
+        async (step, index, total) => {
+          this.liveStatus = `[${index + 1}/${total}] ${step.label}…`;
+          await this.panel.webview.postMessage({
+            type: 'routineStep',
+            payload: { label: step.label, index, total, status: 'running' },
+          });
+        },
+        async (_step, _stepResult) => {
+          return 'abort';
+        },
+      );
+
+      this.liveStatus = result.succeeded
+        ? `Routine '${routine.name}' completed.`
+        : `Routine '${routine.name}' failed at step: ${result.failedStep ?? 'unknown'}`;
+
+      await this.panel.webview.postMessage({
+        type: 'routineDone',
+        payload: { succeeded: result.succeeded, steps: result.steps },
+      });
+    } catch (err) {
+      this.liveStatus = `Routine error: ${err instanceof Error ? err.message : String(err)}`;
+    } finally {
+      this.routineRunning = false;
+      this.atlas.routinesRefresh.fire();
+    }
+
+    await this.syncState();
   }
 
   private async applyOpenTarget(target?: ProjectRunCenterOpenTarget): Promise<void> {
@@ -1050,6 +1114,9 @@ export class ProjectRunCenterPanel {
         preview: previewState ? serializePreview(previewState) : null,
         runs: runs.map(run => serializeRun(run)),
         selectedRun: selectedRun ? serializeRun(selectedRun) : null,
+        routines: (this.atlas.routineRegistry?.list() ?? []).map(r => ({ id: r.id, name: r.name, description: r.description, stepCount: r.steps.length })),
+        selectedRoutineId: this.selectedRoutineId,
+        routineRunning: this.routineRunning,
       },
     });
   }
@@ -1078,6 +1145,26 @@ export class ProjectRunCenterPanel {
               <button id="refreshRuns" class="dashboard-button dashboard-button-ghost" type="button">Refresh Runs</button>
             </div>
           </div>
+
+          <section class="routines-card-section">
+            <article class="panel-card panel-card-routines">
+              <p class="section-kicker">Project routines</p>
+              <h2>Ship</h2>
+              <p class="section-copy">Run a saved routine — tests, commit, push, deploy.</p>
+              <div class="field-stack">
+                <label class="field-label" for="routineSelect">Choose a routine</label>
+                <select id="routineSelect" class="routine-select">
+                  <option value="">— No routines loaded —</option>
+                </select>
+              </div>
+              <div id="routineProgress" class="routine-progress"></div>
+              <div class="button-row">
+                <span class="btn-tip" id="tip-runRoutine">
+                  <button id="runRoutine" class="dashboard-button dashboard-button-solid" type="button" disabled>Run Routine</button>
+                </span>
+              </div>
+            </article>
+          </section>
 
           <section class="hero-grid">
             <article class="hero-card">
@@ -2517,7 +2604,10 @@ function buildScript(): string {
   const workflowStepper = document.getElementById('workflowStepper');
   const subtaskTracker = document.getElementById('subtaskTracker');
   const subtaskTrackerSummary = document.getElementById('subtaskTrackerSummary');
-  const clientState = { payload: { runs: [], selectedRun: null, preview: null, executionOptions: {} }, search: '' };
+  const routineSelect = document.getElementById('routineSelect');
+  const runRoutineBtn = document.getElementById('runRoutine');
+  const routineProgress = document.getElementById('routineProgress');
+  const clientState = { payload: { runs: [], selectedRun: null, preview: null, executionOptions: {}, routines: [], selectedRoutineId: '', routineRunning: false }, search: '' };
 
   function escapeHtml(value) {
     return String(value)
@@ -3296,7 +3386,70 @@ function buildScript(): string {
     renderPreview(payload.preview || null);
     renderRunCards(payload.runs || [], payload.selectedRun ? payload.selectedRun.id : '');
     renderSelectedRun(payload.selectedRun || null);
+    renderRoutineSelector(payload.routines || [], payload.selectedRoutineId || '', Boolean(payload.routineRunning));
   });
+
+  window.addEventListener('message', event => {
+    const message = event.data;
+    if (!message) { return; }
+    if (message.type === 'routineStep') {
+      const { label, index, total, status } = message.payload || {};
+      if (routineProgress) {
+        const icon = status === 'running' ? '⏳' : '✅';
+        const existing = routineProgress.querySelector('[data-step="' + index + '"]');
+        if (existing) {
+          existing.textContent = icon + ' ' + escapeHtml(label);
+        } else {
+          const li = document.createElement('div');
+          li.setAttribute('data-step', String(index));
+          li.className = 'routine-step';
+          li.textContent = icon + ' ' + escapeHtml(String(index + 1)) + '/' + escapeHtml(String(total)) + ' ' + escapeHtml(label);
+          routineProgress.appendChild(li);
+        }
+      }
+    }
+    if (message.type === 'routineDone') {
+      const { succeeded, steps } = message.payload || {};
+      if (routineProgress && Array.isArray(steps)) {
+        routineProgress.innerHTML = steps.map((s, i) => {
+          const icon = s.skipped ? '⏭️' : s.exitCode === 0 ? '✅' : '❌';
+          return '<div class="routine-step">' + icon + ' ' + escapeHtml(String(i + 1)) + '/' + escapeHtml(String(steps.length)) + ' ' + escapeHtml(s.label) + '</div>';
+        }).join('');
+      }
+      if (runRoutineBtn instanceof HTMLButtonElement) {
+        runRoutineBtn.disabled = false;
+        runRoutineBtn.classList.remove('is-loading');
+      }
+    }
+  });
+
+  function renderRoutineSelector(routines, selectedId, running) {
+    if (!(routineSelect instanceof HTMLSelectElement)) { return; }
+    const prev = routineSelect.value || selectedId;
+    routineSelect.innerHTML = routines.length === 0
+      ? '<option value="">— No routines in project_memory/routines/ —</option>'
+      : routines.map(r =>
+          '<option value="' + escapeHtml(r.id) + '"' + (r.id === prev ? ' selected' : '') + '>' +
+          escapeHtml(r.name) + ' (' + escapeHtml(String(r.stepCount)) + ' steps)</option>'
+        ).join('');
+    if (runRoutineBtn instanceof HTMLButtonElement) {
+      runRoutineBtn.disabled = routines.length === 0 || running;
+      if (running) { runRoutineBtn.classList.add('is-loading'); }
+      else { runRoutineBtn.classList.remove('is-loading'); }
+    }
+  }
+
+  if (runRoutineBtn) {
+    runRoutineBtn.addEventListener('click', () => {
+      if (!(routineSelect instanceof HTMLSelectElement) || !routineSelect.value) { return; }
+      if (runRoutineBtn instanceof HTMLButtonElement) {
+        runRoutineBtn.disabled = true;
+        runRoutineBtn.classList.add('is-loading');
+      }
+      if (routineProgress) { routineProgress.innerHTML = ''; }
+      vscode.postMessage({ type: 'runRoutine', payload: { routineId: routineSelect.value, vars: {} } });
+    });
+  }
 
   function buildExecutionMessage(liveMessage, run, approvalEnabled) {
     if (!run) {

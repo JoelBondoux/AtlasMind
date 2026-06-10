@@ -22,6 +22,7 @@ import type { ToolWebhookDispatcher } from './core/toolWebhookDispatcher.js';
 import type { McpServerRegistry } from './mcp/mcpServerRegistry.js';
 import type { CheckpointManager } from './core/checkpointManager.js';
 import type { ProjectRunHistory } from './core/projectRunHistory.js';
+import type { RoutineRegistry } from './core/routineRegistry.js';
 import { getConfiguredLocalEndpoints, type ProviderRegistry } from './providers/index.js';
 import { getModelInfoUrl, getProviderInfoUrl, lookupCatalog } from './providers/modelCatalog.js';
 import { inferContextWindow, inferCapabilities, inferSpecialistDomains, inferPricing } from './providers/modelMetadataInference.js';
@@ -176,6 +177,8 @@ export interface AtlasMindContext {
   projectRunHistory: ProjectRunHistory;
   projectRunsRefresh: vscode.EventEmitter<void>;
   memoryRefresh: vscode.EventEmitter<void>;
+  routineRegistry: RoutineRegistry;
+  routinesRefresh: vscode.EventEmitter<void>;
   rollbackLastCheckpoint(): Promise<{ ok: boolean; summary: string; restoredPaths: string[] }>;
   /** Trigger AI-based skill re-assessment for a single auto-managed agent. */
   assessAgentSkills?(agentId: string): Promise<void>;
@@ -1489,6 +1492,7 @@ async function bootstrapAtlasMind(
       skillAutoAssignerModule,
       runtimeCoreModule,
       toolPolicyModule,
+      routineRegistryModule,
     ] = await Promise.all([
       import('./chat/participant.js'),
       import('./views/treeViews.js'),
@@ -1514,6 +1518,7 @@ async function bootstrapAtlasMind(
       import('./core/skillAutoAssigner.js'),
       import('./runtime/core.js'),
       import('./core/toolPolicy.js'),
+      import('./core/routineRegistry.js'),
     ]);
 
     return {
@@ -1557,6 +1562,7 @@ async function bootstrapAtlasMind(
       classifyToolInvocation: toolPolicyModule.classifyToolInvocation,
       getToolApprovalMode: toolPolicyModule.getToolApprovalMode,
       requiresToolApproval: toolPolicyModule.requiresToolApproval,
+      RoutineRegistry: routineRegistryModule.RoutineRegistry,
     };
   });
   if (!startupModules) {
@@ -1583,6 +1589,11 @@ async function bootstrapAtlasMind(
       (sys: string, user: string) => maintenanceCompleter(sys, user),
     );
     const workspaceRootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const routinesRefresh = new vscode.EventEmitter<void>();
+    const routineRegistry = new startupModules.RoutineRegistry();
+    if (workspaceRootPath) {
+      void routineRegistry.reload(workspaceRootPath);
+    }
     const projectRunHistory = new startupModules.ProjectRunHistory(context.workspaceState, {
       workspaceKey: workspaceRootPath,
       legacyState: context.globalState,
@@ -2115,6 +2126,8 @@ async function bootstrapAtlasMind(
       projectRunHistory,
       projectRunsRefresh,
       memoryRefresh,
+      routineRegistry,
+      routinesRefresh,
       rollbackLastCheckpoint: async () => {
         if (!checkpointManager) {
           return { ok: false, summary: 'No workspace checkpoint manager is available.', restoredPaths: [] };

@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.77.0] - 2026-06-10
+
+### Added
+- **Project Routines** (`src/core/routineRegistry.ts`, `src/core/routineRunner.ts`): named, executable workflows stored as YAML-frontmatter markdown files in `project_memory/routines/`. The registry scans that folder on startup and makes all valid routines available to the rest of the extension. The runner executes steps sequentially, streams per-step progress, respects `on_fail: abort | prompt | continue` policies, and persists run results to `ProjectRunHistory`.
+- **`/ship` chat command** (`src/chat/participant.ts`, `package.json`): `/ship` runs the project's default routine (first file with `default: true`, or first file in the folder). `/ship <id>` runs a named routine. Text after the ID is passed as `${message}` for interpolation in step commands (e.g. commit messages). Each step streams a live checklist into chat.
+- **Run Routine card in Project Run Center** (`src/views/projectRunCenterPanel.ts`): a new "Ship" card above the hero grid shows a dropdown of all loaded routines and a **Run Routine** button. Step progress streams live into the card; the final result updates the run history.
+- **`project_memory/routines/README.md`**: format reference and worked examples shipped with the extension so users know the routine file format without external docs.
+
 ## [0.76.5] - 2026-06-10
 
 ### Added
