@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.77.1] - 2026-06-10
+
+### Changed
+- **Routine card UI in Project Run Center** (`src/views/projectRunCenterPanel.ts`): replaced the `<select>` dropdown in the Ship card with run-card–style tiles matching the panel's design language. Each routine renders as a clickable card showing its name, description, and step count. The action strip inside each card contains a **Ship** button and an **Edit** button; Edit opens the routine's source `.md` file directly in the editor. The separate standalone Run Routine button has been removed.
+
 ## [0.77.0] - 2026-06-10
 
 ### Added

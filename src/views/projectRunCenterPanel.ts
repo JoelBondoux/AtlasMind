@@ -68,7 +68,8 @@ type ProjectRunCenterMessage =
   | { type: 'openRunChat'; payload: string }
   | { type: 'feedbackToOriginIdeation'; payload: string }
   | { type: 'createIdeationFromRun'; payload: string }
-  | { type: 'runRoutine'; payload: { routineId: string; vars: Record<string, string> } };
+  | { type: 'runRoutine'; payload: { routineId: string; vars: Record<string, string> } }
+  | { type: 'editRoutine'; payload: string };
 
 interface ProjectRunPreviewState {
   runId: string;
@@ -276,6 +277,9 @@ export class ProjectRunCenterPanel {
         this.selectedRoutineId = message.payload.routineId;
         await this.runRoutine(message.payload.routineId, message.payload.vars);
         return;
+      case 'editRoutine':
+        await this.editRoutineFile(message.payload);
+        return;
     }
   }
 
@@ -334,6 +338,16 @@ export class ProjectRunCenterPanel {
     }
 
     await this.syncState();
+  }
+
+  private async editRoutineFile(sourcePath: string): Promise<void> {
+    try {
+      const uri = vscode.Uri.file(sourcePath);
+      const doc = await vscode.workspace.openTextDocument(uri);
+      await vscode.window.showTextDocument(doc);
+    } catch {
+      void vscode.window.showErrorMessage(`Could not open routine file: ${sourcePath}`);
+    }
   }
 
   private async applyOpenTarget(target?: ProjectRunCenterOpenTarget): Promise<void> {
@@ -1114,7 +1128,7 @@ export class ProjectRunCenterPanel {
         preview: previewState ? serializePreview(previewState) : null,
         runs: runs.map(run => serializeRun(run)),
         selectedRun: selectedRun ? serializeRun(selectedRun) : null,
-        routines: (this.atlas.routineRegistry?.list() ?? []).map(r => ({ id: r.id, name: r.name, description: r.description, stepCount: r.steps.length })),
+        routines: (this.atlas.routineRegistry?.list() ?? []).map(r => ({ id: r.id, name: r.name, description: r.description, stepCount: r.steps.length, source: r.source ?? null })),
         selectedRoutineId: this.selectedRoutineId,
         routineRunning: this.routineRunning,
       },
@@ -1150,19 +1164,9 @@ export class ProjectRunCenterPanel {
             <article class="panel-card panel-card-routines">
               <p class="section-kicker">Project routines</p>
               <h2>Ship</h2>
-              <p class="section-copy">Run a saved routine — tests, commit, push, deploy.</p>
-              <div class="field-stack">
-                <label class="field-label" for="routineSelect">Choose a routine</label>
-                <select id="routineSelect" class="routine-select">
-                  <option value="">— No routines loaded —</option>
-                </select>
-              </div>
+              <p class="section-copy">Run a saved routine — tests, commit, push, deploy. Add <code>.md</code> files to <code>project_memory/routines/</code> to define routines, or use <code>/ship</code> in chat.</p>
+              <div id="routineList" class="routine-list"></div>
               <div id="routineProgress" class="routine-progress"></div>
-              <div class="button-row">
-                <span class="btn-tip" id="tip-runRoutine">
-                  <button id="runRoutine" class="dashboard-button dashboard-button-solid" type="button" disabled>Run Routine</button>
-                </span>
-              </div>
             </article>
           </section>
 
@@ -2604,8 +2608,7 @@ function buildScript(): string {
   const workflowStepper = document.getElementById('workflowStepper');
   const subtaskTracker = document.getElementById('subtaskTracker');
   const subtaskTrackerSummary = document.getElementById('subtaskTrackerSummary');
-  const routineSelect = document.getElementById('routineSelect');
-  const runRoutineBtn = document.getElementById('runRoutine');
+  const routineList = document.getElementById('routineList');
   const routineProgress = document.getElementById('routineProgress');
   const clientState = { payload: { runs: [], selectedRun: null, preview: null, executionOptions: {}, routines: [], selectedRoutineId: '', routineRunning: false }, search: '' };
 
@@ -3409,45 +3412,66 @@ function buildScript(): string {
       }
     }
     if (message.type === 'routineDone') {
-      const { succeeded, steps } = message.payload || {};
+      const { steps } = message.payload || {};
       if (routineProgress && Array.isArray(steps)) {
         routineProgress.innerHTML = steps.map((s, i) => {
           const icon = s.skipped ? '⏭️' : s.exitCode === 0 ? '✅' : '❌';
           return '<div class="routine-step">' + icon + ' ' + escapeHtml(String(i + 1)) + '/' + escapeHtml(String(steps.length)) + ' ' + escapeHtml(s.label) + '</div>';
         }).join('');
       }
-      if (runRoutineBtn instanceof HTMLButtonElement) {
-        runRoutineBtn.disabled = false;
-        runRoutineBtn.classList.remove('is-loading');
-      }
+      renderRoutineSelector(clientState.payload.routines || [], clientState.payload.selectedRoutineId || '', false);
     }
   });
 
-  function renderRoutineSelector(routines, selectedId, running) {
-    if (!(routineSelect instanceof HTMLSelectElement)) { return; }
-    const prev = routineSelect.value || selectedId;
-    routineSelect.innerHTML = routines.length === 0
-      ? '<option value="">— No routines in project_memory/routines/ —</option>'
-      : routines.map(r =>
-          '<option value="' + escapeHtml(r.id) + '"' + (r.id === prev ? ' selected' : '') + '>' +
-          escapeHtml(r.name) + ' (' + escapeHtml(String(r.stepCount)) + ' steps)</option>'
-        ).join('');
-    if (runRoutineBtn instanceof HTMLButtonElement) {
-      runRoutineBtn.disabled = routines.length === 0 || running;
-      if (running) { runRoutineBtn.classList.add('is-loading'); }
-      else { runRoutineBtn.classList.remove('is-loading'); }
+  function renderRoutineSelector(routines, activeId, running) {
+    if (!routineList) { return; }
+    if (!Array.isArray(routines) || routines.length === 0) {
+      routineList.innerHTML = renderEmptyCard('No routines defined', 'Add <code>.md</code> files to <code>project_memory/routines/</code>. See README.md in that folder for the format.');
+      return;
     }
+    routineList.innerHTML = routines.map(r => {
+      const isActive = r.id === activeId;
+      const isRunning = running && isActive;
+      const editBtn = r.source
+        ? '<button type="button" data-action="edit-routine" data-routine-id="' + escapeHtml(r.id) + '">Edit<' + '/button>'
+        : '';
+      return '<article class="run-card run-row routine-card' + (isActive ? ' active' : '') + '" data-routine-id="' + escapeHtml(r.id) + '">' +
+        '<div class="run-card-header run-row-header">' +
+          '<div class="run-card-header-inner">' +
+            '<div>' +
+              '<h3>' + escapeHtml(r.name) + '<' + '/h3>' +
+              (r.description ? '<p class="section-copy run-row-copy">' + escapeHtml(r.description) + '<' + '/p>' : '') +
+            '<' + '/div>' +
+          '<' + '/div>' +
+          '<span class="meta-pill">' + escapeHtml(String(r.stepCount)) + ' step' + (r.stepCount !== 1 ? 's' : '') + '<' + '/span>' +
+        '<' + '/div>' +
+        '<div class="action-strip">' +
+          '<button type="button" class="' + (isRunning ? 'is-loading' : '') + '" data-action="run-routine" data-routine-id="' + escapeHtml(r.id) + '"' + (isRunning ? ' disabled' : '') + '>Ship<' + '/button>' +
+          editBtn +
+        '<' + '/div>' +
+      '<' + '/article>';
+    }).join('');
   }
 
-  if (runRoutineBtn) {
-    runRoutineBtn.addEventListener('click', () => {
-      if (!(routineSelect instanceof HTMLSelectElement) || !routineSelect.value) { return; }
-      if (runRoutineBtn instanceof HTMLButtonElement) {
-        runRoutineBtn.disabled = true;
-        runRoutineBtn.classList.add('is-loading');
+  if (routineList) {
+    routineList.addEventListener('click', event => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) { return; }
+      const btn = target.closest('[data-action]');
+      const routineId = btn instanceof HTMLElement ? (btn.getAttribute('data-routine-id') || '') : '';
+      if (btn instanceof HTMLElement && btn.getAttribute('data-action') === 'run-routine' && routineId) {
+        if (routineProgress) { routineProgress.innerHTML = ''; }
+        renderRoutineSelector(clientState.payload.routines || [], routineId, true);
+        vscode.postMessage({ type: 'runRoutine', payload: { routineId, vars: {} } });
+        return;
       }
-      if (routineProgress) { routineProgress.innerHTML = ''; }
-      vscode.postMessage({ type: 'runRoutine', payload: { routineId: routineSelect.value, vars: {} } });
+      if (btn instanceof HTMLElement && btn.getAttribute('data-action') === 'edit-routine' && routineId) {
+        const routine = (clientState.payload.routines || []).find(r => r.id === routineId);
+        if (routine && routine.source) {
+          vscode.postMessage({ type: 'editRoutine', payload: routine.source });
+        }
+        return;
+      }
     });
   }
 
