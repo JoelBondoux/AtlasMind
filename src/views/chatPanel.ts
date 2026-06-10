@@ -658,16 +658,14 @@ export class ChatPanel {
         return;
       }
       case 'dismissAiInstructionNudge': {
-        ChatPanel.dismissedNudgeWorkspaces.add(
-          vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '',
-        );
+        await this.atlas.extensionContext?.workspaceState?.update(ChatPanel.NUDGE_DISMISSED_KEY, true);
         await this.host.webview.postMessage({ type: 'hideAiInstructionNudge' });
         return;
       }
     }
   }
 
-  private static readonly dismissedNudgeWorkspaces = new Set<string>();
+  private static readonly NUDGE_DISMISSED_KEY = 'atlasmind.aiInstructionNudgeDismissed';
 
   private async handleSyncAiInstructionNudge(): Promise<void> {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -687,6 +685,7 @@ export class ChatPanel {
         payload: `AI instructions synced: ${result.summary}`,
       });
     } else {
+      await this.host.webview.postMessage({ type: 'resetSyncButton' });
       await this.host.webview.postMessage({
         type: 'status',
         payload: `AI instruction sync failed: ${result.summary}`,
@@ -696,7 +695,7 @@ export class ChatPanel {
 
   private checkAiInstructionNudge(): void {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (!workspaceRoot || ChatPanel.dismissedNudgeWorkspaces.has(workspaceRoot)) {
+    if (!workspaceRoot || this.atlas.extensionContext?.workspaceState?.get<boolean>(ChatPanel.NUDGE_DISMISSED_KEY) === true) {
       return;
     }
     if (hasAiInstructionSyncFile(workspaceRoot)) {
@@ -4013,6 +4012,51 @@ export class ChatPanel {
           0%, 100% { transform: scale(1); opacity: 1; }
           50% { transform: scale(1.08); opacity: 0.7; }
         }
+
+        /* ---- AI instruction nudge ---- */
+        .ai-instruction-nudge {
+          flex: 0 0 auto;
+          border: 1px solid color-mix(in srgb, var(--vscode-editorInfo-foreground, #3794ff) 40%, transparent);
+          border-radius: 10px;
+          background: color-mix(in srgb, var(--vscode-editorInfo-foreground, #3794ff) 10%, var(--vscode-editor-background, #1e1e1e));
+          margin: 0;
+        }
+        .ai-instruction-nudge-body {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 8px 10px;
+        }
+        .ai-instruction-nudge-icon {
+          flex: 0 0 auto;
+          color: var(--vscode-editorInfo-foreground, #3794ff);
+          font-size: 1.1em;
+        }
+        .ai-instruction-nudge-text {
+          flex: 1 1 auto;
+          font-size: 0.88em;
+          line-height: 1.35;
+          min-width: 0;
+        }
+        .nudge-btn {
+          flex: 0 0 auto;
+          padding: 3px 10px;
+          font-size: 0.82em;
+          border-radius: 6px;
+          white-space: nowrap;
+          cursor: pointer;
+          border: 1px solid var(--vscode-widget-border, #444);
+          background: transparent;
+          color: var(--vscode-foreground);
+        }
+        .nudge-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--vscode-foreground) 10%, transparent); }
+        .nudge-btn-primary {
+          background: var(--vscode-button-background);
+          color: var(--vscode-button-foreground);
+          border-color: transparent;
+        }
+        .nudge-btn-primary:hover:not(:disabled) { background: var(--vscode-button-hoverBackground); }
+        .nudge-btn:disabled { opacity: 0.5; cursor: not-allowed; }
       `,
       scriptUri: scriptUri.toString(),
     });

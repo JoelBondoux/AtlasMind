@@ -3656,6 +3656,14 @@
         nudgeEl.classList.add('hidden');
       }
     }
+
+    if (message.type === 'resetSyncButton') {
+      var syncBtnEl = document.getElementById('syncAiInstructions');
+      if (syncBtnEl) {
+        syncBtnEl.disabled = false;
+        syncBtnEl.textContent = 'Sync Now';
+      }
+    }
   });
 
   var syncAiBtn = document.getElementById('syncAiInstructions');
