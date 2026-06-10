@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as cp from 'child_process';
 import { SSOT_FOLDERS, TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
 import type { AtlasMindContext } from '../extension.js';
-import type { BudgetMode, MemoryDocumentClass, MemoryEntry, MemoryEvidenceType, ProjectTestingConfig, SpeedMode, TestingMethodologyId } from '../types.js';
+import type { BudgetMode, MemoryDocumentClass, MemoryEntry, MemoryEvidenceType, ProjectTestingConfig, RoutineStep, SpeedMode, TestingMethodologyId } from '../types.js';
 import { formatCost } from '../core/currencyFormatter.js';
 
 type DependencyMonitoringProvider = 'dependabot' | 'renovate' | 'snyk' | 'azure-devops';
@@ -3826,6 +3826,7 @@ type ImportScanCategory =
   | 'workflow-doc'
   | 'security-doc'
   | 'governance-doc'
+  | 'claude-md'
   | 'changelog';
 
 /** Well-known project files to scan during import, grouped by purpose. */
@@ -3863,6 +3864,7 @@ const IMPORT_SCAN_FILES: ReadonlyArray<{ path: string; category: ImportScanCateg
   { path: 'docs/github-workflow.md', category: 'workflow-doc' },
   { path: 'SECURITY.md', category: 'security-doc' },
   { path: '.github/copilot-instructions.md', category: 'governance-doc' },
+  { path: 'CLAUDE.md', category: 'claude-md' },
   { path: 'CHANGELOG.md', category: 'changelog' },
 ];
 
@@ -4253,6 +4255,11 @@ export async function importProject(
       skipped++;
     }
   }
+
+  // ── Routine scaffolding ─────────────────────────────────────────────────────
+  // Scan governance docs for ordered procedure sections and write starter routine
+  // files to project_memory/routines/. Skips files with manual edits.
+  await importRoutines(workspaceRoot, ssotRoot, scanned, now, atlas);
 
   // ── Reload memory from disk to pick up any files already there ──
   const ssotUri = vscode.Uri.joinPath(
@@ -5501,6 +5508,194 @@ function buildProjectSoul(
     '- decisions/development-guardrails.md',
     '- roadmap/improvement-plan.md',
   ].join('\n');
+}
+
+// ── Routine extraction ───────────────────────────────────────────────────────
+
+/** Section headings that typically describe ordered release/deploy procedures. */
+const ROUTINE_SECTION_HEADINGS = [
+  'Publishing Routine',
+  'Publish Routine',
+  'Release Routine',
+  'Deploy Routine',
+  'Build Routine',
+  'Ship Routine',
+  'Publishing Workflow',
+  'Release Workflow',
+  'Release Process',
+  'Deploy Process',
+  'Deployment Steps',
+  'Release Steps',
+  'Build And Publish',
+  'Build, Test, And Publish',
+  'CI/CD Routine',
+];
+
+/**
+ * Parses numbered list items from an extracted section and converts each item
+ * that has a **Label** and a `command` into a RoutineStep.
+ */
+function parseOrderedStepsFromSection(section: string): RoutineStep[] {
+  const steps: RoutineStep[] = [];
+  for (const line of section.split(/\r?\n/)) {
+    const itemMatch = /^\d+\.\s+(.+)$/.exec(line.trim());
+    if (!itemMatch) { continue; }
+    const itemText = itemMatch[1];
+
+    const labelMatch = /\*\*([^*]+)\*\*/.exec(itemText);
+    if (!labelMatch) { continue; }
+    const label = labelMatch[1].replace(/`/g, '').trim();
+
+    // Collect all backtick-quoted code spans and keep the longest one as the command
+    const cmdRegex = /`([^`]+)`/g;
+    const candidates: string[] = [];
+    let m: RegExpExecArray | null;
+    while ((m = cmdRegex.exec(itemText)) !== null) {
+      const candidate = m[1].trim();
+      // Accept strings that look like shell commands (contain spaces, slashes, or start with a lowercase word)
+      if (/[\s/\\]/.test(candidate) || /^[a-z]/.test(candidate)) {
+        candidates.push(candidate);
+      }
+    }
+    if (candidates.length === 0) { continue; }
+    const run = candidates.reduce((a, b) => (b.length > a.length ? b : a));
+
+    // Replace <angle-bracket-placeholders> with ${VAR} for routine interpolation
+    const interpolated = run.replace(/<([^>]+)>/g, (_: string, p: string) =>
+      `\${${p.toUpperCase().replace(/[\s-]+/g, '_')}}`,
+    );
+
+    const id = label
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 32) || `step-${steps.length + 1}`;
+
+    steps.push({ id, label, run: interpolated, on_fail: 'abort' });
+  }
+  return steps;
+}
+
+/**
+ * Serialises a RoutineDefinition into the YAML-frontmatter .md format expected
+ * by RoutineRegistry. Does not append import metadata — callers must do that.
+ */
+function buildRoutineFileContent(
+  id: string,
+  name: string,
+  description: string,
+  steps: RoutineStep[],
+  isDefault: boolean,
+): string {
+  const lines: string[] = ['---'];
+  lines.push(`id: ${id}`);
+  lines.push(`name: ${name}`);
+  lines.push(`description: ${description}`);
+  if (isDefault) { lines.push('default: true'); }
+  lines.push('steps:');
+  for (const step of steps) {
+    lines.push(`  - id: ${step.id}`);
+    lines.push(`    label: ${step.label}`);
+    lines.push(`    run: ${step.run}`);
+    lines.push(`    on_fail: ${step.on_fail}`);
+  }
+  lines.push('---');
+  lines.push('');
+  lines.push('> Scaffolded from project instructions during `/import`. Edit steps to match your actual workflow.');
+  return lines.join('\n');
+}
+
+/**
+ * Scans governance documents (CLAUDE.md, .github/copilot-instructions.md,
+ * docs/development.md) for ordered procedure sections and writes a starter
+ * routine file to project_memory/routines/<id>.md.
+ *
+ * Files with manual edits (body fingerprint mismatch) or no import metadata
+ * are never overwritten. Unchanged files (same source fingerprint) are skipped.
+ */
+async function importRoutines(
+  workspaceRoot: vscode.Uri,
+  ssotRoot: vscode.Uri,
+  scanned: Map<string, ScannedImportFile>,
+  now: string,
+  atlas: AtlasMindContext,
+): Promise<number> {
+  const sourceCandidates: Array<{ path: string; content: string }> = [];
+  const claudeMd = scanned.get('CLAUDE.md');
+  if (claudeMd) { sourceCandidates.push(claudeMd); }
+  const governance = scanned.get('.github/copilot-instructions.md');
+  if (governance) { sourceCandidates.push(governance); }
+  const devDoc = scanned.get('docs/development.md');
+  if (devDoc) { sourceCandidates.push(devDoc); }
+
+  if (sourceCandidates.length === 0) { return 0; }
+
+  const routinesDir = vscode.Uri.joinPath(ssotRoot, 'routines');
+  try {
+    await vscode.workspace.fs.createDirectory(routinesDir);
+  } catch { /* already exists */ }
+
+  let written = 0;
+  let isFirstRoutine = true;
+
+  for (const source of sourceCandidates) {
+    for (const sectionHeading of ROUTINE_SECTION_HEADINGS) {
+      const section = extractMarkdownSections(source.content, [sectionHeading]);
+      if (!section) { continue; }
+      const steps = parseOrderedStepsFromSection(section);
+      if (steps.length < 2) { continue; }
+
+      const routineId = sectionHeading
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '');
+      const targetUri = vscode.Uri.joinPath(routinesDir, `${routineId}.md`);
+      const existingContent = await tryReadTextFile(targetUri);
+
+      if (existingContent) {
+        const existingMeta = parseImportMetadata(existingContent);
+        if (!existingMeta) { continue; } // manual file — preserve
+        const currentBodyFp = getImportBodyFingerprint(stripImportMetadata(existingContent));
+        if (currentBodyFp !== existingMeta.bodyFingerprint) { continue; } // user edited — preserve
+        const newSourceFp = hashImportValue([source.path, section]);
+        if (existingMeta.sourceFingerprint === newSourceFp) { continue; } // unchanged
+      }
+
+      const routineBody = buildRoutineFileContent(
+        routineId,
+        sectionHeading,
+        `Scaffolded from ${source.path}`,
+        steps,
+        isFirstRoutine,
+      );
+      const sourceFingerprint = hashImportValue([source.path, section]);
+      const importMeta: ImportEntryMetadata = {
+        entryPath: `routines/${routineId}.md`,
+        generatorVersion: IMPORT_GENERATOR_VERSION,
+        generatedAt: now,
+        sourcePaths: [source.path],
+        sourceFingerprint,
+        bodyFingerprint: getImportBodyFingerprint(routineBody),
+      };
+      await vscode.workspace.fs.writeFile(
+        targetUri,
+        Buffer.from(appendImportMetadata(routineBody, importMeta), 'utf-8'),
+      );
+      written++;
+      isFirstRoutine = false;
+      break; // One routine per source file is enough
+    }
+    if (written > 0) { break; } // Stop at the first source that yielded a routine
+  }
+
+  if (written > 0) {
+    try {
+      await atlas.routineRegistry.reload(workspaceRoot.fsPath);
+      atlas.routinesRefresh.fire();
+    } catch { /* best-effort; registry may not be available in test harness */ }
+  }
+
+  return written;
 }
 
 function extractMarkdownSections(content: string, wantedHeadings: string[]): string | undefined {

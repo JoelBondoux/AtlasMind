@@ -6,6 +6,17 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.77.2 — Bootstrapper Routine Extraction and Chat Routine-Edit Intent
+
+- **Bootstrapper routine extraction**: `/import` now scans `CLAUDE.md`, `.github/copilot-instructions.md`, and `docs/development.md` for ordered procedure sections and writes a starter routine file to `project_memory/routines/<id>.md`. Steps are extracted from numbered list items with a **Label** and a backtick-quoted `command`; `<angle-bracket-placeholders>` become `${VAR}` interpolation tokens. Manual edits to routine files are detected via body fingerprint and preserved — the file is never overwritten. After writing, `RoutineRegistry` is reloaded so the new routine is immediately available to `/ship`.
+- **Chat routine-edit intent**: freeform messages like "edit the ship routine" or "update my publish routine" now open the matching routine's source `.md` file directly in the VS Code editor, bypassing the LLM. AtlasMind matches the routine name or ID from the prompt, falls back to the default, and explains how to scaffold one via `/import` if no routines exist.
+
+## v0.77.0–0.77.1 — Project Routines and `/ship` Command
+
+- **Project Routines**: named, executable workflows stored as YAML-frontmatter `.md` files in `project_memory/routines/`. The registry scans on startup; the runner executes steps sequentially with `on_fail: abort | prompt | continue` policies and persists run results to ProjectRunHistory.
+- **`/ship` command**: runs the default routine (or a named routine via `/ship <id>`). Trailing text is passed as `${message}` for commit message interpolation. Each step streams a live checklist into chat.
+- **Run Routine card in Project Run Center**: routine tiles replace the dropdown, matching the panel's run-card design language. Each tile has a Ship button and an Edit button that opens the source file.
+
 ## v0.76.0 — AI Instruction Sync and Agent Quality Improvements
 
 - **AI instruction sync** (`src/utils/aiInstructionSync.ts`): AtlasMind detects AI instruction files from 9 other tools in the open workspace (GitHub Copilot, Claude Code, Cursor, Cline, Continue, OpenAI Codex, Gemini CLI, Windsurf, Aider) and surfaces a nudge banner in the chat panel. Clicking **Sync** merges selected files into `project_memory/domain/ai-instructions-sync.md` as advisory context; Personality Profile settings take precedence. Path traversal is rejected at both scan and write time.

@@ -254,6 +254,10 @@ const NATURAL_LANGUAGE_COMMAND_INTENTS: AtlasCommandIntentDefinition[] = [
   },
 ];
 
+/** Matches natural-language requests to open/edit a routine file. */
+const ROUTINE_EDIT_PATTERN =
+  /\b(?:edit|update|change|modify|open|show\s+me)\s+(?:the\s+|my\s+)?(?:(?:ship|publish(?:ing)?|deploy(?:ment)?|build|release|commit|push)\s+)?routine\b/i;
+
 export interface WorkspaceSnapshotEntry {
   signature: string;
   relativePath: string;
@@ -1175,8 +1179,67 @@ async function handleFreeformMessage(
     stream.markdown(roadmapStatusMarkdown);
     return;
   }
+  if (await handleRoutineEditIntent(prompt, stream, atlas)) {
+    return;
+  }
   const imageAttachments = await resolveInlineImageAttachments(prompt);
   await runChatTask(prompt, stream, atlas, imageAttachments, sessionId);
+}
+
+/**
+ * Detects "edit/update/change the [X] routine" intent and opens the matching
+ * routine file in the VS Code editor so the user can modify it directly.
+ * Returns true if the intent was handled (caller should return early).
+ */
+async function handleRoutineEditIntent(
+  prompt: string,
+  stream: vscode.ChatResponseStream,
+  atlas: AtlasMindContext,
+): Promise<boolean> {
+  if (!ROUTINE_EDIT_PATTERN.test(prompt)) { return false; }
+
+  const routines = atlas.routineRegistry.list();
+  if (routines.length === 0) {
+    stream.markdown(
+      'No routines found in `project_memory/routines/`.\n\n' +
+      'Run `@atlas /import` to scaffold a routine from your project instructions, ' +
+      'or create a routine file manually (see `project_memory/routines/README.md` for the format).',
+    );
+    return true;
+  }
+
+  // Find the best matching routine: check if any routine name or ID appears in the prompt
+  let target = routines.find(r => {
+    const idPattern = new RegExp(`\\b${r.id.replace(/-/g, '[\\s-]')}\\b`, 'i');
+    const namePattern = new RegExp(`\\b${r.name.replace(/\s+/g, '\\s+')}\\b`, 'i');
+    return idPattern.test(prompt) || namePattern.test(prompt);
+  });
+  if (!target) { target = atlas.routineRegistry.getDefault() ?? routines[0]; }
+
+  if (!target.source) {
+    stream.markdown(
+      `Routine **${target.name}** has no source file path. ` +
+      'It may be a built-in routine — create a file in `project_memory/routines/` to override it.',
+    );
+    return true;
+  }
+
+  try {
+    const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(target.source));
+    await vscode.window.showTextDocument(doc);
+    stream.markdown(
+      `Opened **${target.name}** for editing.\n\n` +
+      `File: \`${target.source}\`\n\n` +
+      'Edit the YAML steps and save. The routine will be picked up automatically on the next `/ship` run.',
+    );
+  } catch {
+    stream.markdown(
+      `Could not open \`${target.source}\`. ` +
+      'The file may have been moved or deleted. Run `@atlas /import` to re-scaffold it.',
+    );
+  }
+
+  return true;
 }
 
 async function handleVisionCommand(
