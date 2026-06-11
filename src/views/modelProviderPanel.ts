@@ -113,6 +113,9 @@ export class ModelProviderPanel {
       null,
       this.disposables,
     );
+
+    // Refresh when provider config changes (e.g. local endpoints saved from Settings panel).
+    this.atlas.modelsRefresh.event(() => { void this.refresh(); }, null, this.disposables);
   }
 
   private dispose(): void {
