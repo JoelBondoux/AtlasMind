@@ -429,7 +429,7 @@ describe('panel refresh flows', () => {
       {
         refreshProviderModels: vi.fn().mockResolvedValue({ providersUpdated: 0, modelsAvailable: 0 }),
         refreshProviderHealth: vi.fn().mockResolvedValue(undefined),
-        modelsRefresh: { fire: vi.fn() },
+        modelsRefresh: { fire: vi.fn(), event: vi.fn(() => ({ dispose: () => undefined })) },
         modelRouter: { getProviderFailureSummary: vi.fn().mockReturnValue(new Map()) },
       } as never,
     );
@@ -1728,7 +1728,7 @@ describe('panel refresh flows', () => {
         providerRegistry: { get: vi.fn().mockReturnValue({ listModels }) },
         refreshProviderHealth,
         refreshProviderModels: vi.fn(),
-        modelsRefresh: { fire: vi.fn() },
+        modelsRefresh: { fire: vi.fn(), event: vi.fn(() => ({ dispose: () => undefined })) },
       } as never,
     );
 
@@ -1762,7 +1762,7 @@ describe('panel refresh flows', () => {
         providerRegistry: { get: vi.fn() },
         refreshProviderModels,
         refreshProviderHealth,
-        modelsRefresh: { fire: vi.fn() },
+        modelsRefresh: { fire: vi.fn(), event: vi.fn(() => ({ dispose: () => undefined })) },
       } as never,
     );
 
@@ -1789,7 +1789,7 @@ describe('panel refresh flows', () => {
         providerRegistry: { get: vi.fn() },
         refreshProviderHealth: vi.fn().mockResolvedValue(undefined),
         refreshProviderModels: vi.fn(),
-        modelsRefresh: { fire: vi.fn() },
+        modelsRefresh: { fire: vi.fn(), event: vi.fn(() => ({ dispose: () => undefined })) },
       } as never,
     );
 
@@ -1813,7 +1813,7 @@ describe('panel refresh flows', () => {
         providerRegistry: { get: vi.fn() },
         refreshProviderHealth: vi.fn().mockResolvedValue(undefined),
         refreshProviderModels: vi.fn(),
-        modelsRefresh: { fire: vi.fn() },
+        modelsRefresh: { fire: vi.fn(), event: vi.fn(() => ({ dispose: () => undefined })) },
         modelRouter: {
           getProviderFailureCount: (providerId: string) => providerId === 'google' ? 2 : 0,
         },
@@ -1841,7 +1841,7 @@ describe('panel refresh flows', () => {
         providerRegistry: { get: vi.fn() },
         refreshProviderHealth,
         refreshProviderModels,
-        modelsRefresh: { fire: vi.fn() },
+        modelsRefresh: { fire: vi.fn(), event: vi.fn(() => ({ dispose: () => undefined })) },
       } as never,
     );
 

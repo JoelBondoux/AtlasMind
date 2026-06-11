@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.78.4] - 2026-06-11
+
+### Fixed
+- **Local provider not showing after save** (`src/views/modelProviderPanel.ts`): The Model Providers panel now subscribes to the `modelsRefresh` event so it reloads automatically when a local endpoint (LM Studio, Ollama, etc.) is saved in the Settings panel. Previously, the endpoint was persisted correctly but the panel UI stayed stale until manually reopened.
+
 ## [0.78.3] - 2026-06-11
 
 ### Changed

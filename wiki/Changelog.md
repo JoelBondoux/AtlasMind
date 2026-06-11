@@ -6,6 +6,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.78.4 — Local Provider Panel Refresh Fix
+
+- **Local provider not showing after save** (`src/views/modelProviderPanel.ts`): The Model Providers panel now subscribes to the `modelsRefresh` event, so it reloads automatically when a local endpoint (LM Studio, Ollama, etc.) is saved in the Settings panel. The endpoint was always persisted correctly — the panel just wasn't listening for the update signal.
+
 ## v0.78.1 — Documentation Policy in project_soul.md
 
 - **Documentation policy section in `project_soul.md`**: the bootstrap end-of-response checklist directive and documentation maintenance table are now embedded directly in `project_soul.md` as a `## Documentation Policy` section. This makes the policy visible to AtlasMind agents at plan and execution time via the SSOT. `CLAUDE.md` retains the same table for Claude Code users. Manifest file detection (package.json, Cargo.toml, etc.) is inferred from the captured tech stack and shared between both outputs.
