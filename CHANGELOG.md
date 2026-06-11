@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.78.5] - 2026-06-11
+
+### Fixed
+- **Package build** (`package.json`): `engines.vscode` bumped from `^1.95.0` to `^1.116.0` to match the `@types/vscode` version already in devDependencies; `vsce package` previously refused to build with a mismatched constraint.
+
 ## [0.78.4] - 2026-06-11
 
 ### Fixed

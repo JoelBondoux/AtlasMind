@@ -6,6 +6,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.78.5 — Package Build Fix
+
+- **`engines.vscode` alignment** (`package.json`): bumped `engines.vscode` from `^1.95.0` to `^1.116.0` to match the `@types/vscode` devDependency version and unblock `vsce package`.
+
 ## v0.78.4 — Local Provider Panel Refresh Fix
 
 - **Local provider not showing after save** (`src/views/modelProviderPanel.ts`): The Model Providers panel now subscribes to the `modelsRefresh` event, so it reloads automatically when a local endpoint (LM Studio, Ollama, etc.) is saved in the Settings panel. The endpoint was always persisted correctly — the panel just wasn't listening for the update signal.
