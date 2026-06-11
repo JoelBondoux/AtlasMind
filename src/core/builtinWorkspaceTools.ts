@@ -195,16 +195,72 @@ function makeTestRunTool(): SkillDefinition {
   };
 }
 
+/**
+ * Tokenise a shell-style command string into an argv array, respecting single-
+ * and double-quoted spans. This prevents commit messages or other arguments
+ * that contain spaces from being split into multiple tokens.
+ *
+ * Rules (POSIX-ish, good enough for the subset of commands agents write):
+ *   - Single-quoted spans: contents are literal, no escape processing.
+ *   - Double-quoted spans: backslash escapes the next character.
+ *   - Outside quotes: backslash escapes the next character; whitespace separates tokens.
+ */
+function splitShellCommand(cmd: string): string[] {
+  const parts: string[] = [];
+  let current = '';
+  let i = 0;
+  while (i < cmd.length) {
+    const ch = cmd[i]!;
+    if (ch === '"') {
+      i++;
+      while (i < cmd.length && cmd[i] !== '"') {
+        if (cmd[i] === '\\' && i + 1 < cmd.length) {
+          i++;
+          current += cmd[i];
+        } else {
+          current += cmd[i];
+        }
+        i++;
+      }
+      i++; // skip closing "
+    } else if (ch === "'") {
+      i++;
+      while (i < cmd.length && cmd[i] !== "'") {
+        current += cmd[i];
+        i++;
+      }
+      i++; // skip closing '
+    } else if (ch === '\\' && i + 1 < cmd.length) {
+      i++;
+      current += cmd[i];
+      i++;
+    } else if (/\s/.test(ch)) {
+      if (current) {
+        parts.push(current);
+        current = '';
+      }
+      i++;
+    } else {
+      current += ch;
+      i++;
+    }
+  }
+  if (current) {
+    parts.push(current);
+  }
+  return parts;
+}
+
 function makeTerminalRunTool(): SkillDefinition {
   return {
     id: 'terminal-run',
     name: 'Run Terminal Command',
-    description: 'Execute a shell command in the workspace and return stdout/stderr. Use for build steps, linting, installing packages, or other CLI operations.',
+    description: 'Execute a shell command in the workspace and return stdout/stderr. Use for build steps, linting, installing packages, git staging, or other CLI operations. For git commits, prefer the git-commit tool.',
     builtIn: true,
     parameters: {
       type: 'object',
       properties: {
-        command: { type: 'string', description: 'Command to execute (e.g. "npm install", "npx tsc --noEmit").' },
+        command: { type: 'string', description: 'Command to execute (e.g. "npm install", "npx tsc --noEmit"). Quoted arguments are handled correctly.' },
         timeout_ms: { type: 'number', description: 'Timeout in milliseconds (default 60000).' },
       },
       required: ['command'],
@@ -212,7 +268,7 @@ function makeTerminalRunTool(): SkillDefinition {
     execute: async (params: Record<string, unknown>, ctx: SkillExecutionContext): Promise<string> => {
       const rawCommand = String(params['command'] ?? '');
       const timeoutMs = typeof params['timeout_ms'] === 'number' ? params['timeout_ms'] : 60_000;
-      const parts = rawCommand.split(/\s+/);
+      const parts = splitShellCommand(rawCommand);
       const executable = parts[0] ?? '';
       if (!executable) {
         throw new Error('command must not be empty');

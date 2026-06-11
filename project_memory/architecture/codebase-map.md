@@ -34,12 +34,12 @@ src/
     orchestrator.ts
     planner.ts
     projectRunHistory.ts
+    routineRegistry.ts
+    routineRunner.ts
     scannerRulesManager.ts
     skillAutoAssigner.ts
     skillDrafting.ts
-    skillScanner.ts
-    skillsRegistry.ts
-    ... (6 more entries)
+    ... (8 more entries)
   mcp/
     mcpClient.ts
     mcpServerRegistry.ts
@@ -314,6 +314,9 @@ project_memory/
     .gitkeep
     improvement-plan.md
     release-history.md
+  routines/
+    .gitkeep
+    README.md
   sessions/
     .gitkeep
   skills/
@@ -349,8 +352,8 @@ project_memory/
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-06-09T17:35:57.087Z
+generated-at: 2026-06-11T03:33:12.206Z
 source-paths: src | tests | docs | wiki | project_memory | .github
-source-fingerprint: 483f758e
-body-fingerprint: a22de4f0
+source-fingerprint: 26edea09
+body-fingerprint: 3eb31779
 -->

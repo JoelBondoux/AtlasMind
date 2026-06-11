@@ -1245,7 +1245,7 @@ export class Orchestrator {
     const signal = options?.signal;
 
     // 1. Plan
-    const planner = new Planner(this.router, this.providers, this.taskProfiler, this.memory);
+    const planner = new Planner(this.router, this.providers, this.taskProfiler, this.memory, this.skills);
     let plan: ProjectPlan;
     if (options?.planOverride) {
       plan = options.planOverride;
@@ -1492,7 +1492,7 @@ export class Orchestrator {
   ): Promise<TaskResult & { stepwiseResults: SubTaskResult[] }> {
     const startMs = Date.now();
 
-    const planner = new Planner(this.router, this.providers, this.taskProfiler, this.memory);
+    const planner = new Planner(this.router, this.providers, this.taskProfiler, this.memory, this.skills);
     let plan: ProjectPlan;
     try {
       plan = await planner.plan(request.userMessage, request.constraints);

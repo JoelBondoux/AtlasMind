@@ -13,12 +13,25 @@ import type { MemoryEntry, ProjectPlan, RoutingConstraints, SubTask } from '../t
 import type { ModelRouter } from './modelRouter.js';
 import type { ProviderRegistry } from '../providers/index.js';
 import type { TaskProfiler } from './taskProfiler.js';
+import type { SkillsRegistry } from './skillsRegistry.js';
 import { MAX_SUBTASKS } from '../constants.js';
 import { buildExecutionBatches } from './taskScheduler.js';
 
 type MemoryStore = {
   queryRelevant(query: string, maxResults?: number): Promise<MemoryEntry[]>;
 };
+
+/**
+ * Minimum guaranteed skills when no registry is provided (e.g. in tests).
+ * Keep this list in sync with getBuiltinWorkspaceTools() in builtinWorkspaceTools.ts.
+ */
+const FALLBACK_SKILL_IDS = [
+  'file-read', 'file-write', 'file-edit', 'file-search',
+  'memory-query', 'memory-write',
+  'test-run', 'git-commit', 'git-status', 'git-diff', 'git-log',
+  'git-branch', 'git-push', 'git-apply-patch', 'git-blame',
+  'terminal-run', 'workspace-observability',
+].join(', ');
 
 const DEPENDENCY_GOVERNANCE_HINT = `
 Dependency governance platform knowledge:
@@ -28,7 +41,8 @@ Dependency governance platform knowledge:
 - To merge a safe dependency PR: "gh pr merge <number> --merge --admin".
 - When a goal mentions "dependabot issues", "renovate issues", "snyk alerts", "dependency alerts", or similar, always map that to PR-based fetch steps using terminal-run, not issue-fetch steps.`;
 
-const PLANNER_SYSTEM_PROMPT = `You are a project planning assistant. When given a high-level goal, decompose it into concrete subtasks that can be executed by specialised AI agents working in parallel wherever possible.
+function buildPlannerSystemPrompt(skillCatalog: string): string {
+  return `You are a project planning assistant. When given a high-level goal, decompose it into concrete subtasks that can be executed by specialised AI agents working in parallel wherever possible.
 
 Return ONLY valid JSON (no markdown fences, no prose) matching this exact schema:
 {
@@ -38,11 +52,14 @@ Return ONLY valid JSON (no markdown fences, no prose) matching this exact schema
       "title": "Short title",
       "description": "What this agent should produce or do — be concrete.",
       "role": "one of: architect, backend-engineer, frontend-engineer, tester, documentation-writer, devops, data-engineer, security-reviewer, general-assistant",
-      "skills": ["skill IDs from: file-read, file-write, file-edit, file-search, memory-query, memory-write, test-run, terminal-run, workspace-observability"],
+      "skills": ["exact skill IDs chosen from the catalog below"],
       "dependsOn": ["ids of subtasks that must complete first"]
     }
   ]
 }
+
+Available skills (use the exact IDs listed here in the "skills" field):
+${skillCatalog}
 
 Rules:
 - Maximum ${MAX_SUBTASKS} subtasks.
@@ -52,10 +69,32 @@ Rules:
 - Prefer the tester role for explicit regression and coverage subtasks, and engineer roles for implementation or refactor subtasks.
 - Be concrete: descriptions should state what deliverable the agent should produce.
 - No circular dependencies.
+- Git commits: always use the git-commit skill (not terminal-run) for creating commits. The git-commit skill accepts a "message" parameter and passes it directly to git without shell quoting. Use terminal-run only for staging (e.g. "git add <file>") or git subcommands that have no dedicated skill.
+- Prefer dedicated skills over terminal-run whenever a specific skill exists for the operation (e.g. use git-push instead of "terminal-run git push", use git-branch instead of "terminal-run git branch").
 - Chained sequential operations: when the goal chains git operations with "and", "then", or commas (e.g., "commit and push", "commit then open a PR", "stage, commit, and push"), model each as a separate subtask with an explicit dependency on the previous one. The commit subtask must always precede the push subtask; the push must precede any PR-creation subtask.
 - Release hygiene: when the goal involves committing in a project that enforces release hygiene (version bump + changelog), include a release-hygiene subtask (role: devops, skills: file-edit, file-write) before the commit subtask, and make the commit depend on it.
 - Respond with JSON only — nothing else.
 ${DEPENDENCY_GOVERNANCE_HINT}`;
+}
+
+/**
+ * Build a human-readable skill catalog string from the live registry.
+ * Falls back to the FALLBACK_SKILL_IDS list if the registry is unavailable or empty.
+ */
+function buildSkillCatalog(skills?: SkillsRegistry): string {
+  if (!skills) {
+    return FALLBACK_SKILL_IDS;
+  }
+
+  const all = skills.listSkills().filter(s => skills.isEnabled(s.id));
+  if (all.length === 0) {
+    return FALLBACK_SKILL_IDS;
+  }
+
+  return all
+    .map(s => `- ${s.id}: ${s.description ?? s.name}`)
+    .join('\n');
+}
 
 export interface ProjectExecutionJob {
   jobIndex: number;
@@ -76,6 +115,7 @@ export class Planner {
     private readonly providers: ProviderRegistry,
     private readonly taskProfiler: TaskProfiler,
     private readonly memoryStore?: MemoryStore,
+    private readonly skills?: SkillsRegistry,
   ) {}
 
   async plan(goal: string, constraints: RoutingConstraints, signal?: AbortSignal): Promise<ProjectPlan> {
@@ -93,13 +133,14 @@ export class Planner {
     }
 
     const memoryContext = await this.buildPlanningMemoryContext(goal);
+    const systemPrompt = buildPlannerSystemPrompt(buildSkillCatalog(this.skills));
 
     let rawResponse: string;
     try {
       const response = await provider.complete({
         model,
         messages: [
-          { role: 'system', content: PLANNER_SYSTEM_PROMPT },
+          { role: 'system', content: systemPrompt },
           {
             role: 'user',
             content: memoryContext

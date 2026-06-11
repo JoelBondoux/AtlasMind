@@ -22,7 +22,7 @@ AtlasMind ships with **42 built-in skills** that agents can call during executio
 |-------|-------------|
 | `git-status` | Get `git status --short --branch` output |
 | `git-diff` | Get diff (optionally staged or against a ref) |
-| `git-commit` | Stage and commit changes with a message |
+| `git-commit` | Create a commit with a message passed directly to git — no shell quoting needed; optional `stage_tracked: true` runs `git add -u` first |
 | `git-push` | Push a branch to a remote with a protected-branch guard (rejects force-push to main/master/production/release\*/hotfix\*); defaults to `--force-with-lease` when force is requested |
 | `git-log` | View commit history with filtering options |
 | `git-branch` | List, create, switch, or delete branches |
@@ -72,7 +72,7 @@ AtlasMind ships with **42 built-in skills** that agents can call during executio
 | Skill | Description |
 |-------|-------------|
 | `docker-cli` | Run a strict allow-list of Docker and Docker Compose inspection or lifecycle commands without shell interpolation |
-| `terminal-run` | Execute a command in the workspace terminal with a tiered allow-list (~60 safe commands); supports Node, Python, Rust, Go, Java, Ruby, PHP/Composer, Flutter/Dart, Expo/React Native, Elixir/Mix, Terraform, Helm, Kubectl, Godot, Turbo/Nx and more |
+| `terminal-run` | Execute a command in the workspace terminal with a tiered allow-list (~60 safe commands) and shell-aware argument parsing (handles single/double-quoted spans and backslash escapes); supports Node, Python, Rust, Go, Java, Ruby, PHP/Composer, Flutter/Dart, Expo/React Native, Elixir/Mix, Terraform, Helm, Kubectl, Godot, Turbo/Nx and more |
 | `terminal-read` | List open VS Code integrated terminals and the active terminal; prompts user to paste buffer content (VS Code API limitation) |
 | `test-run` | Auto-detect and run test framework (vitest, jest, mocha, pytest, cargo test); 120s timeout |
 | `npm-scripts` | List all `package.json` scripts and run any named script via `npm run`; supports custom `cwd` for monorepos |

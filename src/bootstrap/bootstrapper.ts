@@ -124,6 +124,7 @@ interface BootstrapArtifacts {
   remoteRepoCreated: boolean;
   remoteRepoUrl: string | undefined;
   templateScaffolded: ShopifyTemplate | undefined;
+  claudeMdWritten: boolean;
 }
 
 const BOOTSTRAP_DRAFT_PATH = 'index/bootstrap-draft.json';
@@ -771,6 +772,7 @@ async function applyBootstrapIntake(
   const personalitySeeded = await applyBootstrapPersonalityProfile(atlas, intake);
   const githubArtifactsUpdated = await writeGitHubPlanningArtifacts(workspaceRoot, intake);
   await writeBootstrapTestingConfig(ssotRoot, intake);
+  const claudeMdWritten = await writeBootstrapClaudeMd(workspaceRoot, intake);
 
   return {
     questionCount,
@@ -783,6 +785,7 @@ async function applyBootstrapIntake(
     remoteRepoCreated: false,
     remoteRepoUrl: undefined,
     templateScaffolded: undefined,
+    claudeMdWritten,
   };
 }
 
@@ -1504,6 +1507,94 @@ async function writeBootstrapTestingConfig(ssotRoot: vscode.Uri, intake: Bootstr
   await vscode.workspace.fs.writeFile(configUri, Buffer.from(JSON.stringify(config, null, 2), 'utf-8'));
 }
 
+function buildBootstrapClaudeMdContent(intake: BootstrapProjectIntake): string {
+  const title = intake.projectName?.trim() || 'Project';
+  const tagline = intake.productSummary?.trim();
+
+  const stack = (intake.techStack ?? '').toLowerCase();
+  let manifestFile = 'package.json';
+  if (/\brust\b|\bcargo\b/.test(stack)) { manifestFile = 'Cargo.toml'; }
+  else if (/\bpython\b|\bpip\b|\bpoetry\b|\buv\b/.test(stack)) { manifestFile = 'pyproject.toml'; }
+  else if (/\bgo\b|\bgolang\b/.test(stack)) { manifestFile = 'go.mod'; }
+  else if (/\bjava\b|\bmaven\b/.test(stack)) { manifestFile = 'pom.xml'; }
+  else if (/\bgradle\b/.test(stack)) { manifestFile = 'build.gradle'; }
+  else if (/\bruby\b|\bgem\b/.test(stack)) { manifestFile = 'Gemfile'; }
+
+  const contextLines = [
+    intake.projectType ? `**Project type:** ${intake.projectType}` : '',
+    intake.techStack ? `**Stack:** ${intake.techStack}` : '',
+    intake.targetAudience ? `**Audience:** ${intake.targetAudience}` : '',
+    intake.timeline ? `**Timeline:** ${intake.timeline}` : '',
+    intake.productOutcome ? `**Primary outcome:** ${intake.productOutcome}` : '',
+  ].filter(Boolean);
+
+  const lines: string[] = [
+    `# ${title} — Atlas Instructions`,
+    '',
+  ];
+
+  if (tagline) {
+    lines.push(tagline, '');
+  }
+
+  lines.push(
+    '## Project Context',
+    '',
+    contextLines.length > 0
+      ? contextLines.join('\n')
+      : '[Edit this section to add architecture notes, coding conventions, and project-specific rules.]',
+    '',
+    '---',
+    '',
+    '## Safety-First',
+    '',
+    '- Default to the safest reasonable behavior, not the most permissive one.',
+    '- Validate before executing, confirm before destructive changes, deny by default when behavior is ambiguous.',
+    '- Security-sensitive regressions are treated as correctness bugs, not polish items.',
+    '',
+    '## Documentation Maintenance',
+    '',
+    'When you make any of the following changes, update the corresponding documentation **in the same pass and the same commit**. Do not defer doc updates to a follow-up commit.',
+    '',
+    '**End-of-response checklist:** Before reporting a task complete, verify every row below whose trigger applies. If a row applies, its listed files must have been updated (or explicitly confirmed unchanged) before the response ends.',
+    '',
+    '| Change | Files to update |',
+    '|---|---|',
+    '| Add/remove/rename a source file | `README.md` (project structure section, if documented) |',
+    '| Add/modify a command, script, or CLI option | `README.md` |',
+    '| Add/modify a configuration setting or environment variable | `README.md` (Configuration section), relevant `docs/` file |',
+    '| Add/modify an API endpoint or public interface | `README.md`, API docs or relevant `docs/` file |',
+    '| Add/modify security policies or threat model | `SECURITY.md` (create if it does not exist) |',
+    '| Change build config, scripts, or dependencies | `README.md` (build/setup steps), relevant `docs/` file |',
+    `| Ship a new version | \`CHANGELOG.md\`, version in \`${manifestFile}\`, \`README.md\` (version badge if present) |`,
+    '',
+    '> Starter rows — customise to match your project\'s actual documentation structure. Add project-specific rows; remove rows that do not apply.',
+    '',
+    '## Versioning',
+    '',
+    '- Follow [SemVer](https://semver.org): **PATCH** for bug fixes/docs/refactors, **MINOR** for new features, **MAJOR** for breaking changes.',
+    '- Every commit that ships new behavior must include a version bump and a matching `CHANGELOG.md` entry.',
+    '- `CHANGELOG.md` follows [Keep a Changelog](https://keepachangelog.com) format.',
+    '',
+    '## Branching & Commits',
+    '',
+    '- `develop` is the default branch for implementation work; `master` (or `main`) is updated only via PR for releases.',
+    '- Use conventional commit prefixes: `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`.',
+  );
+
+  return lines.join('\n');
+}
+
+async function writeBootstrapClaudeMd(workspaceRoot: vscode.Uri, intake: BootstrapProjectIntake): Promise<boolean> {
+  const claudeUri = vscode.Uri.joinPath(workspaceRoot, 'CLAUDE.md');
+  if (await pathExists(claudeUri)) {
+    return false;
+  }
+  const content = buildBootstrapClaudeMdContent(intake);
+  await vscode.workspace.fs.writeFile(claudeUri, Buffer.from(content, 'utf-8'));
+  return true;
+}
+
 async function applyBootstrapSettings(
   configuration: Pick<vscode.WorkspaceConfiguration, 'get' | 'update'>,
   intake: BootstrapProjectIntake,
@@ -1790,6 +1881,9 @@ function buildBootstrapCompletionSummary(ssotRelPath: string, intake: BootstrapP
     artifacts.githubArtifactsUpdated
       ? '- Wrote GitHub-ready planning artifacts under `.github/ISSUE_TEMPLATE/` and `.github/project-planning/`.'
       : '- GitHub-ready planning artifacts were not written.',
+    artifacts.claudeMdWritten
+      ? '- Created `CLAUDE.md` with documentation maintenance policy and project context. Edit it to add coding conventions and project-specific rules.'
+      : '- `CLAUDE.md` already exists — documentation management policy was not overwritten.',
     intake.onlineRepoState === 'planned' && artifacts.remoteRepoCreated
       ? `- Remote repo created${artifacts.remoteRepoUrl ? `: ${artifacts.remoteRepoUrl}` : ''} and pushed as \`origin\`.`
       : intake.onlineRepoState === 'planned'
