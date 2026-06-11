@@ -1507,18 +1507,44 @@ async function writeBootstrapTestingConfig(ssotRoot: vscode.Uri, intake: Bootstr
   await vscode.workspace.fs.writeFile(configUri, Buffer.from(JSON.stringify(config, null, 2), 'utf-8'));
 }
 
+function inferVersionManifestFile(intake: BootstrapProjectIntake): string {
+  const stack = (intake.techStack ?? '').toLowerCase();
+  if (/\brust\b|\bcargo\b/.test(stack)) { return 'Cargo.toml'; }
+  if (/\bpython\b|\bpip\b|\bpoetry\b|\buv\b/.test(stack)) { return 'pyproject.toml'; }
+  if (/\bgo\b|\bgolang\b/.test(stack)) { return 'go.mod'; }
+  if (/\bjava\b|\bmaven\b/.test(stack)) { return 'pom.xml'; }
+  if (/\bgradle\b/.test(stack)) { return 'build.gradle'; }
+  if (/\bruby\b|\bgem\b/.test(stack)) { return 'Gemfile'; }
+  return 'package.json';
+}
+
+function buildBootstrapDocumentationPolicySection(intake: BootstrapProjectIntake): string {
+  const manifestFile = inferVersionManifestFile(intake);
+  return [
+    '## Documentation Policy',
+    '',
+    'When you make any of the following changes, update the corresponding documentation **in the same pass and the same commit**. Do not defer doc updates to a follow-up commit.',
+    '',
+    '**End-of-response checklist:** Before reporting a task complete, verify every row below whose trigger applies. If a row applies, its listed files must have been updated (or explicitly confirmed unchanged) before the response ends.',
+    '',
+    '| Change | Files to update |',
+    '|---|---|',
+    '| Add/remove/rename a source file | `README.md` (project structure section, if documented) |',
+    '| Add/modify a command, script, or CLI option | `README.md` |',
+    '| Add/modify a configuration setting or environment variable | `README.md` (Configuration section), relevant `docs/` file |',
+    '| Add/modify an API endpoint or public interface | `README.md`, API docs or relevant `docs/` file |',
+    '| Add/modify security policies or threat model | `SECURITY.md` (create if it does not exist) |',
+    '| Change build config, scripts, or dependencies | `README.md` (build/setup steps), relevant `docs/` file |',
+    `| Ship a new version | \`CHANGELOG.md\`, version in \`${manifestFile}\`, \`README.md\` (version badge if present) |`,
+    '',
+    '> Customise to match your project\'s actual documentation structure. Add project-specific rows; remove rows that do not apply.',
+  ].join('\n');
+}
+
 function buildBootstrapClaudeMdContent(intake: BootstrapProjectIntake): string {
   const title = intake.projectName?.trim() || 'Project';
   const tagline = intake.productSummary?.trim();
-
-  const stack = (intake.techStack ?? '').toLowerCase();
-  let manifestFile = 'package.json';
-  if (/\brust\b|\bcargo\b/.test(stack)) { manifestFile = 'Cargo.toml'; }
-  else if (/\bpython\b|\bpip\b|\bpoetry\b|\buv\b/.test(stack)) { manifestFile = 'pyproject.toml'; }
-  else if (/\bgo\b|\bgolang\b/.test(stack)) { manifestFile = 'go.mod'; }
-  else if (/\bjava\b|\bmaven\b/.test(stack)) { manifestFile = 'pom.xml'; }
-  else if (/\bgradle\b/.test(stack)) { manifestFile = 'build.gradle'; }
-  else if (/\bruby\b|\bgem\b/.test(stack)) { manifestFile = 'Gemfile'; }
+  const manifestFile = inferVersionManifestFile(intake);
 
   const contextLines = [
     intake.projectType ? `**Project type:** ${intake.projectType}` : '',
@@ -1947,6 +1973,8 @@ function buildBootstrapProjectSoul(existing: string | undefined, intake: Bootstr
       '- AtlasMind bootstrapping seeds SSOT, ideation defaults, and GitHub planning artifacts from a guided intake.',
       '- Long-term project context belongs in the SSOT under `project_memory/`.',
       '- Routing preferences and governance defaults should match the project delivery constraints.',
+      '',
+      buildBootstrapDocumentationPolicySection(intake),
       '',
       '## Imported References',
       '- domain/project-brief.md',

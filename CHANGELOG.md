@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.78.1] - 2026-06-11
+
+### Changed
+- **Documentation policy now in `project_soul.md`** (`src/bootstrap/bootstrapper.ts`): the bootstrap end-of-response checklist directive and documentation maintenance table are now embedded as a `## Documentation Policy` section in `project_soul.md` — AtlasMind's primary SSOT identity file — so the policy is visible to AtlasMind agents at plan and execution time. `CLAUDE.md` (written for Claude Code users) continues to include the same table via a shared `buildBootstrapDocumentationPolicySection()` helper. Extracted `inferVersionManifestFile()` to eliminate the duplicate manifest-detection logic.
+
 ## [0.78.0] - 2026-06-11
 
 ### Added

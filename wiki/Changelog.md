@@ -6,6 +6,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.78.1 — Documentation Policy in project_soul.md
+
+- **Documentation policy section in `project_soul.md`**: the bootstrap end-of-response checklist directive and documentation maintenance table are now embedded directly in `project_soul.md` as a `## Documentation Policy` section. This makes the policy visible to AtlasMind agents at plan and execution time via the SSOT. `CLAUDE.md` retains the same table for Claude Code users. Manifest file detection (package.json, Cargo.toml, etc.) is inferred from the captured tech stack and shared between both outputs.
+
 ## v0.78.0 — Bootstrap CLAUDE.md Generation
 
 - **CLAUDE.md generated on bootstrap**: the `/bootstrap` command now creates a `CLAUDE.md` at the workspace root when none exists. The generated file is populated from intake answers (project name, type, tech stack, audience, timeline, primary outcome) and includes the full documentation maintenance policy: the end-of-response checklist directive and the documentation table. The version manifest row (e.g. `package.json`, `Cargo.toml`, `pyproject.toml`) is inferred from the captured tech stack. Existing `CLAUDE.md` files are never overwritten.
