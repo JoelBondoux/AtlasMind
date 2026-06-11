@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.78.3] - 2026-06-11
+
+### Changed
+- **Dev-tooling major upgrades** (`package.json`, `package-lock.json`):
+  - `typescript` 5.4 → 6.0.3 (verified: zero compile errors, all 908 tests pass)
+  - `eslint` 8.57 → 10.4.1 (flat config already in use; lints clean)
+  - `@typescript-eslint/eslint-plugin` + `@typescript-eslint/parser` 7 → 8.61.0
+  - `@types/node` 20 → 25.9.3
+  - `@vitest/coverage-v8` 4.1.2 → 4.1.8
+  Addresses Dependabot PR #64.
+
 ## [0.78.2] - 2026-06-11
 
 ### Changed
