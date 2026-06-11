@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.78.7] - 2026-06-11
+
+### Changed
+- **ESLint cleanup** (`src/types.ts`): removed now-unused `eslint-disable` directive for `no-empty-object-type`; the `string & {}` open-union pattern is not flagged by the `@typescript-eslint` v8 recommended ruleset.
+
 ## [0.78.6] - 2026-06-11
 
 ### Fixed
