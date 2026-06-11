@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.78.2] - 2026-06-11
+
+### Changed
+- **Dependency updates** (`package.json`, `package-lock.json`):
+  - `zod` 4.3.6 → 4.4.3 (bug fixes: catch handling for absent object keys, generalised optin/fallback)
+  - `@types/vscode` 1.95.0 → 1.116.0 (latest available; Dependabot PR #53 referenced a not-yet-published 1.120.0)
+  - `qs` 6.15.1 → 6.15.2 (security; merged via PR #61)
+  - `hono` 4.12.18 → 4.12.25 (security: CORS credential reflection CVE, body-limit bypass CVE, path traversal CVE on Windows; merged via PR #72)
+
 ## [0.78.1] - 2026-06-11
 
 ### Changed
