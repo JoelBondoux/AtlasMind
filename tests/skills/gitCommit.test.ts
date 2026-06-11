@@ -53,8 +53,7 @@ describe('git-commit skill', () => {
     });
     const result = await gitCommitSkill.execute({ message: 'fix: typo' }, context);
     expect(context.runCommand).toHaveBeenCalledWith('git', ['commit', '-m', 'fix: typo']);
-    expect(result).toContain('ok: true');
-    expect(result).toContain('exitCode: 0');
+    expect(result).toContain('exit 0');
     expect(result).toContain('fix: typo');
   });
 
@@ -97,7 +96,7 @@ describe('git-commit skill', () => {
       }),
     });
     const result = await gitCommitSkill.execute({ message: 'feat: empty' }, context);
-    expect(result).toContain('ok: false');
+    expect(result).toContain('exit 1');
     expect(result).toContain('nothing to commit');
   });
 });

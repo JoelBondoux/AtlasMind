@@ -8,9 +8,47 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.78.1] - 2026-06-11
+
+### Changed
+- **Documentation policy now in `project_soul.md`** (`src/bootstrap/bootstrapper.ts`): the bootstrap end-of-response checklist directive and documentation maintenance table are now embedded as a `## Documentation Policy` section in `project_soul.md` — AtlasMind's primary SSOT identity file — so the policy is visible to AtlasMind agents at plan and execution time. `CLAUDE.md` (written for Claude Code users) continues to include the same table via a shared `buildBootstrapDocumentationPolicySection()` helper. Extracted `inferVersionManifestFile()` to eliminate the duplicate manifest-detection logic.
+
+## [0.78.0] - 2026-06-11
+
+### Added
+- **CLAUDE.md generation in bootstrap** (`src/bootstrap/bootstrapper.ts`): the `/bootstrap` command now creates a `CLAUDE.md` at the workspace root when none exists. The generated file is project-aware (populated from intake fields: project name, type, stack, audience, timeline, and primary outcome) and includes the full **documentation maintenance policy** — the end-of-response checklist directive and documentation table — so newly bootstrapped projects start with the same documentation discipline as AtlasMind itself. The version manifest row in the table (e.g. `package.json`, `Cargo.toml`, `pyproject.toml`) is inferred from the captured tech stack. If `CLAUDE.md` already exists it is never overwritten, preserving any project-specific customisation. The bootstrap completion summary reports whether `CLAUDE.md` was written or skipped.
+
+## [0.77.5] - 2026-06-11
+
+### Changed
+- **Documentation maintenance table in `CLAUDE.md`**: expanded from 16 rows to 20, adding explicit triggers for core service changes, `Planner`/scheduler changes, `builtinWorkspaceTools.ts` changes, MCP registry changes, and project routines. Added an **end-of-response checklist** directive so every applicable doc file must be verified before a response is reported complete. Removed the now-redundant catch-all for "add/modify project planner or scheduler" and replaced it with two specific rows that correctly map to `wiki/Project-Planner.md` and `docs/agents-and-skills.md`.
+
+### Fixed
+- Updated `docs/agents-and-skills.md`: corrected `terminal-run` description (now mentions shell-aware argument parsing), updated `git-commit` description (typed message parameter + `stage_tracked`), updated the subtask skill-assignment paragraph to document the dynamic skill catalog.
+- Updated `wiki/Project-Planner.md`: added **Dynamic Skill Catalog** subsection documenting the live-registry approach and git skill coverage.
+- Updated `wiki/Skills.md`: corrected `git-commit` and `terminal-run` rows.
+- Updated `wiki/Changelog.md`: added v0.77.3–0.77.4 highlights.
+
+## [0.77.4] - 2026-06-11
+
+### Changed
+- **Dynamic skill catalog in the project planner** (`src/core/planner.ts`): the planner's hardcoded skill whitelist has been replaced with a live catalog built from the `SkillsRegistry` at plan time. Every enabled skill — including all git skills (`git-push`, `git-branch`, `git-log`, `git-status`, `git-diff`, `git-blame`, `git-apply-patch`), user-registered skills, and connected MCP tools — is now automatically visible to project subtask agents without manual additions. A `FALLBACK_SKILL_IDS` constant covers the case where no registry is available (e.g. tests). The planner prompt also now includes an explicit rule to prefer dedicated skills over `terminal-run` for operations where a specific skill exists.
+- **`Planner` constructor** (`src/core/planner.ts`): accepts an optional `SkillsRegistry` as a fifth parameter; both call sites in `Orchestrator` now pass `this.skills`.
+- **`git-commit` skill** (`src/skills/gitCommit.ts`): added optional `stage_tracked` boolean parameter — when `true`, runs `git add -u` before committing, staging all tracked modifications in a single tool call.
+
+### Fixed
+- Removed redundant `makeGitCommitTool()` from `getBuiltinWorkspaceTools()` — it was silently skipped by the registry guard because `gitCommitSkill` from `createBuiltinSkills()` always registers first.
+
+## [0.77.3] - 2026-06-11
+
+### Fixed
+- **`git-commit` now available to project subtask agents** (`src/core/builtinWorkspaceTools.ts`, `src/core/planner.ts`): the `git-commit` built-in skill was missing from `getBuiltinWorkspaceTools()` and from the planner's skill-list prompt, so subtask agents fell back to `terminal-run` with a raw `git commit -m "..."` string. This caused git to mis-parse quoted commit messages as pathspecs (error: *"pathspec did not match any file(s) known to git"*). The `git-commit` tool is now included in the builtin workspace tool set and listed in the planner prompt with an explicit rule to prefer it over `terminal-run` for commits. The new tool also accepts an optional `stage_tracked` parameter to run `git add -u` before committing.
+- **`terminal-run` quoted-argument splitting** (`src/core/builtinWorkspaceTools.ts`): the command string was split with `rawCommand.split(/\s+/)`, which broke any argument containing spaces even when properly quoted (e.g. `git commit -m "fix: some message"` would pass `"fix:` as the message and `some` / `message"` as stray pathspec arguments). Replaced with `splitShellCommand()`, a POSIX-aware tokeniser that correctly handles single-quoted spans (literal), double-quoted spans (backslash-escape), and bare backslash escapes.
+
 ## [0.77.2] - 2026-06-10
 
 ### Added
+- **Published release v0.77.2**: this marketplace release bundles the routine workflow shipped on `develop`, including the new `/ship` experience, routine-run UI, bootstrap routine extraction, and direct routine-edit intent.
 - **Bootstrapper routine extraction** (`src/bootstrap/bootstrapper.ts`): `/import` now scans `CLAUDE.md`, `.github/copilot-instructions.md`, and `docs/development.md` for ordered procedure sections (Publishing Routine, Release Workflow, Deploy Process, etc.) and writes a starter routine file to `project_memory/routines/<id>.md`. Steps are extracted from numbered list items with a **Label** and a `command` in backticks; `<angle-bracket-placeholders>` become `${VAR}` interpolation tokens. The fingerprint system prevents overwriting manually edited routine files, and unchanged files are skipped on re-import. After writing, `RoutineRegistry` is reloaded automatically so the new routine is immediately available to `/ship`.
 - **Chat routine-edit intent** (`src/chat/participant.ts`): freeform messages matching "edit/update/change/open [the] [X] routine" now open the matching routine's source `.md` file directly in the editor, bypassing the LLM. AtlasMind identifies the target routine by matching the routine name or ID in the prompt, falling back to the default routine. If no routines exist, the response explains how to scaffold one via `/import`.
 

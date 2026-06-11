@@ -24,6 +24,7 @@ README.md
 SECURITY.md
 architecture/
 atlasmind-0.76.5.vsix
+atlasmind-0.77.2.vsix
 coverage/
 data/
 debug_node.js
@@ -48,8 +49,8 @@ wiki/
 <!-- atlasmind-import
 entry-path: architecture/project-structure.md
 generator-version: 2
-generated-at: 2026-06-10T17:53:52.591Z
+generated-at: 2026-06-10T20:03:17.519Z
 source-paths: workspace-root
-source-fingerprint: d2a08871
-body-fingerprint: c81a841f
+source-fingerprint: 5998fd0d
+body-fingerprint: e6c8aa3b
 -->

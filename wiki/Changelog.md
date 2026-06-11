@@ -6,6 +6,20 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.78.1 — Documentation Policy in project_soul.md
+
+- **Documentation policy section in `project_soul.md`**: the bootstrap end-of-response checklist directive and documentation maintenance table are now embedded directly in `project_soul.md` as a `## Documentation Policy` section. This makes the policy visible to AtlasMind agents at plan and execution time via the SSOT. `CLAUDE.md` retains the same table for Claude Code users. Manifest file detection (package.json, Cargo.toml, etc.) is inferred from the captured tech stack and shared between both outputs.
+
+## v0.78.0 — Bootstrap CLAUDE.md Generation
+
+- **CLAUDE.md generated on bootstrap**: the `/bootstrap` command now creates a `CLAUDE.md` at the workspace root when none exists. The generated file is populated from intake answers (project name, type, tech stack, audience, timeline, primary outcome) and includes the full documentation maintenance policy: the end-of-response checklist directive and the documentation table. The version manifest row (e.g. `package.json`, `Cargo.toml`, `pyproject.toml`) is inferred from the captured tech stack. Existing `CLAUDE.md` files are never overwritten.
+
+## v0.77.3–0.77.4 — Dynamic Skill Catalog and Git Tool Fixes
+
+- **Dynamic skill catalog in the project planner** (`src/core/planner.ts`): the hardcoded skill whitelist in the planner prompt has been replaced with a live catalog built from the `SkillsRegistry` at plan time. Every enabled skill — all git skills (`git-push`, `git-branch`, `git-log`, `git-status`, `git-diff`, `git-blame`, `git-apply-patch`, `git-commit`), user-registered skills, and connected MCP tools — is now automatically visible to subtask agents. The planner also explicitly instructs agents to prefer dedicated skills over `terminal-run` for operations where a specific skill exists.
+- **`git-commit` fixes**: message is now passed as a typed parameter directly to `execFile`, eliminating the "pathspec did not match" errors that occurred when commit messages were routed through `terminal-run`'s naive shell-string parser. Added optional `stage_tracked: true` parameter to run `git add -u` before committing.
+- **`terminal-run` quoted-argument parsing**: replaced the naive `split(/\s+/)` splitter with a POSIX-aware tokeniser (`splitShellCommand`) that correctly handles single-quoted, double-quoted, and backslash-escaped arguments — so commands like `gh pr create --body "multi word body"` no longer break.
+
 ## v0.77.2 — Bootstrapper Routine Extraction and Chat Routine-Edit Intent
 
 - **Bootstrapper routine extraction**: `/import` now scans `CLAUDE.md`, `.github/copilot-instructions.md`, and `docs/development.md` for ordered procedure sections and writes a starter routine file to `project_memory/routines/<id>.md`. Steps are extracted from numbered list items with a **Label** and a backtick-quoted `command`; `<angle-bracket-placeholders>` become `${VAR}` interpolation tokens. Manual edits to routine files are detected via body fingerprint and preserved — the file is never overwritten. After writing, `RoutineRegistry` is reloaded so the new routine is immediately available to `/ship`.

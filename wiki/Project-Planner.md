@@ -51,6 +51,14 @@ interface SubTask {
 - For behavior changes, the planner prefers test-authoring or regression-capture subtasks ahead of implementation subtasks so execution can follow a red-green-refactor flow.
 - Planned subtasks can now use the testing and observability skills needed to establish or inspect the red signal autonomously.
 
+### Dynamic Skill Catalog
+
+The planner builds its skill catalog **at plan time from the live `SkillsRegistry`**, so every enabled skill — built-in, user-registered, or MCP-connected — is automatically available to subtask agents without any manual additions to the planner prompt.
+
+This includes the full git suite (`git-commit`, `git-push`, `git-branch`, `git-log`, `git-status`, `git-diff`, `git-blame`, `git-apply-patch`) as well as any MCP tools that are connected at the time the plan is made. A static fallback list is used when the registry is unavailable (e.g., offline planning or testing).
+
+The planner is also guided by explicit rules to prefer dedicated skills over `terminal-run` wherever one exists — for example, `git-push` rather than `terminal-run git push`, and `git-commit` (which passes the message as a typed parameter with no shell quoting) rather than `terminal-run git commit -m "..."` which was historically a source of pathspec errors.
+
 ---
 
 ## Preview & Approval

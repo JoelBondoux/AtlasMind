@@ -218,7 +218,7 @@ When a `/project` command is executed, the orchestrator synthesises temporary `A
 | `security-reviewer` | OWASP issues, vulnerability mitigations |
 | `general-assistant` | Catch-all for unrecognised roles |
 
-Each sub-agent only receives the skill IDs listed in its `SubTask.skills` array plus the `depOutputs` context block prepended to its user message.
+Each sub-agent only receives the skill IDs listed in its `SubTask.skills` array plus the `depOutputs` context block prepended to its user message. The `Planner` builds the list of available skill IDs dynamically from the live `SkillsRegistry` at plan time — every enabled built-in, user-registered, and MCP-connected skill is automatically visible to subtask agents without manual additions to the planner prompt. A fallback list covering the core tool set is used when the registry is unavailable.
 
 For code-changing `/project` work, AtlasMind now gives these ephemeral agents an explicit autonomous TDD contract:
 - Prefer tests first when a subtask changes behavior, fixes a regression, or introduces a new contract.
@@ -395,10 +395,10 @@ The following skills are registered automatically at extension activation (`src/
 | `memory-write` | ✅ Implemented | Add/update SSOT entries with validation, security scanning, and disk persistence |
 | `memory-delete` | ✅ Implemented | Remove an SSOT entry from index and disk |
 | `git-apply-patch` | ✅ Implemented | Validate/apply unified git patches inside the workspace repository |
-| `terminal-run` | ✅ Implemented | Execute subprocesses with tiered allow-list (auto-approve, blocked, unknown) and validated string-array arguments; supports Node, Python, Rust, Go, Java, Ruby, PHP, Flutter, Dart, Expo, Elixir, Terraform, Helm, Kubectl, Godot, Turbo/Nx and more |
+| `terminal-run` | ✅ Implemented | Execute subprocesses with tiered allow-list (auto-approve, blocked, unknown) and shell-aware argument parsing (handles single/double-quoted spans and backslash escapes); supports Node, Python, Rust, Go, Java, Ruby, PHP, Flutter, Dart, Expo, Elixir, Terraform, Helm, Kubectl, Godot, Turbo/Nx and more |
 | `git-status` | ✅ Implemented | Show repository status |
-| `git-diff` | ✅ Implemented | Show repository diff |
-| `git-commit` | ✅ Implemented | Create a commit after policy approval |
+| `git-diff` | ✅ Implemented | Show repository diff (staged or against a ref) |
+| `git-commit` | ✅ Implemented | Create a commit with a message passed directly to git (no shell quoting needed); optional `stage_tracked` boolean runs `git add -u` first |
 | `git-log` | ✅ Implemented | Query commit log with ref, filePath, and maxCount (capped at 100) |
 | `git-branch` | ✅ Implemented | List, create, switch, or delete branches with name validation |
 | `rollback-checkpoint` | ✅ Implemented | Restore the most recent automatic pre-write checkpoint |
