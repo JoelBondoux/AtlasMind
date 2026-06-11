@@ -82,7 +82,7 @@ When you make **any** of the following changes, you **MUST** update the correspo
 <!-- atlasmind-import
 entry-path: decisions/development-guardrails.md
 generator-version: 2
-generated-at: 2026-06-10T20:03:17.519Z
+generated-at: 2026-06-11T19:52:00.584Z
 source-paths: .github/copilot-instructions.md | docs/github-workflow.md
 source-fingerprint: 53d165fc
 body-fingerprint: ba0023b0

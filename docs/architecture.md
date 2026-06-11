@@ -125,6 +125,10 @@ Infers a `TaskProfile` from the current phase and request text. It classifies mo
 
 Static security scanner that checks skill source code against configurable rules. Exports `BUILTIN_SCAN_RULES` (12 rules), `resolveRules(config)` (merges overrides and custom rules), `scanSkillSource(id, source, config?)`, and `scanSkillFile(id, path, config?)`. Returns a `SkillScanResult` with per-issue details (rule, severity, line, snippet, message).
 
+### TestingConfigLoader (`src/core/testingConfigLoader.ts`)
+
+Pure-Node utility (no VS Code dependency) that connects the Testing Methodology Matrix to the execution pipeline. `readProjectTestingConfig(workspaceRoot)` reads `project_memory/index/testing-config.json`. `inferTestingMethodologyForSubTask(task, config)` detects the best matching `TestingMethodologyId` from a subtask's role and description using `TESTING_METHODOLOGY_DEFINITIONS.autoDetectSignals`. `resolveTestingModelOverride(methodologyId, methodConfig, agents)` walks the lookup chain — `assignedModelId` → assigned agent's `testingModelOverrides[id]` — and returns the effective override model ID. Used by the orchestrator in both the project subtask path and the direct task path to apply per-methodology model routing when the Testing Methodology Matrix is configured.
+
 ### ScannerRulesManager (`src/core/scannerRulesManager.ts`)
 
 Persists scanner rule overrides and custom rules in `vscode.Memento` (`globalState`). Key: `atlasmind.scannerRulesConfig`. Methods: `getConfig()`, `getEffectiveRules()`, `updateBuiltInRule()`, `resetBuiltInRule()`, `upsertCustomRule()`, `deleteCustomRule()`. Validates regex patterns before accepting any change. entries per session. Provides `getSummary()` returning totals for cost, requests, and tokens. Supports `reset()`.
