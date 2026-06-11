@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.78.6] - 2026-06-11
+
+### Fixed
+- **CI `npm ci` failure** (`package-lock.json`, `src/types.ts`): lockfile was out of sync with `package.json` after the 0.78.3 tooling upgrades — CI rejected the mismatch. Lockfile regenerated against the correct installed packages. `@typescript-eslint/ban-types` (removed in v8) replaced with `@typescript-eslint/no-empty-object-type` in the inline disable comment in `src/types.ts`.
+
 ## [0.78.5] - 2026-06-11
 
 ### Fixed

@@ -6,6 +6,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.78.6 — CI Lockfile and ESLint v10 Fix
+
+- **`npm ci` failure on CI** (`package-lock.json`, `src/types.ts`): lockfile regenerated to match the 0.78.3 tooling upgrades. `@typescript-eslint/ban-types` (removed in v8) replaced with `@typescript-eslint/no-empty-object-type` in `src/types.ts`.
+
 ## v0.78.5 — Package Build Fix
 
 - **`engines.vscode` alignment** (`package.json`): bumped `engines.vscode` from `^1.95.0` to `^1.116.0` to match the `@types/vscode` devDependency version and unblock `vsce package`.
