@@ -61,9 +61,10 @@ When asked to publish or ship a release, follow these steps in order:
 1. **Commit** all changes to the current working branch with a conventional commit message and version bump.
 2. **Merge to `develop`**: `git checkout develop && git pull origin develop && git merge <branch> --no-ff && git push origin develop`
 3. **Compile**: `npm run compile` — must produce zero TypeScript errors.
-4. **Package**: `npm run package` — produces `atlasmind-<version>.vsix`.
+4. **Package**: `npm run package` — produces `atlasmind-<version>.vsix`. Fix any packaging errors before proceeding.
 5. **Open PR to `master`**: `gh pr create --base master --head develop` — master is protected and requires a PR; never force-push.
-6. **Publish**: `npm run publish:release` — publishes to the VS Code Marketplace via `vsce`.
+6. **Wait for PR merge**: do NOT publish until the PR has been merged into `master` and CI checks pass. Confirm the merge before continuing.
+7. **Publish**: `NODE_OPTIONS="--use-system-ca" npm run publish:release` — publishes to the VS Code Marketplace via `vsce`. Only run this after step 6 is complete.
 
 ## Architecture Quick Reference
 

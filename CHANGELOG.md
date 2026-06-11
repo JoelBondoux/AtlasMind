@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.78.8] - 2026-06-11
+
+### Changed
+- **Publishing routine in `CLAUDE.md`**: publish step now explicitly requires the PR to be merged into `master` before running `npm run publish:release`. Prevents Marketplace releases that don't correspond to a clean `master`. Also documents `NODE_OPTIONS="--use-system-ca"` as the required publish command on Windows.
+
 ## [0.78.7] - 2026-06-11
 
 ### Changed
