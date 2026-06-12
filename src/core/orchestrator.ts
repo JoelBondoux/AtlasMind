@@ -1,4 +1,4 @@
-import type { AgentDefinition, MemoryEntry, ModelCapability, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, TaskProfile, TaskRequest, TaskResult, ToolExecutionArtifact } from '../types.js';
+import type { AgentDefinition, MemoryEntry, ModelCapability, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, TaskProfile, TaskRequest, TaskResult, TestingMethodologyId, ToolExecutionArtifact } from '../types.js';
 import type { AgentAutoUpdater } from './agentAutoUpdater.js';
 import { ClassifierService, type ClassificationResult } from './classifierService.js';
 import { formatCost } from './currencyFormatter.js';
@@ -33,6 +33,7 @@ import {
   CONTEXT_SAFE_OUTPUT_MARGIN,
 } from '../constants.js';
 import { redactSecretsWithWarning } from '../utils/secretRedactor.js';
+import { readProjectTestingConfig, inferTestingMethodologyForSubTask, resolveTestingModelOverride, buildMethodologySystemPromptHint } from './testingConfigLoader.js';
 
 const defaultConfig: OrchestratorConfig = {
   maxToolIterations: MAX_TOOL_ITERATIONS,
@@ -718,6 +719,38 @@ export class Orchestrator {
 
     onProgress?.(`Selected agent ${agent.name} and prepared ${tools.length} available tool(s).`);
 
+    // If the task is classified as testing-related and the selected agent is assigned
+    // to an enabled methodology in the Testing Methodology Matrix, prepend any
+    // configured model override so the router picks it first.
+    let directTaskMethodologyId: TestingMethodologyId | undefined;
+    {
+      const classification = request.context['__classification'] as ClassificationResult | undefined;
+      const isTestingTask = (classification?.routingNeeds as string[] | undefined)?.includes('testing') ?? false;
+      if (isTestingTask) {
+        const wsRoot = this.skillContext.workspaceRootPath;
+        if (wsRoot) {
+          const testingConfig = readProjectTestingConfig(wsRoot);
+          if (testingConfig) {
+            const methodConfig = testingConfig.methodologies.find(
+              (m: import('../types.js').ProjectTestingMethodologyConfig) => m.enabled && m.assignedAgentId === agent.id,
+            );
+            if (methodConfig) {
+              directTaskMethodologyId = methodConfig.id;
+              const enabledAgents = this.agents.listEnabledAgents();
+              const overrideModel = resolveTestingModelOverride(methodConfig.id, methodConfig, enabledAgents);
+              if (overrideModel && this.router.getModelInfo(overrideModel)) {
+                agent = { ...agent, allowedModels: [overrideModel, ...(agent.allowedModels ?? [])] };
+              }
+              const hint = buildMethodologySystemPromptHint(methodConfig.id);
+              if (hint) {
+                request.context['__testingMethodologyHint'] = hint;
+              }
+            }
+          }
+        }
+      }
+    }
+
     let routingConstraints = buildExecutionRoutingConstraints(request.constraints, activeAgentSkills.length > 0);
 
     // For mechanical low-overhead tasks on auto budget, constrain to cheap/fast models.
@@ -1122,6 +1155,10 @@ export class Orchestrator {
 
     const completion = finalAttempt.completion;
     const executionArtifacts = finalAttempt.artifacts;
+    // Tag the artifact with the detected testing methodology (if any).
+    if (executionArtifacts && directTaskMethodologyId) {
+      executionArtifacts.testingMethodologyId = directTaskMethodologyId;
+    }
 
     const durationMs = Date.now() - startMs;
     const costUsd = aggregateCostUsd || finalAttempt.costUsd;
@@ -1329,7 +1366,7 @@ export class Orchestrator {
     const startMs = Date.now();
     const userMessage = buildProjectSubTaskMessage(task, depOutputs, projectGoal);
 
-    const agent: AgentDefinition = {
+    let agent: AgentDefinition = {
       id: `sub-${task.id}`,
       name: task.role,
       role: task.role,
@@ -1337,6 +1374,31 @@ export class Orchestrator {
       systemPrompt: buildRolePrompt(task.role),
       skills: task.skills,
     };
+
+    // Detect the active testing methodology for this subtask and apply any
+    // model override configured in the Testing Methodology Matrix.
+    let subTaskMethodologyId: TestingMethodologyId | undefined;
+    {
+      const wsRoot = this.skillContext.workspaceRootPath;
+      if (wsRoot) {
+        const testingConfig = readProjectTestingConfig(wsRoot);
+        if (testingConfig) {
+          subTaskMethodologyId = inferTestingMethodologyForSubTask(task, testingConfig);
+          if (subTaskMethodologyId) {
+            const methodConfig = testingConfig.methodologies.find(
+              (m: import('../types.js').ProjectTestingMethodologyConfig) => m.id === subTaskMethodologyId && m.enabled,
+            );
+            if (methodConfig) {
+              const enabledAgents = this.agents.listEnabledAgents();
+              const overrideModel = resolveTestingModelOverride(subTaskMethodologyId, methodConfig, enabledAgents);
+              if (overrideModel && this.router.getModelInfo(overrideModel)) {
+                agent = { ...agent, allowedModels: [overrideModel] };
+              }
+            }
+          }
+        }
+      }
+    }
 
     const projectBundle: import('../types.js').SessionContextBundle = {
       goal: projectGoal || undefined,
@@ -1354,6 +1416,7 @@ export class Orchestrator {
         context: {
           projectTddPolicy: buildProjectTddPolicy(task, depOutputs),
           ...(projectGoal ? { sessionContextBundle: projectBundle } : {}),
+          ...(subTaskMethodologyId ? { __testingMethodologyHint: buildMethodologySystemPromptHint(subTaskMethodologyId) } : {}),
         },
         constraints,
         timestamp: new Date().toISOString(),
@@ -1414,6 +1477,7 @@ export class Orchestrator {
             output: result.response,
             outputPreview: truncatePreview(result.response),
             changedFiles: [],
+            ...(subTaskMethodologyId ? { testingMethodologyId: subTaskMethodologyId } : {}),
           }
           : {
             output: result.response,
@@ -1422,6 +1486,7 @@ export class Orchestrator {
             toolCalls: [],
             checkpointedTools: [],
             changedFiles: [],
+            ...(subTaskMethodologyId ? { testingMethodologyId: subTaskMethodologyId } : {}),
           },
       };
     } catch (err) {
@@ -1447,8 +1512,8 @@ export class Orchestrator {
               role: task.role,
               dependsOn: [...task.dependsOn],
               artifacts: retryResult.artifacts
-                ? { ...retryResult.artifacts, output: retryResult.response, outputPreview: truncatePreview(retryResult.response), changedFiles: [] }
-                : { output: retryResult.response, outputPreview: truncatePreview(retryResult.response), toolCallCount: 0, toolCalls: [], checkpointedTools: [], changedFiles: [] },
+                ? { ...retryResult.artifacts, output: retryResult.response, outputPreview: truncatePreview(retryResult.response), changedFiles: [], ...(subTaskMethodologyId ? { testingMethodologyId: subTaskMethodologyId } : {}) }
+                : { output: retryResult.response, outputPreview: truncatePreview(retryResult.response), toolCallCount: 0, toolCalls: [], checkpointedTools: [], changedFiles: [], ...(subTaskMethodologyId ? { testingMethodologyId: subTaskMethodologyId } : {}) },
             };
           }
         } catch {
@@ -3008,6 +3073,9 @@ export class Orchestrator {
     const urlSafetyHint = shouldInjectUrlSafetyGuidance(userMessage, requestContext)
       ? `\n\n${URL_SAFETY_HINT}`
       : '';
+    const testingMethodologyHint = typeof requestContext['__testingMethodologyHint'] === 'string' && requestContext['__testingMethodologyHint'].trim().length > 0
+      ? `\n\nTesting methodology guidance:\n${requestContext['__testingMethodologyHint'].trim()}`
+      : '';
     const attachmentSummary = imageAttachments.length > 0
       ? `\n\nUser-attached images:\n${imageAttachments.map(image => `- ${image.source} (${image.mimeType})`).join('\n')}` +
         (hasCarryForwardImages
@@ -3053,6 +3121,7 @@ export class Orchestrator {
           `\n\nTool result policy:\n- Treat tool outputs as the authoritative record of what actually happened.\n- If a tool reports an error, denial, validation issue, missing resource, or no-op, do not claim success. State that the action did not complete and summarize the tool result succinctly.` +
           securityAnalysisHint +
           urlSafetyHint +
+          testingMethodologyHint +
           (rawSpecialistRoutingHint ? `\n\nSpecialist routing guidance:\n${rawSpecialistRoutingHint}` : '') +
           executionBiasHint +
           workspaceInvestigationHint +

@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.79.1] - 2026-06-11
+
+### Fixed
+- **Testing methodology runtime path** (`src/core/orchestrator.ts`, `src/core/testingConfigLoader.ts`): restored and verified the methodology inference / model-override path used for testing-related tasks, including the system-prompt methodology hint that improves routing behavior even when no explicit override is present.
+- **Release handoff readiness** (`package.json`, `README.md`, `docs/architecture.md`, `wiki/Architecture.md`): aligned the current source version and architecture notes with the verified 0.79.1 release state.
+
 ## [0.78.8] - 2026-06-11
 
 ### Changed

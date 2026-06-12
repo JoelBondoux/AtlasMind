@@ -39,7 +39,7 @@ src/
     scannerRulesManager.ts
     skillAutoAssigner.ts
     skillDrafting.ts
-    ... (8 more entries)
+    ... (9 more entries)
   mcp/
     mcpClient.ts
     mcpServerRegistry.ts
@@ -309,6 +309,7 @@ project_memory/
     project-run-2026-06-03T01-45-39-088Z.json
     project-run-2026-06-04T00-20-12-535Z.json
     project-run-2026-06-04T11-01-42-059Z.json
+    project-run-2026-06-11T18-34-23-597Z.json
     security-and-safety.md
   roadmap/
     .gitkeep
@@ -316,8 +317,10 @@ project_memory/
     release-history.md
   routines/
     .gitkeep
+    publishing-routine.md
     README.md
   sessions/
+    chat-1781201164053-hd8hj9/
     .gitkeep
   skills/
     .gitkeep
@@ -352,8 +355,8 @@ project_memory/
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-06-11T03:33:12.206Z
+generated-at: 2026-06-11T19:55:44.108Z
 source-paths: src | tests | docs | wiki | project_memory | .github
-source-fingerprint: 26edea09
-body-fingerprint: 3eb31779
+source-fingerprint: 306b5d2f
+body-fingerprint: 5965e77f
 -->

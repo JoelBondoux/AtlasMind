@@ -10,30 +10,53 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-## [0.77.2] - 2026-06-10
+## [0.79.1] - 2026-06-11
 
-### Added
-- **Published release v0.77.2**: this marketplace release bundles the routine workflow shipped on `develop`, including the new `/ship` experience, routine-run UI, bootstrap routine extraction, and direct routine-edit intent.
-- **Bootstrapper routine extraction** (`src/bootstrap/bootstrapper.ts`): `/import` now scans `CLAUDE.md`, `.github/copilot-instructions.md`, and `docs/development.md` for ordered procedure sections (Publishing Routine, Release Workflow, Deploy Process, etc.) and writes a starter routine file to `project_memory/routines/<id>.md`. Steps are extracted from numbered list items with a **Label** and a `command` in backticks; `<angle-bracket-placeholders>` become `${VAR}` interpolation tokens. The fingerprint system prevents overwriting manually edited routine files, and unchanged files are skipped on re-import. After writing, `RoutineRegistry` is reloaded automatically so the new routine is immediately available to `/ship`.
-- **Chat routine-edit intent** (`src/chat/participant.ts`): freeform messages matching "edit/update/change/open [the] [X] routine" now open the matching routine's source `.md` file directly in the editor, bypassing the LLM. AtlasMind identifies the target routine by matching the routine name or ID in the prompt, falling back to the default routine. If no routines exist, the response explains how to scaffold one via `/import`.
+### Fixed
+- **Testing methodology runtime path** (`src/core/orchestrator.ts`, `src/core/testingConfigLoader.ts`): restored and verified the methodology inference / model-override path used for testing-related tasks, including the system-prompt methodology hint that improves routing behavior even when no explicit override is present.
+- **Release handoff readiness** (`package.json`, `README.md`, `docs/architecture.md`, `wiki/Architecture.md`): aligned the current source version and architecture notes with the verified 0.79.1 release state.
 
-## [0.77.1] - 2026-06-10
+## [0.78.8] - 2026-06-11
 
 ### Changed
-- **Routine card UI in Project Run Center** (`src/views/projectRunCenterPanel.ts`): replaced the `<select>` dropdown in the Ship card with run-card–style tiles matching the panel's design language. Each routine renders as a clickable card showing its name, description, and step count. The action strip inside each card contains a **Ship** button and an **Edit** button; Edit opens the routine's source `.md` file directly in the editor. The separate standalone Run Routine button has been removed.
+- **Publishing routine in `CLAUDE.md`**: publish step now explicitly requires the PR to be merged into `master` before running `npm run publish:release`. Prevents Marketplace releases that don't correspond to a clean `master`. Also documents `NODE_OPTIONS="--use-system-ca"` as the required publish command on Windows.
 
-## [0.77.0] - 2026-06-10
+## [0.78.7] - 2026-06-11
 
-### Added
-- **Project Routines** (`src/core/routineRegistry.ts`, `src/core/routineRunner.ts`): named, executable workflows stored as YAML-frontmatter markdown files in `project_memory/routines/`. The registry scans that folder on startup and makes all valid routines available to the rest of the extension. The runner executes steps sequentially, streams per-step progress, respects `on_fail: abort | prompt | continue` policies, and persists run results to `ProjectRunHistory`.
-- **`/ship` chat command** (`src/chat/participant.ts`, `package.json`): `/ship` runs the project's default routine (first file with `default: true`, or first file in the folder). `/ship <id>` runs a named routine. Text after the I
+### Changed
+- **ESLint cleanup** (`src/types.ts`): removed now-unused `eslint-disable` directive for `no-empty-object-type`; the `string & {}` open-union pattern is not flagged by the `@typescript-eslint` v8 recommended ruleset.
+
+## [0.78.6] - 2026-06-11
+
+### Fixed
+- **CI `npm ci` failure** (`package-lock.json`, `src/types.ts`): lockfile was out of sync with `package.json` after the 0.78.3 tooling upgrades — CI rejected the mismatch. Lockfile regenerated against the correct installed packages. `@typescript-eslint/ban-types` (removed in v8) replaced with `@typescript-eslint/no-empty-object-type` in the inline disable comment in `src/types.ts`.
+
+## [0.78.5] - 2026-06-11
+
+### Fixed
+- **Package build** (`package.json`): `engines.vscode` bumped from `^1.95.0` to `^1.116.0` to match the `@types/vscode` version already in devDependencies; `vsce package` previously refused to build with a mismatched constraint.
+
+## [0.78.4] - 2026-06-11
+
+### Fixed
+- **Local provider not showing after save** (`src/views/modelProviderPanel.ts`): The Model Providers panel now subscribes to the `modelsRefresh` event so it reloads automatically when a local endpoint (LM Studio, Ollama, etc.) is saved in the Settings panel. Previously, the endpoint was persisted correctly but the panel UI stayed stale until manually reopened.
+
+## [0.78.3] - 2026-06-11
+
+### Changed
+- **Dev-tooling major upgrades** (`package.json`, `package-lock.json`):
+  - `typescript` 5.4 → 6.0.3 (verified: zero compile errors, all 908 tests pass)
+  - `eslint` 8.57 → 10.4.1 (flat config already in use; lints clean)
+  - `@typescript-eslint/eslint-plugin` + `@typescript-eslint/parser` 7 → 8.61.0
+  - `@types/node` 20 → 25.9.3
+  - `@vitest/coverage-v8` 4
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-06-10T20:03:17.519Z
+generated-at: 2026-06-11T20:04:57.860Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: 7a944142
-body-fingerprint: 392838f8
+source-fingerprint: 808a33af
+body-fingerprint: 29388286
 -->

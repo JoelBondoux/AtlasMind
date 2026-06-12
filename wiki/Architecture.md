@@ -21,6 +21,7 @@ AtlasMind is a VS Code extension built in TypeScript, and it now also ships a sm
 | **TaskScheduler** | `src/core/taskScheduler.ts` | Topologically sorts DAGs into batches and runs them in parallel |
 | **CheckpointManager** | `src/core/checkpointManager.ts` | Pre-write snapshots for safe rollback |
 | **SkillScanner** | `src/core/skillScanner.ts` | Security scanner with 12 rules for custom skill validation |
+| **TestingConfigLoader** | `src/core/testingConfigLoader.ts` | Reads testing-config.json; infers methodology for subtasks; resolves per-methodology model overrides |
 | **ScannerRulesManager** | `src/core/scannerRulesManager.ts` | Configurable rule overrides persisted in globalState |
 | **McpClient** | `src/mcp/mcpClient.ts` | MCP SDK wrapper for stdio and HTTP transports |
 | **McpServerRegistry** | `src/mcp/mcpServerRegistry.ts` | Persists MCP server configs; manages connections; bridges tools as skills |
