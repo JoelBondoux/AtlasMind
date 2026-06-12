@@ -42,6 +42,7 @@ import {
   resolveProjectExecutionGoal,
   renderAssistantResponseFooter,
   shouldCarryForwardConversationContext,
+  prepareProjectRunContext,
   summarizeChangedFiles,
   summarizeRoadmapStatus,
   toApprovedProjectPrompt,
@@ -64,6 +65,32 @@ function makeSnapshotEntry(relativePath: string, signature: string) {
 }
 
 describe('participant helper logic', () => {
+  it('loads the session SSOT bundle for project execution context', async () => {
+    const sessionContextManager = {
+      loadContext: vi.fn().mockResolvedValue({
+        goal: 'Fix the auth redirect regression',
+        summary: 'The failing redirect path was isolated in the login handler.',
+        decisions: 'Add a regression test before changing redirect logic.',
+        openThreads: 'Need to confirm the expected redirect target.',
+        ssotExcerpts: ['architecture/auth-flow.md'],
+        loadedAt: '2026-05-01T12:00:00.000Z',
+      }),
+    };
+    const sessionConversation = {
+      buildContext: vi.fn(() => 'legacy session context'),
+    };
+
+    const context = await prepareProjectRunContext({
+      sessionContextManager,
+      sessionConversation,
+    } as never, 'session-1');
+
+    expect(sessionContextManager.loadContext).toHaveBeenCalledWith('session-1');
+    expect(context.sessionContextBundle?.summary).toContain('login handler');
+    expect(context.sessionContext).toBe('');
+    expect(sessionConversation.buildContext).not.toHaveBeenCalled();
+  });
+
   it('returns project-specific followups', () => {
     const followups = buildFollowups('project');
     expect(followups.map(f => f.label)).toEqual([

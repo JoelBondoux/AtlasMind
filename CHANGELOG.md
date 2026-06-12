@@ -8,93 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-## [0.79.1] - 2026-06-11
+## [0.79.2] - 2026-06-12
 
 ### Fixed
-- **Testing methodology runtime path** (`src/core/orchestrator.ts`, `src/core/testingConfigLoader.ts`): restored and verified the methodology inference / model-override path used for testing-related tasks, including the system-prompt methodology hint that improves routing behavior even when no explicit override is present.
-- **Release handoff readiness** (`package.json`, `README.md`, `docs/architecture.md`, `wiki/Architecture.md`): aligned the current source version and architecture notes with the verified 0.79.1 release state.
-
-## [0.78.8] - 2026-06-11
-
-### Changed
-- **Publishing routine in `CLAUDE.md`**: publish step now explicitly requires the PR to be merged into `master` before running `npm run publish:release`. Prevents Marketplace releases that don't correspond to a clean `master`. Also documents `NODE_OPTIONS="--use-system-ca"` as the required publish command on Windows.
-
-## [0.78.7] - 2026-06-11
-
-### Changed
-- **ESLint cleanup** (`src/types.ts`): removed now-unused `eslint-disable` directive for `no-empty-object-type`; the `string & {}` open-union pattern is not flagged by the `@typescript-eslint` v8 recommended ruleset.
-
-## [0.78.6] - 2026-06-11
-
-### Fixed
-- **CI `npm ci` failure** (`package-lock.json`, `src/types.ts`): lockfile was out of sync with `package.json` after the 0.78.3 tooling upgrades — CI rejected the mismatch. Lockfile regenerated against the correct installed packages. `@typescript-eslint/ban-types` (removed in v8) replaced with `@typescript-eslint/no-empty-object-type` in the inline disable comment in `src/types.ts`.
-
-## [0.78.5] - 2026-06-11
-
-### Fixed
-- **Package build** (`package.json`): `engines.vscode` bumped from `^1.95.0` to `^1.116.0` to match the `@types/vscode` version already in devDependencies; `vsce package` previously refused to build with a mismatched constraint.
-
-## [0.78.4] - 2026-06-11
-
-### Fixed
-- **Local provider not showing after save** (`src/views/modelProviderPanel.ts`): The Model Providers panel now subscribes to the `modelsRefresh` event so it reloads automatically when a local endpoint (LM Studio, Ollama, etc.) is saved in the Settings panel. Previously, the endpoint was persisted correctly but the panel UI stayed stale until manually reopened.
-
-## [0.78.3] - 2026-06-11
-
-### Changed
-- **Dev-tooling major upgrades** (`package.json`, `package-lock.json`):
-  - `typescript` 5.4 → 6.0.3 (verified: zero compile errors, all 908 tests pass)
-  - `eslint` 8.57 → 10.4.1 (flat config already in use; lints clean)
-  - `@typescript-eslint/eslint-plugin` + `@typescript-eslint/parser` 7 → 8.61.0
-  - `@types/node` 20 → 25.9.3
-  - `@vitest/coverage-v8` 4.1.2 → 4.1.8
-  Addresses Dependabot PR #64.
-
-## [0.78.2] - 2026-06-11
-
-### Changed
-- **Dependency updates** (`package.json`, `package-lock.json`):
-  - `zod` 4.3.6 → 4.4.3 (bug fixes: catch handling for absent object keys, generalised optin/fallback)
-  - `@types/vscode` 1.95.0 → 1.116.0 (latest available; Dependabot PR #53 referenced a not-yet-published 1.120.0)
-  - `qs` 6.15.1 → 6.15.2 (security; merged via PR #61)
-  - `hono` 4.12.18 → 4.12.25 (security: CORS credential reflection CVE, body-limit bypass CVE, path traversal CVE on Windows; merged via PR #72)
-
-## [0.78.1] - 2026-06-11
-
-### Changed
-- **Documentation policy now in `project_soul.md`** (`src/bootstrap/bootstrapper.ts`): the bootstrap end-of-response checklist directive and documentation maintenance table are now embedded as a `## Documentation Policy` section in `project_soul.md` — AtlasMind's primary SSOT identity file — so the policy is visible to AtlasMind agents at plan and execution time. `CLAUDE.md` (written for Claude Code users) continues to include the same table via a shared `buildBootstrapDocumentationPolicySection()` helper. Extracted `inferVersionManifestFile()` to eliminate the duplicate manifest-detection logic.
-
-## [0.78.0] - 2026-06-11
+- **Autonomous run context continuity** (`src/core/orchestrator.ts`, `src/chat/participant.ts`, `src/views/chatPanel.ts`): preserved the loaded session context bundle for autonomous project subtasks so project runs keep the prior chat goal, summary, decisions, open threads, and SSOT excerpts instead of dropping back to a blank context frame.
 
 ### Added
-- **CLAUDE.md generation in bootstrap** (`src/bootstrap/bootstrapper.ts`): the `/bootstrap` command now creates a `CLAUDE.md` at the workspace root when none exists. The generated file is project-aware (populated from intake fields: project name, type, stack, audience, timeline, and primary outcome) and includes the full **documentation maintenance policy** — the end-of-response checklist directive and documentation table — so newly bootstrapped projects start with the same documentation discipline as AtlasMind itself. The version manifest row in the table (e.g. `package.json`, `Cargo.toml`, `pyproject.toml`) is inferred from the captured tech stack. If `CLAUDE.md` already exists it is never overwritten, preserving any project-specific customisation. The bootstrap completion summary reports whether `CLAUDE.md` was written or skipped.
-
-## [0.77.5] - 2026-06-11
-
-### Changed
-- **Documentation maintenance table in `CLAUDE.md`**: expanded from 16 rows to 20, adding explicit triggers for core service changes, `Planner`/scheduler changes, `builtinWorkspaceTools.ts` changes, MCP registry changes, and project routines. Added an **end-of-response checklist** directive so every applicable doc file must be verified before a response is reported complete. Removed the now-redundant catch-all for "add/modify project planner or scheduler" and replaced it with two specific rows that correctly map to `wiki/Project-Planner.md` and `docs/agents-and-skills.md`.
-
-### Fixed
-- Updated `docs/agents-and-skills.md`: corrected `terminal-run` description (now mentions shell-aware argument parsing), updated `git-commit` description (typed message parameter + `stage_tracked`), updated the subtask skill-assignment paragraph to document the dynamic skill catalog.
-- Updated `wiki/Project-Planner.md`: added **Dynamic Skill Catalog** subsection documenting the live-registry approach and git skill coverage.
-- Updated `wiki/Skills.md`: corrected `git-commit` and `terminal-run` rows.
-- Updated `wiki/Changelog.md`: added v0.77.3–0.77.4 highlights.
-
-## [0.77.4] - 2026-06-11
-
-### Changed
-- **Dynamic skill catalog in the project planner** (`src/core/planner.ts`): the planner's hardcoded skill whitelist has been replaced with a live catalog built from the `SkillsRegistry` at plan time. Every enabled skill — including all git skills (`git-push`, `git-branch`, `git-log`, `git-status`, `git-diff`, `git-blame`, `git-apply-patch`), user-registered skills, and connected MCP tools — is now automatically visible to project subtask agents without manual additions. A `FALLBACK_SKILL_IDS` constant covers the case where no registry is available (e.g. tests). The planner prompt also now includes an explicit rule to prefer dedicated skills over `terminal-run` for operations where a specific skill exists.
-- **`Planner` constructor** (`src/core/planner.ts`): accepts an optional `SkillsRegistry` as a fifth parameter; both call sites in `Orchestrator` now pass `this.skills`.
-- **`git-commit` skill** (`src/skills/gitCommit.ts`): added optional `stage_tracked` boolean parameter — when `true`, runs `git add -u` before committing, staging all tracked modifications in a single tool call.
-
-### Fixed
-- Removed redundant `makeGitCommitTool()` from `getBuiltinWorkspaceTools()` — it was silently skipped by the registry guard because `gitCommitSkill` from `createBuiltinSkills()` always registers first.
-
-## [0.77.3] - 2026-06-11
-
-### Fixed
-- **`git-commit` now available to project subtask agents** (`src/core/builtinWorkspaceTools.ts`, `src/core/planner.ts`): the `git-commit` built-in skill was missing from `getBuiltinWorkspaceTools()` and from the planner's skill-list prompt, so subtask agents fell back to `terminal-run` with a raw `git commit -m "..."` string. This caused git to mis-parse quoted commit messages as pathspecs (error: *"pathspec did not match any file(s) known to git"*). The `git-commit` tool is now included in the builtin workspace tool set and listed in the planner prompt with an explicit rule to prefer it over `terminal-run` for commits. The new tool also accepts an optional `stage_tracked` parameter to run `git add -u` before committing.
-- **`terminal-run` quoted-argument splitting** (`src/core/builtinWorkspaceTools.ts`): the command string was split with `rawCommand.split(/\s+/)`, which broke any argument containing spaces even when properly quoted (e.g. `git commit -m "fix: some message"` would pass `"fix:` as the message and `some` / `message"` as stray pathspec arguments). Replaced with `splitShellCommand()`, a POSIX-aware tokeniser that correctly handles single-quoted spans (literal), double-quoted spans (backslash-escape), and bare backslash escapes.
+- **Context compression toggle and savings reporting** (`src/core/orchestrator.ts`, `src/core/costTracker.ts`, `src/chat/participant.ts`, `src/views/costDashboardPanel.ts`, `package.json`, `src/types.ts`): added an opt-in `atlasmind.contextCompressionEnabled` setting, connected it to the existing compaction path, and surfaced estimated compression savings in the exec summary and cost dashboard.
+- **Chat-side project-run context loading** (`src/chat/participant.ts`, `tests/chat/participant.helpers.test.ts`): project execution now loads the session SSOT context bundle before launching autonomous runs, so the same continuity data is available in both standard chat and autonomous project execution paths.
+- **Calmer tool-failure summaries** (`src/core/orchestrator.ts`, `tests/cli/adversarialPrompt.test.ts`): refined the user-facing failure text to explain the tool problem clearly and offer next-step guidance without the blunt fallback wording.
 
 ## [0.77.2] - 2026-06-10
 

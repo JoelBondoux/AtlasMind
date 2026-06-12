@@ -65,6 +65,7 @@ describe('CostTracker', () => {
       totalCostUsd: 0,
       totalBudgetCostUsd: 0,
       totalSubscriptionIncludedUsd: 0,
+      totalCompressionSavingsUsd: 0,
       totalRequests: 0,
       totalInputTokens: 0,
       totalOutputTokens: 0,
