@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.79.1",
+  "version": "0.79.2",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -1071,6 +1071,12 @@
           "description": "Maximum number of characters reserved for compacted session carry-forward context.",
           "markdownDescription": "Maximum number of characters reserved for compacted session carry-forward context. This acts as the budget for summarized prior conversation.\n\nExamples:\n- Lightweight carry-forward: `1200`\n- Default balance: `2500`\n- Complex multi-step work with many assumptions to preserve: `4000` to `6000`\n\nUse a higher value only if older conversation state is materially affecting correctness."
         },
+        "atlasmind.contextCompressionEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable AtlasMind's prompt-context compaction path to reduce token volume and estimated spend.",
+          "markdownDescription": "Enable AtlasMind's prompt-context compaction path. When this is on, AtlasMind trims carry-forward session context and summarizes retrieved memory/live evidence to stay within the current model budget. Turn it off if you want the rawer, less compact prompt path for debugging or comparison.\n\nExamples:\n- Keep the default efficiency path: `true`\n- Compare or debug without compaction: `false`"
+        },
         "atlasmind.projectApprovalFileThreshold": {
           "type": "number",
           "default": 12,
@@ -1334,7 +1340,7 @@
   },
   "devDependencies": {
     "@types/node": "^25.9.3",
-    "@types/vscode": "^1.116.0",
+    "@types/vscode": "^1.120.0",
     "@typescript-eslint/eslint-plugin": "^8.61.0",
     "@typescript-eslint/parser": "^8.61.0",
     "@vitest/coverage-v8": "^4.1.8",

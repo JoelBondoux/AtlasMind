@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { describe, expect, it, vi } from 'vitest';
-import { Orchestrator, resolveProviderIdForModel, shouldBiasTowardWorkspaceInvestigation } from '../../src/core/orchestrator.ts';
+import { Orchestrator, buildProjectSessionContextBundle, resolveProviderIdForModel, shouldBiasTowardWorkspaceInvestigation } from '../../src/core/orchestrator.ts';
 import { MAX_TOOL_ITERATIONS } from '../../src/constants.ts';
 import { AgentRegistry } from '../../src/core/agentRegistry.ts';
 import { SkillsRegistry } from '../../src/core/skillsRegistry.ts';
@@ -703,6 +703,23 @@ describe('Orchestrator agentic loop', () => {
     expect(providerCalls.at(-1)?.messages.at(-1)?.content).toContain('Do not guess with hypothetical files.');
   });
 
+  it('preserves loaded session context for autonomous project subtasks', () => {
+    const bundle = buildProjectSessionContextBundle('Fix the auth redirect regression', {
+      goal: 'Fix the auth redirect regression',
+      summary: 'The failing redirect path was isolated in the login handler.',
+      decisions: 'We will add a regression test before changing the redirect logic.',
+      openThreads: 'Need to confirm the expected redirect target.',
+      ssotExcerpts: ['architecture/auth-flow.md'],
+      loadedAt: '2026-05-01T12:00:00.000Z',
+    });
+
+    expect(bundle.goal).toBe('Fix the auth redirect regression');
+    expect(bundle.summary).toContain('login handler');
+    expect(bundle.decisions).toContain('regression test');
+    expect(bundle.openThreads).toContain('redirect target');
+    expect(bundle.ssotExcerpts).toEqual(['architecture/auth-flow.md']);
+  });
+
   it('fails over to another provider when the first provider errors', async () => {
     const localFallbackProvider = makeMockProvider([{
       content: 'Local fallback should stay unused here.',
@@ -1200,8 +1217,9 @@ describe('Orchestrator agentic loop', () => {
       builtIn: true,
     });
 
-    expect(result.response).toContain('The requested tool action did not complete successfully.');
+    expect(result.response).toContain('I hit a tool-execution problem');
     expect(result.response).toContain('timer_start: Project "test" does not exist. Re-run with confirm_new_project=true to create it.');
+    expect(result.response).not.toContain('The requested tool action did not complete successfully.');
     expect(result.response).not.toContain('started successfully');
   });
 

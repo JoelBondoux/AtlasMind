@@ -10,53 +10,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-## [0.79.1] - 2026-06-11
+## [0.79.2] - 2026-06-12
 
 ### Fixed
-- **Testing methodology runtime path** (`src/core/orchestrator.ts`, `src/core/testingConfigLoader.ts`): restored and verified the methodology inference / model-override path used for testing-related tasks, including the system-prompt methodology hint that improves routing behavior even when no explicit override is present.
-- **Release handoff readiness** (`package.json`, `README.md`, `docs/architecture.md`, `wiki/Architecture.md`): aligned the current source version and architecture notes with the verified 0.79.1 release state.
+- **Autonomous run context continuity** (`src/core/orchestrator.ts`, `src/chat/participant.ts`, `src/views/chatPanel.ts`): preserved the loaded session context bundle for autonomous project subtasks so project runs keep the prior chat goal, summary, decisions, open threads, and SSOT excerpts instead of dropping back to a blank context frame.
 
-## [0.78.8] - 2026-06-11
+### Added
+- **Context compression toggle and savings reporting** (`src/core/orchestrator.ts`, `src/core/costTracker.ts`, `src/chat/participant.ts`, `src/views/costDashboardPanel.ts`, `package.json`, `src/types.ts`): added an opt-in `atlasmind.contextCompressionEnabled` setting, connected it to the existing compaction path, and surfaced estimated compression savings in the exec summary and cost dashboard.
+- **Chat-side project-run context loading** (`src/chat/participant.ts`, `tests/chat/participant.helpers.test.ts`): project execution now loads the session SSOT context bundle before launching autonomous runs, so the same continuity data is available in both standard chat and autonomous project execution paths.
+- **Calmer tool-failure summaries** (`src/core/orchestrator.ts`, `tests/cli/adversarialPrompt.test.ts`): refined the user-facing failure text to explain the tool problem clearly and offer next-step guidance without the blunt fallback wording.
 
-### Changed
-- **Publishing routine in `CLAUDE.md`**: publish step now explicitly requires the PR to be merged into `master` before running `npm run publish:release`. Prevents Marketplace releases that don't correspond to a clean `master`. Also documents `NODE_OPTIONS="--use-system-ca"` as the required publish command on Windows.
+## [0.77.2] - 2026-06-10
 
-## [0.78.7] - 2026-06-11
-
-### Changed
-- **ESLint cleanup** (`src/types.ts`): removed now-unused `eslint-disable` directive for `no-empty-object-type`; the `string & {}` open-union pattern is not flagged by the `@typescript-eslint` v8 recommended ruleset.
-
-## [0.78.6] - 2026-06-11
-
-### Fixed
-- **CI `npm ci` failure** (`package-lock.json`, `src/types.ts`): lockfile was out of sync with `package.json` after the 0.78.3 tooling upgrades — CI rejected the mismatch. Lockfile regenerated against the correct installed packages. `@typescript-eslint/ban-types` (removed in v8) replaced with `@typescript-eslint/no-empty-object-type` in the inline disable comment in `src/types.ts`.
-
-## [0.78.5] - 2026-06-11
-
-### Fixed
-- **Package build** (`package.json`): `engines.vscode` bumped from `^1.95.0` to `^1.116.0` to match the `@types/vscode` version already in devDependencies; `vsce package` previously refused to build with a mismatched constraint.
-
-## [0.78.4] - 2026-06-11
-
-### Fixed
-- **Local provider not showing after save** (`src/views/modelProviderPanel.ts`): The Model Providers panel now subscribes to the `modelsRefresh` event so it reloads automatically when a local endpoint (LM Studio, Ollama, etc.) is saved in the Settings panel. Previously, the endpoint was persisted correctly but the panel UI stayed stale until manually reopened.
-
-## [0.78.3] - 2026-06-11
-
-### Changed
-- **Dev-tooling major upgrades** (`package.json`, `package-lock.json`):
-  - `typescript` 5.4 → 6.0.3 (verified: zero compile errors, all 908 tests pass)
-  - `eslint` 8.57 → 10.4.1 (flat config already in use; lints clean)
-  - `@typescript-eslint/eslint-plugin` + `@typescript-eslint/parser` 7 → 8.61.0
-  - `@types/node` 20 → 25.9.3
-  - `@vitest/coverage-v8` 4
+### Added
+- **Published release v0.77.2**: this marketplace release bundles the routine workflow shipped on `develop`, including the new `/ship` experience, routine-run UI, bootstrap routine extraction, and direct routine-edit intent.
+- **Bootstrapper routine extraction** (`src/bootstrap/bootstrapper.ts`): `/import` now scans `CLAUDE.md`, `.github/copilot-instructions.md`, and `docs/development.md` for ordered procedure sections (Publishing Routine, Release Workflow, Deploy Process, etc.) and writes a starter routine file to `project_memory/routines/<id>.md`. Steps are extracted from numbered list items with a **Label** and a `command` in backticks; `<angle-bracket-placeholders>` become `${VAR}` interpolation tokens. The fingerprint system prevents overwriting manually edited routine files, and unchanged files are skipped on re-import. After writing, `RoutineRegistry` is reloaded automatically so the new routine is immediately available to `/ship`.
+- **Chat routine-edit intent** (`src/chat/participant.ts`): freeform messages matching "edit/update/change/open [the] [X] routine" now open the matching routine's source `.md` file directly in the editor, bypassing the LLM. AtlasMind identifies the target routine by matching the routine name or ID in the prompt, falling back to the default routine. If no rou
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-06-11T20:04:57.860Z
+generated-at: 2026-06-12T17:16:50.123Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: 808a33af
-body-fingerprint: 29388286
+source-fingerprint: 6e8b2fa9
+body-fingerprint: b5550d77
 -->

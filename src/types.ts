@@ -1313,6 +1313,7 @@ export interface TaskResult {
   costUsd: number;
   inputTokens: number;
   outputTokens: number;
+  contextCompressionSavingsUsd?: number;
   durationMs: number;
   artifacts?: Omit<SubTaskExecutionArtifacts, 'changedFiles' | 'diffPreview'>;
   /** Set when a provider was automatically paused mid-request (e.g. billing failure). */
@@ -1357,6 +1358,7 @@ export interface CostRecord {
   outputTokens: number;
   costUsd: number;
   budgetCostUsd?: number;
+  compressionSavingsUsd?: number;
   timestamp: string;
 }
 

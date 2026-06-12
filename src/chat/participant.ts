@@ -631,9 +631,11 @@ async function handleChatRequest(
       await handleCostCommand(stream, atlas);
       break;
 
-    case 'project':
-      projectOutcome = await runProjectCommand(request.prompt, stream, token, atlas, sessionId);
+    case 'project': {
+      const { sessionContextBundle, sessionContext } = await prepareProjectRunContext(atlas, sessionId);
+      projectOutcome = await runProjectCommand(request.prompt, stream, token, atlas, sessionId, sessionContextBundle, sessionContext);
       break;
+    }
 
     case 'runs':
       await handleRunsCommand(stream);
@@ -658,12 +660,15 @@ async function handleChatRequest(
       );
       if (routedIntent?.kind === 'project') {
         stream.markdown('### Autonomous Run\n\nContinuing from your earlier request and switching into project execution mode.');
+        const { sessionContextBundle, sessionContext } = await prepareProjectRunContext(atlas, sessionId);
         projectOutcome = await runProjectCommand(
           toApprovedProjectPrompt(routedIntent.goal),
           stream,
           token,
           atlas,
           sessionId,
+          sessionContextBundle,
+          sessionContext,
         );
         break;
       }
@@ -682,12 +687,36 @@ async function handleChatRequest(
   return { metadata: { command: command ?? 'freeform', outcome: projectOutcome } };
 }
 
+export async function prepareProjectRunContext(
+  atlas: AtlasMindContext,
+  sessionId?: string,
+): Promise<{ sessionContextBundle?: import('../types.js').SessionContextBundle; sessionContext: string }> {
+  const configuration = vscode.workspace.getConfiguration('atlasmind');
+  const sessionContextBundle = sessionId
+    ? await atlas.sessionContextManager?.loadContext(sessionId).catch(() => null) ?? null
+    : null;
+  const sessionContext = sessionContextBundle
+    ? ''
+    : atlas.sessionConversation.buildContext({
+        maxTurns: configuration.get<number>('chatSessionTurnLimit', 6),
+        maxChars: configuration.get<number>('chatSessionContextChars', 2500),
+        sessionId,
+      });
+
+  return {
+    sessionContextBundle: sessionContextBundle ?? undefined,
+    sessionContext,
+  };
+}
+
 export async function runProjectCommand(
   prompt: string,
   stream: vscode.ChatResponseStream,
   token: vscode.CancellationToken,
   atlas: AtlasMindContext,
   sessionId?: string,
+  sessionContextBundle?: import('../types.js').SessionContextBundle,
+  sessionContext?: string,
 ): Promise<ProjectRunOutcome> {
   const noOpOutcome: ProjectRunOutcome = { hasFailures: false, hasChangedFiles: false, failedSubtaskTitles: [] };
 
@@ -833,6 +862,8 @@ export async function runProjectCommand(
       {
         planOverride: preview,
         signal: abortController.signal,
+        sessionContextBundle,
+        sessionContext,
       },
     );
     cancelDisposable.dispose();
@@ -1586,7 +1617,7 @@ function detectResponseQuickReplies(responseText: string): {
 
 export function buildAssistantResponseMetadata(
   prompt: string,
-  result: Pick<TaskResult, 'agentId' | 'modelUsed' | 'costUsd' | 'inputTokens' | 'outputTokens' | 'artifacts'>,
+  result: Pick<TaskResult, 'agentId' | 'modelUsed' | 'costUsd' | 'inputTokens' | 'outputTokens' | 'artifacts' | 'contextCompressionSavingsUsd'>,
   options?: { hasSessionContext?: boolean; imageAttachments?: TaskImageAttachment[]; routingContext?: Record<string, unknown>; policies?: SessionPolicySnapshot[]; responseText?: string },
 ): SessionTranscriptMetadata {
   const toolCallCount = result.artifacts?.toolCallCount ?? 0;
@@ -1642,6 +1673,10 @@ export function buildAssistantResponseMetadata(
 
   if (result.artifacts?.verificationSummary) {
     bullets.push(`Verified: ${result.artifacts.verificationSummary}.`);
+  }
+
+  if (typeof result.contextCompressionSavingsUsd === 'number' && result.contextCompressionSavingsUsd > 0) {
+    bullets.push(`Compression savings: ${formatCost(result.contextCompressionSavingsUsd, 4)}.`);
   }
 
   // Cost/token detail — kept last; concise so it doesn't dominate the summary

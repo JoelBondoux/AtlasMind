@@ -937,6 +937,8 @@ export class ChatPanel {
           activeSessionId,
           submittedAttachments,
           cancellationSource.token,
+          sessionContextBundle ?? undefined,
+          sessionContext || undefined,
         );
         await this.host.webview.postMessage({ type: 'status', payload: 'Autonomous project run completed.' });
         return;
@@ -1504,6 +1506,8 @@ export class ChatPanel {
     activeSessionId: string,
     attachments: ChatComposerAttachment[],
     token: vscode.CancellationToken,
+    sessionContextBundle?: import('../types.js').SessionContextBundle,
+    sessionContext?: string,
   ): Promise<void> {
     await this.appendAssistantMessage(
       assistantMessageId,
@@ -1542,6 +1546,9 @@ export class ChatPanel {
       sink,
       token,
       this.atlas,
+      undefined,
+      sessionContextBundle,
+      sessionContext,
     );
   }
 

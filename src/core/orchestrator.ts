@@ -1,3 +1,4 @@
+import * as vscode from 'vscode';
 import type { AgentDefinition, MemoryEntry, ModelCapability, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, TaskProfile, TaskRequest, TaskResult, TestingMethodologyId, ToolExecutionArtifact } from '../types.js';
 import type { AgentAutoUpdater } from './agentAutoUpdater.js';
 import { ClassifierService, type ClassificationResult } from './classifierService.js';
@@ -1155,6 +1156,7 @@ export class Orchestrator {
 
     const completion = finalAttempt.completion;
     const executionArtifacts = finalAttempt.artifacts;
+    const compressionEnabled = vscode.workspace.getConfiguration('atlasmind').get<boolean>('contextCompressionEnabled', true);
     // Tag the artifact with the detected testing methodology (if any).
     if (executionArtifacts && directTaskMethodologyId) {
       executionArtifacts.testingMethodologyId = directTaskMethodologyId;
@@ -1164,6 +1166,9 @@ export class Orchestrator {
     const costUsd = aggregateCostUsd || finalAttempt.costUsd;
     const inputTokens = aggregateInputTokens || completion.inputTokens;
     const outputTokens = aggregateOutputTokens || completion.outputTokens;
+    const estimatedCompressionSavingsUsd = compressionEnabled
+      ? Math.max(0, (estimateTokens(String((request.context['sessionContext'] ?? '') + '\n' + (request.context['nativeChatContext'] ?? '') + '\n' + (request.context['attachmentContext'] ?? ''))) - estimateTokens(String(completion.content))) * ((this.router.getModelInfo(modelUsed)?.inputPricePer1k ?? 0) / 1000))
+      : 0;
 
     let result: TaskResult = {
       id: request.id,
@@ -1173,6 +1178,7 @@ export class Orchestrator {
       costUsd,
       inputTokens,
       outputTokens,
+      ...(estimatedCompressionSavingsUsd > 0 ? { contextCompressionSavingsUsd: estimatedCompressionSavingsUsd } : {}),
       durationMs,
       ...(executionArtifacts ? { artifacts: executionArtifacts } : {}),
       ...(autoDisabledProvider ? { autoDisabledProvider } : {}),
@@ -1197,6 +1203,7 @@ export class Orchestrator {
       outputTokens,
       costUsd: costUsd,
       budgetCostUsd: finalCost.budgetCostUsd,
+      compressionSavingsUsd: estimatedCompressionSavingsUsd,
       timestamp: new Date().toISOString(),
     });
 
@@ -1276,6 +1283,8 @@ export class Orchestrator {
       resumeFromResults?: SubTaskResult[];
       beforeBatch?: (batch: { batchIndex: number; totalBatches: number; batchSize: number; subTaskIds: string[] }) => Promise<void>;
       signal?: AbortSignal;
+      sessionContextBundle?: import('../types.js').SessionContextBundle;
+      sessionContext?: string;
     },
   ): Promise<ProjectResult> {
     const startMs = Date.now();
@@ -1315,7 +1324,16 @@ export class Orchestrator {
           title: task.title,
           batchSize: 1,
         });
-        const result = await this.executeSubTask(task, depOutputs, constraints, onProgress, goal, signal);
+        const result = await this.executeSubTask(
+          task,
+          depOutputs,
+          constraints,
+          onProgress,
+          goal,
+          signal,
+          options?.sessionContextBundle,
+          options?.sessionContext,
+        );
         // Propagate billing abort as a thrown error so the scheduler's
         // Promise.all immediately rejects and no further batches execute.
         if (result.billingAbort) {
@@ -1362,6 +1380,8 @@ export class Orchestrator {
     onProgress?: (update: ProjectProgressUpdate) => void,
     projectGoal: string = '',
     signal?: AbortSignal,
+    sessionContextBundle?: import('../types.js').SessionContextBundle,
+    sessionContext?: string,
   ): Promise<SubTaskResult> {
     const startMs = Date.now();
     const userMessage = buildProjectSubTaskMessage(task, depOutputs, projectGoal);
@@ -1400,14 +1420,7 @@ export class Orchestrator {
       }
     }
 
-    const projectBundle: import('../types.js').SessionContextBundle = {
-      goal: projectGoal || undefined,
-      summary: '',
-      decisions: '',
-      openThreads: '',
-      ssotExcerpts: [],
-      loadedAt: new Date().toISOString(),
-    };
+    const projectBundle = buildProjectSessionContextBundle(projectGoal, sessionContextBundle, sessionContext);
 
     const attemptSubTask = async (message: string): Promise<TaskResult> => {
       const request: TaskRequest = {
@@ -2972,25 +2985,28 @@ export class Orchestrator {
     const sessionBundle = requestContext['sessionContextBundle'] as import('../types.js').SessionContextBundle | undefined;
     const imageAttachmentsEarly = toImageAttachments(requestContext['imageAttachments']);
     const promptBudgetEarly = buildPromptBudget(this.router.getModelInfo(modelId)?.contextWindow, imageAttachmentsEarly.length);
+    const compressionEnabled = vscode.workspace.getConfiguration('atlasmind').get<boolean>('contextCompressionEnabled', true);
     const rawSessionContext = (() => {
       let raw = '';
       if (sessionBundle) {
-        const trimmed = trimSessionBundle(sessionBundle, promptBudgetEarly.sessionBundleChars);
+        const source = compressionEnabled
+          ? trimSessionBundle(sessionBundle, promptBudgetEarly.sessionBundleChars)
+          : { goal: sessionBundle.goal ?? '', summary: sessionBundle.summary ?? '', decisions: sessionBundle.decisions ?? '', openThreads: sessionBundle.openThreads ?? '', ssotExcerpts: sessionBundle.ssotExcerpts ?? [] };
         const parts: string[] = [];
-        if (trimmed.goal) {
-          parts.push(`## Session Goal\n${trimmed.goal}`);
+        if (source.goal) {
+          parts.push(`## Session Goal\n${source.goal}`);
         }
-        if (trimmed.summary.trim()) {
-          parts.push(`## Session Summary\n${trimmed.summary.trim()}`);
+        if (source.summary.trim()) {
+          parts.push(`## Session Summary\n${source.summary.trim()}`);
         }
-        if (trimmed.decisions.trim()) {
-          parts.push(`## Concluded This Session\n${trimmed.decisions.trim()}`);
+        if (source.decisions.trim()) {
+          parts.push(`## Concluded This Session\n${source.decisions.trim()}`);
         }
-        if (trimmed.openThreads.trim()) {
-          parts.push(`## Open Threads\n${trimmed.openThreads.trim()}`);
+        if (source.openThreads.trim()) {
+          parts.push(`## Open Threads\n${source.openThreads.trim()}`);
         }
-        if (trimmed.ssotExcerpts.length > 0) {
-          parts.push(`## Related Project Knowledge\n${trimmed.ssotExcerpts.join('\n\n')}`);
+        if (source.ssotExcerpts.length > 0) {
+          parts.push(`## Related Project Knowledge\n${source.ssotExcerpts.join('\n\n')}`);
         }
         raw = parts.join('\n\n');
       } else {
@@ -3040,11 +3056,15 @@ export class Orchestrator {
     const hasCarryForwardImages = Boolean(requestContext['carryForwardImages']) && imageAttachments.length > 0;
     const promptBudget = buildPromptBudget(this.router.getModelInfo(modelId)?.contextWindow, imageAttachments.length);
     const memoryLines = redactSecretsWithWarning(
-      compactMemoryContext(retrievalContext.memoryEntries, this.memory, promptBudget.memoryChars),
+      compressionEnabled
+        ? compactMemoryContext(retrievalContext.memoryEntries, this.memory, promptBudget.memoryChars)
+        : compactMemoryContext(retrievalContext.memoryEntries, this.memory, Number.MAX_SAFE_INTEGER),
       'memory-context',
     );
     const liveEvidenceLines = redactSecretsWithWarning(
-      compactLiveEvidence(retrievalContext.liveEvidence, Math.max(200, Math.floor(promptBudget.memoryChars * 0.75))),
+      compressionEnabled
+        ? compactLiveEvidence(retrievalContext.liveEvidence, Math.max(200, Math.floor(promptBudget.memoryChars * 0.75)))
+        : compactLiveEvidence(retrievalContext.liveEvidence, Number.MAX_SAFE_INTEGER),
       'live-evidence',
     );
     const personalityProfilePrompt = this.getPersonalityProfilePrompt?.()?.trim() ?? '';
@@ -3265,10 +3285,28 @@ function looksLikeToolFailure(result: string): boolean {
 
 function summarizeFailedToolResults(toolResults: ReadonlyArray<{ toolCall: ToolCall; result: string }>): string {
   const lines = toolResults.map(entry => `- ${entry.toolCall.name}: ${entry.result.trim()}`);
+  const guidance = buildToolFailureGuidance(toolResults);
   return [
-    'The requested tool action did not complete successfully.',
+    'I hit a tool-execution problem while trying to complete that step.',
+    'The underlying tool reported:',
     ...lines,
+    '',
+    guidance,
   ].join('\n');
+}
+
+function buildToolFailureGuidance(toolResults: ReadonlyArray<{ toolCall: ToolCall; result: string }>): string {
+  const combined = toolResults.map(entry => entry.result.toLowerCase()).join('\n');
+
+  if (/blocked write-capable tool|denied by policy|requires confirmation|permission denied|not allowed/i.test(combined)) {
+    return 'This looks like a safety or permission block. Re-run with the required confirmation or allow-list flag if you intended to change workspace files.';
+  }
+
+  if (/timed out|temporarily unavailable|network|connection reset|econnrefused|etimedout|fetch failed/i.test(combined)) {
+    return 'This may be a transient runtime issue. Please try the same step again; if it fails repeatedly, share the exact tool output for a narrower diagnosis.';
+  }
+
+  return 'If this is transient, please try again. If it keeps failing, tell me which tool reported it and I can help narrow the blocker.';
 }
 
 function buildProjectTddPolicy(task: SubTask, depOutputs: Record<string, string>): ProjectTddPolicy {
@@ -4750,6 +4788,25 @@ const AUTONOMOUS_PROJECT_EXECUTION_POLICY = [
   '6. Report the tests touched, the verification result, and any remaining coverage gap.',
   'If the subtask is not meaningfully testable, explain why and use the strongest direct verification available instead of inventing fake test evidence.',
 ].join('\n');
+
+export function buildProjectSessionContextBundle(
+  projectGoal: string,
+  sessionContextBundle?: import('../types.js').SessionContextBundle | null,
+  sessionContext?: string,
+): import('../types.js').SessionContextBundle {
+  const bundle = sessionContextBundle && Object.values(sessionContextBundle).some(Boolean)
+    ? sessionContextBundle
+    : undefined;
+
+  return {
+    goal: bundle?.goal?.trim() || projectGoal.trim() || undefined,
+    summary: bundle?.summary?.trim() || (typeof sessionContext === 'string' ? sessionContext.trim() : ''),
+    decisions: bundle?.decisions?.trim() || '',
+    openThreads: bundle?.openThreads?.trim() || '',
+    ssotExcerpts: bundle?.ssotExcerpts?.filter(Boolean) ?? [],
+    loadedAt: bundle?.loadedAt ?? new Date().toISOString(),
+  };
+}
 
 function buildRolePrompt(role: string): string {
   const basePrompt = ROLE_PROMPTS[role] ?? ROLE_PROMPTS['general-assistant']!;

@@ -310,6 +310,7 @@ project_memory/
     project-run-2026-06-04T00-20-12-535Z.json
     project-run-2026-06-04T11-01-42-059Z.json
     project-run-2026-06-11T18-34-23-597Z.json
+    project-run-2026-06-12T15-39-39-156Z.json
     security-and-safety.md
   roadmap/
     .gitkeep
@@ -321,6 +322,7 @@ project_memory/
     README.md
   sessions/
     chat-1781201164053-hd8hj9/
+    chat-1781278082539-n11939/
     .gitkeep
   skills/
     .gitkeep
@@ -355,8 +357,8 @@ project_memory/
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-06-11T19:55:44.108Z
+generated-at: 2026-06-12T17:16:50.123Z
 source-paths: src | tests | docs | wiki | project_memory | .github
-source-fingerprint: 306b5d2f
-body-fingerprint: 5965e77f
+source-fingerprint: a9bdd514
+body-fingerprint: 2eb95316
 -->
