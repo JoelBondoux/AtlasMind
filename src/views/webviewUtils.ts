@@ -20,7 +20,7 @@ export function getWebviewHtmlShell(options: WebviewShellOptions): string {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${options.cspSource} https: data: blob:; font-src ${options.cspSource} data:; style-src ${options.cspSource} 'unsafe-inline'; script-src ${options.cspSource} 'nonce-${nonce}' blob:; worker-src ${options.cspSource} blob:; connect-src ${options.cspSource} https: wss: data: blob:; child-src ${options.cspSource} blob:; frame-src ${options.cspSource} blob:; base-uri 'none'; form-action 'none';" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${options.cspSource} https: data: blob:; media-src ${options.cspSource} https: data: blob:; font-src ${options.cspSource} data:; style-src ${options.cspSource} 'unsafe-inline'; script-src ${options.cspSource} 'nonce-${nonce}' blob:; worker-src ${options.cspSource} blob:; connect-src ${options.cspSource} https: wss: data: blob:; child-src ${options.cspSource} blob:; frame-src ${options.cspSource} blob:; base-uri 'none'; form-action 'none';" />
   <title>${escapeHtml(options.title)}</title>
   <style>
     *,

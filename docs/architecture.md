@@ -61,7 +61,7 @@
 1. VS Code triggers `onStartupFinished`.
 2. `extension.ts` → `activate()` runs:
   - Creates core services: `CostTracker`, `AgentRegistry`, `SkillsRegistry`, `ModelRouter`, `TaskProfiler`, `MemoryManager`, `ToolWebhookDispatcher`.
-    - Creates `VoiceManager` for browser-based voice panel orchestration and optional ElevenLabs audio delivery.
+    - Creates `VoiceManager` for browser-based voice panel orchestration and optional ElevenLabs audio delivery. It also owns a `HostSpeechSynthesizer` (`src/voice/hostSpeechSynthesizer.ts`) that drives the OS's built-in speech engine (Windows SAPI via PowerShell, macOS `say`, Linux `espeak-ng`) on-device when `atlasmind.voice.hostSpeechEnabled` is set; TTS backend priority is ElevenLabs → OS host engine → Web Speech API. For speech-to-text it owns a `LocalTranscriber` (`src/voice/localTranscriber.ts`) that runs a local `whisper-cli` on webview-captured WAV audio; the model (and, on Windows x64, the binary) are SHA-256-verified downloads provisioned on first use, and audio never leaves the machine. STT engine selection (`atlasmind.voice.sttEngine`) is `auto` | `webspeech` | `local`.
   - Creates `ProviderRegistry` and registers provider adapters, including the Claude CLI Beta bridge.
    - Instantiates the `Orchestrator` with all services injected.
    - Bundles services into `AtlasMindContext`.
@@ -136,6 +136,10 @@ Persists scanner rule overrides and custom rules in `vscode.Memento` (`globalSta
 ### MemoryManager (`src/memory/memoryManager.ts`)
 
 Interface to the SSOT folder structure. Supports `queryRelevant()` (local hashed embeddings + lexical ranking), `upsert()`, `loadFromDisk()`, and `listEntries()`.
+
+### RemoteControlServer (`src/remote/remoteControlServer.ts`)
+
+Desktop-only localhost WebSocket server that lets the AtlasMind web build remote-control this instance. Off by default; only listens after `AtlasMind: Enable Remote Control`, a workspace-trust approval, and a pairing token (stored in `SecretStorage`, modeled on `ToolWebhookDispatcher`). On an authenticated connection it constructs a `RemoteWebviewHost` (`src/remote/remoteBridge.ts`) — a synthetic `ChatPanelHost` — and binds a real `ChatPanel` to it, so the full chat implementation drives the remote browser. Outbound `webview.postMessage` calls are forwarded over the socket; inbound chat frames are re-validated with `isChatPanelMessage` before dispatch. It also answers read-only `cost`/`runs` RPCs backed by `CostTracker` and `ProjectRunHistory`. Disconnect disposes the ChatPanel (aborting in-flight work, so pending tool approvals default to denied). The wire protocol is the Node-free `src/remote/protocol.ts`, shared with the web build. See [Remote Control](remote-control.md).
 
 ## Key Interfaces
 

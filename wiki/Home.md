@@ -51,6 +51,7 @@ For headless workflows, the CLI now rejects malformed flags instead of treating 
 | [[Skills]] | 32 built-in skills, custom skill import, and MCP tools |
 | [[Model Routing]] | Provider setup, budget/speed modes, routing algorithm |
 | [[Memory System]] | SSOT folder structure, retrieval, bootstrapping, import |
+| [[Remote Control]] | Drive a desktop instance from the web build (vscode.dev) |
 | [[Project Planner]] | Autonomous task decomposition and parallel execution |
 | [[Tool Execution]] | Approval gating, terminal allow-list, checkpoints, webhooks |
 | [[Configuration]] | All extension settings with defaults and recommended starting points |

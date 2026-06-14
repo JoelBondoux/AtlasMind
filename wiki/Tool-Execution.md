@@ -63,6 +63,10 @@ The `atlasmind.toolApprovalMode` setting controls when AtlasMind asks for confir
 
 Autopilot can also be toggled explicitly with `AtlasMind: Toggle Autopilot`. When it is on, AtlasMind exposes a status bar item so the current session bypass state stays visible. Internally, listener failures are isolated so one broken UI subscriber cannot prevent the rest of the session-bypass state from updating.
 
+### Approvals over remote control
+
+When a session is driven by the AtlasMind web build (see [[Remote Control]]), the same approval cards and decision paths apply through the shared chat protocol — a remote peer can never auto-approve a `workspace-write`, `git-write`, `terminal-write`, or `network` tool without an explicit, authenticated decision. Remote approval decisions are audited. If the remote client disconnects, the bound chat surface is disposed and any in-flight execution is aborted, so **pending approvals default to denied** rather than proceeding unattended.
+
 Destructive memory-administration actions are kept outside the normal tool pipeline. The Settings-based project-memory purge flow always requires an explicit modal confirmation plus a typed `PURGE MEMORY` phrase before AtlasMind deletes the SSOT root and recreates the scaffold.
 
 Warning-level auto-generated skills now follow a separate one-time review gate before AtlasMind evaluates them in-process. If the skill scanner flags softer concerns such as direct environment access, direct filesystem access, or direct outbound fetches, AtlasMind posts a dedicated approval card into the same in-chat warning stack used for tool approvals. The operator can `Allow Once` or `Keep Blocked`; if the draft is denied, it stays paused so the request can be narrowed, discussed, or evolved into a safer alternative instead of executing silently.

@@ -60,21 +60,37 @@ export function inferTestingMethodologyForSubTask(
     return undefined;
   }
 
+  // First pass: specific signals only. Wildcard ('*') entries (tdd, unit) intentionally
+  // excluded here so they do not shadow concrete methodology matches — e.g. a task
+  // mentioning 'playwright' should resolve to 'e2e', not 'tdd' (which is first in the
+  // definitions array but applies to everything via wildcard).
   for (const def of TESTING_METHODOLOGY_DEFINITIONS) {
     const enabledConfig = config.methodologies.find((entry) => entry.id === def.id && entry.enabled);
     if (!enabledConfig) {
       continue;
     }
 
-    const signals = def.autoDetectSignals.map(signal => signal.toLowerCase());
-    const matchesSignal = signals.some(signal => signal === '*' || corpus.includes(signal));
-    if (matchesSignal) {
+    const specificSignals = def.autoDetectSignals.filter(s => s !== '*').map(s => s.toLowerCase());
+    if (specificSignals.some(signal => corpus.includes(signal))) {
       return def.id;
     }
   }
 
-  const enabledFallback = config.methodologies.find((entry) => entry.enabled);
-  return enabledFallback?.id;
+  // Wildcard fallback: only for confirmed testing roles, so a devops task that mentions
+  // 'pipeline' but no specific CI-tool signal does not silently adopt 'tdd'.
+  if (isTestingRole) {
+    for (const def of TESTING_METHODOLOGY_DEFINITIONS) {
+      const enabledConfig = config.methodologies.find((entry) => entry.id === def.id && entry.enabled);
+      if (!enabledConfig) {
+        continue;
+      }
+      if (def.autoDetectSignals.includes('*')) {
+        return def.id;
+      }
+    }
+  }
+
+  return undefined;
 }
 
 export function resolveTestingModelOverride(

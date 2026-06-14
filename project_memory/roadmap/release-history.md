@@ -31,8 +31,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-06-12T17:16:50.123Z
+generated-at: 2026-06-12T17:24:01.898Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: 6e8b2fa9
+source-fingerprint: 8edeac14
 body-fingerprint: b5550d77
 -->

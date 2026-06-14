@@ -163,6 +163,13 @@ These settings only affect AtlasMind's governance scaffolding for Atlas-built or
 | `atlasmind.toolExecutionTimeoutMs` | `number` | `15000` | Per-tool execution timeout in milliseconds (minimum 1000). |
 | `atlasmind.providerTimeoutMs` | `number` | `30000` | Maximum time to wait for a model provider response in milliseconds (minimum 5000). |
 
+## Remote Control
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `atlasmind.remote.enabled` | `boolean` | `false` | Allow the AtlasMind web build to remote-control this desktop instance over a localhost WebSocket. Off by default; the server only listens after **AtlasMind: Enable Remote Control**, workspace approval, and a pairing token. Binds to `127.0.0.1` only. See [Remote Control](remote-control.md). |
+| `atlasmind.remote.port` | `number` | `0` | Localhost port for the remote-control server. `0` picks a free port automatically; pin a value to keep the `ws://localhost:PORT` URL stable across restarts. |
+
 ## Budget
 
 | Setting | Type | Default | Description |
@@ -181,12 +188,16 @@ These settings only affect AtlasMind's governance scaffolding for Atlas-built or
 |---|---|---|---|
 | `atlasmind.voice.ttsEnabled` | `boolean` | `false` | Auto-speak freeform `@atlas` responses via the Voice Panel. |
 | `atlasmind.voice.sttEnabled` | `boolean` | `false` | Enable speech-to-text controls in the Voice Panel. |
+| `atlasmind.voice.hostSpeechEnabled` | `boolean` | `false` | Speak via the OS host engine (Windows SAPI/PowerShell, macOS `say`, Linux `espeak-ng`) instead of the in-panel Web Speech engine. On-device, no API key, works with the panel closed. ElevenLabs still takes priority when keyed; `espeak-ng` must be installed on Linux. |
+| `atlasmind.voice.sttEngine` | `string` (`auto` \| `webspeech` \| `local`) | `auto` | Speech-to-text engine. `local` uses on-device Whisper (audio never leaves the machine); `webspeech` uses the in-webview Web Speech API; `auto` prefers Whisper where it can be provisioned, else Web Speech. |
+| `atlasmind.voice.whisperCliPath` | `string` | `""` | Path to an installed whisper.cpp `whisper-cli` for on-device STT. Required on macOS/Linux (e.g. `brew install whisper-cpp`); on Windows x64 a verified build is downloaded automatically when empty. |
 | `atlasmind.voice.rate` | `number` | `1.0` | Speech synthesis rate (0.5–2.0). |
 | `atlasmind.voice.pitch` | `number` | `1.0` | Speech synthesis pitch (0–2.0). |
 | `atlasmind.voice.volume` | `number` | `1.0` | Speech synthesis volume (0–1.0). |
 | `atlasmind.voice.language` | `string` | `""` | BCP 47 language tag for TTS/STT. Empty string uses the browser/OS default. |
 | `atlasmind.voice.inputDeviceId` | `string` | `""` | Preferred microphone device id. Today this is used as a stored preference and permission-preflight hint for webview STT; future native backends can honor it directly. |
 | `atlasmind.voice.outputDeviceId` | `string` | `""` | Preferred speaker device id. AtlasMind can apply it to ElevenLabs audio playback when the runtime supports `setSinkId`; Web Speech output may still use the default device. |
+| `atlasmind.voice.elevenLabsVoiceId` | `string` | `""` | ElevenLabs voice id for server-side TTS. Empty uses the default demo voice (`Rachel`). Requires an ElevenLabs API key configured in Specialist Integrations. |
 
 AtlasMind's current voice stack is still webview-first: Web Speech API for in-panel STT and fallback TTS, plus optional ElevenLabs server-side TTS. There is not yet a host-side OS-native speech adapter, so microphone and speaker routing remains partly dependent on browser or Electron capabilities.
 

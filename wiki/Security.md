@@ -93,6 +93,28 @@ Custom skills are statically scanned before enablement:
 - Built-in skills are **pre-approved** and skip scanning
 - MCP tools are **pre-approved** (trust is delegated to the MCP server)
 
+### 7a. On-Device Voice Asset Provisioning
+
+- Local speech-to-text (`LocalTranscriber`) downloads its Whisper model and, on Windows x64, the `whisper-cli` binary. Both are fetched over **HTTPS** from pinned URLs and **SHA-256-verified** against hardcoded checksums before use; a mismatch deletes the partial file and aborts rather than running unverified code.
+- On macOS/Linux no binary is auto-downloaded — the operator must point `atlasmind.voice.whisperCliPath` at an installed `whisper-cli`, so binary trust stays with the system package manager.
+- Captured **audio never leaves the machine**: transcription runs locally via a shell-less `spawn` with the temp WAV path passed as an argv element (never interpolated into a command line); the temp WAV is deleted after transcription.
+- Host text-to-speech (`HostSpeechSynthesizer`) likewise passes spoken text only over stdin, never on a command line.
+
+### 7b. Remote Control (Web → Desktop)
+
+The web build can remote-control a desktop instance over a WebSocket. Because that exposes a surface able to run tools and hold secrets, it is **default-deny**:
+
+- **Off by default.** The server never listens until the operator runs `AtlasMind: Enable Remote Control` and `atlasmind.remote.enabled` is on.
+- **Localhost only (v1).** The server binds to `127.0.0.1`. Cross-machine reach is a planned follow-up and will require TLS.
+- **Pairing + bearer token.** A token is generated and stored in **SecretStorage** on both sides; connections without a matching token are refused (constant-time comparison). Unauthenticated connections are dropped after a short timeout and audited.
+- **Workspace-trust gate.** The server refuses to serve until the workspace is explicitly approved for remote control (mirrors the webhook trust gate).
+- **Redaction boundary holds.** API keys and secrets are never serialized across the bridge — the desktop executes; the client only receives already-redacted results. Cost/run RPCs are **read-only**.
+- **Inbound validation.** Every inbound chat frame passes the same `isChatPanelMessage` guard as the local UI before dispatch; invalid frames are dropped and logged. Remote clients can do nothing the local chat UI cannot.
+- **No silent approvals.** Remote tool-approval decisions require an authenticated session and are audited; on disconnect, the bound ChatPanel is disposed and pending approvals default to **denied**.
+- **Audit + revoke.** Connections and commands are logged to the AtlasMind Remote output channel; `AtlasMind: Revoke Remote Access` rotates the token and drops all sessions.
+
+See [[Remote Control]] for the full model.
+
 ### 8. Network Safety
 
 - `web-fetch` blocks **SSRF**: localhost, private IPs (10.x, 172.16-31.x, 192.168.x), link-local, and cloud metadata endpoints (169.254.169.254)

@@ -141,6 +141,7 @@ export class VoicePanel {
                 <div class="row">
                   <button id="btnListen" class="primary-btn">&#127908; Start Listening</button>
                   <button id="btnStopListen" disabled>&#9632; Stop Listening</button>
+                  <span id="stt-engine-badge" style="font-size:0.8em;margin-left:auto;opacity:0.75">Web Speech API</span>
                 </div>
                 <div id="transcript-box" class="output-box" aria-live="polite" aria-label="Speech transcript"></div>
                 <div id="stt-status" class="status-label"></div>
@@ -150,6 +151,7 @@ export class VoicePanel {
                 <div id="stt-unsupported" class="warning-note" style="display:none">
                   &#9888; Speech recognition is not available in this environment. Your browser/webview may need microphone permission or does not support the Web Speech API.
                 </div>
+                <p class="info-note" id="stt-engine-note">On-device transcription (Whisper) runs locally with no network or API key once the model is downloaded. Set <code>atlasmind.voice.sttEngine</code> to choose the engine.</p>
               </section>
             </section>
 
@@ -437,11 +439,22 @@ function buildScript(): string {
   let recognition = null;
   let recognising = false;
 
+  // STT engine selected by the host ('webspeech' | 'local'). Local uses on-device Whisper.
+  let sttEngine = 'webspeech';
+  // Local capture state (Whisper engine).
+  let localStream = null;
+  let localContext = null;
+  let localProcessor = null;
+  let localSource = null;
+  let localChunks = [];
+  let localCapturing = false;
+
   const btnListen = document.getElementById('btnListen');
   const btnStopListen = document.getElementById('btnStopListen');
   const transcriptBox = document.getElementById('transcript-box');
   const sttStatus = document.getElementById('stt-status');
   const sttDisabledNote = document.getElementById('stt-disabled-note');
+  const sttEngineBadge = document.getElementById('stt-engine-badge');
 
   async function startRecognition() {
     if (!sttSupported || recognising || !currentSettings.sttEnabled) {
@@ -505,15 +518,26 @@ function buildScript(): string {
     }
   }
 
+  function sttBackendUsable() {
+    // Web Speech needs the SpeechRecognition API; local needs getUserMedia.
+    return sttEngine === 'local' ? supportsInputCapture : sttSupported;
+  }
+
   function updateSttButtons() {
-    if (btnListen) { btnListen.disabled = recognising || !sttSupported || !currentSettings.sttEnabled; }
-    if (btnStopListen) { btnStopListen.disabled = !recognising; }
+    const busy = recognising || localCapturing;
+    if (btnListen) { btnListen.disabled = busy || !currentSettings.sttEnabled || !sttBackendUsable(); }
+    if (btnStopListen) { btnStopListen.disabled = !busy; }
   }
 
   function updateSttAvailability() {
     updateSttButtons();
     if (sttDisabledNote) {
       sttDisabledNote.style.display = currentSettings.sttEnabled ? 'none' : 'block';
+    }
+    // The "Web Speech not available" note only applies to the webspeech engine.
+    const unsupportedEl = document.getElementById('stt-unsupported');
+    if (unsupportedEl) {
+      unsupportedEl.style.display = (sttEngine === 'webspeech' && !sttSupported) ? 'block' : 'none';
     }
     if (!currentSettings.sttEnabled && sttStatus) {
       sttStatus.textContent = 'Speech input is disabled in workspace settings.';
@@ -522,13 +546,159 @@ function buildScript(): string {
     }
   }
 
+  function startListeningUnified() {
+    if (sttEngine === 'local') { void startLocalCapture(); }
+    else { void startRecognition(); }
+  }
+
+  function stopListeningUnified() {
+    if (sttEngine === 'local') { stopLocalCapture(); }
+    else { stopRecognition(); }
+  }
+
   if (btnListen) {
-    btnListen.addEventListener('click', () => { void startRecognition(); });
+    btnListen.addEventListener('click', startListeningUnified);
   }
   if (btnStopListen) {
-    btnStopListen.addEventListener('click', stopRecognition);
+    btnStopListen.addEventListener('click', stopListeningUnified);
   }
   updateSttAvailability();
+
+  // ── Local on-device capture (Whisper engine) ───────────────────────────
+  async function startLocalCapture() {
+    if (localCapturing || !currentSettings.sttEnabled) { updateSttAvailability(); return; }
+    if (!supportsInputCapture) {
+      if (sttStatus) { sttStatus.textContent = 'Microphone capture is not available in this environment.'; }
+      return;
+    }
+    try {
+      const constraints = currentSettings.inputDeviceId
+        ? { audio: { deviceId: { exact: currentSettings.inputDeviceId } } }
+        : { audio: true };
+      localStream = await mediaDevices.getUserMedia(constraints);
+    } catch (error) {
+      if (sttStatus) { sttStatus.textContent = 'Microphone access failed for the selected device.'; }
+      vscode.postMessage({ type: 'speechError', message: 'Microphone access failed: ' + String(error) });
+      return;
+    }
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) {
+      if (sttStatus) { sttStatus.textContent = 'Web Audio is not available in this environment.'; }
+      localStream.getTracks().forEach(function (t) { t.stop(); });
+      localStream = null;
+      return;
+    }
+    localContext = new Ctx();
+    localSource = localContext.createMediaStreamSource(localStream);
+    localProcessor = localContext.createScriptProcessor(4096, 1, 1);
+    localChunks = [];
+    localProcessor.onaudioprocess = function (event) {
+      const input = event.inputBuffer.getChannelData(0);
+      localChunks.push(new Float32Array(input));
+    };
+    localSource.connect(localProcessor);
+    localProcessor.connect(localContext.destination);
+    localCapturing = true;
+    updateSttButtons();
+    if (sttStatus) { sttStatus.textContent = 'Recording… click Stop to transcribe on-device.'; }
+  }
+
+  function stopLocalCapture() {
+    if (!localCapturing) { return; }
+    localCapturing = false;
+    const sampleRate = localContext ? localContext.sampleRate : 48000;
+    try { if (localProcessor) { localProcessor.disconnect(); } } catch (_) {}
+    try { if (localSource) { localSource.disconnect(); } } catch (_) {}
+    if (localStream) { localStream.getTracks().forEach(function (t) { t.stop(); }); }
+    if (localContext) { try { void localContext.close(); } catch (_) {} }
+    localProcessor = null;
+    localSource = null;
+    localStream = null;
+    localContext = null;
+    const samples = mergeFloat32(localChunks);
+    localChunks = [];
+    updateSttButtons();
+    if (samples.length === 0) {
+      if (sttStatus) { sttStatus.textContent = 'No audio captured.'; }
+      return;
+    }
+    const wav = encodeWav(downsampleTo16k(samples, sampleRate), 16000);
+    const base64 = bytesToBase64(new Uint8Array(wav));
+    if (sttStatus) { sttStatus.textContent = 'Transcribing on-device…'; }
+    vscode.postMessage({ type: 'audioCaptured', base64: base64 });
+  }
+
+  function mergeFloat32(chunks) {
+    let length = 0;
+    for (let i = 0; i < chunks.length; i++) { length += chunks[i].length; }
+    const out = new Float32Array(length);
+    let offset = 0;
+    for (let i = 0; i < chunks.length; i++) { out.set(chunks[i], offset); offset += chunks[i].length; }
+    return out;
+  }
+
+  function downsampleTo16k(samples, inRate) {
+    const outRate = 16000;
+    if (inRate === outRate || inRate <= 0) { return samples; }
+    const ratio = inRate / outRate;
+    const newLength = Math.round(samples.length / ratio);
+    const out = new Float32Array(newLength);
+    for (let i = 0; i < newLength; i++) {
+      const idx = i * ratio;
+      const i0 = Math.floor(idx);
+      const i1 = Math.min(i0 + 1, samples.length - 1);
+      const frac = idx - i0;
+      out[i] = samples[i0] * (1 - frac) + samples[i1] * frac;
+    }
+    return out;
+  }
+
+  function encodeWav(samples, sampleRate) {
+    const buffer = new ArrayBuffer(44 + samples.length * 2);
+    const view = new DataView(buffer);
+    writeAscii(view, 0, 'RIFF');
+    view.setUint32(4, 36 + samples.length * 2, true);
+    writeAscii(view, 8, 'WAVE');
+    writeAscii(view, 12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);   // PCM
+    view.setUint16(22, 1, true);   // mono
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true);
+    view.setUint16(32, 2, true);   // block align
+    view.setUint16(34, 16, true);  // bits per sample
+    writeAscii(view, 36, 'data');
+    view.setUint32(40, samples.length * 2, true);
+    let offset = 44;
+    for (let i = 0; i < samples.length; i++) {
+      let s = Math.max(-1, Math.min(1, samples[i]));
+      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+      offset += 2;
+    }
+    return buffer;
+  }
+
+  function writeAscii(view, offset, text) {
+    for (let i = 0; i < text.length; i++) { view.setUint8(offset + i, text.charCodeAt(i)); }
+  }
+
+  function bytesToBase64(bytes) {
+    let binary = '';
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+    }
+    return btoa(binary);
+  }
+
+  function setSttEngine(engine) {
+    sttEngine = engine === 'local' ? 'local' : 'webspeech';
+    if (sttEngineBadge) {
+      sttEngineBadge.textContent = sttEngine === 'local' ? '✓ On-device Whisper' : 'Web Speech API';
+      sttEngineBadge.style.color = sttEngine === 'local' ? 'var(--vscode-notificationsInfoIcon-foreground, #4ec9b0)' : '';
+    }
+    updateSttAvailability();
+  }
 
   // ── SpeechSynthesis (TTS) ─────────────────────────────────────────────
   const synth = window.speechSynthesis;
@@ -799,14 +969,40 @@ function buildScript(): string {
         stopBase64Audio();
         break;
       case 'startListening':
-        startRecognition();
+        startListeningUnified();
         break;
       case 'stopListening':
-        stopRecognition();
+        stopListeningUnified();
         break;
       case 'settingsUpdated':
         if (msg.settings) { applySettings(msg.settings); }
         break;
+      case 'sttEngineStatus':
+        setSttEngine(typeof msg.engine === 'string' ? msg.engine : 'webspeech');
+        break;
+      case 'sttProgress': {
+        if (sttStatus) {
+          if (msg.phase === 'preparing') {
+            const total = Number(msg.total) || 0;
+            const received = Number(msg.received) || 0;
+            const pct = total > 0 ? ' ' + Math.floor((received / total) * 100) + '%' : '';
+            sttStatus.textContent = 'Preparing local model…' + pct;
+          } else {
+            sttStatus.textContent = 'Transcribing on-device…';
+          }
+        }
+        break;
+      }
+      case 'localTranscript': {
+        const text = typeof msg.text === 'string' ? msg.text : '';
+        if (text && transcriptBox) {
+          const prefix = transcriptBox.textContent && transcriptBox.textContent.length > 0 ? ' ' : '';
+          transcriptBox.textContent = (transcriptBox.textContent || '') + prefix + text;
+        }
+        if (sttStatus) { sttStatus.textContent = text ? '' : 'No speech recognized.'; }
+        updateSttButtons();
+        break;
+      }
       case 'elevenLabsStatus': {
         elevenLabsAvailable = Boolean(msg.available);
         const badge = document.getElementById('elevenlabs-badge');

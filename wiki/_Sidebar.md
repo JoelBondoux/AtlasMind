@@ -13,6 +13,7 @@
 - [[Architecture]]
 - [[Model Routing]]
 - [[Memory System]]
+- [[Remote Control]]
 
 ### Usage
 - [[Chat Commands]]

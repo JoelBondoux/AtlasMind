@@ -40,6 +40,7 @@ import {
   resolveAutonomousContinuationGoal,
   resolveAtlasChatIntent,
   resolveProjectExecutionGoal,
+  extractAssistantProposedAction,
   renderAssistantResponseFooter,
   shouldCarryForwardConversationContext,
   prepareProjectRunContext,
@@ -154,6 +155,102 @@ describe('participant helper logic', () => {
     expect(resolveAutonomousContinuationGoal('Continue on the approval workflow', transcript)).toBe(
       'Wire ToolApprovalManager into the live tool gate.\n\nAdditional execution instruction: the approval workflow',
     );
+  });
+
+  it('uses the assistant proposed action when the user affirms an offer instead of the prior question', () => {
+    const transcript: SessionTranscriptEntry[] = [
+      {
+        id: '1',
+        role: 'user',
+        content: 'what is the most important one of these items to address?',
+        timestamp: '2026-06-14T10:00:00.000Z',
+      },
+      {
+        id: '2',
+        role: 'assistant',
+        content:
+          'Reapply the Customer ID requirement is the single most important action. '
+          + 'Want me to start by finding where customerID was hidden and drafting the reapplication?',
+        timestamp: '2026-06-14T10:00:05.000Z',
+      },
+    ];
+
+    // Bug regression: a bare "yes" must run the assistant's proposed action, not re-run
+    // the user's earlier question (which previously became the autonomous goal).
+    expect(resolveAutonomousContinuationGoal('yes', transcript)).toBe(
+      'start by finding where customerID was hidden and drafting the reapplication',
+    );
+  });
+
+  it('skips a bare user question and falls back to an earlier actionable prompt when there is no offer', () => {
+    const transcript: SessionTranscriptEntry[] = [
+      {
+        id: '1',
+        role: 'user',
+        content: 'Add a customer ID validation guard to the checkout flow.',
+        timestamp: '2026-06-14T10:00:00.000Z',
+      },
+      {
+        id: '2',
+        role: 'assistant',
+        content: 'The checkout flow lives in src/checkout.ts.',
+        timestamp: '2026-06-14T10:00:05.000Z',
+      },
+      {
+        id: '3',
+        role: 'user',
+        content: 'what is the riskiest part of that change?',
+        timestamp: '2026-06-14T10:00:10.000Z',
+      },
+      {
+        id: '4',
+        role: 'assistant',
+        content: 'The riskiest part is the session token handling.',
+        timestamp: '2026-06-14T10:00:15.000Z',
+      },
+    ];
+
+    expect(resolveAutonomousContinuationGoal('go ahead', transcript)).toBe(
+      'Add a customer ID validation guard to the checkout flow.',
+    );
+  });
+
+  it('extracts a first-person assistant offer as the proposed action', () => {
+    expect(
+      extractAssistantProposedAction([
+        {
+          id: '1',
+          role: 'assistant',
+          content: 'Here is the plan. Shall I wire the approval gate into the live tool path?',
+          timestamp: '2026-06-14T10:00:00.000Z',
+        },
+      ]),
+    ).toBe('wire the approval gate into the live tool path');
+  });
+
+  it('returns no proposed action when the last assistant turn made no actionable offer', () => {
+    expect(
+      extractAssistantProposedAction([
+        {
+          id: '1',
+          role: 'assistant',
+          content: 'The change is complete and tests pass.',
+          timestamp: '2026-06-14T10:00:00.000Z',
+        },
+      ]),
+    ).toBeUndefined();
+
+    // A non-offer question ("Does that look correct?") is not an executable proposal.
+    expect(
+      extractAssistantProposedAction([
+        {
+          id: '2',
+          role: 'assistant',
+          content: 'Does that look correct to you?',
+          timestamp: '2026-06-14T10:00:00.000Z',
+        },
+      ]),
+    ).toBeUndefined();
   });
 
   it('extracts explicit project goals for project execution routing', () => {
