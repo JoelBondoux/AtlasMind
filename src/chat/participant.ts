@@ -102,6 +102,15 @@ const AUTONOMOUS_CONTINUATION_PATTERN = /^\s*(?:please\s+)?(?:proceed|continue|r
 const QUICK_REPLY_NEGATIVE_PATTERN = /^\s*(?:no(?:\s+(?:thanks|thank you|please|not now|need|want))?|nope|nah|stop|skip(?:\s+(?:it|that))?|cancel(?:\s+(?:it|that))?|don'?t(?:\s+(?:do\s+it|proceed|bother))?)[.!?]*\s*$/i;
 /** Detects a closing question in the last sentence of a response. */
 const RESPONSE_TRAILING_QUESTION_PATTERN = /(?:^|[.!?\n])([^.!?\n]{10,300}\?)[\s]*$/;
+/**
+ * Matches the lead-in of a first-person offer the assistant closes with
+ * ("Want me to …?", "Shall I …?", "Would you like me to …?"). Stripping this lead-in
+ * from the trailing question yields the proposed action that a bare "yes" accepts.
+ * Mirrors the yes/no shape recognised in {@link detectResponseQuickReplies}.
+ */
+const ASSISTANT_OFFER_LEAD_IN_PATTERN = /^\s*(?:so\s+|then\s+|now\s+|ok(?:ay)?,?\s+|alright,?\s+|sure,?\s+)?(?:do\s+you\s+want\s+me\s+to|would\s+you\s+like\s+me\s+to|would\s+you\s+like\s+to|want\s+me\s+to|shall\s+i|should\s+i|can\s+i|may\s+i)\s+(?:go\s+ahead\s+and\s+|please\s+)?/i;
+/** Matches a bare informational question ("what/why/how/… ?"), which is not an executable goal. */
+const INFORMATIONAL_QUESTION_PATTERN = /^\s*(?:what|why|how|which|where|when|who|whose|whom)\b[\s\S]*\?\s*$/i;
 const PROJECT_RUN_REQUEST_PATTERN = /^\s*(?:please\s+)?(?:(?:start|begin|run|launch|kick off|continue|switch to)\s+(?:an?\s+)?)?(?:atlasmind\s+)?(?:autonomous\s+)?project(?:\s+run|\s+execution|\s+task)?\b(?:\s+(?:to|for|on|about|that|which))?\s*(.+)?$/i;
 const EXPLICIT_FIX_PROMPT_PATTERN = /\b(?:fix|patch|repair|resolve|implement|update|change|modify|correct|adjust|rewrite|refactor)\b/i;
 const EXPLICIT_NO_FIX_PATTERN = /\b(?:do not fix|don't fix|without changing|no code changes|read only|explain only|question only)\b/i;
@@ -2486,7 +2495,14 @@ export function resolveAutonomousContinuationGoal(
   }
 
   const followupDetail = match[1]?.trim();
-  const priorPrompt = [...transcript]
+
+  // A bare affirmation ("yes", "go ahead") accepts whatever the assistant just
+  // offered, so the assistant's closing proposal is the real goal. Without this the
+  // resolver fell back to the most recent *user* message — typically the question
+  // that prompted the offer — and the autonomous run just re-ran that question.
+  const proposedAction = extractAssistantProposedAction(transcript);
+
+  const priorPrompt = proposedAction ?? [...transcript]
     .reverse()
     .filter(entry => entry.role === 'user')
     .map(entry => normalizeAutonomousSourcePrompt(entry.content))
@@ -2503,9 +2519,47 @@ export function resolveAutonomousContinuationGoal(
   return `${priorPrompt}\n\nAdditional execution instruction: ${followupDetail}`;
 }
 
+/**
+ * When the user affirms ("yes"), the goal is the action the assistant just proposed.
+ * Inspect the most recent assistant turn's closing question and, if it is a first-person
+ * offer ("Want me to …?"), return the proposed action with the offer lead-in and trailing
+ * "?" stripped. Returns undefined when the last assistant turn made no actionable offer
+ * (e.g. it ended with a statement or a non-offer question like "Is that correct?").
+ */
+export function extractAssistantProposedAction(
+  transcript: SessionTranscriptEntry[],
+): string | undefined {
+  const lastAssistant = [...transcript]
+    .reverse()
+    .find(entry => entry.role === 'assistant' && entry.content.trim().length > 0);
+  if (!lastAssistant) {
+    return undefined;
+  }
+
+  const questionMatch = RESPONSE_TRAILING_QUESTION_PATTERN.exec(lastAssistant.content.trim());
+  const question = questionMatch?.[1]?.trim();
+  if (!question || !ASSISTANT_OFFER_LEAD_IN_PATTERN.test(question)) {
+    return undefined;
+  }
+
+  const action = question
+    .replace(ASSISTANT_OFFER_LEAD_IN_PATTERN, '')
+    .replace(/\?+\s*$/, '')
+    .trim();
+  return action.length >= 3 ? action : undefined;
+}
+
 function normalizeAutonomousSourcePrompt(prompt: string): string {
   const trimmed = prompt.trim();
   if (!trimmed || isAutonomousContinuationPrompt(trimmed)) {
+    return '';
+  }
+
+  // A bare informational question ("what is the most important item?") is not an
+  // executable goal. Skip it so an affirmation doesn't autonomously "run" the question
+  // when there is no assistant proposal to anchor the goal — fall back to an earlier
+  // actionable user prompt instead.
+  if (INFORMATIONAL_QUESTION_PATTERN.test(trimmed)) {
     return '';
   }
 

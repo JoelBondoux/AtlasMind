@@ -8,6 +8,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.80.0] - 2026-06-14
+
+### Fixed
+- **Voice Panel ElevenLabs playback was blocked by CSP** (`src/views/webviewUtils.ts`): added a `media-src` directive (`${cspSource} https: data: blob:`) to the shared webview Content-Security-Policy. With `default-src 'none'` and no `media-src`, the `blob:` URL used by `new Audio()` for ElevenLabs server-side TTS fell back to `default-src` and was blocked, so ElevenLabs audio never played (Web Speech fallback masked the failure).
+- **Voice device and ElevenLabs-voice preferences were never persisted** (`package.json`): registered the previously-unregistered `atlasmind.voice.inputDeviceId`, `atlasmind.voice.outputDeviceId`, and `atlasmind.voice.elevenLabsVoiceId` settings. Without registration, `configuration.update()` for the device IDs rejected (selecting a microphone/speaker in the Devices page silently failed and the follow-up settings sync never ran), and `elevenLabsVoiceId` always read empty so server-side TTS always used the default demo voice.
+- **Testing Methodology Matrix — methodology detection algorithm fixed** (`src/core/testingConfigLoader.ts`): the linter collapsed specific-signal and wildcard detection into a single loop, causing `tdd` (definition-order position 1, wildcard `'*'`) to always win for any task that passed the testing-presence guard. Concrete methodologies like `e2e` (playwright/cypress signals), `continuous` (github-actions/gitlab-ci signals), `bdd` (cucumber/gherkin signals), and `security-testing` (auth/snyk/semgrep signals) could never fire. Restored the correct two-pass algorithm: first pass matches only non-wildcard signals across all definitions; wildcard fallback (tdd, unit) runs only for confirmed testing roles (`tester`, `security-reviewer`).
+
+### Added
+- **Host-side OS speech engine for TTS** (`src/voice/hostSpeechSynthesizer.ts`, `src/voice/voiceManager.ts`, `package.json`, `tests/voice/hostSpeechSynthesizer.test.ts`): new `HostSpeechSynthesizer` synthesizes speech entirely in the extension host using the operating system's built-in engine — PowerShell `System.Speech` (SAPI) on Windows, `say` on macOS, and `espeak-ng` on Linux. It uses no network and no API key, and works even when the Voice Panel is closed. Enabled with the new `atlasmind.voice.hostSpeechEnabled` setting. Backend priority is now ElevenLabs (when keyed) → OS host engine (when enabled) → in-panel Web Speech API. The spoken text is always delivered over stdin and never interpolated into a command line or script.
+- **Documented `atlasmind.voice.elevenLabsVoiceId`** (`docs/configuration.md`, `wiki/Configuration.md`): added the ElevenLabs voice-id setting to the configuration tables.
+- **27-test suite for `TestingConfigLoader`** (`tests/core/testingConfigLoader.test.ts`): covers `inferTestingMethodologyForSubTask` (non-testing role with no presence term → undefined, tdd wildcard fallback, bdd specific-signal match, security-testing via auth/snyk signals, e2e for frontend-engineer with playwright+test, continuous for devops with github-actions+test, false-positive prevention for non-testing tasks, specific-signal priority over wildcard), `resolveTestingModelOverride` (no override, direct model, whitespace trim, agent override lookup, missing agent/key, priority), and `buildMethodologySystemPromptHint` (non-empty output, label, when-to-apply, key-tools, step-reporting instruction, unknown-id guard).
+
 ## [0.79.2] - 2026-06-12
 
 ### Fixed

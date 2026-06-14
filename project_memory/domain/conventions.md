@@ -19,7 +19,7 @@
 <!-- atlasmind-import
 entry-path: domain/conventions.md
 generator-version: 2
-generated-at: 2026-06-11T19:52:00.584Z
+generated-at: 2026-06-12T17:24:01.898Z
 source-paths: tsconfig.json | .gitignore | .editorconfig | .prettierrc | eslint.config.js | .eslintrc.json | .eslintrc.js | Dockerfile | docker-compose.yml | Makefile
 source-fingerprint: 87b21b9d
 body-fingerprint: ccd86c05

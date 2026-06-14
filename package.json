@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.79.2",
+  "version": "0.80.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -19,7 +19,7 @@
   },
   "homepage": "https://github.com/JoelBondoux/AtlasMind#readme",
   "engines": {
-    "vscode": "^1.116.0"
+    "vscode": "^1.120.0"
   },
   "categories": [
     "AI",
@@ -1257,6 +1257,12 @@
           "description": "Show a voice input button in the Voice Panel (STT requires microphone access).",
           "markdownDescription": "Show a voice input button in the Voice Panel. Speech-to-text requires microphone access and browser or platform support.\n\nExamples:\n- Voice-first workflow: `true`\n- Locked-down desktop without microphone permissions: `false`"
         },
+        "atlasmind.voice.hostSpeechEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Use the operating system's built-in speech engine (host-side) for text-to-speech instead of the in-panel Web Speech engine. Works without the Voice Panel open and uses no network or API key.",
+          "markdownDescription": "Use the operating system's built-in speech engine for text-to-speech instead of the in-panel Web Speech engine.\n\nWhen enabled, AtlasMind speaks via the host OS engine (Windows SAPI through PowerShell, macOS `say`, or Linux `espeak-ng`). This runs entirely on-device — no network and no API key — and works even when the Voice Panel is closed. An ElevenLabs API key, when configured, still takes priority. On Linux, `espeak-ng` must be installed.\n\nExamples:\n- Fully local, hands-free playback without opening the panel: `true`\n- Prefer the in-webview Web Speech voices: `false`"
+        },
         "atlasmind.voice.rate": {
           "type": "number",
           "default": 1,
@@ -1286,6 +1292,24 @@
           "default": "",
           "description": "BCP 47 language tag for voice synthesis and recognition (e.g. 'en-US', 'fr-FR'). Leave empty to use the browser/OS default.",
           "markdownDescription": "BCP 47 language tag for voice synthesis and recognition, such as `en-US` or `fr-FR`. Leave empty to use the browser or OS default.\n\nExamples:\n- US English: `en-US`\n- British English: `en-GB`\n- French (France): `fr-FR`\n- Default system language: empty string\n\nSet this explicitly in shared environments where predictable voice language matters."
+        },
+        "atlasmind.voice.inputDeviceId": {
+          "type": "string",
+          "default": "",
+          "description": "Preferred microphone device id for voice input. Leave empty to use the system default microphone.",
+          "markdownDescription": "Preferred microphone device id for voice input, selected from the **Devices** page of the Voice Panel. Leave empty to use the system default microphone.\n\nThis is used for the microphone-permission preflight and is honored by backends that can target a specific input device. Browser Web Speech recognition may still follow the OS or browser default microphone."
+        },
+        "atlasmind.voice.outputDeviceId": {
+          "type": "string",
+          "default": "",
+          "description": "Preferred audio output device id for voice playback. Leave empty to use the system default speaker.",
+          "markdownDescription": "Preferred audio output device id for voice playback, selected from the **Devices** page of the Voice Panel. Leave empty to use the system default speaker.\n\nOutput routing applies to ElevenLabs audio playback when the webview runtime supports `setSinkId`. Browser speech synthesis still follows the browser or OS default output device."
+        },
+        "atlasmind.voice.elevenLabsVoiceId": {
+          "type": "string",
+          "default": "",
+          "description": "ElevenLabs voice id used for server-side text-to-speech. Leave empty to use the default demo voice.",
+          "markdownDescription": "ElevenLabs voice id used for server-side text-to-speech when an ElevenLabs API key is configured in Specialist Integrations. Leave empty to use the default demo voice (`Rachel`).\n\nFind voice ids in your ElevenLabs voice library. This setting has no effect unless an ElevenLabs API key is present."
         },
         "atlasmind.maxToolIterations": {
           "type": "number",

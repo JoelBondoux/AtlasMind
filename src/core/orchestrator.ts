@@ -1746,7 +1746,7 @@ export class Orchestrator {
     let completionIntegrityRepromptDone = false;
     let readonlyExplorationTurns = 0;
     let readonlyExplorationNudged = false;
-    let lastToolResults: Array<{ toolCall: ToolCall; result: string }> = [];
+    let lastToolResults: Array<{ toolCall: ToolCall; result: string; isFailure?: boolean }> = [];
     const projectTddState = initializeProjectTddState(context.projectTddPolicy);
 
     for (let i = 0; i < this.cfg.maxToolIterations; i++) {
@@ -1849,7 +1849,7 @@ export class Orchestrator {
           messages.push({ role: 'user', content: buildCompletionIntegrityReprompt() });
           continue;
         }
-        if (lastToolResults.length > 0 && lastToolResults.every(entry => looksLikeToolFailure(entry.result))) {
+        if (lastToolResults.length > 0 && lastToolResults.every(isFailedToolEntry)) {
           completion = {
             ...completion,
             content: summarizeFailedToolResults(lastToolResults),
@@ -1898,7 +1898,7 @@ export class Orchestrator {
       const toolResults = await mapWithConcurrency(
         completion.toolCalls,
         MAX_PARALLEL_TOOL_EXECUTIONS,
-        async toolCall => {
+        async (toolCall): Promise<ToolExecutionEntry> => {
           const startedAt = Date.now();
           await this.toolWebhookDispatcher?.emit({
             event: 'tool.started',
@@ -2041,12 +2041,17 @@ export class Orchestrator {
               durationMs: Date.now() - startedAt,
               resultPreview: toTextPreview(result),
             });
+            // Capture the failure verdict from the tool's own output now, before the
+            // post-edit verification summary is appended to `result` below. This is the
+            // authoritative classification used downstream — see ToolExecutionEntry.isFailure.
+            const resultIsFailure = looksLikeToolFailure(result);
             return {
               toolCall,
               result,
               durationMs: Date.now() - startedAt,
               checkpointed,
-              shouldVerify: requiresPostToolVerification(toolCall.name) && !looksLikeToolFailure(result),
+              shouldVerify: requiresPostToolVerification(toolCall.name) && !resultIsFailure,
+              isFailure: resultIsFailure,
             };
           } catch (err) {
             const failure = `Skill "${toolCall.name}" failed: ${err instanceof Error ? err.message : String(err)}`;
@@ -2069,7 +2074,7 @@ export class Orchestrator {
 
       difficulty.iterations = i + 1;
       difficulty.totalToolCalls += completion.toolCalls.length;
-      difficulty.failedToolCalls += toolResults.filter(entry => looksLikeToolFailure(entry.result)).length;
+      difficulty.failedToolCalls += toolResults.filter(isFailedToolEntry).length;
       difficulty.elapsedMs = Date.now() - startedAt;
 
       for (const entry of toolResults) {
@@ -2116,7 +2121,9 @@ export class Orchestrator {
           toolName: toolCall.name,
         });
       }
-      lastToolResults = toolResults.map(({ toolCall, result }) => ({ toolCall, result }));
+      // Carry the raw-output failure verdict (isFailure) alongside the possibly
+      // verification-enriched result so failure classification stays accurate.
+      lastToolResults = toolResults.map(({ toolCall, result, isFailure }) => ({ toolCall, result, isFailure }));
 
       // Prune the oldest tool-exchange pairs when the messages array grows too
       // large.  The system message (index 0) and the initial user message
@@ -2137,7 +2144,7 @@ export class Orchestrator {
       const readonlyExplorationTurn = checkpointedTools.size === 0
         && toolResults.length > 0
         && toolResults.every(entry => !requiresWriteCheckpoint(entry.toolCall.name, entry.toolCall.arguments))
-        && toolResults.every(entry => !looksLikeToolFailure(entry.result));
+        && toolResults.every(entry => !isFailedToolEntry(entry));
       readonlyExplorationTurns = readonlyExplorationTurn ? readonlyExplorationTurns + 1 : 0;
 
       if (!readonlyExplorationNudged && readonlyExplorationTurns >= READONLY_EXPLORATION_NUDGE_AFTER) {
@@ -3273,6 +3280,33 @@ function requiresWriteCheckpoint(toolName: string, args: Record<string, unknown>
   return false;
 }
 
+interface ToolExecutionEntry {
+  toolCall: ToolCall;
+  result: string;
+  durationMs: number;
+  checkpointed: boolean;
+  shouldVerify: boolean;
+  /**
+   * Whether the tool's OWN output indicates failure, captured at execution time
+   * BEFORE any post-edit verification summary is appended to `result`. Persisting
+   * the verdict here stops benign substrings in verification/test logs
+   * (e.g. "… Google Fonts CSS lookup failed (404)") from later being re-scanned and
+   * misread as a tool failure — which previously turned a successful write plus a
+   * PASSING verification run into a phantom "tool-execution problem" dump.
+   */
+  isFailure?: boolean;
+}
+
+/**
+ * Resolve whether a tool entry failed. Prefers the verdict captured on the raw
+ * tool output ({@link ToolExecutionEntry.isFailure}); only falls back to scanning
+ * the result string for entries produced before that verdict existed (e.g. the
+ * early-return error branches, whose result is never enriched with verification text).
+ */
+function isFailedToolEntry(entry: { result: string; isFailure?: boolean }): boolean {
+  return entry.isFailure ?? looksLikeToolFailure(entry.result);
+}
+
 function looksLikeToolFailure(result: string): boolean {
   const normalized = result.trim().toLowerCase();
   return normalized.startsWith('error:')
@@ -3284,7 +3318,9 @@ function looksLikeToolFailure(result: string): boolean {
 }
 
 function summarizeFailedToolResults(toolResults: ReadonlyArray<{ toolCall: ToolCall; result: string }>): string {
-  const lines = toolResults.map(entry => `- ${entry.toolCall.name}: ${entry.result.trim()}`);
+  // Bound each line so a verbose failure (e.g. a multi-thousand-line build log) can't
+  // flood the chat surface. Genuine failure messages are short; the cap is generous.
+  const lines = toolResults.map(entry => `- ${entry.toolCall.name}: ${truncateToChars(entry.result.trim(), 1500)}`);
   const guidance = buildToolFailureGuidance(toolResults);
   return [
     'I hit a tool-execution problem while trying to complete that step.',

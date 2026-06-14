@@ -6,6 +6,19 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.80.0 — On-Device OS Speech Engine, Voice Panel Fixes, and Testing Matrix Correction
+
+- **Host-side OS speech engine for TTS** (`src/voice/hostSpeechSynthesizer.ts`, `src/voice/voiceManager.ts`): AtlasMind can now speak using the operating system's built-in engine (Windows SAPI via PowerShell, macOS `say`, Linux `espeak-ng`) entirely on-device — no network, no API key — and even when the Voice Panel is closed. Enable it with `atlasmind.voice.hostSpeechEnabled`. Backend priority is ElevenLabs (when keyed) → OS host engine → in-panel Web Speech. Spoken text is delivered over stdin and never placed on a command line.
+- **ElevenLabs playback unblocked** (`src/views/webviewUtils.ts`): added a `media-src` directive to the shared webview CSP so the `blob:` audio used for ElevenLabs server-side TTS can actually play. Previously it fell back to `default-src 'none'` and was blocked, with the Web Speech fallback hiding the failure.
+- **Voice device and voice-id preferences persisted** (`package.json`, `docs/configuration.md`, `wiki/Configuration.md`): registered the `atlasmind.voice.inputDeviceId`, `atlasmind.voice.outputDeviceId`, and `atlasmind.voice.elevenLabsVoiceId` settings. They were read/written in code but unregistered, so device selections silently failed to save and the ElevenLabs voice id always defaulted to the demo voice.
+- **Testing Methodology Matrix detection algorithm fixed** (`src/core/testingConfigLoader.ts`): the single-loop detection that mixed wildcard and specific signals caused `tdd` (first definition, wildcard `'*'`) to shadow all concrete methodologies. Restored two-pass detection: specific signals first, wildcard fallback only for testing roles. `e2e`, `continuous`, `bdd`, `security-testing` and all other specific-signal methodologies now fire correctly.
+- **27-test suite for `TestingConfigLoader`** (`tests/core/testingConfigLoader.test.ts`): covers inference for all role types, specific-signal priority over wildcard, false-positive prevention for non-testing tasks, model override resolution, and system-prompt hint generation.
+
+## v0.79.2 — Autonomous Run Context Continuity and Compression Savings
+
+- **Autonomous run context continuity** (`src/core/orchestrator.ts`, `src/chat/participant.ts`): project subtasks now carry the session context bundle so long runs keep goal, summary, decisions, SSOT excerpts, and open threads between subtasks.
+- **Context compression toggle** (`package.json`, `src/core/orchestrator.ts`, `src/core/costTracker.ts`): `atlasmind.contextCompressionEnabled` opt-in setting; savings reported in exec summary and cost dashboard.
+
 ## v0.78.6 — CI Lockfile and ESLint v10 Fix
 
 - **`npm ci` failure on CI** (`package-lock.json`, `src/types.ts`): lockfile regenerated to match the 0.78.3 tooling upgrades. `@typescript-eslint/ban-types` (removed in v8) replaced with `@typescript-eslint/no-empty-object-type` in `src/types.ts`.

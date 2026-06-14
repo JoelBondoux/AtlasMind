@@ -22,7 +22,7 @@
   },
   "homepage": "https://github.com/JoelBondoux/AtlasMind#readme",
   "engines": {
-    "vscode": "^1.116.0"
+    "vscode": "^1.120.0"
   },
   "categories": [
     "AI",
@@ -95,8 +95,8 @@
 <!-- atlasmind-import
 entry-path: architecture/dependencies.md
 generator-version: 2
-generated-at: 2026-06-12T17:16:50.123Z
+generated-at: 2026-06-12T17:24:01.898Z
 source-paths: package.json
-source-fingerprint: 28210981
-body-fingerprint: 7c4c83a5
+source-fingerprint: bf12a579
+body-fingerprint: dff96412
 -->

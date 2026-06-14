@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.79.2</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.80.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -255,6 +255,7 @@ See [Funding and Sponsorship](wiki/Funding-and-Sponsorship.md) for details.
 - Skills and tool handlers: `src/skills/`
 - Shared utilities: `src/utils/` (including `secretRedactor.ts` — pattern-based secret scanner used to scrub credentials from memory context before LLM dispatch)
 - Webview and sidebar surfaces: `src/views/`
+- Voice (TTS/STT): `src/voice/` (`voiceManager.ts` bridge, `hostSpeechSynthesizer.ts` on-device OS speech engine)
 - Memory and MCP layers: `src/memory/`, `src/mcp/`
 
 ---

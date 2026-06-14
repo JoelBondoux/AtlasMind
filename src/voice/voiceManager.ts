@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import type { VoiceSettings } from '../types.js';
+import { HostSpeechSynthesizer } from './hostSpeechSynthesizer.js';
 
 const ELEVENLABS_DEFAULT_VOICE_ID = '21m00Tcm4TlvDq8ikWAM'; // "Rachel" – ElevenLabs default demo voice
 const ELEVENLABS_TTS_URL = 'https://api.elevenlabs.io/v1/text-to-speech';
@@ -48,12 +49,14 @@ export class VoiceManager implements vscode.Disposable {
   private readonly _onTranscript = new vscode.EventEmitter<{ text: string; final: boolean }>();
   private readonly _disposables: vscode.Disposable[] = [];
   private _secrets: vscode.SecretStorage | undefined;
+  private readonly _hostSynth: HostSpeechSynthesizer;
 
   /** Fires when the STT engine produces a (possibly partial) transcript. */
   public readonly onTranscript = this._onTranscript.event;
 
-  constructor(secrets?: vscode.SecretStorage) {
+  constructor(secrets?: vscode.SecretStorage, hostSynth?: HostSpeechSynthesizer) {
     this._secrets = secrets;
+    this._hostSynth = hostSynth ?? new HostSpeechSynthesizer();
     this._disposables.push(this._onTranscript);
   }
 
@@ -109,23 +112,20 @@ export class VoiceManager implements vscode.Disposable {
   }
 
   /**
-   * Queue text for TTS synthesis.
-   * When an ElevenLabs API key is configured the audio is synthesised server-side
-   * and delivered to the webview as a base64-encoded MP3 (playAudio message).
-   * Falls back to the Web Speech API speak message otherwise.
+   * Queue text for TTS synthesis. Backends are tried in priority order:
+   *  1. ElevenLabs server-side synthesis when an API key is configured (requires the panel).
+   *  2. The OS host speech engine when `atlasmind.voice.hostSpeechEnabled` is set and supported
+   *     — this works even when the Voice Panel is closed and uses no network.
+   *  3. The Web Speech API in the panel (text is queued until the panel opens).
    */
   public speak(text: string): void {
     if (!text.trim()) { return; }
-    if (this._panel) {
-      void this._speakWithPanel(this._panel, text);
-    } else {
-      // Queue for when panel opens
-      this._pendingQueue.push(text);
-    }
+    void this._dispatchSpeak(text);
   }
 
-  /** Stop any ongoing TTS synthesis in the panel. */
+  /** Stop any ongoing TTS synthesis in the panel and the host engine. */
   public stopSpeaking(): void {
+    this._hostSynth.stop();
     if (!this._panel) { return; }
     void this._panel.webview.postMessage({ type: 'stopSpeaking' } satisfies HostToVoiceMessage);
   }
@@ -152,18 +152,44 @@ export class VoiceManager implements vscode.Disposable {
   }
 
   public dispose(): void {
+    this._hostSynth.stop();
     for (const d of this._disposables) { d.dispose(); }
   }
 
   // ── Private helpers ──────────────────────────────────────────────────────
 
-  private async _speakWithPanel(panel: vscode.WebviewPanel, text: string): Promise<void> {
-    const elevenLabsKey = await this._getElevenLabsKey();
-    if (elevenLabsKey) {
-      await this._speakElevenLabs(panel, text, elevenLabsKey);
-    } else {
+  /** Route a single utterance to the highest-priority available backend. */
+  private async _dispatchSpeak(text: string): Promise<void> {
+    // 1. ElevenLabs (premium) — synthesised server-side, played back in the panel.
+    if (this._panel) {
+      const elevenLabsKey = await this._getElevenLabsKey();
+      if (elevenLabsKey) {
+        await this._speakElevenLabs(this._panel, text, elevenLabsKey);
+        return;
+      }
+    }
+
+    // 2. OS host speech engine — no panel and no network required.
+    const cfg = vscode.workspace.getConfiguration('atlasmind.voice');
+    if (cfg.get<boolean>('hostSpeechEnabled', false) && this._hostSynth.isSupported()) {
+      try {
+        await this._hostSynth.speak(text, this._readSettings());
+        return;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        vscode.window.showWarningMessage(
+          `AtlasMind Voice: OS speech engine failed — ${message}. Falling back to the in-panel engine.`,
+        );
+        // fall through to the Web Speech API path
+      }
+    }
+
+    // 3. Web Speech API in the panel (queue until the panel is open).
+    if (this._panel) {
       const settings = this._readSettings();
-      void panel.webview.postMessage({ type: 'speak', text, settings } satisfies HostToVoiceMessage);
+      void this._panel.webview.postMessage({ type: 'speak', text, settings } satisfies HostToVoiceMessage);
+    } else {
+      this._pendingQueue.push(text);
     }
   }
 
@@ -239,7 +265,7 @@ export class VoiceManager implements vscode.Disposable {
   private _flushQueue(): void {
     if (!this._panel || this._pendingQueue.length === 0) { return; }
     for (const text of this._pendingQueue.splice(0)) {
-      void this._speakWithPanel(this._panel, text);
+      void this._dispatchSpeak(text);
     }
   }
 
