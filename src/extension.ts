@@ -48,6 +48,7 @@ import { syncLocalModelCatalog } from './providers/localModelCatalogSync.js';
 import type { DiscoveredModel } from './providers/adapter.js';
 import type { AgentDefinition, MemoryEntry, ModelInfo, ProviderConfig, ProviderId, SkillDefinition, SkillExecutionContext, SkillScanResult, SpecialistDomain } from './types.js';
 import { ToolApprovalManager } from './core/toolApprovalManager.js';
+import { RemoteControlServer } from './remote/remoteControlServer.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -170,6 +171,8 @@ export interface AtlasMindContext {
   getModelInfoUrl(providerId: ProviderId, modelId?: string): string | undefined;
   toolWebhookDispatcher: ToolWebhookDispatcher;
   toolApprovalManager: ToolApprovalManager;
+  /** Desktop remote-control server (assigned immediately after context creation). */
+  remoteControlServer?: RemoteControlServer;
   getWorkspacePolicySnapshots(): SessionPolicySnapshot[];
   voiceManager: VoiceManager;
   sessionConversation: SessionConversation;
@@ -2158,6 +2161,90 @@ async function bootstrapAtlasMind(
         agentsRefresh.fire();
       },
     };
+
+    // ── Remote control (desktop server) ──────────────────────────────────────
+    const remoteOutput = vscode.window.createOutputChannel('AtlasMind Remote');
+    const remoteControlServer = new RemoteControlServer(atlasContext, remoteOutput);
+    atlasContext.remoteControlServer = remoteControlServer;
+    // Read-only RPC for the web client's cost & project-run dashboards. No mutation
+    // paths are exposed, and no secrets cross the bridge — only the user's own
+    // aggregate cost figures and run metadata.
+    remoteControlServer.setRpcHandler(async (channel, request) => {
+      if (channel === 'cost' && request.method === 'cost.snapshot') {
+        return {
+          summary: atlasContext!.costTracker.getSummary(),
+          todayCostUsd: atlasContext!.costTracker.getTodayCostUsd(),
+        };
+      }
+      if (channel === 'runs' && request.method === 'runs.list') {
+        const limit = typeof request.params?.['limit'] === 'number' ? Math.max(1, Math.min(50, request.params['limit'] as number)) : 20;
+        const runs = (await atlasContext!.projectRunHistory.listRunsAsync(limit)).map(run => ({
+          id: run.id,
+          title: run.title,
+          goal: run.goal,
+          status: run.status,
+          updatedAt: run.updatedAt,
+          completedSubtaskCount: run.completedSubtaskCount,
+          totalSubtaskCount: run.totalSubtaskCount,
+        }));
+        return { runs };
+      }
+      throw new Error(`Unsupported RPC ${channel}.${request.method}`);
+    });
+    const remoteStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 99);
+    remoteStatusBar.command = 'atlasmind.remote.showPairingCode';
+    const updateRemoteStatusBar = (): void => {
+      const status = remoteControlServer.getStatus();
+      if (!status.running) {
+        remoteStatusBar.hide();
+        return;
+      }
+      remoteStatusBar.text = `$(broadcast) Atlas Remote: ${status.clientCount}`;
+      remoteStatusBar.tooltip = `AtlasMind remote control active on ${status.url} — ${status.clientCount} client(s) connected. Click to show the pairing code.`;
+      remoteStatusBar.show();
+    };
+    const showRemotePairing = async (url: string, token: string): Promise<void> => {
+      const choice = await vscode.window.showInformationMessage(
+        `AtlasMind remote control is live. In the AtlasMind web build, run "Connect to Desktop Instance" and pair with this URL and token.\n\nURL: ${url}`,
+        'Copy URL & Token',
+      );
+      if (choice === 'Copy URL & Token') {
+        await vscode.env.clipboard.writeText(`${url}\n${token}`);
+        void vscode.window.showInformationMessage('Remote URL and pairing token copied to the clipboard.');
+      }
+    };
+    context.subscriptions.push(
+      remoteOutput,
+      remoteControlServer,
+      remoteStatusBar,
+      remoteControlServer.onStatusChange(() => updateRemoteStatusBar()),
+      vscode.commands.registerCommand('atlasmind.remote.enable', async () => {
+        const result = await remoteControlServer.enable(true);
+        updateRemoteStatusBar();
+        if (result) {
+          await showRemotePairing(result.url, result.token);
+        }
+      }),
+      vscode.commands.registerCommand('atlasmind.remote.disable', () => {
+        remoteControlServer.disable();
+        updateRemoteStatusBar();
+        void vscode.window.showInformationMessage('AtlasMind remote control disabled.');
+      }),
+      vscode.commands.registerCommand('atlasmind.remote.showPairingCode', async () => {
+        const status = remoteControlServer.getStatus();
+        const token = await remoteControlServer.getPairingToken();
+        if (!status.running || !status.url || !token) {
+          void vscode.window.showInformationMessage('Remote control is not running. Run "AtlasMind: Enable Remote Control" first.');
+          return;
+        }
+        await showRemotePairing(status.url, token);
+      }),
+      vscode.commands.registerCommand('atlasmind.remote.revoke', async () => {
+        await remoteControlServer.revoke();
+        updateRemoteStatusBar();
+        void vscode.window.showInformationMessage('AtlasMind remote access revoked. Existing clients were disconnected and the pairing token was rotated.');
+      }),
+    );
 
     context.subscriptions.push(skillsRefresh);
     context.subscriptions.push(agentsRefresh);

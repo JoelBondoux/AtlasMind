@@ -163,6 +163,13 @@ These settings only affect AtlasMind's governance scaffolding for Atlas-built or
 | `atlasmind.toolExecutionTimeoutMs` | `number` | `15000` | Per-tool execution timeout in milliseconds (minimum 1000). |
 | `atlasmind.providerTimeoutMs` | `number` | `30000` | Maximum time to wait for a model provider response in milliseconds (minimum 5000). |
 
+## Remote Control
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `atlasmind.remote.enabled` | `boolean` | `false` | Allow the AtlasMind web build to remote-control this desktop instance over a localhost WebSocket. Off by default; the server only listens after **AtlasMind: Enable Remote Control**, workspace approval, and a pairing token. Binds to `127.0.0.1` only. See [Remote Control](remote-control.md). |
+| `atlasmind.remote.port` | `number` | `0` | Localhost port for the remote-control server. `0` picks a free port automatically; pin a value to keep the `ws://localhost:PORT` URL stable across restarts. |
+
 ## Budget
 
 | Setting | Type | Default | Description |

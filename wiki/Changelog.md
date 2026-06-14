@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.82.0 — Remote Control from the Web Build
+
+- **Drive a desktop instance from vscode.dev** (`src/web/*`, `src/remote/*`, `src/views/chatProtocol.ts`, `src/views/chatWebviewMarkup.ts`): AtlasMind now ships a web extension that acts as a thin client, relaying chat and read-only dashboards to a full desktop instance over a localhost WebSocket. The desktop does all Node-heavy work (models, file system, MCP, voice); the browser only renders UI. **Secrets never leave the desktop.** The chat front-end was made host-agnostic so one `ChatPanel` serves both local and remote surfaces via a synthetic webview host; every inbound remote frame is re-validated by the existing chat-message guard.
+- **Security-first by default**: off unless enabled, localhost-only bind, pairing bearer token in `SecretStorage`, workspace-trust gate, audited connections, one-click revoke (token rotation), and default-deny of pending tool approvals on disconnect. See [[Remote Control]] and [[Security]].
+- **Dual-target build**: added esbuild for the browser bundle (`out/web/extension.js`) alongside the existing `tsc` desktop/CLI output. New commands `atlasmind.remote.*` and settings `atlasmind.remote.enabled` / `atlasmind.remote.port`.
+
 ## v0.81.0 — On-Device Speech-to-Text (Whisper)
 
 - **Local STT via whisper.cpp** (`src/voice/localTranscriber.ts`, `src/voice/voiceManager.ts`, `src/views/voicePanel.ts`): the Voice Panel transcribes speech entirely on-device. The webview captures the mic, encodes a 16 kHz mono WAV in-browser, and a host-side `LocalTranscriber` runs a local `whisper-cli`. Audio never leaves the machine; only the model (and, on Windows x64, the CLI) are downloaded on first use, each SHA-256-verified over HTTPS. New settings `atlasmind.voice.sttEngine` (`auto`/`webspeech`/`local`) and `atlasmind.voice.whisperCliPath`; macOS/Linux need an installed `whisper-cli` (e.g. `brew install whisper-cpp`). Web Speech remains the fallback.

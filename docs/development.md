@@ -24,13 +24,21 @@ npm install
 ## Build
 
 ```bash
-npm run compile    # One-shot build
-npm run watch      # Watch mode (recommended during dev)
+npm run compile      # One-shot build (desktop + web)
+npm run watch        # Watch mode for the desktop build (recommended during dev)
+npm run watch:web    # Watch mode for the browser bundle
 ```
+
+The extension has **two build targets**:
+
+- **Desktop** (Node): `tsc -p ./` emits `out/extension.js` (the `main` entry) and the CLI under `out/cli/`.
+- **Web** (browser/Web Worker): `tsc -p ./src/web/tsconfig.json` type-checks the web sources against WebWorker (not Node) globals, and `node esbuild.mjs` bundles `src/web/extension.ts` into the single dependency-free `out/web/extension.js` (the `browser` entry). The web build must stay free of Node built-ins; only `vscode`, WebWorker globals, and the Node-free shared modules (`src/remote/protocol.ts`, `src/views/chatProtocol.ts`, `src/views/chatWebviewMarkup.ts`, `src/views/webviewUtils.ts`) may be imported. `npm run compile` runs all three steps.
 
 ## Run
 
 Press **F5** in VS Code to launch the Extension Development Host. The extension activates on startup (`onStartupFinished`).
+
+To exercise the **web build**, run `npm run open-in-browser` (uses `@vscode/test-web` to load the browser bundle in Chromium).
 
 ## Lint
 

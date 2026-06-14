@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.81.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.82.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -133,6 +133,15 @@ Access these from the VS Code Command Palette (`Ctrl+Shift+P`).
 | `AtlasMind: Manage MCP Servers` | Configure MCP server connections |
 | `AtlasMind: Specialist Integrations` | Configure specialist search and media providers |
 | `AtlasMind: Tool Webhooks` | Configure outbound tool execution webhooks |
+| `AtlasMind: Enable Remote Control` | Start the localhost server so the web build can drive this desktop instance (desktop) |
+| `AtlasMind: Disable Remote Control` | Stop the remote-control server and drop sessions (desktop) |
+| `AtlasMind: Show Remote Pairing Code` | Re-display the remote pairing URL and token (desktop) |
+| `AtlasMind: Revoke Remote Access` | Rotate the pairing token and disconnect all clients (desktop) |
+| `AtlasMind: Connect to Desktop Instance` | Pair the web build with a desktop instance (web) |
+| `AtlasMind: Disconnect from Desktop Instance` | Disconnect the web client (web) |
+| `AtlasMind: Open Remote Dashboard` | Read-only cost and project-run dashboard in the web build (web) |
+
+See [Remote Control](docs/remote-control.md) for the architecture and security model.
 
 ---
 
@@ -217,6 +226,8 @@ Key settings under `atlasmind.*` in VS Code settings:
 | `ssotPath` | `project_memory` | Relative path to the SSOT memory folder |
 | `localOpenAiBaseUrl` | `http://127.0.0.1:11434/v1` | Base URL for Ollama or LM Studio |
 | `toolWebhookEnabled` | `false` | Send tool execution events to an outbound webhook |
+| `remote.enabled` | `false` | Allow the web build to remote-control this desktop instance over a localhost WebSocket |
+| `remote.port` | `0` | Localhost port for the remote-control server (0 = auto) |
 
 See [Configuration Reference](docs/configuration.md) and [wiki/Configuration.md](wiki/Configuration.md) for the full settings list.
 
@@ -254,9 +265,10 @@ See [Funding and Sponsorship](wiki/Funding-and-Sponsorship.md) for details.
 - Provider adapters and catalogs: `src/providers/` (including `localModelSync.ts` and `localModelRecommendationRegistry.ts`)
 - Skills and tool handlers: `src/skills/`
 - Shared utilities: `src/utils/` (including `secretRedactor.ts` — pattern-based secret scanner used to scrub credentials from memory context before LLM dispatch)
-- Webview and sidebar surfaces: `src/views/`
+- Webview and sidebar surfaces: `src/views/` (`chatProtocol.ts` and `chatWebviewMarkup.ts` are Node-free so they are shared with the web build)
 - Voice (TTS/STT): `src/voice/` (`voiceManager.ts` bridge, `hostSpeechSynthesizer.ts` on-device OS speech engine, `localTranscriber.ts` on-device Whisper STT)
 - Memory and MCP layers: `src/memory/`, `src/mcp/`
+- Remote control: `src/remote/` (`protocol.ts` wire format, `remoteControlServer.ts` desktop server, `remoteBridge.ts` synthetic webview host) and `src/web/` (browser thin-client entry, `remoteClient.ts`, `chatClientPanel.ts`, `dashboardPanel.ts`)
 
 ---
 

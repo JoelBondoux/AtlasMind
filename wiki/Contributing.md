@@ -22,9 +22,13 @@ npm install
 ### Build
 
 ```bash
-npm run compile      # One-shot TypeScript compilation
-npm run watch        # Watch mode (recommended during development)
+npm run compile      # One-shot build: desktop (tsc) + web type-check (tsc) + web bundle (esbuild)
+npm run watch        # Watch mode for the desktop build (recommended during development)
+npm run watch:web    # Watch mode for the browser bundle
+npm run open-in-browser  # Load the web build in Chromium via @vscode/test-web
 ```
+
+The extension builds two targets: the Node desktop build (`out/extension.js`) and the browser web build (`out/web/extension.js`, bundled by `esbuild.mjs`). Web sources under `src/web/` and the Node-free shared modules they import must not use Node built-ins.
 
 ### Test
 

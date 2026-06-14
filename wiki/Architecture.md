@@ -34,6 +34,13 @@ AtlasMind is a VS Code extension built in TypeScript, and it now also ships a sm
 | **LocalModelRecommendationRegistry** | `src/providers/localModelRecommendationRegistry.ts` | Data-driven local-model recommendation catalog with validated workspace override loading |
 | **SessionConversation** | `src/chat/sessionConversation.ts` | Persistent workspace chat sessions and compact carry-forward context |
 | **Shared Runtime** | `src/runtime/core.ts` | Common bootstrapping path used by the extension and CLI |
+| **RemoteControlServer** | `src/remote/remoteControlServer.ts` | Desktop-only localhost WebSocket server; pairs authenticated web clients and binds each to a `ChatPanel` via a synthetic host (off by default, token + workspace-trust gated) |
+| **RemoteWebviewHost** | `src/remote/remoteBridge.ts` | Synthetic `ChatPanelHost` that pipes a ChatPanel's protocol over the socket; fans outbound messages to the client and injects validated inbound frames |
+| **RemoteClient** (web) | `src/web/remoteClient.ts` | Browser-side WebSocket client (pairing, reconnect, RPC) for the web thin client |
+
+## Web (Remote Control) Architecture
+
+AtlasMind builds two targets from one codebase. The desktop build (`out/extension.js`, Node) is the full extension. The **web build** (`out/web/extension.js`, bundled by esbuild for the Web Worker host on vscode.dev/github.dev/code-server) is a thin client: it renders chat and read-only dashboards and relays the chat protocol to a desktop instance over a localhost WebSocket. The chat webview is host-agnostic — its protocol and markup live in Node-free shared modules (`src/views/chatProtocol.ts`, `src/views/chatWebviewMarkup.ts`) — so one `ChatPanel` serves both local and remote surfaces. See [[Remote Control]] for the wire protocol and security model.
 
 ## Activation Flow
 

@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.82.0] - 2026-06-14
+
+### Added
+- **Remote control of desktop AtlasMind from the web build** (`src/web/extension.ts`, `src/web/remoteClient.ts`, `src/web/chatClientPanel.ts`, `src/web/dashboardPanel.ts`, `src/remote/protocol.ts`, `src/remote/remoteControlServer.ts`, `src/remote/remoteBridge.ts`, `src/views/chatProtocol.ts`, `src/views/chatWebviewMarkup.ts`, `src/views/chatPanel.ts`, `src/extension.ts`, `esbuild.mjs`, `src/web/tsconfig.json`, `package.json`, `docs/remote-control.md`, `wiki/Remote-Control.md`, `tests/remote/protocol.test.ts`, `tests/remote/remoteBridge.test.ts`): AtlasMind now ships a **web extension** (`vscode.dev` / `github.dev` / `code-server`) that acts as a thin client driving a full desktop instance over a localhost WebSocket. Because the web host has no Node.js runtime, the desktop keeps doing all model calls, file system, MCP, and voice work; the browser only renders UI and relays intent, and **secrets never leave the desktop**. The chat webview front-end was made host-agnostic so a single `ChatPanel` implementation serves both local and remote surfaces via a synthetic webview host (`RemoteWebviewHost`); every inbound remote frame is re-validated by the existing `isChatPanelMessage` guard. The web client exposes chat (with remote tool-approval) plus **read-only** cost and project-run dashboards. Security: off by default, localhost-only bind, pairing bearer token in `SecretStorage`, workspace-trust gate, audited connections, one-click revoke (token rotation), and default-deny of pending approvals on disconnect. New build pipeline adds **esbuild** for the browser bundle (`out/web/extension.js`) alongside the existing `tsc` desktop/CLI output. New commands: `atlasmind.remote.enable`, `atlasmind.remote.disable`, `atlasmind.remote.showPairingCode`, `atlasmind.remote.revoke` (desktop), and `atlasmind.remote.connect`, `atlasmind.remote.disconnect`, `atlasmind.remote.showDashboard` (web). New settings: `atlasmind.remote.enabled` and `atlasmind.remote.port`.
+
 ## [0.81.0] - 2026-06-14
 
 ### Added

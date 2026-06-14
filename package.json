@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.81.0",
+  "version": "0.82.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -40,6 +40,7 @@
     "onChatParticipant:atlasmind.orchestrator"
   ],
   "main": "./out/extension.js",
+  "browser": "./out/web/extension.js",
   "bin": {
     "atlasmind": "./out/cli/main.js"
   },
@@ -334,6 +335,37 @@
         "command": "atlasmind.memory.showReview",
         "title": "Summarize Memory In Chat",
         "icon": "$(info)"
+      },
+      {
+        "command": "atlasmind.remote.enable",
+        "title": "AtlasMind: Enable Remote Control",
+        "icon": "$(broadcast)"
+      },
+      {
+        "command": "atlasmind.remote.disable",
+        "title": "AtlasMind: Disable Remote Control"
+      },
+      {
+        "command": "atlasmind.remote.showPairingCode",
+        "title": "AtlasMind: Show Remote Pairing Code"
+      },
+      {
+        "command": "atlasmind.remote.revoke",
+        "title": "AtlasMind: Revoke Remote Access"
+      },
+      {
+        "command": "atlasmind.remote.connect",
+        "title": "AtlasMind: Connect to Desktop Instance",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "atlasmind.remote.disconnect",
+        "title": "AtlasMind: Disconnect from Desktop Instance"
+      },
+      {
+        "command": "atlasmind.remote.showDashboard",
+        "title": "AtlasMind: Open Remote Dashboard",
+        "icon": "$(graph)"
       }
     ],
     "keybindings": [
@@ -1362,14 +1394,31 @@
           "minimum": 5000,
           "description": "Maximum time in milliseconds to wait for a model provider response.",
           "markdownDescription": "Maximum time in milliseconds to wait for a model provider response. This covers the provider round-trip, not local tool execution.\n\nExamples:\n- Fast local or LAN-hosted models: `15000`\n- Default cloud-provider balance: `30000`\n- Slower premium reasoning models or distant regions: `45000` to `60000`\n\nUse a higher timeout when you intentionally allow slower reasoning models through `speedMode` or provider-specific routing."
+        },
+        "atlasmind.remote.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow this desktop AtlasMind instance to accept remote-control connections from the web build over a localhost WebSocket.",
+          "markdownDescription": "Allow this desktop AtlasMind instance to accept remote-control connections from the web build (vscode.dev / github.dev / code-server) over a localhost WebSocket. This is the master switch for the remote-control server.\n\nThe server still only listens after you run **AtlasMind: Enable Remote Control**, approve the workspace for remote control, and a pairing token exists. It binds to `127.0.0.1` only.\n\nExamples:\n- Default, no remote access: `false`\n- Local development where you drive the desktop instance from a browser tab on the same machine: `true`\n\nKeep this off unless you are actively pairing a web client. See the Remote Control documentation for the full security model."
+        },
+        "atlasmind.remote.port": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 65535,
+          "description": "Localhost port for the remote-control server. Use 0 to pick a free port automatically.",
+          "markdownDescription": "Localhost port for the remote-control server. AtlasMind binds the server to `127.0.0.1` on this port.\n\nExamples:\n- Pick a free port automatically (recommended): `0`\n- Pin a stable port so the web client's saved URL keeps working: `38917`\n\nOnly pin a port if you need the `ws://localhost:PORT` URL to stay constant across restarts."
         }
       }
     }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./",
+    "compile": "tsc -p ./ && tsc -p ./src/web/tsconfig.json && node esbuild.mjs",
+    "compile:web": "tsc -p ./src/web/tsconfig.json && node esbuild.mjs",
     "watch": "tsc -watch -p ./",
+    "watch:web": "node esbuild.mjs --watch",
+    "open-in-browser": "vscode-test-web --browserType=chromium --extensionDevelopmentPath=. .",
     "cli": "node ./out/cli/main.js",
     "monitor:integrations": "node .github/scripts/check-integration-drift.mjs",
     "monitor:integrations:update": "node .github/scripts/check-integration-drift.mjs --write",
@@ -1387,10 +1436,13 @@
   "devDependencies": {
     "@types/node": "^25.9.3",
     "@types/vscode": "^1.120.0",
+    "@types/ws": "^8.18.1",
     "@typescript-eslint/eslint-plugin": "^8.61.0",
     "@typescript-eslint/parser": "^8.61.0",
     "@vitest/coverage-v8": "^4.1.8",
+    "@vscode/test-web": "^0.0.80",
     "@vscode/vsce": "^3.9.2",
+    "esbuild": "^0.28.1",
     "eslint": "^10.4.1",
     "husky": "^9.1.7",
     "typescript": "^6.0.3",
@@ -1398,6 +1450,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "ws": "^8.21.0",
     "zod": "^4.4.3"
   }
 }
