@@ -182,6 +182,8 @@ These settings only affect AtlasMind's governance scaffolding for Atlas-built or
 | `atlasmind.voice.ttsEnabled` | `boolean` | `false` | Auto-speak freeform `@atlas` responses via the Voice Panel. |
 | `atlasmind.voice.sttEnabled` | `boolean` | `false` | Enable speech-to-text controls in the Voice Panel. |
 | `atlasmind.voice.hostSpeechEnabled` | `boolean` | `false` | Speak via the OS host engine (Windows SAPI/PowerShell, macOS `say`, Linux `espeak-ng`) instead of the in-panel Web Speech engine. On-device, no API key, works with the panel closed. ElevenLabs still takes priority when keyed; `espeak-ng` must be installed on Linux. |
+| `atlasmind.voice.sttEngine` | `string` (`auto` \| `webspeech` \| `local`) | `auto` | Speech-to-text engine. `local` uses on-device Whisper (audio never leaves the machine); `webspeech` uses the in-webview Web Speech API; `auto` prefers Whisper where it can be provisioned, else Web Speech. |
+| `atlasmind.voice.whisperCliPath` | `string` | `""` | Path to an installed whisper.cpp `whisper-cli` for on-device STT. Required on macOS/Linux (e.g. `brew install whisper-cpp`); on Windows x64 a verified build is downloaded automatically when empty. |
 | `atlasmind.voice.rate` | `number` | `1.0` | Speech synthesis rate (0.5–2.0). |
 | `atlasmind.voice.pitch` | `number` | `1.0` | Speech synthesis pitch (0–2.0). |
 | `atlasmind.voice.volume` | `number` | `1.0` | Speech synthesis volume (0–1.0). |

@@ -83,6 +83,7 @@ AtlasMind/
 │   ├── providers/        LLM provider adapters (for example `anthropic.ts`, `claude-cli.ts`, `copilot.ts`); also `copilotMultiplierSync.ts`, `localModelSync.ts`, and `localModelRecommendationRegistry.ts`
 │   ├── skills/           Built-in skill handlers (for example `dockerCli.ts`, `terminalRun.ts`, `gitApplyPatch.ts`)
 │   ├── views/            Webview panels and tree views (including `personalityProfilePanel.ts`)
+│   ├── voice/            TTS/STT: `voiceManager.ts` bridge, `hostSpeechSynthesizer.ts` (OS TTS), `localTranscriber.ts` (on-device Whisper STT)
 │   └── bootstrap/        Project bootstrapper
 ├── tests/                Vitest unit tests
 │   ├── core/             Core service unit tests

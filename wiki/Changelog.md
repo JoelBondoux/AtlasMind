@@ -6,6 +6,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.81.0 — On-Device Speech-to-Text (Whisper)
+
+- **Local STT via whisper.cpp** (`src/voice/localTranscriber.ts`, `src/voice/voiceManager.ts`, `src/views/voicePanel.ts`): the Voice Panel transcribes speech entirely on-device. The webview captures the mic, encodes a 16 kHz mono WAV in-browser, and a host-side `LocalTranscriber` runs a local `whisper-cli`. Audio never leaves the machine; only the model (and, on Windows x64, the CLI) are downloaded on first use, each SHA-256-verified over HTTPS. New settings `atlasmind.voice.sttEngine` (`auto`/`webspeech`/`local`) and `atlasmind.voice.whisperCliPath`; macOS/Linux need an installed `whisper-cli` (e.g. `brew install whisper-cpp`). Web Speech remains the fallback.
+
 ## v0.80.0 — On-Device OS Speech Engine, Voice Panel Fixes, and Testing Matrix Correction
 
 - **Host-side OS speech engine for TTS** (`src/voice/hostSpeechSynthesizer.ts`, `src/voice/voiceManager.ts`): AtlasMind can now speak using the operating system's built-in engine (Windows SAPI via PowerShell, macOS `say`, Linux `espeak-ng`) entirely on-device — no network, no API key — and even when the Voice Panel is closed. Enable it with `atlasmind.voice.hostSpeechEnabled`. Backend priority is ElevenLabs (when keyed) → OS host engine → in-panel Web Speech. Spoken text is delivered over stdin and never placed on a command line.

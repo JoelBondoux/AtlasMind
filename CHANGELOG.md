@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.81.0] - 2026-06-14
+
+### Added
+- **On-device speech-to-text via whisper.cpp** (`src/voice/localTranscriber.ts`, `src/voice/voiceManager.ts`, `src/views/voicePanel.ts`, `src/extension.ts`, `package.json`, `tests/voice/localTranscriber.test.ts`, `tests/views/voicePanel.test.ts`): the Voice Panel can now transcribe speech entirely on-device. The webview captures the microphone, downsamples to 16 kHz mono and encodes a 16-bit PCM WAV in-browser (no ffmpeg), and hands it to a host-side `LocalTranscriber` that runs a local `whisper-cli`. Audio never leaves the machine; only the GGML model (and, on Windows x64, the `whisper-cli` binary) are downloaded on first use, each streamed and **SHA-256-verified over HTTPS** (model `ggml-base.bin`; binary whisper.cpp v1.8.6). The spoken text never touches a command line — the WAV path is passed as an argv element to a shell-less spawn, and the temp WAV is deleted after transcription. New settings: `atlasmind.voice.sttEngine` (`auto` | `webspeech` | `local`, default `auto`) and `atlasmind.voice.whisperCliPath` (required on macOS/Linux; Windows x64 auto-provisions). The Web Speech API remains the fallback. Push-to-talk capture drives the existing Start/Stop Listening controls.
+
 ## [0.80.0] - 2026-06-14
 
 ### Fixed

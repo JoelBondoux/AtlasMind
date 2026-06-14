@@ -93,6 +93,13 @@ Custom skills are statically scanned before enablement:
 - Built-in skills are **pre-approved** and skip scanning
 - MCP tools are **pre-approved** (trust is delegated to the MCP server)
 
+### 7a. On-Device Voice Asset Provisioning
+
+- Local speech-to-text (`LocalTranscriber`) downloads its Whisper model and, on Windows x64, the `whisper-cli` binary. Both are fetched over **HTTPS** from pinned URLs and **SHA-256-verified** against hardcoded checksums before use; a mismatch deletes the partial file and aborts rather than running unverified code.
+- On macOS/Linux no binary is auto-downloaded — the operator must point `atlasmind.voice.whisperCliPath` at an installed `whisper-cli`, so binary trust stays with the system package manager.
+- Captured **audio never leaves the machine**: transcription runs locally via a shell-less `spawn` with the temp WAV path passed as an argv element (never interpolated into a command line); the temp WAV is deleted after transcription.
+- Host text-to-speech (`HostSpeechSynthesizer`) likewise passes spoken text only over stdin, never on a command line.
+
 ### 8. Network Safety
 
 - `web-fetch` blocks **SSRF**: localhost, private IPs (10.x, 172.16-31.x, 192.168.x), link-local, and cloud metadata endpoints (169.254.169.254)

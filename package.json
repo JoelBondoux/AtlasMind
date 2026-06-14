@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.80.0",
+  "version": "0.81.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -1262,6 +1262,28 @@
           "default": false,
           "description": "Use the operating system's built-in speech engine (host-side) for text-to-speech instead of the in-panel Web Speech engine. Works without the Voice Panel open and uses no network or API key.",
           "markdownDescription": "Use the operating system's built-in speech engine for text-to-speech instead of the in-panel Web Speech engine.\n\nWhen enabled, AtlasMind speaks via the host OS engine (Windows SAPI through PowerShell, macOS `say`, or Linux `espeak-ng`). This runs entirely on-device — no network and no API key — and works even when the Voice Panel is closed. An ElevenLabs API key, when configured, still takes priority. On Linux, `espeak-ng` must be installed.\n\nExamples:\n- Fully local, hands-free playback without opening the panel: `true`\n- Prefer the in-webview Web Speech voices: `false`"
+        },
+        "atlasmind.voice.sttEngine": {
+          "type": "string",
+          "default": "auto",
+          "enum": [
+            "auto",
+            "webspeech",
+            "local"
+          ],
+          "enumDescriptions": [
+            "Use on-device Whisper where it can be provisioned (Windows, or any platform with whisperCliPath set), otherwise the Web Speech API.",
+            "Always use the in-webview Web Speech API (may route audio to a cloud service and is often unavailable in the editor runtime).",
+            "Always use on-device Whisper transcription."
+          ],
+          "description": "Speech-to-text engine for the Voice Panel: on-device Whisper or the in-webview Web Speech API.",
+          "markdownDescription": "Speech-to-text engine for the Voice Panel.\n\n- `auto` (default): use on-device **Whisper** where it can be provisioned (Windows auto-downloads a verified `whisper-cli`; other platforms need `atlasmind.voice.whisperCliPath`), otherwise fall back to the Web Speech API.\n- `local`: always use on-device Whisper. Audio never leaves your machine; the model (and, on Windows, the CLI) are downloaded once and SHA-256-verified.\n- `webspeech`: always use the in-webview Web Speech API. Note this may stream audio to a cloud service and is frequently unavailable in the editor runtime."
+        },
+        "atlasmind.voice.whisperCliPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to an installed whisper.cpp 'whisper-cli' executable for on-device speech-to-text. Required on macOS/Linux (e.g. via `brew install whisper-cpp`); on Windows a verified build is downloaded automatically when left empty.",
+          "markdownDescription": "Absolute path to an installed whisper.cpp `whisper-cli` executable used for on-device speech-to-text.\n\nOn **Windows x64** this can be left empty — AtlasMind downloads an official, SHA-256-verified `whisper-cli` on first use. On **macOS/Linux** there is no official prebuilt binary, so install whisper.cpp (for example `brew install whisper-cpp`) and point this setting at the resulting `whisper-cli`."
         },
         "atlasmind.voice.rate": {
           "type": "number",

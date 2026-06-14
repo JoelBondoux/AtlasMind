@@ -1,6 +1,10 @@
 import * as vscode from 'vscode';
 import type { VoiceSettings } from '../types.js';
 import { HostSpeechSynthesizer } from './hostSpeechSynthesizer.js';
+import { LocalTranscriber, DownloadingWhisperAssetProvider, DEFAULT_MODEL_ID } from './localTranscriber.js';
+
+/** Which speech-to-text backend the webview should drive. */
+export type SttEngine = 'webspeech' | 'local';
 
 const ELEVENLABS_DEFAULT_VOICE_ID = '21m00Tcm4TlvDq8ikWAM'; // "Rachel" – ElevenLabs default demo voice
 const ELEVENLABS_TTS_URL = 'https://api.elevenlabs.io/v1/text-to-speech';
@@ -19,7 +23,10 @@ export type HostToVoiceMessage =
   | { type: 'startListening' }
   | { type: 'stopListening' }
   | { type: 'settingsUpdated'; settings: VoiceSettings }
-  | { type: 'elevenLabsStatus'; available: boolean };
+  | { type: 'elevenLabsStatus'; available: boolean }
+  | { type: 'sttEngineStatus'; engine: SttEngine }
+  | { type: 'sttProgress'; phase: 'preparing' | 'transcribing'; received: number; total: number }
+  | { type: 'localTranscript'; text: string };
 
 /**
  * Message types sent from VoicePanel webview → extension host.
@@ -27,6 +34,7 @@ export type HostToVoiceMessage =
 export type VoiceToHostMessage =
   | { type: 'transcript'; text: string; final: boolean }
   | { type: 'speechError'; message: string }
+  | { type: 'audioCaptured'; base64: string }
   | { type: 'updateSetting'; key: 'rate' | 'pitch' | 'volume' | 'language' | 'sttEnabled' | 'inputDeviceId' | 'outputDeviceId'; value: boolean | number | string }
   | { type: 'openChatView' }
   | { type: 'openSettingsModels' }
@@ -50,13 +58,21 @@ export class VoiceManager implements vscode.Disposable {
   private readonly _disposables: vscode.Disposable[] = [];
   private _secrets: vscode.SecretStorage | undefined;
   private readonly _hostSynth: HostSpeechSynthesizer;
+  private readonly _storageDir: string | undefined;
+  private _localTranscriber: LocalTranscriber | undefined;
 
   /** Fires when the STT engine produces a (possibly partial) transcript. */
   public readonly onTranscript = this._onTranscript.event;
 
-  constructor(secrets?: vscode.SecretStorage, hostSynth?: HostSpeechSynthesizer) {
+  constructor(
+    secrets?: vscode.SecretStorage,
+    hostSynth?: HostSpeechSynthesizer,
+    options?: { storageDir?: string; localTranscriber?: LocalTranscriber },
+  ) {
     this._secrets = secrets;
     this._hostSynth = hostSynth ?? new HostSpeechSynthesizer();
+    this._storageDir = options?.storageDir;
+    this._localTranscriber = options?.localTranscriber;
     this._disposables.push(this._onTranscript);
   }
 
@@ -71,16 +87,16 @@ export class VoiceManager implements vscode.Disposable {
       (raw: unknown) => {
         if (!isVoiceToHostMessage(raw)) { return; }
         if (raw.type === 'ready') {
-          // Notify the panel whether ElevenLabs TTS is available
+          // Notify the panel whether ElevenLabs TTS is available and which STT engine to use.
           void this._notifyElevenLabsStatus(panel);
+          this._notifySttEngine(panel);
           this._flushQueue();
         }
         if (raw.type === 'transcript') {
-          this._onTranscript.fire({ text: raw.text, final: raw.final });
-          if (raw.final && raw.text.trim().length > 0) {
-            void vscode.env.clipboard.writeText(raw.text.trim());
-            void vscode.window.setStatusBarMessage('AtlasMind Voice: transcript copied to clipboard.', 3000);
-          }
+          this._deliverTranscript(raw.text, raw.final);
+        }
+        if (raw.type === 'audioCaptured') {
+          void this._handleAudioCaptured(panel, raw.base64);
         }
         if (raw.type === 'speechError') {
           vscode.window.showWarningMessage(`AtlasMind Voice: ${raw.message}`);
@@ -138,6 +154,7 @@ export class VoiceManager implements vscode.Disposable {
 
   /** Tell the panel to stop the microphone (STT). */
   public stopListening(): void {
+    this._localTranscriber?.stop();
     if (!this._panel) { return; }
     void this._panel.webview.postMessage({ type: 'stopListening' } satisfies HostToVoiceMessage);
   }
@@ -149,14 +166,94 @@ export class VoiceManager implements vscode.Disposable {
       type: 'settingsUpdated',
       settings: this._readSettings(),
     } satisfies HostToVoiceMessage);
+    this._notifySttEngine(this._panel);
   }
 
   public dispose(): void {
     this._hostSynth.stop();
+    this._localTranscriber?.dispose();
     for (const d of this._disposables) { d.dispose(); }
   }
 
   // ── Private helpers ──────────────────────────────────────────────────────
+
+  /** Fire the transcript event and copy final transcripts to the clipboard. */
+  private _deliverTranscript(text: string, final: boolean): void {
+    this._onTranscript.fire({ text, final });
+    if (final && text.trim().length > 0) {
+      void vscode.env.clipboard.writeText(text.trim());
+      void vscode.window.setStatusBarMessage('AtlasMind Voice: transcript copied to clipboard.', 3000);
+    }
+  }
+
+  /** Resolve the effective STT engine from settings and platform capability. */
+  private _effectiveSttEngine(): SttEngine {
+    const cfg = vscode.workspace.getConfiguration('atlasmind.voice');
+    const requested = cfg.get<string>('sttEngine', 'auto');
+    if (requested === 'webspeech') { return 'webspeech'; }
+    const localViable = process.platform === 'win32' || (cfg.get<string>('whisperCliPath', '').trim().length > 0);
+    if (requested === 'local') { return 'local'; }
+    // 'auto': prefer on-device whisper where it can be provisioned.
+    return localViable ? 'local' : 'webspeech';
+  }
+
+  private _notifySttEngine(panel: vscode.WebviewPanel): void {
+    void panel.webview.postMessage({
+      type: 'sttEngineStatus',
+      engine: this._effectiveSttEngine(),
+    } satisfies HostToVoiceMessage);
+  }
+
+  /** Lazily build the local whisper transcriber from the extension storage dir. */
+  private _resolveLocalTranscriber(): LocalTranscriber | undefined {
+    if (this._localTranscriber) { return this._localTranscriber; }
+    if (!this._storageDir) { return undefined; }
+    const assets = new DownloadingWhisperAssetProvider({
+      storageDir: this._storageDir,
+      whisperCliPath: () => vscode.workspace.getConfiguration('atlasmind.voice').get<string>('whisperCliPath', ''),
+    });
+    this._localTranscriber = new LocalTranscriber({ assets, storageDir: this._storageDir });
+    return this._localTranscriber;
+  }
+
+  /** Transcribe webview-captured WAV audio with the local whisper engine. */
+  private async _handleAudioCaptured(panel: vscode.WebviewPanel, base64: string): Promise<void> {
+    const transcriber = this._resolveLocalTranscriber();
+    if (!transcriber) {
+      vscode.window.showWarningMessage('AtlasMind Voice: local transcription is unavailable (no storage directory).');
+      return;
+    }
+    let wav: Buffer;
+    try {
+      wav = Buffer.from(base64, 'base64');
+    } catch {
+      return;
+    }
+    if (wav.length === 0) { return; }
+
+    const cfg = vscode.workspace.getConfiguration('atlasmind.voice');
+    const language = sanitiseLanguage(cfg.get<string>('language', ''));
+    void panel.webview.postMessage({ type: 'sttProgress', phase: 'transcribing', received: 0, total: 0 } satisfies HostToVoiceMessage);
+    try {
+      const text = await transcriber.transcribe(wav, {
+        modelId: DEFAULT_MODEL_ID,
+        language,
+        onProgress: (received, total) => {
+          void panel.webview.postMessage({ type: 'sttProgress', phase: 'preparing', received, total } satisfies HostToVoiceMessage);
+        },
+      });
+      const trimmed = text.trim();
+      void panel.webview.postMessage({ type: 'localTranscript', text: trimmed } satisfies HostToVoiceMessage);
+      if (trimmed.length > 0) {
+        this._deliverTranscript(trimmed, true);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      // Reset the panel's "transcribing…" UI, then surface the error to the user.
+      void panel.webview.postMessage({ type: 'localTranscript', text: '' } satisfies HostToVoiceMessage);
+      vscode.window.showWarningMessage(`AtlasMind Voice: local transcription failed — ${message}`);
+    }
+  }
 
   /** Route a single utterance to the highest-priority available backend. */
   private async _dispatchSpeak(text: string): Promise<void> {
@@ -326,6 +423,9 @@ function isVoiceToHostMessage(value: unknown): value is VoiceToHostMessage {
   }
   if (m['type'] === 'speechError') {
     return typeof m['message'] === 'string';
+  }
+  if (m['type'] === 'audioCaptured') {
+    return typeof m['base64'] === 'string';
   }
   if (m['type'] === 'updateSetting') {
     const key = m['key'];

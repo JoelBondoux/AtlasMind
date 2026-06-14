@@ -28,6 +28,7 @@ AtlasMind is a VS Code extension built in TypeScript, and it now also ships a sm
 | **ToolWebhookDispatcher** | `src/core/toolWebhookDispatcher.ts` | Sends outbound webhooks for tool lifecycle events |
 | **VoiceManager** | `src/voice/voiceManager.ts` | TTS/STT bridge; backend priority is ElevenLabs (server-side, when keyed) → OS host engine → Web Speech API, and persists preferred audio-device ids for capable runtimes |
 | **HostSpeechSynthesizer** | `src/voice/hostSpeechSynthesizer.ts` | On-device TTS via the OS engine (Windows SAPI/PowerShell, macOS `say`, Linux `espeak-ng`); no network/API key, spoken text passed only over stdin |
+| **LocalTranscriber** | `src/voice/localTranscriber.ts` | On-device STT via a local `whisper-cli`; provisions a SHA-256-verified model (and, on Windows x64, the binary) on first use; audio stays on the machine |
 | **ProjectRunHistory** | `src/core/projectRunHistory.ts` | Persists workspace-scoped project run records, staged planner-job metadata, and follow-up seed outputs for the Run Center |
 | **ProviderRegistry** | `src/providers/registry.ts` | Host-neutral registry of provider adapters |
 | **LocalModelRecommendationRegistry** | `src/providers/localModelRecommendationRegistry.ts` | Data-driven local-model recommendation catalog with validated workspace override loading |
@@ -266,8 +267,9 @@ src/
 |- utils/
 |  `- workspacePicker.ts Multi-workspace folder selection
 |- voice/
-|  |- voiceManager.ts    TTS/STT bridge (ElevenLabs server-side + OS host engine + Web Speech API)
-|  `- hostSpeechSynthesizer.ts  On-device OS TTS (Windows SAPI / macOS say / Linux espeak-ng)
+|  |- voiceManager.ts    TTS/STT bridge (ElevenLabs server-side + OS host engine + Web Speech API + local Whisper)
+|  |- hostSpeechSynthesizer.ts  On-device OS TTS (Windows SAPI / macOS say / Linux espeak-ng)
+|  `- localTranscriber.ts  On-device Whisper STT (verified model/binary download + whisper-cli)
 `- bootstrap/
    `- bootstrapper.ts    Project init + import
 

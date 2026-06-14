@@ -82,6 +82,7 @@ When asked to publish or ship a release, follow these steps in order:
 | `MemoryManager` | `src/memory/memoryManager.ts` | SSOT folder read/write/search |
 | `VoiceManager` | `src/voice/voiceManager.ts` | TTS/STT bridge: ElevenLabs → OS host engine → Web Speech API |
 | `HostSpeechSynthesizer` | `src/voice/hostSpeechSynthesizer.ts` | On-device OS TTS (Windows SAPI / macOS `say` / Linux `espeak-ng`) |
+| `LocalTranscriber` | `src/voice/localTranscriber.ts` | On-device Whisper STT via local `whisper-cli`; SHA-256-verified model/binary download |
 | `CurrencyFormatter` | `src/core/currencyFormatter.ts` | Locale-aware cost formatting with live exchange rates |
 | `CopilotMultiplierSync` | `src/providers/copilotMultiplierSync.ts` | Syncs Copilot premium-request multipliers from GitHub docs |
 | `LocalModelSync` | `src/providers/localModelSync.ts` | Queries Ollama/LM Studio for live local model metadata |

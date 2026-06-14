@@ -177,6 +177,8 @@ See [[Project Planner]] for the full planning and execution flow.
 | `atlasmind.voice.ttsEnabled` | boolean | `false` | Auto-speak freeform responses via TTS |
 | `atlasmind.voice.sttEnabled` | boolean | `false` | Enable speech input controls in the Voice Panel (requires microphone) |
 | `atlasmind.voice.hostSpeechEnabled` | boolean | `false` | Speak via the OS host engine (Windows SAPI/PowerShell, macOS `say`, Linux `espeak-ng`) instead of the in-panel Web Speech engine. On-device, no API key, works with the panel closed. ElevenLabs still takes priority when keyed; `espeak-ng` must be installed on Linux. |
+| `atlasmind.voice.sttEngine` | string (`auto`\|`webspeech`\|`local`) | `auto` | Speech-to-text engine. `local` = on-device Whisper (audio stays local); `webspeech` = in-webview Web Speech API; `auto` prefers Whisper where provisionable, else Web Speech. |
+| `atlasmind.voice.whisperCliPath` | string | `""` | Path to an installed whisper.cpp `whisper-cli` for on-device STT. Required on macOS/Linux (e.g. `brew install whisper-cpp`); Windows x64 auto-downloads a verified build when empty. |
 | `atlasmind.voice.rate` | number | `1.0` | Speech rate (0.5–2.0) |
 | `atlasmind.voice.pitch` | number | `1.0` | Speech pitch (0–2.0) |
 | `atlasmind.voice.volume` | number | `1.0` | Speech volume (0–1.0) |

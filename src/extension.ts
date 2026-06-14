@@ -1580,7 +1580,9 @@ async function bootstrapAtlasMind(
     const memoryRefresh = new vscode.EventEmitter<void>();
     const scannerRulesManager = new startupModules.ScannerRulesManager(context.globalState);
     const toolWebhookDispatcher = new startupModules.ToolWebhookDispatcher(context, outputChannel);
-    const voiceManager = new startupModules.VoiceManager(context.secrets);
+    const voiceManager = new startupModules.VoiceManager(context.secrets, undefined, {
+      storageDir: context.globalStorageUri.fsPath,
+    });
     const sessionConversation = new startupModules.SessionConversation(context.workspaceState);
     // Completer is wired after orchestrator is ready — assigned via closure below.
     let maintenanceCompleter: import('./memory/sessionContextManager.js').MaintenanceCompleter =
