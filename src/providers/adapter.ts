@@ -49,6 +49,13 @@ export interface CompletionRequest {
   signal?: AbortSignal;
   /** Tools available to the model. When provided the model may respond with tool calls. */
   tools?: ToolDefinition[];
+  /**
+   * Hint that this turn's stable prompt prefix (system head + tools) is expected
+   * to be reused — e.g. a threaded conversation — so cache-capable providers
+   * should write it to the prompt cache even without tools. Adapters that do not
+   * support explicit caching ignore it.
+   */
+  cacheStablePrefix?: boolean;
 }
 
 export interface CompletionResponse {

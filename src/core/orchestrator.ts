@@ -330,9 +330,16 @@ type ProviderCompletionRequest = {
   temperature: number;
   maxTokens: number;
   signal?: AbortSignal;
+  cacheStablePrefix?: boolean;
 };
 
 const READONLY_EXPLORATION_NUDGE_AFTER = 3;
+/**
+ * Minimum cacheable-prefix ratio at which a tool-less turn opts into provider
+ * prompt caching of the stable prefix. Below this the reused prefix is too small
+ * to justify a cache write (which carries a one-time premium on some providers).
+ */
+const CACHE_PREFIX_REUSE_THRESHOLD = 0.25;
 const READONLY_EXPLORATION_REPROMPT = [
   'You have already gathered several rounds of read-only workspace evidence.',
   'Stop exploring unless one final tool call is strictly necessary.',
@@ -1003,6 +1010,10 @@ export class Orchestrator {
               agentRole: agent.role,
               userMessage: request.userMessage,
               signal: request.signal,
+              // Reuse expected → let cache-capable providers write the stable
+              // prefix even on tool-less turns (the agentic loop already caches
+              // via tools; this covers threaded chat with a substantial prefix).
+              ...(cacheablePrefixRatio >= CACHE_PREFIX_REUSE_THRESHOLD ? { cacheStablePrefix: true } : {}),
             },
             onTextChunk,
             onProgress,
@@ -1743,7 +1754,7 @@ export class Orchestrator {
     model: string,
     messages: ChatMessage[],
     tools: ToolDefinition[],
-    context: { taskId: string; agentId: string; budgetCapUsd?: number; taskProfile: TaskProfile; allowEscalation: boolean; projectTddPolicy?: ProjectTddPolicy; agentRole?: string; userMessage?: string; signal?: AbortSignal },
+    context: { taskId: string; agentId: string; budgetCapUsd?: number; taskProfile: TaskProfile; allowEscalation: boolean; projectTddPolicy?: ProjectTddPolicy; agentRole?: string; userMessage?: string; signal?: AbortSignal; cacheStablePrefix?: boolean },
     onTextChunk?: (chunk: string) => void,
     onProgress?: (message: string) => void,
   ): Promise<{ completion: CompletionResponse; artifacts?: Omit<SubTaskExecutionArtifacts, 'changedFiles' | 'diffPreview'>; escalationReason?: string; toolCapabilityMissing?: boolean; iterationLimitHit?: boolean; suggestedIterationLimit?: number; suggestedToolCallsPerTurnLimit?: number }> {
@@ -1793,6 +1804,7 @@ export class Orchestrator {
         temperature: 0.2,
         maxTokens: clampedMaxTokens,
         signal: context.signal,
+        ...(context.cacheStablePrefix ? { cacheStablePrefix: true } : {}),
       }, forceWorkspaceToolBackedInvestigation && workspaceRepromptCount === 0 ? undefined : onTextChunk);
 
       totalInputTokens += completion.inputTokens;
@@ -2409,7 +2421,7 @@ export class Orchestrator {
     model: string,
     messages: ChatMessage[],
     tools: ToolDefinition[],
-    context: { taskId: string; agentId: string; budgetCapUsd?: number; taskProfile: TaskProfile; allowEscalation: boolean; projectTddPolicy?: ProjectTddPolicy; agentRole?: string; userMessage?: string; signal?: AbortSignal },
+    context: { taskId: string; agentId: string; budgetCapUsd?: number; taskProfile: TaskProfile; allowEscalation: boolean; projectTddPolicy?: ProjectTddPolicy; agentRole?: string; userMessage?: string; signal?: AbortSignal; cacheStablePrefix?: boolean },
     onTextChunk?: (chunk: string) => void,
     onProgress?: (message: string) => void,
   ): Promise<TaskExecutionAttempt> {

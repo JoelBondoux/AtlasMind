@@ -6,6 +6,11 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.90.0 — Smarter Anthropic Caching
+
+- **Stable/volatile system split** (`src/providers/anthropic.ts`): the cache breakpoint now sits after the stable system head (guardrails/agent/skills) and before the volatile memory + evidence tail, so the cached prefix stays identical across turns and hit rates rise. The whole-system approach missed whenever memory/evidence changed.
+- **Threaded tool-less caching** (`src/core/orchestrator.ts`): a new `cacheStablePrefix` request flag (set when the carried-context cacheable ratio ≥ 0.25) caches the stable prefix on threaded chat turns too, not just agentic tool loops — while still skipping single-shot turns. See [[Model-Routing]].
+
 ## v0.89.0 — Anthropic Prompt-Cache Writes
 
 - **AtlasMind now actively caches the stable prefix on Anthropic** (`src/providers/anthropic.ts`): for agentic (tool-carrying) requests, the system prompt and tool definitions are marked with `cache_control: ephemeral`, so Anthropic bills them at the reduced cache-read rate on repeat calls within a task's tool loop. Gated on tool presence to avoid the cache-write premium on single-shot turns. Closes the loop with the v0.88.0 savings telemetry — AtlasMind writes the cache, the provider reports the reads, the Cost Dashboard shows the realised savings. See [[Model-Routing]].
