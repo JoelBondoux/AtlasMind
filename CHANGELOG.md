@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.86.0] - 2026-06-17
+
+### Added
+- **NVIDIA Nemotron model catalog for the NIM provider** (`src/providers/modelCatalog.ts`, `src/runtime/core.ts`, `tests/providers/modelCatalog.test.ts`, `docs/model-routing.md`, `wiki/Model-Routing.md`, `CONTRIBUTING.md`): the NVIDIA NIM provider (already wired via the OpenAI-compatible adapter against `integrate.api.nvidia.com`) gains a first-class, provider-scoped `NVIDIA_CATALOG` covering the Nemotron family — Llama 3.1 Nemotron Ultra 253B (extended reasoning, depth 3), Llama 3.3 Nemotron Super 49B, Nemotron Nano, Llama 3.1 Nemotron 70B Instruct, and Nemotron Mini — with accurate context windows, capabilities (reasoning/function-calling), reasoning depth, latency class, and hosted (non-zero) pricing. Registering it in `PROVIDER_CATALOGS` means `lookupCatalog('nvidia', …)` resolves Nemotron models from this catalog *before* the cross-provider fallback, so hosted Nemotron models no longer inherit metadata from the same-named `$0` local entries in `LOCAL_CATALOG`. The NVIDIA seed in `seedDefaultProviders()` now leads with Nemotron Super 49B and Nemotron Nano (alongside the existing Llama 3.1 70B fallback) so the family is visible before runtime discovery completes.
+
 ## [0.85.0] - 2026-06-17
 
 ### Changed
