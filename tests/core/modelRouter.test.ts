@@ -821,6 +821,53 @@ describe('ModelRouter', () => {
   });
 });
 
+describe('preferredModel role pin (Direction 3)', () => {
+  it('selects the pinned model directly, bypassing budget/speed scoring', () => {
+    const router = new ModelRouter();
+    registerProviders(router);
+
+    // On cheap budget the pinned expensive Opus would normally be gated out;
+    // the pin overrides that.
+    const selected = router.selectModel({ budget: 'cheap', speed: 'fast', preferredModel: 'anthropic/claude-sonnet-4' });
+
+    expect(selected).toBe('anthropic/claude-sonnet-4');
+  });
+
+  it('falls back to normal routing when the pinned model is unknown', () => {
+    const router = new ModelRouter();
+    registerProviders(router);
+
+    const selected = router.selectModel({ budget: 'balanced', speed: 'balanced', preferredModel: 'does/not-exist' });
+
+    expect(selected).not.toBe('does/not-exist');
+    expect(selected.length).toBeGreaterThan(0);
+  });
+
+  it('does not honor a pinned model that fails required capabilities', () => {
+    const router = new ModelRouter();
+    registerProviders(router);
+
+    // local/echo-1 lacks 'function_calling'; the requirement must veto the pin.
+    const selected = router.selectModel({
+      budget: 'balanced', speed: 'balanced',
+      preferredModel: 'local/echo-1',
+      requiredCapabilities: ['function_calling'],
+    });
+
+    expect(selected).not.toBe('local/echo-1');
+  });
+
+  it('does not honor a pinned model on an unhealthy provider', () => {
+    const router = new ModelRouter();
+    registerProviders(router);
+    router.setProviderHealth('anthropic', false);
+
+    const selected = router.selectModel({ budget: 'balanced', speed: 'balanced', preferredModel: 'anthropic/claude-sonnet-4' });
+
+    expect(selected).not.toBe('anthropic/claude-sonnet-4');
+  });
+});
+
 describe('outcome-driven routing (Direction 2)', () => {
   /** Two identical pay-per-token models so the only differentiator is the outcome bias. */
   function registerTwins(router: ModelRouter): void {

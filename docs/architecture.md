@@ -341,7 +341,7 @@ All shared types live in `src/types.ts`. See the [type definitions](../src/types
 | `SkillDefinition` | Skill identity, JSON Schema for tool params, handler path |
 | `ModelInfo` | Model identity, provider, pricing, context window, capabilities, reasoning depth, latency class, and prompt-cache support (`supportsPromptCaching`, `cachedInputPricePer1k`) |
 | `ProviderConfig` | Provider identity, API key setting key, enabled flag, model list |
-| `RoutingConstraints` | Budget mode, speed mode, max cost, preferred provider, parallel slots, cacheable-prefix ratio |
+| `RoutingConstraints` | Budget mode, speed mode, max cost, preferred provider, preferred model (role pin), parallel slots, cacheable-prefix ratio |
 | `TaskProfile` | Inferred task phase, modality, reasoning intensity, and capability preferences |
 | `SubTask` | Unit of work in a project plan: id, title, role, skills, `dependsOn` edges |
 | `SubTaskResult` | Execution outcome: status, output, costUsd, durationMs, error |

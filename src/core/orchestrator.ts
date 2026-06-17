@@ -1337,7 +1337,7 @@ export class Orchestrator {
       plan = options.planOverride;
     } else {
       try {
-        plan = await planner.plan(goal, constraints, signal);
+        plan = await planner.plan(goal, this.withPlanningBrainModel(constraints), signal);
       } catch (err) {
         onProgress?.({ type: 'error', message: err instanceof Error ? err.message : String(err) });
         throw err;
@@ -1613,7 +1613,7 @@ export class Orchestrator {
     const planner = new Planner(this.router, this.providers, this.taskProfiler, this.memory, this.skills);
     let plan: ProjectPlan;
     try {
-      plan = await planner.plan(request.userMessage, request.constraints);
+      plan = await planner.plan(request.userMessage, this.withPlanningBrainModel(request.constraints));
     } catch {
       plan = {
         id: `plan-${Date.now()}`,
@@ -3241,6 +3241,22 @@ export class Orchestrator {
     const highUsd = subtaskCount * this.estimateCostBreakdown(model, highInputPerSubtask, highOutputPerSubtask).costUsd;
 
     return { lowUsd, highUsd };
+  }
+
+  /**
+   * Direction 3 — planner-brain role routing. When `atlasmind.planningModelId`
+   * pins a "brain" model (e.g. a strong reasoner, or a Claude subscription, since
+   * planning is a no-tool reasoning phase), pin it for the planning constraints so
+   * decomposition is done by the chosen model while execution still routes to
+   * tool-capable workers. Falls back silently to normal routing when unset or the
+   * model is unknown.
+   */
+  private withPlanningBrainModel(constraints: RoutingConstraints): RoutingConstraints {
+    const brainModelId = (vscode.workspace.getConfiguration('atlasmind').get<string>('planningModelId', '') ?? '').trim();
+    if (!brainModelId || !this.router.getModelInfo(brainModelId)) {
+      return constraints;
+    }
+    return { ...constraints, preferredModel: brainModelId };
   }
 
   private estimateCostBreakdown(model: string, inputTokens: number, outputTokens: number, cachedInputTokens = 0): CostEstimate {

@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.92.0] - 2026-06-17
+
+### Added
+- **Planner-brain role routing (Direction 3)** (`src/types.ts`, `src/core/modelRouter.ts`, `src/core/orchestrator.ts`, `package.json`, `tests/core/modelRouter.test.ts`): a foundational `RoutingConstraints.preferredModel` pin for **role-based routing**. When set and the model is genuinely usable (available, enabled, healthy, not deprecated/recently-failed, within any allow-list, and satisfies required capabilities), the router selects it directly via `resolvePinnedModel` — bypassing budget/speed gates since it is a deliberate choice — and otherwise falls back to normal scoring. The first consumer is the **planner "brain"**: a new `atlasmind.planningModelId` setting pins the planning/decomposition phase to a chosen model (planning is a no-tool reasoning step, so this is ideal for a strong reasoner or a Claude subscription via `claude-cli`), while execution subtasks still route to tool-capable workers — realising the planner-brain / tool-executor split from the routing roadmap. Added 4 tests (pin honored over budget gate, fallback on unknown model, capability veto, unhealthy-provider veto). Verification-gated draft→escalate hybrid routing remains a roadmap follow-up.
+
 ## [0.91.0] - 2026-06-17
 
 ### Added

@@ -369,6 +369,15 @@ export class ModelRouter {
     allowedModels?: string[],
     taskProfile?: TaskProfile,
   ): string | undefined {
+    // Role-based routing pin (Direction 3): honour an explicit preferredModel when
+    // it is genuinely usable, bypassing budget/speed gates since it is deliberate.
+    if (constraints.preferredModel) {
+      const pinned = this.resolvePinnedModel(constraints, allowedModels, taskProfile);
+      if (pinned) {
+        return pinned;
+      }
+    }
+
     const candidates = this.getCandidateModels(constraints, allowedModels, taskProfile);
     if (candidates.length === 0) {
       return undefined;
@@ -451,6 +460,51 @@ export class ModelRouter {
     }
 
     return result;
+  }
+
+  /**
+   * Resolves an explicit `preferredModel` pin to a usable model id, or undefined
+   * when the pin is not genuinely available. Applies the same availability checks
+   * as candidate selection (provider/model enabled + healthy, not deprecated, not
+   * recently failed, within any allow-list, satisfies required capabilities) but
+   * deliberately bypasses the budget and speed gates — a role pin is an explicit
+   * choice that should hold even for an out-of-budget-tier model.
+   */
+  private resolvePinnedModel(
+    constraints: RoutingConstraints,
+    allowedModels?: string[],
+    taskProfile?: TaskProfile,
+  ): string | undefined {
+    const modelId = constraints.preferredModel;
+    if (!modelId) {
+      return undefined;
+    }
+    if (allowedModels && allowedModels.length > 0 && !allowedModels.includes(modelId)) {
+      return undefined;
+    }
+    const info = this.getModelInfo(modelId);
+    if (!info || !info.enabled) {
+      return undefined;
+    }
+    const provider = this.providers.get(info.provider);
+    if (!provider || !provider.enabled || !this.isProviderHealthy(info.provider)) {
+      return undefined;
+    }
+    if (info.deprecatedAt && new Date(info.deprecatedAt) <= new Date()) {
+      return undefined;
+    }
+    const failure = this.modelFailures.get(modelId);
+    if (failure && Date.now() - new Date(failure.failedAt).getTime() < MODEL_FAILURE_TTL_MS) {
+      return undefined;
+    }
+    const requiredCapabilities = [
+      ...(constraints.requiredCapabilities ?? []),
+      ...(taskProfile?.requiredCapabilities ?? []),
+    ];
+    if (requiredCapabilities.some(capability => !info.capabilities.includes(capability))) {
+      return undefined;
+    }
+    return info.id;
   }
 
   private getCandidateModels(

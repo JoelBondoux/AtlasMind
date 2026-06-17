@@ -6,6 +6,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.92.0 — Planner-Brain Role Routing
+
+- **Pin a model by role** (`src/core/modelRouter.ts`, `src/core/orchestrator.ts`): a new `RoutingConstraints.preferredModel` pin lets a specific model be chosen for a role, bypassing budget/speed gates when it is genuinely available (still respecting health and required capabilities). Its first use is the **planner brain** — the `atlasmind.planningModelId` setting pins the planning/decomposition phase to a chosen reasoner (or a Claude subscription, since planning needs no tools) while execution still routes to tool-capable workers. See [[Model-Routing]] and [[Configuration]].
+
 ## v0.91.0 — Outcome-Driven Routing
 
 - **Routing learns from real outcomes** (`src/core/modelRouter.ts`, `src/core/orchestrator.ts`): a new per-model execution-outcome channel keeps a decayed EWMA of graded run quality (error / empty / truncated / clean) and turns it into a small, bounded routing nudge — so models that consistently do well on this project's work are preferred, and struggling ones are nudged down without being excluded. Separate from the manual thumbs feedback, gated by a minimum sample count and the `feedbackRoutingWeight` control, and persisted across sessions. See [[Model-Routing]].
