@@ -821,6 +821,33 @@ describe('ModelRouter', () => {
   });
 });
 
+describe('cacheReadPricePer1k', () => {
+  const baseModel = {
+    provider: 'x' as const, name: 'M', contextWindow: 128000,
+    inputPricePer1k: 0.002, outputPricePer1k: 0.002,
+    capabilities: ['chat'] as const, enabled: true,
+  };
+
+  it('applies the per-provider cache factor for a cache-capable provider', () => {
+    const router = new ModelRouter();
+    // Anthropic factor is 0.1x.
+    expect(router.cacheReadPricePer1k({ ...baseModel, id: 'anthropic/m', provider: 'anthropic', capabilities: [...baseModel.capabilities] }))
+      .toBeCloseTo(0.0002, 6);
+  });
+
+  it('returns the full input price for a model that is not cache-capable', () => {
+    const router = new ModelRouter();
+    expect(router.cacheReadPricePer1k({ ...baseModel, id: 'plain/m', provider: 'plainx', capabilities: [...baseModel.capabilities] }))
+      .toBe(0.002);
+  });
+
+  it('honors an explicit cachedInputPricePer1k over the provider factor', () => {
+    const router = new ModelRouter();
+    expect(router.cacheReadPricePer1k({ ...baseModel, id: 'anthropic/m', provider: 'anthropic', capabilities: [...baseModel.capabilities], cachedInputPricePer1k: 0.00005 }))
+      .toBe(0.00005);
+  });
+});
+
 describe('estimateCacheablePrefixRatio', () => {
   it('returns 0 when there is no input', () => {
     expect(estimateCacheablePrefixRatio(0, 0)).toBe(0);

@@ -1378,9 +1378,13 @@ export interface CostRecord {
   messageId?: string;
   inputTokens: number;
   outputTokens: number;
+  /** Portion of `inputTokens` served from the provider's prompt cache, when reported. */
+  cachedInputTokens?: number;
   costUsd: number;
   budgetCostUsd?: number;
   compressionSavingsUsd?: number;
+  /** USD saved this request by the prompt-cache discount on cached input tokens. */
+  cacheSavingsUsd?: number;
   timestamp: string;
 }
 
