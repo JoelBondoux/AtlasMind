@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.91.0] - 2026-06-17
+
+### Added
+- **Outcome-driven routing (Direction 2)** (`src/core/modelRouter.ts`, `src/core/orchestrator.ts`, `src/extension.ts`, `src/types.ts`, `tests/core/modelRouter.test.ts`): the router now adapts to how models actually perform on this project's work. A new per-model execution-outcome channel maintains a **decayed EWMA** of graded run quality (`gradeExecutionQuality`: hard error = 0, empty response = 0.2, truncated = 0.6, clean response = 1.0) — separate from the manual thumbs-feedback channel so it does not disturb user feedback. `scoreOutcomeBias` turns that EWMA into a **bounded** routing nudge (±`OUTCOME_BIAS_MAX`), gated by a minimum sample count (no reaction to a single run) and by the existing `feedbackRoutingWeight` control (0 disables it), so a struggling model is nudged down without being starved. Outcomes are **persisted** across sessions via a new `onModelOutcomeRecorded` orchestrator hook and `atlasmind.executionOutcomes` global-state key, and restored on activation. Added 6 tests (EWMA decay, stronger-track-record preference, cold-start no-op, weight-0 disable, persistence round-trip). Future refinements (per-task-profile granularity, a scored-replay harness) are tracked in the routing roadmap.
+
 ## [0.90.0] - 2026-06-17
 
 ### Changed

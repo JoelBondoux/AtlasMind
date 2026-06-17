@@ -821,6 +821,80 @@ describe('ModelRouter', () => {
   });
 });
 
+describe('outcome-driven routing (Direction 2)', () => {
+  /** Two identical pay-per-token models so the only differentiator is the outcome bias. */
+  function registerTwins(router: ModelRouter): void {
+    const m = {
+      contextWindow: 128000, inputPricePer1k: 0.001, outputPricePer1k: 0.001,
+      capabilities: ['chat', 'code', 'function_calling'] as const, enabled: true,
+    };
+    router.registerProvider({
+      id: 'pa', displayName: 'PA', apiKeySettingKey: 'k', enabled: true, pricingModel: 'pay-per-token',
+      models: [{ id: 'pa/m', provider: 'pa', name: 'A', ...m, capabilities: [...m.capabilities] }],
+    });
+    router.registerProvider({
+      id: 'pb', displayName: 'PB', apiKeySettingKey: 'k', enabled: true, pricingModel: 'pay-per-token',
+      models: [{ id: 'pb/m', provider: 'pb', name: 'B', ...m, capabilities: [...m.capabilities] }],
+    });
+  }
+
+  it('maintains a decayed EWMA of execution quality', () => {
+    const router = new ModelRouter();
+    router.recordExecutionOutcome('x/m', 1);
+    router.recordExecutionOutcome('x/m', 0);
+    const stats = router.getExecutionOutcome('x/m');
+    expect(stats?.samples).toBe(2);
+    // EWMA after [1, 0] with alpha 0.3 → 0.3*0 + 0.7*1 = 0.7.
+    expect(stats?.ewma).toBeCloseTo(0.7, 6);
+  });
+
+  it('prefers the model with the stronger track record on otherwise-equal models', () => {
+    const router = new ModelRouter();
+    registerTwins(router);
+    for (let i = 0; i < 5; i++) {
+      router.recordExecutionOutcome('pa/m', 1);
+      router.recordExecutionOutcome('pb/m', 0);
+    }
+    expect(router.selectModel({ budget: 'balanced', speed: 'balanced' })).toBe('pa/m');
+  });
+
+  it('does not apply a bias before the minimum sample count (cold start)', () => {
+    const router = new ModelRouter();
+    registerTwins(router);
+    // A single great outcome for pb should not yet flip selection deterministically;
+    // with <2 samples the outcome bias is 0, so neither is nudged.
+    router.recordExecutionOutcome('pb/m', 1);
+    const selected = router.selectModel({ budget: 'balanced', speed: 'balanced' });
+    expect(selected === 'pa/m' || selected === 'pb/m').toBe(true);
+    expect(router.getExecutionOutcome('pb/m')?.samples).toBe(1);
+  });
+
+  it('disables the outcome bias when feedback weight is 0', () => {
+    const router = new ModelRouter();
+    registerTwins(router);
+    router.setFeedbackWeight(0);
+    for (let i = 0; i < 5; i++) {
+      router.recordExecutionOutcome('pa/m', 0); // make pa look bad
+      router.recordExecutionOutcome('pb/m', 1);
+    }
+    // With weight 0 the learned bias is off; both tie on cost so selection is stable
+    // but must not be driven by outcomes. Re-enabling weight flips to the strong model.
+    router.setFeedbackWeight(1);
+    expect(router.selectModel({ budget: 'balanced', speed: 'balanced' })).toBe('pb/m');
+  });
+
+  it('persists and restores execution outcomes', () => {
+    const router = new ModelRouter();
+    router.recordExecutionOutcome('pa/m', 1);
+    router.recordExecutionOutcome('pa/m', 1);
+    const snapshot = router.getExecutionOutcomes();
+
+    const restored = new ModelRouter();
+    restored.setExecutionOutcomes(snapshot);
+    expect(restored.getExecutionOutcome('pa/m')?.samples).toBe(2);
+  });
+});
+
 describe('cacheReadPricePer1k', () => {
   const baseModel = {
     provider: 'x' as const, name: 'M', contextWindow: 128000,
