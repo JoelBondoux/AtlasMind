@@ -793,6 +793,32 @@ describe('ModelRouter', () => {
 
     expect(selected).toBe('anthropic/cached');
   });
+
+  it('applies a deeper cache discount for a provider with a known cache-read factor', () => {
+    // Anthropic's known cache-read factor (0.1x) beats a generic cache-capable
+    // provider on the default factor (0.25x) at equal base price.
+    const router = new ModelRouter();
+    router.registerProvider({
+      id: 'anthropic',
+      displayName: 'Anthropic',
+      apiKeySettingKey: 'k',
+      enabled: true,
+      pricingModel: 'pay-per-token',
+      models: [{ id: 'anthropic/m', provider: 'anthropic', name: 'A', contextWindow: 200000, inputPricePer1k: 0.002, outputPricePer1k: 0.002, capabilities: ['chat', 'code', 'function_calling'], enabled: true }],
+    });
+    router.registerProvider({
+      id: 'genericx',
+      displayName: 'Generic X',
+      apiKeySettingKey: 'k',
+      enabled: true,
+      pricingModel: 'pay-per-token',
+      models: [{ id: 'genericx/m', provider: 'genericx', name: 'G', contextWindow: 200000, inputPricePer1k: 0.002, outputPricePer1k: 0.002, capabilities: ['chat', 'code', 'function_calling'], enabled: true, supportsPromptCaching: true }],
+    });
+
+    const selected = router.selectModel({ budget: 'balanced', speed: 'balanced', cacheablePrefixRatio: 0.9 });
+
+    expect(selected).toBe('anthropic/m');
+  });
 });
 
 describe('estimateCacheablePrefixRatio', () => {

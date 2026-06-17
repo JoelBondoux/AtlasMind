@@ -6,6 +6,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.87.1 — Per-Provider Cache Discounts
+
+- **Realistic per-provider cache-read pricing** (`src/core/modelRouter.ts`): cache-aware routing now uses a `PROVIDER_CACHE_READ_FACTOR` baseline (Anthropic/Claude CLI 0.1×, OpenAI/Azure/Copilot 0.5×, DeepSeek/Google 0.25×) instead of a flat 0.25× for cache-capable models without an explicit cached price — so deeper-discount providers like Claude are costed correctly on iterative turns. Still a bootstrap baseline only: a dynamic `cachedInputPricePer1k` from discovery / pricing sync overrides it. See [[Model-Routing]].
+
 ## v0.87.0 — Cache-Aware Model Routing
 
 - **Prompt-cache economics in routing** (`src/core/modelRouter.ts`, `src/core/orchestrator.ts`): AtlasMind sends a large, stable prefix (system prompt + memory bundle + tool definitions) every turn, which frontier providers bill at a reduced cache-read rate. The router now projects that saving — a new `cacheablePrefixRatio` (estimated from carried context vs. the new message) makes cache-capable models cheaper on iterative/threaded work, while single-shot turns are unaffected. `ModelInfo`/`CatalogEntry` gain `supportsPromptCaching` + `cachedInputPricePer1k`.

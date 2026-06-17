@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.87.1] - 2026-06-17
+
+### Changed
+- **Per-provider cache-read discounts for cache-aware routing** (`src/core/modelRouter.ts`, `tests/core/modelRouter.test.ts`): cache-capable models without an explicit `cachedInputPricePer1k` previously all used the flat conservative `DEFAULT_CACHE_READ_FACTOR` (0.25×), which understated providers with deeper discounts (notably Anthropic at ~0.1×). Added a `PROVIDER_CACHE_READ_FACTOR` baseline map (Anthropic/Claude CLI 0.1×, OpenAI/Azure/Copilot 0.5×, DeepSeek/Google 0.25×) so the projected cache-read price is realistic per provider on iterative turns. This remains a **bootstrap baseline only** — a dynamic `cachedInputPricePer1k` reported by discovery or the pricing sync still overrides it — keeping cache pricing accurate without hardcoding per-model values. Added a test that a deeper-discount provider is preferred over an equivalent default-factor model on a cacheable turn.
+
 ## [0.87.0] - 2026-06-17
 
 ### Added
