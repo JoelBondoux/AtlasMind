@@ -100,6 +100,23 @@ type ModelPreferenceStats = {
   downVotes: number;
 };
 
+/** Decayed execution-outcome state for a model (Direction 2: outcome-driven routing). */
+type ModelOutcomeState = {
+  /** Exponentially-weighted moving average of per-run execution quality in [0,1]. */
+  ewma: number;
+  /** Number of recorded outcomes (gates noisy single-sample bias). */
+  samples: number;
+};
+
+/** Maximum magnitude of the outcome-driven routing bias (bounded so it cannot starve providers). */
+const OUTCOME_BIAS_MAX = 0.3;
+/** EWMA smoothing factor — higher reacts faster to recent outcomes, lower is steadier. */
+const OUTCOME_EWMA_ALPHA = 0.3;
+/** Quality level treated as neutral; outcomes above raise the bias, below lower it. */
+const OUTCOME_NEUTRAL_BASELINE = 0.7;
+/** Minimum recorded outcomes before the bias applies, to avoid reacting to a single run. */
+const MIN_OUTCOME_SAMPLES = 2;
+
 type ModelFailureState = {
   providerId: string;
   message: string;
@@ -115,6 +132,7 @@ export class ModelRouter {
   private providers = new Map<string, ProviderConfig>();
   private providerHealth = new Map<string, boolean>();
   private modelPreferences = new Map<string, ModelPreferenceStats>();
+  private executionOutcomes = new Map<string, ModelOutcomeState>();
   private modelFailures = new Map<string, ModelFailureState>();
   private feedbackWeight = 1;
   /** Providers paused automatically this session (e.g. billing failure). ProviderId → reason string. */
@@ -276,6 +294,51 @@ export class ModelRouter {
   getModelPreference(modelId: string): ModelPreferenceStats | undefined {
     const stats = this.modelPreferences.get(modelId);
     return stats ? { ...stats } : undefined;
+  }
+
+  /**
+   * Direction 2 — outcome-driven routing. Record a graded execution-quality
+   * signal (0 = failed, 1 = clean verified success) for a model. Maintained as a
+   * decayed EWMA, separate from the manual thumbs feedback channel, so routing
+   * adapts to how models actually perform on this project's work without
+   * disturbing user feedback. Bounded downstream so it can nudge — never starve.
+   */
+  recordExecutionOutcome(modelId: string, quality: number): void {
+    if (!Number.isFinite(quality)) {
+      return;
+    }
+    const q = Math.max(0, Math.min(1, quality));
+    const existing = this.executionOutcomes.get(modelId);
+    if (!existing) {
+      this.executionOutcomes.set(modelId, { ewma: q, samples: 1 });
+      return;
+    }
+    this.executionOutcomes.set(modelId, {
+      ewma: (OUTCOME_EWMA_ALPHA * q) + ((1 - OUTCOME_EWMA_ALPHA) * existing.ewma),
+      samples: existing.samples + 1,
+    });
+  }
+
+  getExecutionOutcome(modelId: string): ModelOutcomeState | undefined {
+    const stats = this.executionOutcomes.get(modelId);
+    return stats ? { ...stats } : undefined;
+  }
+
+  /** Snapshot all execution outcomes (for persistence across sessions). */
+  getExecutionOutcomes(): Record<string, ModelOutcomeState> {
+    return Object.fromEntries([...this.executionOutcomes.entries()].map(([id, s]) => [id, { ...s }]));
+  }
+
+  /** Restore persisted execution outcomes. */
+  setExecutionOutcomes(outcomes: Record<string, ModelOutcomeState>): void {
+    this.executionOutcomes = new Map(
+      Object.entries(outcomes)
+        .filter(([, s]) => Number.isFinite(s.ewma) && Number.isFinite(s.samples))
+        .map(([id, s]) => [id, {
+          ewma: Math.max(0, Math.min(1, s.ewma)),
+          samples: Math.max(0, Math.floor(s.samples)),
+        }]),
+    );
   }
 
   setFeedbackWeight(weight: number): void {
@@ -475,8 +538,28 @@ export class ModelRouter {
 
     const localBonus = this.scoreLocalPreference(model, taskProfile);
     const subscriptionBonus = this.scoreActiveSubscriptionPreference(model);
+    const outcomeBias = this.scoreOutcomeBias(model.id);
 
-    return (cheapness * budgetWeight) + (speedProxy * speedWeight) + (qualityProxy * qualityWeight) + taskFit + healthWeight + preferenceBias + localBonus + subscriptionBonus;
+    return (cheapness * budgetWeight) + (speedProxy * speedWeight) + (qualityProxy * qualityWeight) + taskFit + healthWeight + preferenceBias + localBonus + subscriptionBonus + outcomeBias;
+  }
+
+  /**
+   * Direction 2 — bounded routing nudge from a model's decayed execution-outcome
+   * EWMA. Returns 0 until enough samples exist (cold start) or when learned-routing
+   * weight is disabled. Scaled by `feedbackWeight` (the same `feedbackRoutingWeight`
+   * control as manual feedback) and clamped to ±`OUTCOME_BIAS_MAX` so a struggling
+   * model is nudged down without being excluded.
+   */
+  private scoreOutcomeBias(modelId: string): number {
+    if (this.feedbackWeight <= 0) {
+      return 0;
+    }
+    const stats = this.executionOutcomes.get(modelId);
+    if (!stats || stats.samples < MIN_OUTCOME_SAMPLES) {
+      return 0;
+    }
+    const raw = (stats.ewma - OUTCOME_NEUTRAL_BASELINE) * this.feedbackWeight;
+    return Math.max(-OUTCOME_BIAS_MAX, Math.min(OUTCOME_BIAS_MAX, raw));
   }
 
   /**

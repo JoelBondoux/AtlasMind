@@ -671,6 +671,13 @@ export interface OrchestratorHooks {
   onQuotaUpdated?: (providerId: string, remainingRequests: number, totalRequests: number) => void;
 
   /**
+   * Called after a model's execution outcome is recorded (Direction 2 —
+   * outcome-driven routing). Receives the full snapshot of decayed per-model
+   * outcome state so it can be persisted across sessions.
+   */
+  onModelOutcomeRecorded?: (outcomes: Record<string, { ewma: number; samples: number }>) => void;
+
+  /**
    * Called each time the active model changes during task execution — on initial
    * selection, provider failover, tool-capability re-route, and escalation.
    * Callers can use this to show a live model indicator in the UI.

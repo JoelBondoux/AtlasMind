@@ -358,6 +358,7 @@ export class Orchestrator {
   private writeCheckpointHook?: OrchestratorHooks['writeCheckpointHook'];
   private postToolVerifier?: OrchestratorHooks['postToolVerifier'];
   private onQuotaUpdated?: OrchestratorHooks['onQuotaUpdated'];
+  private onModelOutcomeRecorded?: OrchestratorHooks['onModelOutcomeRecorded'];
   private onModelSelected?: OrchestratorHooks['onModelSelected'];
   private getPersonalityProfilePrompt?: PersonalityProfilePromptProvider;
   private cfg: OrchestratorConfig;
@@ -385,6 +386,7 @@ export class Orchestrator {
     this.writeCheckpointHook = hooks?.writeCheckpointHook;
     this.postToolVerifier = hooks?.postToolVerifier;
     this.onQuotaUpdated = hooks?.onQuotaUpdated;
+    this.onModelOutcomeRecorded = hooks?.onModelOutcomeRecorded;
     this.onModelSelected = hooks?.onModelSelected;
     this.classifier = new ClassifierService(router, providers, taskProfiler);
     this.cfg = { ...defaultConfig, ...config };
@@ -1265,7 +1267,10 @@ export class Orchestrator {
     // Track agent and model performance for adaptive selection
     const success = completion.finishReason !== 'error';
     this.agents.recordOutcome(agent.id, success);
-    this.router.recordModelOutcome(modelUsed, success);
+    // Direction 2 — outcome-driven routing: feed a graded execution-quality
+    // signal (not just success/failure) into the router's decayed outcome channel.
+    this.router.recordExecutionOutcome(modelUsed, gradeExecutionQuality(completion));
+    this.onModelOutcomeRecorded?.(this.router.getExecutionOutcomes());
 
     // When the model returned nothing, run a two-step recovery before surfacing a failure:
     //  1. Self-recovery: reprompt with workspace-investigation instruction; if still
@@ -3758,6 +3763,25 @@ function truncatePreview(value: string, maxLength = 600): string {
     return trimmed;
   }
   return `${trimmed.slice(0, maxLength)}...`;
+}
+
+/**
+ * Grades a completed turn's execution quality in [0,1] for outcome-driven
+ * routing: a hard error scores 0, an empty response scores low, a truncated
+ * (length-capped) response scores moderate, and a clean response with content
+ * scores full. Derived purely from the completion so it needs no extra signals.
+ */
+function gradeExecutionQuality(completion: CompletionResponse): number {
+  if (completion.finishReason === 'error') {
+    return 0;
+  }
+  if (completion.content.trim().length === 0) {
+    return 0.2;
+  }
+  if (completion.finishReason === 'length') {
+    return 0.6;
+  }
+  return 1;
 }
 
 function estimateTokens(text: string): number {
