@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.88.0] - 2026-06-17
+
+### Added
+- **Prompt-cache savings telemetry and Cost Dashboard panel** (`src/providers/adapter.ts`, `src/providers/anthropic.ts`, `src/providers/openai-compatible.ts`, `src/types.ts`, `src/core/modelRouter.ts`, `src/core/orchestrator.ts`, `src/core/costTracker.ts`, `src/views/costDashboardPanel.ts`, `tests/core/modelRouter.test.ts`, `tests/core/costTracker.test.ts`): completes the cache-aware routing work with real, measured savings. `CompletionResponse` gains `cachedInputTokens`, populated from provider usage — Anthropic's `cache_read_input_tokens` (folded into the total input count, which Anthropic reports separately) and OpenAI-style `prompt_tokens_details.cached_tokens` / DeepSeek's `prompt_cache_hit_tokens` — across both the buffered and streaming response paths. The orchestrator aggregates cached tokens across retry/iteration attempts and values the avoided spend via the new public `ModelRouter.cacheReadPricePer1k(model)` (explicit `cachedInputPricePer1k`, else the per-provider cache factor). `CostRecord` gains `cachedInputTokens` + `cacheSavingsUsd`, the `CostSummary` gains `totalCacheSavingsUsd` + `totalCachedInputTokens`, and the **Cost Dashboard** shows a new **Cache Savings** card (avoided spend + cached input-token volume) alongside Compression Savings. Like compression savings, the figure is reported as avoided spend rather than discounting recorded cost, keeping cost figures consistent. This closes Direction 1 of the routing roadmap end-to-end.
+
 ## [0.87.1] - 2026-06-17
 
 ### Changed

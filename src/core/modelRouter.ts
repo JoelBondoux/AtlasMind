@@ -585,6 +585,21 @@ export class ModelRouter {
     return (cachedPrice * ratio) + (model.inputPricePer1k * (1 - ratio));
   }
 
+  /**
+   * Public cache-read price per 1K input tokens for a model — the explicit
+   * `cachedInputPricePer1k` when known, else `inputPricePer1k ×` the model's
+   * per-provider cache factor. Returns the full input price for models that are
+   * not cache-capable. Used by cost accounting to value cache savings.
+   */
+  cacheReadPricePer1k(model: ModelInfo): number {
+    const cacheCapable = model.supportsPromptCaching ?? CACHE_CAPABLE_PROVIDERS.has(model.provider);
+    if (!cacheCapable) {
+      return model.inputPricePer1k;
+    }
+    const factor = PROVIDER_CACHE_READ_FACTOR[model.provider] ?? DEFAULT_CACHE_READ_FACTOR;
+    return model.cachedInputPricePer1k ?? model.inputPricePer1k * factor;
+  }
+
   private effectiveCostPer1k(
     model: ModelInfo,
     provider: ProviderConfig | undefined,

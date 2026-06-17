@@ -7,6 +7,8 @@ export interface CostSummary {
   totalBudgetCostUsd: number;
   totalSubscriptionIncludedUsd: number;
   totalCompressionSavingsUsd: number;
+  totalCacheSavingsUsd: number;
+  totalCachedInputTokens: number;
   totalRequests: number;
   totalInputTokens: number;
   totalOutputTokens: number;
@@ -67,6 +69,8 @@ export class CostTracker {
     let totalBudgetCostUsd = 0;
     let totalSubscriptionIncludedUsd = 0;
     let totalCompressionSavingsUsd = 0;
+    let totalCacheSavingsUsd = 0;
+    let totalCachedInputTokens = 0;
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
 
@@ -76,6 +80,8 @@ export class CostTracker {
       totalCostUsd += r.costUsd;
       totalBudgetCostUsd += this.getBudgetCostUsd(r);
       totalCompressionSavingsUsd += r.compressionSavingsUsd ?? 0;
+      totalCacheSavingsUsd += r.cacheSavingsUsd ?? 0;
+      totalCachedInputTokens += r.cachedInputTokens ?? 0;
       if (this.isSubscriptionIncludedRecord(r)) {
         totalSubscriptionIncludedUsd += r.costUsd;
       }
@@ -88,6 +94,8 @@ export class CostTracker {
       totalBudgetCostUsd,
       totalSubscriptionIncludedUsd,
       totalCompressionSavingsUsd,
+      totalCacheSavingsUsd,
+      totalCachedInputTokens,
       totalRequests: records.length,
       totalInputTokens,
       totalOutputTokens,

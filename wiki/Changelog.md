@@ -6,6 +6,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.88.0 — Prompt-Cache Savings Visibility
+
+- **Measured cache savings in the Cost Dashboard** (`src/providers/*`, `src/core/costTracker.ts`, `src/views/costDashboardPanel.ts`): adapters now read cached input tokens from provider usage (Anthropic `cache_read_input_tokens`, OpenAI `prompt_tokens_details.cached_tokens`, DeepSeek `prompt_cache_hit_tokens`) on both buffered and streaming paths. The orchestrator values the avoided spend (`ModelRouter.cacheReadPricePer1k`), the cost summary aggregates `totalCacheSavingsUsd` + `totalCachedInputTokens`, and a new **Cache Savings** card appears beside Compression Savings. Closes Direction 1 of the routing roadmap end-to-end. See [[Model-Routing]].
+
 ## v0.87.1 — Per-Provider Cache Discounts
 
 - **Realistic per-provider cache-read pricing** (`src/core/modelRouter.ts`): cache-aware routing now uses a `PROVIDER_CACHE_READ_FACTOR` baseline (Anthropic/Claude CLI 0.1×, OpenAI/Azure/Copilot 0.5×, DeepSeek/Google 0.25×) instead of a flat 0.25× for cache-capable models without an explicit cached price — so deeper-discount providers like Claude are costed correctly on iterative turns. Still a bootstrap baseline only: a dynamic `cachedInputPricePer1k` from discovery / pricing sync overrides it. See [[Model-Routing]].

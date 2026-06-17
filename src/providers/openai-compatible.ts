@@ -136,6 +136,7 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
       model: normalizeProviderModelId(this.config.providerId, result.model),
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
+      ...(usage.cachedInputTokens > 0 ? { cachedInputTokens: usage.cachedInputTokens } : {}),
       finishReason: mapFinishReason(choice?.finish_reason ?? null),
       toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     };
@@ -178,6 +179,7 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
     let finishReason: string | null = null;
     let inputTokens = 0;
     let outputTokens = 0;
+    let cachedInputTokens = 0;
     const toolCallParts = new Map<number, { id: string; name: string; args: string; thoughtSignature?: string }>();
 
     const reader = response.body.getReader();
@@ -213,6 +215,7 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
             if (usage.inputTokens > 0 || usage.outputTokens > 0) {
               inputTokens = usage.inputTokens || inputTokens;
               outputTokens = usage.outputTokens || outputTokens;
+              cachedInputTokens = usage.cachedInputTokens || cachedInputTokens;
             }
             continue;
           }
@@ -249,6 +252,7 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
           if (usage.inputTokens > 0 || usage.outputTokens > 0) {
             inputTokens = usage.inputTokens || inputTokens;
             outputTokens = usage.outputTokens || outputTokens;
+            cachedInputTokens = usage.cachedInputTokens || cachedInputTokens;
           }
         }
       }
@@ -270,6 +274,7 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
       model,
       inputTokens,
       outputTokens,
+      ...(cachedInputTokens > 0 ? { cachedInputTokens } : {}),
       finishReason: mapFinishReason(finishReason as OpenAiChatResponse['choices'][0]['finish_reason']),
       toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     };
@@ -580,13 +585,19 @@ function mapFinishReason(reason: string | null): CompletionResponse['finishReaso
   return 'stop';
 }
 
-function extractUsageMetrics(payload: unknown): { inputTokens: number; outputTokens: number } {
+function extractUsageMetrics(payload: unknown): { inputTokens: number; outputTokens: number; cachedInputTokens: number } {
   const usage = readUsageObject(payload);
   if (!usage) {
-    return { inputTokens: 0, outputTokens: 0 };
+    return { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 };
   }
 
   const inputTokens = readNumber(usage, ['prompt_tokens', 'promptTokenCount', 'prompt_token_count']);
+  // OpenAI-style providers nest cached input under prompt_tokens_details.cached_tokens
+  // (the cached count is already part of prompt_tokens). DeepSeek surfaces it flat
+  // as prompt_cache_hit_tokens.
+  const promptDetails = isRecord(usage['prompt_tokens_details']) ? usage['prompt_tokens_details'] as Record<string, unknown> : undefined;
+  const cachedInputTokens = (promptDetails ? readNumber(promptDetails, ['cached_tokens', 'cachedTokens']) : 0)
+    || readNumber(usage, ['prompt_cache_hit_tokens', 'cached_tokens']);
   const explicitOutputTokens = readNumber(usage, ['completion_tokens', 'completionTokenCount', 'completion_token_count']);
   const candidateTokens = readNumber(usage, ['candidatesTokenCount', 'candidateTokenCount', 'output_tokens', 'outputTokenCount']);
   const thoughtTokens = readNumber(usage, ['thoughtsTokenCount', 'thoughtTokenCount']);
@@ -600,7 +611,7 @@ function extractUsageMetrics(payload: unknown): { inputTokens: number; outputTok
     outputTokens = Math.max(0, totalTokens - inputTokens);
   }
 
-  return { inputTokens, outputTokens };
+  return { inputTokens, outputTokens, cachedInputTokens };
 }
 
 function readUsageObject(payload: unknown): Record<string, unknown> | undefined {

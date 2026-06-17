@@ -56,6 +56,13 @@ export interface CompletionResponse {
   model: string;
   inputTokens: number;
   outputTokens: number;
+  /**
+   * Portion of `inputTokens` that was served from the provider's prompt cache
+   * (billed at the reduced cache-read rate), when the provider reports it. Used
+   * for cache-savings accounting. Omitted when the provider does not surface
+   * cache usage.
+   */
+  cachedInputTokens?: number;
   finishReason: 'stop' | 'length' | 'error' | 'tool_calls';
   /** Populated when finishReason is 'tool_calls'. */
   toolCalls?: ToolCall[];

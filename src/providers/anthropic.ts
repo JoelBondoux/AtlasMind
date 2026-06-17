@@ -20,6 +20,10 @@ interface AnthropicMessagesResponse {
   usage: {
     input_tokens: number;
     output_tokens: number;
+    /** Tokens served from the prompt cache (billed at the cache-read rate). */
+    cache_read_input_tokens?: number;
+    /** Tokens written to the prompt cache on this request. */
+    cache_creation_input_tokens?: number;
   };
 }
 
@@ -107,11 +111,18 @@ export class AnthropicAdapter implements ProviderAdapter {
         arguments: block.input,
       }));
 
+    // Anthropic reports cache-read / cache-creation tokens separately from
+    // `input_tokens`; fold them into the total so token counts stay complete and
+    // expose the cache-read portion for savings accounting.
+    const cacheReadTokens = result.usage.cache_read_input_tokens ?? 0;
+    const cacheCreationTokens = result.usage.cache_creation_input_tokens ?? 0;
+
     return {
       content,
       model: `anthropic/${result.model}`,
-      inputTokens: result.usage.input_tokens,
+      inputTokens: result.usage.input_tokens + cacheReadTokens + cacheCreationTokens,
       outputTokens: result.usage.output_tokens,
+      ...(cacheReadTokens > 0 ? { cachedInputTokens: cacheReadTokens } : {}),
       finishReason: mapFinishReason(result.stop_reason),
       toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     };
@@ -159,6 +170,7 @@ export class AnthropicAdapter implements ProviderAdapter {
     let contentText = '';
     let inputTokens = 0;
     let outputTokens = 0;
+    let cacheReadTokens = 0;
     let model = request.model;
     let stopReason: string | null = null;
     const toolCalls: ToolCall[] = [];
@@ -196,7 +208,10 @@ export class AnthropicAdapter implements ProviderAdapter {
             if (msg) {
               model = `anthropic/${msg['model'] as string}`;
               const usage = msg['usage'] as Record<string, number> | undefined;
-              if (usage) { inputTokens = usage['input_tokens'] ?? 0; }
+              if (usage) {
+                cacheReadTokens = usage['cache_read_input_tokens'] ?? 0;
+                inputTokens = (usage['input_tokens'] ?? 0) + cacheReadTokens + (usage['cache_creation_input_tokens'] ?? 0);
+              }
             }
           } else if (type === 'content_block_start') {
             const block = event['content_block'] as Record<string, unknown> | undefined;
@@ -240,6 +255,7 @@ export class AnthropicAdapter implements ProviderAdapter {
       model,
       inputTokens,
       outputTokens,
+      ...(cacheReadTokens > 0 ? { cachedInputTokens: cacheReadTokens } : {}),
       finishReason: mapFinishReason(stopReason as AnthropicMessagesResponse['stop_reason']),
       toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     };

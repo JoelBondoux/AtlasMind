@@ -319,6 +319,8 @@ interface CostEstimate {
   billingCategory: 'pay-per-token' | 'free' | 'subscription-included' | 'subscription-overflow';
   costUsd: number;
   budgetCostUsd: number;
+  /** USD saved by the prompt-cache discount on cached input tokens (pay-per-token / overflow only). */
+  cacheSavingsUsd?: number;
 }
 
 type ProviderCompletionRequest = {
@@ -907,6 +909,7 @@ export class Orchestrator {
     let aggregateCostUsd = 0;
     let aggregateInputTokens = 0;
     let aggregateOutputTokens = 0;
+    let aggregateCachedInputTokens = 0;
     let autoDisabledProvider: TaskResult['autoDisabledProvider'];
 
     if (dailyBudget?.blocked) {
@@ -1007,6 +1010,7 @@ export class Orchestrator {
           aggregateCostUsd += taskAttempt.costUsd;
           aggregateInputTokens += taskAttempt.completion.inputTokens;
           aggregateOutputTokens += taskAttempt.completion.outputTokens;
+          aggregateCachedInputTokens += taskAttempt.completion.cachedInputTokens ?? 0;
           attemptedModels.add(currentModel);
 
           // Mid-flight daily budget check: if we've consumed enough to tip
@@ -1183,6 +1187,7 @@ export class Orchestrator {
     const costUsd = aggregateCostUsd || finalAttempt.costUsd;
     const inputTokens = aggregateInputTokens || completion.inputTokens;
     const outputTokens = aggregateOutputTokens || completion.outputTokens;
+    const cachedInputTokens = aggregateCachedInputTokens || (completion.cachedInputTokens ?? 0);
     const estimatedCompressionSavingsUsd = compressionEnabled
       ? Math.max(0, (estimateTokens(String((request.context['sessionContext'] ?? '') + '\n' + (request.context['nativeChatContext'] ?? '') + '\n' + (request.context['attachmentContext'] ?? ''))) - estimateTokens(String(completion.content))) * ((this.router.getModelInfo(modelUsed)?.inputPricePer1k ?? 0) / 1000))
       : 0;
@@ -1205,7 +1210,7 @@ export class Orchestrator {
     };
 
     const billedModel = finalAttempt.model || modelUsed;
-    const finalCost = this.estimateCostBreakdown(billedModel, inputTokens, outputTokens);
+    const finalCost = this.estimateCostBreakdown(billedModel, inputTokens, outputTokens, cachedInputTokens);
 
     this.costs.record({
       taskId: request.id,
@@ -1218,9 +1223,11 @@ export class Orchestrator {
       ...(typeof request.context['chatMessageId'] === 'string' ? { messageId: request.context['chatMessageId'] } : {}),
       inputTokens,
       outputTokens,
+      ...(cachedInputTokens > 0 ? { cachedInputTokens } : {}),
       costUsd: costUsd,
       budgetCostUsd: finalCost.budgetCostUsd,
       compressionSavingsUsd: estimatedCompressionSavingsUsd,
+      ...(finalCost.cacheSavingsUsd ? { cacheSavingsUsd: finalCost.cacheSavingsUsd } : {}),
       timestamp: new Date().toISOString(),
     });
 
@@ -3219,7 +3226,7 @@ export class Orchestrator {
     return { lowUsd, highUsd };
   }
 
-  private estimateCostBreakdown(model: string, inputTokens: number, outputTokens: number): CostEstimate {
+  private estimateCostBreakdown(model: string, inputTokens: number, outputTokens: number, cachedInputTokens = 0): CostEstimate {
     const modelInfo = this.router.getModelInfo(model);
     if (!modelInfo) {
       return {
@@ -3232,6 +3239,12 @@ export class Orchestrator {
     const inputRate = modelInfo.inputPricePer1k;
     const outputRate = modelInfo.outputPricePer1k;
     const listedCostUsd = ((inputTokens / 1000) * inputRate) + ((outputTokens / 1000) * outputRate);
+    // Cache savings are reported as avoided spend (like compression savings) rather
+    // than discounting listedCostUsd, keeping cost figures consistent. It values the
+    // cached input tokens at the gap between the full input rate and the cache-read rate.
+    const cacheReadRate = this.router.cacheReadPricePer1k(modelInfo);
+    const cachedTokens = Math.min(Math.max(0, cachedInputTokens), inputTokens);
+    const cacheSavingsUsd = (cachedTokens / 1000) * Math.max(0, inputRate - cacheReadRate);
     const provider = this.router.getProviderConfig(modelInfo.provider);
 
     if (!provider || provider.pricingModel === 'pay-per-token') {
@@ -3241,6 +3254,7 @@ export class Orchestrator {
         billingCategory: 'pay-per-token',
         costUsd: listedCostUsd,
         budgetCostUsd: listedCostUsd,
+        ...(cacheSavingsUsd > 0 ? { cacheSavingsUsd } : {}),
       };
     }
 
@@ -3268,6 +3282,7 @@ export class Orchestrator {
         billingCategory: 'subscription-overflow',
         costUsd: listedCostUsd,
         budgetCostUsd: listedCostUsd,
+        ...(cacheSavingsUsd > 0 ? { cacheSavingsUsd } : {}),
       };
     }
 
