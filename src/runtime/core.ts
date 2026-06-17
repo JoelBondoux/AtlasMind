@@ -1016,6 +1016,28 @@ export function seedDefaultProviders(modelRouter: ModelRouter): void {
       pricingModel: 'pay-per-token',
       models: [
         {
+          id: 'nvidia/nvidia/llama-3.3-nemotron-super-49b-v1',
+          provider: 'nvidia',
+          name: 'Llama 3.3 Nemotron Super 49B',
+          contextWindow: 128000,
+          inputPricePer1k: 0.0004,
+          outputPricePer1k: 0.0004,
+          capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
+          reasoningDepth: 2,
+          enabled: true,
+        },
+        {
+          id: 'nvidia/nvidia/llama-3.1-nemotron-nano-8b-v1',
+          provider: 'nvidia',
+          name: 'Nemotron Nano',
+          contextWindow: 128000,
+          inputPricePer1k: 0.0001,
+          outputPricePer1k: 0.0001,
+          capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
+          reasoningDepth: 2,
+          enabled: true,
+        },
+        {
           id: 'nvidia/meta/llama-3.1-70b-instruct',
           provider: 'nvidia',
           name: 'Llama 3.1 70B Instruct',

@@ -6,6 +6,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.86.0 — NVIDIA Nemotron Models (NIM)
+
+- **First-class Nemotron catalog for NVIDIA NIM** (`src/providers/modelCatalog.ts`, `src/runtime/core.ts`): the NVIDIA NIM provider gains a provider-scoped `NVIDIA_CATALOG` for the Nemotron family — Ultra 253B (extended reasoning), Super 49B, Nano, 70B Instruct, and Mini — with accurate context windows, capabilities, reasoning depth, and hosted pricing. Resolving from a provider-scoped catalog means hosted (paid) Nemotron models no longer inherit metadata from the `$0` local Nemotron entries. The default seed now leads with Nemotron Super 49B + Nano so the family appears before runtime discovery. See [[Model-Routing]].
+
 ## v0.85.0 — Cross-Language Archetype Detection
 
 - **Archetype detection now spans languages** (`src/core/testingScaffolder.ts`): the scaffolder reads each detected language's dependency manifest (`pyproject.toml`/`requirements.txt`/`Pipfile`, `Cargo.toml`, `go.mod`, `pom.xml`/`build.gradle`) so web/api/cli/game archetypes resolve for Python, Rust, Go, and Java — not just Node. Short Node-only package names are gated to Node to prevent substring false positives (e.g. `cargo-nextest` is no longer mistaken for Next.js). Archetype-dependent recipes like the API/CLI/web e2e branch now fire correctly across stacks.

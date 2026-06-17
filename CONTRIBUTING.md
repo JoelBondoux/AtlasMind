@@ -122,7 +122,7 @@ For SigV4-backed providers, do not pre-encode path segments before canonical sig
 
 If a provider supports multimodal prompts, implement `ChatMessage.images` forwarding rather than silently discarding image attachments.
 
-Provider model catalogs are refreshed at startup and via the Model Providers panel.
+Provider model catalogs are refreshed at startup and via the Model Providers panel. For a provider's flagship or distinctively-named model families, add a provider-scoped catalog in `src/providers/modelCatalog.ts` and register it in `PROVIDER_CATALOGS` (e.g. `NVIDIA_CATALOG` for the Nemotron family). A provider-scoped catalog is searched before the cross-provider fallback, so hosted (paid) models resolve to the correct pricing/capabilities instead of inheriting metadata from a same-named $0 local entry.
 Interactive providers that require a user permission prompt, such as GitHub Copilot through VS Code's language-model API, should defer runtime discovery until the user explicitly activates them.
 When adding a provider, ensure `listModels()` returns discoverable model IDs whenever the upstream API supports it.
 If an upstream API is not a routed chat backend, or it requires workflow-specific auth and request signing, document it as a specialist or future integration rather than forcing it into the generic model-provider list. AtlasMind now uses `src/views/specialistIntegrationsPanel.ts` as the dedicated surface for non-routing vendors such as EXA, ElevenLabs, Stability AI, and Runway.

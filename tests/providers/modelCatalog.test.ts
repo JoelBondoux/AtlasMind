@@ -157,6 +157,38 @@ describe('lookupCatalog', () => {
     expect(entry!.capabilities).toContain('reasoning');
   });
 
+  // ── NVIDIA NIM (Nemotron) ────────────────────────────────────
+
+  it('matches Llama 3.1 Nemotron Ultra 253B with extended reasoning', () => {
+    const entry = lookupCatalog('nvidia', 'nvidia/nvidia/llama-3.1-nemotron-ultra-253b-v1');
+    expect(entry).toBeDefined();
+    expect(entry!.name).toBe('Llama 3.1 Nemotron Ultra 253B');
+    expect(entry!.capabilities).toContain('reasoning');
+    expect(entry!.reasoningDepth).toBe(3);
+  });
+
+  it('matches Nemotron Super 49B and prices it above zero (hosted, not local)', () => {
+    const entry = lookupCatalog('nvidia', 'nvidia/nvidia/llama-3.3-nemotron-super-49b-v1');
+    expect(entry).toBeDefined();
+    expect(entry!.name).toBe('Llama 3.3 Nemotron Super 49B');
+    // Must NOT resolve to the $0 local Nemotron entry.
+    expect(entry!.inputPricePer1k).toBeGreaterThan(0);
+  });
+
+  it('matches Nemotron Nano as a fast, low-cost reasoning model', () => {
+    const entry = lookupCatalog('nvidia', 'nvidia/nvidia/llama-3.1-nemotron-nano-8b-v1');
+    expect(entry).toBeDefined();
+    expect(entry!.name).toBe('Nemotron Nano');
+    expect(entry!.latencyClass).toBe('fast');
+    expect(entry!.capabilities).toContain('reasoning');
+  });
+
+  it('matches the Llama 3.1 Nemotron 70B Instruct general model', () => {
+    const entry = lookupCatalog('nvidia', 'nvidia/nvidia/llama-3.1-nemotron-70b-instruct');
+    expect(entry).toBeDefined();
+    expect(entry!.name).toBe('Llama 3.1 Nemotron 70B Instruct');
+  });
+
   it('matches Codestral', () => {
     const entry = lookupCatalog('mistral', 'codestral-latest');
     expect(entry).toBeDefined();

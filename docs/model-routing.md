@@ -199,7 +199,7 @@ current budget/speed settings and inferred task profile.
 | Cohere | `cohere` | Runtime discovery via Cohere's OpenAI-compatibility `/models` endpoint | Seeded with Command A until refresh completes |
 | Perplexity | `perplexity` | Static model catalog via adapter config because the upstream chat endpoint does not expose a standard `/models` inventory | Seeded with Sonar and refreshed from the adapter's static catalog |
 | Hugging Face Inference | `huggingface` | Runtime discovery via the Hugging Face router OpenAI-compatible `/models` endpoint | Seeded with one fallback router model until refresh completes |
-| NVIDIA NIM | `nvidia` | Runtime discovery via NVIDIA's OpenAI-compatible `/models` endpoint | Seeded with one fallback hosted model until refresh completes |
+| NVIDIA NIM | `nvidia` | Runtime discovery via NVIDIA's OpenAI-compatible `/models` endpoint, enriched by a provider-scoped Nemotron catalog | Seeded with Nemotron Super 49B, Nemotron Nano, and a Llama 3.1 70B fallback until refresh completes |
 | Local LLM | `local` | Static fallback adapter or runtime discovery via a configured local OpenAI-compatible `/models` endpoint | Falls back to `local/echo-1` until a local endpoint is configured, and remains health-checkable via the built-in echo fallback |
 | VS Code Copilot | `copilot` | Runtime discovery from VS Code Language Model API | Seeded with `copilot/default`; live discovery is deferred until the user explicitly activates Copilot so AtlasMind does not trigger a permission prompt during startup |
 
@@ -311,6 +311,7 @@ New models added to the catalog should set both fields so routing behavior is pr
 - **xAI**: Grok 4
 - **Cohere**: Command A, Command R7B
 - **Perplexity**: Sonar, Sonar Pro, Sonar Reasoning Pro, Sonar Deep Research
+- **NVIDIA NIM**: Nemotron family — Llama 3.1 Nemotron Ultra 253B (extended reasoning), Llama 3.3 Nemotron Super 49B, Nemotron Nano, Llama 3.1 Nemotron 70B Instruct, Nemotron Mini — plus open models (e.g. Llama 3.x) served through NIM
 
 The catalog is queried by `inferModelMetadata()` whenever a new model is
 discovered at runtime.  Resolution order: runtime hint → catalog → heuristic.
