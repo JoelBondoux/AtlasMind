@@ -10,6 +10,8 @@ import { getCachedLocalModelCatalog } from '../providers/localModelCatalogSync.j
 import { RECOMMENDED_MCP_SERVERS, getRecommendedMcpStarterDetails } from '../constants.js';
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
 import { scanAiInstructionFiles, syncAiInstructionFiles } from '../utils/aiInstructionSync.js';
+import { syncTestingProtocols } from '../utils/testingProtocolSync.js';
+import { scaffoldTestingFramework } from '../core/testingScaffolder.js';
 import { getDisplayCurrency } from '../core/currencyFormatter.js';
 import { isLocalSyncStale, LOCAL_MODEL_SYNC_CACHE_KEY, syncLocalModels, type LocalModelSyncResult } from '../providers/localModelSync.js';
 import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
@@ -234,7 +236,9 @@ type SettingsMessage =
   | { type: 'scanAiInstructions' }
   | { type: 'syncAiInstructions'; payload: string[] }
   | { type: 'saveTestingConfig'; payload: import('../types.js').ProjectTestingConfig }
-  | { type: 'autoAssessTestingConfig' };
+  | { type: 'autoAssessTestingConfig' }
+  | { type: 'syncTestingProtocols' }
+  | { type: 'scaffoldTestingFramework' };
 
 /**
  * Settings webview panel – budget/speed modes plus /project execution controls.
@@ -565,6 +569,14 @@ export class SettingsPanel {
         await this.runAutoAssessTestingConfig();
         return;
 
+      case 'syncTestingProtocols':
+        await this.runSyncTestingProtocols();
+        return;
+
+      case 'scaffoldTestingFramework':
+        await this.runScaffoldTestingFramework();
+        return;
+
       case 'openWorkspaceFile':
         await this.openWorkspaceFile(message.payload);
         return;
@@ -698,10 +710,80 @@ export class SettingsPanel {
     }
     try {
       await writeProjectTestingConfig(workspaceRoot, config);
+      // Keep external AI agent instruction files in sync with the matrix so
+      // tools outside AtlasMind (Claude Code, Copilot, etc.) pick up the same
+      // protocols automatically. Best-effort: a sync failure must not block save.
+      try {
+        const agents = this.atlasContext?.agentRegistry?.listAgents() ?? [];
+        const result = await syncTestingProtocols(workspaceRoot, config, agents);
+        if (result.success) {
+          void vscode.window.showInformationMessage(`Testing strategy saved. ${result.summary}`);
+        }
+      } catch {
+        /* non-fatal: save already succeeded */
+      }
       this.panel.webview.html = this.getHtml();
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
       void vscode.window.showErrorMessage(`Failed to save testing configuration: ${detail}`);
+    }
+  }
+
+  private async runSyncTestingProtocols(): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      void vscode.window.showInformationMessage('No workspace open — open a folder first.');
+      return;
+    }
+    const config = readProjectTestingConfig(workspaceRoot);
+    if (!config) {
+      void vscode.window.showInformationMessage('No testing configuration saved yet — save the Testing matrix first.');
+      return;
+    }
+    const agents = this.atlasContext?.agentRegistry?.listAgents() ?? [];
+    try {
+      const result = await syncTestingProtocols(workspaceRoot, config, agents);
+      if (result.success) {
+        void vscode.window.showInformationMessage(result.summary);
+      } else {
+        void vscode.window.showWarningMessage(result.summary);
+      }
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      void vscode.window.showErrorMessage(`Failed to sync testing protocols: ${detail}`);
+    }
+  }
+
+  private async runScaffoldTestingFramework(): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      void vscode.window.showInformationMessage('No workspace open — open a folder first.');
+      return;
+    }
+    const config = readProjectTestingConfig(workspaceRoot);
+    if (!config) {
+      void vscode.window.showInformationMessage('No testing configuration saved yet — save the Testing matrix first.');
+      return;
+    }
+    const confirm = await vscode.window.showInformationMessage(
+      'Scaffold the testing framework for the enabled methodologies? This creates starter config and test files (existing files are never overwritten) plus a managed strategy playbook.',
+      { modal: true },
+      'Scaffold',
+    );
+    if (confirm !== 'Scaffold') {
+      return;
+    }
+    try {
+      const result = await scaffoldTestingFramework(workspaceRoot, config);
+      if (result.success) {
+        void vscode.window.showInformationMessage(result.summary);
+      } else {
+        void vscode.window.showWarningMessage(result.summary);
+      }
+      this.panel.webview.html = this.getHtml();
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      void vscode.window.showErrorMessage(`Failed to scaffold testing framework: ${detail}`);
     }
   }
 
@@ -2762,6 +2844,8 @@ export class SettingsPanel {
           bindCommandButton('scanLocalModelRecommendations', 'recommendLocalModels');
           bindCommandButton('purgeProjectMemory', 'purgeProjectMemory');
           bindCommandButton('refreshTestingInventory', 'refreshTestingInventory');
+          bindCommandButton('syncTestingProtocols', 'syncTestingProtocols');
+          bindCommandButton('scaffoldTestingFramework', 'scaffoldTestingFramework');
           bindCommandButton('createTestFile', 'createTestFile');
           bindCommandButton('openCoverageReport', 'openCoverageReport');
 
@@ -3810,9 +3894,11 @@ function renderTestingPage(snapshot: TestingDashboardSnapshot, isActive: boolean
               <div class="button-stack top-gap">
                 <button id="saveTestingStrategy" type="button">Save Testing Strategy</button>
                 <button id="autoAssessTestingConfig" type="button" class="secondary-button" title="Scan the project and automatically recommend testing methodologies based on the tech stack and dependencies">Auto-assess project</button>
+                <button id="scaffoldTestingFramework" type="button" class="secondary-button" title="Construct a stack-aware starter framework (config + example tests + strategy playbook) for the enabled methodologies. Existing files are never overwritten.">Scaffold framework</button>
+                <button id="syncTestingProtocols" type="button" class="secondary-button" title="Write the enabled protocols into detected AI agent instruction files (CLAUDE.md, copilot-instructions.md, AGENTS.md, etc.) so external agents enact the same strategy.">Sync to AI agents</button>
                 <button id="refreshTestingInventory" type="button" class="secondary-button">Refresh inventory</button>
               </div>
-              <p class="info-note top-gap">Saved configuration is written to <strong>project_memory/index/testing-config.json</strong> and is read by Atlas agents when planning test tasks.</p>
+              <p class="info-note top-gap">Saved configuration is written to <strong>project_memory/index/testing-config.json</strong> and is read by Atlas agents when planning test tasks. <strong>Sync to AI agents</strong> mirrors the enabled protocols into external agent instruction files; saving also syncs automatically.</p>
             </article>
 
             <div class="page-grid two-up">
@@ -4649,7 +4735,9 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
     message.type === 'refreshTestingInventory' ||
     message.type === 'createTestFile' ||
     message.type === 'openCoverageReport' ||
-    message.type === 'autoAssessTestingConfig'
+    message.type === 'autoAssessTestingConfig' ||
+    message.type === 'syncTestingProtocols' ||
+    message.type === 'scaffoldTestingFramework'
   ) {
     return true;
   }

@@ -22,6 +22,8 @@ AtlasMind is a VS Code extension built in TypeScript, and it now also ships a sm
 | **CheckpointManager** | `src/core/checkpointManager.ts` | Pre-write snapshots for safe rollback |
 | **SkillScanner** | `src/core/skillScanner.ts` | Security scanner with 12 rules for custom skill validation |
 | **TestingConfigLoader** | `src/core/testingConfigLoader.ts` | Reads testing-config.json; infers methodology for subtasks; resolves per-methodology model overrides |
+| **TestingScaffolder** | `src/core/testingScaffolder.ts` | Constructs a language- and archetype-aware starter testing framework (idiomatic example tests + strategy playbook) for Node/Python/Rust/Go/.NET/Java from enabled methodologies; non-destructive |
+| **TestingProtocolSync** | `src/utils/testingProtocolSync.ts` | Outbound sync of enabled testing protocols into detected external agent instruction files (CLAUDE.md, copilot-instructions.md, AGENTS.md, …) via a managed, path-safe markdown block |
 | **ScannerRulesManager** | `src/core/scannerRulesManager.ts` | Configurable rule overrides persisted in globalState |
 | **McpClient** | `src/mcp/mcpClient.ts` | MCP SDK wrapper for stdio and HTTP transports |
 | **McpServerRegistry** | `src/mcp/mcpServerRegistry.ts` | Persists MCP server configs; manages connections; bridges tools as skills |

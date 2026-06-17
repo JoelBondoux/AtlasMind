@@ -90,6 +90,8 @@ When asked to publish or ship a release, follow these steps in order:
 | `CheckpointManager` | `src/core/checkpointManager.ts` | Conversation checkpoint save/restore |
 | `ProjectRunHistory` | `src/core/projectRunHistory.ts` | Persists per-project task run records |
 | `SkillScanner` | `src/core/skillScanner.ts` | Auto-discovers workspace tool definitions |
+| `TestingScaffolder` | `src/core/testingScaffolder.ts` | Constructs a stack-aware starter testing framework from enabled methodologies (non-destructive) |
+| `TestingProtocolSync` | `src/utils/testingProtocolSync.ts` | Outbound sync of enabled testing protocols into external agent instruction files via a managed, path-safe block |
 | `ProviderRegistry` | `src/providers/index.ts` | Maps provider IDs to adapter instances |
 | `McpServerRegistry` | `src/mcp/mcpServerRegistry.ts` | Manages MCP server connections and tool dispatch |
 
