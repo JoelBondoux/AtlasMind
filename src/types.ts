@@ -208,6 +208,14 @@ export interface RoutingConstraints {
   speed: SpeedMode;
   maxCostUsd?: number;
   preferredProvider?: ProviderId;
+  /**
+   * Explicit model pin for role-based routing (e.g. a planning/synthesis "brain"
+   * model). When set and the model is available, healthy, and satisfies required
+   * capabilities and any allow-list, the router selects it directly — bypassing
+   * budget/speed gates since it is a deliberate choice — otherwise it falls back
+   * to normal scoring.
+   */
+  preferredModel?: string;
   /** Hard requirements that the selected model must support. */
   requiredCapabilities?: ModelCapability[];
   /**
