@@ -6,6 +6,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.86.2 — Active-Subscription Routing Preference
+
+- **Subscriptions preferred for ordinary work** (`src/core/modelRouter.ts`): the subscription preference bonus previously applied only on maintenance tasks, so on normal work a paid-for, quota-remaining subscription got no nudge over pay-per-token (unlike local models, which do). Added a small, quota-aware general bonus so an active subscription is preferred for everyday work too — vanishing once quota is exhausted (then treated as pay-per-token). See [[Model-Routing]].
+
 ## v0.86.1 — Reasoning-Aware Routing Fix
 
 - **Catalog reasoning depth & latency class now reach the router** (`src/extension.ts`): `inferModelMetadata()` was dropping `reasoningDepth` and `latencyClass` when merging discovered models with the catalog. Since most models are populated via discovery, deep reasoners (Opus, DeepSeek R1, Nemotron Ultra) were collapsing to the fallback depth and getting under-ranked for high-reasoning tasks. The annotations now survive the merge. (The `claude-cli` Claude-subscription provider stays chat-only by design, so it remains correctly excluded from tool-driven agentic work.) See [[Model-Routing]].

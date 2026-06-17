@@ -723,7 +723,61 @@ describe('ModelRouter', () => {
     const nonCopilot = models.filter(m => !m.startsWith('copilot/'));
     expect(nonCopilot.length).toBeGreaterThan(0);
   });
+
+  // ── Active-subscription preference nudge ──────────────────────
+
+  it('prefers an active subscription over an equivalent free model on ordinary tasks', () => {
+    // Both models are identical and both resolve to zero effective cost, so the
+    // only differentiator is the general active-subscription bonus.
+    const router = new ModelRouter();
+    registerSubscriptionVsFree(router);
+
+    const selected = router.selectModel({ budget: 'balanced', speed: 'balanced' });
+
+    expect(selected).toBe('subx/m');
+  });
+
+  it('drops the subscription preference once quota is exhausted', () => {
+    const router = new ModelRouter();
+    registerSubscriptionVsFree(router);
+
+    // Exhausted subscription is treated as pay-per-token (listed cost > 0), so
+    // the genuinely free model wins and the nudge no longer applies.
+    router.updateSubscriptionQuota('subx', { totalRequests: 100, remainingRequests: 0 });
+
+    const selected = router.selectModel({ budget: 'balanced', speed: 'balanced' });
+
+    expect(selected).toBe('freex/m');
+  });
 });
+
+/** Two equivalent zero-cost models — one subscription, one free — to isolate the
+ *  active-subscription preference bonus from the cheapness axis. */
+function registerSubscriptionVsFree(router: ModelRouter): void {
+  const model = {
+    contextWindow: 128000,
+    inputPricePer1k: 0.001,
+    outputPricePer1k: 0.001,
+    capabilities: ['chat', 'code', 'function_calling'] as const,
+    enabled: true,
+  };
+  router.registerProvider({
+    id: 'subx',
+    displayName: 'Subscription X',
+    apiKeySettingKey: 'atlasmind.provider.subx.apiKey',
+    enabled: true,
+    pricingModel: 'subscription',
+    models: [{ id: 'subx/m', provider: 'subx', name: 'Sub M', ...model, capabilities: [...model.capabilities] }],
+  });
+  router.registerProvider({
+    id: 'freex',
+    displayName: 'Free X',
+    apiKeySettingKey: 'atlasmind.provider.freex.apiKey',
+    enabled: true,
+    pricingModel: 'free',
+    models: [{ id: 'freex/m', provider: 'freex', name: 'Free M', ...model, capabilities: [...model.capabilities] }],
+  });
+}
 
 function registerProviders(router: ModelRouter): void {
   const providers: ProviderConfig[] = [
