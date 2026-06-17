@@ -36,6 +36,10 @@ export interface CatalogEntry {
    * 'fast' = sub-second / low-latency; 'balanced' = normal; 'slow' = extended thinking / deliberate reasoning.
    */
   latencyClass?: 'fast' | 'balanced' | 'slow';
+  /** Whether the model/provider supports prompt caching (reduced cache-read input rate). */
+  supportsPromptCaching?: boolean;
+  /** Explicit cache-read price per 1K input tokens (USD). Omit to use the router's default discount. */
+  cachedInputPricePer1k?: number;
 }
 
 // ── Anthropic ────────────────────────────────────────────────────

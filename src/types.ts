@@ -59,6 +59,20 @@ export interface ModelInfo {
   specialistDomains?: SpecialistDomain[];
   enabled: boolean;
   /**
+   * Whether this model supports prompt caching (a stable prompt prefix —
+   * system prompt, memory bundle, tool definitions — is billed at a reduced
+   * "cache read" rate on subsequent turns). Used by the router to favour
+   * cache-capable models for iterative/threaded work where a large prefix is
+   * reused across turns.
+   */
+  supportsPromptCaching?: boolean;
+  /**
+   * Price per 1K input tokens served from the prompt cache (USD). When omitted
+   * but `supportsPromptCaching` is true, the router applies a conservative
+   * default cache-read discount to `inputPricePer1k`.
+   */
+  cachedInputPricePer1k?: number;
+  /**
    * How many subscription "premium request" units this model consumes per
    * request.  Standard models = 1, premium = 2+.  Only meaningful for
    * subscription providers (e.g. GitHub Copilot charges 3× for Opus 4).
@@ -202,6 +216,14 @@ export interface RoutingConstraints {
    * subscription providers to enable parallelism.
    */
   parallelSlots?: number;
+  /**
+   * Fraction (0..1) of this turn's input tokens expected to be served from the
+   * prompt cache — i.e. the share of the prompt that is a stable, reused prefix.
+   * When > 0, the router projects a lower input cost for cache-capable models,
+   * favouring them for iterative/threaded work. Defaults to 0 (no cacheable
+   * prefix) so single-shot turns are unaffected.
+   */
+  cacheablePrefixRatio?: number;
 }
 
 export type ToolApprovalMode = 'always-ask' | 'ask-on-write' | 'ask-on-external' | 'allow-safe-readonly';

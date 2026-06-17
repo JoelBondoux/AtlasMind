@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.87.0] - 2026-06-17
+
+### Added
+- **Cache-aware model routing** (`src/core/modelRouter.ts`, `src/core/orchestrator.ts`, `src/types.ts`, `src/providers/modelCatalog.ts`, `src/providers/adapter.ts`, `src/providers/providerPricingSync.ts`, `src/extension.ts`, `tests/core/modelRouter.test.ts`): the router now models prompt-cache economics. Frontier providers bill a large, stable prompt prefix (system/identity prompt + SSOT memory bundle + tool definitions) at a reduced cache-read rate on repeat turns; AtlasMind sends exactly that shape on iterative/threaded work. New `RoutingConstraints.cacheablePrefixRatio` lets the orchestrator declare how much of a turn's input is a reused, cacheable prefix (estimated from the carried session/native context vs. the volatile user message via the new exported `estimateCacheablePrefixRatio`, capped so a perfect cache hit is never assumed). When set, `effectiveCostPer1k` projects the cacheable share at the cache-read price for cache-capable models, so they are favoured for iterative work; single-shot turns (ratio 0) are unaffected. `ModelInfo` / `CatalogEntry` gain `supportsPromptCaching` and `cachedInputPricePer1k`; when no explicit cache price is known the router applies a conservative `DEFAULT_CACHE_READ_FACTOR` (0.25×).
+- **Dynamic cache-capability sourcing**: because providers change model capabilities over time, cache capability is **data-driven, not hardcoded**. `DiscoveredModel` and the live `ProviderPricingEntry` gain `supportsPromptCaching` / cached-price fields so runtime discovery and the pricing sync can report (or retract) caching support per refresh; `inferModelMetadata` merges them with **hint → pricing → catalog** precedence (an explicit `false` from a provider overrides the static fallback). The `CACHE_CAPABLE_PROVIDERS` set is only a bootstrap fallback used until a model has been annotated by a dynamic source. Tests cover the cost flip on a cacheable turn, no effect on single-shot turns, the dynamic `false` override, and the ratio estimator. (Surfacing estimated cache savings in the Cost Dashboard is the planned next increment — see `project_memory/decisions/cutting-edge-routing-roadmap.md`.)
+
 ## [0.86.2] - 2026-06-17
 
 ### Fixed

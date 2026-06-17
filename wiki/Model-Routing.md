@@ -320,6 +320,8 @@ Cheapness is also normalized during scoring. Free and subscription-backed models
 
 A subscription provider with quota remaining also gets a small **general** preference nudge on all task phases (not just maintenance), because its capacity is already paid for — "essentially free" until quota is exhausted. The nudge is modest and **quota-aware**: it disappears once the subscription is depleted, after which the provider is treated as pay-per-token.
 
+**Cache-aware routing.** On iterative/threaded turns the large stable prefix (system prompt + memory bundle + tool definitions) can be served from the provider's prompt cache at a reduced rate. The router projects this via `cacheablePrefixRatio` (estimated from the carried context vs. the new message, capped at 0.9), pricing the cacheable share at the model's cache-read rate so cache-capable models are favoured for repeat-context work; single-shot turns are unaffected. Cache capability is **dynamic** — sourced from discovery hints / the live pricing sync / the catalog (in that precedence), with a static provider set only as a bootstrap fallback — so it tracks providers changing their model capabilities.
+
 ---
 
 ## Subscription Quota Management

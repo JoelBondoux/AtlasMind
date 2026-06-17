@@ -3001,6 +3001,15 @@ export function inferModelMetadata(
   // ranking them for high-reasoning tasks.
   const reasoningDepth = catalogEntry?.reasoningDepth;
   const latencyClass = catalogEntry?.latencyClass;
+  // Cache capability is dynamic — providers change model capabilities over time.
+  // Prefer the runtime discovery hint and live pricing scrape over the static
+  // catalog so the router tracks those changes; an explicit hint `false`
+  // overrides the catalog. The router still applies a provider-set bootstrap
+  // fallback when no source has annotated the model yet.
+  const supportsPromptCaching = hint?.supportsPromptCaching ?? catalogEntry?.supportsPromptCaching;
+  const cachedInputPricePer1k = isLocalProvider
+    ? undefined
+    : (hint?.cachedInputPricePer1k ?? dynamicPricing?.cachedInputPer1k ?? catalogEntry?.cachedInputPricePer1k);
 
   return {
     id: modelId,
@@ -3017,6 +3026,8 @@ export function inferModelMetadata(
       : {}),
     ...(reasoningDepth !== undefined ? { reasoningDepth } : {}),
     ...(latencyClass !== undefined ? { latencyClass } : {}),
+    ...(supportsPromptCaching !== undefined ? { supportsPromptCaching } : {}),
+    ...(cachedInputPricePer1k !== undefined ? { cachedInputPricePer1k } : {}),
   };
 }
 

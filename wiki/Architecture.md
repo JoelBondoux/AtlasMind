@@ -298,7 +298,7 @@ All shared interfaces live in `src/types.ts`. Key types include:
 |-----------|---------|
 | `AgentDefinition` | Agent identity, role, prompt, model constraints, cost limit, skills |
 | `SkillDefinition` | Skill identity, JSON Schema parameters, handler function, timeout |
-| `ModelInfo` | Model identity, provider, pricing, context window, capabilities |
+| `ModelInfo` | Model identity, provider, pricing, context window, capabilities, reasoning depth, latency class, and prompt-cache support (`supportsPromptCaching`, `cachedInputPricePer1k`) |
 | `ProviderConfig` | Provider registration, API key reference, pricing model, subscription quota |
 | `CostRecord` | Per-request token counts plus provider, billing category, display cost, budget-counted cost, and optional chat session/message linkage |
 | `TaskProfile` | Inferred task phase, modality, reasoning intensity, required capabilities |

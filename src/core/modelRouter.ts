@@ -53,6 +53,24 @@ const SUBSCRIPTION_MAINTENANCE_BONUS = 0.5;
  * pay-per-token).
  */
 const ACTIVE_SUBSCRIPTION_BONUS = 0.3;
+/**
+ * Providers that support prompt caching (a stable prompt prefix is billed at a
+ * reduced cache-read rate on subsequent turns). A model is treated as
+ * cache-capable if its `supportsPromptCaching` flag is set or its provider is
+ * listed here.
+ */
+const CACHE_CAPABLE_PROVIDERS = new Set<string>([
+  'anthropic', 'claude-cli', 'openai', 'azure', 'deepseek', 'google', 'copilot',
+]);
+/**
+ * Conservative cache-read discount applied to input price when a model is
+ * cache-capable but carries no explicit `cachedInputPricePer1k`. Real provider
+ * discounts range ~0.1×–0.5×; 0.25× stays on the cautious side so caching never
+ * over-favours a model beyond its realistic saving.
+ */
+const DEFAULT_CACHE_READ_FACTOR = 0.25;
+/** Upper bound on the projected cacheable-prefix fraction (never assume a 100% cache hit). */
+const MAX_CACHEABLE_PREFIX_RATIO = 0.9;
 /** Maintenance-task penalty for pay-per-token providers. */
 const PAYPETOKEN_MAINTENANCE_PENALTY = -0.5;
 /** Penalty applied to local models that lack reasoning depth on high-reasoning tasks. */
@@ -424,7 +442,7 @@ export class ModelRouter {
     const provider = this.providers.get(model.provider);
     const parallelSlots = constraints.parallelSlots ?? 1;
 
-    const effectiveCost = this.effectiveCostPer1k(model, provider, parallelSlots);
+    const effectiveCost = this.effectiveCostPer1k(model, provider, parallelSlots, constraints.cacheablePrefixRatio);
     const cheapness = this.scoreCheapness(effectiveCost);
 
     const speedProxy = scoreSpeedTier(this.classifySpeedTier(model));
@@ -525,13 +543,43 @@ export class ModelRouter {
    * When `parallelSlots > 1`, subscription advantage is blended toward
    * listed cost so pay-per-token providers can absorb overflow.
    */
-  private effectiveCostPer1k(model: ModelInfo, provider: ProviderConfig | undefined, parallelSlots: number): number {
+  /**
+   * Projects the per-1K input price for this turn, accounting for prompt
+   * caching. When a cacheable prefix ratio is supplied and the model is
+   * cache-capable, the cacheable share is priced at the cache-read rate.
+   *
+   * Cache capability is data-driven so it tracks provider changes: the model's
+   * own `supportsPromptCaching` flag (sourced dynamically via discovery hints /
+   * pricing sync / catalog) is authoritative; `CACHE_CAPABLE_PROVIDERS` is only
+   * a bootstrap fallback for models that have not yet been annotated. An
+   * explicit `false` from a provider therefore overrides the fallback.
+   */
+  private projectedInputPricePer1k(model: ModelInfo, cacheablePrefixRatio?: number): number {
+    const ratio = Math.max(0, Math.min(MAX_CACHEABLE_PREFIX_RATIO, cacheablePrefixRatio ?? 0));
+    if (ratio <= 0) {
+      return model.inputPricePer1k;
+    }
+    const cacheCapable = model.supportsPromptCaching ?? CACHE_CAPABLE_PROVIDERS.has(model.provider);
+    if (!cacheCapable) {
+      return model.inputPricePer1k;
+    }
+    const cachedPrice = model.cachedInputPricePer1k ?? model.inputPricePer1k * DEFAULT_CACHE_READ_FACTOR;
+    return (cachedPrice * ratio) + (model.inputPricePer1k * (1 - ratio));
+  }
+
+  private effectiveCostPer1k(
+    model: ModelInfo,
+    provider: ProviderConfig | undefined,
+    parallelSlots: number,
+    cacheablePrefixRatio?: number,
+  ): number {
     const pricing = provider?.pricingModel ?? 'pay-per-token';
     // Account for extended-thinking models that emit large scratchpad token volumes:
     // thinkingTokenMultiplier scales the output cost so the router projects a
     // realistic total rather than just the visible output tokens.
     const thinkingMultiplier = model.thinkingTokenMultiplier ?? 1;
-    const listedCost = model.inputPricePer1k + (model.outputPricePer1k * thinkingMultiplier);
+    const projectedInput = this.projectedInputPricePer1k(model, cacheablePrefixRatio);
+    const listedCost = projectedInput + (model.outputPricePer1k * thinkingMultiplier);
     const multiplier = model.premiumRequestMultiplier ?? 1;
 
     if (pricing === 'pay-per-token') {
@@ -733,6 +781,23 @@ export class ModelRouter {
         return 1.5;
     }
   }
+}
+
+/**
+ * Estimates the fraction of a turn's input that is a stable, cacheable prefix
+ * (system prompt + memory bundle + tool definitions reused across turns) versus
+ * volatile per-turn content. Returned ratio is capped at `MAX_CACHEABLE_PREFIX_RATIO`
+ * so the router never assumes a perfect cache hit. Pass token estimates (or any
+ * proportional size measure) for the stable prefix and the volatile remainder.
+ */
+export function estimateCacheablePrefixRatio(stablePrefixTokens: number, volatileTokens: number): number {
+  const stable = Math.max(0, stablePrefixTokens);
+  const volatile = Math.max(0, volatileTokens);
+  const total = stable + volatile;
+  if (total <= 0) {
+    return 0;
+  }
+  return Math.min(MAX_CACHEABLE_PREFIX_RATIO, stable / total);
 }
 
 function allowedBudgetTiers(mode: BudgetMode, taskProfile?: TaskProfile): Set<BudgetMode> {

@@ -6,6 +6,7 @@ import { formatCost } from './currencyFormatter.js';
 import type { AgentRegistry } from './agentRegistry.js';
 import type { SkillsRegistry } from './skillsRegistry.js';
 import type { ModelRouter } from './modelRouter.js';
+import { estimateCacheablePrefixRatio } from './modelRouter.js';
 import type { MemoryManager } from '../memory/memoryManager.js';
 import type { CostTracker } from './costTracker.js';
 import type { ProviderRegistry } from '../providers/index.js';
@@ -753,6 +754,22 @@ export class Orchestrator {
     }
 
     let routingConstraints = buildExecutionRoutingConstraints(request.constraints, activeAgentSkills.length > 0);
+
+    // Cache-aware routing: when a substantial reused context prefix is carried
+    // into this turn (threaded / iterative work), the stable prefix can be
+    // served from the provider's prompt cache. Project that share so the router
+    // favours cache-capable models for such turns. Single-shot turns with no
+    // carried context produce a ratio of 0 and are unaffected.
+    const cacheableStablePrefix = String(
+      (request.context['sessionContext'] ?? '') + '\n' + (request.context['nativeChatContext'] ?? ''),
+    );
+    const cacheablePrefixRatio = estimateCacheablePrefixRatio(
+      estimateTokens(cacheableStablePrefix),
+      estimateTokens(String(request.userMessage ?? '')),
+    );
+    if (cacheablePrefixRatio > 0) {
+      routingConstraints = { ...routingConstraints, cacheablePrefixRatio };
+    }
 
     // For mechanical low-overhead tasks on auto budget, constrain to cheap/fast models.
     // This prevents routine git ops, script runs, and narrow test generation from consuming
