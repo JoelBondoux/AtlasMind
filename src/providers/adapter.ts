@@ -90,6 +90,15 @@ export interface DiscoveredModel {
    * Standard models = 1 (or omitted), premium = 2+.
    */
   premiumRequestMultiplier?: number;
+  /**
+   * Whether the model supports prompt caching, reported dynamically by the
+   * provider's discovery so cache capability tracks provider changes. Overrides
+   * the static catalog/provider-set fallback when present (including an explicit
+   * `false` when a provider drops caching support).
+   */
+  supportsPromptCaching?: boolean;
+  /** Dynamically discovered cache-read price per 1K input tokens (USD). */
+  cachedInputPricePer1k?: number;
 }
 
 /**

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ModelRouter } from '../../src/core/modelRouter.ts';
+import { ModelRouter, estimateCacheablePrefixRatio } from '../../src/core/modelRouter.ts';
 import { TaskProfiler } from '../../src/core/taskProfiler.ts';
 import type { ProviderConfig, SubscriptionQuota } from '../../src/types.ts';
 
@@ -749,7 +749,91 @@ describe('ModelRouter', () => {
 
     expect(selected).toBe('freex/m');
   });
+
+  // ── Cache-aware routing ───────────────────────────────────────
+
+  it('does not change selection when there is no cacheable prefix', () => {
+    const router = new ModelRouter();
+    registerCacheVsPlain(router);
+
+    // No cacheablePrefixRatio: the cheaper base model (plainx) wins.
+    const selected = router.selectModel({ budget: 'balanced', speed: 'balanced' });
+
+    expect(selected).toBe('plainx/m');
+  });
+
+  it('prefers a cache-capable model when a large cacheable prefix is reused', () => {
+    const router = new ModelRouter();
+    registerCacheVsPlain(router);
+
+    // With most of the prompt served from cache, the cache-capable model's
+    // projected input cost drops below the cheaper non-caching model.
+    const selected = router.selectModel({ budget: 'balanced', speed: 'balanced', cacheablePrefixRatio: 0.8 });
+
+    expect(selected).toBe('cachex/m');
+  });
+
+  it('lets an explicit supportsPromptCaching=false override the provider-set fallback', () => {
+    // Both models are on a cache-capable provider (anthropic). One opts out via
+    // an explicit dynamic flag, so only the other receives the cache discount.
+    const router = new ModelRouter();
+    router.registerProvider({
+      id: 'anthropic',
+      displayName: 'Anthropic',
+      apiKeySettingKey: 'k',
+      enabled: true,
+      pricingModel: 'pay-per-token',
+      models: [
+        { id: 'anthropic/cached', provider: 'anthropic', name: 'Cached', contextWindow: 200000, inputPricePer1k: 0.003, outputPricePer1k: 0.003, capabilities: ['chat', 'code', 'function_calling'], enabled: true },
+        { id: 'anthropic/optout', provider: 'anthropic', name: 'Opt Out', contextWindow: 200000, inputPricePer1k: 0.003, outputPricePer1k: 0.003, capabilities: ['chat', 'code', 'function_calling'], enabled: true, supportsPromptCaching: false },
+      ],
+    });
+
+    const selected = router.selectModel({ budget: 'balanced', speed: 'balanced', cacheablePrefixRatio: 0.8 });
+
+    expect(selected).toBe('anthropic/cached');
+  });
 });
+
+describe('estimateCacheablePrefixRatio', () => {
+  it('returns 0 when there is no input', () => {
+    expect(estimateCacheablePrefixRatio(0, 0)).toBe(0);
+  });
+
+  it('returns the stable share of total input', () => {
+    expect(estimateCacheablePrefixRatio(800, 200)).toBeCloseTo(0.8, 5);
+  });
+
+  it('caps the ratio so a perfect cache hit is never assumed', () => {
+    expect(estimateCacheablePrefixRatio(10000, 1)).toBeLessThanOrEqual(0.9);
+  });
+
+  it('clamps negative inputs to zero', () => {
+    expect(estimateCacheablePrefixRatio(-50, 100)).toBe(0);
+  });
+});
+
+/** A cache-capable model (explicit flag) vs a slightly cheaper non-caching model.
+ *  Both pay-per-token on providers outside CACHE_CAPABLE_PROVIDERS, so only the
+ *  model-level flag grants caching — exercising the dynamic, data-driven path. */
+function registerCacheVsPlain(router: ModelRouter): void {
+  router.registerProvider({
+    id: 'cachex',
+    displayName: 'Cache X',
+    apiKeySettingKey: 'k',
+    enabled: true,
+    pricingModel: 'pay-per-token',
+    models: [{ id: 'cachex/m', provider: 'cachex', name: 'Cache M', contextWindow: 128000, inputPricePer1k: 0.002, outputPricePer1k: 0.002, capabilities: ['chat', 'code', 'function_calling'], enabled: true, supportsPromptCaching: true }],
+  });
+  router.registerProvider({
+    id: 'plainx',
+    displayName: 'Plain X',
+    apiKeySettingKey: 'k',
+    enabled: true,
+    pricingModel: 'pay-per-token',
+    models: [{ id: 'plainx/m', provider: 'plainx', name: 'Plain M', contextWindow: 128000, inputPricePer1k: 0.0018, outputPricePer1k: 0.002, capabilities: ['chat', 'code', 'function_calling'], enabled: true }],
+  });
+}
 
 /** Two equivalent zero-cost models — one subscription, one free — to isolate the
  *  active-subscription preference bonus from the cheapness axis. */
