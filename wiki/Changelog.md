@@ -6,6 +6,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.85.0 — Cross-Language Archetype Detection
+
+- **Archetype detection now spans languages** (`src/core/testingScaffolder.ts`): the scaffolder reads each detected language's dependency manifest (`pyproject.toml`/`requirements.txt`/`Pipfile`, `Cargo.toml`, `go.mod`, `pom.xml`/`build.gradle`) so web/api/cli/game archetypes resolve for Python, Rust, Go, and Java — not just Node. Short Node-only package names are gated to Node to prevent substring false positives (e.g. `cargo-nextest` is no longer mistaken for Next.js). Archetype-dependent recipes like the API/CLI/web e2e branch now fire correctly across stacks.
+
 ## v0.84.0 — Multi-Language Testing-Framework Scaffolding
 
 - **Language- and archetype-aware scaffolding** (`src/core/testingScaffolder.ts`): the framework scaffolder no longer assumes Node/JS. It detects the project language (Node/Python/Rust/Go/.NET/Java) from manifest fingerprints and a coarse archetype (web/api/cli/game/mobile/library/generic), then emits idiomatic starter files — pytest + Hypothesis + Locust (Python), `cargo test` + proptest + criterion (Rust), `go test` + `testing/quick` + benchmarks (Go), xUnit (.NET), JUnit 5 (Java), alongside the existing Node toolchain. Node e2e recipes branch on archetype (API smoke test / CLI spawn harness / Playwright web spec). Unknown stacks degrade to playbook-only guidance. Closes the prior gap where non-Node projects received JS-flavoured stubs. Still non-destructive. See [[Agents]] and [[Skills]].

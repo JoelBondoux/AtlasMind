@@ -93,32 +93,84 @@ function detectLanguage(workspaceRoot: string, hasPackageJson: boolean): Languag
   return 'unknown';
 }
 
-function detectArchetype(
+/**
+ * Builds a lowercase corpus of dependency signals for archetype matching.
+ * For Node this is the dependency key list; for other languages it is the raw
+ * text of the dependency manifest(s), so framework names in `Cargo.toml`,
+ * `go.mod`, `pyproject.toml`, etc. are matched even though we never install or
+ * fully parse them. Tokens are deliberately specific (e.g. `gin-gonic`, not
+ * `gin`) to avoid substring false positives.
+ */
+function buildArchetypeCorpus(
   workspaceRoot: string,
   language: Language,
   deps: Record<string, string>,
+): string {
+  const parts: string[] = [Object.keys(deps).join(' ')];
+  const tryRead = (rel: string): void => {
+    try {
+      parts.push(readFileSync(path.join(workspaceRoot, rel), 'utf8'));
+    } catch {
+      /* manifest absent or unreadable */
+    }
+  };
+  switch (language) {
+    case 'python':
+      ['pyproject.toml', 'requirements.txt', 'Pipfile', 'setup.py', 'setup.cfg'].forEach(tryRead);
+      break;
+    case 'rust':
+      tryRead('Cargo.toml');
+      break;
+    case 'go':
+      tryRead('go.mod');
+      break;
+    case 'java':
+      ['pom.xml', 'build.gradle', 'build.gradle.kts'].forEach(tryRead);
+      break;
+    default:
+      break;
+  }
+  return parts.join(' ').toLowerCase();
+}
+
+function detectArchetype(
+  workspaceRoot: string,
+  language: Language,
+  corpus: string,
   uiFramework: DetectedStack['uiFramework'],
 ): Archetype {
-  const has = (key: string): boolean => Object.prototype.hasOwnProperty.call(deps, key);
-  const corpus = Object.keys(deps).join(' ');
+  const hit = (...tokens: string[]): boolean => tokens.some(t => corpus.includes(t));
+  // Short Node package names (`next`, `three`, `koa`) are safe as whole-word
+  // dep keys but risk substring matches in other languages' manifest text
+  // (e.g. `next` inside `cargo-nextest`). Gate those groups to Node.
+  const nodeHit = (...tokens: string[]): boolean => language === 'node' && hit(...tokens);
 
   // Mobile
-  if (has('react-native') || has('expo') || probe(workspaceRoot, 'pubspec.yaml')) {
+  if (hit('react-native', 'expo', 'kivy', 'beeware') || probe(workspaceRoot, 'pubspec.yaml')) {
     return 'mobile';
   }
   // Game
-  if (has('phaser') || has('three') || has('@babylonjs/core') || has('pixi.js') || /\bbevy\b|\bggez\b/.test(corpus)) {
+  if (
+    nodeHit('phaser', 'three', '@babylonjs/core', 'pixi.js') ||
+    hit('bevy', 'ggez', 'macroquad', 'pygame', 'ebiten', 'raylib')
+  ) {
     return 'game';
   }
-  // Web (UI framework or meta-framework)
-  if (uiFramework || has('next') || has('nuxt') || has('remix') || has('astro') || has('@sveltejs/kit')) {
+  // Web (UI framework or Node meta-framework)
+  if (uiFramework || nodeHit('next', 'nuxt', 'remix', 'astro', '@sveltejs/kit')) {
     return 'web';
   }
   // API / service
   if (
-    has('express') || has('fastify') || has('@nestjs/core') || has('hono') || has('koa') ||
-    has('flask') || has('django') || has('fastapi') ||
-    /\bgin\b|\becho\b|\bfiber\b|\baxum\b|\bactix-web\b/.test(corpus) ||
+    nodeHit('express', 'fastify', '@nestjs/core', 'hono', 'koa') ||
+    hit(
+      // Python
+      'fastapi', 'django', 'flask', 'starlette', 'sanic', 'tornado',
+      // Go (module-path tokens — specific enough to avoid false hits)
+      'gin-gonic', 'labstack/echo', 'gofiber/fiber', 'go-chi/chi', 'gorilla/mux',
+      // Rust
+      'axum', 'actix-web', 'rocket', 'tower-http', 'poem',
+    ) ||
     probe(workspaceRoot, 'openapi.yaml') || probe(workspaceRoot, 'openapi.json') || probe(workspaceRoot, 'swagger.json')
   ) {
     return 'api';
@@ -126,7 +178,12 @@ function detectArchetype(
   // CLI
   if (
     probe(workspaceRoot, 'src/main.rs') || probe(workspaceRoot, 'main.go') || probe(workspaceRoot, 'cmd') ||
-    has('commander') || has('yargs') || has('oclif') || has('click') || has('typer') || has('cobra')
+    nodeHit('commander', 'yargs', 'oclif') ||
+    hit(
+      'click', 'typer', 'argparse',            // Python
+      'clap', 'structopt',                      // Rust
+      'spf13/cobra', 'urfave/cli', 'alecthomas/kong', // Go
+    )
   ) {
     return 'cli';
   }
@@ -172,7 +229,8 @@ function detectStack(workspaceRoot: string): DetectedStack {
           ? 'angular'
           : undefined;
 
-  let archetype = detectArchetype(workspaceRoot, language, deps, uiFramework);
+  const archetypeCorpus = buildArchetypeCorpus(workspaceRoot, language, deps);
+  let archetype = detectArchetype(workspaceRoot, language, archetypeCorpus, uiFramework);
   if (archetype === 'generic' && isLibrary) {
     archetype = 'library';
   }

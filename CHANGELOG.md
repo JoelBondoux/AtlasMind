@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.85.0] - 2026-06-17
+
+### Changed
+- **Cross-language archetype detection in the scaffolder** (`src/core/testingScaffolder.ts`, `tests/core/testingScaffolder.test.ts`): archetype inference (web / api / cli / game / mobile / library / generic) no longer relies on `package.json` dependencies alone. `buildArchetypeCorpus` now reads the dependency manifests of the detected language — `pyproject.toml` / `requirements.txt` / `Pipfile` / `setup.py` / `setup.cfg` (Python), `Cargo.toml` (Rust), `go.mod` (Go), `pom.xml` / `build.gradle` (Java) — so framework signals like FastAPI/Django/Flask, axum/actix-web/rocket, gin/echo/fiber/chi, pygame/bevy/ebiten, and click/typer/clap/cobra now drive the archetype for non-Node projects. Short Node-only package names (`next`, `three`, `koa`) are gated to Node to avoid substring false positives in other languages' manifests (e.g. `cargo-nextest` no longer reads as a Next.js web app). This makes archetype-dependent recipes — such as the API-vs-CLI-vs-web e2e branch — fire correctly across languages. +5 tests (26 total in the scaffolder/sync suite).
+
 ## [0.84.0] - 2026-06-17
 
 ### Changed

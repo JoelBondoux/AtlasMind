@@ -169,3 +169,54 @@ describe('scaffoldTestingFramework — language detection', () => {
     expect(result.files[0].path).toBe('project_memory/operations/testing-strategy.md');
   });
 });
+
+// ── Archetype detection from non-Node manifests ───────────────────
+
+describe('scaffoldTestingFramework — archetype detection', () => {
+  it('detects an API archetype from a Python FastAPI dependency', async () => {
+    writeFileSync(
+      path.join(workspace, 'pyproject.toml'),
+      '[project]\nname = "demo"\ndependencies = ["fastapi>=0.110", "uvicorn"]\n',
+    );
+    const result = await scaffoldTestingFramework(workspace, makeConfig([{ id: 'e2e', enabled: true }]));
+
+    expect(result.stackLabel).toContain('archetype: api');
+    const e2e = result.files.find(f => f.created && f.path.startsWith('tests/e2e/'));
+    expect(readFileSync(path.join(workspace, e2e!.path), 'utf8')).toContain('requests');
+  });
+
+  it('detects a game archetype from a Python pygame dependency', async () => {
+    writeFileSync(path.join(workspace, 'requirements.txt'), 'pygame==2.5.2\n');
+    const result = await scaffoldTestingFramework(workspace, makeConfig([{ id: 'unit', enabled: true }]));
+    expect(result.stackLabel).toContain('archetype: game');
+  });
+
+  it('detects an API archetype from a Rust axum dependency', async () => {
+    writeFileSync(
+      path.join(workspace, 'Cargo.toml'),
+      '[package]\nname = "demo"\n\n[dependencies]\naxum = "0.7"\ntokio = "1"\n',
+    );
+    const result = await scaffoldTestingFramework(workspace, makeConfig([{ id: 'unit', enabled: true }]));
+    expect(result.stackLabel).toContain('Rust');
+    expect(result.stackLabel).toContain('archetype: api');
+  });
+
+  it('detects an API archetype from a Go gin module', async () => {
+    writeFileSync(
+      path.join(workspace, 'go.mod'),
+      'module demo\n\ngo 1.22\n\nrequire github.com/gin-gonic/gin v1.9.1\n',
+    );
+    const result = await scaffoldTestingFramework(workspace, makeConfig([{ id: 'unit', enabled: true }]));
+    expect(result.stackLabel).toContain('Go');
+    expect(result.stackLabel).toContain('archetype: api');
+  });
+
+  it('does not mistake cargo-nextest for a web (Next.js) project', async () => {
+    writeFileSync(
+      path.join(workspace, 'Cargo.toml'),
+      '[package]\nname = "demo"\n\n[dev-dependencies]\ncargo-nextest = "0.9"\n',
+    );
+    const result = await scaffoldTestingFramework(workspace, makeConfig([{ id: 'unit', enabled: true }]));
+    expect(result.stackLabel).not.toContain('archetype: web');
+  });
+});
