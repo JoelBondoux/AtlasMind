@@ -2971,7 +2971,7 @@ function resolvePremiumMultiplier(
  * 2. Well-known model catalog lookup.
  * 3. Substring-based heuristic fallback.
  */
-function inferModelMetadata(
+export function inferModelMetadata(
   providerId: ProviderId,
   modelId: string,
   hint?: DiscoveredModel,
@@ -2994,6 +2994,13 @@ function inferModelMetadata(
   const inputPricePer1k = isLocalProvider ? 0 : (hint?.inputPricePer1k ?? dynamicPricing?.inputPer1k ?? catalogEntry?.inputPricePer1k ?? inferPricing(shortId).input);
   const outputPricePer1k = isLocalProvider ? 0 : (hint?.outputPricePer1k ?? dynamicPricing?.outputPer1k ?? catalogEntry?.outputPricePer1k ?? inferPricing(shortId).output);
   const premiumRequestMultiplier = hint?.premiumRequestMultiplier ?? catalogEntry?.premiumRequestMultiplier;
+  // Carry the catalog's authoritative routing annotations through the merge.
+  // Without these, every model populated via discovery loses its reasoning depth
+  // and latency class, so the router falls back to heuristics — collapsing genuine
+  // depth-3 reasoners (Opus, DeepSeek R1, Nemotron Ultra) to depth 2 and under-
+  // ranking them for high-reasoning tasks.
+  const reasoningDepth = catalogEntry?.reasoningDepth;
+  const latencyClass = catalogEntry?.latencyClass;
 
   return {
     id: modelId,
@@ -3008,6 +3015,8 @@ function inferModelMetadata(
     ...(premiumRequestMultiplier !== undefined && premiumRequestMultiplier !== 1
       ? { premiumRequestMultiplier }
       : {}),
+    ...(reasoningDepth !== undefined ? { reasoningDepth } : {}),
+    ...(latencyClass !== undefined ? { latencyClass } : {}),
   };
 }
 

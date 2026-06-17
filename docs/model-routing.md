@@ -316,6 +316,10 @@ New models added to the catalog should set both fields so routing behavior is pr
 The catalog is queried by `inferModelMetadata()` whenever a new model is
 discovered at runtime.  Resolution order: runtime hint → catalog → heuristic.
 It is **not** the primary source of model IDs; it enriches IDs discovered from providers.
+The merge carries the catalog's authoritative **routing annotations** — `reasoningDepth`
+and `latencyClass` — through to each `ModelInfo`, so discovery-populated models keep
+their true reasoning depth (e.g. depth-3 reasoners are not collapsed to the heuristic
+default) and latency tier for budget/speed gating and scoring.
 
 Some routed providers intentionally mix discovery modes:
 

@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.86.1] - 2026-06-17
+
+### Fixed
+- **Reasoning depth and latency class are no longer dropped during model discovery** (`src/extension.ts`, `tests/providers/inferModelMetadata.test.ts`): `inferModelMetadata()` merged a model's name, context window, capabilities, pricing, and premium multiplier from the catalog but silently discarded the catalog's `reasoningDepth` and `latencyClass` annotations. Because AtlasMind seeds minimal models and populates the rest via runtime discovery, every discovered model lost these fields, so the router fell back to its heuristic — collapsing genuine depth-3 reasoners (Claude Opus, DeepSeek R1, Nemotron Ultra) to depth 2 and **under-ranking them for high-reasoning tasks**. The merge now carries both annotations through, so reasoning-heavy work routes to the appropriate models. Added a regression test asserting the annotations propagate (and are not fabricated for un-catalogued models). Note: the `claude-cli` (Claude subscription) provider remains an intentional chat-only bridge with `function_calling` stripped, so the router still correctly skips it for tool-driven agentic work; this fix improves its ranking only for the chat-only turns where it is eligible. See `project_memory/decisions/cutting-edge-routing-roadmap.md` for the broader routing roadmap.
+
 ## [0.86.0] - 2026-06-17
 
 ### Added
