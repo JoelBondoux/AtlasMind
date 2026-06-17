@@ -23,6 +23,9 @@ AtlasMind is designed with a **safety-first** principle: the extension defaults 
 
 
 > **Note:** The `project_memory/` folder is only present in development and feature branches. It is excluded from the `master` branch and all release builds. This is enforced by `.gitignore` and documented in the contribution guidelines.
+
+**Managed-block writers.** The outbound testing-protocol sync (`src/utils/testingProtocolSync.ts`) and the framework scaffolder (`src/core/testingScaffolder.ts`) are strictly non-destructive. The protocol sync only writes to instruction files that *already exist*, only ever replaces its own delimited block (`<!-- atlasmind:testing-protocols:start -->` … `:end -->`) while preserving all surrounding content, skips JSON-config files (which cannot host a markdown block), and routes every path through the shared `isSafeRelativePath` / `resolveRelativePath` traversal guard. The scaffolder creates starter files only when absent (never overwriting), never mutates `package.json`, and is modal-confirmed before running.
+
 ### 3. Webview Security
 
 - All webview panels use a strict **Content Security Policy (CSP)**

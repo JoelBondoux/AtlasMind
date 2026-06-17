@@ -397,6 +397,55 @@ export function registerCommands(
       SettingsPanel.createOrShow(context, 'testing', getAtlas());
     }),
 
+    vscode.commands.registerCommand('atlasmind.syncTestingProtocols', async () => {
+      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!workspaceRoot) {
+        void vscode.window.showInformationMessage('No workspace open — open a folder first.');
+        return;
+      }
+      const { readProjectTestingConfig } = await import('./core/testingConfigLoader.js');
+      const config = readProjectTestingConfig(workspaceRoot);
+      if (!config) {
+        void vscode.window.showInformationMessage('No testing configuration saved yet — open Settings → Testing and save the matrix first.');
+        return;
+      }
+      const { syncTestingProtocols } = await import('./utils/testingProtocolSync.js');
+      const agents = getAtlas()?.agentRegistry?.listAgents() ?? [];
+      const result = await syncTestingProtocols(workspaceRoot, config, agents);
+      if (result.success) {
+        void vscode.window.showInformationMessage(result.summary);
+      } else {
+        void vscode.window.showWarningMessage(result.summary);
+      }
+    }),
+
+    vscode.commands.registerCommand('atlasmind.scaffoldTestingFramework', async () => {
+      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!workspaceRoot) {
+        void vscode.window.showInformationMessage('No workspace open — open a folder first.');
+        return;
+      }
+      const { readProjectTestingConfig } = await import('./core/testingConfigLoader.js');
+      const config = readProjectTestingConfig(workspaceRoot);
+      if (!config) {
+        void vscode.window.showInformationMessage('No testing configuration saved yet — open Settings → Testing and save the matrix first.');
+        return;
+      }
+      const confirm = await vscode.window.showInformationMessage(
+        'Scaffold the testing framework for the enabled methodologies? Existing files are never overwritten.',
+        { modal: true },
+        'Scaffold',
+      );
+      if (confirm !== 'Scaffold') { return; }
+      const { scaffoldTestingFramework } = await import('./core/testingScaffolder.js');
+      const result = await scaffoldTestingFramework(workspaceRoot, config);
+      if (result.success) {
+        void vscode.window.showInformationMessage(result.summary);
+      } else {
+        void vscode.window.showWarningMessage(result.summary);
+      }
+    }),
+
     vscode.commands.registerCommand('atlasmind.collapseAllSidebarTrees', async () => {
       await collapseAtlasMindSidebarTrees();
     }),

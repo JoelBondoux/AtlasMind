@@ -30,7 +30,7 @@ export const AI_INSTRUCTION_SOURCES = [
 
 export const AI_INSTRUCTIONS_SYNC_REL_PATH = 'project_memory/domain/ai-instructions-sync.md';
 
-function isSafeRelativePath(value: string): boolean {
+export function isSafeRelativePath(value: string): boolean {
   const normalized = value.trim().replace(/\\/g, '/');
   if (normalized.length === 0 || normalized.includes('\0') || normalized.startsWith('/') || /^[A-Za-z]:/.test(normalized)) {
     return false;
@@ -38,7 +38,7 @@ function isSafeRelativePath(value: string): boolean {
   return normalized.split('/').every(segment => segment.length > 0 && segment !== '..');
 }
 
-function resolveRelativePath(workspaceRoot: string, candidate: string): string | undefined {
+export function resolveRelativePath(workspaceRoot: string, candidate: string): string | undefined {
   if (!isSafeRelativePath(candidate)) {
     return undefined;
   }
