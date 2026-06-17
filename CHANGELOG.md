@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.84.0] - 2026-06-17
+
+### Changed
+- **Language- and archetype-aware testing-framework scaffolding** (`src/core/testingScaffolder.ts`, `tests/core/testingScaffolder.test.ts`): the scaffolder's stack detection no longer assumes a Node/JS project. `detectStack` now identifies the project **language** — Node (JS/TS), Python, Rust, Go, .NET, or Java — from `package.json`, `pyproject.toml` / `requirements.txt` / `setup.py` / `Pipfile`, `Cargo.toml`, `go.mod`, `*.csproj` / `*.sln`, and `pom.xml` / `build.gradle`, and a coarse **archetype** (web / api / cli / game / mobile / library / generic). Starter files are now generated in the correct idiom per language: pytest + Hypothesis + Locust (Python), `cargo test` + proptest + criterion (Rust), `go test` + `testing/quick` + benchmarks (Go), xUnit (.NET), JUnit 5 (Java), alongside the existing Vitest/Jest/Playwright/Cypress/fast-check/k6 set (Node). Node e2e recipes now branch on archetype — an API project gets an HTTP smoke test, a CLI gets a spawned-process harness, a web app gets a Playwright/Cypress spec. Per-methodology install hints and the strategy playbook are likewise language-specific. Unknown stacks degrade to playbook-only guidance. Previously a non-Node project silently received JS-flavoured stubs; that gap is closed. Still strictly non-destructive — files are created only when absent and no manifest is ever mutated.
+
 ## [0.83.0] - 2026-06-17
 
 ### Added

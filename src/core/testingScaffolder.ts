@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { ProjectTestingConfig, TestingMethodologyId } from '../types.js';
@@ -8,25 +8,32 @@ import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
  * Stack-aware testing-framework scaffolder.
  *
  * Reads the enabled methodologies from `testing-config.json`, infers the
- * project's stack, and constructs a starter framework that fits: a managed
- * testing-strategy playbook plus per-methodology config/example files.
+ * project's language, test toolchain, and coarse archetype, and constructs a
+ * starter framework that fits: a managed testing-strategy playbook plus
+ * per-methodology, language-appropriate example files.
  *
- * Safety: strictly non-destructive. Config and example files are only created
- * when absent; never overwritten. `package.json` is never mutated — install
- * commands are surfaced in the playbook for the developer to run. The only
- * file always (re)written is AtlasMind's own managed playbook.
+ * Safety: strictly non-destructive. Example files are only created when
+ * absent; never overwritten. Manifests (`package.json`, `Cargo.toml`, …) are
+ * never mutated — install commands are surfaced in the playbook for the
+ * developer to run. The only file always (re)written is the managed playbook.
  */
 
 const PLAYBOOK_REL_PATH = 'project_memory/operations/testing-strategy.md';
 
+type Language = 'node' | 'python' | 'rust' | 'go' | 'dotnet' | 'java' | 'unknown';
+type Archetype = 'web' | 'api' | 'cli' | 'game' | 'mobile' | 'library' | 'generic';
+
 interface DetectedStack {
-  hasPackageJson: boolean;
+  language: Language;
+  archetype: Archetype;
   isTypeScript: boolean;
+  /** Node only: the resolved JS/TS test runner. */
   testRunner: 'vitest' | 'jest' | undefined;
   recommendedRunner: 'vitest' | 'jest';
   uiFramework: 'react' | 'vue' | 'svelte' | 'angular' | undefined;
   hasPlaywright: boolean;
   hasCypress: boolean;
+  /** Node only: example file extension. */
   testExt: 'ts' | 'js';
 }
 
@@ -47,9 +54,89 @@ function probe(workspaceRoot: string, rel: string): boolean {
   return existsSync(path.join(workspaceRoot, rel));
 }
 
+/** True when any top-level file carries the given extension (e.g. `.csproj`). */
+function probeExt(workspaceRoot: string, ext: string): boolean {
+  try {
+    return readdirSync(workspaceRoot).some(name => name.toLowerCase().endsWith(ext));
+  } catch {
+    return false;
+  }
+}
+
+function detectLanguage(workspaceRoot: string, hasPackageJson: boolean): Language {
+  // A Node manifest takes priority: in mixed repos (e.g. Tauri) the test stubs
+  // we generate are for the JS/TS surface. Pure non-Node repos resolve to their
+  // own language.
+  if (hasPackageJson) {
+    return 'node';
+  }
+  if (probe(workspaceRoot, 'Cargo.toml')) {
+    return 'rust';
+  }
+  if (probe(workspaceRoot, 'go.mod')) {
+    return 'go';
+  }
+  if (
+    probe(workspaceRoot, 'pyproject.toml') ||
+    probe(workspaceRoot, 'requirements.txt') ||
+    probe(workspaceRoot, 'setup.py') ||
+    probe(workspaceRoot, 'Pipfile')
+  ) {
+    return 'python';
+  }
+  if (probeExt(workspaceRoot, '.csproj') || probeExt(workspaceRoot, '.sln') || probeExt(workspaceRoot, '.fsproj')) {
+    return 'dotnet';
+  }
+  if (probe(workspaceRoot, 'pom.xml') || probe(workspaceRoot, 'build.gradle') || probe(workspaceRoot, 'build.gradle.kts')) {
+    return 'java';
+  }
+  return 'unknown';
+}
+
+function detectArchetype(
+  workspaceRoot: string,
+  language: Language,
+  deps: Record<string, string>,
+  uiFramework: DetectedStack['uiFramework'],
+): Archetype {
+  const has = (key: string): boolean => Object.prototype.hasOwnProperty.call(deps, key);
+  const corpus = Object.keys(deps).join(' ');
+
+  // Mobile
+  if (has('react-native') || has('expo') || probe(workspaceRoot, 'pubspec.yaml')) {
+    return 'mobile';
+  }
+  // Game
+  if (has('phaser') || has('three') || has('@babylonjs/core') || has('pixi.js') || /\bbevy\b|\bggez\b/.test(corpus)) {
+    return 'game';
+  }
+  // Web (UI framework or meta-framework)
+  if (uiFramework || has('next') || has('nuxt') || has('remix') || has('astro') || has('@sveltejs/kit')) {
+    return 'web';
+  }
+  // API / service
+  if (
+    has('express') || has('fastify') || has('@nestjs/core') || has('hono') || has('koa') ||
+    has('flask') || has('django') || has('fastapi') ||
+    /\bgin\b|\becho\b|\bfiber\b|\baxum\b|\bactix-web\b/.test(corpus) ||
+    probe(workspaceRoot, 'openapi.yaml') || probe(workspaceRoot, 'openapi.json') || probe(workspaceRoot, 'swagger.json')
+  ) {
+    return 'api';
+  }
+  // CLI
+  if (
+    probe(workspaceRoot, 'src/main.rs') || probe(workspaceRoot, 'main.go') || probe(workspaceRoot, 'cmd') ||
+    has('commander') || has('yargs') || has('oclif') || has('click') || has('typer') || has('cobra')
+  ) {
+    return 'cli';
+  }
+  return 'generic';
+}
+
 function detectStack(workspaceRoot: string): DetectedStack {
   let deps: Record<string, string> = {};
   let hasPackageJson = false;
+  let isLibrary = false;
   try {
     const raw = readFileSync(path.join(workspaceRoot, 'package.json'), 'utf8');
     hasPackageJson = true;
@@ -59,11 +146,13 @@ function detectStack(workspaceRoot: string): DetectedStack {
       pkg['dependencies'] as Record<string, string> | undefined,
       pkg['devDependencies'] as Record<string, string> | undefined,
     );
+    isLibrary = pkg['private'] !== true && typeof pkg['name'] === 'string' && !('bin' in pkg);
   } catch {
     /* no package.json or unparseable */
   }
 
   const has = (key: string): boolean => Object.prototype.hasOwnProperty.call(deps, key);
+  const language = detectLanguage(workspaceRoot, hasPackageJson);
 
   const isTypeScript = has('typescript') || probe(workspaceRoot, 'tsconfig.json');
   const testRunner: DetectedStack['testRunner'] =
@@ -83,8 +172,14 @@ function detectStack(workspaceRoot: string): DetectedStack {
           ? 'angular'
           : undefined;
 
+  let archetype = detectArchetype(workspaceRoot, language, deps, uiFramework);
+  if (archetype === 'generic' && isLibrary) {
+    archetype = 'library';
+  }
+
   return {
-    hasPackageJson,
+    language,
+    archetype,
     isTypeScript,
     testRunner,
     recommendedRunner: testRunner ?? 'vitest',
@@ -95,13 +190,28 @@ function detectStack(workspaceRoot: string): DetectedStack {
   };
 }
 
+const LANGUAGE_LABELS: Record<Language, string> = {
+  node: 'Node (JS/TS)',
+  python: 'Python',
+  rust: 'Rust',
+  go: 'Go',
+  dotnet: '.NET',
+  java: 'Java/JVM',
+  unknown: 'Unknown stack',
+};
+
 function stackLabel(stack: DetectedStack): string {
   const parts: string[] = [];
-  parts.push(stack.isTypeScript ? 'TypeScript' : stack.hasPackageJson ? 'JavaScript' : 'Unknown stack');
-  if (stack.uiFramework) {
-    parts.push(stack.uiFramework);
+  if (stack.language === 'node') {
+    parts.push(stack.isTypeScript ? 'TypeScript' : 'JavaScript');
+    if (stack.uiFramework) {
+      parts.push(stack.uiFramework);
+    }
+    parts.push(`runner: ${stack.recommendedRunner}${stack.testRunner ? '' : ' (recommended)'}`);
+  } else {
+    parts.push(LANGUAGE_LABELS[stack.language]);
   }
-  parts.push(`runner: ${stack.recommendedRunner}${stack.testRunner ? '' : ' (recommended)'}`);
+  parts.push(`archetype: ${stack.archetype}`);
   return parts.join(' · ');
 }
 
@@ -110,31 +220,40 @@ interface ScaffoldFile {
   content: string;
 }
 
-/** Generates the candidate config/example files for an enabled methodology. */
-function recipeFiles(id: TestingMethodologyId, stack: DetectedStack): ScaffoldFile[] {
+// ── Per-language recipes ──────────────────────────────────────────
+
+function nodeRecipe(id: TestingMethodologyId, stack: DetectedStack): ScaffoldFile[] {
   const ext = stack.testExt;
   switch (id) {
     case 'unit':
     case 'tdd':
     case 'test-design':
     case 'white-box': {
-      const runner = stack.recommendedRunner;
-      const example = `tests/example.${runner === 'vitest' ? 'test.' + ext : 'test.' + ext}`;
-      const importLine = runner === 'vitest'
-        ? "import { describe, it, expect } from 'vitest';"
+      const importLine = stack.recommendedRunner === 'vitest'
+        ? "import { describe, it, expect } from 'vitest';\n\n"
         : '';
-      return [
-        {
-          path: example,
-          content: `${importLine}${importLine ? '\n\n' : ''}describe('example', () => {\n  it('adds numbers', () => {\n    expect(1 + 1).toBe(2);\n  });\n});\n`,
-        },
-      ];
+      return [{
+        path: `tests/example.test.${ext}`,
+        content: `${importLine}describe('example', () => {\n  it('adds numbers', () => {\n    expect(1 + 1).toBe(2);\n  });\n});\n`,
+      }];
     }
     case 'e2e': {
       if (stack.hasCypress) {
         return [{
           path: `cypress/e2e/example.cy.${ext}`,
           content: `describe('home page', () => {\n  it('loads', () => {\n    cy.visit('/');\n  });\n});\n`,
+        }];
+      }
+      if (stack.archetype === 'api') {
+        return [{
+          path: `e2e/api.spec.${ext}`,
+          content: `import { describe, it, expect } from 'vitest';\n\ndescribe('API smoke', () => {\n  it('responds on the health endpoint', async () => {\n    const res = await fetch('http://localhost:3000/health');\n    expect(res.status).toBe(200);\n  });\n});\n`,
+        }];
+      }
+      if (stack.archetype === 'cli') {
+        return [{
+          path: `e2e/cli.spec.${ext}`,
+          content: `import { describe, it, expect } from 'vitest';\nimport { execFileSync } from 'node:child_process';\n\ndescribe('CLI smoke', () => {\n  it('prints help', () => {\n    const out = execFileSync('node', ['./bin/cli.js', '--help'], { encoding: 'utf8' });\n    expect(out).toMatch(/usage/i);\n  });\n});\n`,
         }];
       }
       return [{
@@ -147,47 +266,227 @@ function recipeFiles(id: TestingMethodologyId, stack: DetectedStack): ScaffoldFi
         path: `tests/example.property.test.${ext}`,
         content: `import fc from 'fast-check';\nimport { describe, it } from 'vitest';\n\ndescribe('property: reverse is its own inverse', () => {\n  it('holds for any string', () => {\n    fc.assert(fc.property(fc.string(), (s) => [...s].reverse().reverse().join('') === s));\n  });\n});\n`,
       }];
-    case 'performance':
-      return [{
-        path: `performance/load.k6.js`,
-        content: `import http from 'k6/http';\nimport { check, sleep } from 'k6';\n\nexport const options = { vus: 10, duration: '30s' };\n\nexport default function () {\n  const res = http.get('http://localhost:3000/');\n  check(res, { 'status is 200': (r) => r.status === 200 });\n  sleep(1);\n}\n`,
-      }];
     case 'snapshot':
       return [{
         path: `tests/example.snapshot.test.${ext}`,
         content: `import { describe, it, expect } from 'vitest';\n\ndescribe('snapshot', () => {\n  it('matches serialized output', () => {\n    expect({ hello: 'world' }).toMatchSnapshot();\n  });\n});\n`,
+      }];
+    case 'integration':
+      return [{
+        path: `tests/example.integration.test.${ext}`,
+        content: `import { describe, it, expect } from 'vitest';\n\ndescribe('integration: components collaborate', () => {\n  it('wires the pieces together', async () => {\n    // Arrange real collaborators (db, http, queue) here instead of mocks.\n    expect(true).toBe(true);\n  });\n});\n`,
+      }];
+    case 'performance':
+      return [{
+        path: `performance/load.k6.js`,
+        content: `import http from 'k6/http';\nimport { check, sleep } from 'k6';\n\nexport const options = { vus: 10, duration: '30s' };\n\nexport default function () {\n  const res = http.get('http://localhost:3000/');\n  check(res, { 'status is 200': (r) => r.status === 200 });\n  sleep(1);\n}\n`,
       }];
     default:
       return [];
   }
 }
 
-/** Per-methodology install hint shown in the playbook. */
-function installHint(id: TestingMethodologyId, stack: DetectedStack): string | undefined {
+function pythonRecipe(id: TestingMethodologyId, stack: DetectedStack): ScaffoldFile[] {
   switch (id) {
     case 'unit':
     case 'tdd':
     case 'test-design':
     case 'white-box':
-      return stack.recommendedRunner === 'vitest'
-        ? 'npm install -D vitest'
-        : 'npm install -D jest';
-    case 'e2e':
-      return stack.hasCypress ? 'npm install -D cypress' : 'npm install -D @playwright/test && npx playwright install';
+      return [{
+        path: 'tests/test_example.py',
+        content: `def test_adds_numbers():\n    assert 1 + 1 == 2\n`,
+      }];
     case 'property':
-      return 'npm install -D fast-check';
-    case 'performance':
-      return 'Install k6 (https://k6.io/docs/get-started/installation/) — run: k6 run performance/load.k6.js';
+      return [{
+        path: 'tests/test_property.py',
+        content: `from hypothesis import given, strategies as st\n\n\n@given(st.text())\ndef test_reverse_is_its_own_inverse(s):\n    assert s[::-1][::-1] == s\n`,
+      }];
+    case 'integration':
+      return [{
+        path: 'tests/test_integration.py',
+        content: `def test_components_collaborate():\n    # Arrange real collaborators (db, http, queue) here instead of mocks.\n    assert True\n`,
+      }];
     case 'snapshot':
-      return stack.recommendedRunner === 'vitest' ? 'npm install -D vitest' : 'npm install -D jest';
-    case 'security-testing':
-      return 'npm install -D @types/node && npx audit-ci  •  consider Snyk / Semgrep / Trivy in CI';
-    case 'contract':
-      return 'npm install -D @pact-foundation/pact';
-    case 'mutation':
-      return 'npm install -D @stryker-mutator/core @stryker-mutator/vitest-runner';
-    case 'visual':
-      return 'npm install -D @percy/cli  •  or Chromatic for Storybook';
+      return [{
+        path: 'tests/test_snapshot.py',
+        content: `def test_serialized_output(snapshot):\n    # Requires the 'syrupy' plugin: pip install syrupy\n    assert {"hello": "world"} == snapshot\n`,
+      }];
+    case 'e2e':
+      if (stack.archetype === 'api') {
+        return [{
+          path: 'tests/e2e/test_api.py',
+          content: `import requests\n\n\ndef test_health_endpoint():\n    res = requests.get("http://localhost:8000/health")\n    assert res.status_code == 200\n`,
+        }];
+      }
+      return [{
+        path: 'tests/e2e/test_example.py',
+        content: `from playwright.sync_api import sync_playwright\n\n\ndef test_home_page_loads():\n    with sync_playwright() as p:\n        browser = p.chromium.launch()\n        page = browser.new_page()\n        page.goto("http://localhost:8000/")\n        assert page.title() != ""\n        browser.close()\n`,
+        }];
+    case 'performance':
+      return [{
+        path: 'performance/locustfile.py',
+        content: `from locust import HttpUser, task, between\n\n\nclass LoadUser(HttpUser):\n    wait_time = between(1, 2)\n\n    @task\n    def index(self):\n        self.client.get("/")\n`,
+      }];
+    default:
+      return [];
+  }
+}
+
+function rustRecipe(id: TestingMethodologyId): ScaffoldFile[] {
+  switch (id) {
+    case 'unit':
+    case 'tdd':
+    case 'test-design':
+    case 'white-box':
+      return [{
+        path: 'tests/example_test.rs',
+        content: `#[test]\nfn adds_numbers() {\n    assert_eq!(1 + 1, 2);\n}\n`,
+      }];
+    case 'property':
+      return [{
+        path: 'tests/proptest_example.rs',
+        content: `use proptest::prelude::*;\n\nproptest! {\n    #[test]\n    fn reverse_is_its_own_inverse(s in ".*") {\n        let once: String = s.chars().rev().collect();\n        let twice: String = once.chars().rev().collect();\n        prop_assert_eq!(twice, s);\n    }\n}\n`,
+      }];
+    case 'performance':
+      return [{
+        path: 'benches/benchmark.rs',
+        content: `use criterion::{criterion_group, criterion_main, Criterion};\n\nfn bench(c: &mut Criterion) {\n    c.bench_function("add", |b| b.iter(|| 1 + 1));\n}\n\ncriterion_group!(benches, bench);\ncriterion_main!(benches);\n`,
+      }];
+    default:
+      return [];
+  }
+}
+
+function goRecipe(id: TestingMethodologyId): ScaffoldFile[] {
+  switch (id) {
+    case 'unit':
+    case 'tdd':
+    case 'test-design':
+    case 'white-box':
+      return [{
+        path: 'example_test.go',
+        content: `package main\n\nimport "testing"\n\nfunc TestAddsNumbers(t *testing.T) {\n\tif 1+1 != 2 {\n\t\tt.Fatal("math is broken")\n\t}\n}\n`,
+      }];
+    case 'property':
+      return [{
+        path: 'example_property_test.go',
+        content: `package main\n\nimport (\n\t"testing"\n\t"testing/quick"\n)\n\nfunc TestReverseInverse(t *testing.T) {\n\tf := func(s string) bool {\n\t\tr := []rune(s)\n\t\tfor i, j := 0, len(r)-1; i < j; i, j = i+1, j-1 {\n\t\t\tr[i], r[j] = r[j], r[i]\n\t\t}\n\t\treturn true // replace with a real round-trip invariant\n\t}\n\tif err := quick.Check(f, nil); err != nil {\n\t\tt.Error(err)\n\t}\n}\n`,
+      }];
+    case 'performance':
+      return [{
+        path: 'bench_test.go',
+        content: `package main\n\nimport "testing"\n\nfunc BenchmarkAdd(b *testing.B) {\n\tfor i := 0; i < b.N; i++ {\n\t\t_ = 1 + 1\n\t}\n}\n`,
+      }];
+    default:
+      return [];
+  }
+}
+
+function dotnetRecipe(id: TestingMethodologyId): ScaffoldFile[] {
+  switch (id) {
+    case 'unit':
+    case 'tdd':
+    case 'test-design':
+    case 'white-box':
+      return [{
+        path: 'Tests/ExampleTests.cs',
+        content: `using Xunit;\n\npublic class ExampleTests\n{\n    [Fact]\n    public void AddsNumbers()\n    {\n        Assert.Equal(2, 1 + 1);\n    }\n}\n`,
+      }];
+    default:
+      return [];
+  }
+}
+
+function javaRecipe(id: TestingMethodologyId): ScaffoldFile[] {
+  switch (id) {
+    case 'unit':
+    case 'tdd':
+    case 'test-design':
+    case 'white-box':
+      return [{
+        path: 'src/test/java/ExampleTest.java',
+        content: `import org.junit.jupiter.api.Test;\nimport static org.junit.jupiter.api.Assertions.assertEquals;\n\nclass ExampleTest {\n    @Test\n    void addsNumbers() {\n        assertEquals(2, 1 + 1);\n    }\n}\n`,
+      }];
+    default:
+      return [];
+  }
+}
+
+/** Generates language-appropriate candidate files for an enabled methodology. */
+function recipeFiles(id: TestingMethodologyId, stack: DetectedStack): ScaffoldFile[] {
+  switch (stack.language) {
+    case 'node':
+      return nodeRecipe(id, stack);
+    case 'python':
+      return pythonRecipe(id, stack);
+    case 'rust':
+      return rustRecipe(id);
+    case 'go':
+      return goRecipe(id);
+    case 'dotnet':
+      return dotnetRecipe(id);
+    case 'java':
+      return javaRecipe(id);
+    default:
+      return [];
+  }
+}
+
+/** Per-language, per-methodology set-up hint shown in the playbook. */
+function installHint(id: TestingMethodologyId, stack: DetectedStack): string | undefined {
+  const isStructural = id === 'unit' || id === 'tdd' || id === 'test-design' || id === 'white-box';
+  switch (stack.language) {
+    case 'node':
+      switch (id) {
+        case 'unit':
+        case 'tdd':
+        case 'test-design':
+        case 'white-box':
+        case 'snapshot':
+        case 'integration':
+          return stack.recommendedRunner === 'vitest' ? 'npm install -D vitest' : 'npm install -D jest';
+        case 'e2e':
+          return stack.hasCypress ? 'npm install -D cypress' : 'npm install -D @playwright/test && npx playwright install';
+        case 'property':
+          return 'npm install -D fast-check';
+        case 'performance':
+          return 'Install k6 (https://k6.io/docs/get-started/installation/) — run: k6 run performance/load.k6.js';
+        case 'security-testing':
+          return 'npx audit-ci  •  consider Snyk / Semgrep / Trivy in CI';
+        case 'contract':
+          return 'npm install -D @pact-foundation/pact';
+        case 'mutation':
+          return 'npm install -D @stryker-mutator/core @stryker-mutator/vitest-runner';
+        case 'visual':
+          return 'npm install -D @percy/cli  •  or Chromatic for Storybook';
+        default:
+          return undefined;
+      }
+    case 'python':
+      if (isStructural || id === 'integration') { return 'pip install pytest  •  run: pytest'; }
+      if (id === 'property') { return 'pip install hypothesis'; }
+      if (id === 'snapshot') { return 'pip install syrupy'; }
+      if (id === 'e2e') { return stack.archetype === 'api' ? 'pip install requests pytest' : 'pip install playwright pytest && playwright install'; }
+      if (id === 'performance') { return 'pip install locust  •  run: locust -f performance/locustfile.py'; }
+      if (id === 'security-testing') { return 'pip install bandit pip-audit  •  run: bandit -r . && pip-audit'; }
+      return undefined;
+    case 'rust':
+      if (isStructural) { return 'Built in — run: cargo test'; }
+      if (id === 'property') { return 'Add proptest to [dev-dependencies] — run: cargo test'; }
+      if (id === 'performance') { return 'Add criterion to [dev-dependencies] — run: cargo bench'; }
+      if (id === 'security-testing') { return 'cargo install cargo-audit — run: cargo audit'; }
+      return undefined;
+    case 'go':
+      if (isStructural || id === 'property') { return 'Built in — run: go test ./...'; }
+      if (id === 'performance') { return 'Built in — run: go test -bench=. ./...'; }
+      if (id === 'security-testing') { return 'go install golang.org/x/vuln/cmd/govulncheck@latest — run: govulncheck ./...'; }
+      return undefined;
+    case 'dotnet':
+      if (isStructural) { return 'dotnet add package xunit && dotnet add package xunit.runner.visualstudio — run: dotnet test'; }
+      return undefined;
+    case 'java':
+      if (isStructural) { return 'Add JUnit 5 (junit-jupiter) to your build — run: mvn test  /  gradle test'; }
+      return undefined;
     default:
       return undefined;
   }
@@ -223,11 +522,13 @@ function buildPlaybook(config: ProjectTestingConfig, stack: DetectedStack): stri
     lines.push(`- **Trade-offs:** ${def.tradeoffs}`);
     const install = installHint(methodConfig.id, stack);
     if (install) {
-      lines.push(`- **Set up:** \`${install}\``);
+      lines.push(`- **Set up (${LANGUAGE_LABELS[stack.language]}):** ${install}`);
     }
     const files = recipeFiles(methodConfig.id, stack);
     if (files.length > 0) {
       lines.push(`- **Starter file:** \`${files[0].path}\``);
+    } else if (stack.language !== 'node') {
+      lines.push('- **Starter file:** _guidance only for this methodology on the detected language — see Key tools above._');
     }
     if (methodConfig.notes && methodConfig.notes.trim()) {
       lines.push(`- **Project notes:** ${methodConfig.notes.trim()}`);

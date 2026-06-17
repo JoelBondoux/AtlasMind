@@ -109,4 +109,63 @@ describe('scaffoldTestingFramework', () => {
 
     expect(readFileSync(path.join(workspace, 'package.json'), 'utf8')).toBe(before);
   });
+
+  it('chooses an API e2e smoke test when a server dependency is present', async () => {
+    writePackageJson({ vitest: '^1.0.0', express: '^4.18.0' });
+    const result = await scaffoldTestingFramework(workspace, makeConfig([{ id: 'e2e', enabled: true }]));
+
+    expect(result.stackLabel).toContain('archetype: api');
+    const e2e = result.files.find(f => f.created && f.path.startsWith('e2e/'));
+    expect(e2e?.path).toMatch(/api\.spec/);
+    expect(readFileSync(path.join(workspace, e2e!.path), 'utf8')).toContain('/health');
+  });
+});
+
+// ── Language adaptivity ───────────────────────────────────────────
+
+describe('scaffoldTestingFramework — language detection', () => {
+  it('generates pytest files for a Python project', async () => {
+    writeFileSync(path.join(workspace, 'pyproject.toml'), '[project]\nname = "demo"\n');
+    const result = await scaffoldTestingFramework(
+      workspace,
+      makeConfig([{ id: 'unit', enabled: true }, { id: 'property', enabled: true }]),
+    );
+
+    expect(result.stackLabel).toContain('Python');
+    expect(result.files.find(f => f.created && f.path === 'tests/test_example.py')).toBeDefined();
+    expect(result.files.find(f => f.created && f.path === 'tests/test_property.py')).toBeDefined();
+    // No JS stubs leaked into a Python project.
+    expect(result.files.some(f => f.path.endsWith('.test.ts') || f.path.endsWith('.test.js'))).toBe(false);
+    expect(readFileSync(path.join(workspace, 'tests/test_property.py'), 'utf8')).toContain('hypothesis');
+  });
+
+  it('generates cargo test files for a Rust project', async () => {
+    writeFileSync(path.join(workspace, 'Cargo.toml'), '[package]\nname = "demo"\n');
+    const result = await scaffoldTestingFramework(workspace, makeConfig([{ id: 'unit', enabled: true }]));
+
+    expect(result.stackLabel).toContain('Rust');
+    const unit = result.files.find(f => f.created && f.path.endsWith('.rs'));
+    expect(unit).toBeDefined();
+    expect(readFileSync(path.join(workspace, unit!.path), 'utf8')).toContain('#[test]');
+  });
+
+  it('generates go test files for a Go project', async () => {
+    writeFileSync(path.join(workspace, 'go.mod'), 'module demo\n\ngo 1.22\n');
+    const result = await scaffoldTestingFramework(workspace, makeConfig([{ id: 'unit', enabled: true }]));
+
+    expect(result.stackLabel).toContain('Go');
+    const unit = result.files.find(f => f.created && f.path.endsWith('_test.go'));
+    expect(unit).toBeDefined();
+    expect(readFileSync(path.join(workspace, unit!.path), 'utf8')).toContain('testing.T');
+  });
+
+  it('falls back to playbook-only guidance for an unknown stack', async () => {
+    const result = await scaffoldTestingFramework(workspace, makeConfig([{ id: 'unit', enabled: true }]));
+
+    expect(result.success).toBe(true);
+    expect(result.stackLabel).toContain('Unknown stack');
+    // Only the playbook is written; no language-specific stubs.
+    expect(result.files.filter(f => f.created)).toHaveLength(1);
+    expect(result.files[0].path).toBe('project_memory/operations/testing-strategy.md');
+  });
 });

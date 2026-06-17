@@ -6,6 +6,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.84.0 — Multi-Language Testing-Framework Scaffolding
+
+- **Language- and archetype-aware scaffolding** (`src/core/testingScaffolder.ts`): the framework scaffolder no longer assumes Node/JS. It detects the project language (Node/Python/Rust/Go/.NET/Java) from manifest fingerprints and a coarse archetype (web/api/cli/game/mobile/library/generic), then emits idiomatic starter files — pytest + Hypothesis + Locust (Python), `cargo test` + proptest + criterion (Rust), `go test` + `testing/quick` + benchmarks (Go), xUnit (.NET), JUnit 5 (Java), alongside the existing Node toolchain. Node e2e recipes branch on archetype (API smoke test / CLI spawn harness / Playwright web spec). Unknown stacks degrade to playbook-only guidance. Closes the prior gap where non-Node projects received JS-flavoured stubs. Still non-destructive. See [[Agents]] and [[Skills]].
+
 ## v0.83.0 — Testing Protocols for External Agents & Framework Scaffolding
 
 - **Outbound testing-protocol sync** (`src/utils/testingProtocolSync.ts`, `src/utils/aiInstructionSync.ts`, `src/views/settingsPanel.ts`): the testing methodology matrix is now visible to AI agents *outside* AtlasMind. Instruction-file sync was previously inbound only; the new `syncTestingProtocols` writes an AtlasMind-managed, delimited block describing each enabled methodology (what, when, key tools, owner agent, preferred model, notes) into every *detected* markdown instruction file — `CLAUDE.md`, `.github/copilot-instructions.md`, `AGENTS.md`, Cursor, Cline, Gemini, Windsurf, Aider. Strictly non-destructive: only the managed block is touched, only existing files are written, and all paths pass the shared traversal guard. Saving the matrix auto-syncs; a **Sync to AI agents** button and `atlasmind.syncTestingProtocols` command trigger it on demand. See [[Skills]] and [[Security]].
