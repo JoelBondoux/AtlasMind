@@ -64,11 +64,28 @@ const CACHE_CAPABLE_PROVIDERS = new Set<string>([
 ]);
 /**
  * Conservative cache-read discount applied to input price when a model is
- * cache-capable but carries no explicit `cachedInputPricePer1k`. Real provider
- * discounts range ~0.1×–0.5×; 0.25× stays on the cautious side so caching never
- * over-favours a model beyond its realistic saving.
+ * cache-capable but carries no explicit `cachedInputPricePer1k` and its provider
+ * has no known factor. Real provider discounts range ~0.1×–0.5×; 0.25× stays on
+ * the cautious side so caching never over-favours a model beyond its realistic
+ * saving.
  */
 const DEFAULT_CACHE_READ_FACTOR = 0.25;
+/**
+ * Known cache-read discounts per provider (cache-hit input price ÷ base input
+ * price), used as the baseline when a model carries no explicit
+ * `cachedInputPricePer1k`. These are stable, published list factors; a dynamic
+ * `cachedInputPricePer1k` from discovery / pricing sync still overrides them, so
+ * this is only a more-accurate bootstrap than the flat default.
+ */
+const PROVIDER_CACHE_READ_FACTOR: Record<string, number> = {
+  anthropic: 0.1,
+  'claude-cli': 0.1,
+  openai: 0.5,
+  azure: 0.5,
+  copilot: 0.5,
+  deepseek: 0.25,
+  google: 0.25,
+};
 /** Upper bound on the projected cacheable-prefix fraction (never assume a 100% cache hit). */
 const MAX_CACHEABLE_PREFIX_RATIO = 0.9;
 /** Maintenance-task penalty for pay-per-token providers. */
@@ -563,7 +580,8 @@ export class ModelRouter {
     if (!cacheCapable) {
       return model.inputPricePer1k;
     }
-    const cachedPrice = model.cachedInputPricePer1k ?? model.inputPricePer1k * DEFAULT_CACHE_READ_FACTOR;
+    const cacheReadFactor = PROVIDER_CACHE_READ_FACTOR[model.provider] ?? DEFAULT_CACHE_READ_FACTOR;
+    const cachedPrice = model.cachedInputPricePer1k ?? model.inputPricePer1k * cacheReadFactor;
     return (cachedPrice * ratio) + (model.inputPricePer1k * (1 - ratio));
   }
 

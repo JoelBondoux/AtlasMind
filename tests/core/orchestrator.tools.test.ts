@@ -767,11 +767,14 @@ describe('Orchestrator agentic loop', () => {
             providerId: 'google',
             adapter: failingProvider,
             models: [{
+              // Priced clearly below the backup so it is the first (cheapest)
+              // candidate regardless of cache-read discounts — keeps the
+              // failover intent independent of per-provider cache factors.
               id: 'google/gemini-2.5-pro',
               name: 'Gemini 2.5 Pro',
               contextWindow: 200000,
-              inputPricePer1k: 0.003,
-              outputPricePer1k: 0.003,
+              inputPricePer1k: 0.001,
+              outputPricePer1k: 0.001,
               capabilities: ['chat', 'code', 'reasoning'],
             }],
           },
