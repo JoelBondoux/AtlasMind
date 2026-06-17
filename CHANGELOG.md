@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.89.0] - 2026-06-17
+
+### Added
+- **Anthropic prompt-cache writes — actually caching the stable prefix** (`src/providers/anthropic.ts`, `tests/providers/anthropicCaching.test.ts`): the cache-savings pipeline previously only *measured* whatever a provider happened to cache. The Anthropic adapter now *deliberately* caches: when a request carries tools (an agentic loop that reuses the identical system prompt + tool definitions across every iteration), it marks the system prompt and the final tool definition with `cache_control: { type: 'ephemeral' }`, so Anthropic serves that prefix at the reduced cache-read rate on the second and subsequent calls. Applied on both the buffered and streaming request paths. Caching is gated on tool presence so single-shot, tool-less turns are not charged Anthropic's ~1.25× cache-write premium (which only breaks even after the second read); blocks below Anthropic's minimum cacheable size are silently ignored by the API. This closes the loop with the v0.88.0 cache-savings telemetry: AtlasMind writes the cache, the provider reports cache reads, and the Cost Dashboard shows the realised savings.
+
 ## [0.88.0] - 2026-06-17
 
 ### Added

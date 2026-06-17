@@ -54,18 +54,20 @@ export class AnthropicAdapter implements ProviderAdapter {
     const toolRegistry = buildAnthropicToolRegistry(request.tools);
     const { system, messages } = splitSystemPrompt(request.messages, toolRegistry.toProviderName);
 
+    const mappedTools = toolRegistry.tools?.map(tool => ({
+      name: tool.name,
+      description: tool.description,
+      input_schema: tool.parameters,
+    }));
+    const cached = applyAnthropicPromptCaching(system, mappedTools, (mappedTools?.length ?? 0) > 0);
     const payload = {
       model: stripProviderPrefix(request.model),
       max_tokens: request.maxTokens ?? 1024,
       temperature: request.temperature ?? 0.2,
-      system,
+      system: cached.system,
       messages,
       stop_sequences: request.stop,
-      tools: toolRegistry.tools?.map(tool => ({
-        name: tool.name,
-        description: tool.description,
-        input_schema: tool.parameters,
-      })),
+      tools: cached.tools,
     };
 
     const result = await this.withRetries(async () => {
@@ -136,19 +138,21 @@ export class AnthropicAdapter implements ProviderAdapter {
     const toolRegistry = buildAnthropicToolRegistry(request.tools);
     const { system, messages } = splitSystemPrompt(request.messages, toolRegistry.toProviderName);
 
+    const mappedTools = toolRegistry.tools?.map(tool => ({
+      name: tool.name,
+      description: tool.description,
+      input_schema: tool.parameters,
+    }));
+    const cached = applyAnthropicPromptCaching(system, mappedTools, (mappedTools?.length ?? 0) > 0);
     const payload = {
       model: stripProviderPrefix(request.model),
       max_tokens: request.maxTokens ?? 1024,
       temperature: request.temperature ?? 0.2,
-      system,
+      system: cached.system,
       messages,
       stop_sequences: request.stop,
       stream: true,
-      tools: toolRegistry.tools?.map(tool => ({
-        name: tool.name,
-        description: tool.description,
-        input_schema: tool.parameters,
-      })),
+      tools: cached.tools,
     };
 
     const response = await fetch(this.apiUrl, {
@@ -427,6 +431,53 @@ function splitSystemPrompt(
     system: systemChunks.length > 0 ? systemChunks.join('\n\n') : undefined,
     messages: converted,
   };
+}
+
+interface AnthropicCacheControl {
+  type: 'ephemeral';
+}
+
+interface AnthropicToolPayload {
+  name: string;
+  description: string;
+  input_schema: Record<string, unknown>;
+  cache_control?: AnthropicCacheControl;
+}
+
+type AnthropicSystemField =
+  | string
+  | Array<{ type: 'text'; text: string; cache_control?: AnthropicCacheControl }>
+  | undefined;
+
+/**
+ * Marks the stable prompt prefix (system prompt + tool definitions) with
+ * Anthropic prompt-caching breakpoints so it is billed at the reduced cache-read
+ * rate on subsequent calls that reuse it.
+ *
+ * Only applied when `shouldCache` is true — currently when the request carries
+ * tools, i.e. an agentic loop that reuses the identical system+tools prefix
+ * across every iteration. Anthropic's cache-write premium (~1.25×) breaks even
+ * after the second read (~0.1× each), so caching is guaranteed-beneficial there
+ * and avoids penalising single-shot, tool-less turns. Blocks below Anthropic's
+ * minimum cacheable size are silently ignored by the API, so marking a short
+ * prefix is harmless.
+ */
+export function applyAnthropicPromptCaching(
+  system: string | undefined,
+  tools: AnthropicToolPayload[] | undefined,
+  shouldCache: boolean,
+): { system: AnthropicSystemField; tools: AnthropicToolPayload[] | undefined } {
+  if (!shouldCache) {
+    return { system, tools };
+  }
+  const cachedSystem: AnthropicSystemField = system && system.trim().length > 0
+    ? [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }]
+    : system;
+  const cachedTools = tools && tools.length > 0
+    ? tools.map((tool, index) =>
+        index === tools.length - 1 ? { ...tool, cache_control: { type: 'ephemeral' as const } } : tool)
+    : tools;
+  return { system: cachedSystem, tools: cachedTools };
 }
 
 function buildAnthropicToolRegistry(tools: readonly ToolDefinition[] | undefined): {
