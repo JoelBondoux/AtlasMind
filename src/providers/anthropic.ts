@@ -59,7 +59,7 @@ export class AnthropicAdapter implements ProviderAdapter {
       description: tool.description,
       input_schema: tool.parameters,
     }));
-    const cached = applyAnthropicPromptCaching(system, mappedTools, (mappedTools?.length ?? 0) > 0);
+    const cached = applyAnthropicPromptCaching(system, mappedTools, (mappedTools?.length ?? 0) > 0 || request.cacheStablePrefix === true);
     const payload = {
       model: stripProviderPrefix(request.model),
       max_tokens: request.maxTokens ?? 1024,
@@ -143,7 +143,7 @@ export class AnthropicAdapter implements ProviderAdapter {
       description: tool.description,
       input_schema: tool.parameters,
     }));
-    const cached = applyAnthropicPromptCaching(system, mappedTools, (mappedTools?.length ?? 0) > 0);
+    const cached = applyAnthropicPromptCaching(system, mappedTools, (mappedTools?.length ?? 0) > 0 || request.cacheStablePrefix === true);
     const payload = {
       model: stripProviderPrefix(request.model),
       max_tokens: request.maxTokens ?? 1024,
@@ -444,10 +444,37 @@ interface AnthropicToolPayload {
   cache_control?: AnthropicCacheControl;
 }
 
-type AnthropicSystemField =
-  | string
-  | Array<{ type: 'text'; text: string; cache_control?: AnthropicCacheControl }>
-  | undefined;
+type AnthropicSystemBlock = { type: 'text'; text: string; cache_control?: AnthropicCacheControl };
+type AnthropicSystemField = string | AnthropicSystemBlock[] | undefined;
+
+/**
+ * Markers that delimit the volatile (per-turn) tail of AtlasMind's system prompt
+ * from its stable (identity / policy / skills) head. Memory and live evidence
+ * change almost every turn, so caching the whole system prompt rarely hits across
+ * turns. Splitting at the first volatile marker lets the stable head — identical
+ * across turns — be cached while the volatile tail stays uncached, raising the
+ * cross-turn cache-hit rate. Kept in sync with the orchestrator's system-prompt
+ * assembly and the claude-cli compaction markers.
+ */
+const VOLATILE_SYSTEM_MARKERS = [
+  'Relevant project memory:',
+  'Live evidence from source-backed files:',
+];
+
+/** Splits the system prompt into its stable head and volatile tail at the first volatile marker. */
+export function splitStableSystemPrefix(system: string): { stable: string; volatile: string } {
+  let boundary = -1;
+  for (const marker of VOLATILE_SYSTEM_MARKERS) {
+    const idx = system.indexOf(marker);
+    if (idx >= 0 && (boundary < 0 || idx < boundary)) {
+      boundary = idx;
+    }
+  }
+  if (boundary < 0) {
+    return { stable: system, volatile: '' };
+  }
+  return { stable: system.slice(0, boundary).trimEnd(), volatile: system.slice(boundary) };
+}
 
 /**
  * Marks the stable prompt prefix (system prompt + tool definitions) with
@@ -470,9 +497,24 @@ export function applyAnthropicPromptCaching(
   if (!shouldCache) {
     return { system, tools };
   }
-  const cachedSystem: AnthropicSystemField = system && system.trim().length > 0
-    ? [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }]
-    : system;
+
+  // Cache only the stable head of the system prompt (identity / policy / skills);
+  // leave the volatile memory + evidence tail uncached so it does not bust the
+  // cache entry every turn.
+  let cachedSystem: AnthropicSystemField = system;
+  if (system && system.trim().length > 0) {
+    const { stable, volatile } = splitStableSystemPrefix(system);
+    if (stable.trim().length > 0) {
+      const blocks: AnthropicSystemBlock[] = [
+        { type: 'text', text: stable, cache_control: { type: 'ephemeral' } },
+      ];
+      if (volatile.length > 0) {
+        blocks.push({ type: 'text', text: volatile });
+      }
+      cachedSystem = blocks;
+    }
+  }
+
   const cachedTools = tools && tools.length > 0
     ? tools.map((tool, index) =>
         index === tools.length - 1 ? { ...tool, cache_control: { type: 'ephemeral' as const } } : tool)

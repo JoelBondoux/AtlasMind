@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.90.0] - 2026-06-17
+
+### Changed
+- **Smarter Anthropic prompt caching: stable-prefix split + threaded-chat caching** (`src/providers/anthropic.ts`, `src/providers/adapter.ts`, `src/core/orchestrator.ts`, `tests/providers/anthropicCaching.test.ts`): two refinements to the v0.89.0 cache writes.
+  - **Stable/volatile system split** — AtlasMind's system prompt mixes a stable head (guardrails, agent prompt, skills) with a volatile tail (`Relevant project memory:` / `Live evidence from source-backed files:`) that changes almost every turn, so caching the whole system prompt rarely hit across turns. The adapter now splits at the first volatile marker (`splitStableSystemPrefix`) and places the cache breakpoint after the stable head only, leaving memory/evidence uncached. The stable head is identical across turns, so cross-turn cache-hit rates rise substantially.
+  - **Threaded tool-less caching** — caching was previously gated on tool presence (agentic loops). A new `CompletionRequest.cacheStablePrefix` flag, set by the orchestrator when the cacheable-prefix ratio of the carried session/native context exceeds `CACHE_PREFIX_REUSE_THRESHOLD` (0.25), now also caches the stable prefix on threaded, tool-less chat turns where the prefix is genuinely reused — while still skipping single-shot turns to avoid the cache-write premium. +4 tests covering the split and the marker logic.
+
 ## [0.89.0] - 2026-06-17
 
 ### Added
