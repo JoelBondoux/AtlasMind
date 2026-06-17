@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.86.2] - 2026-06-17
+
+### Fixed
+- **Active subscriptions are now preferred for ordinary work, not just maintenance tasks** (`src/core/modelRouter.ts`, `tests/core/modelRouter.test.ts`): a subscription provider's explicit preference bonus (`SUBSCRIPTION_MAINTENANCE_BONUS`) was only applied on `maintenance`-phase tasks. On normal tasks a paid-for, quota-remaining subscription tied with local/free on the cheapness axis but — unlike local models, which receive general preference bonuses — got no nudge over pay-per-token providers. Added a small, **quota-aware** general bonus (`ACTIVE_SUBSCRIPTION_BONUS`) so an active subscription (quota remaining) is preferred for everyday work too, reflecting that its capacity is already paid for and "essentially free" until quota is exhausted. The bonus is modest (it breaks ties toward the subscription without overriding capability/quality needs) and vanishes once quota is depleted, at which point the provider is treated as pay-per-token. Added tests covering both the preference on a neutral task and its removal on quota exhaustion.
+
 ## [0.86.1] - 2026-06-17
 
 ### Fixed

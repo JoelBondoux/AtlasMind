@@ -43,6 +43,16 @@ const LOCAL_MAINTENANCE_SMALL_BONUS = 0.5;
 const FREE_MAINTENANCE_BONUS = 1.5;
 /** Maintenance-task bonus for subscription providers. */
 const SUBSCRIPTION_MAINTENANCE_BONUS = 0.5;
+/**
+ * General preference nudge for an active subscription provider with quota
+ * remaining. Subscription capacity is already paid for ("essentially free"
+ * until quota is exhausted), so it should be preferred over pay-per-token for
+ * ordinary work — not only on maintenance tasks. Modest by design: it breaks
+ * ties toward the subscription without overriding capability/quality needs, and
+ * it vanishes once quota is depleted (the provider is then effectively
+ * pay-per-token).
+ */
+const ACTIVE_SUBSCRIPTION_BONUS = 0.3;
 /** Maintenance-task penalty for pay-per-token providers. */
 const PAYPETOKEN_MAINTENANCE_PENALTY = -0.5;
 /** Penalty applied to local models that lack reasoning depth on high-reasoning tasks. */
@@ -429,8 +439,26 @@ export class ModelRouter {
     const preferenceBias = this.scorePreferenceBias(model.id);
 
     const localBonus = this.scoreLocalPreference(model, taskProfile);
+    const subscriptionBonus = this.scoreActiveSubscriptionPreference(model);
 
-    return (cheapness * budgetWeight) + (speedProxy * speedWeight) + (qualityProxy * qualityWeight) + taskFit + healthWeight + preferenceBias + localBonus;
+    return (cheapness * budgetWeight) + (speedProxy * speedWeight) + (qualityProxy * qualityWeight) + taskFit + healthWeight + preferenceBias + localBonus + subscriptionBonus;
+  }
+
+  /**
+   * General nudge for an active subscription provider whose quota is not
+   * exhausted. Complements the maintenance-only `SUBSCRIPTION_MAINTENANCE_BONUS`
+   * so a paid-for subscription is preferred over pay-per-token on ordinary work
+   * too. Quota-aware: returns 0 once the subscription is depleted, since the
+   * router then treats it as pay-per-token.
+   */
+  private scoreActiveSubscriptionPreference(model: ModelInfo): number {
+    const provider = this.providers.get(model.provider);
+    if (provider?.pricingModel !== 'subscription') {
+      return 0;
+    }
+    const quota = provider.subscriptionQuota;
+    const hasQuota = !quota || quota.remainingRequests > 0;
+    return hasQuota ? ACTIVE_SUBSCRIPTION_BONUS : 0;
   }
 
   private scoreLocalPreference(model: ModelInfo, taskProfile?: TaskProfile): number {

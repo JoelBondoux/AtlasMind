@@ -318,6 +318,8 @@ Important follow-up prompts that rely on carry-forward chat context, such as req
 
 Cheapness is also normalized during scoring. Free and subscription-backed models still get a strong cost advantage, but that advantage no longer overwhelms clear reasoning or task-fit signals on higher-stakes turns.
 
+A subscription provider with quota remaining also gets a small **general** preference nudge on all task phases (not just maintenance), because its capacity is already paid for — "essentially free" until quota is exhausted. The nudge is modest and **quota-aware**: it disappears once the subscription is depleted, after which the provider is treated as pay-per-token.
+
 ---
 
 ## Subscription Quota Management
