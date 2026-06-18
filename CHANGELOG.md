@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.99.1] - 2026-06-18
+
+### Changed
+- **Defer the activation-time memory freshness scan** (`src/extension.ts`): even with stale-memory auto-refresh off (v0.98.0), the `loadSsotFromDisk` step still ran the freshness *detection* — `getProjectMemoryFreshness` → `buildImportSnapshot`, which walks the entire repository to fingerprint imported sources — synchronously on the startup-critical path (observed ~4.5s on a large workspace). That scan exists only to light up the "Update Memory" badge, so it no longer sits between SSOT load and provider discovery: the SSOT is loaded from disk immediately, and the freshness scan is scheduled `MEMORY_FRESHNESS_STARTUP_DELAY_MS` (8s) after activation settles (cleaned up via a registered disposable). The on-save file watcher keeps freshness current thereafter; this one-shot scan still catches edits made while VS Code was closed — it just no longer delays startup. Resolves the residual slow-load between `loadSsotFromDisk completed` and the first `[providers]` lines.
+
 ## [0.99.0] - 2026-06-18
 
 ### Changed
