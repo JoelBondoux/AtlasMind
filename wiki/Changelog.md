@@ -6,6 +6,11 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.98.0 — Skip Unconfigured Providers + On-Demand Memory Refresh
+
+- **Unconfigured providers are no longer probed** (`src/extension.ts`): startup discovery skips any provider with no API key/credentials before its health check — so an unconfigured Bedrock (no AWS keys) no longer burns ~30s on a network probe, and the ~20 providers you haven't set up are skipped entirely. Configured ones are unaffected.
+- **Stale-memory auto-refresh is now off by default** (`atlasmind.autoRefreshStaleMemory`): re-importing stale imported memory is an expensive LLM re-summarization that slowed dashboard/panel load on launch. AtlasMind now flags stale memory and surfaces **Update Memory** for an on-demand refresh instead; set the new setting to `true` to restore auto-refresh. See [[Configuration]].
+
 ## v0.97.2 — Faster, Bounded Startup Discovery
 
 - **No more ~1-minute `[providers]` stall** (`src/extension.ts`): startup model discovery across ~24 providers ran serially, so slow providers (or a hanging Claude CLI health probe with a 60s timeout) summed to nearly a minute. Discovery is now concurrent and each provider is bounded by a 10s timeout, so one slow provider can't stall the rest — total time drops to roughly the slowest single provider. See [[FAQ]].

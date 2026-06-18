@@ -115,6 +115,7 @@ When either mode is set to `auto`, the task profiler infers the appropriate leve
 | Setting | Type | Default | Description |
 |---|---|---|---|
 | `atlasmind.showImportProjectAction` | `boolean` | `true` | Show the `Import Existing Project` toolbar button in the AtlasMind Memory view. AtlasMind Settings is always available from each AtlasMind view's three-dots menu. |
+| `atlasmind.autoRefreshStaleMemory` | `boolean` | `false` | Automatically re-import stale imported SSOT entries on startup/file changes. Off by default — the re-import is an expensive LLM re-summarization. When off, staleness is still flagged so you can refresh on demand via Update Memory. |
 
 ## Tool Safety & Chat Context
 

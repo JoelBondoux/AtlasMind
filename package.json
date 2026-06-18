@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.97.2",
+  "version": "0.98.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -1070,6 +1070,12 @@
           "default": "project_memory",
           "description": "Relative path to the SSOT memory folder. If that path is missing, AtlasMind auto-detects an existing MindAtlas project in the current workspace when possible.",
           "markdownDescription": "Relative path to the SSOT memory folder. AtlasMind expects a safe workspace-relative path and will auto-detect an existing memory folder when possible if the configured path is missing.\n\nExamples:\n- Default project memory: `project_memory`\n- Monorepo app memory: `apps/api/project_memory`\n- Team convention with shared docs folder: `docs/atlasmind-memory`\n\nPrefer stable relative paths so onboarding, imports, and automation all resolve the same folder structure."
+        },
+        "atlasmind.autoRefreshStaleMemory": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically re-import stale imported SSOT memory entries on startup and file changes. Off by default — the re-import is an expensive LLM re-summarization; when off, AtlasMind still flags stale memory so you can refresh on demand via Update Memory.",
+          "markdownDescription": "Automatically re-import stale imported SSOT memory entries on startup and when workspace files change.\n\n**Off by default.** The auto-refresh re-summarizes every stale imported entry with the LLM, which is slow on startup and costs tokens. When off, AtlasMind still detects staleness and surfaces the **Update Memory** action so you can refresh on demand. Turn this on only if you want imported memory kept continuously in sync automatically and accept the cost.\n\nExamples:\n- Fast startup, refresh memory manually: `false` (default)\n- Always keep imported memory in lockstep with the workspace: `true`"
         },
         "atlasmind.showImportProjectAction": {
           "type": "boolean",

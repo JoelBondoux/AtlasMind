@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.98.0] - 2026-06-18
+
+### Changed
+- **Skip discovery for unconfigured providers** (`src/extension.ts`): startup model discovery health-checked and listed models for **every** registered provider, including the ~20 the user has not configured with any credentials — so an unconfigured Amazon Bedrock (with no AWS keys) spent ~30s on a SigV4/network health attempt, and other unconfigured providers were probed pointlessly. Discovery now consults `isProviderConfigured` and **skips any provider with no API key / credentials** before any health check or `/models` call (keeping its seeded models and marking it unhealthy until configured). Interactive providers (Copilot, Claude CLI) are exempt from this pre-check since their configured-state is their own health probe. Combined with v0.97.2's concurrency + per-provider timeout, the `[providers]` startup stream now finishes quickly even with many unconfigured providers registered.
+
+### Added
+- **`atlasmind.autoRefreshStaleMemory` setting (default off)** (`src/extension.ts`, `package.json`): the automatic re-import of stale imported SSOT memory entries on startup/file-changes is an expensive LLM re-summarization of every stale entry — it slowed dashboards and panels on launch (the `[activate] memoryFreshness auto-refresh` work) and, when ineffective, simply re-ran. It is now **off by default**: AtlasMind still detects staleness and surfaces the **Update Memory** affordance (`setMemoryNeedsUpdateContext`) for an explicit, on-demand refresh, so startup stays fast and no LLM tokens are spent silently. Set the new setting to `true` to restore continuous auto-refresh.
+
 ## [0.97.2] - 2026-06-18
 
 ### Fixed

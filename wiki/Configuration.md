@@ -125,6 +125,7 @@ See [[Agents]] for full details on the update criteria and per-agent exclusion.
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `atlasmind.showImportProjectAction` | boolean | `true` | Show the `Import Existing Project` toolbar button in the AtlasMind Memory view. AtlasMind Settings is always available from each AtlasMind view's three-dots menu. |
+| `atlasmind.autoRefreshStaleMemory` | boolean | `false` | Automatically re-import stale imported SSOT entries on startup/file changes (expensive LLM re-summarization). Off by default; staleness is still flagged for on-demand Update Memory. |
 
 See [[Memory System]] for folder structure and retrieval details.
 
