@@ -114,7 +114,7 @@ When asked to publish or ship a release, follow these steps in order:
 | Memory Browser panel | `src/views/memoryBrowserPanel.ts` | Browse and edit SSOT memory entries |
 | Personality Profile panel | `src/views/personalityProfilePanel.ts` | Agent personality configuration |
 | Project Planner panel | `src/views/projectPlannerPanel.ts` | Multi-step project planning UI |
-| Resource Discovery panel | `src/views/ardDiscoveryPanel.ts` | Search ARD Agent Finders, install discovered resources, manage finders, export catalog |
+| Resource Discovery tab | `src/views/settingsPanel.ts` (`discovery` page) | Search ARD Agent Finders, install discovered resources, manage finders, export catalog — a tab inside the Settings dashboard |
 | Status bar items | `src/extension.ts` | Provider health, cost, and model indicators |
 
 ### Type System

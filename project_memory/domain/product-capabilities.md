@@ -22,6 +22,11 @@ Key settings under `atlasmind.*` in VS Code settings:
 | `ssotPath` | `project_memory` | Relative path to the SSOT memory folder |
 | `localOpenAiBaseUrl` | `http://127.0.0.1:11434/v1` | Base URL for Ollama or LM Studio |
 | `toolWebhookEnabled` | `false` | Send tool execution events to an outbound webhook |
+| `ard.enabled` | `true` | Enable Agentic Resource Discovery (panel, `/discover`, and the read-only `discover-resources` skill) |
+| `ard.federationMode` | `referrals` | How ARD searches fan out across federated registries: `auto`, `referrals`, `none` |
+| `ard.maxResults` | `10` | Maximum results returned from a discovery search |
+| `ard.requestTimeoutMs` | `15000` | Timeout for each outbound ARD discovery request (ms) |
+| `ard.allowInsecureEndpoints` | `false` | Allow `http://`/localhost Agent Finders (e.g. the ARD conformance demo); otherwise HTTPS is required and private hosts are rejected |
 | `remote.enabled` | `false` | Allow the web build to remote-control this desktop instance over a localhost WebSocket |
 | `remote.port` | `0` | Localhost port for the remote-control server (0 = auto) |
 
@@ -32,8 +37,8 @@ See [Configuration Reference](docs/configuration.md) and [wiki/Configuration.md]
 <!-- atlasmind-import
 entry-path: domain/product-capabilities.md
 generator-version: 2
-generated-at: 2026-06-18T03:47:22.234Z
+generated-at: 2026-06-18T18:51:10.022Z
 source-paths: README.md | package.json
-source-fingerprint: 46c1ed06
-body-fingerprint: 3e630bbd
+source-fingerprint: ee406563
+body-fingerprint: 7fe03d7d
 -->

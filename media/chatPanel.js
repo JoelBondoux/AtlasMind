@@ -3723,6 +3723,12 @@
     });
   }
 
+  // Tell the host we are loaded and listening. The host replies with a full
+  // `state` message, so a surface that missed the host's initial push (e.g. the
+  // sidebar view, which VS Code re-resolves from scratch each time it is shown)
+  // never sits stuck on the static "no sessions / Ready." markup.
+  vscode.postMessage({ type: 'ready' });
+
   window.__atlasChatSearchBridge = {
     getLatestState: function () {
       return latestState;

@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.106.0",
+  "version": "0.107.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -1044,7 +1044,7 @@
         "atlasmind.ard.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Enable Agentic Resource Discovery (ARD): the Resource Discovery panel, the /discover chat command, and the read-only discover-resources skill. Discovery only finds resources; it never installs anything without your action.",
+          "description": "Enable Agentic Resource Discovery (ARD): the Resource Discovery tab in Settings, the /discover chat command, and the read-only discover-resources skill. Discovery only finds resources; it never installs anything without your action.",
           "markdownDescription": "Enable [Agentic Resource Discovery](https://agenticresourcediscovery.org/) (ARD).\n\nWhen on, AtlasMind exposes the **Resource Discovery** panel, the `/discover` chat command, and a read-only `discover-resources` skill agents can call mid-task. Discovery is **before invocation** — it only locates resources; nothing is installed without your explicit action, and Agent Finders ship disabled."
         },
         "atlasmind.ard.federationMode": {

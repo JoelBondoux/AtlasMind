@@ -227,7 +227,7 @@ Manages `McpServerConfig` persistence (key: `atlasmind.mcpServers` in `globalSta
 - **`ArdInstaller` (`src/ard/ardInstaller.ts`)** — maps a discovered resource to a non-destructive action: MCP servers → `McpServerRegistry.addServer({ enabled: false })`; nested catalogs/registries → disabled finders; A2A/skill/API → reference only.
 - **`buildAtlasMindCatalog` (`src/ard/ardCatalogExporter.ts`)** — the publisher; emits a spec-conformant `ai-catalog.json` of agents/skills/MCP servers with secrets, prompts, and env redacted.
 - **`discover-resources` skill** (`src/skills/discoverResources.ts`) — read-only in-task discovery, registered via a factory closure over `ArdClient`/`ArdRegistry`.
-- **UI** — `ArdDiscoveryPanel` (`src/views/ardDiscoveryPanel.ts`) and the `atlasmind.discoveryView` tree provider in `src/views/treeViews.ts`.
+- **UI** — the **Resource Discovery** tab in the Settings dashboard (the `discovery` page in `src/views/settingsPanel.ts`) and the `atlasmind.discoveryView` tree provider in `src/views/treeViews.ts`. The `AtlasMind: Resource Discovery` command opens the Settings panel on that tab.
 
 The services are constructed in `activate()` and bundled into `AtlasMindContext` as `ardRegistry`, `ardClient`, `ardInstaller`, and `discoveryRefresh`.
 

@@ -162,13 +162,13 @@ These settings only affect AtlasMind's governance scaffolding for Atlas-built or
 
 | Setting | Type | Default | Description |
 |---|---|---|---|
-| `atlasmind.ard.enabled` | `boolean` | `true` | Enable [Agentic Resource Discovery](resource-discovery.md): the Resource Discovery panel, the `/discover` chat command, and the read-only `discover-resources` skill. Discovery only locates resources; it never installs anything without your action. |
+| `atlasmind.ard.enabled` | `boolean` | `true` | Enable [Agentic Resource Discovery](resource-discovery.md): the Resource Discovery tab in Settings, the `/discover` chat command, and the read-only `discover-resources` skill. Discovery only locates resources; it never installs anything without your action. |
 | `atlasmind.ard.federationMode` | `string` | `referrals` | How searches fan out across federated registries: `auto` (server-side merge), `referrals` (follow referral records, depth-bounded), or `none` (selected registry only). |
 | `atlasmind.ard.maxResults` | `number` | `10` | Maximum results returned from a discovery search (1–100). |
 | `atlasmind.ard.requestTimeoutMs` | `number` | `15000` | Timeout for each outbound ARD discovery request in milliseconds (1000–60000). |
 | `atlasmind.ard.allowInsecureEndpoints` | `boolean` | `false` | Allow Agent Finders that use `http://` or `localhost` (e.g. the ARD conformance demo). When `false`, discovery requires HTTPS and rejects private/loopback addresses to prevent SSRF; followed referrals are always screened. |
 
-Agent Finder definitions are stored in `globalState` and managed from the Resource Discovery panel/tree (mirroring how MCP servers are persisted), so they are not VS Code settings. The shipped defaults (GitHub Agent Finder, Hugging Face Discover) seed **disabled**.
+Agent Finder definitions are stored in `globalState` and managed from the Resource Discovery tab in Settings (or its sidebar tree, mirroring how MCP servers are persisted), so they are not VS Code settings. The shipped defaults (GitHub Agent Finder, Hugging Face Discover) seed **disabled**.
 
 ## Orchestrator Tunables
 

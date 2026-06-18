@@ -9,14 +9,14 @@ See [docs/resource-discovery.md](../docs/resource-discovery.md) for the full ref
 | Surface | Where |
 |---|---|
 | `/discover <query>` chat command | `@atlas /discover book a flight` |
-| Resource Discovery panel | `AtlasMind: Resource Discovery` |
+| Resource Discovery tab (in Settings) | `AtlasMind: Resource Discovery` |
 | Sidebar tree | **Resource Discovery** view (finders + recent results) |
 | In-task skill | `discover-resources` (read-only; surfaces candidates, never installs) |
 | Publish | `AtlasMind: Export Resource Catalog (ai-catalog.json)` |
 
 ## Agent Finders
 
-A finder is a discovery endpoint. AtlasMind ships **GitHub Agent Finder** and **Hugging Face Discover** **disabled** — no outbound discovery traffic happens until you enable one (deny-by-default). Add your own registry (`POST /search`) or static manifest (`ai-catalog.json`) finders from the panel.
+A finder is a discovery endpoint. AtlasMind ships **GitHub Agent Finder** and **Hugging Face Discover** **disabled** — no outbound discovery traffic happens until you enable one (deny-by-default). Add your own registry (`POST /search`) or static manifest (`ai-catalog.json`) finders from the Resource Discovery tab in Settings.
 
 > The relevance **score** is a semantic match indicator — **not** a trust, compliance, or safety rating. Review every resource before installing.
 

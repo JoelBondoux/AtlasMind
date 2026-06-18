@@ -172,46 +172,74 @@ function sanitizeClaudeCliCapabilities(capabilities: readonly ModelCapability[] 
   return capabilities.filter(capability => capability !== 'function_calling');
 }
 
+/**
+ * Short-lived cache for the default Claude CLI probe. Each probe spawns the CLI
+ * twice (`--version` then `auth status`), and read-only callers (the Models tree,
+ * the Project Dashboard, the Model Provider panel) re-probe on every render — and
+ * the Models tree re-renders on every `modelsRefresh`. Without a cache, a burst of
+ * refreshes spawns the CLI many times over, which visibly slows startup and panel
+ * loads. A 10s TTL keeps auth state fresh while collapsing those bursts into a
+ * single spawn pair. Only the default runner is cached; tests passing a custom
+ * `runCommand` always execute so they observe their stubbed results.
+ */
+const CLAUDE_CLI_PROBE_TTL_MS = 10_000;
+const claudeCliProbeCache = new Map<string, { at: number; result: ClaudeCliProbeResult }>();
+
 export async function probeClaudeCli(options?: {
   cwd?: string;
   timeoutMs?: number;
   runCommand?: ClaudeCliRunner;
 }): Promise<ClaudeCliProbeResult> {
   const runCommand = options?.runCommand ?? runClaudeCliCommand;
+  const cacheable = !options?.runCommand;
+  const cacheKey = options?.cwd ?? '';
+  if (cacheable) {
+    const cached = claudeCliProbeCache.get(cacheKey);
+    if (cached && Date.now() - cached.at < CLAUDE_CLI_PROBE_TTL_MS) {
+      return cached.result;
+    }
+  }
+
+  const finish = (result: ClaudeCliProbeResult): ClaudeCliProbeResult => {
+    if (cacheable) {
+      claudeCliProbeCache.set(cacheKey, { at: Date.now(), result });
+    }
+    return result;
+  };
 
   try {
     const versionResult = await runCommand(['--version'], options);
     if (versionResult.exitCode !== 0) {
-      return {
+      return finish({
         installed: false,
         authenticated: false,
         message: versionResult.stderr.trim() || versionResult.stdout.trim() || 'Claude Code CLI command failed to start.',
-      };
+      });
     }
 
     const authResult = await runCommand(['auth', 'status'], options);
     if (authResult.exitCode !== 0) {
-      return {
+      return finish({
         installed: true,
         authenticated: false,
         command: authResult.command,
         message: authResult.stderr.trim() || authResult.stdout.trim() || 'Claude Code CLI is installed but not signed in.',
-      };
+      });
     }
 
     const payload = tryParseJson(authResult.stdout);
-    return {
+    return finish({
       installed: true,
       authenticated: true,
       command: authResult.command,
       authMode: detectAuthMode(payload),
-    };
+    });
   } catch (error) {
-    return {
+    return finish({
       installed: false,
       authenticated: false,
       message: error instanceof Error ? error.message : String(error),
-    };
+    });
   }
 }
 

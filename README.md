@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.106.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.107.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -287,7 +287,7 @@ See [Funding and Sponsorship](wiki/Funding-and-Sponsorship.md) for details.
 - Webview and sidebar surfaces: `src/views/` (`chatProtocol.ts` and `chatWebviewMarkup.ts` are Node-free so they are shared with the web build)
 - Voice (TTS/STT): `src/voice/` (`voiceManager.ts` bridge, `hostSpeechSynthesizer.ts` on-device OS speech engine, `localTranscriber.ts` on-device Whisper STT)
 - Memory and MCP layers: `src/memory/`, `src/mcp/`
-- Agentic Resource Discovery: `src/ard/` (`ardClient.ts` protocol client, `ardRegistry.ts` Agent Finder registry, `ardInstaller.ts` install mapping, `ardCatalogExporter.ts` publisher) and `src/views/ardDiscoveryPanel.ts` (discovery webview). See [Resource Discovery](docs/resource-discovery.md).
+- Agentic Resource Discovery: `src/ard/` (`ardClient.ts` protocol client, `ardRegistry.ts` Agent Finder registry, `ardInstaller.ts` install mapping, `ardCatalogExporter.ts` publisher). The discovery UI is the **Resource Discovery** tab in the Settings dashboard (`src/views/settingsPanel.ts`). See [Resource Discovery](docs/resource-discovery.md).
 - Remote control: `src/remote/` (`protocol.ts` wire format, `remoteControlServer.ts` desktop server, `remoteBridge.ts` synthetic webview host) and `src/web/` (browser thin-client entry, `remoteClient.ts`, `chatClientPanel.ts`, `dashboardPanel.ts`)
 
 ---

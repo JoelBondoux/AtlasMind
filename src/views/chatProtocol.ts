@@ -16,6 +16,7 @@ export type ChatPanelImportedItem =
   | { transport: 'inline-file'; name: string; mimeType?: string; dataBase64: string };
 
 export type ChatPanelMessage =
+  | { type: 'ready' }
   | { type: 'submitPrompt'; payload: { prompt: string; mode: ComposerSendMode } }
   | { type: 'stopPrompt' }
   | { type: 'voteAssistantMessage'; payload: { entryId: string; vote: 'up' | 'down' | 'clear' } }
@@ -109,7 +110,8 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
 
   const message = value as { type?: unknown; payload?: unknown };
   if (
-    message.type === 'clearConversation'
+    message.type === 'ready'
+    || message.type === 'clearConversation'
     || message.type === 'copyTranscript'
     || message.type === 'saveTranscript'
     || message.type === 'createSession'

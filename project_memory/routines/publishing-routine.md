@@ -1,7 +1,7 @@
 ---
 id: publishing-routine
 name: Publishing Routine
-description: Scaffolded from CLAUDE.md
+description: Scaffolded from .github/copilot-instructions.md
 default: true
 steps:
   - id: merge-to-develop
@@ -20,13 +20,9 @@ steps:
     label: Open PR to master
     run: gh pr create --base master --head develop
     on_fail: abort
-  - id: wait-for-pr-merge
-    label: Wait for PR merge
-    run: master
-    on_fail: abort
   - id: publish
     label: Publish
-    run: NODE_OPTIONS="--use-system-ca" npm run publish:release
+    run: npm run publish:release
     on_fail: abort
 ---
 
@@ -35,8 +31,8 @@ steps:
 <!-- atlasmind-import
 entry-path: routines/publishing-routine.md
 generator-version: 2
-generated-at: 2026-06-18T03:50:15.377Z
-source-paths: CLAUDE.md
-source-fingerprint: 0c187393
-body-fingerprint: 77113255
+generated-at: 2026-06-18T18:51:10.022Z
+source-paths: .github/copilot-instructions.md
+source-fingerprint: ebf965c9
+body-fingerprint: 4589b553
 -->

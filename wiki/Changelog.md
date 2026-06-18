@@ -6,6 +6,14 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.107.0 — Resource Discovery moves into Settings
+
+- **Resource Discovery is now a tab in the Settings dashboard.** Searching Agent Finders, installing discovered MCP servers/agents/skills/APIs, managing finders, and exporting your project's catalog now happen on a **Resource Discovery** tab inside `AtlasMind Settings` — same chrome, same navigation. The `AtlasMind: Resource Discovery` command, the sidebar tree, and `/discover` all open that tab; the separate Resource Discovery webview has been retired.
+- **Privacy Dashboard fix:** the "Who may receive confidential data" trust tree now shows every provider you have actually connected, not just the interactive ones. It previously hid any provider whose live health probe had failed (e.g. a transient TLS/network hiccup), even though it appeared connected in the sidebar. The trust tree now uses the same "configured" signal as the sidebar MODELS tree.
+- **Faster loads:** the Claude Code CLI is no longer re-spawned on every panel/tree render — its probe is cached briefly — which removes a recurring startup and panel-open slowdown.
+
+---
+
 ## v0.106.0 — Agentic Resource Discovery (ARD)
 
 - **AtlasMind is now a first-class [Agentic Resource Discovery](https://agenticresourcediscovery.org/) client and publisher.** Search federated Agent Finders for MCP servers, agents, skills, and APIs — *before* invocation — then install them with one click (MCP servers land disabled behind the existing trust gate).

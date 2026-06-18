@@ -966,13 +966,11 @@ export function registerCommands(
     vscode.commands.registerCommand('atlasmind.openResourceDiscovery', async () => {
       const atlas = requireAtlas();
       if (!atlas) { return; }
-      const { ArdDiscoveryPanel } = await import('./views/ardDiscoveryPanel.js');
-      ArdDiscoveryPanel.createOrShow(atlas.extensionContext, {
-        registry: atlas.ardRegistry,
-        client: atlas.ardClient,
-        installer: atlas.ardInstaller,
-        onRefresh: () => { atlas.skillsRefresh.fire(); atlas.discoveryRefresh.fire(); },
-      });
+      // Resource Discovery lives as a tab inside the Settings dashboard so it shares
+      // the same chrome. This command (and the tree view, /discover, and ard.search)
+      // all open that tab.
+      const { SettingsPanel } = await import('./views/settingsPanel.js');
+      SettingsPanel.createOrShow(context, 'discovery', atlas);
     }),
 
     vscode.commands.registerCommand('atlasmind.ard.search', async () => {

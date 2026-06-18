@@ -184,7 +184,7 @@ See [[Project Planner]] for the full planning and execution flow.
 | `atlasmind.ard.requestTimeoutMs` | number | `15000` | Per-request timeout for ARD calls (ms, 1000–60000) |
 | `atlasmind.ard.allowInsecureEndpoints` | boolean | `false` | Allow `http://`/localhost Agent Finders (e.g. the conformance demo); otherwise HTTPS is required and private hosts rejected |
 
-Agent Finders ship **disabled** and are managed from the Resource Discovery panel/tree (stored in globalState, not settings).
+Agent Finders ship **disabled** and are managed from the Resource Discovery tab in Settings (or its sidebar tree); they are stored in globalState, not settings.
 
 ---
 
