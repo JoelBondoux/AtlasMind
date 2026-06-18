@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.94.0",
+  "version": "0.95.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -133,6 +133,10 @@
       {
         "command": "atlasmind.scaffoldTestingFramework",
         "title": "AtlasMind: Scaffold Testing Framework"
+      },
+      {
+        "command": "atlasmind.compareModels",
+        "title": "AtlasMind: Compare Models on a Prompt"
       },
       {
         "command": "atlasmind.collapseAllSidebarTrees",

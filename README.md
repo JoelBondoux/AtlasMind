@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.94.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.95.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -134,6 +134,7 @@ Access these from the VS Code Command Palette (`Ctrl+Shift+P`).
 | `AtlasMind: Specialist Integrations` | Configure specialist search and media providers |
 | `AtlasMind: Tool Webhooks` | Configure outbound tool execution webhooks |
 | `AtlasMind: Scaffold Testing Framework` | Construct a stack-aware starter framework (config, example tests, strategy playbook) for the enabled testing methodologies |
+| `AtlasMind: Compare Models on a Prompt` | Run one prompt across selected models and view a ranked quality/cost/latency comparison; records outcomes to calibrate routing |
 | `AtlasMind: Sync Testing Protocols to AI Agents` | Write the enabled testing protocols into detected AI agent instruction files (`CLAUDE.md`, `copilot-instructions.md`, `AGENTS.md`, etc.) |
 | `AtlasMind: Enable Remote Control` | Start the localhost server so the web build can drive this desktop instance (desktop) |
 | `AtlasMind: Disable Remote Control` | Stop the remote-control server and drop sessions (desktop) |
@@ -270,6 +271,7 @@ See [Funding and Sponsorship](wiki/Funding-and-Sponsorship.md) for details.
 - Skills and tool handlers: `src/skills/`
 - Shared utilities: `src/utils/` (including `secretRedactor.ts` — pattern-based secret scanner used to scrub credentials from memory context before LLM dispatch; `aiInstructionSync.ts` — inbound merge of external agent rule files; `testingProtocolSync.ts` — outbound sync of enabled testing protocols into external agent instruction files)
 - Testing strategy: `src/core/testingConfigLoader.ts` (methodology resolution for orchestrated runs) and `src/core/testingScaffolder.ts` (stack-aware framework scaffolding)
+- Routing intelligence: `src/core/executionQuality.ts` (shared output-quality scorer) and `src/core/modelEvalHarness.ts` (scored-replay model comparison)
 - Webview and sidebar surfaces: `src/views/` (`chatProtocol.ts` and `chatWebviewMarkup.ts` are Node-free so they are shared with the web build)
 - Voice (TTS/STT): `src/voice/` (`voiceManager.ts` bridge, `hostSpeechSynthesizer.ts` on-device OS speech engine, `localTranscriber.ts` on-device Whisper STT)
 - Memory and MCP layers: `src/memory/`, `src/mcp/`
