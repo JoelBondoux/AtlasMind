@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { describe, expect, it, vi } from 'vitest';
-import { Orchestrator, buildProjectSessionContextBundle, collapseDuplicatedTrailingBlock, resolveProviderIdForModel, shouldBiasTowardWorkspaceInvestigation } from '../../src/core/orchestrator.ts';
+import { Orchestrator, buildProjectSessionContextBundle, classifySubTaskFailure, collapseDuplicatedTrailingBlock, resolveProviderIdForModel, shouldBiasTowardWorkspaceInvestigation, TOOL_EXECUTION_FAILURE_PREFIX } from '../../src/core/orchestrator.ts';
 import { MAX_TOOL_ITERATIONS } from '../../src/constants.ts';
 import { AgentRegistry } from '../../src/core/agentRegistry.ts';
 import { SkillsRegistry } from '../../src/core/skillsRegistry.ts';
@@ -196,6 +196,73 @@ describe('collapseDuplicatedTrailingBlock', () => {
     const collapsed = collapseDuplicatedTrailingBlock(prefix + block + block);
     expect(collapsed.startsWith('Unique intro paragraph')).toBe(true);
     expect(collapsed).toBe((prefix + block).replace(/\s+$/, ''));
+  });
+});
+
+describe('classifySubTaskFailure', () => {
+  it('flags an unrecovered tool-execution failure', () => {
+    const response = `${TOOL_EXECUTION_FAILURE_PREFIX}\nThe underlying tool reported:\n- file-read: ENOENT: no such file`;
+    expect(classifySubTaskFailure(response)).toMatch(/tool-execution failure/i);
+  });
+
+  it('flags a preamble-only response that announces an action but delivers nothing', () => {
+    expect(classifySubTaskFailure("Let's inspect 'src/components/colourSampler.ts'.")).toMatch(/without delivering/i);
+    expect(classifySubTaskFailure("I'll inspect the contents of tests/colour-sampler/brush-overlay.test.ts to understand the test expectations.")).toMatch(/without delivering/i);
+  });
+
+  it('flags an empty response', () => {
+    expect(classifySubTaskFailure('   ')).toMatch(/no output/i);
+  });
+
+  it('flags an incomplete-delivery response', () => {
+    expect(classifySubTaskFailure('I created the handler but it is not yet wired into the router. Important follow-up remains.')).toBeTruthy();
+  });
+
+  it('returns undefined for genuine completed work', () => {
+    expect(classifySubTaskFailure('Implemented getConcurrencyLimit and added a passing test; the suite is green.')).toBeUndefined();
+    expect(classifySubTaskFailure('I reviewed the auth module and confirmed no changes are needed.')).toBeUndefined();
+  });
+
+  it('does not flag a short past-tense summary as a preamble', () => {
+    expect(classifySubTaskFailure('Let me know if you need anything else.')).toBeUndefined();
+  });
+});
+
+describe('project subtask failure classification', () => {
+  it('records a non-delivering subtask as failed instead of completed', async () => {
+    let planned = false;
+    const provider: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn(async () => {
+        if (!planned) {
+          planned = true;
+          return {
+            content: JSON.stringify({
+              subTasks: [
+                { id: 'explore', title: 'Explore codebase', description: 'Look around.', role: 'tester', skills: [], dependsOn: [] },
+              ],
+            }),
+            model: 'local/echo-1', inputTokens: 8, outputTokens: 12, finishReason: 'stop',
+          };
+        }
+        // Both the first attempt and the recovery retry return a bare preamble.
+        return {
+          content: "Let's inspect 'src/components/colourSampler.ts'.",
+          model: 'local/echo-1', inputTokens: 5, outputTokens: 4, finishReason: 'stop',
+        };
+      }),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+    const orchestrator = makeOrchestrator(provider, [], makeSkillContext());
+
+    const result = await orchestrator.processProject('Explore the codebase', { budget: 'balanced', speed: 'balanced' });
+
+    expect(result.subTaskResults).toHaveLength(1);
+    const sub = result.subTaskResults[0]!;
+    expect(sub.status).toBe('failed');
+    expect(sub.status).not.toBe('completed');
+    expect(sub.error).toMatch(/without delivering/i);
   });
 });
 

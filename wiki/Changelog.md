@@ -6,6 +6,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.103.2 — Honest Subtask Outcomes
+
+- **Project subtasks that didn't actually deliver are no longer reported as completed.** A subtask that ended on a hard tool error (e.g. a missing-file read), returned only a preamble ("Let's inspect…") with no work, or otherwise signalled incomplete delivery used to be recorded as `completed` — letting the run build dependents on a broken foundation and report a false "N/N completed". These are now classified as `failed` (with an explanatory reason), so dependents are skipped and the run's completed/failed counts are honest. A failing subtask also gets one recovery retry before it's marked failed. (Iteration-cap pauses remain `needs-input`, from v0.101.0.)
+
 ## v0.103.1 — Inline Sidebar Brand Header
 
 - **The sidebar brand header is now a single inline line.** The project name moved from a stacked subtitle to an inline **`AtlasMind/ProjectName`** form — the project name follows a forward slash after the wordmark in a slightly smaller, dimmer font — reclaiming the vertical space the second row used. When no project name is available, the slash and name are hidden and only the clickable "AtlasMind" wordmark remains. Both segments stay independently clickable (wordmark → Settings, project name → Project Dashboard).

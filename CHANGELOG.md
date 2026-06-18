@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.103.2] - 2026-06-18
+
+### Fixed
+- **Project subtasks that did not actually deliver are no longer reported as `completed`** (`src/core/orchestrator.ts`). `executeSubTask` previously returned `status: 'completed'` for any non-billing, non-iteration-capped result — so a subtask that ended on a hard tool error (e.g. `file-read` ENOENT), returned a bare preamble ("Let's inspect…") with no work, or otherwise signalled incomplete delivery was recorded as success. That let the scheduler build dependents on a broken foundation and made the run report a false "N/N subtask(s) completed".
+  - New exported `classifySubTaskFailure` (with `looksLikePreambleOnly` and the shared `TOOL_EXECUTION_FAILURE_PREFIX`) detects three non-delivery shapes — unrecovered tool-execution failure, preamble-only/announce-without-deliver, and incomplete/unverified delivery — and resolves the subtask to `status: 'failed'` with an explanatory `error`, so downstream dependents are skipped and the run reports honest completed/failed counts.
+  - The single recovery retry now also covers a first-attempt non-delivery (not just an empty or iteration-capped response), giving the subtask one more pass before it is marked failed.
+  - Note: iteration-cap pauses remain `needs-input` (0.101.0); this change covers the other failure modes. Gating a single-turn commit/success *message* against its verification result (a model-output-honesty concern) is tracked separately and not part of this change.
+
+### Added
+- **Tests**: `tests/core/orchestrator.tools.test.ts` covers `classifySubTaskFailure` (tool-error, preamble-only, empty, incomplete, and genuine-completion/past-tense cases) and a project run where a non-delivering subtask is recorded as `failed` rather than `completed`.
+
 ## [0.103.1] - 2026-06-18
 
 ### Changed

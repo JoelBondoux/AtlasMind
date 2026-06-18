@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { AgentDefinition, MemoryEntry, ModelCapability, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, TaskProfile, TaskRequest, TaskResult, TestingMethodologyId, ToolExecutionArtifact } from '../types.js';
+import type { AgentDefinition, MemoryEntry, ModelCapability, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, SubTaskStatus, TaskProfile, TaskRequest, TaskResult, TestingMethodologyId, ToolExecutionArtifact } from '../types.js';
 import type { AgentAutoUpdater } from './agentAutoUpdater.js';
 import { ClassifierService, type ClassificationResult } from './classifierService.js';
 import { formatCost } from './currencyFormatter.js';
@@ -1496,13 +1496,17 @@ export class Orchestrator {
     try {
       let result = await attemptSubTask(userMessage);
 
-      // On transient or non-billing errors, attempt one retry with a simplified prompt.
+      // On transient or non-billing failures, attempt one retry with a simplified
+      // prompt. This covers an empty response, an iteration-capped no-op, and a
+      // first-attempt failure to deliver (tool error / incomplete / preamble-only)
+      // — giving the subtask one recovery pass before it is recorded as failed.
       if (
         result.response.trim().length === 0 ||
-        (result.artifacts && result.artifacts.toolCallCount === 0 && result.iterationLimitHit)
+        (result.artifacts && result.artifacts.toolCallCount === 0 && result.iterationLimitHit) ||
+        (!result.iterationLimitHit && classifySubTaskFailure(result.response) !== undefined)
       ) {
         const simplifiedMessage = `${userMessage}\n\n[Recovery attempt] If the previous approach failed, try a simpler, more direct approach to accomplish: ${task.description}`;
-        onProgress?.({ type: 'subtask-retry', subTaskId: task.id, title: task.title, reason: 'empty or iteration-capped response' });
+        onProgress?.({ type: 'subtask-retry', subTaskId: task.id, title: task.title, reason: 'empty, iteration-capped, or non-delivering response' });
         result = await attemptSubTask(simplifiedMessage);
       }
 
@@ -1555,10 +1559,18 @@ export class Orchestrator {
         };
       }
 
+      // Even without an iteration cap, the (possibly retried) response may still not
+      // be a real deliverable: a hard tool failure, an incomplete delivery, or a
+      // bare preamble. Recording these as `completed` let the scheduler build
+      // dependents on a broken foundation and inflated the run's success count, so
+      // classify them as `failed` instead.
+      const failureReason = classifySubTaskFailure(result.response);
+      const subTaskStatus: SubTaskStatus = failureReason ? 'failed' : 'completed';
+
       return {
         subTaskId: task.id,
         title: task.title,
-        status: 'completed',
+        status: subTaskStatus,
         output: result.response,
         costUsd: result.costUsd,
         inputTokens: result.inputTokens,
@@ -1566,6 +1578,7 @@ export class Orchestrator {
         durationMs: result.durationMs,
         role: task.role,
         dependsOn: [...task.dependsOn],
+        ...(failureReason ? { error: failureReason } : {}),
         artifacts: result.artifacts
           ? {
             ...result.artifacts,
@@ -3431,13 +3444,17 @@ function looksLikeToolFailure(result: string): boolean {
     || /\b(?:not found|does not exist|no such|no currently active|no active|already stopped|timed out|denied by policy|was denied|unable to|cannot|can't|could not|must provide|must pass|re-run with|rerun with|requires confirmation|requires .*true)\b/.test(normalized);
 }
 
+/** Leading line of {@link summarizeFailedToolResults}; also used to detect, at the
+ *  subtask boundary, that an agent turn ended on an unrecovered tool failure. */
+export const TOOL_EXECUTION_FAILURE_PREFIX = 'I hit a tool-execution problem while trying to complete that step.';
+
 function summarizeFailedToolResults(toolResults: ReadonlyArray<{ toolCall: ToolCall; result: string }>): string {
   // Bound each line so a verbose failure (e.g. a multi-thousand-line build log) can't
   // flood the chat surface. Genuine failure messages are short; the cap is generous.
   const lines = toolResults.map(entry => `- ${entry.toolCall.name}: ${truncateToChars(entry.result.trim(), 1500)}`);
   const guidance = buildToolFailureGuidance(toolResults);
   return [
-    'I hit a tool-execution problem while trying to complete that step.',
+    TOOL_EXECUTION_FAILURE_PREFIX,
     'The underlying tool reported:',
     ...lines,
     '',
@@ -3807,6 +3824,49 @@ function looksLikeIncompleteDelivery(response: string): boolean {
     return true;
   }
   return false;
+}
+
+/**
+ * Detects a "preamble-only" response: the agent announced an action it was about
+ * to take ("Let's inspect…", "I'll read…") but never delivered anything. These are
+ * truncations the integrity reprompt did not recover, and they must not be reported
+ * as completed subtasks.
+ */
+export function looksLikePreambleOnly(response: string): boolean {
+  const trimmed = response.trim();
+  if (trimmed.length === 0) { return true; }
+  // Real deliverables are longer; cap keeps this from flagging substantive answers.
+  if (trimmed.length > 240) { return false; }
+  // Any delivered code/diff means it is not preamble-only.
+  if (/```/.test(trimmed)) { return false; }
+  // Future-intent announcement of an investigation step with no follow-through.
+  return /^(?:ok(?:ay)?[,.\s]*)?(?:let'?s|let me|i'?ll|i will|now\s+(?:i'?ll|let'?s)|first,?\s+(?:i'?ll|let'?s|i\s+will))\b[^\n]*\b(inspect|check|look|read|search|examine|review|open|explore|see|view|find|investigate|analyze|analyse|locate|scan)\b/i
+    .test(trimmed);
+}
+
+/**
+ * Classify a subtask's final response as a failure when it did not actually
+ * deliver. Returns a short human-readable reason, or `undefined` when the
+ * response looks like genuine completed work. Used by the project scheduler so a
+ * tool error, an incomplete delivery, or a bare preamble is recorded as `failed`
+ * — not silently `completed`, which let the run charge ahead and report a false
+ * "N/N completed". Iteration-cap pauses are handled separately (→ `needs-input`).
+ */
+export function classifySubTaskFailure(response: string): string | undefined {
+  const trimmed = response.trim();
+  if (trimmed.length === 0) {
+    return 'Subtask produced no output.';
+  }
+  if (trimmed.startsWith(TOOL_EXECUTION_FAILURE_PREFIX)) {
+    return 'Subtask ended on a tool-execution failure without recovering.';
+  }
+  if (looksLikePreambleOnly(trimmed)) {
+    return 'Subtask stopped after announcing an action without delivering any result.';
+  }
+  if (looksLikeIncompleteDelivery(response)) {
+    return 'Subtask reported incomplete or unverified work.';
+  }
+  return undefined;
 }
 
 function buildCompletionIntegrityReprompt(): string {
