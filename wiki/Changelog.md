@@ -6,13 +6,15 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.104.1 — No Success Claims Over a Failing Verification
+
+- **A turn can no longer report success while its own verification run failed.** If a response claimed the work was done while the post-edit verification reported `FAIL` / a non-zero exit code, AtlasMind now gives the model one chance to reconcile (fix it or state the task isn't complete) and, if it still claims success, appends a deterministic caveat citing the failing line and marking the task **not complete**. Detection keys on structured markers (`FAIL:`, `exit N`, `N failed`, `✗`) and is overridden by `PASS:` / `0 failed`, so a test merely *named* "…fails when…" isn't misread.
+
 ## v0.104.0 — Data Privacy & Trusted-Model Gating
 
 - **Mark confidential data and keep it on the models you choose.** A new project Data Privacy policy lets you classify language/terms, files, and folders as proprietary, confidential, or secret — and enable built-in compliance packs (GDPR, HIPAA, PCI-DSS, CCPA/CPRA, Financial) that detect regulated data points like emails, payment-card numbers, and health terms. Classified content is only ever sent to the **trusted models you select**; every other model receives a redacted `[CONFIDENTIAL]` placeholder.
 - Enforcement is layered: a **routing gate** restricts model selection to trusted models when context is classified, a **redaction fail-safe** strips classified spans for the actually-selected model, and **tool reads are gated** so a confidential file read by an un-trusted model is withheld. Deny-by-default — an empty trusted list trusts nothing.
 - Managed from the Project Dashboard → new **Privacy** page (enable toggle, compliance-standard checkboxes, custom term/regex/path rules, trusted-model multi-select, and a test-against-text/path preview). The detectors are heuristic aids, not a compliance certification.
-
----
 
 ## v0.103.2 — Honest Subtask Outcomes
 

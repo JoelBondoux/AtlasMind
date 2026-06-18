@@ -190,6 +190,15 @@ If verification fails, the LLM sees the error output and can attempt a fix in th
 
 Post-write verification is not the first line of defense. AtlasMind now tries to establish the failing signal before risky implementation actions, then uses post-write verification to confirm the green side of the loop.
 
+### Success claims are gated against verification
+
+A response cannot report success while its own verification run failed. When an answer claims the work is done/"moving forward" but the post-edit verification reports a structured failure (`FAIL:`, a non-zero `exit N`, `N failed`, `✗`), AtlasMind:
+
+1. Injects **one** reconcile reprompt asking the model to either make verification pass or state plainly that the task is **not complete**; and
+2. If the response still claims success, appends a **deterministic caveat** (not authored by the model) that cites the failing line and marks the task not complete.
+
+Detection is conservative: it keys only on structured failure markers, is overridden by `PASS:` / `0 failed` / "no failures" (so a test merely *named* "…fails when…" is not misread), and never fires when the response already acknowledges the failure.
+
 ---
 
 ## Webhooks
