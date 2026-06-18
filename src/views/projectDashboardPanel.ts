@@ -595,6 +595,7 @@ interface DashboardPrivacyGovernanceNode {
   trainsOnDataByDefault: boolean | 'unknown';
   privacyPolicyUrl?: string;
   dataRequestUrl?: string;
+  dataSubjectRequestUrl?: string;
   dpaUrl?: string;
   notes?: string;
 }
@@ -1967,12 +1968,21 @@ function buildPrivacySnapshot(atlas: AtlasMindContext): DashboardPrivacySnapshot
   const config = atlas.dataPrivacyManager?.getConfig() ?? defaultDataPrivacyConfig();
   const trustedSet = new Set(config.trustedModelIds);
 
-  // Provider/model tree. Children are limited to currently-active (enabled)
-  // models, plus any trusted model that has since been disabled so it can still
-  // be unassigned. Providers with no qualifying models are dropped.
+  // Provider/model tree. Only CONNECTED providers are listed — unconfigured
+  // providers (no credentials / deferred activation) are marked unhealthy at
+  // startup, so `isProviderHealthy` is the synchronous "connected" signal. This
+  // keeps the tree to what the user has actually wired up instead of the full
+  // seeded catalog (and keeps the webview DOM small). A provider that hosts a
+  // trusted model is always kept so it stays manageable even if it later goes
+  // unhealthy. Children are limited to currently-active (enabled) models, plus
+  // any trusted-but-disabled model so it can still be unassigned.
   const providers: DashboardPrivacyProviderNode[] = [];
   const placedTrusted = new Set<string>();
   for (const provider of atlas.modelRouter.listProviders()) {
+    const hostsTrusted = provider.models.some(model => trustedSet.has(model.id));
+    if (!atlas.modelRouter.isProviderHealthy(provider.id) && !hostsTrusted) {
+      continue; // not connected and holds nothing trusted — hide it
+    }
     const models: DashboardPrivacyModelNode[] = [];
     for (const model of provider.models) {
       const trusted = trustedSet.has(model.id);

@@ -462,6 +462,14 @@
       }
     }
 
+    // --- Preserve scroll positions so toggling a checkbox / expanding a tree
+    // does not jump the page (or the inner scrollable lists) back to the top. ---
+    const pageScrollY = window.scrollY || (document.scrollingElement ? document.scrollingElement.scrollTop : 0) || 0;
+    const innerScroll = {};
+    document.querySelectorAll('[data-scroll-key]').forEach(el => {
+      innerScroll[el.getAttribute('data-scroll-key')] = el.scrollTop;
+    });
+
     try {
       const snapshot = state.snapshot;
       if (!snapshot) {
@@ -553,6 +561,15 @@
       root.querySelectorAll('input[data-privacy-provider][data-indeterminate="true"]').forEach(el => {
         el.indeterminate = true;
       });
+
+      // Restore scroll positions captured before the innerHTML swap.
+      document.querySelectorAll('[data-scroll-key]').forEach(el => {
+        const saved = innerScroll[el.getAttribute('data-scroll-key')];
+        if (typeof saved === 'number') { el.scrollTop = saved; }
+      });
+      if (pageScrollY > 0) {
+        window.scrollTo(0, pageScrollY);
+      }
     } catch (error) {
       renderError(error instanceof Error ? error.message : String(error));
     }
@@ -1592,7 +1609,8 @@
           <p class="section-copy">${escapeHtml(node.retentionSummary)}</p>
           ${node.notes ? `<p class="list-meta">${escapeHtml(node.notes)}</p>` : ''}
           <div class="tag-row">
-            ${node.dataRequestUrl ? `<button type="button" class="action-link" data-action="privacy-open-url" data-payload="${escapeAttr(node.dataRequestUrl)}">Data / GDPR requests</button>` : ''}
+            ${node.dataSubjectRequestUrl ? `<button type="button" class="action-link privacy-dsr" data-action="privacy-open-url" data-payload="${escapeAttr(node.dataSubjectRequestUrl)}">Submit a data-subject request</button>` : ''}
+            ${node.dataRequestUrl && node.dataRequestUrl !== node.dataSubjectRequestUrl ? `<button type="button" class="action-link" data-action="privacy-open-url" data-payload="${escapeAttr(node.dataRequestUrl)}">Privacy contact</button>` : ''}
             ${node.privacyPolicyUrl ? `<button type="button" class="action-link" data-action="privacy-open-url" data-payload="${escapeAttr(node.privacyPolicyUrl)}">Privacy policy</button>` : ''}
             ${node.dpaUrl ? `<button type="button" class="action-link" data-action="privacy-open-url" data-payload="${escapeAttr(node.dpaUrl)}">DPA</button>` : ''}
           </div>
@@ -1640,8 +1658,8 @@
           <article class="panel-card">
             <p class="section-kicker">Trusted models</p>
             <h3>Who may receive confidential data</h3>
-            <p class="section-copy">Grouped by provider; only currently-active models are listed. Local models are the natural choice for confidential work. Toggle a provider to trust all of its models, or expand to pick individual ones.</p>
-            <div class="privacy-tree">
+            <p class="section-copy">Grouped by connected provider; only currently-active models are listed. Local models are the natural choice for confidential work. Toggle a provider to trust all of its models, or expand to pick individual ones.</p>
+            <div class="privacy-tree" data-scroll-key="privacy-tree">
               ${renderPrivacyProviderTree(privacy.providers)}
             </div>
           </article>

@@ -6,6 +6,14 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.105.1 — Privacy Page Fixes: Connected-Only Tree, Scroll Stability & DSAR Links
+
+- **Trusted Models lists only connected providers** instead of the full seeded catalog, which also fixes the slow Project Dashboard / Settings first paint caused by the oversized model list.
+- **The model/tree list no longer jumps to the top** when you tick a checkbox or expand a provider — scroll position is preserved across re-renders.
+- **Provider data management links to the Data Subject Request (DSAR) process** where published (e.g. Mistral), via a dedicated "Submit a data-subject request" button.
+
+---
+
 ## v0.105.0 — Privacy Page: Trust Tree, Catch Charts & Provider Data Management
 
 - **Trusted Models is now a provider → model tree** (collapsible, with a provider-level "trust all" toggle) and lists **only currently-active models**, so the panel stays manageable instead of showing one massive flat list.

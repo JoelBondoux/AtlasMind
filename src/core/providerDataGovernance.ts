@@ -17,8 +17,13 @@ export interface ProviderDataGovernance {
   trainsOnDataByDefault: boolean | 'unknown';
   /** Privacy policy / trust center. */
   privacyPolicyUrl?: string;
-  /** Where a data-subject (GDPR/CCPA) request is submitted. */
+  /** General privacy / data inquiry contact or portal. */
   dataRequestUrl?: string;
+  /**
+   * Dedicated data-subject request (DSAR/GDPR Art. 15-17) submission form,
+   * where the provider publishes one distinct from the general contact.
+   */
+  dataSubjectRequestUrl?: string;
   /** Data Processing Addendum, if published. */
   dpaUrl?: string;
   /** Free-form note (e.g. on-device, zero-retention options). */
@@ -37,6 +42,7 @@ const PROVIDER_DATA_GOVERNANCE: Record<string, ProviderDataGovernance> = {
     trainsOnDataByDefault: false,
     privacyPolicyUrl: 'https://www.anthropic.com/legal/privacy',
     dataRequestUrl: 'https://privacy.anthropic.com/',
+    dataSubjectRequestUrl: 'https://privacy.anthropic.com/',
     dpaUrl: 'https://www.anthropic.com/legal/commercial-terms',
     notes: 'Commercial API data is not used to train models by default.',
   },
@@ -45,6 +51,7 @@ const PROVIDER_DATA_GOVERNANCE: Record<string, ProviderDataGovernance> = {
     trainsOnDataByDefault: false,
     privacyPolicyUrl: 'https://openai.com/policies/privacy-policy',
     dataRequestUrl: 'https://privacy.openai.com/',
+    dataSubjectRequestUrl: 'https://privacy.openai.com/policies?modal=take-control',
     dpaUrl: 'https://openai.com/policies/data-processing-addendum',
     notes: 'API data is not used to train models by default; Zero Data Retention available on approval.',
   },
@@ -53,6 +60,7 @@ const PROVIDER_DATA_GOVERNANCE: Record<string, ProviderDataGovernance> = {
     trainsOnDataByDefault: false,
     privacyPolicyUrl: 'https://policies.google.com/privacy',
     dataRequestUrl: 'https://support.google.com/policies/contact/general_privacy_form',
+    dataSubjectRequestUrl: 'https://support.google.com/policies/contact/general_privacy_form',
     dpaUrl: 'https://cloud.google.com/terms/data-processing-addendum',
     notes: 'Free-tier / AI Studio data handling differs from paid Vertex/Gemini API — verify your tier.',
   },
@@ -61,6 +69,7 @@ const PROVIDER_DATA_GOVERNANCE: Record<string, ProviderDataGovernance> = {
     trainsOnDataByDefault: false,
     privacyPolicyUrl: 'https://mistral.ai/terms/#privacy-policy',
     dataRequestUrl: 'https://mistral.ai/terms/#privacy-policy',
+    dataSubjectRequestUrl: 'https://api.dastra.eu/v1/client/data-subject-request/page?id=1200&key=dcObLjNDOpyYmk7rmaLHry0gvWA2OjltEUNqYT0gc1D',
     dpaUrl: 'https://mistral.ai/terms/#data-processing-agreement',
   },
   deepseek: {
@@ -79,6 +88,7 @@ const PROVIDER_DATA_GOVERNANCE: Record<string, ProviderDataGovernance> = {
     retentionSummary: 'GroqCloud does not retain prompts/outputs after the request by default.',
     trainsOnDataByDefault: false,
     privacyPolicyUrl: 'https://groq.com/privacy-policy/',
+    dataSubjectRequestUrl: 'https://groq.com/privacy-policy/',
     dpaUrl: 'https://groq.com/data-processing-addendum/',
   },
   copilot: {
@@ -86,6 +96,7 @@ const PROVIDER_DATA_GOVERNANCE: Record<string, ProviderDataGovernance> = {
     trainsOnDataByDefault: false,
     privacyPolicyUrl: 'https://docs.github.com/en/site-policy/privacy-policies/github-copilot-privacy-statement',
     dataRequestUrl: 'https://privacy.github.com/',
+    dataSubjectRequestUrl: 'https://privacy.github.com/',
     dpaUrl: 'https://github.com/customer-terms/github-data-protection-agreement',
   },
   bedrock: {
@@ -93,6 +104,7 @@ const PROVIDER_DATA_GOVERNANCE: Record<string, ProviderDataGovernance> = {
     trainsOnDataByDefault: false,
     privacyPolicyUrl: 'https://aws.amazon.com/privacy/',
     dataRequestUrl: 'https://aws.amazon.com/compliance/gdpr-center/',
+    dataSubjectRequestUrl: 'https://aws.amazon.com/compliance/gdpr-center/',
     dpaUrl: 'https://aws.amazon.com/service-terms/',
     notes: 'Data stays within your selected AWS Region; inherits your AWS DPA.',
   },

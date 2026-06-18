@@ -9,6 +9,11 @@ describe('providerDataGovernance', () => {
     expect(anthropic.trainsOnDataByDefault).toBe(false);
   });
 
+  it('exposes a dedicated data-subject request URL for Mistral', () => {
+    const mistral = getProviderDataGovernance('mistral');
+    expect(mistral.dataSubjectRequestUrl).toMatch(/^https:\/\/api\.dastra\.eu\//);
+  });
+
   it('marks local inference as on-device with no training', () => {
     const local = getProviderDataGovernance('local');
     expect(local.trainsOnDataByDefault).toBe(false);

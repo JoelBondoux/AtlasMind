@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.105.1] - 2026-06-18
+
+### Fixed
+- **Privacy page Trusted Models tree now lists only connected providers**, not the entire seeded catalog. Unconfigured providers (no credentials / deferred activation) are marked unhealthy at startup, so the tree filters on `isProviderHealthy` — a provider is only shown if it is connected or already hosts a trusted model. This also removes the large webview DOM that was slowing the Project Dashboard / Settings first paint.
+- **Checkbox/tree clicks no longer jump the list back to the top.** `render()` now captures and restores the page scroll position and the inner scroll of any `[data-scroll-key]` container (the provider tree) across the full re-render, so selecting a model or expanding a provider keeps your place.
+
+### Added
+- **Provider data management now links to the dedicated Data Subject Request (DSAR) process** where a provider publishes one — e.g. Mistral's request portal — via a new `dataSubjectRequestUrl` in `src/core/providerDataGovernance.ts`, surfaced as a prominent "Submit a data-subject request" button on the Privacy page.
+
 ## [0.105.0] - 2026-06-18
 
 ### Added
