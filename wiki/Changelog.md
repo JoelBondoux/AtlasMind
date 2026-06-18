@@ -6,6 +6,13 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.100.0 — Compare Models: All Providers, Sorting & a Quality Judge
+
+- **Every configured model is now listed**, grouped by provider in collapsible sections (like the Models tree), with a per-provider and a global Select All. Previously only routing-enabled models showed, so most of your catalog was hidden.
+- **Sortable results** — click any column header (Model, Quality, Completion, Cost, Latency, Tokens) to sort.
+- **Clearer "Completion" column** — the coarse completion-integrity grade (always ~1.0 for clean answers) is now labelled and explained, instead of masquerading as answer "Quality".
+- **Optional LLM judge** (off by default) — pick a judge model and it scores each answer 0–100 for correctness, completeness, and usefulness, adding a real **Quality** column that drives the ranking (rationale on hover). The judge is display-only; routing still calibrates on the completion grade. See [[Chat-Commands]].
+
 ## v0.99.1 — Faster Startup (Deferred Freshness Scan)
 
 - **Startup no longer waits on the memory freshness scan.** The check that fingerprints the whole repo to flag stale imported memory (and light up the "Update Memory" badge) was still running on the startup-critical path — seconds of work on a large workspace. It now runs ~8s after activation settles instead. The SSOT still loads immediately, the on-save watcher keeps freshness current, and the badge just appears a moment later.
