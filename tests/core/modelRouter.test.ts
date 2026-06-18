@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ModelRouter, estimateCacheablePrefixRatio } from '../../src/core/modelRouter.ts';
 import { TaskProfiler } from '../../src/core/taskProfiler.ts';
-import type { ProviderConfig, SubscriptionQuota } from '../../src/types.ts';
+import type { ProviderConfig, SubscriptionQuota, TaskProfile } from '../../src/types.ts';
 
 describe('ModelRouter', () => {
   it('respects preferred provider when selecting a model', () => {
@@ -868,6 +868,10 @@ describe('preferredModel role pin (Direction 3)', () => {
   });
 });
 
+function makeProfile(reasoning: TaskProfile['reasoning']): TaskProfile {
+  return { phase: 'execution', modality: 'code', reasoning, requiresTools: false, requiredCapabilities: [], preferredCapabilities: [] } as TaskProfile;
+}
+
 describe('outcome-driven routing (Direction 2)', () => {
   /** Two identical pay-per-token models so the only differentiator is the outcome bias. */
   function registerTwins(router: ModelRouter): void {
@@ -939,6 +943,39 @@ describe('outcome-driven routing (Direction 2)', () => {
     const restored = new ModelRouter();
     restored.setExecutionOutcomes(snapshot);
     expect(restored.getExecutionOutcome('pa/m')?.samples).toBe(2);
+  });
+
+  it('tracks per-(reasoning-tier) buckets separately from the aggregate', () => {
+    const router = new ModelRouter();
+    router.recordExecutionOutcome('m', 1, 'high');
+    expect(router.getExecutionOutcome('m')?.samples).toBe(1);         // aggregate
+    expect(router.getExecutionOutcome('m', 'high')?.samples).toBe(1); // tier bucket
+    expect(router.getExecutionOutcome('m', 'low')).toBeUndefined();
+  });
+
+  it('biases per reasoning tier — strong-at-high is preferred for high but not low tasks', () => {
+    const router = new ModelRouter();
+    registerTwins(router);
+    for (let i = 0; i < 6; i++) {
+      router.recordExecutionOutcome('pa/m', 1, 'high');
+      router.recordExecutionOutcome('pa/m', 0, 'low');
+      router.recordExecutionOutcome('pb/m', 0, 'high');
+      router.recordExecutionOutcome('pb/m', 1, 'low');
+    }
+    // Aggregates are ~neutral for both; only the per-tier bucket differentiates.
+    expect(router.selectModel({ budget: 'balanced', speed: 'balanced' }, undefined, makeProfile('high'))).toBe('pa/m');
+    expect(router.selectModel({ budget: 'balanced', speed: 'balanced' }, undefined, makeProfile('low'))).toBe('pb/m');
+  });
+
+  it('falls back to the aggregate when the per-tier bucket has too few samples', () => {
+    const router = new ModelRouter();
+    registerTwins(router);
+    // Only aggregate (untiered) outcomes recorded.
+    for (let i = 0; i < 4; i++) {
+      router.recordExecutionOutcome('pa/m', 1);
+      router.recordExecutionOutcome('pb/m', 0);
+    }
+    expect(router.selectModel({ budget: 'balanced', speed: 'balanced' }, undefined, makeProfile('high'))).toBe('pa/m');
   });
 });
 

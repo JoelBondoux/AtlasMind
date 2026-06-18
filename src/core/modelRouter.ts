@@ -116,6 +116,10 @@ const OUTCOME_EWMA_ALPHA = 0.3;
 const OUTCOME_NEUTRAL_BASELINE = 0.7;
 /** Minimum recorded outcomes before the bias applies, to avoid reacting to a single run. */
 const MIN_OUTCOME_SAMPLES = 2;
+/** Composite key for a per-(model × reasoning-tier) outcome bucket. The bare modelId is the aggregate. */
+function outcomeBucketKey(modelId: string, reasoningTier: TaskProfile['reasoning']): string {
+  return `${modelId}::${reasoningTier}`;
+}
 
 type ModelFailureState = {
   providerId: string;
@@ -302,25 +306,40 @@ export class ModelRouter {
    * decayed EWMA, separate from the manual thumbs feedback channel, so routing
    * adapts to how models actually perform on this project's work without
    * disturbing user feedback. Bounded downstream so it can nudge — never starve.
+   *
+   * When a `reasoningTier` is supplied the outcome is tracked **both** against the
+   * model's aggregate and against a per-tier bucket (`modelId::tier`), so a model
+   * that excels at high-reasoning work but struggles with mechanical tasks is
+   * biased per task context. The aggregate key is the bare `modelId`, which keeps
+   * the persisted format backward-compatible.
    */
-  recordExecutionOutcome(modelId: string, quality: number): void {
+  recordExecutionOutcome(modelId: string, quality: number, reasoningTier?: TaskProfile['reasoning']): void {
     if (!Number.isFinite(quality)) {
       return;
     }
     const q = Math.max(0, Math.min(1, quality));
-    const existing = this.executionOutcomes.get(modelId);
+    this.updateOutcomeBucket(modelId, q);
+    if (reasoningTier) {
+      this.updateOutcomeBucket(outcomeBucketKey(modelId, reasoningTier), q);
+    }
+  }
+
+  private updateOutcomeBucket(key: string, quality: number): void {
+    const existing = this.executionOutcomes.get(key);
     if (!existing) {
-      this.executionOutcomes.set(modelId, { ewma: q, samples: 1 });
+      this.executionOutcomes.set(key, { ewma: quality, samples: 1 });
       return;
     }
-    this.executionOutcomes.set(modelId, {
-      ewma: (OUTCOME_EWMA_ALPHA * q) + ((1 - OUTCOME_EWMA_ALPHA) * existing.ewma),
+    this.executionOutcomes.set(key, {
+      ewma: (OUTCOME_EWMA_ALPHA * quality) + ((1 - OUTCOME_EWMA_ALPHA) * existing.ewma),
       samples: existing.samples + 1,
     });
   }
 
-  getExecutionOutcome(modelId: string): ModelOutcomeState | undefined {
-    const stats = this.executionOutcomes.get(modelId);
+  /** Returns the model's aggregate outcome, or the per-tier bucket when `reasoningTier` is given. */
+  getExecutionOutcome(modelId: string, reasoningTier?: TaskProfile['reasoning']): ModelOutcomeState | undefined {
+    const key = reasoningTier ? outcomeBucketKey(modelId, reasoningTier) : modelId;
+    const stats = this.executionOutcomes.get(key);
     return stats ? { ...stats } : undefined;
   }
 
@@ -592,7 +611,7 @@ export class ModelRouter {
 
     const localBonus = this.scoreLocalPreference(model, taskProfile);
     const subscriptionBonus = this.scoreActiveSubscriptionPreference(model);
-    const outcomeBias = this.scoreOutcomeBias(model.id);
+    const outcomeBias = this.scoreOutcomeBias(model.id, taskProfile);
 
     return (cheapness * budgetWeight) + (speedProxy * speedWeight) + (qualityProxy * qualityWeight) + taskFit + healthWeight + preferenceBias + localBonus + subscriptionBonus + outcomeBias;
   }
@@ -604,11 +623,17 @@ export class ModelRouter {
    * control as manual feedback) and clamped to ±`OUTCOME_BIAS_MAX` so a struggling
    * model is nudged down without being excluded.
    */
-  private scoreOutcomeBias(modelId: string): number {
+  private scoreOutcomeBias(modelId: string, taskProfile?: TaskProfile): number {
     if (this.feedbackWeight <= 0) {
       return 0;
     }
-    const stats = this.executionOutcomes.get(modelId);
+    // Prefer the per-tier bucket matching this task's reasoning level when it has
+    // enough samples; otherwise fall back to the model's aggregate record.
+    const tier = taskProfile?.reasoning;
+    const tierStats = tier ? this.executionOutcomes.get(outcomeBucketKey(modelId, tier)) : undefined;
+    const stats = (tierStats && tierStats.samples >= MIN_OUTCOME_SAMPLES)
+      ? tierStats
+      : this.executionOutcomes.get(modelId);
     if (!stats || stats.samples < MIN_OUTCOME_SAMPLES) {
       return 0;
     }

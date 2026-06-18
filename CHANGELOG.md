@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.93.0] - 2026-06-18
+
+### Added
+- **Per-(reasoning-tier × model) outcome granularity (Direction 2)** (`src/core/modelRouter.ts`, `src/core/orchestrator.ts`, `tests/core/modelRouter.test.ts`): the outcome-driven routing bias is now context-aware. Execution outcomes are tracked both against a model's aggregate record (the bare `modelId` key — backward- and persistence-compatible) and against a per-reasoning-tier bucket (`modelId::low|medium|high`), so a model that excels at high-reasoning work but struggles with mechanical tasks (or vice-versa) is biased appropriately for the task at hand. `scoreOutcomeBias` prefers the bucket matching the current task's reasoning tier once it has enough samples and falls back to the aggregate otherwise; the orchestrator records the tier from the task profile. Added 3 tests (separate bucket tracking, per-tier preference flip between high/low tasks, aggregate fallback on sparse buckets).
+
 ## [0.92.0] - 2026-06-17
 
 ### Added
