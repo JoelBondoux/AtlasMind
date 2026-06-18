@@ -2709,6 +2709,27 @@ export function deactivate(): void {
   atlasContext = undefined;
 }
 
+/** Per-provider timeout for startup model discovery, so one slow provider can't stall the rest. */
+const STARTUP_PROVIDER_DISCOVERY_TIMEOUT_MS = 10_000;
+
+/**
+ * Resolves to the promise's value, or to `onTimeout()` if it does not settle within
+ * `ms`. The original promise is left to settle in the background (its result is
+ * ignored) — used to bound provider discovery without aborting in-flight work.
+ */
+export function withTimeout<T>(promise: Promise<T>, ms: number, onTimeout: () => T): Promise<T> {
+  return new Promise<T>(resolve => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) { settled = true; resolve(onTimeout()); }
+    }, ms);
+    promise.then(
+      value => { if (!settled) { settled = true; clearTimeout(timer); resolve(value); } },
+      () => { if (!settled) { settled = true; clearTimeout(timer); resolve(onTimeout()); } },
+    );
+  });
+}
+
 async function refreshProviderModelsCatalog(
   modelRouter: ModelRouter,
   providerRegistry: ProviderRegistry,
@@ -2741,22 +2762,20 @@ async function refreshProviderModelsCatalog(
     ? await refreshAllProviderPricingSync(options.globalState, activeProviderIds, outputChannel)
     : new Map();
 
-  for (const provider of providers) {
+  const processProvider = async (provider: (typeof providers)[number]): Promise<{ updated: boolean; modelEntries: number }> => {
     if (!provider.enabled) {
-      continue;
+      return { updated: false, modelEntries: 0 };
     }
     if (!includeInteractiveProviders && requiresExplicitProviderActivation(provider.id)) {
       modelRouter.setProviderHealth(provider.id, false);
       outputChannel?.appendLine(`[providers] Deferred ${provider.id} discovery until the user explicitly activates that provider.`);
-      modelsAvailable += provider.models.length;
-      continue;
+      return { updated: false, modelEntries: provider.models.length };
     }
 
     const adapter = providerRegistry.get(provider.id);
     if (!adapter) {
       outputChannel?.appendLine(`[providers] ${provider.id}: no adapter registered; skipping discovery.`);
-      modelsAvailable += provider.models.length;
-      continue;
+      return { updated: false, modelEntries: provider.models.length };
     }
 
     try {
@@ -2783,8 +2802,7 @@ async function refreshProviderModelsCatalog(
 
       if (discoveredIds.length === 0) {
         outputChannel?.appendLine(`[providers] ${provider.id} discovery returned 0 models; keeping ${provider.models.length} existing.`);
-        modelsAvailable += provider.models.length;
-        continue;
+        return { updated: false, modelEntries: provider.models.length };
       }
 
       const normalized = [...new Set(discoveredIds.map(modelId => normalizeModelId(provider.id, modelId)))];
@@ -2799,16 +2817,39 @@ async function refreshProviderModelsCatalog(
       const merged = mergeProviderModels(provider, normalized, hintsById, multiplierSync, multiplierOverrides, localSync, providerPricingSync);
       modelRouter.registerProvider({ ...provider, models: merged });
       modelRouter.clearProviderFailures(provider.id);
-      providersUpdated += 1;
-      modelsAvailable += merged.length;
       outputChannel?.appendLine(`[providers] ${provider.id}: registered ${merged.length} model(s) after merge.`);
+      return { updated: true, modelEntries: merged.length };
     } catch (err) {
       outputChannel?.appendLine(
         `[providers] Model refresh failed for ${provider.id}: ` +
         `${err instanceof Error ? err.message : String(err)}`,
       );
-      modelsAvailable += provider.models.length;
+      return { updated: false, modelEntries: provider.models.length };
     }
+  };
+
+  // Discover all providers concurrently, each bounded by a per-provider timeout so
+  // one slow or hanging provider cannot stall the whole refresh. Previously a serial
+  // loop — ~24 providers' multi-second health checks summed to nearly a minute of the
+  // `[providers]` startup stream; concurrency collapses that to roughly the slowest
+  // single provider (capped at the timeout).
+  const results = await Promise.all(providers.map(provider =>
+    withTimeout(
+      processProvider(provider),
+      STARTUP_PROVIDER_DISCOVERY_TIMEOUT_MS,
+      () => {
+        modelRouter.setProviderHealth(provider.id, false);
+        outputChannel?.appendLine(`[providers] ${provider.id}: discovery exceeded ${STARTUP_PROVIDER_DISCOVERY_TIMEOUT_MS}ms; keeping existing models and deprioritizing until the next refresh.`);
+        return { updated: false, modelEntries: provider.models.length };
+      },
+    ),
+  ));
+
+  for (const result of results) {
+    if (result.updated) {
+      providersUpdated += 1;
+    }
+    modelsAvailable += result.modelEntries;
   }
 
   outputChannel?.appendLine(

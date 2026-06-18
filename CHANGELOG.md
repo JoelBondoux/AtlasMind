@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.97.2] - 2026-06-18
+
+### Fixed
+- **Faster startup: provider discovery is now concurrent and bounded** (`src/extension.ts`, `tests/extensionActivation.test.ts`): `refreshProviderModelsCatalog` discovered models from ~24 providers in a **serial** loop — each provider's health check + `/models` fetch ran one after another, so a few slow providers (or a hanging health probe such as the Claude CLI's 60-second one) summed to nearly a minute of the `[providers]` startup stream during which model-dependent UI lagged. Discovery now runs **concurrently** (`Promise.all`), and each provider is wrapped in a per-provider timeout (`STARTUP_PROVIDER_DISCOVERY_TIMEOUT_MS`, 10s) via a new `withTimeout` helper, so one slow or hanging provider can no longer stall the rest — it is marked unhealthy, its existing models are kept, and it is retried on the next refresh. Total discovery time collapses from ~the sum of all providers to ~the slowest single one (capped at the timeout). Added 3 `withTimeout` tests (settles in time, slow → fallback, reject → fallback).
+
 ## [0.97.1] - 2026-06-18
 
 ### Fixed
