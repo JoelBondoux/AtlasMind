@@ -104,6 +104,7 @@ When asked to publish or ship a release, follow these steps in order:
 | Model Provider panel | `src/views/modelProviderPanel.ts` | API key management and quota display webview |
 | Settings panel | `src/views/settingsPanel.ts` | Budget/speed sliders webview |
 | Cost Dashboard panel | `src/views/costDashboardPanel.ts` | Per-session and per-model cost breakdown |
+| Model Comparison panel | `src/views/modelComparisonPanel.ts` | Run a prompt across models; ranked quality/cost/latency comparison |
 | Project Run Center panel | `src/views/projectRunCenterPanel.ts` | Task run history and checkpoint browser |
 | Agent Editor panel | `src/views/agentEditorPanel.ts` | Create/edit agent definitions |
 | Skill Editor panel | `src/views/skillEditorPanel.ts` | Create/edit skill definitions |
