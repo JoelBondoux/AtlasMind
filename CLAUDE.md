@@ -92,6 +92,7 @@ When asked to publish or ship a release, follow these steps in order:
 | `SkillScanner` | `src/core/skillScanner.ts` | Auto-discovers workspace tool definitions |
 | `TestingScaffolder` | `src/core/testingScaffolder.ts` | Constructs a stack-aware starter testing framework from enabled methodologies (non-destructive) |
 | `TestingProtocolSync` | `src/utils/testingProtocolSync.ts` | Outbound sync of enabled testing protocols into external agent instruction files via a managed, path-safe block |
+| `ModelEvalHarness` | `src/core/modelEvalHarness.ts` | Scored-replay model comparison (`compareModelsOnPrompt`); ranks models by graded quality/cost and records outcomes to calibrate routing |
 | `ProviderRegistry` | `src/providers/index.ts` | Maps provider IDs to adapter instances |
 | `McpServerRegistry` | `src/mcp/mcpServerRegistry.ts` | Manages MCP server connections and tool dispatch |
 

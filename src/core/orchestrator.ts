@@ -7,6 +7,7 @@ import type { AgentRegistry } from './agentRegistry.js';
 import type { SkillsRegistry } from './skillsRegistry.js';
 import type { ModelRouter } from './modelRouter.js';
 import { estimateCacheablePrefixRatio } from './modelRouter.js';
+import { gradeExecutionQuality } from './executionQuality.js';
 import type { MemoryManager } from '../memory/memoryManager.js';
 import type { CostTracker } from './costTracker.js';
 import type { ProviderRegistry } from '../providers/index.js';
@@ -3780,25 +3781,6 @@ function truncatePreview(value: string, maxLength = 600): string {
     return trimmed;
   }
   return `${trimmed.slice(0, maxLength)}...`;
-}
-
-/**
- * Grades a completed turn's execution quality in [0,1] for outcome-driven
- * routing: a hard error scores 0, an empty response scores low, a truncated
- * (length-capped) response scores moderate, and a clean response with content
- * scores full. Derived purely from the completion so it needs no extra signals.
- */
-function gradeExecutionQuality(completion: CompletionResponse): number {
-  if (completion.finishReason === 'error') {
-    return 0;
-  }
-  if (completion.content.trim().length === 0) {
-    return 0.2;
-  }
-  if (completion.finishReason === 'length') {
-    return 0.6;
-  }
-  return 1;
 }
 
 function estimateTokens(text: string): number {

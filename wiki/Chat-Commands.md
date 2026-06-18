@@ -232,6 +232,7 @@ These are also available from the Command Palette (`Ctrl+Shift+P`):
 | `AtlasMind: Tool Webhooks` | Configure webhook delivery, authentication, and recent delivery history in the page-based webhook workspace |
 | `AtlasMind: Scaffold Testing Framework` | Construct a stack-aware starter framework (config, example tests, strategy playbook) for the enabled testing methodologies |
 | `AtlasMind: Sync Testing Protocols to AI Agents` | Mirror the enabled testing protocols into detected external agent instruction files (`CLAUDE.md`, `copilot-instructions.md`, `AGENTS.md`, etc.) |
+| `AtlasMind: Compare Models on a Prompt` | Run one prompt across selected models and view a ranked quality/cost/latency comparison; graded outcomes calibrate outcome-driven routing |
 | `AtlasMind: Open Project Dashboard` | Opens the interactive command center for repo health, runtime state, SSOT coverage, security posture, and delivery or PR-readiness signals |
 | `AtlasMind: Open Project Run Center` | Review, approve, pause, resume autonomous runs |
 | `AtlasMind: Manage MCP Servers` | Connect external tool servers |

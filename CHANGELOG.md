@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.95.0] - 2026-06-18
+
+### Added
+- **Model-eval harness — "Compare Models on a Prompt" (Direction 2)** (`src/core/modelEvalHarness.ts`, `src/core/executionQuality.ts`, `src/commands.ts`, `package.json`, `tests/core/modelEvalHarness.test.ts`): a scored-replay harness that runs one prompt across a set of candidate models and returns a ranked comparison (graded quality, cost, latency, token counts, output preview). The graded outcomes are recorded into the router's outcome channel, so a benchmark also **calibrates outcome-driven routing**. The core (`compareModelsOnPrompt`) is pure and host-independent — the model call is injected — with 5 tests (quality ranking + outcome recording, cost tie-break, error capture, de-duplication, abort). A new `AtlasMind: Compare Models on a Prompt` command drives it interactively: pick a prompt and 2+ models, run sequentially (bounded spend), and view the ranked results in an output channel. The quality scorer `gradeExecutionQuality` was extracted to the shared `executionQuality.ts` so the orchestrator and harness use one definition.
+
 ## [0.94.0] - 2026-06-18
 
 ### Added
