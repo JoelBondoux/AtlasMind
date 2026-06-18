@@ -2485,7 +2485,27 @@ export function activate(context: vscode.ExtensionContext): void {
       atlasContext.modelsRefresh.fire();
       atlasContext.projectRunsRefresh?.fire();
       atlasContext.memoryRefresh.fire();
+    } else {
+      // Bootstrap finished but the core context was never assigned — a build step
+      // (typically `buildAtlasContext`) failed and was caught/logged but not
+      // surfaced. Make it visible instead of leaving every atlas-dependent
+      // command (every chat-view title icon except Settings) silently no-op.
+      atlasStartupState = { status: 'failed', phase: atlasStartupState.phase, startedAt: atlasStartupState.startedAt };
+      outputChannel.appendLine('[activate] AtlasMind core services did not initialise; startup did not complete. See the failing activation step above for the error.');
+      void vscode.window.showErrorMessage(
+        'AtlasMind did not finish starting up — core services failed to initialise, so its panels and dashboards will not open. Open the "AtlasMind" output channel for the underlying error.',
+        'Show Output',
+      ).then(choice => { if (choice === 'Show Output') { outputChannel.show(true); } });
     }
+  }).catch((error: unknown) => {
+    (globalThis as any).atlasmindActivating = false;
+    const message = error instanceof Error ? error.message : String(error);
+    atlasStartupState = { status: 'failed', phase: atlasStartupState.phase, startedAt: atlasStartupState.startedAt };
+    outputChannel.appendLine(`[activate] AtlasMind activation threw: ${message}`);
+    void vscode.window.showErrorMessage(
+      `AtlasMind failed to start: ${message}. Open the "AtlasMind" output channel for details.`,
+      'Show Output',
+    ).then(choice => { if (choice === 'Show Output') { outputChannel.show(true); } });
   });
 }
 
