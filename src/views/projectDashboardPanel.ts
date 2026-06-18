@@ -1959,28 +1959,44 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
       updatedRelative: formatRelativeDate(ideationBoard.updatedAt),
     },
     gapAnalysis,
-    privacy: buildPrivacySnapshot(atlas),
+    privacy: await buildPrivacySnapshot(atlas),
     quickActions,
   };
 }
 
-function buildPrivacySnapshot(atlas: AtlasMindContext): DashboardPrivacySnapshot {
+async function buildPrivacySnapshot(atlas: AtlasMindContext): Promise<DashboardPrivacySnapshot> {
   const config = atlas.dataPrivacyManager?.getConfig() ?? defaultDataPrivacyConfig();
   const trustedSet = new Set(config.trustedModelIds);
 
-  // Provider/model tree. Only CONNECTED providers are listed — unconfigured
-  // providers (no credentials / deferred activation) are marked unhealthy at
-  // startup, so `isProviderHealthy` is the synchronous "connected" signal. This
-  // keeps the tree to what the user has actually wired up instead of the full
-  // seeded catalog (and keeps the webview DOM small). A provider that hosts a
-  // trusted model is always kept so it stays manageable even if it later goes
-  // unhealthy. Children are limited to currently-active (enabled) models, plus
-  // any trusted-but-disabled model so it can still be unassigned.
+  // Provider/model tree. Only CONNECTED providers are listed — those the user has
+  // actually wired up (credentials / endpoints present). "Connected" here mirrors
+  // the sidebar MODELS tree, which uses `isProviderConfigured` for its green-check
+  // signal. We deliberately do NOT gate on `isProviderHealthy`: that reflects a live
+  // network health probe which can fail for transient/environmental reasons (TLS,
+  // timeouts), and a provider can be fully configured yet temporarily unhealthy. Such
+  // a provider must still appear here so its models stay manageable as trust targets.
+  // A provider that hosts a trusted model is always kept regardless. Children are
+  // limited to currently-active (enabled) models, plus any trusted-but-disabled model
+  // so it can still be unassigned.
   const providers: DashboardPrivacyProviderNode[] = [];
   const placedTrusted = new Set<string>();
-  for (const provider of atlas.modelRouter.listProviders()) {
+  const catalog = atlas.modelRouter.listProviders();
+  const configuredFlags = await Promise.all(
+    catalog.map(provider => {
+      // `isProviderConfigured('claude-cli')` spawns the Claude CLI twice (--version
+      // then auth status). That is far too costly to pay on every dashboard render,
+      // so use the already-established, periodically-refreshed health signal for it.
+      // Every other provider's configured check is a cheap SecretStorage / config read.
+      if (provider.id === 'claude-cli') {
+        return Promise.resolve(atlas.modelRouter.isProviderHealthy('claude-cli'));
+      }
+      return atlas.isProviderConfigured(provider.id).catch(() => false);
+    }),
+  );
+  for (let i = 0; i < catalog.length; i++) {
+    const provider = catalog[i];
     const hostsTrusted = provider.models.some(model => trustedSet.has(model.id));
-    if (!atlas.modelRouter.isProviderHealthy(provider.id) && !hostsTrusted) {
+    if (!configuredFlags[i] && !hostsTrusted) {
       continue; // not connected and holds nothing trusted — hide it
     }
     const models: DashboardPrivacyModelNode[] = [];

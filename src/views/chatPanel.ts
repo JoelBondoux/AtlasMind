@@ -443,6 +443,14 @@ export class ChatPanel {
     }
 
     switch (message.type) {
+      case 'ready':
+        // The webview script has loaded and attached its message listener. Push
+        // the current state now so a freshly (re)resolved surface — notably the
+        // sidebar view, which VS Code destroys and re-resolves whenever it is
+        // hidden — never gets stuck on the static "no sessions" markup if it
+        // missed the constructor's initial syncState().
+        await this.syncState();
+        return;
       case 'searchSession': {
         const rawQuery = typeof message.payload?.query === 'string' ? message.payload.query.trim() : '';
         const query = rawQuery.toLowerCase();

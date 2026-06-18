@@ -4,7 +4,7 @@
  * Resource Discovery, BEFORE invocation.
  *
  * It NEVER installs anything: it surfaces ranked candidates for the user to
- * review and approve in the Resource Discovery panel. The relevance score is
+ * review and approve in the Resource Discovery tab in Settings. The relevance score is
  * semantic only — explicitly not a trust or safety rating.
  *
  * Because built-in skills cannot read VS Code settings, the ARD client and
@@ -72,9 +72,9 @@ export function createDiscoverResourcesSkill(
 
       if (endpoints.length === 0) {
         return all.length === 0 && !endpointHint
-          ? 'No Agent Finders are enabled. Open the AtlasMind Resource Discovery panel and enable a finder ' +
+          ? 'No Agent Finders are enabled. Open the AtlasMind Resource Discovery tab in Settings and enable a finder ' +
               '(e.g. GitHub Agent Finder or Hugging Face Discover) before searching. Finders ship disabled by design.'
-          : `No enabled Agent Finder matched "${endpointHint}". Enable one in the Resource Discovery panel.`;
+          : `No enabled Agent Finder matched "${endpointHint}". Enable one in the Resource Discovery tab in Settings.`;
       }
 
       const typeFilter = typeof params['type'] === 'string' && params['type'].trim()
@@ -117,7 +117,7 @@ export function createDiscoverResourcesSkill(
 
       return (
         `Found ${results.length} resource(s) for "${query}":\n\n${lines.join('\n')}\n\n` +
-        `${ARD_SCORE_DISCLAIMER} To install one, open the AtlasMind Resource Discovery panel ` +
+        `${ARD_SCORE_DISCLAIMER} To install one, open the AtlasMind Resource Discovery tab in Settings ` +
         `(command: "AtlasMind: Resource Discovery").${errorNote}`
       );
     },

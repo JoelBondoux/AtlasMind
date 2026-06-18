@@ -151,7 +151,7 @@ Searches every enabled [[Resource Discovery]] (ARD) Agent Finder for external ag
 @atlas /discover an MCP server for Jira
 ```
 
-Agent Finders ship **disabled**; enable one in the Resource Discovery panel first (`AtlasMind: Resource Discovery`). The relevance score is a semantic match indicator — **not** a trust or safety rating. Installing an MCP server adds it disabled, behind the existing MCP trust gate. The related commands are `AtlasMind: Resource Discovery`, `AtlasMind: Discover Resources (ARD)`, and `AtlasMind: Export Resource Catalog (ai-catalog.json)`.
+Agent Finders ship **disabled**; enable one in the Resource Discovery tab in Settings first (`AtlasMind: Resource Discovery`). The relevance score is a semantic match indicator — **not** a trust or safety rating. Installing an MCP server adds it disabled, behind the existing MCP trust gate. The related commands are `AtlasMind: Resource Discovery`, `AtlasMind: Discover Resources (ARD)`, and `AtlasMind: Export Resource Catalog (ai-catalog.json)`.
 
 ---
 

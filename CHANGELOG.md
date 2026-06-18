@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.107.0] - 2026-06-18
+
+### Added
+- **Resource Discovery is now a tab inside the Settings dashboard.** The Agentic Resource Discovery UI (search Agent Finders, browse ranked results, install discovered MCP servers/agents/skills/APIs, manage finders, fetch a manifest by URL, and export this project's catalog) now lives as a **Resource Discovery** tab in `AtlasMind Settings`, sharing the dashboard's chrome and navigation instead of opening in a separate webview. `AtlasMind: Resource Discovery`, the sidebar tree, `/discover`, and `ard.search` all open that tab. The standalone `ArdDiscoveryPanel` webview has been removed.
+
+### Fixed
+- **Privacy Dashboard — Trusted Models now lists every connected provider.** The "Who may receive confidential data" tree gated provider visibility on `isProviderHealthy()`, a live network health probe that can fail for transient or environmental reasons (TLS hiccups, timeouts). A fully-configured provider whose probe failed was hidden from the trust tree even though it showed as connected (green check) in the sidebar MODELS tree, so only the interactive providers that don't rely on an HTTPS probe (Claude Code CLI, GitHub Copilot) survived. The trust tree now uses the same `isProviderConfigured()` "connected" signal as the sidebar, so all wired-up providers and their active models are manageable as trust targets regardless of a momentary health state.
+
+### Performance
+- **Faster panel and startup loads — the Claude Code CLI is no longer re-probed on every render.** `isProviderConfigured('claude-cli')` spawns the CLI twice (`--version` then `auth status`), and read-only surfaces (the Models tree, the Project Dashboard, the Model Provider panel) re-probe on every render — the Models tree re-renders on every `modelsRefresh`. Bursts of refreshes spawned the CLI many times over, visibly slowing startup and panel loads. The probe is now memoized with a 10-second TTL, collapsing each burst into a single spawn pair, and the Trusted Models tree reuses the already-established cached health signal for Claude CLI instead of re-probing while building its snapshot.
+
 ## [0.106.0] - 2026-06-18
 
 ### Added

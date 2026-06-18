@@ -5,7 +5,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.100.1",
+  "version": "0.106.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -73,6 +73,10 @@
             "description": "List or manage registered skills"
           },
           {
+            "name": "discover",
+            "description": "Discover external agentic resources (MCP servers, agents, skills, APIs) via ARD"
+          },
+          {
             "name": "memory",
             "description": "Query or manage the SSOT memory system"
           },
@@ -82,19 +86,15 @@
           },
           {
             "name": "project",
-            "description": "Decompose a goal into tests-first subtasks and execute autonomously"
-          },
-          {
-            "name": "voice",
-            "description": "Open the Voice Panel for text-to-speech and speech
+            "description": "Decompose a goal into tests-first s
 …(truncated)
 ```
 
 <!-- atlasmind-import
 entry-path: architecture/dependencies.md
 generator-version: 2
-generated-at: 2026-06-18T03:47:22.234Z
+generated-at: 2026-06-18T18:51:10.022Z
 source-paths: package.json
-source-fingerprint: 4ccd642b
-body-fingerprint: 803c28a1
+source-fingerprint: 09af8f4f
+body-fingerprint: 15f9cecf
 -->

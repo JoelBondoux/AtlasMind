@@ -12,6 +12,7 @@ import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
 import { scanAiInstructionFiles, syncAiInstructionFiles } from '../utils/aiInstructionSync.js';
 import { syncTestingProtocols } from '../utils/testingProtocolSync.js';
 import { scaffoldTestingFramework } from '../core/testingScaffolder.js';
+import type { ArdDiscoveredResource, ArdDiscoveryEndpoint } from '../types.js';
 import { getDisplayCurrency } from '../core/currencyFormatter.js';
 import { isLocalSyncStale, LOCAL_MODEL_SYNC_CACHE_KEY, syncLocalModels, type LocalModelSyncResult } from '../providers/localModelSync.js';
 import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
@@ -177,7 +178,7 @@ interface LocalModelRecommendationPayload {
   installedModels: InstalledLocalModelItem[];
 }
 
-export const SETTINGS_PAGE_IDS = ['overview', 'chat', 'models', 'safety', 'testing', 'project', 'experimental', 'ai-instructions'] as const;
+export const SETTINGS_PAGE_IDS = ['overview', 'chat', 'models', 'safety', 'testing', 'project', 'experimental', 'ai-instructions', 'discovery'] as const;
 export type SettingsPageId = (typeof SETTINGS_PAGE_IDS)[number];
 export interface SettingsPanelTarget {
   page?: SettingsPageId;
@@ -239,7 +240,14 @@ type SettingsMessage =
   | { type: 'saveTestingConfig'; payload: import('../types.js').ProjectTestingConfig }
   | { type: 'autoAssessTestingConfig' }
   | { type: 'syncTestingProtocols' }
-  | { type: 'scaffoldTestingFramework' };
+  | { type: 'scaffoldTestingFramework' }
+  | { type: 'ardSearch'; payload: { query: string; typeFilter?: string } }
+  | { type: 'ardFetchManifest'; payload: { url: string } }
+  | { type: 'ardInstall'; payload: { identifier: string } }
+  | { type: 'ardToggleFinder'; payload: { id: string; enabled: boolean } }
+  | { type: 'ardRemoveFinder'; payload: { id: string } }
+  | { type: 'ardAddFinder'; payload: { name: string; url: string; kind: string; insecure: boolean } }
+  | { type: 'ardExportCatalog' };
 
 /**
  * Settings webview panel – budget/speed modes plus /project execution controls.
@@ -253,6 +261,11 @@ export class SettingsPanel {
   private disposables: vscode.Disposable[] = [];
   private readonly extensionContext: vscode.ExtensionContext;
   private readonly atlasContext?: import('../extension').AtlasMindContext;
+  // Resource Discovery (ARD) tab state. Search results persist in the ARD registry
+  // (getRecentResults/setRecentResults); only transient view state lives here.
+  private ardStatus?: { kind: 'info' | 'success' | 'warning' | 'error'; text: string };
+  private ardBusy = false;
+  private ardLastQuery = '';
 
   public static createOrShow(context: vscode.ExtensionContext, target?: SettingsPageId | SettingsPanelTarget, atlasContext?: import('../extension').AtlasMindContext): void {
     const column = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
@@ -329,6 +342,301 @@ export class SettingsPanel {
     });
   }
 
+  // ── Resource Discovery (ARD) tab ─────────────────────────────────────────
+  // Mirrors the standalone ARD panel's behavior, hosted inside the Settings
+  // dashboard so discovery shares its chrome and lives "within" Settings. Each
+  // action re-renders the panel with the discovery tab kept active, matching the
+  // full-rebuild pattern the rest of the Settings panel already uses.
+
+  private async handleArdMessage(message: SettingsMessage): Promise<void> {
+    const atlas = this.atlasContext;
+    if (!atlas?.ardRegistry || !atlas.ardClient || !atlas.ardInstaller) {
+      this.ardStatus = { kind: 'error', text: 'Resource Discovery services are not available.' };
+      this.rerenderDiscovery();
+      return;
+    }
+    const registry = atlas.ardRegistry;
+
+    switch (message.type) {
+      case 'ardSearch':
+        await this.ardRunSearch(message.payload.query, message.payload.typeFilter);
+        break;
+      case 'ardFetchManifest':
+        await this.ardRunManifestFetch(message.payload.url);
+        break;
+      case 'ardInstall':
+        await this.ardRunInstall(message.payload.identifier);
+        break;
+      case 'ardToggleFinder':
+        registry.setEnabled(message.payload.id, message.payload.enabled);
+        this.ardStatus = { kind: 'info', text: `Finder ${message.payload.enabled ? 'enabled' : 'disabled'}.` };
+        break;
+      case 'ardRemoveFinder':
+        registry.remove(message.payload.id);
+        this.ardStatus = { kind: 'info', text: 'Finder removed.' };
+        break;
+      case 'ardAddFinder':
+        this.ardRunAddFinder(message.payload);
+        break;
+      case 'ardExportCatalog':
+        await vscode.commands.executeCommand('atlasmind.ard.exportCatalog');
+        this.ardStatus = { kind: 'info', text: 'Catalog export started — see the save dialog.' };
+        break;
+      default:
+        return;
+    }
+
+    this.rerenderDiscovery();
+    atlas.discoveryRefresh?.fire();
+  }
+
+  /** Re-render the panel, keeping the Resource Discovery tab active. */
+  private rerenderDiscovery(): void {
+    this.initialTarget = { page: 'discovery' };
+    this.panel.webview.html = this.getHtml();
+  }
+
+  private async ardRunSearch(rawQuery: string, typeFilter?: string): Promise<void> {
+    const atlas = this.atlasContext!;
+    const query = rawQuery.trim();
+    if (!query) {
+      this.ardStatus = { kind: 'warning', text: 'Enter a search query.' };
+      return;
+    }
+    const endpoints = atlas.ardRegistry!.listEnabled();
+    if (endpoints.length === 0) {
+      this.ardStatus = { kind: 'warning', text: 'No Agent Finders are enabled. Enable one below before searching.' };
+      return;
+    }
+
+    this.ardLastQuery = query;
+    this.ardBusy = true;
+    this.rerenderDiscovery();
+
+    const filter = typeFilter && typeFilter.trim() ? { type: [typeFilter.trim()] } : undefined;
+    const { results, errors } = await atlas.ardClient!.searchEndpoints(endpoints, query, filter ? { filter } : {});
+    this.ardBusy = false;
+    atlas.ardRegistry!.setRecentResults(results);
+    this.ardStatus = results.length > 0
+      ? { kind: 'success', text: `Found ${results.length} result(s) for "${query}".${errors.length ? ` ${errors.length} finder(s) errored.` : ''}` }
+      : { kind: 'warning', text: `No results for "${query}".${errors.length ? ` ${errors.map(e => `${e.endpoint}: ${e.message}`).join('; ')}` : ''}` };
+  }
+
+  private async ardRunManifestFetch(rawUrl: string): Promise<void> {
+    const atlas = this.atlasContext!;
+    const url = rawUrl.trim();
+    if (!url) {
+      this.ardStatus = { kind: 'warning', text: 'Enter a manifest or origin URL.' };
+      return;
+    }
+    this.ardBusy = true;
+    this.rerenderDiscovery();
+    try {
+      const catalog = await atlas.ardClient!.fetchCatalog(url);
+      this.ardLastQuery = url;
+      const mapped: ArdDiscoveredResource[] = catalog.entries.map(entry => ({
+        identifier: entry.identifier,
+        displayName: entry.displayName,
+        type: entry.type,
+        ...(entry.url ? { url: entry.url } : {}),
+        ...(entry.data ? { data: entry.data } : {}),
+        ...(entry.description ? { description: entry.description } : {}),
+        ...(entry.capabilities ? { capabilities: entry.capabilities } : {}),
+        ...(entry.tags ? { tags: entry.tags } : {}),
+        ...(entry.trustManifest ? { trustManifest: entry.trustManifest } : {}),
+        sourceName: catalog.host?.displayName ?? 'Manifest',
+      }));
+      atlas.ardRegistry!.setRecentResults(mapped);
+      this.ardStatus = { kind: 'success', text: `Loaded ${mapped.length} entr(ies) from the manifest.` };
+    } catch (error) {
+      this.ardStatus = { kind: 'error', text: `Manifest fetch failed: ${error instanceof Error ? error.message : String(error)}` };
+    } finally {
+      this.ardBusy = false;
+    }
+  }
+
+  private async ardRunInstall(identifier: string): Promise<void> {
+    const atlas = this.atlasContext!;
+    const resource = atlas.ardRegistry!.getRecentResults().find(r => r.identifier === identifier);
+    if (!resource) {
+      this.ardStatus = { kind: 'error', text: 'That result is no longer available — search again.' };
+      return;
+    }
+    try {
+      const result = await atlas.ardInstaller!.install(resource);
+      this.ardStatus = { kind: result.ok ? 'success' : 'warning', text: result.message };
+      if (result.kind === 'mcp-server') {
+        void vscode.window.showInformationMessage(result.message, 'Open MCP Servers').then(choice => {
+          if (choice === 'Open MCP Servers') {
+            void vscode.commands.executeCommand('atlasmind.openMcpServers');
+          }
+        });
+      }
+    } catch (error) {
+      this.ardStatus = { kind: 'error', text: `Install failed: ${error instanceof Error ? error.message : String(error)}` };
+    }
+  }
+
+  private ardRunAddFinder(payload: { name: string; url: string; kind: string; insecure: boolean }): void {
+    const name = payload.name.trim();
+    const url = payload.url.trim();
+    const kind = payload.kind === 'manifest' ? 'manifest' : 'registry';
+    if (!name || !url) {
+      this.ardStatus = { kind: 'warning', text: 'A finder needs both a name and a URL.' };
+      return;
+    }
+    if (!/^https?:\/\//i.test(url)) {
+      this.ardStatus = { kind: 'warning', text: 'Finder URL must start with https:// (or http:// for a trusted local registry).' };
+      return;
+    }
+    this.atlasContext!.ardRegistry!.add({ name, url, kind, enabled: false, insecure: payload.insecure });
+    this.ardStatus = { kind: 'success', text: `Added "${name}" as a disabled finder. Enable it to search.` };
+  }
+
+  private buildArdPage(): string {
+    const registry = this.atlasContext?.ardRegistry;
+    if (!registry) {
+      return `
+        <div class="page-header">
+          <p class="page-kicker">Resource Discovery</p>
+          <h2>Discover agentic resources</h2>
+          <p>Resource Discovery is unavailable because AtlasMind's core services did not finish starting up.</p>
+        </div>`;
+    }
+    const finders = registry.list();
+    const results = registry.getRecentResults();
+    const enabledCount = finders.filter(f => f.enabled).length;
+    const status = this.ardStatus
+      ? `<p class="ard-status ard-status-${escapeHtml(this.ardStatus.kind)}">${escapeHtml(this.ardStatus.text)}</p>`
+      : '';
+
+    return `
+      <div class="page-header">
+        <p class="page-kicker">Resource Discovery</p>
+        <h2>Discover agentic resources <span class="badge">ARD</span></h2>
+        <p>Find external MCP servers, agents, skills, and APIs via <a href="https://agenticresourcediscovery.org/">Agentic Resource Discovery</a>. Discovery happens before invocation; nothing is installed without your action. ${enabledCount} of ${finders.length} finder(s) enabled.</p>
+      </div>
+
+      ${status}
+
+      <div class="page-grid">
+        <article class="settings-card">
+          <div class="card-header">
+            <p class="card-kicker">Search</p>
+            <h3>Query enabled Agent Finders</h3>
+          </div>
+          <form id="ardSearchForm" class="ard-form">
+            <input id="ardSearchQuery" type="search" placeholder="Describe a capability, e.g. &quot;book a flight&quot;" value="${escapeHtml(this.ardLastQuery)}" />
+            <input id="ardTypeFilter" type="text" placeholder="Optional type filter (e.g. application/mcp-server+json)" />
+            <button type="submit" class="primary-button">${this.ardBusy ? 'Searching…' : 'Search'}</button>
+          </form>
+          <details>
+            <summary>Fetch a manifest by URL</summary>
+            <form id="ardManifestForm" class="ard-form">
+              <input id="ardManifestUrl" type="url" placeholder="https://example.com or https://example.com/.well-known/ai-catalog.json" />
+              <button type="submit" class="secondary-button">Fetch</button>
+            </form>
+          </details>
+        </article>
+
+        <article class="settings-card">
+          <div class="card-header">
+            <p class="card-kicker">Results</p>
+            <h3>Ranked candidates</h3>
+          </div>
+          <p class="info-note">The relevance score reflects query match only — it is <strong>not</strong> a trust, compliance, or safety rating. Review each resource before installing.</p>
+          ${this.buildArdResults(results)}
+        </article>
+
+        <article class="settings-card">
+          <div class="card-header">
+            <p class="card-kicker">Agent Finders</p>
+            <h3>Sources searched for resources</h3>
+          </div>
+          <p class="muted-line">Finders ship disabled. Enable one to allow outbound discovery searches.</p>
+          ${this.buildArdFinders(finders)}
+          <details>
+            <summary>Add a finder</summary>
+            <form id="ardAddFinderForm" class="ard-form">
+              <input id="ardFinderName" type="text" placeholder="Name" />
+              <input id="ardFinderUrl" type="url" placeholder="https://registry.example.com/search" />
+              <select id="ardFinderKind">
+                <option value="registry">Registry (POST /search)</option>
+                <option value="manifest">Manifest (ai-catalog.json)</option>
+              </select>
+              <label class="ard-inline"><input id="ardFinderInsecure" type="checkbox" /> Allow http / localhost</label>
+              <button type="submit" class="secondary-button">Add finder</button>
+            </form>
+          </details>
+        </article>
+
+        <article class="settings-card">
+          <div class="card-header">
+            <p class="card-kicker">Publish</p>
+            <h3>Export this project's catalog</h3>
+          </div>
+          <p class="muted-line">Export AtlasMind's agents, skills, and MCP servers as a spec-conformant <code>ai-catalog.json</code> (system prompts, secrets, and env are never included).</p>
+          <div class="button-stack">
+            <button id="ardExportBtn" type="button" class="secondary-button">Export this project's catalog…</button>
+          </div>
+        </article>
+      </div>`;
+  }
+
+  private buildArdResults(results: ArdDiscoveredResource[]): string {
+    if (this.ardBusy) {
+      return '<p class="muted-line">Searching enabled finders…</p>';
+    }
+    if (results.length === 0) {
+      return '<p class="muted-line">No results yet. Run a search or fetch a manifest above.</p>';
+    }
+    return `<div class="ard-results">${results.map(r => this.buildArdResultCard(r)).join('')}</div>`;
+  }
+
+  private buildArdResultCard(r: ArdDiscoveredResource): string {
+    const score = typeof r.score === 'number'
+      ? `<span class="badge ard-score" title="Semantic relevance — not a trust rating">${r.score}/100</span>`
+      : '';
+    const trust = r.trustManifest
+      ? `<span class="badge ard-trust" title="Publisher provided identity/attestation metadata (not verified by AtlasMind)">trust info</span>`
+      : '';
+    const caps = (r.capabilities ?? []).slice(0, 6).map(c => `<span class="ard-chip">${escapeHtml(c)}</span>`).join('');
+    return `
+      <div class="ard-result-card">
+        <div class="ard-result-head">
+          <strong>${escapeHtml(r.displayName)}</strong>
+          <span class="badge ard-type">${escapeHtml(shortArdType(r.type))}</span>
+          ${score}
+          ${trust}
+        </div>
+        <div class="ard-result-meta">${escapeHtml(r.identifier)} · via ${escapeHtml(r.sourceName)}</div>
+        ${r.description ? `<p class="ard-result-desc">${escapeHtml(truncateArd(r.description, 260))}</p>` : ''}
+        ${caps ? `<div class="ard-chips">${caps}</div>` : ''}
+        ${r.url ? `<div class="ard-result-url"><a href="${escapeHtml(r.url)}">${escapeHtml(r.url)}</a></div>` : ''}
+        <div class="button-stack">
+          <button type="button" class="secondary-button" data-ard-install="${escapeHtml(r.identifier)}">Install</button>
+        </div>
+      </div>`;
+  }
+
+  private buildArdFinders(finders: ArdDiscoveryEndpoint[]): string {
+    if (finders.length === 0) {
+      return '<p class="muted-line">No finders configured.</p>';
+    }
+    return `<table class="ard-table">
+      <thead><tr><th>Finder</th><th>Kind</th><th>Enabled</th><th></th></tr></thead>
+      <tbody>
+        ${finders.map(f => `
+        <tr>
+          <td><strong>${escapeHtml(f.name)}</strong><br /><span class="muted-line">${escapeHtml(f.url)}</span></td>
+          <td>${escapeHtml(f.kind)}${f.insecure ? ' <span class="badge ard-warn">insecure</span>' : ''}</td>
+          <td><label class="ard-inline"><input type="checkbox" data-ard-toggle-finder="${escapeHtml(f.id)}" ${f.enabled ? 'checked' : ''} /> ${f.enabled ? 'on' : 'off'}</label></td>
+          <td>${f.builtIn ? '' : `<button type="button" class="link-button" data-ard-remove-finder="${escapeHtml(f.id)}">Remove</button>`}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
+  }
+
   private async handleMessage(message: unknown): Promise<void> {
     // MCP server install message is not a standard settings message
     if (message && typeof message === 'object' && (message as any).type === 'installMcpServer') {
@@ -336,6 +644,11 @@ export class SettingsPanel {
       return;
     }
     if (!isSettingsMessage(message)) {
+      return;
+    }
+
+    if (message.type.startsWith('ard')) {
+      await this.handleArdMessage(message);
       return;
     }
 
@@ -1160,6 +1473,7 @@ export class SettingsPanel {
           <button type="button" class="nav-link ${initialPage === 'project' ? 'active' : ''}" id="tab-project" data-page-target="project" data-search="project runs approval threshold estimated files changed file references report folder dependency monitoring dependabot renovate governance updates" role="tab" aria-selected="${initialPage === 'project' ? 'true' : 'false'}" aria-controls="page-project" ${initialPage === 'project' ? '' : 'tabindex="-1"'}>Project Runs</button>
           <button type="button" class="nav-link ${initialPage === 'experimental' ? 'active' : ''}" id="tab-experimental" data-page-target="experimental" data-search="experimental skill learning generated drafts" role="tab" aria-selected="${initialPage === 'experimental' ? 'true' : 'false'}" aria-controls="page-experimental" ${initialPage === 'experimental' ? '' : 'tabindex="-1"'}>Experimental</button>
           <button type="button" class="nav-link ${initialPage === 'ai-instructions' ? 'active' : ''}" id="tab-ai-instructions" data-page-target="ai-instructions" data-search="ai instructions sync copilot claude cursor cline continue codex gemini windsurf aider import instruction sets" role="tab" aria-selected="${initialPage === 'ai-instructions' ? 'true' : 'false'}" aria-controls="page-ai-instructions" ${initialPage === 'ai-instructions' ? '' : 'tabindex="-1"'}>AI Instructions</button>
+          <button type="button" class="nav-link ${initialPage === 'discovery' ? 'active' : ''}" id="tab-discovery" data-page-target="discovery" data-search="resource discovery ard agent finders mcp servers agents skills apis search install publish catalog manifest registry" role="tab" aria-selected="${initialPage === 'discovery' ? 'true' : 'false'}" aria-controls="page-discovery" ${initialPage === 'discovery' ? '' : 'tabindex="-1"'}>Resource Discovery</button>
         </nav>
 
         <main class="settings-main">
@@ -1664,6 +1978,10 @@ export class SettingsPanel {
                 </article>
               </div>
             </div>
+          </section>
+
+          <section id="page-discovery" class="settings-page ${initialPage === 'discovery' ? 'active fallback-visible' : ''}" role="tabpanel" aria-labelledby="tab-discovery" tabindex="0">
+            ${this.buildArdPage()}
           </section>
         </main>
       </div>
@@ -2549,6 +2867,59 @@ export class SettingsPanel {
           color: var(--atlas-panel-muted);
           text-align: center;
         }
+        .ard-form {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          align-items: center;
+          margin: 8px 0;
+        }
+        .ard-form input[type="search"],
+        .ard-form input[type="text"],
+        .ard-form input[type="url"],
+        .ard-form select {
+          background: var(--vscode-input-background);
+          color: var(--vscode-input-foreground);
+          border: 1px solid var(--vscode-input-border, var(--atlas-panel-border));
+          padding: 6px 9px;
+          border-radius: 6px;
+          min-width: 220px;
+          flex: 1 1 220px;
+        }
+        .ard-inline { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+        .ard-status {
+          margin: 0 0 14px;
+          padding: 8px 12px;
+          border-radius: 10px;
+          border: 1px solid var(--atlas-panel-border);
+        }
+        .ard-status-success { border-color: color-mix(in srgb, #4caf50 55%, var(--atlas-panel-border)); }
+        .ard-status-warning { border-color: var(--atlas-panel-warning); }
+        .ard-status-error { border-color: color-mix(in srgb, #f44336 60%, var(--atlas-panel-border)); }
+        .ard-status-info { border-color: var(--atlas-panel-accent); }
+        .ard-results { display: flex; flex-direction: column; gap: 10px; }
+        .ard-result-card {
+          border: 1px solid var(--atlas-panel-border);
+          border-radius: 12px;
+          padding: 12px 14px;
+          background: var(--atlas-panel-surface);
+        }
+        .ard-result-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+        .ard-result-meta { color: var(--atlas-panel-muted); font-size: 0.82rem; margin-top: 4px; }
+        .ard-result-desc { margin: 8px 0; }
+        .ard-result-url { font-size: 0.82rem; margin-top: 4px; }
+        .ard-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+        .ard-chip {
+          background: var(--atlas-panel-accent-soft);
+          border-radius: 999px;
+          padding: 2px 9px;
+          font-size: 0.78rem;
+        }
+        .badge.ard-type { background: var(--atlas-panel-surface-strong); color: var(--vscode-foreground); }
+        .badge.ard-score { background: var(--vscode-charts-blue, #36c); color: #fff; }
+        .badge.ard-trust { background: var(--vscode-charts-purple, #93c); color: #fff; }
+        .badge.ard-warn { background: var(--atlas-panel-warning); color: #1a1a1a; }
+        .ard-table th, .ard-table td { vertical-align: top; }
       `,
       scriptContent:
       `
@@ -2689,7 +3060,7 @@ export class SettingsPanel {
         const pages = Array.from(document.querySelectorAll('.settings-page'));
         const searchInput = document.getElementById('settingsSearch');
         const searchStatus = document.getElementById('searchStatus');
-        const knownPages = new Set(['overview', 'chat', 'models', 'safety', 'testing', 'project', 'experimental', 'ai-instructions']);
+        const knownPages = new Set(['overview', 'chat', 'models', 'safety', 'testing', 'project', 'experimental', 'ai-instructions', 'discovery']);
 
         function focusSection(sectionId) {
           if (typeof sectionId !== 'string' || sectionId.trim().length === 0) {
@@ -3720,6 +4091,34 @@ export class SettingsPanel {
             return;
           }
         });
+
+        // ── Resource Discovery (ARD) tab wiring ──────────────────────────
+        (function () {
+          function ardVal(id) { const el = document.getElementById(id); return el ? el.value : ''; }
+          function ardChecked(id) { const el = document.getElementById(id); return el ? el.checked : false; }
+          const ardSearchForm = document.getElementById('ardSearchForm');
+          if (ardSearchForm) ardSearchForm.addEventListener('submit', e => { e.preventDefault(); vscode.postMessage({ type: 'ardSearch', payload: { query: ardVal('ardSearchQuery'), typeFilter: ardVal('ardTypeFilter') } }); });
+          const ardManifestForm = document.getElementById('ardManifestForm');
+          if (ardManifestForm) ardManifestForm.addEventListener('submit', e => { e.preventDefault(); vscode.postMessage({ type: 'ardFetchManifest', payload: { url: ardVal('ardManifestUrl') } }); });
+          const ardAddFinderForm = document.getElementById('ardAddFinderForm');
+          if (ardAddFinderForm) ardAddFinderForm.addEventListener('submit', e => { e.preventDefault(); vscode.postMessage({ type: 'ardAddFinder', payload: { name: ardVal('ardFinderName'), url: ardVal('ardFinderUrl'), kind: ardVal('ardFinderKind'), insecure: ardChecked('ardFinderInsecure') } }); });
+          const ardExportBtn = document.getElementById('ardExportBtn');
+          if (ardExportBtn) ardExportBtn.addEventListener('click', () => vscode.postMessage({ type: 'ardExportCatalog' }));
+          document.addEventListener('click', e => {
+            const t = e.target;
+            if (!(t instanceof HTMLElement)) return;
+            const install = t.getAttribute('data-ard-install');
+            if (install) { vscode.postMessage({ type: 'ardInstall', payload: { identifier: install } }); }
+            const remove = t.getAttribute('data-ard-remove-finder');
+            if (remove) { vscode.postMessage({ type: 'ardRemoveFinder', payload: { id: remove } }); }
+          });
+          document.addEventListener('change', e => {
+            const t = e.target;
+            if (!(t instanceof HTMLInputElement)) return;
+            const toggle = t.getAttribute('data-ard-toggle-finder');
+            if (toggle) { vscode.postMessage({ type: 'ardToggleFinder', payload: { id: toggle, enabled: t.checked } }); }
+          });
+        })();
       `,
     });
   }
@@ -4788,6 +5187,42 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
       });
   }
 
+  if (message.type === 'ardExportCatalog') {
+    return true;
+  }
+
+  if (message.type === 'ardSearch') {
+    return typeof message.payload === 'object' && message.payload !== null
+      && typeof (message.payload as Record<string, unknown>)['query'] === 'string';
+  }
+
+  if (message.type === 'ardFetchManifest') {
+    return typeof message.payload === 'object' && message.payload !== null
+      && typeof (message.payload as Record<string, unknown>)['url'] === 'string';
+  }
+
+  if (message.type === 'ardInstall') {
+    return typeof message.payload === 'object' && message.payload !== null
+      && typeof (message.payload as Record<string, unknown>)['identifier'] === 'string';
+  }
+
+  if (message.type === 'ardToggleFinder') {
+    const payload = message.payload as Record<string, unknown> | null;
+    return typeof payload === 'object' && payload !== null
+      && typeof payload['id'] === 'string' && typeof payload['enabled'] === 'boolean';
+  }
+
+  if (message.type === 'ardRemoveFinder') {
+    return typeof message.payload === 'object' && message.payload !== null
+      && typeof (message.payload as Record<string, unknown>)['id'] === 'string';
+  }
+
+  if (message.type === 'ardAddFinder') {
+    const payload = message.payload as Record<string, unknown> | null;
+    return typeof payload === 'object' && payload !== null
+      && typeof payload['name'] === 'string' && typeof payload['url'] === 'string';
+  }
+
   return false;
 }
 
@@ -4804,6 +5239,18 @@ function normalizeSettingsPanelTarget(target?: SettingsPageId | SettingsPanelTar
 
 function isSettingsPageId(value: unknown): value is SettingsPageId {
   return typeof value === 'string' && SETTINGS_PAGE_IDS.includes(value as SettingsPageId);
+}
+
+function shortArdType(type: string): string {
+  return type
+    .replace(/^application\//, '')
+    .replace(/\+json$/, '')
+    .replace(/^vnd\.atlasmind\./, '');
+}
+
+function truncateArd(text: string, max: number): string {
+  const collapsed = text.replace(/\s+/g, ' ').trim();
+  return collapsed.length > max ? `${collapsed.slice(0, max)}…` : collapsed;
 }
 
 function getBudgetMode(value: string | undefined): BudgetMode {

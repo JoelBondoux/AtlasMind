@@ -5,6 +5,11 @@ Focused recursive directory view captured during import.
 ## src
 ```text
 src/
+  ard/
+    ardCatalogExporter.ts
+    ardClient.ts
+    ardInstaller.ts
+    ardRegistry.ts
   bootstrap/
     bootstrapper.ts
   chat/
@@ -25,10 +30,12 @@ src/
     builtinWorkspaceTools.ts
     checkpointManager.ts
     classifierService.ts
+    compliancePacks.ts
     costTracker.ts
     criticality.test.ts
     criticality.ts
     currencyFormatter.ts
+    dataPrivacyManager.ts
     environmentManager.ts
     executionQuality.ts
     modelEvalHarness.ts
@@ -36,10 +43,8 @@ src/
     orchestrator.ts
     planner.ts
     projectRunHistory.ts
-    routineRegistry.ts
-    routineRunner.ts
-    scannerRulesManager.ts
-    ... (12 more entries)
+    providerDataGovernance.ts
+    ... (15 more entries)
   mcp/
     mcpClient.ts
     mcpServerRegistry.ts
@@ -83,6 +88,7 @@ src/
     diagnostics.ts
     diffPreview.ts
     directoryList.ts
+    discoverResources.ts
     dockerCli.ts
     exaSearch.ts
     fileEdit.ts
@@ -93,8 +99,7 @@ src/
     frameworkDetect.ts
     gitApplyPatch.ts
     gitBlame.ts
-    gitBranch.ts
-    ... (22 more entries)
+    ... (23 more entries)
   utils/
     aiInstructionSync.ts
     secretRedactor.ts
@@ -102,6 +107,7 @@ src/
     workspacePicker.ts
   views/
     agentManagerPanel.ts
+    ardDiscoveryPanel.ts
     chatPanel.ts
     chatProtocol.ts
     chatWebviewMarkup.ts
@@ -120,8 +126,7 @@ src/
     toolWebhookPanel.ts
     treeViews.ts
     visionPanel.ts
-    voicePanel.ts
-    ... (1 more entries)
+    ... (2 more entries)
   voice/
     hostSpeechSynthesizer.ts
     localTranscriber.ts
@@ -136,7 +141,7 @@ src/
   constants.ts
   extension.ts
   migration.ts
-  types.ts
+  ... (1 more entries)
 ```
 
 ## tests
@@ -144,6 +149,11 @@ src/
 tests/
   __mocks__/
     vscode.ts
+  ard/
+    ardCatalogExporter.test.ts
+    ardClient.test.ts
+    ardInstaller.test.ts
+    ardRegistry.test.ts
   bootstrap/
     bootstrapper.test.ts
     bootstrapProject.test.ts
@@ -158,7 +168,9 @@ tests/
     main.test.ts
   core/
     checkpointManager.test.ts
+    compliancePacks.test.ts
     costTracker.test.ts
+    dataPrivacyManager.test.ts
     modelEvalHarness.test.ts
     modelRouter.test.ts
     orchestrator.security.test.ts
@@ -166,6 +178,7 @@ tests/
     planner.scheduler.test.ts
     planner.test.ts
     projectRunHistory.test.ts
+    providerDataGovernance.test.ts
     scannerRulesManager.test.ts
     skillDrafting.test.ts
     skillScanner.test.ts
@@ -174,7 +187,7 @@ tests/
     testingScaffolder.test.ts
     toolApprovalManager.test.ts
     toolPolicy.test.ts
-    toolWebhookDispatcher.test.ts
+    ... (1 more entries)
   integration/
     taskLifecycle.test.ts
   mcp/
@@ -238,7 +251,7 @@ tests/
   extensionActivation.test.ts
   nodeMemoryManager-cache.spec.ts
   packageManifest.test.ts
-  setup.ts
+  ... (1 more entries)
 ```
 
 ## docs
@@ -254,6 +267,7 @@ docs/
   github-workflow.md
   model-routing.md
   remote-control.md
+  resource-discovery.md
   roadmap.md
   ssot-memory.md
   user-environment.md
@@ -279,9 +293,10 @@ wiki/
   Model-Routing.md
   Project-Planner.md
   Remote-Control.md
+  Resource-Discovery.md
   Security.md
   Skills.md
-  Tool-Execution.md
+  ... (1 more entries)
 ```
 
 ## project_memory
@@ -341,6 +356,7 @@ project_memory/
     .gitkeep
     blocker-unstable-environment.md
     configuration-reference.md
+    data-privacy.json
     development-workflow.md
     project-run-2026-06-03T01-45-39-088Z.json
     project-run-2026-06-04T00-20-12-535Z.json
@@ -393,8 +409,8 @@ project_memory/
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-06-18T03:47:22.234Z
+generated-at: 2026-06-18T18:51:10.022Z
 source-paths: src | tests | docs | wiki | project_memory | .github
-source-fingerprint: f7a4bc29
-body-fingerprint: d8b4d0d9
+source-fingerprint: 27697b8d
+body-fingerprint: 5c9b4255
 -->
