@@ -1268,8 +1268,9 @@ export class Orchestrator {
     const success = completion.finishReason !== 'error';
     this.agents.recordOutcome(agent.id, success);
     // Direction 2 — outcome-driven routing: feed a graded execution-quality
-    // signal (not just success/failure) into the router's decayed outcome channel.
-    this.router.recordExecutionOutcome(modelUsed, gradeExecutionQuality(completion));
+    // signal (not just success/failure) into the router's decayed outcome channel,
+    // bucketed by this task's reasoning tier so routing adapts per task context.
+    this.router.recordExecutionOutcome(modelUsed, gradeExecutionQuality(completion), baseTaskProfile.reasoning);
     this.onModelOutcomeRecorded?.(this.router.getExecutionOutcomes());
 
     // When the model returned nothing, run a two-step recovery before surfacing a failure:

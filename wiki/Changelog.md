@@ -6,6 +6,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.93.0 — Context-Aware Outcome Routing
+
+- **Outcome bias per reasoning tier** (`src/core/modelRouter.ts`): the learned routing bias now tracks each model's outcomes both in aggregate and per reasoning tier (low/medium/high), so a model strong at deep reasoning but weak at mechanical work is preferred only where it actually performs. Falls back to the aggregate when a tier bucket is sparse. See [[Model-Routing]].
+
 ## v0.92.0 — Planner-Brain Role Routing
 
 - **Pin a model by role** (`src/core/modelRouter.ts`, `src/core/orchestrator.ts`): a new `RoutingConstraints.preferredModel` pin lets a specific model be chosen for a role, bypassing budget/speed gates when it is genuinely available (still respecting health and required capabilities). Its first use is the **planner brain** — the `atlasmind.planningModelId` setting pins the planning/decomposition phase to a chosen reasoner (or a Claude subscription, since planning needs no tools) while execution still routes to tool-capable workers. See [[Model-Routing]] and [[Configuration]].
