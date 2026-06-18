@@ -117,6 +117,14 @@ Key behaviors added in 0.73.0–0.73.1:
 
 Pattern-based secret scanner applied to memory context and live evidence before LLM dispatch. Covers Anthropic/OpenAI/GitHub keys, bearer tokens, PEM private keys, database connection strings, and generic key/secret assignments. `redactSecrets()` returns a `RedactionResult` with match count and matched pattern names; `redactSecretsWithWarning()` logs a console warning when any secrets are found. This is separate from `MemoryScanner`, which blocks writes to SSOT — the `SecretRedactor` protects the runtime dispatch boundary.
 
+### DataPrivacyManager (`src/core/dataPrivacyManager.ts`)
+
+Project-scoped data-privacy policy that ensures confidential, proprietary, or regulated content is only ever sent to user-selected **trusted** models. Classifies text (literal terms and regexes) and file/folder paths (traversal-safe globs), maintains the trusted-model allow-list, and redacts classified spans (`[CONFIDENTIAL]`) for un-trusted models via `redactForModel()`. **Deny-by-default**: an empty trusted list trusts nothing, so enabling the policy with no trusted model redacts classified content for every model until one is selected. The policy lives at `project_memory/operations/data-privacy.json` (`readDataPrivacyConfig`/`writeDataPrivacyConfig`); the live policy is reloaded on file change.
+
+Built-in **compliance packs** (`src/core/compliancePacks.ts`) contribute curated regulated-data detectors when enabled — GDPR (personal data), HIPAA (PHI), PCI-DSS (cardholder data, Luhn-validated), CCPA/CPRA, and Financial (IBAN mod-97). These are heuristic aids, not a compliance certification.
+
+Enforcement lives in the `Orchestrator`: `applyDataPrivacyGate()` classifies the assembled context before model selection and restricts the agent's candidate models to the trusted allow-list (`RoutingConstraints.requireTrustedModel`); `buildMessages()` applies `privacyRedact()` to memory, live evidence, and supplemental context keyed on the actually-selected model (the fail-safe for pins/parallel overflow); and `redactToolResultForModel()` withholds `file-read` results for classified paths when the running model is un-trusted. When classified content is found but no trusted model is available, the content is redacted and the UI is notified via `OrchestratorHooks.onClassifiedContentForUntrustedModel`.
+
 ### TaskProfiler (`src/core/taskProfiler.ts`)
 
 Infers a `TaskProfile` from the current phase and request text. It classifies modality (`text`, `code`, `vision`, `mixed`), reasoning intensity (`low`, `medium`, `high`), and any hard or soft capability needs used by the router.

@@ -16,6 +16,8 @@ AtlasMind is a VS Code extension built in TypeScript, and it now also ships a sm
 | **MemoryManager** | `src/memory/memoryManager.ts` | SSOT folder read/write/search with semantic retrieval, source-backed evidence pointers, and security scanning |
 | **MemoryScanner** | `src/memory/memoryScanner.ts` | Scans content for prompt injection and credential leakage |
 | **SecretRedactor** | `src/utils/secretRedactor.ts` | Pattern-based secret scanner applied to memory context and live evidence before LLM dispatch; covers API keys, tokens, PEM private keys, DB connection strings, and generic key/secret assignments |
+| **DataPrivacyManager** | `src/core/dataPrivacyManager.ts` | Classifies confidential/proprietary terms, regexes, and file/folder paths and gates classified content to user-selected "trusted" models; redacts classified spans (`[CONFIDENTIAL]`) for un-trusted models. Deny-by-default: an empty trusted list trusts nothing. Policy stored at `project_memory/operations/data-privacy.json` |
+| **CompliancePacks** | `src/core/compliancePacks.ts` | Built-in regulated-data detector packs (GDPR, HIPAA, PCI-DSS w/ Luhn, CCPA/CPRA, Financial w/ IBAN mod-97) that feed the DataPrivacyManager classifier when enabled. Heuristic aids, not a compliance certification |
 | **TaskProfiler** | `src/core/taskProfiler.ts` | Infers task phase, modality, and reasoning intensity |
 | **Planner** | `src/core/planner.ts` | Decomposes goals into DAGs of subtasks via LLM |
 | **TaskScheduler** | `src/core/taskScheduler.ts` | Topologically sorts DAGs into batches and runs them in parallel |

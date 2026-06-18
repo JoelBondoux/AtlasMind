@@ -139,6 +139,17 @@ When a turn reaches `maxToolIterations` (or the per-turn tool-call limit) withou
 
 ---
 
+## Data Privacy: gated tool reads
+
+When a project [Data Privacy](Security#data-privacy-confidential-data-is-gated-to-trusted-models) policy is enabled, tool results are filtered before they re-enter the model loop, keyed on the **running** model:
+
+- A `file-read` (or similar) whose target path matches a confidential `path` rule is **withheld** from an un-trusted model — the result is replaced with a notice pointing to the Project Dashboard → Privacy page.
+- Other tool output is scanned for classified terms / regulated data and redacted span-by-span (`[CONFIDENTIAL]`).
+
+Trusted models receive tool results unchanged. This closes the mid-task leak vector where a confidential file is read after routing has already chosen a model.
+
+---
+
 ## Pre-Write Checkpoints
 
 Before any write-capable tool executes:

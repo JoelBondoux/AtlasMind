@@ -36,6 +36,7 @@ import {
   CONTEXT_SAFE_OUTPUT_MARGIN,
 } from '../constants.js';
 import { redactSecretsWithWarning } from '../utils/secretRedactor.js';
+import type { DataPrivacyManager } from './dataPrivacyManager.js';
 import { readProjectTestingConfig, inferTestingMethodologyForSubTask, resolveTestingModelOverride, buildMethodologySystemPromptHint } from './testingConfigLoader.js';
 
 const defaultConfig: OrchestratorConfig = {
@@ -366,6 +367,8 @@ export class Orchestrator {
   private readonly failedAutoSyntheses = new Map<string, string>();
   private readonly classifier: ClassifierService;
   private agentAutoUpdater?: AgentAutoUpdater;
+  private dataPrivacy?: DataPrivacyManager;
+  private onClassifiedContentForUntrustedModel?: OrchestratorHooks['onClassifiedContentForUntrustedModel'];
 
   constructor(
     private agents: AgentRegistry,
@@ -389,6 +392,7 @@ export class Orchestrator {
     this.onQuotaUpdated = hooks?.onQuotaUpdated;
     this.onModelOutcomeRecorded = hooks?.onModelOutcomeRecorded;
     this.onModelSelected = hooks?.onModelSelected;
+    this.onClassifiedContentForUntrustedModel = hooks?.onClassifiedContentForUntrustedModel;
     this.classifier = new ClassifierService(router, providers, taskProfiler);
     this.cfg = { ...defaultConfig, ...config };
   }
@@ -399,6 +403,104 @@ export class Orchestrator {
 
   setAgentAutoUpdater(updater: AgentAutoUpdater): void {
     this.agentAutoUpdater = updater;
+  }
+
+  /** Inject the project Data Privacy policy used to gate routing and redact context. */
+  setDataPrivacyManager(manager: DataPrivacyManager): void {
+    this.dataPrivacy = manager;
+  }
+
+  /**
+   * Fail-safe redaction: replace any classified spans with a placeholder when
+   * `modelId` is not on the trusted allow-list. No-op when the policy is
+   * disabled or the model is trusted.
+   */
+  private privacyRedact(text: string, modelId: string): string {
+    if (!this.dataPrivacy?.isEnabled() || !text) {
+      return text;
+    }
+    return this.dataPrivacy.redactForModel(text, modelId).text;
+  }
+
+  /**
+   * Redact a tool result for an un-trusted model. File-read tools whose target
+   * path is classified are withheld entirely; everything else is scanned for
+   * classified terms/regex/regulated data and redacted span-by-span.
+   */
+  private redactToolResultForModel(toolCall: ToolCall, result: string, modelId: string): string {
+    if (!this.dataPrivacy?.isEnabled() || this.dataPrivacy.isModelTrusted(modelId) || !result) {
+      return result;
+    }
+    const args = (toolCall.arguments ?? {}) as Record<string, unknown>;
+    const candidatePath = ['path', 'filePath', 'file', 'uri', 'target']
+      .map(key => (typeof args[key] === 'string' ? (args[key] as string) : undefined))
+      .find(Boolean);
+    if (candidatePath) {
+      const rule = this.dataPrivacy.classifyPath(candidatePath, this.skillContext.workspaceRootPath ?? undefined);
+      if (rule) {
+        return `[CONFIDENTIAL FILE WITHHELD] "${candidatePath}" is classified by the Data Privacy policy and cannot be read by an un-trusted model. Assign a trusted model in the Project Dashboard → Privacy page to access it.`;
+      }
+    }
+    return this.dataPrivacy.redactForModel(result, modelId).text;
+  }
+
+  /**
+   * Data Privacy routing gate. Classifies the assembled context; when it
+   * contains confidential / regulated data, restricts the agent's candidate
+   * models to the trusted allow-list so the content is only ever sent to a
+   * user-selected model. Returns the (possibly model-restricted) agent plus the
+   * effective constraints. When no trusted model is available, leaves routing
+   * unchanged and relies on the redaction fail-safe — notifying the UI so the
+   * user can assign one.
+   */
+  private applyDataPrivacyGate(
+    agent: AgentDefinition,
+    constraints: RoutingConstraints,
+    retrievalContext: RetrievalContextBundle,
+    requestContext: Record<string, unknown>,
+    onProgress?: (message: string) => void,
+  ): { agent: AgentDefinition; constraints: RoutingConstraints } {
+    if (!this.dataPrivacy?.isEnabled()) {
+      return { agent, constraints };
+    }
+    const corpus = [
+      ...retrievalContext.memoryEntries.map(e => `${e.title}\n${e.snippet}`),
+      ...retrievalContext.liveEvidence.map(e => e.excerpt),
+      String(requestContext['sessionContext'] ?? ''),
+      String(requestContext['nativeChatContext'] ?? ''),
+      String(requestContext['attachmentContext'] ?? ''),
+      String(requestContext['workstationContext'] ?? ''),
+    ].join('\n');
+    const wsRoot = this.skillContext.workspaceRootPath ?? undefined;
+    const pathClassified = retrievalContext.liveEvidence.some(
+      e => this.dataPrivacy?.classifyPath(e.path, wsRoot),
+    );
+    const classification = this.dataPrivacy.classifyText(corpus);
+    if (!classification.hasClassified && !pathClassified) {
+      return { agent, constraints };
+    }
+
+    const trusted = this.dataPrivacy.getTrustedModelIds();
+    const gatedConstraints: RoutingConstraints = { ...constraints, requireTrustedModel: true };
+    const usableTrusted = trusted.filter(id => this.router.getModelInfo(id));
+    if (usableTrusted.length === 0) {
+      // No trusted model configured/available: rely on the redaction fail-safe.
+      onProgress?.('Data Privacy: confidential content detected but no trusted model is available — the content will be redacted before it is sent. Assign a trusted model in the Project Dashboard → Privacy page.');
+      this.onClassifiedContentForUntrustedModel?.({ selectedModel: 'none', matches: classification.matches });
+      return { agent, constraints: gatedConstraints };
+    }
+
+    const existing = agent.allowedModels ?? [];
+    const gatedModels = existing.length > 0
+      ? existing.filter(id => usableTrusted.includes(id))
+      : usableTrusted;
+    const effectiveModels = gatedModels.length > 0 ? gatedModels : usableTrusted;
+    const labels = [...new Set(classification.matches.map(m => m.label))].slice(0, 4).join(', ');
+    onProgress?.(`Data Privacy: confidential content detected (${labels}); restricting routing to ${effectiveModels.length} trusted model(s).`);
+    return {
+      agent: { ...agent, allowedModels: effectiveModels },
+      constraints: gatedConstraints,
+    };
   }
 
   async classify(userMessage: string, options?: { hasImageAttachment?: boolean }): Promise<ClassificationResult> {
@@ -767,6 +869,15 @@ export class Orchestrator {
     }
 
     let routingConstraints = buildExecutionRoutingConstraints(request.constraints, activeAgentSkills.length > 0);
+
+    // Data Privacy routing gate — when the assembled context contains
+    // confidential / regulated data, restrict routing to the user's trusted
+    // model allow-list so the content is only ever sent to a selected model.
+    {
+      const gated = this.applyDataPrivacyGate(agent, routingConstraints, retrievalContext, request.context, onProgress);
+      agent = gated.agent;
+      routingConstraints = gated.constraints;
+    }
 
     // Cache-aware routing: when a substantial reused context prefix is carried
     // into this turn (threaded / iterative work), the stable prefix can be
@@ -2217,7 +2328,9 @@ export class Orchestrator {
       for (const { toolCall, result } of toolResults) {
         messages.push({
           role: 'tool',
-          content: result,
+          // Data Privacy fail-safe: withhold/redact confidential file reads and
+          // classified content when the running model is not trusted.
+          content: this.redactToolResultForModel(toolCall, result, model),
           toolCallId: toolCall.id,
           toolName: toolCall.name,
         });
@@ -3157,32 +3270,35 @@ export class Orchestrator {
       }
       return raw;
     })();
-    const rawWorkstationContext = typeof requestContext['workstationContext'] === 'string'
-      ? requestContext['workstationContext'].trim()
-      : '';
+    const rawWorkstationContext = this.privacyRedact(
+      typeof requestContext['workstationContext'] === 'string'
+        ? requestContext['workstationContext'].trim()
+        : '',
+      modelId,
+    );
     const rawSpecialistRoutingHint = typeof requestContext['specialistRoutingHint'] === 'string'
       ? requestContext['specialistRoutingHint'].trim()
       : '';
     const imageAttachments = toImageAttachments(requestContext['imageAttachments']);
     const hasCarryForwardImages = Boolean(requestContext['carryForwardImages']) && imageAttachments.length > 0;
     const promptBudget = buildPromptBudget(this.router.getModelInfo(modelId)?.contextWindow, imageAttachments.length);
-    const memoryLines = redactSecretsWithWarning(
+    const memoryLines = this.privacyRedact(redactSecretsWithWarning(
       compressionEnabled
         ? compactMemoryContext(retrievalContext.memoryEntries, this.memory, promptBudget.memoryChars)
         : compactMemoryContext(retrievalContext.memoryEntries, this.memory, Number.MAX_SAFE_INTEGER),
       'memory-context',
-    );
-    const liveEvidenceLines = redactSecretsWithWarning(
+    ), modelId);
+    const liveEvidenceLines = this.privacyRedact(redactSecretsWithWarning(
       compressionEnabled
         ? compactLiveEvidence(retrievalContext.liveEvidence, Math.max(200, Math.floor(promptBudget.memoryChars * 0.75)))
         : compactLiveEvidence(retrievalContext.liveEvidence, Number.MAX_SAFE_INTEGER),
       'live-evidence',
-    );
+    ), modelId);
     const personalityProfilePrompt = this.getPersonalityProfilePrompt?.()?.trim() ?? '';
     const supplementalContext = buildSupplementalContextMessage([
-      { id: 'session-context', label: 'Recent session context', content: rawSessionContext },
-      { id: 'native-chat-context', label: 'Native chat context', content: rawNativeChatContext },
-      { id: 'attachment-context', label: 'Attached context', content: rawAttachmentContext },
+      { id: 'session-context', label: 'Recent session context', content: this.privacyRedact(rawSessionContext, modelId) },
+      { id: 'native-chat-context', label: 'Native chat context', content: this.privacyRedact(rawNativeChatContext, modelId) },
+      { id: 'attachment-context', label: 'Attached context', content: this.privacyRedact(rawAttachmentContext, modelId) },
     ], promptBudget.supplementalChars);
     // The LLM classifier gives a single workspaceBias value ('act'|'investigate'|'none').
     // The legacy heuristics are OR'd in because:

@@ -6,6 +6,14 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.104.0 — Data Privacy & Trusted-Model Gating
+
+- **Mark confidential data and keep it on the models you choose.** A new project Data Privacy policy lets you classify language/terms, files, and folders as proprietary, confidential, or secret — and enable built-in compliance packs (GDPR, HIPAA, PCI-DSS, CCPA/CPRA, Financial) that detect regulated data points like emails, payment-card numbers, and health terms. Classified content is only ever sent to the **trusted models you select**; every other model receives a redacted `[CONFIDENTIAL]` placeholder.
+- Enforcement is layered: a **routing gate** restricts model selection to trusted models when context is classified, a **redaction fail-safe** strips classified spans for the actually-selected model, and **tool reads are gated** so a confidential file read by an un-trusted model is withheld. Deny-by-default — an empty trusted list trusts nothing.
+- Managed from the Project Dashboard → new **Privacy** page (enable toggle, compliance-standard checkboxes, custom term/regex/path rules, trusted-model multi-select, and a test-against-text/path preview). The detectors are heuristic aids, not a compliance certification.
+
+---
+
 ## v0.103.2 — Honest Subtask Outcomes
 
 - **Project subtasks that didn't actually deliver are no longer reported as completed.** A subtask that ended on a hard tool error (e.g. a missing-file read), returned only a preamble ("Let's inspect…") with no work, or otherwise signalled incomplete delivery used to be recorded as `completed` — letting the run build dependents on a broken foundation and report a false "N/N completed". These are now classified as `failed` (with an explanatory reason), so dependents are skipped and the run's completed/failed counts are honest. A failing subtask also gets one recovery retry before it's marked failed. (Iteration-cap pauses remain `needs-input`, from v0.101.0.)

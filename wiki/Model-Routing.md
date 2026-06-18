@@ -195,6 +195,7 @@ Models pass through three gates:
 | **Enabled** | Provider and model must both be enabled |
 | **Health** | Provider must be marked healthy |
 | **Whitelist** | If agent has `allowedModels`, model must be in the list |
+| **Trusted-model gate** | If the assembled context is classified by the [Data Privacy](Security#data-privacy-confidential-data-is-gated-to-trusted-models) policy, candidates are restricted to the trusted-model allow-list (`RoutingConstraints.requireTrustedModel`). When no trusted model is available, routing is unchanged and classified spans are redacted to `[CONFIDENTIAL]` as a fail-safe. Deny-by-default: an empty trusted list trusts nothing |
 | **Capabilities** | Model must support all `requiredCapabilities` from the task profile |
 | **Budget gate** | Model's budget tier must be in the allowed set for the configured budget mode |
 | **Speed gate** | Model's speed tier must be in the allowed set for the configured speed mode |

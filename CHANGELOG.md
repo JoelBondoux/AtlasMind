@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.104.0] - 2026-06-18
+
+### Added
+- **Data Privacy: classify confidential data and gate it to trusted models only.** A new project-scoped privacy policy lets you mark language/terms, files, and folders as proprietary, confidential, or secret. Classified content is only ever sent to the **trusted models you select** — every other model receives a redacted `[CONFIDENTIAL]` placeholder. Managed from the Project Dashboard → new **Privacy** page; the policy is stored at `project_memory/operations/data-privacy.json`.
+  - `src/core/dataPrivacyManager.ts` (`DataPrivacyManager`) — classifies text (literal terms, regex) and file/folder paths (globs, traversal-safe), tracks the trusted-model allow-list (empty = nothing trusted, deny-by-default), and redacts classified spans for un-trusted models.
+  - `src/core/compliancePacks.ts` — built-in, checkbox-enabled compliance packs (**GDPR** personal data, **HIPAA** PHI, **PCI-DSS** cardholder data with Luhn validation, **CCPA/CPRA**, **Financial** with IBAN mod-97). Each pack contributes curated regulated-data detectors to the classifier. Heuristic aids, not a compliance certification.
+  - Enforcement (`src/core/orchestrator.ts`): a **routing gate** restricts candidate models to the trusted allow-list when the assembled context is classified; a **redaction fail-safe** in `buildMessages` strips classified spans for the actually-selected model (covers pins, parallel overflow); and **tool reads are gated** — a `file-read` of a classified path by an un-trusted model is withheld. When confidential content is detected but no trusted model is available, the content is redacted and the user is notified (with a shortcut to the Privacy page) — `RoutingConstraints.requireTrustedModel`, `OrchestratorHooks.onClassifiedContentForUntrustedModel`.
+  - New types: `DataPrivacyConfig`, `DataPrivacyRule`, `DataPrivacyMatch`, `DataPrivacySensitivity` (`src/types.ts`).
+  - Project Dashboard **Privacy** page (`src/views/projectDashboardPanel.ts`, `media/projectDashboard.js`): enable toggle, compliance-standard checkboxes, custom term/regex/path rules, trusted-model multi-select, and a "test against text/path" preview. All webview messages are validated before any write.
+- **Tests**: `tests/core/dataPrivacyManager.test.ts` and `tests/core/compliancePacks.test.ts` cover term/regex/path classification, traversal rejection, invalid-regex safety, deny-by-default trust semantics, Luhn/IBAN validators, and per-pack detector behaviour.
+
 ## [0.103.2] - 2026-06-18
 
 ### Fixed

@@ -15,7 +15,7 @@ project_memory/
 ├── misadventures/        Failed approaches and lessons learned
 ├── ideas/                Unstructured brainstorms and proposals
 ├── domain/               Domain knowledge, glossary, business rules
-├── operations/           Runbooks, deployment procedures, scripts
+├── operations/           Runbooks, deployment procedures, scripts, and data-privacy.json (Data Privacy policy)
 ├── agents/               Per-agent configuration and custom prompts
 ├── skills/               Skill definitions and tool schemas
 ├── sessions/             Internal per-session context snapshots (not part of general SSOT retrieval)
