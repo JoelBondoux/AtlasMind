@@ -6,6 +6,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.96.1 — Higher-Fidelity Claude Brain
+
+- **More context for the Claude Code CLI bridge** (`src/providers/claude-cli.ts`): instead of truncating every message to 4k chars, the bridge now gives the latest turn up to 16k (≈4×) while keeping history small and the total within the OS command-line limit. This directly benefits brain-role pins (`planningModelId` / `synthesisModelId`) where a single message carries the goal + memory context. See [[Model-Routing]].
+
 ## v0.96.0 — Local-Draft / Frontier-Escalate
 
 - **Draft cheap, escalate when needed** (`src/core/orchestrator.ts`): the new `atlasmind.draftModelId` setting pins a draft model (e.g. a fast local model) for the first attempt of mechanical/low-stakes tasks, while the existing struggle-gated escalation upgrades to a stronger model if the draft falls short — completing the draft/plan/execute/synthesize role-routing set. The pin never blocks escalation (which now explicitly clears any model pin). See [[Configuration]] and [[Model-Routing]].

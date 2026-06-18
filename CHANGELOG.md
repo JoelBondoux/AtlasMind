@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.96.1] - 2026-06-18
+
+### Changed
+- **Higher-fidelity Claude "brain" context via the Claude Code CLI bridge (Direction 3)** (`src/providers/claude-cli.ts`, `tests/providers/claudeCliPrompt.test.ts`): the chat-only `claude-cli` bridge previously truncated **every** message uniformly to 4,000 chars, which starved the brain-role calls (planning / synthesis) that carry the goal plus a large memory context in a single user message. `buildClaudeCliPrompt` now allocates a per-role budget: prior-turn history is capped small (2,500 chars each) while the **latest** turn gets up to 16,000 chars (≈4× more), reduced dynamically when history is large so the assembled prompt stays within a 26,000-char total budget — safely under the Windows ~32,767-char command-line limit (the prompt is passed on the command line). This makes `claude-cli` a far more capable choice for `planningModelId` / `synthesisModelId`. Added 3 tests covering the enlarged latest-turn budget, small history truncation, and the total bound under heavy history.
+
 ## [0.96.0] - 2026-06-18
 
 ### Added
