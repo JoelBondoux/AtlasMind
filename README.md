@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.96.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.97.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -272,7 +272,7 @@ See [Funding and Sponsorship](wiki/Funding-and-Sponsorship.md) for details.
 - Skills and tool handlers: `src/skills/`
 - Shared utilities: `src/utils/` (including `secretRedactor.ts` — pattern-based secret scanner used to scrub credentials from memory context before LLM dispatch; `aiInstructionSync.ts` — inbound merge of external agent rule files; `testingProtocolSync.ts` — outbound sync of enabled testing protocols into external agent instruction files)
 - Testing strategy: `src/core/testingConfigLoader.ts` (methodology resolution for orchestrated runs) and `src/core/testingScaffolder.ts` (stack-aware framework scaffolding)
-- Routing intelligence: `src/core/executionQuality.ts` (shared output-quality scorer) and `src/core/modelEvalHarness.ts` (scored-replay model comparison)
+- Routing intelligence: `src/core/executionQuality.ts` (shared output-quality scorer), `src/core/modelEvalHarness.ts` (scored-replay model comparison), and `src/views/modelComparisonPanel.ts` (comparison webview)
 - Webview and sidebar surfaces: `src/views/` (`chatProtocol.ts` and `chatWebviewMarkup.ts` are Node-free so they are shared with the web build)
 - Voice (TTS/STT): `src/voice/` (`voiceManager.ts` bridge, `hostSpeechSynthesizer.ts` on-device OS speech engine, `localTranscriber.ts` on-device Whisper STT)
 - Memory and MCP layers: `src/memory/`, `src/mcp/`

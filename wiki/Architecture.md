@@ -273,6 +273,7 @@ src/
 |  |- toolWebhookPanel.ts  Webhook config webview
 |  |- skillScannerPanel.ts  Scanner rules webview
 |  |- costDashboardPanel.ts  Cost Dashboard webview (daily chart, model breakdown, budget bar)
+|  |- modelComparisonPanel.ts  Model Comparison webview (run a prompt across models, ranked results)
 |  `- webviewUtils.ts    Shared webview helpers (escapeHtml, CSP, nonce)
 |- utils/
 |  `- workspacePicker.ts Multi-workspace folder selection

@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.97.0] - 2026-06-18
+
+### Added
+- **Model Comparison panel** (`src/views/modelComparisonPanel.ts`, `src/commands.ts`): the `AtlasMind: Compare Models on a Prompt` command now opens a dedicated webview instead of the output channel. Enter a prompt, tick 2+ models, and run them to get a ranked, sortable table of graded quality, cost, latency, and an output preview per model; graded outcomes are recorded into the router to calibrate routing. The panel reuses the pure `compareModelsOnPrompt` harness, validates inbound webview messages (prompt is a non-empty string; model IDs are checked against the known-model set), renders all dynamic content with `escapeHtml`, uses a nonce-protected script with no inline handlers, and aborts an in-flight run when the panel is closed. The previous output-channel implementation (and its helper) were removed.
+
 ## [0.96.1] - 2026-06-18
 
 ### Changed

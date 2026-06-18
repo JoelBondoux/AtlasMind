@@ -6,6 +6,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.97.0 — Model Comparison Panel
+
+- **A real UI for model comparison** (`src/views/modelComparisonPanel.ts`): the Compare Models command now opens a webview — enter a prompt, pick 2+ models, and see a ranked table of quality/cost/latency with output previews, instead of plain output-channel text. Graded outcomes still calibrate routing. Nonce-protected, message-validated, output escaped. See [[Architecture]] and [[Chat-Commands]].
+
 ## v0.96.1 — Higher-Fidelity Claude Brain
 
 - **More context for the Claude Code CLI bridge** (`src/providers/claude-cli.ts`): instead of truncating every message to 4k chars, the bridge now gives the latest turn up to 16k (≈4×) while keeping history small and the total within the OS command-line limit. This directly benefits brain-role pins (`planningModelId` / `synthesisModelId`) where a single message carries the goal + memory context. See [[Model-Routing]].
