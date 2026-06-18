@@ -18,6 +18,7 @@ AtlasMind is a VS Code extension built in TypeScript, and it now also ships a sm
 | **SecretRedactor** | `src/utils/secretRedactor.ts` | Pattern-based secret scanner applied to memory context and live evidence before LLM dispatch; covers API keys, tokens, PEM private keys, DB connection strings, and generic key/secret assignments |
 | **DataPrivacyManager** | `src/core/dataPrivacyManager.ts` | Classifies confidential/proprietary terms, regexes, and file/folder paths and gates classified content to user-selected "trusted" models; redacts classified spans (`[CONFIDENTIAL]`) for un-trusted models. Deny-by-default: an empty trusted list trusts nothing. Policy stored at `project_memory/operations/data-privacy.json` |
 | **CompliancePacks** | `src/core/compliancePacks.ts` | Built-in regulated-data detector packs (GDPR, HIPAA, PCI-DSS w/ Luhn, CCPA/CPRA, Financial w/ IBAN mod-97) that feed the DataPrivacyManager classifier when enabled. Heuristic aids, not a compliance certification |
+| **ProviderDataGovernance** | `src/core/providerDataGovernance.ts` | Static per-provider data-governance reference (GDPR/data-subject request portal, privacy policy, DPA, retention, training stance) surfaced on the Privacy page for trusted providers |
 | **TaskProfiler** | `src/core/taskProfiler.ts` | Infers task phase, modality, and reasoning intensity |
 | **Planner** | `src/core/planner.ts` | Decomposes goals into DAGs of subtasks via LLM |
 | **TaskScheduler** | `src/core/taskScheduler.ts` | Topologically sorts DAGs into batches and runs them in parallel |

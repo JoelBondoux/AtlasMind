@@ -37,6 +37,7 @@
     privacyDraftRule: { kind: 'term', value: '', sensitivity: 'confidential' },
     privacyTest: { kind: 'text', value: '' },
     privacyTestResult: null,
+    privacyExpandedProviders: {},
   };
 
   refreshButton?.addEventListener('click', () => {
@@ -241,6 +242,16 @@
       vscode.postMessage({ type: 'testDataPrivacy', payload: { kind: state.privacyTest.kind, value: value } });
       return;
     }
+    if (action === 'privacy-provider-expand') {
+      const current = privacyProviderExpandedById(payload);
+      state.privacyExpandedProviders[payload] = !current;
+      render();
+      return;
+    }
+    if (action === 'privacy-open-url') {
+      vscode.postMessage({ type: 'openExternalUrl', payload });
+      return;
+    }
   });
 
   root?.addEventListener('input', event => {
@@ -348,6 +359,22 @@
       config.trustedModelIds = target.checked
         ? config.trustedModelIds.concat(config.trustedModelIds.includes(modelId) ? [] : [modelId])
         : config.trustedModelIds.filter(id => id !== modelId);
+      savePrivacy(config);
+      return;
+    }
+    if (target.hasAttribute('data-privacy-provider')) {
+      const providerId = target.getAttribute('data-privacy-provider');
+      const provider = (snapshot.privacy.providers || []).find(p => p.id === providerId);
+      if (!provider) { return; }
+      const childIds = provider.models.map(m => m.id);
+      const config = privacyConfigFromSnapshot(snapshot.privacy);
+      if (target.checked) {
+        const set = new Set(config.trustedModelIds);
+        childIds.forEach(id => set.add(id));
+        config.trustedModelIds = [...set];
+      } else {
+        config.trustedModelIds = config.trustedModelIds.filter(id => !childIds.includes(id));
+      }
       savePrivacy(config);
       return;
     }
@@ -520,6 +547,12 @@
           }
         }
       }
+
+      // Indeterminate is a DOM property, not an attribute — set it post-render
+      // for provider checkboxes where only some child models are trusted.
+      root.querySelectorAll('input[data-privacy-provider][data-indeterminate="true"]').forEach(el => {
+        el.indeterminate = true;
+      });
     } catch (error) {
       renderError(error instanceof Error ? error.message : String(error));
     }
@@ -1463,8 +1496,113 @@
     vscode.postMessage({ type: 'saveDataPrivacyConfig', payload: config });
   }
 
+  function privacyProviderExpanded(provider) {
+    const override = state.privacyExpandedProviders[provider.id];
+    if (typeof override === 'boolean') { return override; }
+    // Default: expand providers that already have a trusted model.
+    return provider.trustedCount > 0;
+  }
+
+  function privacyProviderExpandedById(id) {
+    const override = state.privacyExpandedProviders[id];
+    if (typeof override === 'boolean') { return override; }
+    const providers = state.snapshot && state.snapshot.privacy ? state.snapshot.privacy.providers : null;
+    const provider = providers ? providers.find(p => p.id === id) : null;
+    return provider ? provider.trustedCount > 0 : false;
+  }
+
+  function renderPrivacyProviderTree(providers) {
+    if (!providers || providers.length === 0) {
+      return '<p class="section-copy">No active models available. Enable a model in the Models view first.</p>';
+    }
+    return providers.map(provider => {
+      const expanded = privacyProviderExpanded(provider);
+      const allTrusted = provider.models.length > 0 && provider.trustedCount === provider.models.length;
+      const someTrusted = provider.trustedCount > 0 && !allTrusted;
+      return `
+        <div class="privacy-tree-provider ${provider.trustedCount > 0 ? 'has-trusted' : ''}">
+          <div class="privacy-tree-head">
+            <button type="button" class="privacy-tree-twisty" data-action="privacy-provider-expand" data-payload="${escapeAttr(provider.id)}" aria-expanded="${expanded ? 'true' : 'false'}" title="${expanded ? 'Collapse' : 'Expand'}">${expanded ? '▾' : '▸'}</button>
+            <label class="privacy-tree-provider-label" title="Trust all models from this provider">
+              <input type="checkbox" data-privacy-provider="${escapeAttr(provider.id)}" ${allTrusted ? 'checked' : ''} ${someTrusted ? 'data-indeterminate="true"' : ''} ${provider.id === '__unavailable__' ? 'disabled' : ''} />
+              <span class="privacy-tree-provider-name">${escapeHtml(provider.name)}</span>
+            </label>
+            <span class="privacy-tree-count">${provider.trustedCount}/${provider.models.length} trusted</span>
+          </div>
+          ${expanded ? `
+            <div class="privacy-tree-models">
+              ${provider.models.map(model => `
+                <label class="privacy-tree-model ${model.trusted ? 'on' : ''}">
+                  <input type="checkbox" data-privacy-model="${escapeAttr(model.id)}" ${model.trusted ? 'checked' : ''} />
+                  <span class="privacy-tree-model-name">${escapeHtml(model.name)}</span>
+                  ${model.active ? '' : '<span class="tag">inactive</span>'}
+                </label>
+              `).join('')}
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }).join('');
+  }
+
+  function renderPrivacyActivity(activity) {
+    if (!activity || activity.total === 0) {
+      return '<p class="section-copy">No classification activity recorded yet. As confidential or regulated content is detected during tasks, catches will be charted here.</p>';
+    }
+    const maxSource = Math.max(1, ...activity.bySource.map(s => s.count));
+    return `
+      <div class="mini-grid">
+        ${renderMetricPill('Total catches', String(activity.total))}
+        ${renderMetricPill('Redacted (un-trusted)', String(activity.redactedCount))}
+        ${renderMetricPill('Distinct detectors', String(activity.bySource.length))}
+      </div>
+      ${renderChartCard('privacy-catches', 'Catches over time', 'Daily count of rule/standard matches in task context.', activity.byDay)}
+      <div class="privacy-source-bars">
+        ${activity.bySource.map(source => {
+          const width = Math.max(6, Math.round((source.count / maxSource) * 100));
+          return `
+            <div class="coverage-row">
+              <div class="row-head">
+                <strong>${escapeHtml(source.label)}</strong>
+                <span class="list-meta">${source.count} · ${escapeHtml(source.sensitivity)}</span>
+              </div>
+              <div class="coverage-bar"><span style="width: ${width}%"></span></div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+  }
+
+  function renderPrivacyGovernance(governance) {
+    if (!governance || governance.length === 0) {
+      return '<p class="section-copy">Trust a model above to see its provider\'s data-management controls (GDPR / data-subject requests, retention, and DPAs) here.</p>';
+    }
+    return governance.map(node => {
+      const trains = node.trainsOnDataByDefault === true ? 'Trains on data by default'
+        : node.trainsOnDataByDefault === false ? 'No training on data by default'
+        : 'Training policy: verify';
+      const trainsClass = node.trainsOnDataByDefault === true ? 'warn' : node.trainsOnDataByDefault === false ? 'good' : '';
+      return `
+        <div class="privacy-governance">
+          <div class="row-head">
+            <strong>${escapeHtml(node.providerName)}</strong>
+            <span class="tag ${trainsClass === 'warn' ? 'tag-critical' : trainsClass === 'good' ? 'tag-good' : ''}">${escapeHtml(trains)}</span>
+          </div>
+          <p class="section-copy">${escapeHtml(node.retentionSummary)}</p>
+          ${node.notes ? `<p class="list-meta">${escapeHtml(node.notes)}</p>` : ''}
+          <div class="tag-row">
+            ${node.dataRequestUrl ? `<button type="button" class="action-link" data-action="privacy-open-url" data-payload="${escapeAttr(node.dataRequestUrl)}">Data / GDPR requests</button>` : ''}
+            ${node.privacyPolicyUrl ? `<button type="button" class="action-link" data-action="privacy-open-url" data-payload="${escapeAttr(node.privacyPolicyUrl)}">Privacy policy</button>` : ''}
+            ${node.dpaUrl ? `<button type="button" class="action-link" data-action="privacy-open-url" data-payload="${escapeAttr(node.dpaUrl)}">DPA</button>` : ''}
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
   function renderPrivacy(snapshot) {
-    const privacy = snapshot.privacy || { enabled: false, rules: [], compliancePacks: [], trustedModelIds: [], availableModels: [], packs: [] };
+    const privacy = snapshot.privacy || { enabled: false, rules: [], compliancePacks: [], trustedModelIds: [], providers: [], packs: [], activity: { total: 0, redactedCount: 0, bySource: [], byDay: [] }, governance: [] };
     const trusted = privacy.trustedModelIds || [];
     const draft = state.privacyDraftRule;
     const testResult = state.privacyTestResult;
@@ -1502,16 +1640,23 @@
           <article class="panel-card">
             <p class="section-kicker">Trusted models</p>
             <h3>Who may receive confidential data</h3>
-            <p class="section-copy">Local models are the natural choice for confidential work. Only checked models may receive classified content.</p>
-            <div class="privacy-model-list">
-              ${(privacy.availableModels || []).length > 0 ? privacy.availableModels.map(model => `
-                <label class="privacy-model ${trusted.includes(model.id) ? 'on' : ''}">
-                  <input type="checkbox" data-privacy-model="${escapeAttr(model.id)}" ${trusted.includes(model.id) ? 'checked' : ''} />
-                  <span class="privacy-model-name">${escapeHtml(model.name)}</span>
-                  <span class="privacy-model-meta">${escapeHtml(model.provider)}${model.configured ? '' : ' · not configured'}</span>
-                </label>
-              `).join('') : '<p class="section-copy">No models available. Configure a provider first.</p>'}
+            <p class="section-copy">Grouped by provider; only currently-active models are listed. Local models are the natural choice for confidential work. Toggle a provider to trust all of its models, or expand to pick individual ones.</p>
+            <div class="privacy-tree">
+              ${renderPrivacyProviderTree(privacy.providers)}
             </div>
+          </article>
+
+          <article class="panel-card privacy-span">
+            <p class="section-kicker">Classification activity</p>
+            <h3>What is being caught</h3>
+            ${renderPrivacyActivity(privacy.activity)}
+          </article>
+
+          <article class="panel-card">
+            <p class="section-kicker">Provider data management</p>
+            <h3>GDPR &amp; data-subject controls</h3>
+            <p class="section-copy">For the providers hosting your trusted models. Links go to each provider's own privacy controls; AtlasMind does not submit requests on your behalf.</p>
+            ${renderPrivacyGovernance(privacy.governance)}
           </article>
 
           <article class="panel-card">

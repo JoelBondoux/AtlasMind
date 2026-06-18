@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { AgentDefinition, MemoryEntry, ModelCapability, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, SubTaskStatus, TaskProfile, TaskRequest, TaskResult, TestingMethodologyId, ToolExecutionArtifact } from '../types.js';
+import type { AgentDefinition, DataPrivacyMatch, MemoryEntry, ModelCapability, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, SubTaskStatus, TaskProfile, TaskRequest, TaskResult, TestingMethodologyId, ToolExecutionArtifact } from '../types.js';
 import type { AgentAutoUpdater } from './agentAutoUpdater.js';
 import { ClassifierService, type ClassificationResult } from './classifierService.js';
 import { formatCost } from './currencyFormatter.js';
@@ -472,11 +472,19 @@ export class Orchestrator {
       String(requestContext['workstationContext'] ?? ''),
     ].join('\n');
     const wsRoot = this.skillContext.workspaceRootPath ?? undefined;
-    const pathClassified = retrievalContext.liveEvidence.some(
-      e => this.dataPrivacy?.classifyPath(e.path, wsRoot),
-    );
     const classification = this.dataPrivacy.classifyText(corpus);
-    if (!classification.hasClassified && !pathClassified) {
+    // Collect path-rule matches so file/folder classifications are charted too.
+    const pathMatches: DataPrivacyMatch[] = [];
+    const seenPathRules = new Set<string>();
+    for (const evidence of retrievalContext.liveEvidence) {
+      const rule = this.dataPrivacy.classifyPath(evidence.path, wsRoot);
+      if (rule && !seenPathRules.has(rule.id)) {
+        seenPathRules.add(rule.id);
+        pathMatches.push({ source: `rule:${rule.id}`, label: rule.label || rule.value, sensitivity: rule.sensitivity });
+      }
+    }
+    const allMatches = [...classification.matches, ...pathMatches];
+    if (allMatches.length === 0) {
       return { agent, constraints };
     }
 
@@ -485,17 +493,19 @@ export class Orchestrator {
     const usableTrusted = trusted.filter(id => this.router.getModelInfo(id));
     if (usableTrusted.length === 0) {
       // No trusted model configured/available: rely on the redaction fail-safe.
+      this.dataPrivacy.recordCatch(allMatches, false);
       onProgress?.('Data Privacy: confidential content detected but no trusted model is available — the content will be redacted before it is sent. Assign a trusted model in the Project Dashboard → Privacy page.');
-      this.onClassifiedContentForUntrustedModel?.({ selectedModel: 'none', matches: classification.matches });
+      this.onClassifiedContentForUntrustedModel?.({ selectedModel: 'none', matches: allMatches });
       return { agent, constraints: gatedConstraints };
     }
 
+    this.dataPrivacy.recordCatch(allMatches, true);
     const existing = agent.allowedModels ?? [];
     const gatedModels = existing.length > 0
       ? existing.filter(id => usableTrusted.includes(id))
       : usableTrusted;
     const effectiveModels = gatedModels.length > 0 ? gatedModels : usableTrusted;
-    const labels = [...new Set(classification.matches.map(m => m.label))].slice(0, 4).join(', ');
+    const labels = [...new Set(allMatches.map(m => m.label))].slice(0, 4).join(', ');
     onProgress?.(`Data Privacy: confidential content detected (${labels}); restricting routing to ${effectiveModels.length} trusted model(s).`);
     return {
       agent: { ...agent, allowedModels: effectiveModels },

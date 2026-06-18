@@ -21,6 +21,7 @@ import * as path from 'node:path';
 import { readFileSync } from 'node:fs';
 import { writeFile, mkdir } from 'node:fs/promises';
 import type {
+  DataPrivacyActivityEvent,
   DataPrivacyConfig,
   DataPrivacyMatch,
   DataPrivacyRule,
@@ -34,6 +35,9 @@ export const REDACTION_PLACEHOLDER = '[CONFIDENTIAL]';
 
 /** Upper bound on a custom regex source length, to avoid pathological patterns. */
 const MAX_REGEX_SOURCE = 512;
+
+/** Cap on retained activity events (most recent kept). */
+const MAX_ACTIVITY_EVENTS = 1000;
 
 export interface ClassificationResult {
   hasClassified: boolean;
@@ -62,10 +66,46 @@ export class DataPrivacyManager {
   private config: DataPrivacyConfig;
   private textMatchers: CompiledMatcher[] = [];
   private pathRules: DataPrivacyRule[] = [];
+  private activity: DataPrivacyActivityEvent[] = [];
+  private onActivityRecorded?: (activity: readonly DataPrivacyActivityEvent[]) => void;
 
   constructor(config: DataPrivacyConfig = defaultDataPrivacyConfig()) {
     this.config = config;
     this.recompile();
+  }
+
+  /** Register a callback invoked whenever activity is recorded (for persistence). */
+  setActivityListener(listener: (activity: readonly DataPrivacyActivityEvent[]) => void): void {
+    this.onActivityRecorded = listener;
+  }
+
+  /** Restore previously persisted activity (e.g. from globalState on startup). */
+  setActivity(events: readonly DataPrivacyActivityEvent[]): void {
+    this.activity = events.slice(-MAX_ACTIVITY_EVENTS);
+  }
+
+  getActivity(): readonly DataPrivacyActivityEvent[] {
+    return this.activity;
+  }
+
+  /**
+   * Record that one or more detectors fired for a real task. `trusted` reflects
+   * whether the selected model could receive the content (false = redacted).
+   * No matched values are stored. Called by the orchestrator enforcement path,
+   * never by the dashboard test box.
+   */
+  recordCatch(matches: readonly DataPrivacyMatch[], trusted: boolean): void {
+    if (matches.length === 0) {
+      return;
+    }
+    const ts = Date.now();
+    for (const match of matches) {
+      this.activity.push({ ts, source: match.source, label: match.label, sensitivity: match.sensitivity, trusted });
+    }
+    if (this.activity.length > MAX_ACTIVITY_EVENTS) {
+      this.activity = this.activity.slice(-MAX_ACTIVITY_EVENTS);
+    }
+    this.onActivityRecorded?.(this.activity);
   }
 
   /** Replace the active policy and recompile matchers. */

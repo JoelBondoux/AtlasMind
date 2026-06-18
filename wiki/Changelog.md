@@ -6,6 +6,14 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.105.0 — Privacy Page: Trust Tree, Catch Charts & Provider Data Management
+
+- **Trusted Models is now a provider → model tree** (collapsible, with a provider-level "trust all" toggle) and lists **only currently-active models**, so the panel stays manageable instead of showing one massive flat list.
+- **Classification activity charts** show what the policy is catching: a catches-over-time chart, total/redacted counters, and a per-detector breakdown. Catches are recorded whenever a custom rule or compliance detector fires during a real task and persist across sessions.
+- **Provider data management**: for each trusted provider, the page links to its GDPR / data-subject request portal, privacy policy, DPA, retention summary, and default training stance — so handling a GDPR request starts one click away. AtlasMind only links out; it never submits requests for you.
+
+---
+
 ## v0.104.3 — Packaging Fix
 
 - **Restored VSIX packaging** after the 0.104.2 dependency bump. `@types/vscode` was pinned back to `^1.120.0` to match `engines.vscode`, since `vsce` rejects types newer than the declared engine. The supported minimum VS Code version is unchanged.

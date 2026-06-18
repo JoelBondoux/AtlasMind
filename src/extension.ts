@@ -2049,6 +2049,15 @@ async function bootstrapAtlasMind(
     const dataPrivacyManager = new startupModules.DataPrivacyManager(
       dataPrivacyRoot ? startupModules.readDataPrivacyConfig(dataPrivacyRoot) : undefined,
     );
+    // Restore prior catch activity (workspace-scoped telemetry powering the
+    // Privacy dashboard charts) and persist new catches as they are recorded.
+    const storedPrivacyActivity = context.workspaceState.get<import('./types.js').DataPrivacyActivityEvent[]>('atlasmind.dataPrivacyActivity', []);
+    if (Array.isArray(storedPrivacyActivity) && storedPrivacyActivity.length > 0) {
+      dataPrivacyManager.setActivity(storedPrivacyActivity);
+    }
+    dataPrivacyManager.setActivityListener(activity => {
+      void context.workspaceState.update('atlasmind.dataPrivacyActivity', [...activity]);
+    });
     orchestrator.setDataPrivacyManager(dataPrivacyManager);
     const reloadDataPrivacyConfig = () => {
       if (!dataPrivacyRoot) { return; }

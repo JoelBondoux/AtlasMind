@@ -116,6 +116,38 @@ describe('DataPrivacyManager — path classification', () => {
   });
 });
 
+describe('DataPrivacyManager — activity log', () => {
+  it('records catches, dedupes nothing, and notifies the listener', () => {
+    const mgr = new DataPrivacyManager(configWith({ compliancePacks: ['gdpr-pii'] }));
+    const seen: number[] = [];
+    mgr.setActivityListener(events => seen.push(events.length));
+
+    mgr.recordCatch([{ source: 'pack:gdpr-pii:email', label: 'GDPR — email', sensitivity: 'confidential' }], false);
+    mgr.recordCatch([
+      { source: 'rule:r1', label: 'Codename', sensitivity: 'secret' },
+      { source: 'pack:gdpr-pii:phone', label: 'GDPR — phone', sensitivity: 'confidential' },
+    ], true);
+
+    const activity = mgr.getActivity();
+    expect(activity).toHaveLength(3);
+    expect(activity[0].trusted).toBe(false);
+    expect(activity[1].trusted).toBe(true);
+    expect(seen).toEqual([1, 3]);
+  });
+
+  it('ignores empty match arrays', () => {
+    const mgr = new DataPrivacyManager(configWith({}));
+    mgr.recordCatch([], false);
+    expect(mgr.getActivity()).toHaveLength(0);
+  });
+
+  it('restores previously persisted activity', () => {
+    const mgr = new DataPrivacyManager(configWith({}));
+    mgr.setActivity([{ ts: 1, source: 'rule:r1', label: 'X', sensitivity: 'secret', trusted: false }]);
+    expect(mgr.getActivity()).toHaveLength(1);
+  });
+});
+
 describe('globToRegExp', () => {
   it('** crosses directories, * does not', () => {
     expect(globToRegExp('**/*.key').test('a/b/c.key')).toBe(true);

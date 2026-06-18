@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.105.0] - 2026-06-18
+
+### Added
+- **Privacy page: provider/model trust tree, catch charts, and provider data-management.** Enhancements to the Project Dashboard → Privacy page (`src/views/projectDashboardPanel.ts`, `media/projectDashboard.js`):
+  - **Trusted Models** is now a collapsible **provider → model tree** instead of a flat list, and shows **only currently-active (enabled) models** (plus any trusted-but-now-disabled model so it can still be unassigned). A provider-level checkbox trusts/untrusts all of that provider's models at once, with an indeterminate state when only some are trusted.
+  - **Classification activity charts**: the `DataPrivacyManager` now records a catch each time a custom rule or compliance detector fires during a real task (`recordCatch`/`getActivity`, persisted workspace-scoped via `workspaceState`). The page renders a catches-over-time chart, total/redacted counters, and a per-detector breakdown so you can see what is being caught.
+  - **Provider data management**: a new `src/core/providerDataGovernance.ts` registry surfaces each trusted provider's GDPR / data-subject request portal, privacy policy, DPA, retention summary, and default training stance. Links open externally (https-validated); AtlasMind does not submit requests on your behalf.
+- New type `DataPrivacyActivityEvent` (`src/types.ts`); new dashboard message `openExternalUrl` (https-only, validated).
+- **Tests**: `tests/core/providerDataGovernance.test.ts` and new activity-log cases in `tests/core/dataPrivacyManager.test.ts`.
+
 ## [0.104.3] - 2026-06-18
 
 ### Fixed

@@ -706,6 +706,21 @@ export interface DataPrivacyMatch {
   sensitivity: DataPrivacySensitivity;
 }
 
+/**
+ * One recorded "catch" — a point in time at which a custom rule or compliance
+ * detector matched task context. Aggregated into the Privacy dashboard charts.
+ * Values are never stored; only the source/label and sensitivity.
+ */
+export interface DataPrivacyActivityEvent {
+  /** Epoch milliseconds. */
+  ts: number;
+  source: string;
+  label: string;
+  sensitivity: DataPrivacySensitivity;
+  /** Whether the selected model was trusted (false = content was redacted). */
+  trusted: boolean;
+}
+
 // ── Skills ──────────────────────────────────────────────────────
 
 /**
