@@ -121,6 +121,10 @@ Read-only Docker inspection is classified as `terminal-read`. Container lifecycl
 
 ---
 
+## Resource discovery is pre-invocation, not execution
+
+[[Resource Discovery]] (ARD) deliberately sits *before* the tool-execution path: it only locates resources. The read-only `discover-resources` skill classifies as a network read and never installs anything. Acting on a result is a separate, explicit step — installing a discovered MCP server adds it to the MCP Servers panel **disabled**, so connecting it still passes through the normal MCP trust gate before any of its tools can run. Agent Finders ship disabled, so no outbound discovery occurs until the user opts in.
+
 ## Tool Call Limits
 
 - **Max 8 tool calls per turn** — prevents runaway loops

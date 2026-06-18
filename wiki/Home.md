@@ -49,6 +49,7 @@ For headless workflows, the CLI now rejects malformed flags instead of treating 
 | [[Chat Commands]] | Slash commands, Command Palette surfaces, and view-local sidebar actions |
 | [[Agents]] | Built-in and custom agent definitions |
 | [[Skills]] | 32 built-in skills, custom skill import, and MCP tools |
+| [[Resource Discovery]] | Find and install external MCP servers, agents, and skills via Agentic Resource Discovery (ARD) |
 | [[Model Routing]] | Provider setup, budget/speed modes, routing algorithm |
 | [[Memory System]] | SSOT folder structure, retrieval, bootstrapping, import |
 | [[Remote Control]] | Drive a desktop instance from the web build (vscode.dev) |

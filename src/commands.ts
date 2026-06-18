@@ -14,7 +14,7 @@ import { pickWorkspaceFolder } from './utils/workspacePicker.js';
 import { hasAiInstructionSyncFile, scanAiInstructionFiles, syncAiInstructionFiles } from './utils/aiInstructionSync.js';
 import { getSelectedSessionRenameTarget, postSidebarSummaryToChat } from './views/treeViews.js';
 import { findCommandExecutable, getKnownCommandInstallHint } from './mcp/mcpClient.js';
-import type { ChatSessionTreeItem, McpServerTreeItem, ModelProviderTreeItem, ModelTreeItem, SessionFolderTreeItem, SkillFolderTreeItem, SkillTreeItem } from './views/treeViews.js';
+import type { ChatSessionTreeItem, DiscoveryFinderItem, McpServerTreeItem, ModelProviderTreeItem, ModelTreeItem, SessionFolderTreeItem, SkillFolderTreeItem, SkillTreeItem } from './views/treeViews.js';
 
 const SKILL_LEARNING_WARNING =
   'Experimental skill learning uses model tokens and may generate incorrect or unsafe code. ' +
@@ -34,6 +34,7 @@ const ATLASMIND_COLLAPSIBLE_TREE_VIEW_IDS = [
   'atlasmind.agentsView',
   'atlasmind.skillsView',
   'atlasmind.mcpServersView',
+  'atlasmind.discoveryView',
   'atlasmind.modelsView',
 ] as const;
 
@@ -959,6 +960,125 @@ export function registerCommands(
         atlas.mcpServerRegistry,
         () => atlas.skillsRefresh.fire(),
       );
+    }),
+
+    // ── Agentic Resource Discovery (ARD) ─────────────────────────
+    vscode.commands.registerCommand('atlasmind.openResourceDiscovery', async () => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const { ArdDiscoveryPanel } = await import('./views/ardDiscoveryPanel.js');
+      ArdDiscoveryPanel.createOrShow(atlas.extensionContext, {
+        registry: atlas.ardRegistry,
+        client: atlas.ardClient,
+        installer: atlas.ardInstaller,
+        onRefresh: () => { atlas.skillsRefresh.fire(); atlas.discoveryRefresh.fire(); },
+      });
+    }),
+
+    vscode.commands.registerCommand('atlasmind.ard.search', async () => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const enabled = atlas.ardRegistry.listEnabled();
+      if (enabled.length === 0) {
+        void vscode.window.showWarningMessage(
+          'No ARD Agent Finders are enabled. Open Resource Discovery and enable one first.',
+          'Open Resource Discovery',
+        ).then(choice => {
+          if (choice === 'Open Resource Discovery') {
+            void vscode.commands.executeCommand('atlasmind.openResourceDiscovery');
+          }
+        });
+        return;
+      }
+      const query = await vscode.window.showInputBox({
+        title: 'Discover agentic resources',
+        prompt: 'Describe a capability you need (MCP server, agent, skill, API).',
+        placeHolder: 'e.g. query a Postgres database',
+      });
+      if (!query?.trim()) { return; }
+      const { results, errors } = await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: `AtlasMind: searching ${enabled.length} finder(s)…`, cancellable: false },
+        () => atlas.ardClient.searchEndpoints(enabled, query.trim()),
+      );
+      atlas.ardRegistry.setRecentResults(results);
+      atlas.discoveryRefresh.fire();
+      if (results.length === 0 && errors.length > 0) {
+        void vscode.window.showWarningMessage(`Discovery errors: ${errors.map(e => `${e.endpoint}: ${e.message}`).join('; ')}`);
+      }
+      await vscode.commands.executeCommand('atlasmind.openResourceDiscovery');
+    }),
+
+    vscode.commands.registerCommand('atlasmind.ard.installEntry', async (identifier?: unknown) => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const id = typeof identifier === 'string' ? identifier : undefined;
+      if (!id) {
+        await vscode.commands.executeCommand('atlasmind.openResourceDiscovery');
+        return;
+      }
+      const resource = atlas.ardRegistry.getRecentResults().find(r => r.identifier === id);
+      if (!resource) {
+        void vscode.window.showWarningMessage('That discovered resource is no longer available — run /discover again.');
+        return;
+      }
+      const result = await atlas.ardInstaller.install(resource);
+      atlas.skillsRefresh.fire();
+      atlas.discoveryRefresh.fire();
+      const actions = result.kind === 'mcp-server' ? ['Open MCP Servers'] : [];
+      const choice = await vscode.window.showInformationMessage(result.message, ...actions);
+      if (choice === 'Open MCP Servers') {
+        await vscode.commands.executeCommand('atlasmind.openMcpServers');
+      }
+    }),
+
+    vscode.commands.registerCommand('atlasmind.ard.toggleFinder', async (item?: DiscoveryFinderItem) => {
+      const atlas = requireAtlas();
+      if (!atlas || !item?.endpoint) { return; }
+      atlas.ardRegistry.setEnabled(item.endpoint.id, !item.endpoint.enabled);
+    }),
+
+    vscode.commands.registerCommand('atlasmind.ard.removeFinder', async (item?: DiscoveryFinderItem) => {
+      const atlas = requireAtlas();
+      if (!atlas || !item?.endpoint) { return; }
+      if (item.endpoint.builtIn) {
+        void vscode.window.showInformationMessage(`"${item.endpoint.name}" is a built-in finder; you can disable it instead of removing it.`);
+        return;
+      }
+      atlas.ardRegistry.remove(item.endpoint.id);
+    }),
+
+    vscode.commands.registerCommand('atlasmind.ard.exportCatalog', async () => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const { buildAtlasMindCatalog } = await import('./ard/ardCatalogExporter.js');
+      const workspace = vscode.workspace.workspaceFolders?.[0];
+      const publisher = `${workspace?.name ?? 'atlasmind'}`.toLowerCase().replace(/[^a-z0-9.-]/g, '-');
+      const catalog = buildAtlasMindCatalog({
+        publisher: `${publisher}.atlasmind.local`,
+        hostDisplayName: workspace?.name ? `AtlasMind — ${workspace.name}` : 'AtlasMind',
+        agents: atlas.agentRegistry.listAgents(),
+        skills: atlas.skillsRegistry.listSkills(),
+        mcpServers: atlas.mcpServerRegistry.listServers(),
+      });
+      const defaultUri = workspace
+        ? vscode.Uri.joinPath(workspace.uri, '.well-known', 'ai-catalog.json')
+        : undefined;
+      const target = await vscode.window.showSaveDialog({
+        ...(defaultUri ? { defaultUri } : {}),
+        filters: { JSON: ['json'] },
+        saveLabel: 'Export ARD catalog',
+        title: 'Export AtlasMind resources as ai-catalog.json',
+      });
+      if (!target) { return; }
+      await vscode.workspace.fs.writeFile(target, Buffer.from(JSON.stringify(catalog, null, 2), 'utf8'));
+      const choice = await vscode.window.showInformationMessage(
+        `Exported ${catalog.entries.length} resource(s) to ${vscode.workspace.asRelativePath(target, false)}. System prompts, secrets, and env were excluded.`,
+        'Open',
+      );
+      if (choice === 'Open') {
+        const document = await vscode.workspace.openTextDocument(target);
+        await vscode.window.showTextDocument(document, { preview: false });
+      }
     }),
 
     vscode.commands.registerCommand('atlasmind.mcpServers.addRecommended', async (initialSelection?: { id?: unknown; name?: unknown; description?: unknown }) => {

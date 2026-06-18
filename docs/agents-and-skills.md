@@ -421,6 +421,7 @@ The following skills are registered automatically at extension activation (`src/
 | `code-action` | ✅ Implemented | List and apply VS Code quick-fixes and refactorings |
 | `workspace-observability` | ✅ Implemented | Snapshot of active debug session, open terminals, and most recent test run results |
 | `exa-search` | ✅ Implemented | Search the web using the EXA AI search API; requires EXA API key stored in Specialist Integrations panel |
+| `discover-resources` | ✅ Implemented | Read-only [Agentic Resource Discovery](resource-discovery.md) search across enabled Agent Finders for MCP servers, agents, skills, and APIs. Surfaces ranked candidates (with a "score is relevance, not trust" disclaimer) for the user to install; never installs anything itself. Registered only when `atlasmind.ard.enabled` is true. |
 | `debug-session` | ✅ Implemented | List active VS Code debug sessions and evaluate expressions in the paused debug context |
 | `terminal-read` | ✅ Implemented | List open VS Code integrated terminals, summarize the active terminal, and prompt for pasted buffer content when direct reads are unavailable |
 | `vscode-extensions` | ✅ Implemented | List installed extensions, identify common developer-tooling extensions, and report forwarded ports from the Ports panel |

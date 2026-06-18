@@ -40,6 +40,8 @@ import { simpleBrowserSkill } from './simpleBrowser.js';
 import { debugLaunchSkill } from './debugLaunch.js';
 import { debugBreakpointSkill } from './debugBreakpoint.js';
 
+export { createDiscoverResourcesSkill } from './discoverResources.js';
+
 export {
   npmScriptsSkill,
   logFileTailSkill,

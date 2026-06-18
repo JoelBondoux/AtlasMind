@@ -6,6 +6,21 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.106.0 — Agentic Resource Discovery (ARD)
+
+- **AtlasMind is now a first-class [Agentic Resource Discovery](https://agenticresourcediscovery.org/) client and publisher.** Search federated Agent Finders for MCP servers, agents, skills, and APIs — *before* invocation — then install them with one click (MCP servers land disabled behind the existing trust gate).
+- New **Resource Discovery** panel and sidebar tree, the `/discover` chat command, and a read-only `discover-resources` skill agents can call mid-task.
+- **Publish** your own resources: `AtlasMind: Export Resource Catalog` writes a spec-conformant `ai-catalog.json` (secrets, prompts, and env excluded).
+- Safety-first: Agent Finders ship **disabled** (opt-in), all manifests/responses are validated as untrusted, discovery URLs are HTTPS + SSRF-screened, federation is depth-bounded, and the relevance score is labelled as match-only — not trust. See [[Resource Discovery]].
+
+---
+
+## v0.105.2 — Sidebar Chat Sync Fix
+
+- **The sidebar chat now mirrors the main chat panel.** Previously the sidebar could get stuck showing an empty "no sessions / Ready." view that did not reflect the sessions and transcript in the detached chat panel. The webview now performs a ready handshake on load so both surfaces always receive current state, even after the sidebar is hidden and reopened.
+
+---
+
 ## v0.105.1 — Privacy Page Fixes: Connected-Only Tree, Scroll Stability & DSAR Links
 
 - **Trusted Models lists only connected providers** instead of the full seeded catalog, which also fixes the slow Project Dashboard / Settings first paint caused by the oversized model list.

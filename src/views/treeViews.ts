@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { getValidatedSsotPath } from '../bootstrap/bootstrapper.js';
 import type { AtlasMindContext } from '../extension.js';
 import { SSOT_FOLDERS } from '../types.js';
-import type { AgentDefinition, McpServerState, MemoryEntry, ProjectRunRecord, SkillDefinition, SkillScanResult } from '../types.js';
+import type { AgentDefinition, ArdDiscoveredResource, ArdDiscoveryEndpoint, McpServerState, MemoryEntry, ProjectRunRecord, SkillDefinition, SkillScanResult } from '../types.js';
 import type { SessionConversationSummary, SessionFolderSummary } from '../chat/sessionConversation.js';
 import { ChatViewProvider } from './chatPanel.js';
 
@@ -45,10 +45,12 @@ export function registerTreeViews(
   });
   const projectRunsProvider = new ProjectRunsTreeProvider(atlas);
   const mcpServersProvider = new McpServersTreeProvider(atlas);
+  const discoveryProvider = new DiscoveryTreeProvider(atlas);
   const memoryProvider = new MemoryTreeProvider(atlas);
   atlas.agentsRefresh.event(() => agentsProvider.refresh());
   atlas.skillsRefresh.event(() => skillsProvider.refresh());
   atlas.skillsRefresh.event(() => mcpServersProvider.refresh());
+  atlas.discoveryRefresh.event(() => discoveryProvider.refresh());
   atlas.sessionConversation.onDidChange(() => sessionsProvider.refresh());
   atlas.modelsRefresh.event(() => {
     modelsProvider.refresh();
@@ -86,6 +88,10 @@ export function registerTreeViews(
     vscode.window.registerTreeDataProvider(
       'atlasmind.mcpServersView',
       mcpServersProvider,
+    ),
+    vscode.window.registerTreeDataProvider(
+      'atlasmind.discoveryView',
+      discoveryProvider,
     ),
     modelsTreeView,
     vscode.window.registerTreeDataProvider(
@@ -911,6 +917,96 @@ function getMcpServerIcon(state: McpServerState): vscode.ThemeIcon {
     return new vscode.ThemeIcon('error', new vscode.ThemeColor('testing.iconFailed'));
   }
   return new vscode.ThemeIcon('plug', new vscode.ThemeColor('disabledForeground'));
+}
+
+// ── Resource Discovery (ARD) ──────────────────────────────────────
+
+type DiscoveryTreeNode = DiscoveryGroupItem | DiscoveryFinderItem | DiscoveryResultItem;
+
+class DiscoveryGroupItem extends vscode.TreeItem {
+  constructor(public readonly group: 'finders' | 'results', label: string, count: number) {
+    super(`${label} (${count})`, vscode.TreeItemCollapsibleState.Expanded);
+    this.contextValue = `ard-group-${group}`;
+    this.iconPath = new vscode.ThemeIcon(group === 'finders' ? 'broadcast' : 'search');
+  }
+}
+
+export class DiscoveryFinderItem extends vscode.TreeItem {
+  constructor(public readonly endpoint: ArdDiscoveryEndpoint) {
+    super(endpoint.name, vscode.TreeItemCollapsibleState.None);
+    this.description = `${endpoint.enabled ? 'enabled' : 'disabled'} · ${endpoint.kind}`;
+    this.contextValue = endpoint.enabled ? 'ard-finder-enabled' : 'ard-finder-disabled';
+    this.tooltip = new vscode.MarkdownString(`**${endpoint.name}**\n\n${endpoint.url}\n\nEnabled: ${endpoint.enabled ? 'yes' : 'no'}`);
+    this.iconPath = new vscode.ThemeIcon(
+      endpoint.enabled ? 'broadcast' : 'circle-slash',
+      new vscode.ThemeColor(endpoint.enabled ? 'testing.iconPassed' : 'disabledForeground'),
+    );
+    this.command = { command: 'atlasmind.openResourceDiscovery', title: 'Open Resource Discovery' };
+  }
+}
+
+export class DiscoveryResultItem extends vscode.TreeItem {
+  constructor(public readonly resource: ArdDiscoveredResource) {
+    super(resource.displayName, vscode.TreeItemCollapsibleState.None);
+    const score = typeof resource.score === 'number' ? ` · ${resource.score}/100` : '';
+    this.description = `${shortArdType(resource.type)}${score}`;
+    this.contextValue = 'ard-result';
+    const md = new vscode.MarkdownString(`**${resource.displayName}**\n\n\`${resource.identifier}\`\n\nType: ${resource.type}\n\nvia ${resource.sourceName}`);
+    if (resource.description) {
+      md.appendMarkdown(`\n\n${resource.description}`);
+    }
+    md.appendMarkdown(`\n\n_Score is relevance only — not a trust or safety rating._`);
+    this.tooltip = md;
+    this.iconPath = new vscode.ThemeIcon('package');
+    this.command = { command: 'atlasmind.openResourceDiscovery', title: 'Open Resource Discovery' };
+  }
+}
+
+class DiscoveryTreeProvider implements vscode.TreeDataProvider<DiscoveryTreeNode> {
+  private readonly _onDidChangeTreeData = new vscode.EventEmitter<DiscoveryTreeNode | undefined>();
+  readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
+
+  constructor(private readonly atlas: AtlasMindContext) {}
+
+  refresh(): void {
+    this._onDidChangeTreeData.fire(undefined);
+  }
+
+  getTreeItem(element: DiscoveryTreeNode): vscode.TreeItem {
+    return element;
+  }
+
+  getChildren(element?: DiscoveryTreeNode): DiscoveryTreeNode[] {
+    const finders = this.atlas.ardRegistry.list();
+    const results = this.atlas.ardRegistry.getRecentResults();
+
+    if (!element) {
+      const groups: DiscoveryTreeNode[] = [new DiscoveryGroupItem('finders', 'Agent Finders', finders.length)];
+      if (results.length > 0) {
+        groups.push(new DiscoveryGroupItem('results', 'Recent Results', results.length));
+      }
+      return groups;
+    }
+
+    if (element instanceof DiscoveryGroupItem && element.group === 'finders') {
+      if (finders.length === 0) {
+        const empty = new vscode.TreeItem('No finders configured', vscode.TreeItemCollapsibleState.None);
+        empty.contextValue = 'ard-empty';
+        return [empty as DiscoveryTreeNode];
+      }
+      return finders.map(endpoint => new DiscoveryFinderItem(endpoint));
+    }
+
+    if (element instanceof DiscoveryGroupItem && element.group === 'results') {
+      return results.map(resource => new DiscoveryResultItem(resource));
+    }
+
+    return [];
+  }
+}
+
+function shortArdType(type: string): string {
+  return type.replace(/^application\//, '').replace(/\+json$/, '').replace(/^vnd\.atlasmind\./, '');
 }
 
 // ── Memory ───────────────────────────────────────────────────────

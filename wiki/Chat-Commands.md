@@ -20,6 +20,7 @@ Short continuation prompts such as `Proceed`, `Continue`, or `Proceed autonomous
 | `/ship` | Run the project's default publish/release routine. `/ship <id>` runs a named routine |
 | `/agents` | List and manage registered agents |
 | `/skills` | List and manage registered skills |
+| `/discover` | Discover external agentic resources (MCP servers, agents, skills, APIs) via [[Resource Discovery]] (ARD), with one-click install of the results |
 | `/memory` | Query the SSOT memory system |
 | `/cost` | Show session cost summary |
 | `/voice` | Open the Voice Panel for text-to-speech and speech-to-text |
@@ -137,6 +138,20 @@ Lists all registered skills (built-in + custom + MCP) with their enabled status.
 ```
 @atlas /skills
 ```
+
+---
+
+## `/discover`
+
+Searches every enabled [[Resource Discovery]] (ARD) Agent Finder for external agentic resources and prints a ranked table with one-click install buttons.
+
+```
+@atlas /discover book a flight
+@atlas /discover query a Postgres database
+@atlas /discover an MCP server for Jira
+```
+
+Agent Finders ship **disabled**; enable one in the Resource Discovery panel first (`AtlasMind: Resource Discovery`). The relevance score is a semantic match indicator — **not** a trust or safety rating. Installing an MCP server adds it disabled, behind the existing MCP trust gate. The related commands are `AtlasMind: Resource Discovery`, `AtlasMind: Discover Resources (ARD)`, and `AtlasMind: Export Resource Catalog (ai-catalog.json)`.
 
 ---
 

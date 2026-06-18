@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.105.1",
+  "version": "0.106.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -68,6 +68,10 @@
           {
             "name": "skills",
             "description": "List or manage registered skills"
+          },
+          {
+            "name": "discover",
+            "description": "Discover external agentic resources (MCP servers, agents, skills, APIs) via ARD"
           },
           {
             "name": "memory",
@@ -255,6 +259,35 @@
         "icon": "$(info)"
       },
       {
+        "command": "atlasmind.openResourceDiscovery",
+        "title": "AtlasMind: Resource Discovery",
+        "icon": "$(telescope)"
+      },
+      {
+        "command": "atlasmind.ard.search",
+        "title": "AtlasMind: Discover Resources (ARD)",
+        "icon": "$(search)"
+      },
+      {
+        "command": "atlasmind.ard.installEntry",
+        "title": "Install Discovered Resource"
+      },
+      {
+        "command": "atlasmind.ard.exportCatalog",
+        "title": "AtlasMind: Export Resource Catalog (ai-catalog.json)",
+        "icon": "$(export)"
+      },
+      {
+        "command": "atlasmind.ard.toggleFinder",
+        "title": "Toggle Agent Finder",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "atlasmind.ard.removeFinder",
+        "title": "Remove Agent Finder",
+        "icon": "$(trash)"
+      },
+      {
         "command": "atlasmind.models.toggleEnabled",
         "title": "Toggle Model Enabled",
         "icon": "$(eye)"
@@ -422,6 +455,16 @@
           "command": "atlasmind.openMcpServers",
           "when": "view == atlasmind.mcpServersView",
           "group": "navigation@1"
+        },
+        {
+          "command": "atlasmind.ard.search",
+          "when": "view == atlasmind.discoveryView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "atlasmind.openResourceDiscovery",
+          "when": "view == atlasmind.discoveryView",
+          "group": "navigation@2"
         },
         {
           "command": "atlasmind.openProjectRunCenter",
@@ -676,6 +719,16 @@
           "group": "inline@1"
         },
         {
+          "command": "atlasmind.ard.toggleFinder",
+          "when": "view == atlasmind.discoveryView && viewItem =~ /^ard-finder-/",
+          "group": "inline@1"
+        },
+        {
+          "command": "atlasmind.ard.removeFinder",
+          "when": "view == atlasmind.discoveryView && viewItem == ard-finder-disabled",
+          "group": "inline@2"
+        },
+        {
           "command": "atlasmind.models.openInfo",
           "when": "view == atlasmind.modelsView && viewItem =~ /^model-/",
           "group": "inline@1"
@@ -704,6 +757,18 @@
       "commandPalette": [
         {
           "command": "atlasmind.agents.showDetails",
+          "when": "false"
+        },
+        {
+          "command": "atlasmind.ard.installEntry",
+          "when": "false"
+        },
+        {
+          "command": "atlasmind.ard.toggleFinder",
+          "when": "false"
+        },
+        {
+          "command": "atlasmind.ard.removeFinder",
           "when": "false"
         },
         {
@@ -882,6 +947,10 @@
         "contents": "No MCP servers configured.\n[Open MCP panel](command:atlasmind.openMcpServers)\n[Open Safety Settings](command:atlasmind.openSettingsSafety)"
       },
       {
+        "view": "atlasmind.discoveryView",
+        "contents": "Discover external agentic resources via ARD.\nAgent Finders ship disabled — enable one to search.\n[Open Resource Discovery](command:atlasmind.openResourceDiscovery)\n[Discover Resources](command:atlasmind.ard.search)"
+      },
+      {
         "view": "atlasmind.modelsView",
         "contents": "No routed models configured yet.\n[Open Model Providers](command:atlasmind.openModelProviders)\n[Open Model Settings](command:atlasmind.openSettingsModels)\n[Open Specialist Integrations](command:atlasmind.openSpecialistIntegrations)"
       },
@@ -954,6 +1023,13 @@
           "visibility": "collapsed"
         },
         {
+          "id": "atlasmind.discoveryView",
+          "name": "Resource Discovery",
+          "icon": "media/icon.svg",
+          "type": "tree",
+          "visibility": "collapsed"
+        },
+        {
           "id": "atlasmind.modelsView",
           "name": "Models",
           "icon": "media/icon.svg",
@@ -965,6 +1041,48 @@
     "configuration": {
       "title": "AtlasMind",
       "properties": {
+        "atlasmind.ard.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable Agentic Resource Discovery (ARD): the Resource Discovery panel, the /discover chat command, and the read-only discover-resources skill. Discovery only finds resources; it never installs anything without your action.",
+          "markdownDescription": "Enable [Agentic Resource Discovery](https://agenticresourcediscovery.org/) (ARD).\n\nWhen on, AtlasMind exposes the **Resource Discovery** panel, the `/discover` chat command, and a read-only `discover-resources` skill agents can call mid-task. Discovery is **before invocation** — it only locates resources; nothing is installed without your explicit action, and Agent Finders ship disabled."
+        },
+        "atlasmind.ard.federationMode": {
+          "type": "string",
+          "default": "referrals",
+          "enum": [
+            "auto",
+            "referrals",
+            "none"
+          ],
+          "enumDescriptions": [
+            "Ask each registry to merge results from upstream registries it knows about.",
+            "Follow referrals returned by a registry to other registries (depth-bounded).",
+            "Query only the selected registry; do not federate."
+          ],
+          "description": "How ARD searches fan out across federated discovery registries.",
+          "markdownDescription": "How ARD searches fan out across federated discovery registries.\n\n- `auto` — the registry merges upstream results server-side.\n- `referrals` — AtlasMind follows referral records to other registries, up to a small depth bound (default).\n- `none` — query only the selected registry.\n\nFederation depth is capped to prevent referral loops, and all referral URLs are HTTPS-screened against private hosts."
+        },
+        "atlasmind.ard.maxResults": {
+          "type": "number",
+          "default": 10,
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Maximum number of results returned from an ARD discovery search."
+        },
+        "atlasmind.ard.requestTimeoutMs": {
+          "type": "number",
+          "default": 15000,
+          "minimum": 1000,
+          "maximum": 60000,
+          "description": "Timeout (in milliseconds) for each outbound ARD discovery request."
+        },
+        "atlasmind.ard.allowInsecureEndpoints": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow ARD Agent Finders that use http:// or localhost (e.g. the ARD conformance demo registry). When false, discovery requires HTTPS and rejects private/loopback addresses to prevent SSRF.",
+          "markdownDescription": "Allow ARD Agent Finders that use `http://` or `localhost` — for example the [ARD conformance demo](https://github.com/ards-project/ard-spec) registry.\n\nWhen `false` (default), discovery requires HTTPS and rejects private / loopback / link-local addresses to prevent SSRF. This setting only relaxes the check for finders **you** explicitly marked insecure; followed referral URLs are always screened."
+        },
         "atlasmind.agentAutoUpdateCadence": {
           "type": "string",
           "default": "never",

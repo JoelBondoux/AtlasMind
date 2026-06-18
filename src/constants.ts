@@ -1,3 +1,5 @@
+import type { ArdDiscoveryEndpoint } from './types.js';
+
 // ── Recommended MCP Servers ─────────────────────────────────────────────
 
 export type RecommendedMcpServerProvenance = 'official' | 'community' | 'registry' | 'archived';
@@ -774,3 +776,55 @@ export const CONTEXT_SAFE_OUTPUT_MARGIN = 1_024;
  * outcomes before it meaningfully shifts routing decisions.
  */
 export const PERFORMANCE_OUTCOME_WEIGHT = 0.12;
+
+// ── Agentic Resource Discovery (ARD) ─────────────────────────────
+
+/** Byte cap for a fetched `ai-catalog.json` manifest or `/search` response. */
+export const MAX_ARD_RESPONSE_BYTES = 512 * 1024;
+
+/** Maximum entries accepted from a single catalog/search response. */
+export const MAX_ARD_ENTRIES = 500;
+
+/** Maximum referral hops followed during a federated search (loop / SSRF guard). */
+export const MAX_ARD_FEDERATION_DEPTH = 2;
+
+/** Maximum nested `application/ai-catalog+json` expansions when fetching a manifest. */
+export const MAX_ARD_CATALOG_DEPTH = 2;
+
+/** Default request timeout for ARD discovery calls in milliseconds. */
+export const DEFAULT_ARD_REQUEST_TIMEOUT_MS = 15_000;
+
+/** Default maximum results surfaced from a discovery search. */
+export const DEFAULT_ARD_MAX_RESULTS = 10;
+
+/** Well-known path for a publisher's static ARD catalog. */
+export const ARD_WELL_KNOWN_PATH = '/.well-known/ai-catalog.json';
+
+/** Manifest `specVersion` AtlasMind emits when exporting its own catalog. */
+export const ARD_SPEC_VERSION = '1.0';
+
+/** Pattern every ARD resource identifier must match (`urn:ai:<publisher>:...`). */
+export const ARD_URN_PATTERN = /^urn:ai:[a-z0-9.-]+:.+/i;
+
+/**
+ * Default Agent Finders (ARD discovery services) seeded into the ArdRegistry.
+ * Mirrors the ards-project connectors `agent-finders.json`. All ship DISABLED —
+ * AtlasMind performs no outbound discovery traffic until the user opts in. Each
+ * URL points at the finder's `POST /search` endpoint.
+ */
+export const DEFAULT_ARD_FINDERS: Array<Omit<ArdDiscoveryEndpoint, 'id'>> = [
+	{
+		name: 'GitHub Agent Finder',
+		url: 'https://agentfinder.github.com/api/v1/search',
+		kind: 'registry',
+		enabled: false,
+		builtIn: true,
+	},
+	{
+		name: 'Hugging Face Discover',
+		url: 'https://huggingface-hf-discover.hf.space/search',
+		kind: 'registry',
+		enabled: false,
+		builtIn: true,
+	},
+];

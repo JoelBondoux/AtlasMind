@@ -31,6 +31,9 @@ AtlasMind is a VS Code extension built in TypeScript, and it now also ships a sm
 | **ScannerRulesManager** | `src/core/scannerRulesManager.ts` | Configurable rule overrides persisted in globalState |
 | **McpClient** | `src/mcp/mcpClient.ts` | MCP SDK wrapper for stdio and HTTP transports |
 | **McpServerRegistry** | `src/mcp/mcpServerRegistry.ts` | Persists MCP server configs; manages connections; bridges tools as skills |
+| **ArdClient** | `src/ard/ardClient.ts` | [[Resource Discovery]] protocol client: registry `POST /search` (bounded federation) + static `ai-catalog.json` fetch, with strict untrusted-input validation and SSRF screening |
+| **ArdRegistry** | `src/ard/ardRegistry.ts` | Persists ARD Agent Finders in globalState (seeded disabled); caches recent results for the tree |
+| **ArdInstaller** | `src/ard/ardInstaller.ts` | Maps a discovered resource to a non-destructive install (MCP servers added disabled; nested catalogs → finders; A2A/skills/APIs → references) |
 | **ToolWebhookDispatcher** | `src/core/toolWebhookDispatcher.ts` | Sends outbound webhooks for tool lifecycle events |
 | **VoiceManager** | `src/voice/voiceManager.ts` | TTS/STT bridge; backend priority is ElevenLabs (server-side, when keyed) → OS host engine → Web Speech API, and persists preferred audio-device ids for capable runtimes |
 | **HostSpeechSynthesizer** | `src/voice/hostSpeechSynthesizer.ts` | On-device TTS via the OS engine (Windows SAPI/PowerShell, macOS `say`, Linux `espeak-ng`); no network/API key, spoken text passed only over stdin |
