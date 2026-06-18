@@ -6,6 +6,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.97.2 — Faster, Bounded Startup Discovery
+
+- **No more ~1-minute `[providers]` stall** (`src/extension.ts`): startup model discovery across ~24 providers ran serially, so slow providers (or a hanging Claude CLI health probe with a 60s timeout) summed to nearly a minute. Discovery is now concurrent and each provider is bounded by a 10s timeout, so one slow provider can't stall the rest — total time drops to roughly the slowest single provider. See [[FAQ]].
+
 ## v0.97.1 — Surface Silent Activation Failures
 
 - **Dead toolbar icons now explain themselves** (`src/extension.ts`): when a core startup step fails, the context was left unassigned and every chat-view title icon that needs it silently did nothing (only Settings worked). Activation now catches the failure and shows an actionable error with a Show Output button pointing at the "AtlasMind" output channel, where the failing step is logged. See [[FAQ]].

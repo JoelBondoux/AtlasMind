@@ -5,7 +5,25 @@ import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { applyMemorySelfHealingToContent, autoLoadWorkspaceSsot, buildWorkspaceIdentityPrompt, buildWorkspacePolicySnapshots, ensureAtlasMindCliOnTerminalPath, requiresExplicitProviderActivation, resolveStartupSsotLocation, runActivationStep, shouldAutoRefreshProjectMemoryForUri } from '../src/extension.ts';
+import { applyMemorySelfHealingToContent, autoLoadWorkspaceSsot, buildWorkspaceIdentityPrompt, buildWorkspacePolicySnapshots, ensureAtlasMindCliOnTerminalPath, requiresExplicitProviderActivation, resolveStartupSsotLocation, runActivationStep, shouldAutoRefreshProjectMemoryForUri, withTimeout } from '../src/extension.ts';
+
+describe('withTimeout (bounded provider discovery)', () => {
+  it('resolves to the promise value when it settles in time', async () => {
+    const result = await withTimeout(Promise.resolve('ok'), 1000, () => 'fallback');
+    expect(result).toBe('ok');
+  });
+
+  it('resolves to the fallback when the promise is too slow', async () => {
+    const slow = new Promise<string>(resolve => setTimeout(() => resolve('late'), 200));
+    const result = await withTimeout(slow, 20, () => 'fallback');
+    expect(result).toBe('fallback');
+  });
+
+  it('resolves to the fallback when the promise rejects', async () => {
+    const result = await withTimeout(Promise.reject(new Error('boom')), 1000, () => 'fallback');
+    expect(result).toBe('fallback');
+  });
+});
 
 describe('runActivationStep', () => {
   it('returns true when the activation step succeeds', () => {
