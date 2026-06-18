@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { describe, expect, it, vi } from 'vitest';
-import { Orchestrator, buildProjectSessionContextBundle, resolveProviderIdForModel, shouldBiasTowardWorkspaceInvestigation } from '../../src/core/orchestrator.ts';
+import { Orchestrator, buildProjectSessionContextBundle, collapseDuplicatedTrailingBlock, resolveProviderIdForModel, shouldBiasTowardWorkspaceInvestigation } from '../../src/core/orchestrator.ts';
 import { MAX_TOOL_ITERATIONS } from '../../src/constants.ts';
 import { AgentRegistry } from '../../src/core/agentRegistry.ts';
 import { SkillsRegistry } from '../../src/core/skillsRegistry.ts';
@@ -163,6 +163,41 @@ function makeOrchestrator(
     { toolApprovalGate, writeCheckpointHook, postToolVerifier, generatedSkillApprovalGate } as never,
   );
 }
+
+describe('collapseDuplicatedTrailingBlock', () => {
+  it('removes a verbatim-duplicated trailing answer block', () => {
+    const block = '### Final Answer\n\n' + 'The exact file path to change is server/tests/batch.test.ts. '.repeat(8);
+    const doubled = block + block;
+    const collapsed = collapseDuplicatedTrailingBlock(doubled);
+    expect(collapsed).toBe(block.replace(/\s+$/, ''));
+  });
+
+  it('tolerates whitespace between the duplicated copies', () => {
+    const block = 'Here is a sufficiently long answer block that the model unfortunately decided to emit twice in a row. '.repeat(4);
+    const collapsed = collapseDuplicatedTrailingBlock(block + '\n\n' + block);
+    // Keeps a single copy; never longer than the doubled input.
+    expect(collapsed.length).toBeLessThan((block + block).length);
+    expect(collapsed.includes(block.trim().slice(0, 50))).toBe(true);
+  });
+
+  it('leaves a normal non-duplicated response untouched', () => {
+    const text = 'This is a normal answer with some structure.\n\n## Section\n\nDetails here, no repetition at all.';
+    expect(collapseDuplicatedTrailingBlock(text)).toBe(text);
+  });
+
+  it('does not collapse short or legitimately repeated small phrases', () => {
+    const text = 'Yes. Yes.';
+    expect(collapseDuplicatedTrailingBlock(text)).toBe(text);
+  });
+
+  it('preserves a prefix that precedes the duplicated block', () => {
+    const prefix = 'Unique intro paragraph that only appears once.\n\n';
+    const block = 'A long repeated conclusion paragraph that the model duplicated by mistake here. '.repeat(4);
+    const collapsed = collapseDuplicatedTrailingBlock(prefix + block + block);
+    expect(collapsed.startsWith('Unique intro paragraph')).toBe(true);
+    expect(collapsed).toBe((prefix + block).replace(/\s+$/, ''));
+  });
+});
 
 describe('Orchestrator agentic loop', () => {
   it('biases localhost and Ollama runtime checks toward workspace investigation', () => {
@@ -417,6 +452,63 @@ describe('Orchestrator agentic loop', () => {
     expect(recordedRequests[1]?.messages.at(-1)?.content).toContain('AUTONOMOUS DELIVERY POLICY');
     expect(recordedRequests[1]?.messages.at(-1)?.content).toContain('Add, update, or create the smallest automated test or spec');
     expect(recordedRequests[2]?.messages[0]?.content).toContain('A task is only COMPLETE when all implementation is wired end-to-end and verified');
+  });
+
+  it('surfaces a subtask that hits the tool-iteration cap as needs-input, not completed', async () => {
+    const providerCalls: CompletionRequest[] = [];
+    const provider: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn(async (request: CompletionRequest) => {
+        providerCalls.push(request);
+        // Call 1 is the planner — return a single subtask.
+        if (providerCalls.length === 1) {
+          return {
+            content: JSON.stringify({
+              subTasks: [
+                {
+                  id: 'loop',
+                  title: 'Loop forever',
+                  description: 'A subtask that never converges.',
+                  role: 'general-assistant',
+                  skills: [],
+                  dependsOn: [],
+                },
+              ],
+            }),
+            model: 'local/echo-1',
+            inputTokens: 8,
+            outputTokens: 12,
+            finishReason: 'stop',
+          };
+        }
+        // Every subsequent call (the subtask's agentic loop, then synthesis)
+        // keeps requesting an unknown tool, so the loop caps without an answer.
+        return {
+          content: '',
+          model: 'local/echo-1',
+          inputTokens: 5,
+          outputTokens: 2,
+          finishReason: 'tool_calls',
+          toolCalls: [{ id: 'c', name: 'unknown-tool', arguments: {} }],
+        };
+      }),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+    const orchestrator = makeOrchestrator(provider, [], makeSkillContext());
+
+    const result = await orchestrator.processProject('Loop forever', {
+      budget: 'balanced',
+      speed: 'balanced',
+    });
+
+    expect(result.subTaskResults).toHaveLength(1);
+    const sub = result.subTaskResults[0]!;
+    // The cap is a recoverable pause, not a silent "completed" with placeholder text.
+    expect(sub.status).toBe('needs-input');
+    expect(sub.iterationLimitHit).toBe(true);
+    expect(typeof sub.suggestedIterationLimit).toBe('number');
+    expect(sub.suggestedIterationLimit!).toBeGreaterThan(0);
   });
 
   it('blocks non-test implementation writes until a failing test signal is observed during /project execution', async () => {

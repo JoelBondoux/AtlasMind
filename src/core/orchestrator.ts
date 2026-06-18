@@ -1223,7 +1223,7 @@ export class Orchestrator {
       id: request.id,
       agentId: agent.id,
       modelUsed,
-      response: completion.content,
+      response: collapseDuplicatedTrailingBlock(completion.content),
       costUsd,
       inputTokens,
       outputTokens,
@@ -1528,6 +1528,33 @@ export class Orchestrator {
         };
       }
 
+      // The subtask hit a safety cap (tool-iteration or tools-per-turn) without
+      // producing a final answer, even after the recovery retry above. Surface a
+      // recoverable pause rather than silently marking it "completed" with the
+      // "Execution stopped…" placeholder as its output — the UI can then offer
+      // the raise-limit actions and resume the run.
+      if (result.iterationLimitHit) {
+        return {
+          subTaskId: task.id,
+          title: task.title,
+          status: 'needs-input',
+          output: result.response,
+          costUsd: result.costUsd,
+          inputTokens: result.inputTokens,
+          outputTokens: result.outputTokens,
+          durationMs: result.durationMs,
+          role: task.role,
+          dependsOn: [...task.dependsOn],
+          iterationLimitHit: true,
+          ...(typeof result.suggestedIterationLimit === 'number' ? { suggestedIterationLimit: result.suggestedIterationLimit } : {}),
+          ...(typeof result.suggestedToolCallsPerTurnLimit === 'number' ? { suggestedToolCallsPerTurnLimit: result.suggestedToolCallsPerTurnLimit } : {}),
+          error: result.response,
+          artifacts: result.artifacts
+            ? { ...result.artifacts, output: result.response, outputPreview: truncatePreview(result.response), changedFiles: [], ...(subTaskMethodologyId ? { testingMethodologyId: subTaskMethodologyId } : {}) }
+            : { output: result.response, outputPreview: truncatePreview(result.response), toolCallCount: 0, toolCalls: [], checkpointedTools: [], changedFiles: [], ...(subTaskMethodologyId ? { testingMethodologyId: subTaskMethodologyId } : {}) },
+        };
+      }
+
       return {
         subTaskId: task.id,
         title: task.title,
@@ -1663,6 +1690,11 @@ export class Orchestrator {
           // Stream partial output text as each subtask completes.
           if (result.status === 'completed' && result.output.trim()) {
             onTextChunk?.(`\n\n**${result.title}**\n\n${result.output}`);
+          } else if (result.status === 'needs-input') {
+            const raiseHint = typeof result.suggestedIterationLimit === 'number'
+              ? ` Raise the tool-iteration limit to ${result.suggestedIterationLimit} (once or permanently) to resume.`
+              : '';
+            onTextChunk?.(`\n\n**${result.title}** — paused (needs input)\n\nReached the agentic safety limit before finishing.${raiseHint}`);
           } else if (result.status === 'failed') {
             const actionableHint = buildRecoveryHint(result);
             onTextChunk?.(`\n\n**${result.title}** — failed\n\n*${result.error ?? 'unknown error'}*${actionableHint}`);
@@ -4191,6 +4223,38 @@ function isIdeationScopedRequest(request: TaskRequest): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Collapse a verbatim-duplicated trailing block in model output.
+ *
+ * Weak or looping models sometimes emit their final answer twice in a row
+ * (`prefix + B + B`). This is a degenerate generation artifact, not content the
+ * user asked for, so we drop the second copy. The guard is intentionally
+ * conservative: it only acts on a *large* (≥ 200-char) trailing block that is an
+ * exact duplicate of the block immediately preceding it, after trimming the
+ * boundary whitespace, so it cannot eat legitimately repeated short phrases or
+ * structured code. Only the largest such duplication is removed (one pass).
+ */
+export function collapseDuplicatedTrailingBlock(text: string): string {
+  if (!text) { return text; }
+  const n = text.length;
+  // Too short to be a meaningful duplicated block, or pathologically large.
+  // (Operate on the raw string — pre-trimming the end can make the length odd
+  // and shift `maxL` off the true block boundary by one.)
+  if (n < 500 || n > 500_000) { return text; }
+
+  const MIN_BLOCK = 200;
+  const maxL = Math.floor(n / 2);
+  for (let L = maxL; L >= MIN_BLOCK; L--) {
+    const tail = text.slice(n - L);
+    const prev = text.slice(n - 2 * L, n - L);
+    // Exact match is the common looping case; tolerate only boundary whitespace.
+    if (tail === prev || tail.trim() === prev.trim()) {
+      return text.slice(0, n - L).replace(/\s+$/, '');
+    }
+  }
+  return text;
 }
 
 export function shouldBiasTowardWorkspaceInvestigation(

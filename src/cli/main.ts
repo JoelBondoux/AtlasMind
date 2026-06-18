@@ -642,9 +642,18 @@ function renderProjectProgress(update: ProjectProgressUpdate): void {
     case 'subtask-start':
       process.stderr.write(`→ ${update.title}\n`);
       break;
-    case 'subtask-done':
-      process.stderr.write(`✓ ${update.result.title} (${update.completed}/${update.total})\n`);
+    case 'subtask-done': {
+      const mark = update.result.status === 'failed'
+        ? '✗'
+        : update.result.status === 'needs-input'
+          ? '⏸'
+          : '✓';
+      const suffix = update.result.status === 'needs-input'
+        ? ` — paused at tool-iteration limit${typeof update.result.suggestedIterationLimit === 'number' ? `; raise maxToolIterations to ${update.result.suggestedIterationLimit} to resume` : ''}`
+        : '';
+      process.stderr.write(`${mark} ${update.result.title} (${update.completed}/${update.total})${suffix}\n`);
       break;
+    }
     case 'synthesizing':
       process.stderr.write('Synthesizing final report...\n');
       break;

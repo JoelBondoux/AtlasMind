@@ -124,10 +124,18 @@ Read-only Docker inspection is classified as `terminal-read`. Container lifecycl
 ## Tool Call Limits
 
 - **Max 8 tool calls per turn** — prevents runaway loops
+- **Agentic loop cap** (`maxToolIterations`, default 10) — caps tool-call rounds per turn
 - Multiple tool calls in the same turn execute concurrently via `Promise.all`
 - Each call is independently gated by the approval system
 - Task-scoped bypass decisions are keyed to the active orchestrator task ID so they do not silently leak into unrelated runs
 - Tool timeouts: default 15s, `web-fetch` 30s, `test-run` 120s
+
+### Hitting the cap
+
+When a turn reaches `maxToolIterations` (or the per-turn tool-call limit) without producing a final answer, AtlasMind **stops and asks** rather than failing silently:
+
+- **Single-turn chat** surfaces *Raise to N (permanent)* / *Raise to N (this task)* buttons; choosing one updates `maxToolIterations` (workspace setting for permanent, in-memory for this task only) and resumes from the original prompt.
+- **Autonomous `/project` subtasks** report a `needs-input` pause (a distinct state from `failed`) carrying the suggested higher limit. The project report renders a *"⏸️ Paused — tool-iteration limit reached"* section with a button to open the `atlasmind.maxToolIterations` setting and the choices to raise permanently and re-run, raise once and re-run, or skip. See [[Project-Planner]].
 
 ---
 

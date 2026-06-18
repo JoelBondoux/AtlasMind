@@ -306,6 +306,7 @@ All shared interfaces live in `src/types.ts`. Key types include:
 | `TaskProfile` | Inferred task phase, modality, reasoning intensity, required capabilities |
 | `MemoryEntry` | Memory path, title, tags, snippet, timestamp, optional embedding |
 | `SubTask` | Plan node: title, role, skills, dependency edges |
+| `SubTaskResult` | Execution outcome with `status` (`completed` / `failed` / `needs-input`); a capped subtask reports `needs-input` plus `iterationLimitHit` and suggested raised limits |
 | `ProjectPlan` | Goal string + SubTask DAG |
 | `ProjectResult` | Execution results, synthesis, cost totals |
 | `ToolInvocationPolicy` | Risk category, risk level, approval summary |

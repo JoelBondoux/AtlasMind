@@ -205,6 +205,8 @@ interface ChatPanelState {
   recoveryNotice?: ChatPanelRecoveryNotice;
   selectedRun?: ChatPanelRunSummary;
   autopilotEnabled?: boolean;
+  /** Name of the active workspace folder, announced in the sidebar brand header. */
+  projectName?: string;
 }
 
 interface ChatPanelSuggestedFollowup extends SessionSuggestedFollowup {
@@ -295,6 +297,9 @@ export class ChatPanel {
   private pendingPromptSubmission: PendingPromptSubmission | undefined;
   private activePromptExecution: ActivePromptExecution | undefined;
   private recoveryNotice: ChatPanelRecoveryNotice | undefined;
+  /** Cached project display name: the connected Git repo name when available, else the workspace folder name. */
+  private cachedProjectName: string | undefined;
+  private gitWatchersRegistered = false;
   private streamingThought: string | undefined;
   private streamingModels: string[] = [];
   private readonly onDisposed?: () => void;
@@ -396,6 +401,7 @@ export class ChatPanel {
     }, null, this.disposables);
 
     void this.syncState();
+    void this.refreshProjectName();
     this.checkAiInstructionNudge();
     if (initialTarget?.autoSubmit && initialTarget.draftPrompt) {
       void this.runPrompt(initialTarget.draftPrompt, initialTarget.sendMode ?? 'send');
@@ -649,6 +655,12 @@ export class ChatPanel {
         await this.host.webview.postMessage({ type: 'hideAiInstructionNudge' });
         return;
       }
+      case 'openSettings':
+        await vscode.commands.executeCommand('atlasmind.openSettings');
+        return;
+      case 'openProjectDashboard':
+        await vscode.commands.executeCommand('atlasmind.openProjectDashboard');
+        return;
     }
   }
 
@@ -1619,11 +1631,59 @@ export class ChatPanel {
       ...(this.selectedRunId ? { selectedRunId: this.selectedRunId } : {}),
       selectedRun: selectedRun ? toRunSummary(selectedRun) : undefined,
       autopilotEnabled: this.atlas.toolApprovalManager?.isAutopilot?.() ?? false,
+      ...(this.resolveProjectName() ? { projectName: this.resolveProjectName() } : {}),
     };
 
     await this.host.webview.postMessage({ type: 'state', payload });
     this.pendingComposerDraft = undefined;
     this.pendingComposerMode = undefined;
+  }
+
+  /**
+   * The name announced in the sidebar brand header: the connected Git repository
+   * name when one has been resolved, otherwise the active workspace folder name.
+   */
+  private resolveProjectName(): string | undefined {
+    return this.cachedProjectName ?? vscode.workspace.workspaceFolders?.[0]?.name;
+  }
+
+  /**
+   * Asynchronously resolves the connected Git repository name from the built-in
+   * Git extension and caches it. Re-syncs the webview when the resolved name
+   * differs from what is currently displayed, and watches for the repo (or its
+   * remotes) being connected later in the session.
+   */
+  private async refreshProjectName(): Promise<void> {
+    if (this._isDisposed) return;
+    try {
+      const api = await getGitApi();
+      if (this._isDisposed || !api) {
+        return;
+      }
+
+      // Watch (once per panel) for a repo or remote being connected later in the
+      // session so the brand header updates without a reload.
+      if (!this.gitWatchersRegistered) {
+        this.gitWatchersRegistered = true;
+        const onChange = () => { void this.refreshProjectName(); };
+        this.disposables.push(api.onDidOpenRepository(repo => {
+          this.disposables.push(repo.state.onDidChange(onChange));
+          onChange();
+        }));
+        for (const repo of api.repositories) {
+          this.disposables.push(repo.state.onDidChange(onChange));
+        }
+      }
+
+      const repoName = resolveRepoNameFromApi(api);
+      if (this._isDisposed || repoName === this.cachedProjectName) {
+        return;
+      }
+      this.cachedProjectName = repoName;
+      await this.syncState();
+    } catch (error) {
+      console.error('[AtlasMind] Failed to resolve the connected Git repository name.', error);
+    }
   }
 
   private async preparePromptRequest(
@@ -2118,6 +2178,83 @@ function extractGapAnalysisChecklist(response: string): string[] {
 
 function isJsonRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** Structural subset of the built-in `vscode.git` extension API we rely on. */
+interface GitRemoteLike {
+  name: string;
+  fetchUrl?: string;
+  pushUrl?: string;
+}
+interface GitRepositoryLike {
+  rootUri: vscode.Uri;
+  state: {
+    remotes: readonly GitRemoteLike[];
+    onDidChange: vscode.Event<void>;
+  };
+}
+interface GitApiLike {
+  repositories: readonly GitRepositoryLike[];
+  onDidOpenRepository: vscode.Event<GitRepositoryLike>;
+}
+interface GitExtensionLike {
+  getAPI(version: number): GitApiLike;
+}
+
+/**
+ * Returns the built-in `vscode.git` extension API, activating the extension if
+ * needed. Returns `undefined` when Git tooling is unavailable (e.g. a web host
+ * without the Git extension).
+ */
+async function getGitApi(): Promise<GitApiLike | undefined> {
+  const extension = vscode.extensions.getExtension<GitExtensionLike>('vscode.git');
+  if (!extension) {
+    return undefined;
+  }
+  if (!extension.isActive) {
+    await extension.activate();
+  }
+  return extension.exports.getAPI(1);
+}
+
+/**
+ * Resolves the connected Git repository name for the active workspace. Returns
+ * `undefined` when Git is unavailable, no repo is open, or no remote is
+ * configured — callers fall back to the folder name.
+ */
+function resolveRepoNameFromApi(api: GitApiLike): string | undefined {
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const repo = (workspaceRoot
+    && api.repositories.find(candidate => candidate.rootUri.fsPath === workspaceRoot))
+    ?? api.repositories[0];
+  if (!repo) {
+    return undefined;
+  }
+
+  const remotes = repo.state.remotes;
+  const origin = remotes.find(remote => remote.name === 'origin') ?? remotes[0];
+  const url = origin?.fetchUrl ?? origin?.pushUrl;
+  return url ? parseRepoNameFromRemoteUrl(url) : undefined;
+}
+
+/**
+ * Extracts the repository name from a Git remote URL. Handles HTTPS/SSH/SCP
+ * forms (`https://host/owner/repo.git`, `git@host:owner/repo.git`, `ssh://…`),
+ * trailing `.git`, and trailing slashes. Returns `undefined` when no name can
+ * be isolated.
+ */
+function parseRepoNameFromRemoteUrl(remoteUrl: string): string | undefined {
+  let path = remoteUrl.trim();
+  if (!path) {
+    return undefined;
+  }
+  // Strip scheme/host: take everything after the last ':' or '/' boundary group.
+  // scp-like `git@host:owner/repo` and URL `scheme://host/owner/repo` both end
+  // in `owner/repo`, so normalise separators then take the final segment.
+  path = path.replace(/\.git$/i, '').replace(/\/+$/, '');
+  const segments = path.split(/[/:]/).filter(segment => segment.length > 0);
+  const last = segments[segments.length - 1];
+  return last && last.length > 0 ? last : undefined;
 }
 
 function renderTranscriptMarkdown(title: string, transcript: SessionTranscriptEntry[]): string {

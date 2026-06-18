@@ -243,6 +243,7 @@ Project execution now runs a preflight preview in chat before orchestration star
 - Atlas snapshots the workspace and reports per-subtask changed-file deltas as subtasks complete, then emits a cumulative final summary at the end.
 - Atlas records per-file attribution traces (which subtask titles touched which files) and persists a JSON run summary report in the configured report folder.
 - When one or more subtasks fail, Atlas renders a post-run failure banner listing the failed subtask titles, the number of files already modified, and a *View Source Control* button for easy rollback.
+- When a subtask hits the agentic tool-iteration cap (`maxToolIterations`) without finishing, it does **not** fail or silently complete — it reports a `needs-input` pause. The project report renders a *"⏸️ Paused — tool-iteration limit reached"* section with the orchestrator's suggested higher limit, a button to open the `atlasmind.maxToolIterations` setting, and the three choices: raise permanently and re-run, raise once and re-run, or skip. The run is recorded as `paused` and the Project Run Center marks the subtask with a pause icon and a *raise limit to resume* hint.
 - After completion, follow-up chips are outcome-driven: a run with failures surfaces *Retry the project* and *Diagnose failures*; a successful run with changed files surfaces *Add tests*; otherwise the default chips are shown.
 
 ---

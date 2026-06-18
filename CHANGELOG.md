@@ -8,6 +8,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.103.0] - 2026-06-18
+
+### Changed
+- **Open-ended triage/advisory prompts are no longer routed to sub-10B models** (`src/core/taskProfiler.ts`). Prompts like *"what should we work on next? Is there anything incomplete?"* matched no reasoning hint and fell through to `low`, so the router picked the cheapest model (e.g. an 8B local model) — which cannot do the whole-project reasoning the question demands. A new `OPEN_ENDED_ADVISORY_HINTS` pattern classifies these triage/recommendation/"what's next" questions as **high** reasoning, so the existing router penalties steer them to a capable model. Mechanical follow-ups (e.g. "commit the changes") are unaffected.
+
+### Fixed
+- **Verbatim-duplicated model output is now collapsed before display** (`src/core/orchestrator.ts`). Weak or looping models sometimes emit their final answer twice in a row (`prefix + B + B`); the new `collapseDuplicatedTrailingBlock` guard drops the duplicate copy. It is conservative — it only removes a large (≥ 200-char) trailing block that exactly duplicates the block immediately before it — so it never touches legitimately repeated short phrases or structured code.
+
+### Added
+- **Pick-one quick-reply pills for enumerated questions** (`src/chat/participant.ts`). `detectResponseQuickReplies` previously only produced clickable buttons for yes/no and a single "A or B?" question. It now also recognises a trailing 3–4 option list (*"…: batch concurrency, Shopify sync, or edge cases?"*) and renders one pill per option, so triage answers that end in a clear choice become one-tap selectable instead of a plain text prompt.
+- **Tests**: `tests/core/taskProfiler.test.ts` (triage prompts → high reasoning; plain action follow-up stays low), `tests/core/orchestrator.tools.test.ts` (`collapseDuplicatedTrailingBlock` behavior incl. prefix preservation and non-duplicated passthrough), and `tests/chat/participant.helpers.test.ts` (`detectResponseQuickReplies` 2/3-option, yes/no, prose, and no-question cases).
+- **Clickable brand header in the AtlasMind sidebar** (`src/views/chatWebviewMarkup.ts`, `media/chatPanel.js`, `src/views/chatPanel.ts`, `src/views/chatProtocol.ts`). The chat view — the topmost surface in the AtlasMind sidebar — now opens with an "AtlasMind" wordmark that opens the Settings panel when clicked, and a subtitle announcing the active project that opens the Project Dashboard. Both are keyboard-focusable buttons routed through the validated webview message protocol (new `openSettings` and `openProjectDashboard` messages) to the existing `atlasmind.openSettings` and `atlasmind.openProjectDashboard` commands. The activity-bar container title itself is not bindable through the VS Code API, so the brand header lives inside the topmost view where it is reachable.
+  - The announced project name is the **connected Git repository name** when the workspace has a remote (resolved from the built-in `vscode.git` extension's `origin` remote, e.g. `https://github.com/owner/AtlasMind.git` → `AtlasMind`), falling back to the **workspace folder name** when no remote is configured or Git tooling is unavailable. The name resolves asynchronously, is cached, and is re-resolved when a repository or remote is connected later in the session.
+
+## [0.101.0] - 2026-06-18
+
+### Changed
+- **Autonomous /project subtasks that hit the tool-iteration cap now pause for a decision instead of silently dying** (`src/core/orchestrator.ts`, `src/types.ts`, `src/chat/participant.ts`, `src/views/projectRunCenterPanel.ts`, `src/cli/main.ts`). Previously, when a subtask in a project run reached the `maxToolIterations` safety cap, `executeSubTask` returned `status: 'completed'` with the bare "Execution stopped after reaching the safety limit…" string as its output — so the scheduler moved on as if the subtask had succeeded, the run was recorded as completed, and the user was never offered the override that single-turn chat already provides.
+  - New `SubTaskStatus` value **`needs-input`** (`src/types.ts`): a non-terminal pause distinct from `failed`. `SubTaskResult` now carries `iterationLimitHit`, `suggestedIterationLimit`, and `suggestedToolCallsPerTurnLimit` so the cap signal survives into the project layer.
+  - The orchestrator now returns `needs-input` (not `completed`) for a capped subtask, propagating the suggested raised limits.
+  - The chat/project report renders a prominent **"⏸️ Paused — tool-iteration limit reached"** section listing the paused subtask(s), the suggested higher limit, and a button to open the `atlasmind.maxToolIterations` setting, plus the three explicit choices (raise permanently, raise once and re-run, or skip). The run is recorded as `paused` rather than `completed`.
+  - The Project Run Center reflects the paused state in the subtask tracker (new ⏸ icon, "raise limit to resume" hint, `paused` summary count) and run log; the CLI shows a ⏸ marker with the resume hint.
+
+### Added
+- **Test**: `tests/core/orchestrator.tools.test.ts` covers that a project subtask hitting the agentic cap surfaces as `needs-input` with `iterationLimitHit` and a positive `suggestedIterationLimit`, rather than a false `completed`.
+
 ## [0.100.3] - 2026-06-18
 
 ### Fixed

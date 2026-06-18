@@ -1132,7 +1132,16 @@ export interface SubTask {
   dependsOn: string[];
 }
 
-export type SubTaskStatus = 'pending' | 'running' | 'completed' | 'failed';
+/**
+ * Lifecycle state of a single subtask.
+ *
+ * `needs-input` is a non-terminal pause: the subtask stopped because it hit a
+ * safety cap (e.g. `maxToolIterations`) without producing a final answer, and a
+ * human decision is required to raise the limit and resume, or to skip it.
+ * It is deliberately distinct from `failed` so the UI can surface the
+ * raise-limit actions instead of treating the run as a hard failure.
+ */
+export type SubTaskStatus = 'pending' | 'running' | 'completed' | 'failed' | 'needs-input';
 
 export interface ToolExecutionArtifact {
   toolName: string;
@@ -1171,6 +1180,12 @@ export interface SubTaskResult {
   artifacts?: SubTaskExecutionArtifacts;
   /** Set when the subtask failed because a provider was billing-paused with no fallback available. Signals the project runner to abort remaining batches. */
   billingAbort?: boolean;
+  /** True when the subtask stopped because it hit the agentic tool-iteration cap (or tools-per-turn cap) without a final answer. Pairs with `status: 'needs-input'`. */
+  iterationLimitHit?: boolean;
+  /** Orchestrator-suggested higher `maxToolIterations` value the user can apply to resume this subtask. */
+  suggestedIterationLimit?: number;
+  /** Orchestrator-suggested higher `maxToolCallsPerTurn` value the user can apply to resume this subtask. */
+  suggestedToolCallsPerTurnLimit?: number;
 }
 
 /** A decomposed project plan ready for parallel execution. */

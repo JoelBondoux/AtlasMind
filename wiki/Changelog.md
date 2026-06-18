@@ -6,6 +6,17 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.103.0 — Smarter Triage Routing, Cleaner Answers & a Clickable Sidebar Brand Header
+
+- **Open-ended "what should we work on next / is anything incomplete?" prompts now route to a capable model.** They previously matched no reasoning hint and fell through to the cheapest (often sub-10B) model, which can't do whole-project triage. They are now classified as high-reasoning so the router steers them to a stronger model. Mechanical follow-ups (e.g. "commit") are unaffected.
+- **Duplicated answers are collapsed.** When a weak/looping model emits its final answer twice in a row, AtlasMind now drops the duplicate copy before display (conservative: only large, exact, adjacent duplicates).
+- **Pick-one buttons for enumerated questions.** Answers that end in a 3–4 option choice ("…: A, B, or C?") now render one clickable pill per option, not just for yes/no or two-option questions.
+- **The AtlasMind sidebar now leads with a clickable brand header.** The chat view (the topmost sidebar surface) opens with an **"AtlasMind"** wordmark that opens the **Settings** panel, and a subtitle announcing the active project that opens the **Project Dashboard**. The project name is the **connected Git repository name** when the workspace has a remote (e.g. `…/AtlasMind.git` → `AtlasMind`), falling back to the **workspace folder name** otherwise. Both are keyboard-focusable and routed through the validated webview message protocol to the existing commands. (The activity-bar container title can't be made clickable through the VS Code API, so the header lives inside the topmost view where it's reachable.)
+
+## v0.101.0 — Paused Subtasks on Iteration Cap
+
+- **Autonomous `/project` subtasks now pause instead of silently dying when they hit the tool-iteration cap.** A capped subtask previously returned `completed` with the bare "Execution stopped…" message as its output, so the run rolled on as if it had succeeded and the user never got the override that single-turn chat already offers. Subtasks now report a new **`needs-input`** state carrying the orchestrator's suggested higher limit; the project report shows a **"⏸️ Paused — tool-iteration limit reached"** section with a button to raise `maxToolIterations` and the choices to raise permanently, raise once and re-run, or skip. The Project Run Center, run log, and CLI all reflect the paused state.
+
 ## v0.100.3 — Documentation Accuracy Sweep
 
 - **Corrected stale docs found while auditing changes since 0.80.0.** Fixed the `atlasmind.maxToolIterations` default (documented as `20`, actually `10`) in the configuration reference and wiki, and refreshed the Voice section that still claimed there was "no host-side OS-native speech adapter" — contradicting the OS host speech engine (0.80.0) and on-device Whisper STT (0.81.0). Docs-only.

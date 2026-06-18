@@ -348,7 +348,7 @@ All shared types live in `src/types.ts`. See the [type definitions](../src/types
 | `RoutingConstraints` | Budget mode, speed mode, max cost, preferred provider, preferred model (role pin), parallel slots, cacheable-prefix ratio |
 | `TaskProfile` | Inferred task phase, modality, reasoning intensity, and capability preferences |
 | `SubTask` | Unit of work in a project plan: id, title, role, skills, `dependsOn` edges |
-| `SubTaskResult` | Execution outcome: status, output, costUsd, durationMs, error |
+| `SubTaskResult` | Execution outcome: `status` (`completed` / `failed` / `needs-input`), output, costUsd, durationMs, error, and (when capped) `iterationLimitHit` + suggested raised limits |
 | `ProjectPlan` | Decomposed goal: id, goal, `subTasks[]` DAG |
 | `ProjectResult` | Full execution outcome: subtask results, synthesis, totals |
 | `ProjectProgressUpdate` | Discriminated progress event: `planned \| subtask-start \| subtask-done \| synthesizing \| error` |

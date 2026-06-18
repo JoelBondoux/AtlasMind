@@ -51,7 +51,9 @@ export type ChatPanelMessage =
   | { type: 'deleteMessage'; payload: string }
   | { type: 'sendToTerminal'; payload: { code: string } }
   | { type: 'syncAiInstructions' }
-  | { type: 'dismissAiInstructionNudge' };
+  | { type: 'dismissAiInstructionNudge' }
+  | { type: 'openSettings' }
+  | { type: 'openProjectDashboard' };
 
 export function getStatusDrivenComposerMode(isBusy: boolean): PersistentComposerSendMode {
   return isBusy ? 'steer' : 'send';
@@ -118,6 +120,8 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
     || message.type === 'toggleAutopilot'
     || message.type === 'syncAiInstructions'
     || message.type === 'dismissAiInstructionNudge'
+    || message.type === 'openSettings'
+    || message.type === 'openProjectDashboard'
   ) {
     return true;
   }
