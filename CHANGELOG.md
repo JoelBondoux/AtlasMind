@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.100.1] - 2026-06-18
+
+### Added
+- **Open Knowledge Format (OKF) interoperability planning** (`docs/roadmap.md`, `project_memory/`): evaluation and design for adopting Google Cloud's Open Knowledge Format (OKF v0.1, published 2026-06-16). Rather than reformatting AtlasMind's own docs to a two-day-old spec, the plan adds OKF **import/export** — including a user-facing **"Convert project to OKF"** command that emits an ingested project as a portable, redaction-safe bundle — plus a lightweight **spec-watch sync** (modeled on the existing provider/pricing sync services) that tracks the spec as it evolves and raises an advisory on version bumps without auto-mutating memory. Captured in `project_memory/decisions/okf-alignment-evaluation.md` (verdict: align the SSOT, don't migrate wholesale), `project_memory/index/okf-frontmatter-audit.md` (AtlasMind's stores are structurally OKF-shaped but metadata-divergent, so export/import is favored over reformatting), and `project_memory/ideas/okf-interop.md`. Added to the Frontier / Horizon Watch (Horizon 1) in the human-facing roadmap. Planning only — no implementation yet.
+
 ## [0.100.0] - 2026-06-18
 
 ### Changed

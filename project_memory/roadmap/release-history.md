@@ -10,29 +10,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-## [0.79.2] - 2026-06-12
+## [0.100.0] - 2026-06-18
 
-### Fixed
-- **Autonomous run context continuity** (`src/core/orchestrator.ts`, `src/chat/participant.ts`, `src/views/chatPanel.ts`): preserved the loaded session context bundle for autonomous project subtasks so project runs keep the prior chat goal, summary, decisions, open threads, and SSOT excerpts instead of dropping back to a blank context frame.
-
-### Added
-- **Context compression toggle and savings reporting** (`src/core/orchestrator.ts`, `src/core/costTracker.ts`, `src/chat/participant.ts`, `src/views/costDashboardPanel.ts`, `package.json`, `src/types.ts`): added an opt-in `atlasmind.contextCompressionEnabled` setting, connected it to the existing compaction path, and surfaced estimated compression savings in the exec summary and cost dashboard.
-- **Chat-side project-run context loading** (`src/chat/participant.ts`, `tests/chat/participant.helpers.test.ts`): project execution now loads the session SSOT context bundle before launching autonomous runs, so the same continuity data is available in both standard chat and autonomous project execution paths.
-- **Calmer tool-failure summaries** (`src/core/orchestrator.ts`, `tests/cli/adversarialPrompt.test.ts`): refined the user-facing failure text to explain the tool problem clearly and offer next-step guidance without the blunt fallback wording.
-
-## [0.77.2] - 2026-06-10
+### Changed
+- **Compare Models: list every configured model, grouped by provider** (`src/views/modelComparisonPanel.ts`): the picker previously showed only routing-`enabled` models, so most of a configured provider's catalog was hidden and very few models appeared. It now mirrors the Models tree — every model from a credentialed provider is listed in a collapsible per-provider group with a provider-level "select all" (plus the global Select All); disabled models are still selectable and marked.
+- **Sortable results table** (`src/views/modelComparisonPanel.ts`): results are now rendered client-side from structured data and any column header (Model, Quality, Completion, Cost, Latency, Tokens) can be clicked to sort ascending/descending. The first row in the current sort order is flagged as the leader.
+- **Quality, clarified** (`src/core/executionQuality.ts` doc, panel legend): the old single "Quality" column was the coarse completion-integrity grade (error 0 · empty 0.2 · truncated 0.6 · clean 1.0), which is ~1.0 for any clean response and so unhelpful for ranking. It is now labelled **Completion** with an inline legend explaining exactly what it measures.
 
 ### Added
-- **Published release v0.77.2**: this marketplace release bundles the routine workflow shipped on `develop`, including the new `/ship` experience, routine-run UI, bootstrap routine extraction, and direct routine-edit intent.
-- **Bootstrapper routine extraction** (`src/bootstrap/bootstrapper.ts`): `/import` now scans `CLAUDE.md`, `.github/copilot-instructions.md`, and `docs/development.md` for ordered procedure sections (Publishing Routine, Release Workflow, Deploy Process, etc.) and writes a starter routine file to `project_memory/routines/<id>.md`. Steps are extracted from numbered list items with a **Label** and a `command` in backticks; `<angle-bracket-placeholders>` become `${VAR}` interpolation tokens. The fingerprint system prevents overwriting manually edited routine files, and unchanged files are skipped on re-import. After writing, `RoutineRegistry` is reloaded automatically so the new routine is immediately available to `/ship`.
-- **Chat routine-edit intent** (`src/chat/participant.ts`): freeform messages matching "edit/update/change/open [the] [X] routine" now open the matching routine's source `.md` file directly in the editor, bypassing the LLM. AtlasMind identifies the target routine by matching the routine name or ID in the prompt, falling back to the default routine. If no rou
+- **Optional LLM answer-quality judge** (`src/core/modelEvalHarness.ts`, `src/views/modelComparisonPanel.ts`): an opt-in toggle (default off) grades each model's answer 0–100 for correctness, completeness, and usefulness using a judge model you pick from your configured models. When enabled, a **Quality** column appears (with the judge's rationale on hover) and drives the ranking. New pure, unit-tested helpers `buildModelJudgePrompt` and `parseModelJudgeVerdicts` (defensive JSON parsing, id matching, score clamping) back it; the harness gained an injected `judge` hook (`ModelEvalResult.judgeScore`/`judgeRationale`). The judge is display/ranking only — the **completion grade** remains what is recorded into outcome-driven routing, so routing calibration stays consistent with normal turns.
+
+## [0.99.1] - 2026-06-18
+
+### Changed
+- **Defer the activation-time memory freshness scan** (`src/extension.ts`): even with stale-memory auto-refresh off (v0.98.0), the `loadSsotFromDisk` step still ran the freshness *detection* — `getProjectMemoryFreshness` → `buildImportSnapshot`, which walks the entire repository to fingerprint imported sources — synchronously on the startup-critical path (observed ~4.5s on a large workspace). That scan exists only to light up the "Update Memory" badge, so it no longer sits between SSOT load and provider discovery: the SSOT is loaded from disk immediately, and the freshness scan is scheduled `MEMORY_FRESHNESS_STARTUP_DELAY_MS` (8s) after act
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-06-12T17:24:01.898Z
+generated-at: 2026-06-18T03:21:43.858Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: 8edeac14
-body-fingerprint: b5550d77
+source-fingerprint: 621233d9
+body-fingerprint: f5f9cc98
 -->
