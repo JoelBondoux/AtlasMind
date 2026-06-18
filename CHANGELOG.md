@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.97.1] - 2026-06-18
+
+### Fixed
+- **Silent activation failures are now surfaced** (`src/extension.ts`): if `bootstrapAtlasMind()`'s `buildAtlasContext` step throws, the error was caught and logged but never shown, leaving `atlasContext` unassigned — so every chat-view title icon that calls `requireAtlas()` (Cost Dashboard, Project Dashboard, Model Providers, Personality, Run Center, etc.) silently no-opped while Settings (the only command that does not require the context) still worked. The activation promise now has a `.catch()`, and the post-bootstrap step detects an unassigned context and shows an actionable error with a **Show Output** button pointing at the "AtlasMind" output channel (which logs the actual failing step). This does not change the underlying failure — it makes it visible so it can be diagnosed and fixed instead of presenting as dead toolbar icons.
+
 ## [0.97.0] - 2026-06-18
 
 ### Added
