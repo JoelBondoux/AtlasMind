@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.104.3] - 2026-06-18
+
+### Fixed
+- **Restored VSIX packaging** broken by the 0.104.2 dev-dependency bump. Dependabot raised `@types/vscode` to `^1.125.0`, which `vsce` rejects when it is newer than `engines.vscode` (`^1.120.0`). Pinned `@types/vscode` back to `^1.120.0` to match the declared engine rather than raising the minimum VS Code version users must run. `npm audit` still reports 0 vulnerabilities and the package builds cleanly.
+
 ## [0.104.2] - 2026-06-18
 
 ### Security

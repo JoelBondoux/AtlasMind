@@ -6,6 +6,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.104.3 — Packaging Fix
+
+- **Restored VSIX packaging** after the 0.104.2 dependency bump. `@types/vscode` was pinned back to `^1.120.0` to match `engines.vscode`, since `vsce` rejects types newer than the declared engine. The supported minimum VS Code version is unchanged.
+
 ## v0.104.2 — Dependency Security Maintenance
 
 - **Applied Dependabot security updates for development dependencies** (`js-yaml` 4.1.1→4.2.0, `form-data` 4.0.5→4.0.6, and the developer-tooling group: `@types/vscode`, `@typescript-eslint/eslint-plugin`, `@vitest/coverage-v8`, `eslint`). `npm audit` reports 0 vulnerabilities; the full build and all 1104 tests pass. No runtime dependencies changed.
