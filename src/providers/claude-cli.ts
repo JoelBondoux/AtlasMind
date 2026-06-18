@@ -7,7 +7,22 @@ export const CLAUDE_CLI_PROVIDER_ID = 'claude-cli';
 export const CLAUDE_CLI_SETUP_URL = 'https://code.claude.com/docs/en/quickstart';
 const DEFAULT_TIMEOUT_MS = 60_000;
 const MAX_CLAUDE_CLI_CONTEXT_MESSAGES = 4;
-const MAX_CLAUDE_CLI_MESSAGE_CHARS = 4_000;
+/** Per-message cap for prior-turn history (kept small to leave budget for the latest turn). */
+const MAX_CLAUDE_CLI_HISTORY_MESSAGE_CHARS = 2_500;
+/**
+ * Cap for the latest user turn — the most important message, and for brain-role
+ * calls (planning / synthesis) the one carrying the goal + memory context. Given a
+ * far larger share than history so the bridge is usable as a reasoning brain.
+ */
+const MAX_CLAUDE_CLI_LATEST_MESSAGE_CHARS = 16_000;
+/**
+ * Total character budget for the assembled prompt. The prompt is passed on the
+ * command line (plus the system prompt via `--append-system-prompt`), and
+ * Windows caps a process command line at ~32,767 chars, so this stays well under
+ * that once the system prompt and flags are accounted for. The latest turn's cap
+ * is reduced dynamically when history is large so the total never exceeds this.
+ */
+const CLAUDE_CLI_TOTAL_PROMPT_BUDGET = 26_000;
 const MAX_CLAUDE_CLI_SYSTEM_PROMPT_CHARS = 2_000;
 
 export interface ClaudeCliProbeResult {
@@ -287,18 +302,20 @@ function spawnAndCollect(
   });
 }
 
-function buildClaudeCliPrompt(messages: CompletionRequest['messages']): { systemPrompt: string; prompt: string } {
+export function buildClaudeCliPrompt(messages: CompletionRequest['messages']): { systemPrompt: string; prompt: string } {
   const systemPrompt = compactClaudeCliSystemPrompt(messages
     .filter(message => message.role === 'system')
     .map(message => message.content.trim())
     .filter(Boolean)
     .join('\n\n'));
 
+  // Keep full content here; truncation is applied per-role below so the latest
+  // turn can be allocated a far larger budget than the history.
   const conversation = messages
     .filter(message => message.role !== 'system' && message.role !== 'tool')
     .map(message => ({
       role: message.role,
-      content: truncateClaudeCliText(message.content.trim(), MAX_CLAUDE_CLI_MESSAGE_CHARS),
+      content: message.content.trim(),
       imageCount: message.images?.length ?? 0,
     }))
     .filter(message => message.content.length > 0);
@@ -311,10 +328,14 @@ function buildClaudeCliPrompt(messages: CompletionRequest['messages']): { system
     ? conversation.slice(Math.max(0, historyEnd - MAX_CLAUDE_CLI_CONTEXT_MESSAGES), historyEnd)
     : [];
   const historyBlock = recentHistory
-    .map(message => formatTranscriptMessage(message.role, message.content, message.imageCount))
+    .map(message => formatTranscriptMessage(message.role, truncateClaudeCliText(message.content, MAX_CLAUDE_CLI_HISTORY_MESSAGE_CHARS), message.imageCount))
     .join('\n\n');
+  // Give the latest turn the remaining budget (bounded), so single-message
+  // brain-role calls (planning/synthesis carrying goal + memory) get rich context
+  // while multi-turn chat stays within the OS command-line limit.
+  const latestBudget = Math.max(2_000, Math.min(MAX_CLAUDE_CLI_LATEST_MESSAGE_CHARS, CLAUDE_CLI_TOTAL_PROMPT_BUDGET - historyBlock.length));
   const latestTurn = latestMessage
-    ? formatTranscriptMessage(latestMessage.role, latestMessage.content, latestMessage.imageCount)
+    ? formatTranscriptMessage(latestMessage.role, truncateClaudeCliText(latestMessage.content, latestBudget), latestMessage.imageCount)
     : 'User:\nContinue the conversation using the available context.';
 
   return {
