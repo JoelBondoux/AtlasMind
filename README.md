@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.98.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.99.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -134,7 +134,7 @@ Access these from the VS Code Command Palette (`Ctrl+Shift+P`).
 | `AtlasMind: Specialist Integrations` | Configure specialist search and media providers |
 | `AtlasMind: Tool Webhooks` | Configure outbound tool execution webhooks |
 | `AtlasMind: Scaffold Testing Framework` | Construct a stack-aware starter framework (config, example tests, strategy playbook) for the enabled testing methodologies |
-| `AtlasMind: Compare Models on a Prompt` | Run one prompt across selected models and view a ranked quality/cost/latency comparison; records outcomes to calibrate routing |
+| `AtlasMind: Compare Models on a Prompt` | Run one prompt across your configured models (Select All + sample prompts) and view a ranked quality/cost/latency comparison; records outcomes to calibrate routing. Reachable from the Models view titlebar (beaker icon) and the Settings overview. |
 | `AtlasMind: Sync Testing Protocols to AI Agents` | Write the enabled testing protocols into detected AI agent instruction files (`CLAUDE.md`, `copilot-instructions.md`, `AGENTS.md`, etc.) |
 | `AtlasMind: Enable Remote Control` | Start the localhost server so the web build can drive this desktop instance (desktop) |
 | `AtlasMind: Disable Remote Control` | Stop the remote-control server and drop sessions (desktop) |

@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.99.0] - 2026-06-18
+
+### Changed
+- **Compare Models panel reworked** (`src/views/modelComparisonPanel.ts`): the panel now matches the visual language of the other dashboards (topbar kicker/title, rounded cards, pill buttons, ranked results table with a highlighted winner). Key behaviour changes:
+  - **Only configured models are offered.** The model picker now lists models exclusively from providers the user has actually configured with credentials (checked via `isProviderConfigured`, run in parallel on open and grouped by provider), so a comparison can always be run for real instead of failing on un-credentialed providers.
+  - **Select All** toggle (with indeterminate state and a live selected-count) to quickly compare every configured model.
+  - **Ready-made sample prompts** (reasoning puzzle, code generation, summarize & extract) as one-click chips that populate the prompt box.
+- **Compare Models is now discoverable** (`package.json`, `src/views/settingsPanel.ts`): added a beaker icon to the **Models** view titlebar that opens the panel, and a **Compare Models** quick-action card on the Settings overview page.
+
 ## [0.98.0] - 2026-06-18
 
 ### Changed

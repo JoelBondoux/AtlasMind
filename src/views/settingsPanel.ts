@@ -223,6 +223,7 @@ type SettingsMessage =
   | { type: 'openModelProviders' }
   | { type: 'openSpecialistIntegrations' }
   | { type: 'openProjectRunCenter' }
+  | { type: 'openCompareModels' }
   | { type: 'openVoicePanel' }
   | { type: 'openVisionPanel' }
   | { type: 'openChat' }
@@ -523,6 +524,10 @@ export class SettingsPanel {
 
       case 'openProjectRunCenter':
         await vscode.commands.executeCommand('atlasmind.openProjectRunCenter');
+        return;
+
+      case 'openCompareModels':
+        await vscode.commands.executeCommand('atlasmind.compareModels');
         return;
 
       case 'openVoicePanel':
@@ -1177,6 +1182,10 @@ export class SettingsPanel {
               <button id="openProjectRunCenter" class="action-card">
                 <span class="action-title">Project Run Center</span>
                 <span class="action-copy">Review batch progress, approvals, pauses, and resumptions.</span>
+              </button>
+              <button id="openCompareModels" class="action-card">
+                <span class="action-title">Compare Models</span>
+                <span class="action-copy">Run one prompt across your configured models and rank quality, cost, and latency.</span>
               </button>
               <button id="openChat" class="action-card">
                 <span class="action-title">VS Code Chat</span>
@@ -2839,6 +2848,7 @@ export class SettingsPanel {
           bindCommandButton('openModelProviders', 'openModelProviders');
           bindCommandButton('openSpecialistIntegrations', 'openSpecialistIntegrations');
           bindCommandButton('openProjectRunCenter', 'openProjectRunCenter');
+          bindCommandButton('openCompareModels', 'openCompareModels');
           bindCommandButton('openVoicePanel', 'openVoicePanel');
           bindCommandButton('openVisionPanel', 'openVisionPanel');
           bindCommandButton('scanLocalModelRecommendations', 'recommendLocalModels');
@@ -4749,6 +4759,7 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
     message.type === 'openModelProviders' ||
     message.type === 'openSpecialistIntegrations' ||
     message.type === 'openProjectRunCenter' ||
+    message.type === 'openCompareModels' ||
     message.type === 'openVoicePanel' ||
     message.type === 'openVisionPanel' ||
     message.type === 'openChat' ||
