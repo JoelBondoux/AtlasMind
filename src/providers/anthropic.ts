@@ -20,6 +20,10 @@ interface AnthropicMessagesResponse {
   usage: {
     input_tokens: number;
     output_tokens: number;
+    /** Tokens served from the prompt cache (billed at the cache-read rate). */
+    cache_read_input_tokens?: number;
+    /** Tokens written to the prompt cache on this request. */
+    cache_creation_input_tokens?: number;
   };
 }
 
@@ -50,18 +54,20 @@ export class AnthropicAdapter implements ProviderAdapter {
     const toolRegistry = buildAnthropicToolRegistry(request.tools);
     const { system, messages } = splitSystemPrompt(request.messages, toolRegistry.toProviderName);
 
+    const mappedTools = toolRegistry.tools?.map(tool => ({
+      name: tool.name,
+      description: tool.description,
+      input_schema: tool.parameters,
+    }));
+    const cached = applyAnthropicPromptCaching(system, mappedTools, (mappedTools?.length ?? 0) > 0 || request.cacheStablePrefix === true);
     const payload = {
       model: stripProviderPrefix(request.model),
       max_tokens: request.maxTokens ?? 1024,
       temperature: request.temperature ?? 0.2,
-      system,
+      system: cached.system,
       messages,
       stop_sequences: request.stop,
-      tools: toolRegistry.tools?.map(tool => ({
-        name: tool.name,
-        description: tool.description,
-        input_schema: tool.parameters,
-      })),
+      tools: cached.tools,
     };
 
     const result = await this.withRetries(async () => {
@@ -107,11 +113,18 @@ export class AnthropicAdapter implements ProviderAdapter {
         arguments: block.input,
       }));
 
+    // Anthropic reports cache-read / cache-creation tokens separately from
+    // `input_tokens`; fold them into the total so token counts stay complete and
+    // expose the cache-read portion for savings accounting.
+    const cacheReadTokens = result.usage.cache_read_input_tokens ?? 0;
+    const cacheCreationTokens = result.usage.cache_creation_input_tokens ?? 0;
+
     return {
       content,
       model: `anthropic/${result.model}`,
-      inputTokens: result.usage.input_tokens,
+      inputTokens: result.usage.input_tokens + cacheReadTokens + cacheCreationTokens,
       outputTokens: result.usage.output_tokens,
+      ...(cacheReadTokens > 0 ? { cachedInputTokens: cacheReadTokens } : {}),
       finishReason: mapFinishReason(result.stop_reason),
       toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     };
@@ -125,19 +138,21 @@ export class AnthropicAdapter implements ProviderAdapter {
     const toolRegistry = buildAnthropicToolRegistry(request.tools);
     const { system, messages } = splitSystemPrompt(request.messages, toolRegistry.toProviderName);
 
+    const mappedTools = toolRegistry.tools?.map(tool => ({
+      name: tool.name,
+      description: tool.description,
+      input_schema: tool.parameters,
+    }));
+    const cached = applyAnthropicPromptCaching(system, mappedTools, (mappedTools?.length ?? 0) > 0 || request.cacheStablePrefix === true);
     const payload = {
       model: stripProviderPrefix(request.model),
       max_tokens: request.maxTokens ?? 1024,
       temperature: request.temperature ?? 0.2,
-      system,
+      system: cached.system,
       messages,
       stop_sequences: request.stop,
       stream: true,
-      tools: toolRegistry.tools?.map(tool => ({
-        name: tool.name,
-        description: tool.description,
-        input_schema: tool.parameters,
-      })),
+      tools: cached.tools,
     };
 
     const response = await fetch(this.apiUrl, {
@@ -159,6 +174,7 @@ export class AnthropicAdapter implements ProviderAdapter {
     let contentText = '';
     let inputTokens = 0;
     let outputTokens = 0;
+    let cacheReadTokens = 0;
     let model = request.model;
     let stopReason: string | null = null;
     const toolCalls: ToolCall[] = [];
@@ -196,7 +212,10 @@ export class AnthropicAdapter implements ProviderAdapter {
             if (msg) {
               model = `anthropic/${msg['model'] as string}`;
               const usage = msg['usage'] as Record<string, number> | undefined;
-              if (usage) { inputTokens = usage['input_tokens'] ?? 0; }
+              if (usage) {
+                cacheReadTokens = usage['cache_read_input_tokens'] ?? 0;
+                inputTokens = (usage['input_tokens'] ?? 0) + cacheReadTokens + (usage['cache_creation_input_tokens'] ?? 0);
+              }
             }
           } else if (type === 'content_block_start') {
             const block = event['content_block'] as Record<string, unknown> | undefined;
@@ -240,6 +259,7 @@ export class AnthropicAdapter implements ProviderAdapter {
       model,
       inputTokens,
       outputTokens,
+      ...(cacheReadTokens > 0 ? { cachedInputTokens: cacheReadTokens } : {}),
       finishReason: mapFinishReason(stopReason as AnthropicMessagesResponse['stop_reason']),
       toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     };
@@ -411,6 +431,95 @@ function splitSystemPrompt(
     system: systemChunks.length > 0 ? systemChunks.join('\n\n') : undefined,
     messages: converted,
   };
+}
+
+interface AnthropicCacheControl {
+  type: 'ephemeral';
+}
+
+interface AnthropicToolPayload {
+  name: string;
+  description: string;
+  input_schema: Record<string, unknown>;
+  cache_control?: AnthropicCacheControl;
+}
+
+type AnthropicSystemBlock = { type: 'text'; text: string; cache_control?: AnthropicCacheControl };
+type AnthropicSystemField = string | AnthropicSystemBlock[] | undefined;
+
+/**
+ * Markers that delimit the volatile (per-turn) tail of AtlasMind's system prompt
+ * from its stable (identity / policy / skills) head. Memory and live evidence
+ * change almost every turn, so caching the whole system prompt rarely hits across
+ * turns. Splitting at the first volatile marker lets the stable head — identical
+ * across turns — be cached while the volatile tail stays uncached, raising the
+ * cross-turn cache-hit rate. Kept in sync with the orchestrator's system-prompt
+ * assembly and the claude-cli compaction markers.
+ */
+const VOLATILE_SYSTEM_MARKERS = [
+  'Relevant project memory:',
+  'Live evidence from source-backed files:',
+];
+
+/** Splits the system prompt into its stable head and volatile tail at the first volatile marker. */
+export function splitStableSystemPrefix(system: string): { stable: string; volatile: string } {
+  let boundary = -1;
+  for (const marker of VOLATILE_SYSTEM_MARKERS) {
+    const idx = system.indexOf(marker);
+    if (idx >= 0 && (boundary < 0 || idx < boundary)) {
+      boundary = idx;
+    }
+  }
+  if (boundary < 0) {
+    return { stable: system, volatile: '' };
+  }
+  return { stable: system.slice(0, boundary).trimEnd(), volatile: system.slice(boundary) };
+}
+
+/**
+ * Marks the stable prompt prefix (system prompt + tool definitions) with
+ * Anthropic prompt-caching breakpoints so it is billed at the reduced cache-read
+ * rate on subsequent calls that reuse it.
+ *
+ * Only applied when `shouldCache` is true — currently when the request carries
+ * tools, i.e. an agentic loop that reuses the identical system+tools prefix
+ * across every iteration. Anthropic's cache-write premium (~1.25×) breaks even
+ * after the second read (~0.1× each), so caching is guaranteed-beneficial there
+ * and avoids penalising single-shot, tool-less turns. Blocks below Anthropic's
+ * minimum cacheable size are silently ignored by the API, so marking a short
+ * prefix is harmless.
+ */
+export function applyAnthropicPromptCaching(
+  system: string | undefined,
+  tools: AnthropicToolPayload[] | undefined,
+  shouldCache: boolean,
+): { system: AnthropicSystemField; tools: AnthropicToolPayload[] | undefined } {
+  if (!shouldCache) {
+    return { system, tools };
+  }
+
+  // Cache only the stable head of the system prompt (identity / policy / skills);
+  // leave the volatile memory + evidence tail uncached so it does not bust the
+  // cache entry every turn.
+  let cachedSystem: AnthropicSystemField = system;
+  if (system && system.trim().length > 0) {
+    const { stable, volatile } = splitStableSystemPrefix(system);
+    if (stable.trim().length > 0) {
+      const blocks: AnthropicSystemBlock[] = [
+        { type: 'text', text: stable, cache_control: { type: 'ephemeral' } },
+      ];
+      if (volatile.length > 0) {
+        blocks.push({ type: 'text', text: volatile });
+      }
+      cachedSystem = blocks;
+    }
+  }
+
+  const cachedTools = tools && tools.length > 0
+    ? tools.map((tool, index) =>
+        index === tools.length - 1 ? { ...tool, cache_control: { type: 'ephemeral' as const } } : tool)
+    : tools;
+  return { system: cachedSystem, tools: cachedTools };
 }
 
 function buildAnthropicToolRegistry(tools: readonly ToolDefinition[] | undefined): {

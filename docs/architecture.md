@@ -129,6 +129,18 @@ Static security scanner that checks skill source code against configurable rules
 
 Pure-Node utility (no VS Code dependency) that connects the Testing Methodology Matrix to the execution pipeline. `readProjectTestingConfig(workspaceRoot)` reads `project_memory/index/testing-config.json`. `inferTestingMethodologyForSubTask(task, config)` detects the best matching `TestingMethodologyId` from a subtask's role and description using `TESTING_METHODOLOGY_DEFINITIONS.autoDetectSignals`. `resolveTestingModelOverride(methodologyId, methodConfig, agents)` walks the lookup chain — `assignedModelId` → assigned agent's `testingModelOverrides[id]` — and returns the effective override model ID. Used by the orchestrator in both the project subtask path and the direct task path to apply per-methodology model routing when the Testing Methodology Matrix is configured.
 
+### TestingScaffolder (`src/core/testingScaffolder.ts`)
+
+Constructs a language- and archetype-aware starter testing framework from the enabled methodologies. `scaffoldTestingFramework(workspaceRoot, config)` detects the project **language** — Node (JS/TS), Python, Rust, Go, .NET, or Java — from manifest fingerprints (`package.json`, `pyproject.toml`/`requirements.txt`/`setup.py`/`Pipfile`, `Cargo.toml`, `go.mod`, `*.csproj`/`*.sln`, `pom.xml`/`build.gradle`) and a coarse **archetype** (web / api / cli / game / mobile / library / generic), then generates idiomatic starter files per enabled methodology: Vitest/Jest/Playwright/Cypress/fast-check/k6 (Node, with e2e branching on archetype), pytest/Hypothesis/Locust (Python), `cargo test`/proptest/criterion (Rust), `go test`/`testing/quick`/benchmarks (Go), xUnit (.NET), JUnit 5 (Java). It also writes a managed `project_memory/operations/testing-strategy.md` playbook with language-specific set-up hints. Unknown stacks degrade to playbook-only guidance. Strictly non-destructive: starter files are created only when absent and never overwritten, no manifest is ever mutated, and the only file always (re)written is the managed playbook.
+
+### TestingProtocolSync (`src/utils/testingProtocolSync.ts`)
+
+The outbound counterpart to `aiInstructionSync.ts`. `syncTestingProtocols(workspaceRoot, config, agents)` renders the enabled methodologies into a delimited, AtlasMind-managed markdown block (`<!-- atlasmind:testing-protocols:start -->` … `:end -->`) and upserts it into every *detected* (existing) external agent instruction file — `CLAUDE.md`, `.github/copilot-instructions.md`, `AGENTS.md`, Cursor, Cline, Gemini, Windsurf, Aider. It only ever rewrites its own block, preserves surrounding content, writes only to files that already exist, and routes all paths through the shared `isSafeRelativePath` / `resolveRelativePath` traversal guard (exported from `aiInstructionSync.ts`). JSON-config tools are reported as skipped. The orchestrator and the Settings → Testing matrix call this so external agents stay in step with the configured strategy.
+
+### ModelEvalHarness (`src/core/modelEvalHarness.ts`)
+
+A scored-replay harness (`compareModelsOnPrompt`) that runs one prompt across a set of candidate models and returns a ranked comparison — graded output quality (`gradeExecutionQuality` from the shared `executionQuality.ts`), cost, latency, token counts, and a preview. The model call is injected so the core is pure and host-independent; graded outcomes are surfaced via an `onResult` callback so a benchmark can record them into the router's outcome channel, calibrating outcome-driven routing. Backs the `AtlasMind: Compare Models on a Prompt` command.
+
 ### ScannerRulesManager (`src/core/scannerRulesManager.ts`)
 
 Persists scanner rule overrides and custom rules in `vscode.Memento` (`globalState`). Key: `atlasmind.scannerRulesConfig`. Methods: `getConfig()`, `getEffectiveRules()`, `updateBuiltInRule()`, `resetBuiltInRule()`, `upsertCustomRule()`, `deleteCustomRule()`. Validates regex patterns before accepting any change. entries per session. Provides `getSummary()` returning totals for cost, requests, and tokens. Supports `reset()`.
@@ -331,9 +343,9 @@ All shared types live in `src/types.ts`. See the [type definitions](../src/types
 |---|---|
 | `AgentDefinition` | Agent identity, role, system prompt, allowed models, cost limit, skills |
 | `SkillDefinition` | Skill identity, JSON Schema for tool params, handler path |
-| `ModelInfo` | Model identity, provider, pricing, context window, capabilities |
+| `ModelInfo` | Model identity, provider, pricing, context window, capabilities, reasoning depth, latency class, and prompt-cache support (`supportsPromptCaching`, `cachedInputPricePer1k`) |
 | `ProviderConfig` | Provider identity, API key setting key, enabled flag, model list |
-| `RoutingConstraints` | Budget mode, speed mode, max cost, preferred provider |
+| `RoutingConstraints` | Budget mode, speed mode, max cost, preferred provider, preferred model (role pin), parallel slots, cacheable-prefix ratio |
 | `TaskProfile` | Inferred task phase, modality, reasoning intensity, and capability preferences |
 | `SubTask` | Unit of work in a project plan: id, title, role, skills, `dependsOn` edges |
 | `SubTaskResult` | Execution outcome: status, output, costUsd, durationMs, error |

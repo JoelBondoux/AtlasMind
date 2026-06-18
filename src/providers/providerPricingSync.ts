@@ -24,6 +24,12 @@ export interface ProviderPricingEntry {
   outputPer1k: number;
   /** Context window in tokens, when available on the pricing page. */
   contextWindow?: number;
+  /**
+   * USD per 1 000 cache-read input tokens, when the pricing page lists a
+   * prompt-cache rate. Forward-compatible extension point so the dynamic
+   * pricing sync can supply cache pricing as providers publish it.
+   */
+  cachedInputPer1k?: number;
 }
 
 export interface ProviderPricingSyncResult {

@@ -151,6 +151,10 @@ AtlasMind's red-to-green TDD gate is intended for implementation work that chang
 - Ambiguous follow-up prompts such as `resolve these` are no longer treated as implementation work unless the request itself names a concrete code or behavior target.
 - Terse follow-up prompts such as `handle that`, `take care of it`, or `can you do that for me` can still trigger tool-backed execution when recent session context clearly identifies the workspace or repo task they refer to.
 
+### Testing-strategy writers
+
+Two testing-strategy actions write to the workspace under a non-destructive contract. The **framework scaffolder** (`scaffoldTestingFramework`) creates starter config/test files only when absent, never overwrites, never mutates `package.json`, and is modal-confirmed. The **outbound protocol sync** (`syncTestingProtocols`) only replaces its own delimited managed block in instruction files that already exist, preserving surrounding content and routing every path through the shared traversal guard. Neither requires the per-tool approval gate because they cannot overwrite arbitrary content, but both are surfaced explicitly in the UI before running.
+
 ---
 
 ## Post-Write Verification

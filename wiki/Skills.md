@@ -139,6 +139,10 @@ AtlasMind now also computes lightweight natural-language routing hints for MCP-b
 
 This separation keeps skill extension work local to the skill and registry contracts instead of coupling every new tool to orchestrator internals.
 
+## Testing-Framework Scaffolding
+
+Beyond ad-hoc skills, the **Scaffold framework** action (`AtlasMind: Scaffold Testing Framework`, `src/core/testingScaffolder.ts`) constructs a language- and archetype-aware starter testing framework from the enabled methodologies in `project_memory/index/testing-config.json`. It detects the project language (Node/Python/Rust/Go/.NET/Java) and a coarse archetype, then generates idiomatic starter files (e.g. pytest/Hypothesis for Python, `cargo test`/proptest for Rust, `go test` for Go, Vitest/Jest/Playwright for Node) plus a managed `project_memory/operations/testing-strategy.md` playbook; unknown stacks degrade to playbook-only guidance. The companion **Sync to AI agents** action (`src/utils/testingProtocolSync.ts`) projects the enabled protocols outward into detected external agent instruction files so tools outside AtlasMind enact the same strategy. See [[Agents]] for the methodology matrix and [[Security]] for the non-destructive write model.
+
 ## Enable / Disable Skills
 
 - Toggle any skill in the **Skills** sidebar tree view

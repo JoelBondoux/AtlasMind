@@ -113,6 +113,13 @@ The **Agent Editor** shows a **Testing Roles** section below Skills. When a meth
 
 During `@atlas /bootstrap` (new project) and `@atlas /import` (existing project), AtlasMind presents an **Auto / Manual / Skip** picker before the methodology list. In Auto mode the inferred methodology set is pre-selected in a customisable QuickPick; Manual lets you choose freely; Skip defaults to TDD + Unit. After confirming, if a test-focused agent exists, an offer is made to assign it as the primary agent for all enabled methodologies.
 
+#### Scaffolding & external-agent sync
+
+Two actions on the Settings → Testing page operationalise the matrix:
+
+- **Scaffold framework** (`AtlasMind: Scaffold Testing Framework`) detects the project language (Node/Python/Rust/Go/.NET/Java) and a coarse archetype (web/api/cli/game/mobile/library), then generates idiomatic starter files for each enabled methodology — e.g. Vitest/Jest/Playwright/fast-check/k6 (Node), pytest/Hypothesis/Locust (Python), `cargo test`/proptest/criterion (Rust), `go test`/benchmarks (Go), xUnit (.NET), JUnit 5 (Java) — plus a managed `project_memory/operations/testing-strategy.md` playbook. Non-destructive: files are created only when absent, no manifest is mutated, and the run is modal-confirmed.
+- **Sync to AI agents** (`AtlasMind: Sync Testing Protocols to AI Agents`) writes the enabled protocols into detected external instruction files (`CLAUDE.md`, `.github/copilot-instructions.md`, `AGENTS.md`, Cursor, Cline, Gemini, Windsurf, Aider) as a delimited AtlasMind-managed block, so agents outside AtlasMind enact the same strategy. Saving the matrix auto-syncs. See [[Security]] for the managed-block safety model.
+
 Freeform execution also now emits lightweight live progress updates while a response is still running. In the dedicated chat surface, AtlasMind shows interim thinking-style notes such as agent selection, tool rounds, workspace-investigation retries, and escalation or anti-churn nudges before the final answer replaces those transient updates.
 
 AtlasMind also reflects part of the routing trace back in the assistant footer. The Thinking summary now includes the selected agent, any detected routing hints, whether workspace-investigation bias was applied before execution, the completed turn's token and cost usage, and any observed red-to-green TDD status.

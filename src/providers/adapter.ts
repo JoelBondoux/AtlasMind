@@ -49,6 +49,13 @@ export interface CompletionRequest {
   signal?: AbortSignal;
   /** Tools available to the model. When provided the model may respond with tool calls. */
   tools?: ToolDefinition[];
+  /**
+   * Hint that this turn's stable prompt prefix (system head + tools) is expected
+   * to be reused — e.g. a threaded conversation — so cache-capable providers
+   * should write it to the prompt cache even without tools. Adapters that do not
+   * support explicit caching ignore it.
+   */
+  cacheStablePrefix?: boolean;
 }
 
 export interface CompletionResponse {
@@ -56,6 +63,13 @@ export interface CompletionResponse {
   model: string;
   inputTokens: number;
   outputTokens: number;
+  /**
+   * Portion of `inputTokens` that was served from the provider's prompt cache
+   * (billed at the reduced cache-read rate), when the provider reports it. Used
+   * for cache-savings accounting. Omitted when the provider does not surface
+   * cache usage.
+   */
+  cachedInputTokens?: number;
   finishReason: 'stop' | 'length' | 'error' | 'tool_calls';
   /** Populated when finishReason is 'tool_calls'. */
   toolCalls?: ToolCall[];
@@ -90,6 +104,15 @@ export interface DiscoveredModel {
    * Standard models = 1 (or omitted), premium = 2+.
    */
   premiumRequestMultiplier?: number;
+  /**
+   * Whether the model supports prompt caching, reported dynamically by the
+   * provider's discovery so cache capability tracks provider changes. Overrides
+   * the static catalog/provider-set fallback when present (including an explicit
+   * `false` when a provider drops caching support).
+   */
+  supportsPromptCaching?: boolean;
+  /** Dynamically discovered cache-read price per 1K input tokens (USD). */
+  cachedInputPricePer1k?: number;
 }
 
 /**

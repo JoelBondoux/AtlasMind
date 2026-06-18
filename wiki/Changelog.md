@@ -6,6 +6,73 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.95.0 — Model Comparison Harness
+
+- **Benchmark models on your own prompt** (`src/core/modelEvalHarness.ts`, `AtlasMind: Compare Models on a Prompt`): run one prompt across selected models and get a ranked comparison (quality, cost, latency, tokens, preview). The graded outcomes feed the outcome-driven routing channel, so benchmarking also calibrates routing. The scoring core is pure and unit-tested; the quality scorer is now shared (`executionQuality.ts`). See [[Model-Routing]] and [[Chat-Commands]].
+
+## v0.94.0 — Synthesis Role Pin
+
+- **Complete the role-routing trio** (`src/core/orchestrator.ts`): a new `atlasmind.synthesisModelId` setting pins the synthesis phase (summarizing results/sessions) to a chosen reasoner, symmetric to `atlasmind.planningModelId`. Together they implement plan-with-the-brain → execute-with-workers → synthesize-with-the-brain over the `preferredModel` pin. See [[Configuration]] and [[Model-Routing]].
+
+## v0.93.0 — Context-Aware Outcome Routing
+
+- **Outcome bias per reasoning tier** (`src/core/modelRouter.ts`): the learned routing bias now tracks each model's outcomes both in aggregate and per reasoning tier (low/medium/high), so a model strong at deep reasoning but weak at mechanical work is preferred only where it actually performs. Falls back to the aggregate when a tier bucket is sparse. See [[Model-Routing]].
+
+## v0.92.0 — Planner-Brain Role Routing
+
+- **Pin a model by role** (`src/core/modelRouter.ts`, `src/core/orchestrator.ts`): a new `RoutingConstraints.preferredModel` pin lets a specific model be chosen for a role, bypassing budget/speed gates when it is genuinely available (still respecting health and required capabilities). Its first use is the **planner brain** — the `atlasmind.planningModelId` setting pins the planning/decomposition phase to a chosen reasoner (or a Claude subscription, since planning needs no tools) while execution still routes to tool-capable workers. See [[Model-Routing]] and [[Configuration]].
+
+## v0.91.0 — Outcome-Driven Routing
+
+- **Routing learns from real outcomes** (`src/core/modelRouter.ts`, `src/core/orchestrator.ts`): a new per-model execution-outcome channel keeps a decayed EWMA of graded run quality (error / empty / truncated / clean) and turns it into a small, bounded routing nudge — so models that consistently do well on this project's work are preferred, and struggling ones are nudged down without being excluded. Separate from the manual thumbs feedback, gated by a minimum sample count and the `feedbackRoutingWeight` control, and persisted across sessions. See [[Model-Routing]].
+
+## v0.90.0 — Smarter Anthropic Caching
+
+- **Stable/volatile system split** (`src/providers/anthropic.ts`): the cache breakpoint now sits after the stable system head (guardrails/agent/skills) and before the volatile memory + evidence tail, so the cached prefix stays identical across turns and hit rates rise. The whole-system approach missed whenever memory/evidence changed.
+- **Threaded tool-less caching** (`src/core/orchestrator.ts`): a new `cacheStablePrefix` request flag (set when the carried-context cacheable ratio ≥ 0.25) caches the stable prefix on threaded chat turns too, not just agentic tool loops — while still skipping single-shot turns. See [[Model-Routing]].
+
+## v0.89.0 — Anthropic Prompt-Cache Writes
+
+- **AtlasMind now actively caches the stable prefix on Anthropic** (`src/providers/anthropic.ts`): for agentic (tool-carrying) requests, the system prompt and tool definitions are marked with `cache_control: ephemeral`, so Anthropic bills them at the reduced cache-read rate on repeat calls within a task's tool loop. Gated on tool presence to avoid the cache-write premium on single-shot turns. Closes the loop with the v0.88.0 savings telemetry — AtlasMind writes the cache, the provider reports the reads, the Cost Dashboard shows the realised savings. See [[Model-Routing]].
+
+## v0.88.0 — Prompt-Cache Savings Visibility
+
+- **Measured cache savings in the Cost Dashboard** (`src/providers/*`, `src/core/costTracker.ts`, `src/views/costDashboardPanel.ts`): adapters now read cached input tokens from provider usage (Anthropic `cache_read_input_tokens`, OpenAI `prompt_tokens_details.cached_tokens`, DeepSeek `prompt_cache_hit_tokens`) on both buffered and streaming paths. The orchestrator values the avoided spend (`ModelRouter.cacheReadPricePer1k`), the cost summary aggregates `totalCacheSavingsUsd` + `totalCachedInputTokens`, and a new **Cache Savings** card appears beside Compression Savings. Closes Direction 1 of the routing roadmap end-to-end. See [[Model-Routing]].
+
+## v0.87.1 — Per-Provider Cache Discounts
+
+- **Realistic per-provider cache-read pricing** (`src/core/modelRouter.ts`): cache-aware routing now uses a `PROVIDER_CACHE_READ_FACTOR` baseline (Anthropic/Claude CLI 0.1×, OpenAI/Azure/Copilot 0.5×, DeepSeek/Google 0.25×) instead of a flat 0.25× for cache-capable models without an explicit cached price — so deeper-discount providers like Claude are costed correctly on iterative turns. Still a bootstrap baseline only: a dynamic `cachedInputPricePer1k` from discovery / pricing sync overrides it. See [[Model-Routing]].
+
+## v0.87.0 — Cache-Aware Model Routing
+
+- **Prompt-cache economics in routing** (`src/core/modelRouter.ts`, `src/core/orchestrator.ts`): AtlasMind sends a large, stable prefix (system prompt + memory bundle + tool definitions) every turn, which frontier providers bill at a reduced cache-read rate. The router now projects that saving — a new `cacheablePrefixRatio` (estimated from carried context vs. the new message) makes cache-capable models cheaper on iterative/threaded work, while single-shot turns are unaffected. `ModelInfo`/`CatalogEntry` gain `supportsPromptCaching` + `cachedInputPricePer1k`.
+- **Cache capability is dynamic** — providers change model capabilities, so it is data-driven: `DiscoveredModel` and the live pricing sync can report (or retract) caching support per refresh, merged with hint → pricing → catalog precedence; the static provider set is only a bootstrap fallback. See [[Model-Routing]].
+
+## v0.86.2 — Active-Subscription Routing Preference
+
+- **Subscriptions preferred for ordinary work** (`src/core/modelRouter.ts`): the subscription preference bonus previously applied only on maintenance tasks, so on normal work a paid-for, quota-remaining subscription got no nudge over pay-per-token (unlike local models, which do). Added a small, quota-aware general bonus so an active subscription is preferred for everyday work too — vanishing once quota is exhausted (then treated as pay-per-token). See [[Model-Routing]].
+
+## v0.86.1 — Reasoning-Aware Routing Fix
+
+- **Catalog reasoning depth & latency class now reach the router** (`src/extension.ts`): `inferModelMetadata()` was dropping `reasoningDepth` and `latencyClass` when merging discovered models with the catalog. Since most models are populated via discovery, deep reasoners (Opus, DeepSeek R1, Nemotron Ultra) were collapsing to the fallback depth and getting under-ranked for high-reasoning tasks. The annotations now survive the merge. (The `claude-cli` Claude-subscription provider stays chat-only by design, so it remains correctly excluded from tool-driven agentic work.) See [[Model-Routing]].
+
+## v0.86.0 — NVIDIA Nemotron Models (NIM)
+
+- **First-class Nemotron catalog for NVIDIA NIM** (`src/providers/modelCatalog.ts`, `src/runtime/core.ts`): the NVIDIA NIM provider gains a provider-scoped `NVIDIA_CATALOG` for the Nemotron family — Ultra 253B (extended reasoning), Super 49B, Nano, 70B Instruct, and Mini — with accurate context windows, capabilities, reasoning depth, and hosted pricing. Resolving from a provider-scoped catalog means hosted (paid) Nemotron models no longer inherit metadata from the `$0` local Nemotron entries. The default seed now leads with Nemotron Super 49B + Nano so the family appears before runtime discovery. See [[Model-Routing]].
+
+## v0.85.0 — Cross-Language Archetype Detection
+
+- **Archetype detection now spans languages** (`src/core/testingScaffolder.ts`): the scaffolder reads each detected language's dependency manifest (`pyproject.toml`/`requirements.txt`/`Pipfile`, `Cargo.toml`, `go.mod`, `pom.xml`/`build.gradle`) so web/api/cli/game archetypes resolve for Python, Rust, Go, and Java — not just Node. Short Node-only package names are gated to Node to prevent substring false positives (e.g. `cargo-nextest` is no longer mistaken for Next.js). Archetype-dependent recipes like the API/CLI/web e2e branch now fire correctly across stacks.
+
+## v0.84.0 — Multi-Language Testing-Framework Scaffolding
+
+- **Language- and archetype-aware scaffolding** (`src/core/testingScaffolder.ts`): the framework scaffolder no longer assumes Node/JS. It detects the project language (Node/Python/Rust/Go/.NET/Java) from manifest fingerprints and a coarse archetype (web/api/cli/game/mobile/library/generic), then emits idiomatic starter files — pytest + Hypothesis + Locust (Python), `cargo test` + proptest + criterion (Rust), `go test` + `testing/quick` + benchmarks (Go), xUnit (.NET), JUnit 5 (Java), alongside the existing Node toolchain. Node e2e recipes branch on archetype (API smoke test / CLI spawn harness / Playwright web spec). Unknown stacks degrade to playbook-only guidance. Closes the prior gap where non-Node projects received JS-flavoured stubs. Still non-destructive. See [[Agents]] and [[Skills]].
+
+## v0.83.0 — Testing Protocols for External Agents & Framework Scaffolding
+
+- **Outbound testing-protocol sync** (`src/utils/testingProtocolSync.ts`, `src/utils/aiInstructionSync.ts`, `src/views/settingsPanel.ts`): the testing methodology matrix is now visible to AI agents *outside* AtlasMind. Instruction-file sync was previously inbound only; the new `syncTestingProtocols` writes an AtlasMind-managed, delimited block describing each enabled methodology (what, when, key tools, owner agent, preferred model, notes) into every *detected* markdown instruction file — `CLAUDE.md`, `.github/copilot-instructions.md`, `AGENTS.md`, Cursor, Cline, Gemini, Windsurf, Aider. Strictly non-destructive: only the managed block is touched, only existing files are written, and all paths pass the shared traversal guard. Saving the matrix auto-syncs; a **Sync to AI agents** button and `atlasmind.syncTestingProtocols` command trigger it on demand. See [[Skills]] and [[Security]].
+- **Stack-aware framework scaffolder** (`src/core/testingScaffolder.ts`): `scaffoldTestingFramework` infers the project stack (TS/JS, test runner, UI framework, Playwright/Cypress) and generates fitting starter files for each enabled methodology (Vitest/Jest specs, Playwright/Cypress e2e, fast-check property test, k6 load script, snapshot test) plus a managed `project_memory/operations/testing-strategy.md` playbook. Non-destructive — files are created only when absent, `package.json` is never mutated, and the action is modal-confirmed. Available via the **Scaffold framework** button and `atlasmind.scaffoldTestingFramework` command.
+
 ## v0.82.0 — Remote Control from the Web Build
 
 - **Drive a desktop instance from vscode.dev** (`src/web/*`, `src/remote/*`, `src/views/chatProtocol.ts`, `src/views/chatWebviewMarkup.ts`): AtlasMind now ships a web extension that acts as a thin client, relaying chat and read-only dashboards to a full desktop instance over a localhost WebSocket. The desktop does all Node-heavy work (models, file system, MCP, voice); the browser only renders UI. **Secrets never leave the desktop.** The chat front-end was made host-agnostic so one `ChatPanel` serves both local and remote surfaces via a synthetic webview host; every inbound remote frame is re-validated by the existing chat-message guard.

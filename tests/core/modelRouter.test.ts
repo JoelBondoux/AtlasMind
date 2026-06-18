@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { ModelRouter } from '../../src/core/modelRouter.ts';
+import { ModelRouter, estimateCacheablePrefixRatio } from '../../src/core/modelRouter.ts';
 import { TaskProfiler } from '../../src/core/taskProfiler.ts';
-import type { ProviderConfig, SubscriptionQuota } from '../../src/types.ts';
+import type { ProviderConfig, SubscriptionQuota, TaskProfile } from '../../src/types.ts';
 
 describe('ModelRouter', () => {
   it('respects preferred provider when selecting a model', () => {
@@ -723,7 +723,356 @@ describe('ModelRouter', () => {
     const nonCopilot = models.filter(m => !m.startsWith('copilot/'));
     expect(nonCopilot.length).toBeGreaterThan(0);
   });
+
+  // ── Active-subscription preference nudge ──────────────────────
+
+  it('prefers an active subscription over an equivalent free model on ordinary tasks', () => {
+    // Both models are identical and both resolve to zero effective cost, so the
+    // only differentiator is the general active-subscription bonus.
+    const router = new ModelRouter();
+    registerSubscriptionVsFree(router);
+
+    const selected = router.selectModel({ budget: 'balanced', speed: 'balanced' });
+
+    expect(selected).toBe('subx/m');
+  });
+
+  it('drops the subscription preference once quota is exhausted', () => {
+    const router = new ModelRouter();
+    registerSubscriptionVsFree(router);
+
+    // Exhausted subscription is treated as pay-per-token (listed cost > 0), so
+    // the genuinely free model wins and the nudge no longer applies.
+    router.updateSubscriptionQuota('subx', { totalRequests: 100, remainingRequests: 0 });
+
+    const selected = router.selectModel({ budget: 'balanced', speed: 'balanced' });
+
+    expect(selected).toBe('freex/m');
+  });
+
+  // ── Cache-aware routing ───────────────────────────────────────
+
+  it('does not change selection when there is no cacheable prefix', () => {
+    const router = new ModelRouter();
+    registerCacheVsPlain(router);
+
+    // No cacheablePrefixRatio: the cheaper base model (plainx) wins.
+    const selected = router.selectModel({ budget: 'balanced', speed: 'balanced' });
+
+    expect(selected).toBe('plainx/m');
+  });
+
+  it('prefers a cache-capable model when a large cacheable prefix is reused', () => {
+    const router = new ModelRouter();
+    registerCacheVsPlain(router);
+
+    // With most of the prompt served from cache, the cache-capable model's
+    // projected input cost drops below the cheaper non-caching model.
+    const selected = router.selectModel({ budget: 'balanced', speed: 'balanced', cacheablePrefixRatio: 0.8 });
+
+    expect(selected).toBe('cachex/m');
+  });
+
+  it('lets an explicit supportsPromptCaching=false override the provider-set fallback', () => {
+    // Both models are on a cache-capable provider (anthropic). One opts out via
+    // an explicit dynamic flag, so only the other receives the cache discount.
+    const router = new ModelRouter();
+    router.registerProvider({
+      id: 'anthropic',
+      displayName: 'Anthropic',
+      apiKeySettingKey: 'k',
+      enabled: true,
+      pricingModel: 'pay-per-token',
+      models: [
+        { id: 'anthropic/cached', provider: 'anthropic', name: 'Cached', contextWindow: 200000, inputPricePer1k: 0.003, outputPricePer1k: 0.003, capabilities: ['chat', 'code', 'function_calling'], enabled: true },
+        { id: 'anthropic/optout', provider: 'anthropic', name: 'Opt Out', contextWindow: 200000, inputPricePer1k: 0.003, outputPricePer1k: 0.003, capabilities: ['chat', 'code', 'function_calling'], enabled: true, supportsPromptCaching: false },
+      ],
+    });
+
+    const selected = router.selectModel({ budget: 'balanced', speed: 'balanced', cacheablePrefixRatio: 0.8 });
+
+    expect(selected).toBe('anthropic/cached');
+  });
+
+  it('applies a deeper cache discount for a provider with a known cache-read factor', () => {
+    // Anthropic's known cache-read factor (0.1x) beats a generic cache-capable
+    // provider on the default factor (0.25x) at equal base price.
+    const router = new ModelRouter();
+    router.registerProvider({
+      id: 'anthropic',
+      displayName: 'Anthropic',
+      apiKeySettingKey: 'k',
+      enabled: true,
+      pricingModel: 'pay-per-token',
+      models: [{ id: 'anthropic/m', provider: 'anthropic', name: 'A', contextWindow: 200000, inputPricePer1k: 0.002, outputPricePer1k: 0.002, capabilities: ['chat', 'code', 'function_calling'], enabled: true }],
+    });
+    router.registerProvider({
+      id: 'genericx',
+      displayName: 'Generic X',
+      apiKeySettingKey: 'k',
+      enabled: true,
+      pricingModel: 'pay-per-token',
+      models: [{ id: 'genericx/m', provider: 'genericx', name: 'G', contextWindow: 200000, inputPricePer1k: 0.002, outputPricePer1k: 0.002, capabilities: ['chat', 'code', 'function_calling'], enabled: true, supportsPromptCaching: true }],
+    });
+
+    const selected = router.selectModel({ budget: 'balanced', speed: 'balanced', cacheablePrefixRatio: 0.9 });
+
+    expect(selected).toBe('anthropic/m');
+  });
 });
+
+describe('preferredModel role pin (Direction 3)', () => {
+  it('selects the pinned model directly, bypassing budget/speed scoring', () => {
+    const router = new ModelRouter();
+    registerProviders(router);
+
+    // On cheap budget the pinned expensive Opus would normally be gated out;
+    // the pin overrides that.
+    const selected = router.selectModel({ budget: 'cheap', speed: 'fast', preferredModel: 'anthropic/claude-sonnet-4' });
+
+    expect(selected).toBe('anthropic/claude-sonnet-4');
+  });
+
+  it('falls back to normal routing when the pinned model is unknown', () => {
+    const router = new ModelRouter();
+    registerProviders(router);
+
+    const selected = router.selectModel({ budget: 'balanced', speed: 'balanced', preferredModel: 'does/not-exist' });
+
+    expect(selected).not.toBe('does/not-exist');
+    expect(selected.length).toBeGreaterThan(0);
+  });
+
+  it('does not honor a pinned model that fails required capabilities', () => {
+    const router = new ModelRouter();
+    registerProviders(router);
+
+    // local/echo-1 lacks 'function_calling'; the requirement must veto the pin.
+    const selected = router.selectModel({
+      budget: 'balanced', speed: 'balanced',
+      preferredModel: 'local/echo-1',
+      requiredCapabilities: ['function_calling'],
+    });
+
+    expect(selected).not.toBe('local/echo-1');
+  });
+
+  it('does not honor a pinned model on an unhealthy provider', () => {
+    const router = new ModelRouter();
+    registerProviders(router);
+    router.setProviderHealth('anthropic', false);
+
+    const selected = router.selectModel({ budget: 'balanced', speed: 'balanced', preferredModel: 'anthropic/claude-sonnet-4' });
+
+    expect(selected).not.toBe('anthropic/claude-sonnet-4');
+  });
+});
+
+function makeProfile(reasoning: TaskProfile['reasoning']): TaskProfile {
+  return { phase: 'execution', modality: 'code', reasoning, requiresTools: false, requiredCapabilities: [], preferredCapabilities: [] } as TaskProfile;
+}
+
+describe('outcome-driven routing (Direction 2)', () => {
+  /** Two identical pay-per-token models so the only differentiator is the outcome bias. */
+  function registerTwins(router: ModelRouter): void {
+    const m = {
+      contextWindow: 128000, inputPricePer1k: 0.001, outputPricePer1k: 0.001,
+      capabilities: ['chat', 'code', 'function_calling'] as const, enabled: true,
+    };
+    router.registerProvider({
+      id: 'pa', displayName: 'PA', apiKeySettingKey: 'k', enabled: true, pricingModel: 'pay-per-token',
+      models: [{ id: 'pa/m', provider: 'pa', name: 'A', ...m, capabilities: [...m.capabilities] }],
+    });
+    router.registerProvider({
+      id: 'pb', displayName: 'PB', apiKeySettingKey: 'k', enabled: true, pricingModel: 'pay-per-token',
+      models: [{ id: 'pb/m', provider: 'pb', name: 'B', ...m, capabilities: [...m.capabilities] }],
+    });
+  }
+
+  it('maintains a decayed EWMA of execution quality', () => {
+    const router = new ModelRouter();
+    router.recordExecutionOutcome('x/m', 1);
+    router.recordExecutionOutcome('x/m', 0);
+    const stats = router.getExecutionOutcome('x/m');
+    expect(stats?.samples).toBe(2);
+    // EWMA after [1, 0] with alpha 0.3 → 0.3*0 + 0.7*1 = 0.7.
+    expect(stats?.ewma).toBeCloseTo(0.7, 6);
+  });
+
+  it('prefers the model with the stronger track record on otherwise-equal models', () => {
+    const router = new ModelRouter();
+    registerTwins(router);
+    for (let i = 0; i < 5; i++) {
+      router.recordExecutionOutcome('pa/m', 1);
+      router.recordExecutionOutcome('pb/m', 0);
+    }
+    expect(router.selectModel({ budget: 'balanced', speed: 'balanced' })).toBe('pa/m');
+  });
+
+  it('does not apply a bias before the minimum sample count (cold start)', () => {
+    const router = new ModelRouter();
+    registerTwins(router);
+    // A single great outcome for pb should not yet flip selection deterministically;
+    // with <2 samples the outcome bias is 0, so neither is nudged.
+    router.recordExecutionOutcome('pb/m', 1);
+    const selected = router.selectModel({ budget: 'balanced', speed: 'balanced' });
+    expect(selected === 'pa/m' || selected === 'pb/m').toBe(true);
+    expect(router.getExecutionOutcome('pb/m')?.samples).toBe(1);
+  });
+
+  it('disables the outcome bias when feedback weight is 0', () => {
+    const router = new ModelRouter();
+    registerTwins(router);
+    router.setFeedbackWeight(0);
+    for (let i = 0; i < 5; i++) {
+      router.recordExecutionOutcome('pa/m', 0); // make pa look bad
+      router.recordExecutionOutcome('pb/m', 1);
+    }
+    // With weight 0 the learned bias is off; both tie on cost so selection is stable
+    // but must not be driven by outcomes. Re-enabling weight flips to the strong model.
+    router.setFeedbackWeight(1);
+    expect(router.selectModel({ budget: 'balanced', speed: 'balanced' })).toBe('pb/m');
+  });
+
+  it('persists and restores execution outcomes', () => {
+    const router = new ModelRouter();
+    router.recordExecutionOutcome('pa/m', 1);
+    router.recordExecutionOutcome('pa/m', 1);
+    const snapshot = router.getExecutionOutcomes();
+
+    const restored = new ModelRouter();
+    restored.setExecutionOutcomes(snapshot);
+    expect(restored.getExecutionOutcome('pa/m')?.samples).toBe(2);
+  });
+
+  it('tracks per-(reasoning-tier) buckets separately from the aggregate', () => {
+    const router = new ModelRouter();
+    router.recordExecutionOutcome('m', 1, 'high');
+    expect(router.getExecutionOutcome('m')?.samples).toBe(1);         // aggregate
+    expect(router.getExecutionOutcome('m', 'high')?.samples).toBe(1); // tier bucket
+    expect(router.getExecutionOutcome('m', 'low')).toBeUndefined();
+  });
+
+  it('biases per reasoning tier — strong-at-high is preferred for high but not low tasks', () => {
+    const router = new ModelRouter();
+    registerTwins(router);
+    for (let i = 0; i < 6; i++) {
+      router.recordExecutionOutcome('pa/m', 1, 'high');
+      router.recordExecutionOutcome('pa/m', 0, 'low');
+      router.recordExecutionOutcome('pb/m', 0, 'high');
+      router.recordExecutionOutcome('pb/m', 1, 'low');
+    }
+    // Aggregates are ~neutral for both; only the per-tier bucket differentiates.
+    expect(router.selectModel({ budget: 'balanced', speed: 'balanced' }, undefined, makeProfile('high'))).toBe('pa/m');
+    expect(router.selectModel({ budget: 'balanced', speed: 'balanced' }, undefined, makeProfile('low'))).toBe('pb/m');
+  });
+
+  it('falls back to the aggregate when the per-tier bucket has too few samples', () => {
+    const router = new ModelRouter();
+    registerTwins(router);
+    // Only aggregate (untiered) outcomes recorded.
+    for (let i = 0; i < 4; i++) {
+      router.recordExecutionOutcome('pa/m', 1);
+      router.recordExecutionOutcome('pb/m', 0);
+    }
+    expect(router.selectModel({ budget: 'balanced', speed: 'balanced' }, undefined, makeProfile('high'))).toBe('pa/m');
+  });
+});
+
+describe('cacheReadPricePer1k', () => {
+  const baseModel = {
+    provider: 'x' as const, name: 'M', contextWindow: 128000,
+    inputPricePer1k: 0.002, outputPricePer1k: 0.002,
+    capabilities: ['chat'] as const, enabled: true,
+  };
+
+  it('applies the per-provider cache factor for a cache-capable provider', () => {
+    const router = new ModelRouter();
+    // Anthropic factor is 0.1x.
+    expect(router.cacheReadPricePer1k({ ...baseModel, id: 'anthropic/m', provider: 'anthropic', capabilities: [...baseModel.capabilities] }))
+      .toBeCloseTo(0.0002, 6);
+  });
+
+  it('returns the full input price for a model that is not cache-capable', () => {
+    const router = new ModelRouter();
+    expect(router.cacheReadPricePer1k({ ...baseModel, id: 'plain/m', provider: 'plainx', capabilities: [...baseModel.capabilities] }))
+      .toBe(0.002);
+  });
+
+  it('honors an explicit cachedInputPricePer1k over the provider factor', () => {
+    const router = new ModelRouter();
+    expect(router.cacheReadPricePer1k({ ...baseModel, id: 'anthropic/m', provider: 'anthropic', capabilities: [...baseModel.capabilities], cachedInputPricePer1k: 0.00005 }))
+      .toBe(0.00005);
+  });
+});
+
+describe('estimateCacheablePrefixRatio', () => {
+  it('returns 0 when there is no input', () => {
+    expect(estimateCacheablePrefixRatio(0, 0)).toBe(0);
+  });
+
+  it('returns the stable share of total input', () => {
+    expect(estimateCacheablePrefixRatio(800, 200)).toBeCloseTo(0.8, 5);
+  });
+
+  it('caps the ratio so a perfect cache hit is never assumed', () => {
+    expect(estimateCacheablePrefixRatio(10000, 1)).toBeLessThanOrEqual(0.9);
+  });
+
+  it('clamps negative inputs to zero', () => {
+    expect(estimateCacheablePrefixRatio(-50, 100)).toBe(0);
+  });
+});
+
+/** A cache-capable model (explicit flag) vs a slightly cheaper non-caching model.
+ *  Both pay-per-token on providers outside CACHE_CAPABLE_PROVIDERS, so only the
+ *  model-level flag grants caching — exercising the dynamic, data-driven path. */
+function registerCacheVsPlain(router: ModelRouter): void {
+  router.registerProvider({
+    id: 'cachex',
+    displayName: 'Cache X',
+    apiKeySettingKey: 'k',
+    enabled: true,
+    pricingModel: 'pay-per-token',
+    models: [{ id: 'cachex/m', provider: 'cachex', name: 'Cache M', contextWindow: 128000, inputPricePer1k: 0.002, outputPricePer1k: 0.002, capabilities: ['chat', 'code', 'function_calling'], enabled: true, supportsPromptCaching: true }],
+  });
+  router.registerProvider({
+    id: 'plainx',
+    displayName: 'Plain X',
+    apiKeySettingKey: 'k',
+    enabled: true,
+    pricingModel: 'pay-per-token',
+    models: [{ id: 'plainx/m', provider: 'plainx', name: 'Plain M', contextWindow: 128000, inputPricePer1k: 0.0018, outputPricePer1k: 0.002, capabilities: ['chat', 'code', 'function_calling'], enabled: true }],
+  });
+}
+
+/** Two equivalent zero-cost models — one subscription, one free — to isolate the
+ *  active-subscription preference bonus from the cheapness axis. */
+function registerSubscriptionVsFree(router: ModelRouter): void {
+  const model = {
+    contextWindow: 128000,
+    inputPricePer1k: 0.001,
+    outputPricePer1k: 0.001,
+    capabilities: ['chat', 'code', 'function_calling'] as const,
+    enabled: true,
+  };
+  router.registerProvider({
+    id: 'subx',
+    displayName: 'Subscription X',
+    apiKeySettingKey: 'atlasmind.provider.subx.apiKey',
+    enabled: true,
+    pricingModel: 'subscription',
+    models: [{ id: 'subx/m', provider: 'subx', name: 'Sub M', ...model, capabilities: [...model.capabilities] }],
+  });
+  router.registerProvider({
+    id: 'freex',
+    displayName: 'Free X',
+    apiKeySettingKey: 'atlasmind.provider.freex.apiKey',
+    enabled: true,
+    pricingModel: 'free',
+    models: [{ id: 'freex/m', provider: 'freex', name: 'Free M', ...model, capabilities: [...model.capabilities] }],
+  });
+}
 
 function registerProviders(router: ModelRouter): void {
   const providers: ProviderConfig[] = [

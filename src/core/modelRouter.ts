@@ -43,6 +43,51 @@ const LOCAL_MAINTENANCE_SMALL_BONUS = 0.5;
 const FREE_MAINTENANCE_BONUS = 1.5;
 /** Maintenance-task bonus for subscription providers. */
 const SUBSCRIPTION_MAINTENANCE_BONUS = 0.5;
+/**
+ * General preference nudge for an active subscription provider with quota
+ * remaining. Subscription capacity is already paid for ("essentially free"
+ * until quota is exhausted), so it should be preferred over pay-per-token for
+ * ordinary work — not only on maintenance tasks. Modest by design: it breaks
+ * ties toward the subscription without overriding capability/quality needs, and
+ * it vanishes once quota is depleted (the provider is then effectively
+ * pay-per-token).
+ */
+const ACTIVE_SUBSCRIPTION_BONUS = 0.3;
+/**
+ * Providers that support prompt caching (a stable prompt prefix is billed at a
+ * reduced cache-read rate on subsequent turns). A model is treated as
+ * cache-capable if its `supportsPromptCaching` flag is set or its provider is
+ * listed here.
+ */
+const CACHE_CAPABLE_PROVIDERS = new Set<string>([
+  'anthropic', 'claude-cli', 'openai', 'azure', 'deepseek', 'google', 'copilot',
+]);
+/**
+ * Conservative cache-read discount applied to input price when a model is
+ * cache-capable but carries no explicit `cachedInputPricePer1k` and its provider
+ * has no known factor. Real provider discounts range ~0.1×–0.5×; 0.25× stays on
+ * the cautious side so caching never over-favours a model beyond its realistic
+ * saving.
+ */
+const DEFAULT_CACHE_READ_FACTOR = 0.25;
+/**
+ * Known cache-read discounts per provider (cache-hit input price ÷ base input
+ * price), used as the baseline when a model carries no explicit
+ * `cachedInputPricePer1k`. These are stable, published list factors; a dynamic
+ * `cachedInputPricePer1k` from discovery / pricing sync still overrides them, so
+ * this is only a more-accurate bootstrap than the flat default.
+ */
+const PROVIDER_CACHE_READ_FACTOR: Record<string, number> = {
+  anthropic: 0.1,
+  'claude-cli': 0.1,
+  openai: 0.5,
+  azure: 0.5,
+  copilot: 0.5,
+  deepseek: 0.25,
+  google: 0.25,
+};
+/** Upper bound on the projected cacheable-prefix fraction (never assume a 100% cache hit). */
+const MAX_CACHEABLE_PREFIX_RATIO = 0.9;
 /** Maintenance-task penalty for pay-per-token providers. */
 const PAYPETOKEN_MAINTENANCE_PENALTY = -0.5;
 /** Penalty applied to local models that lack reasoning depth on high-reasoning tasks. */
@@ -54,6 +99,27 @@ type ModelPreferenceStats = {
   upVotes: number;
   downVotes: number;
 };
+
+/** Decayed execution-outcome state for a model (Direction 2: outcome-driven routing). */
+type ModelOutcomeState = {
+  /** Exponentially-weighted moving average of per-run execution quality in [0,1]. */
+  ewma: number;
+  /** Number of recorded outcomes (gates noisy single-sample bias). */
+  samples: number;
+};
+
+/** Maximum magnitude of the outcome-driven routing bias (bounded so it cannot starve providers). */
+const OUTCOME_BIAS_MAX = 0.3;
+/** EWMA smoothing factor — higher reacts faster to recent outcomes, lower is steadier. */
+const OUTCOME_EWMA_ALPHA = 0.3;
+/** Quality level treated as neutral; outcomes above raise the bias, below lower it. */
+const OUTCOME_NEUTRAL_BASELINE = 0.7;
+/** Minimum recorded outcomes before the bias applies, to avoid reacting to a single run. */
+const MIN_OUTCOME_SAMPLES = 2;
+/** Composite key for a per-(model × reasoning-tier) outcome bucket. The bare modelId is the aggregate. */
+function outcomeBucketKey(modelId: string, reasoningTier: TaskProfile['reasoning']): string {
+  return `${modelId}::${reasoningTier}`;
+}
 
 type ModelFailureState = {
   providerId: string;
@@ -70,6 +136,7 @@ export class ModelRouter {
   private providers = new Map<string, ProviderConfig>();
   private providerHealth = new Map<string, boolean>();
   private modelPreferences = new Map<string, ModelPreferenceStats>();
+  private executionOutcomes = new Map<string, ModelOutcomeState>();
   private modelFailures = new Map<string, ModelFailureState>();
   private feedbackWeight = 1;
   /** Providers paused automatically this session (e.g. billing failure). ProviderId → reason string. */
@@ -233,6 +300,66 @@ export class ModelRouter {
     return stats ? { ...stats } : undefined;
   }
 
+  /**
+   * Direction 2 — outcome-driven routing. Record a graded execution-quality
+   * signal (0 = failed, 1 = clean verified success) for a model. Maintained as a
+   * decayed EWMA, separate from the manual thumbs feedback channel, so routing
+   * adapts to how models actually perform on this project's work without
+   * disturbing user feedback. Bounded downstream so it can nudge — never starve.
+   *
+   * When a `reasoningTier` is supplied the outcome is tracked **both** against the
+   * model's aggregate and against a per-tier bucket (`modelId::tier`), so a model
+   * that excels at high-reasoning work but struggles with mechanical tasks is
+   * biased per task context. The aggregate key is the bare `modelId`, which keeps
+   * the persisted format backward-compatible.
+   */
+  recordExecutionOutcome(modelId: string, quality: number, reasoningTier?: TaskProfile['reasoning']): void {
+    if (!Number.isFinite(quality)) {
+      return;
+    }
+    const q = Math.max(0, Math.min(1, quality));
+    this.updateOutcomeBucket(modelId, q);
+    if (reasoningTier) {
+      this.updateOutcomeBucket(outcomeBucketKey(modelId, reasoningTier), q);
+    }
+  }
+
+  private updateOutcomeBucket(key: string, quality: number): void {
+    const existing = this.executionOutcomes.get(key);
+    if (!existing) {
+      this.executionOutcomes.set(key, { ewma: quality, samples: 1 });
+      return;
+    }
+    this.executionOutcomes.set(key, {
+      ewma: (OUTCOME_EWMA_ALPHA * quality) + ((1 - OUTCOME_EWMA_ALPHA) * existing.ewma),
+      samples: existing.samples + 1,
+    });
+  }
+
+  /** Returns the model's aggregate outcome, or the per-tier bucket when `reasoningTier` is given. */
+  getExecutionOutcome(modelId: string, reasoningTier?: TaskProfile['reasoning']): ModelOutcomeState | undefined {
+    const key = reasoningTier ? outcomeBucketKey(modelId, reasoningTier) : modelId;
+    const stats = this.executionOutcomes.get(key);
+    return stats ? { ...stats } : undefined;
+  }
+
+  /** Snapshot all execution outcomes (for persistence across sessions). */
+  getExecutionOutcomes(): Record<string, ModelOutcomeState> {
+    return Object.fromEntries([...this.executionOutcomes.entries()].map(([id, s]) => [id, { ...s }]));
+  }
+
+  /** Restore persisted execution outcomes. */
+  setExecutionOutcomes(outcomes: Record<string, ModelOutcomeState>): void {
+    this.executionOutcomes = new Map(
+      Object.entries(outcomes)
+        .filter(([, s]) => Number.isFinite(s.ewma) && Number.isFinite(s.samples))
+        .map(([id, s]) => [id, {
+          ewma: Math.max(0, Math.min(1, s.ewma)),
+          samples: Math.max(0, Math.floor(s.samples)),
+        }]),
+    );
+  }
+
   setFeedbackWeight(weight: number): void {
     if (!Number.isFinite(weight)) {
       return;
@@ -261,6 +388,15 @@ export class ModelRouter {
     allowedModels?: string[],
     taskProfile?: TaskProfile,
   ): string | undefined {
+    // Role-based routing pin (Direction 3): honour an explicit preferredModel when
+    // it is genuinely usable, bypassing budget/speed gates since it is deliberate.
+    if (constraints.preferredModel) {
+      const pinned = this.resolvePinnedModel(constraints, allowedModels, taskProfile);
+      if (pinned) {
+        return pinned;
+      }
+    }
+
     const candidates = this.getCandidateModels(constraints, allowedModels, taskProfile);
     if (candidates.length === 0) {
       return undefined;
@@ -345,6 +481,51 @@ export class ModelRouter {
     return result;
   }
 
+  /**
+   * Resolves an explicit `preferredModel` pin to a usable model id, or undefined
+   * when the pin is not genuinely available. Applies the same availability checks
+   * as candidate selection (provider/model enabled + healthy, not deprecated, not
+   * recently failed, within any allow-list, satisfies required capabilities) but
+   * deliberately bypasses the budget and speed gates — a role pin is an explicit
+   * choice that should hold even for an out-of-budget-tier model.
+   */
+  private resolvePinnedModel(
+    constraints: RoutingConstraints,
+    allowedModels?: string[],
+    taskProfile?: TaskProfile,
+  ): string | undefined {
+    const modelId = constraints.preferredModel;
+    if (!modelId) {
+      return undefined;
+    }
+    if (allowedModels && allowedModels.length > 0 && !allowedModels.includes(modelId)) {
+      return undefined;
+    }
+    const info = this.getModelInfo(modelId);
+    if (!info || !info.enabled) {
+      return undefined;
+    }
+    const provider = this.providers.get(info.provider);
+    if (!provider || !provider.enabled || !this.isProviderHealthy(info.provider)) {
+      return undefined;
+    }
+    if (info.deprecatedAt && new Date(info.deprecatedAt) <= new Date()) {
+      return undefined;
+    }
+    const failure = this.modelFailures.get(modelId);
+    if (failure && Date.now() - new Date(failure.failedAt).getTime() < MODEL_FAILURE_TTL_MS) {
+      return undefined;
+    }
+    const requiredCapabilities = [
+      ...(constraints.requiredCapabilities ?? []),
+      ...(taskProfile?.requiredCapabilities ?? []),
+    ];
+    if (requiredCapabilities.some(capability => !info.capabilities.includes(capability))) {
+      return undefined;
+    }
+    return info.id;
+  }
+
   private getCandidateModels(
     constraints: RoutingConstraints,
     allowedModels?: string[],
@@ -414,7 +595,7 @@ export class ModelRouter {
     const provider = this.providers.get(model.provider);
     const parallelSlots = constraints.parallelSlots ?? 1;
 
-    const effectiveCost = this.effectiveCostPer1k(model, provider, parallelSlots);
+    const effectiveCost = this.effectiveCostPer1k(model, provider, parallelSlots, constraints.cacheablePrefixRatio);
     const cheapness = this.scoreCheapness(effectiveCost);
 
     const speedProxy = scoreSpeedTier(this.classifySpeedTier(model));
@@ -429,8 +610,52 @@ export class ModelRouter {
     const preferenceBias = this.scorePreferenceBias(model.id);
 
     const localBonus = this.scoreLocalPreference(model, taskProfile);
+    const subscriptionBonus = this.scoreActiveSubscriptionPreference(model);
+    const outcomeBias = this.scoreOutcomeBias(model.id, taskProfile);
 
-    return (cheapness * budgetWeight) + (speedProxy * speedWeight) + (qualityProxy * qualityWeight) + taskFit + healthWeight + preferenceBias + localBonus;
+    return (cheapness * budgetWeight) + (speedProxy * speedWeight) + (qualityProxy * qualityWeight) + taskFit + healthWeight + preferenceBias + localBonus + subscriptionBonus + outcomeBias;
+  }
+
+  /**
+   * Direction 2 — bounded routing nudge from a model's decayed execution-outcome
+   * EWMA. Returns 0 until enough samples exist (cold start) or when learned-routing
+   * weight is disabled. Scaled by `feedbackWeight` (the same `feedbackRoutingWeight`
+   * control as manual feedback) and clamped to ±`OUTCOME_BIAS_MAX` so a struggling
+   * model is nudged down without being excluded.
+   */
+  private scoreOutcomeBias(modelId: string, taskProfile?: TaskProfile): number {
+    if (this.feedbackWeight <= 0) {
+      return 0;
+    }
+    // Prefer the per-tier bucket matching this task's reasoning level when it has
+    // enough samples; otherwise fall back to the model's aggregate record.
+    const tier = taskProfile?.reasoning;
+    const tierStats = tier ? this.executionOutcomes.get(outcomeBucketKey(modelId, tier)) : undefined;
+    const stats = (tierStats && tierStats.samples >= MIN_OUTCOME_SAMPLES)
+      ? tierStats
+      : this.executionOutcomes.get(modelId);
+    if (!stats || stats.samples < MIN_OUTCOME_SAMPLES) {
+      return 0;
+    }
+    const raw = (stats.ewma - OUTCOME_NEUTRAL_BASELINE) * this.feedbackWeight;
+    return Math.max(-OUTCOME_BIAS_MAX, Math.min(OUTCOME_BIAS_MAX, raw));
+  }
+
+  /**
+   * General nudge for an active subscription provider whose quota is not
+   * exhausted. Complements the maintenance-only `SUBSCRIPTION_MAINTENANCE_BONUS`
+   * so a paid-for subscription is preferred over pay-per-token on ordinary work
+   * too. Quota-aware: returns 0 once the subscription is depleted, since the
+   * router then treats it as pay-per-token.
+   */
+  private scoreActiveSubscriptionPreference(model: ModelInfo): number {
+    const provider = this.providers.get(model.provider);
+    if (provider?.pricingModel !== 'subscription') {
+      return 0;
+    }
+    const quota = provider.subscriptionQuota;
+    const hasQuota = !quota || quota.remainingRequests > 0;
+    return hasQuota ? ACTIVE_SUBSCRIPTION_BONUS : 0;
   }
 
   private scoreLocalPreference(model: ModelInfo, taskProfile?: TaskProfile): number {
@@ -497,13 +722,59 @@ export class ModelRouter {
    * When `parallelSlots > 1`, subscription advantage is blended toward
    * listed cost so pay-per-token providers can absorb overflow.
    */
-  private effectiveCostPer1k(model: ModelInfo, provider: ProviderConfig | undefined, parallelSlots: number): number {
+  /**
+   * Projects the per-1K input price for this turn, accounting for prompt
+   * caching. When a cacheable prefix ratio is supplied and the model is
+   * cache-capable, the cacheable share is priced at the cache-read rate.
+   *
+   * Cache capability is data-driven so it tracks provider changes: the model's
+   * own `supportsPromptCaching` flag (sourced dynamically via discovery hints /
+   * pricing sync / catalog) is authoritative; `CACHE_CAPABLE_PROVIDERS` is only
+   * a bootstrap fallback for models that have not yet been annotated. An
+   * explicit `false` from a provider therefore overrides the fallback.
+   */
+  private projectedInputPricePer1k(model: ModelInfo, cacheablePrefixRatio?: number): number {
+    const ratio = Math.max(0, Math.min(MAX_CACHEABLE_PREFIX_RATIO, cacheablePrefixRatio ?? 0));
+    if (ratio <= 0) {
+      return model.inputPricePer1k;
+    }
+    const cacheCapable = model.supportsPromptCaching ?? CACHE_CAPABLE_PROVIDERS.has(model.provider);
+    if (!cacheCapable) {
+      return model.inputPricePer1k;
+    }
+    const cacheReadFactor = PROVIDER_CACHE_READ_FACTOR[model.provider] ?? DEFAULT_CACHE_READ_FACTOR;
+    const cachedPrice = model.cachedInputPricePer1k ?? model.inputPricePer1k * cacheReadFactor;
+    return (cachedPrice * ratio) + (model.inputPricePer1k * (1 - ratio));
+  }
+
+  /**
+   * Public cache-read price per 1K input tokens for a model — the explicit
+   * `cachedInputPricePer1k` when known, else `inputPricePer1k ×` the model's
+   * per-provider cache factor. Returns the full input price for models that are
+   * not cache-capable. Used by cost accounting to value cache savings.
+   */
+  cacheReadPricePer1k(model: ModelInfo): number {
+    const cacheCapable = model.supportsPromptCaching ?? CACHE_CAPABLE_PROVIDERS.has(model.provider);
+    if (!cacheCapable) {
+      return model.inputPricePer1k;
+    }
+    const factor = PROVIDER_CACHE_READ_FACTOR[model.provider] ?? DEFAULT_CACHE_READ_FACTOR;
+    return model.cachedInputPricePer1k ?? model.inputPricePer1k * factor;
+  }
+
+  private effectiveCostPer1k(
+    model: ModelInfo,
+    provider: ProviderConfig | undefined,
+    parallelSlots: number,
+    cacheablePrefixRatio?: number,
+  ): number {
     const pricing = provider?.pricingModel ?? 'pay-per-token';
     // Account for extended-thinking models that emit large scratchpad token volumes:
     // thinkingTokenMultiplier scales the output cost so the router projects a
     // realistic total rather than just the visible output tokens.
     const thinkingMultiplier = model.thinkingTokenMultiplier ?? 1;
-    const listedCost = model.inputPricePer1k + (model.outputPricePer1k * thinkingMultiplier);
+    const projectedInput = this.projectedInputPricePer1k(model, cacheablePrefixRatio);
+    const listedCost = projectedInput + (model.outputPricePer1k * thinkingMultiplier);
     const multiplier = model.premiumRequestMultiplier ?? 1;
 
     if (pricing === 'pay-per-token') {
@@ -705,6 +976,23 @@ export class ModelRouter {
         return 1.5;
     }
   }
+}
+
+/**
+ * Estimates the fraction of a turn's input that is a stable, cacheable prefix
+ * (system prompt + memory bundle + tool definitions reused across turns) versus
+ * volatile per-turn content. Returned ratio is capped at `MAX_CACHEABLE_PREFIX_RATIO`
+ * so the router never assumes a perfect cache hit. Pass token estimates (or any
+ * proportional size measure) for the stable prefix and the volatile remainder.
+ */
+export function estimateCacheablePrefixRatio(stablePrefixTokens: number, volatileTokens: number): number {
+  const stable = Math.max(0, stablePrefixTokens);
+  const volatile = Math.max(0, volatileTokens);
+  const total = stable + volatile;
+  if (total <= 0) {
+    return 0;
+  }
+  return Math.min(MAX_CACHEABLE_PREFIX_RATIO, stable / total);
 }
 
 function allowedBudgetTiers(mode: BudgetMode, taskProfile?: TaskProfile): Set<BudgetMode> {

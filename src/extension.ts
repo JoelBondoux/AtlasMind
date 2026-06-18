@@ -77,6 +77,7 @@ const MEMORY_NEEDS_UPDATE_CONTEXT_KEY = 'atlasmind.memoryNeedsUpdate';
 const SSOT_PRESENT_CONTEXT_KEY = 'atlasmind.ssotPresent';
 const PERSONALITY_PROFILE_STORAGE_KEY = 'atlasmind.personalityProfile';
 const SUBSCRIPTION_QUOTA_STORAGE_KEY = 'atlasmind.subscriptionQuota';
+const EXECUTION_OUTCOMES_STORAGE_KEY = 'atlasmind.executionOutcomes';
 const COPILOT_MULTIPLIER_SYNC_STORAGE_KEY = 'atlasmind.copilotMultiplierSync';
 const PROVIDER_PRICING_STORAGE_KEY = 'atlasmind.providerPricing';
 const PREMIUM_MULTIPLIER_OVERRIDES_SETTING = 'premiumMultiplierOverrides';
@@ -545,6 +546,18 @@ function persistQuotas(globalState: vscode.Memento, modelRouter: ModelRouter): v
     }
   }
   void globalState.update(SUBSCRIPTION_QUOTA_STORAGE_KEY, snapshot);
+}
+
+/** Direction 2 — restore persisted per-model execution outcomes so learned routing survives restarts. */
+function restoreExecutionOutcomes(globalState: vscode.Memento, modelRouter: ModelRouter): void {
+  const stored = globalState.get<Record<string, { ewma: number; samples: number }>>(EXECUTION_OUTCOMES_STORAGE_KEY, {});
+  if (stored && typeof stored === 'object') {
+    modelRouter.setExecutionOutcomes(stored);
+  }
+}
+
+function persistExecutionOutcomes(globalState: vscode.Memento, outcomes: Record<string, { ewma: number; samples: number }>): void {
+  void globalState.update(EXECUTION_OUTCOMES_STORAGE_KEY, outcomes);
 }
 
 function loadCopilotMultiplierSync(globalState: vscode.Memento): MultiplierSyncResult | undefined {
@@ -1811,7 +1824,7 @@ async function bootstrapAtlasMind(
       getPersonalityProfilePrompt: () => buildWorkspaceIdentityPrompt(context.workspaceState),
       providerAdapters,
       toolWebhookDispatcher,
-      hooks: { toolApprovalGate, generatedSkillApprovalGate, writeCheckpointHook, postToolVerifier, onQuotaUpdated: (pid, rem, tot) => quotaUpdatedRef(pid, rem, tot) },
+      hooks: { toolApprovalGate, generatedSkillApprovalGate, writeCheckpointHook, postToolVerifier, onQuotaUpdated: (pid, rem, tot) => quotaUpdatedRef(pid, rem, tot), onModelOutcomeRecorded: outcomes => persistExecutionOutcomes(context.globalState, outcomes) },
       config: {
         maxToolIterations: vscode.workspace.getConfiguration('atlasmind').get<number>('maxToolIterations')!,
         maxToolCallsPerTurn: vscode.workspace.getConfiguration('atlasmind').get<number>('maxToolCallsPerTurn')!,
@@ -1836,6 +1849,9 @@ async function bootstrapAtlasMind(
     // Restore persisted subscription quotas so routing is accurate from the
     // first request of a new session, and reset any that have rolled over.
     restorePersistedQuotas(context.globalState, modelRouter);
+    // Restore learned execution outcomes (Direction 2) so outcome-driven routing
+    // carries over across sessions.
+    restoreExecutionOutcomes(context.globalState, modelRouter);
 
     // Wire up quota tracking: persist on every decrement and warn when
     // a provider transitions into overflow or approaches exhaustion.
@@ -2971,7 +2987,7 @@ function resolvePremiumMultiplier(
  * 2. Well-known model catalog lookup.
  * 3. Substring-based heuristic fallback.
  */
-function inferModelMetadata(
+export function inferModelMetadata(
   providerId: ProviderId,
   modelId: string,
   hint?: DiscoveredModel,
@@ -2994,6 +3010,22 @@ function inferModelMetadata(
   const inputPricePer1k = isLocalProvider ? 0 : (hint?.inputPricePer1k ?? dynamicPricing?.inputPer1k ?? catalogEntry?.inputPricePer1k ?? inferPricing(shortId).input);
   const outputPricePer1k = isLocalProvider ? 0 : (hint?.outputPricePer1k ?? dynamicPricing?.outputPer1k ?? catalogEntry?.outputPricePer1k ?? inferPricing(shortId).output);
   const premiumRequestMultiplier = hint?.premiumRequestMultiplier ?? catalogEntry?.premiumRequestMultiplier;
+  // Carry the catalog's authoritative routing annotations through the merge.
+  // Without these, every model populated via discovery loses its reasoning depth
+  // and latency class, so the router falls back to heuristics — collapsing genuine
+  // depth-3 reasoners (Opus, DeepSeek R1, Nemotron Ultra) to depth 2 and under-
+  // ranking them for high-reasoning tasks.
+  const reasoningDepth = catalogEntry?.reasoningDepth;
+  const latencyClass = catalogEntry?.latencyClass;
+  // Cache capability is dynamic — providers change model capabilities over time.
+  // Prefer the runtime discovery hint and live pricing scrape over the static
+  // catalog so the router tracks those changes; an explicit hint `false`
+  // overrides the catalog. The router still applies a provider-set bootstrap
+  // fallback when no source has annotated the model yet.
+  const supportsPromptCaching = hint?.supportsPromptCaching ?? catalogEntry?.supportsPromptCaching;
+  const cachedInputPricePer1k = isLocalProvider
+    ? undefined
+    : (hint?.cachedInputPricePer1k ?? dynamicPricing?.cachedInputPer1k ?? catalogEntry?.cachedInputPricePer1k);
 
   return {
     id: modelId,
@@ -3008,6 +3040,10 @@ function inferModelMetadata(
     ...(premiumRequestMultiplier !== undefined && premiumRequestMultiplier !== 1
       ? { premiumRequestMultiplier }
       : {}),
+    ...(reasoningDepth !== undefined ? { reasoningDepth } : {}),
+    ...(latencyClass !== undefined ? { latencyClass } : {}),
+    ...(supportsPromptCaching !== undefined ? { supportsPromptCaching } : {}),
+    ...(cachedInputPricePer1k !== undefined ? { cachedInputPricePer1k } : {}),
   };
 }
 

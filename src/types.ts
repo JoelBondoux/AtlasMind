@@ -59,6 +59,20 @@ export interface ModelInfo {
   specialistDomains?: SpecialistDomain[];
   enabled: boolean;
   /**
+   * Whether this model supports prompt caching (a stable prompt prefix —
+   * system prompt, memory bundle, tool definitions — is billed at a reduced
+   * "cache read" rate on subsequent turns). Used by the router to favour
+   * cache-capable models for iterative/threaded work where a large prefix is
+   * reused across turns.
+   */
+  supportsPromptCaching?: boolean;
+  /**
+   * Price per 1K input tokens served from the prompt cache (USD). When omitted
+   * but `supportsPromptCaching` is true, the router applies a conservative
+   * default cache-read discount to `inputPricePer1k`.
+   */
+  cachedInputPricePer1k?: number;
+  /**
    * How many subscription "premium request" units this model consumes per
    * request.  Standard models = 1, premium = 2+.  Only meaningful for
    * subscription providers (e.g. GitHub Copilot charges 3× for Opus 4).
@@ -194,6 +208,14 @@ export interface RoutingConstraints {
   speed: SpeedMode;
   maxCostUsd?: number;
   preferredProvider?: ProviderId;
+  /**
+   * Explicit model pin for role-based routing (e.g. a planning/synthesis "brain"
+   * model). When set and the model is available, healthy, and satisfies required
+   * capabilities and any allow-list, the router selects it directly — bypassing
+   * budget/speed gates since it is a deliberate choice — otherwise it falls back
+   * to normal scoring.
+   */
+  preferredModel?: string;
   /** Hard requirements that the selected model must support. */
   requiredCapabilities?: ModelCapability[];
   /**
@@ -202,6 +224,14 @@ export interface RoutingConstraints {
    * subscription providers to enable parallelism.
    */
   parallelSlots?: number;
+  /**
+   * Fraction (0..1) of this turn's input tokens expected to be served from the
+   * prompt cache — i.e. the share of the prompt that is a stable, reused prefix.
+   * When > 0, the router projects a lower input cost for cache-capable models,
+   * favouring them for iterative/threaded work. Defaults to 0 (no cacheable
+   * prefix) so single-shot turns are unaffected.
+   */
+  cacheablePrefixRatio?: number;
 }
 
 export type ToolApprovalMode = 'always-ask' | 'ask-on-write' | 'ask-on-external' | 'allow-safe-readonly';
@@ -647,6 +677,13 @@ export interface OrchestratorHooks {
    * billing-period cap.  Use this to persist quota and emit exhaustion warnings.
    */
   onQuotaUpdated?: (providerId: string, remainingRequests: number, totalRequests: number) => void;
+
+  /**
+   * Called after a model's execution outcome is recorded (Direction 2 —
+   * outcome-driven routing). Receives the full snapshot of decayed per-model
+   * outcome state so it can be persisted across sessions.
+   */
+  onModelOutcomeRecorded?: (outcomes: Record<string, { ewma: number; samples: number }>) => void;
 
   /**
    * Called each time the active model changes during task execution — on initial
@@ -1356,9 +1393,13 @@ export interface CostRecord {
   messageId?: string;
   inputTokens: number;
   outputTokens: number;
+  /** Portion of `inputTokens` served from the provider's prompt cache, when reported. */
+  cachedInputTokens?: number;
   costUsd: number;
   budgetCostUsd?: number;
   compressionSavingsUsd?: number;
+  /** USD saved this request by the prompt-cache discount on cached input tokens. */
+  cacheSavingsUsd?: number;
   timestamp: string;
 }
 

@@ -43,6 +43,29 @@ describe('CostTracker', () => {
     expect(summary.totalSubscriptionIncludedUsd).toBeCloseTo(0.002, 6);
   });
 
+  it('aggregates prompt-cache savings and cached input tokens', () => {
+    const tracker = new CostTracker();
+
+    tracker.record({
+      taskId: 't1', agentId: 'a1', model: 'anthropic/claude-sonnet-4', providerId: 'anthropic',
+      pricingModel: 'pay-per-token', billingCategory: 'pay-per-token',
+      inputTokens: 1000, outputTokens: 100, cachedInputTokens: 800,
+      costUsd: 0.01, budgetCostUsd: 0.01, cacheSavingsUsd: 0.00216,
+      timestamp: new Date().toISOString(),
+    });
+    tracker.record({
+      taskId: 't2', agentId: 'a1', model: 'openai/gpt-4o', providerId: 'openai',
+      pricingModel: 'pay-per-token', billingCategory: 'pay-per-token',
+      inputTokens: 500, outputTokens: 50, cachedInputTokens: 200,
+      costUsd: 0.005, budgetCostUsd: 0.005, cacheSavingsUsd: 0.00025,
+      timestamp: new Date().toISOString(),
+    });
+
+    const summary = tracker.getSummary();
+    expect(summary.totalCachedInputTokens).toBe(1000);
+    expect(summary.totalCacheSavingsUsd).toBeCloseTo(0.00241, 6);
+  });
+
   it('resets all records', () => {
     const tracker = new CostTracker();
     tracker.record({
@@ -66,6 +89,8 @@ describe('CostTracker', () => {
       totalBudgetCostUsd: 0,
       totalSubscriptionIncludedUsd: 0,
       totalCompressionSavingsUsd: 0,
+      totalCacheSavingsUsd: 0,
+      totalCachedInputTokens: 0,
       totalRequests: 0,
       totalInputTokens: 0,
       totalOutputTokens: 0,

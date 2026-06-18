@@ -625,6 +625,7 @@ export class CostDashboardPanel {
       { label: 'Budgeted Spend', value: formatCurrency(summary.totalBudgetCostUsd, 4), detail: 'Counts against daily budget', countTo: summary.totalBudgetCostUsd, countFormat: 'currency-4' },
       { label: 'Included Subscriptions', value: formatCurrency(summary.totalSubscriptionIncludedUsd, 4), detail: 'Visible even when not budgeted', countTo: summary.totalSubscriptionIncludedUsd, countFormat: 'currency-4' },
       { label: 'Compression Savings', value: formatCurrency(summary.totalCompressionSavingsUsd ?? 0, 4), detail: 'Estimated spend avoided with prompt compaction', countTo: summary.totalCompressionSavingsUsd ?? 0, countFormat: 'currency-4' },
+      { label: 'Cache Savings', value: formatCurrency(summary.totalCacheSavingsUsd ?? 0, 4), detail: `Spend avoided via prompt caching (${formatTokens(summary.totalCachedInputTokens ?? 0)} cached input tokens)`, countTo: summary.totalCacheSavingsUsd ?? 0, countFormat: 'currency-4' },
       { label: 'Total Requests', value: String(summary.totalRequests), detail: 'Requests in current window', countTo: summary.totalRequests, countFormat: 'integer' },
       { label: 'Input Tokens', value: formatTokens(summary.totalInputTokens), detail: 'Prompt-side token volume', countTo: summary.totalInputTokens, countFormat: 'tokens' },
       { label: 'Output Tokens', value: formatTokens(summary.totalOutputTokens), detail: 'Response-side token volume', countTo: summary.totalOutputTokens, countFormat: 'tokens' },

@@ -36,6 +36,10 @@ export interface CatalogEntry {
    * 'fast' = sub-second / low-latency; 'balanced' = normal; 'slow' = extended thinking / deliberate reasoning.
    */
   latencyClass?: 'fast' | 'balanced' | 'slow';
+  /** Whether the model/provider supports prompt caching (reduced cache-read input rate). */
+  supportsPromptCaching?: boolean;
+  /** Explicit cache-read price per 1K input tokens (USD). Omit to use the router's default discount. */
+  cachedInputPricePer1k?: number;
 }
 
 // ── Anthropic ────────────────────────────────────────────────────
@@ -1503,6 +1507,79 @@ const COPILOT_HOSTED_CATALOG: CatalogEntry[] = [
   },
 ];
 
+// ── NVIDIA NIM (hosted) ──────────────────────────────────────────
+// NVIDIA's flagship Nemotron family served via the hosted NIM endpoint
+// (integrate.api.nvidia.com). These are the *paid hosted* counterparts to the
+// $0-priced local Nemotron entries in LOCAL_CATALOG — kept in a provider-scoped
+// catalog so `lookupCatalog('nvidia', …)` resolves them before any cross-provider
+// fallback. Prices are approximate published NVIDIA build/NIM rates (USD per 1k
+// tokens) and are refined at runtime by discovery + providerPricingSync.
+const NVIDIA_CATALOG: CatalogEntry[] = [
+  {
+    // Llama 3.1 Nemotron Ultra 253B — top-tier reasoning flagship
+    pattern: /nemotron.*ultra|nemotron-ultra/i,
+    name: 'Llama 3.1 Nemotron Ultra 253B',
+    contextWindow: 128_000,
+    inputPricePer1k: 0.0009,
+    outputPricePer1k: 0.0009,
+    capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
+    reasoningDepth: 3,
+    latencyClass: 'slow',
+  },
+  {
+    // Llama 3.3 Nemotron Super 49B (v1 / v1.5) — balanced reasoning workhorse
+    pattern: /nemotron.*super|nemotron-super/i,
+    name: 'Llama 3.3 Nemotron Super 49B',
+    contextWindow: 128_000,
+    inputPricePer1k: 0.0004,
+    outputPricePer1k: 0.0004,
+    capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
+    reasoningDepth: 2,
+    latencyClass: 'balanced',
+  },
+  {
+    // Nemotron Nano (8B / 9B v2) — fast, low-cost, reasoning-capable
+    pattern: /nemotron.*nano|nemotron-nano/i,
+    name: 'Nemotron Nano',
+    contextWindow: 128_000,
+    inputPricePer1k: 0.0001,
+    outputPricePer1k: 0.0001,
+    capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
+    reasoningDepth: 2,
+    latencyClass: 'fast',
+  },
+  {
+    // Llama 3.1 Nemotron 70B Instruct — RLHF-tuned general instruct model
+    pattern: /nemotron.*70b|llama-3\.1-nemotron-70b/i,
+    name: 'Llama 3.1 Nemotron 70B Instruct',
+    contextWindow: 128_000,
+    inputPricePer1k: 0.0009,
+    outputPricePer1k: 0.0009,
+    capabilities: ['chat', 'code', 'function_calling'],
+    latencyClass: 'balanced',
+  },
+  {
+    // Nemotron Mini 4B — compact on-device-grade hosted variant
+    pattern: /nemotron.*mini/i,
+    name: 'Nemotron Mini 4B',
+    contextWindow: 128_000,
+    inputPricePer1k: 0.0001,
+    outputPricePer1k: 0.0001,
+    capabilities: ['chat', 'code', 'function_calling'],
+    latencyClass: 'fast',
+  },
+  {
+    // Any other Nemotron NIM model
+    pattern: /nemotron/i,
+    name: 'Nemotron',
+    contextWindow: 128_000,
+    inputPricePer1k: 0.0004,
+    outputPricePer1k: 0.0004,
+    capabilities: ['chat', 'code', 'reasoning', 'function_calling'],
+    reasoningDepth: 2,
+  },
+];
+
 // ── Provider → catalog map ───────────────────────────────────────
 
 const PROVIDER_CATALOGS: Record<string, CatalogEntry[]> = {
@@ -1517,6 +1594,7 @@ const PROVIDER_CATALOGS: Record<string, CatalogEntry[]> = {
   xai: XAI_CATALOG,
   cohere: COHERE_CATALOG,
   perplexity: PERPLEXITY_CATALOG,
+  nvidia: NVIDIA_CATALOG,
   // Aggregator / fast-inference providers
   groq: GROQ_CATALOG,
   together: TOGETHER_CATALOG,

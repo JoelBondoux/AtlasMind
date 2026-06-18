@@ -73,7 +73,7 @@ That feedback bias is controlled by `atlasmind.feedbackRoutingWeight`. Set it to
 | **Cohere** | `cohere` | Pay-per-token | Runtime discovery via Cohere's OpenAI-compatibility `/models` endpoint | Starts with Command A, then refreshes to the live Cohere catalog |
 | **Perplexity** | `perplexity` | Pay-per-token | Adapter-managed static model catalog | Uses a static Sonar-family model list because the upstream chat path does not expose a standard `/models` inventory |
 | **Hugging Face Inference** | `huggingface` | Pay-per-token | Runtime discovery via the Hugging Face router OpenAI-compatible `/models` endpoint | Starts with one fallback router model, then refreshes to the live router catalog |
-| **NVIDIA NIM** | `nvidia` | Pay-per-token | Runtime discovery via NVIDIA's OpenAI-compatible `/models` endpoint | Starts with one fallback hosted model, then refreshes to the live catalog |
+| **NVIDIA NIM** | `nvidia` | Pay-per-token | Runtime discovery via NVIDIA's OpenAI-compatible `/models` endpoint, enriched by a provider-scoped Nemotron catalog | Seeds the Nemotron family (Super 49B, Nano) plus a Llama 3.1 70B fallback, then refreshes to the live catalog |
 | **Local** | `local` | Free | Static fallback or runtime discovery via one or more configured local OpenAI-compatible endpoints | Falls back to `local/echo-1` until a local endpoint is configured, can aggregate multiple labeled engines such as Ollama and LM Studio together, and still keeps the built-in echo fallback healthy |
 
 The short model names you may see initially are **seed entries**, not AtlasMind's intended final provider catalog. On activation, and whenever the user clicks **Refresh Model Metadata**, Atlas scans providers for their live model list and merges that runtime discovery into the router.
@@ -317,6 +317,10 @@ Preferred capabilities from the profile add:
 Important follow-up prompts that rely on carry-forward chat context, such as requests framed as "based on the chat thread" or other high-stakes continuation turns, are intentionally profiled more aggressively so AtlasMind can move off a weak local model on later turns.
 
 Cheapness is also normalized during scoring. Free and subscription-backed models still get a strong cost advantage, but that advantage no longer overwhelms clear reasoning or task-fit signals on higher-stakes turns.
+
+A subscription provider with quota remaining also gets a small **general** preference nudge on all task phases (not just maintenance), because its capacity is already paid for — "essentially free" until quota is exhausted. The nudge is modest and **quota-aware**: it disappears once the subscription is depleted, after which the provider is treated as pay-per-token.
+
+**Cache-aware routing.** On iterative/threaded turns the large stable prefix (system prompt + memory bundle + tool definitions) can be served from the provider's prompt cache at a reduced rate. The router projects this via `cacheablePrefixRatio` (estimated from the carried context vs. the new message, capped at 0.9), pricing the cacheable share at the model's cache-read rate so cache-capable models are favoured for repeat-context work; single-shot turns are unaffected. Cache capability is **dynamic** — sourced from discovery hints / the live pricing sync / the catalog (in that precedence), with a static provider set only as a bootstrap fallback — so it tracks providers changing their model capabilities.
 
 ---
 

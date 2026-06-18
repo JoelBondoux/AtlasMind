@@ -6,6 +6,8 @@ import { formatCost } from './currencyFormatter.js';
 import type { AgentRegistry } from './agentRegistry.js';
 import type { SkillsRegistry } from './skillsRegistry.js';
 import type { ModelRouter } from './modelRouter.js';
+import { estimateCacheablePrefixRatio } from './modelRouter.js';
+import { gradeExecutionQuality } from './executionQuality.js';
 import type { MemoryManager } from '../memory/memoryManager.js';
 import type { CostTracker } from './costTracker.js';
 import type { ProviderRegistry } from '../providers/index.js';
@@ -318,6 +320,8 @@ interface CostEstimate {
   billingCategory: 'pay-per-token' | 'free' | 'subscription-included' | 'subscription-overflow';
   costUsd: number;
   budgetCostUsd: number;
+  /** USD saved by the prompt-cache discount on cached input tokens (pay-per-token / overflow only). */
+  cacheSavingsUsd?: number;
 }
 
 type ProviderCompletionRequest = {
@@ -327,9 +331,16 @@ type ProviderCompletionRequest = {
   temperature: number;
   maxTokens: number;
   signal?: AbortSignal;
+  cacheStablePrefix?: boolean;
 };
 
 const READONLY_EXPLORATION_NUDGE_AFTER = 3;
+/**
+ * Minimum cacheable-prefix ratio at which a tool-less turn opts into provider
+ * prompt caching of the stable prefix. Below this the reused prefix is too small
+ * to justify a cache write (which carries a one-time premium on some providers).
+ */
+const CACHE_PREFIX_REUSE_THRESHOLD = 0.25;
 const READONLY_EXPLORATION_REPROMPT = [
   'You have already gathered several rounds of read-only workspace evidence.',
   'Stop exploring unless one final tool call is strictly necessary.',
@@ -348,6 +359,7 @@ export class Orchestrator {
   private writeCheckpointHook?: OrchestratorHooks['writeCheckpointHook'];
   private postToolVerifier?: OrchestratorHooks['postToolVerifier'];
   private onQuotaUpdated?: OrchestratorHooks['onQuotaUpdated'];
+  private onModelOutcomeRecorded?: OrchestratorHooks['onModelOutcomeRecorded'];
   private onModelSelected?: OrchestratorHooks['onModelSelected'];
   private getPersonalityProfilePrompt?: PersonalityProfilePromptProvider;
   private cfg: OrchestratorConfig;
@@ -375,6 +387,7 @@ export class Orchestrator {
     this.writeCheckpointHook = hooks?.writeCheckpointHook;
     this.postToolVerifier = hooks?.postToolVerifier;
     this.onQuotaUpdated = hooks?.onQuotaUpdated;
+    this.onModelOutcomeRecorded = hooks?.onModelOutcomeRecorded;
     this.onModelSelected = hooks?.onModelSelected;
     this.classifier = new ClassifierService(router, providers, taskProfiler);
     this.cfg = { ...defaultConfig, ...config };
@@ -398,7 +411,8 @@ export class Orchestrator {
    * the caller controls the full prompt.
    */
   async summarizeText(systemPrompt: string, userPrompt: string): Promise<string> {
-    const constraints: RoutingConstraints = { budget: 'balanced', speed: 'fast' };
+    // Synthesis is a no-tool reasoning phase; honour a configured synthesis "brain".
+    const constraints = this.withRoleModel({ budget: 'balanced', speed: 'fast' }, 'synthesisModelId');
     const taskProfile = this.taskProfiler.profileTask({ userMessage: userPrompt, phase: 'synthesis', requiresTools: false });
     const model = this.router.selectModel(constraints, undefined, taskProfile);
     const providerId = resolveProviderIdForModel(model, this.router, 'copilot');
@@ -754,6 +768,22 @@ export class Orchestrator {
 
     let routingConstraints = buildExecutionRoutingConstraints(request.constraints, activeAgentSkills.length > 0);
 
+    // Cache-aware routing: when a substantial reused context prefix is carried
+    // into this turn (threaded / iterative work), the stable prefix can be
+    // served from the provider's prompt cache. Project that share so the router
+    // favours cache-capable models for such turns. Single-shot turns with no
+    // carried context produce a ratio of 0 and are unaffected.
+    const cacheableStablePrefix = String(
+      (request.context['sessionContext'] ?? '') + '\n' + (request.context['nativeChatContext'] ?? ''),
+    );
+    const cacheablePrefixRatio = estimateCacheablePrefixRatio(
+      estimateTokens(cacheableStablePrefix),
+      estimateTokens(String(request.userMessage ?? '')),
+    );
+    if (cacheablePrefixRatio > 0) {
+      routingConstraints = { ...routingConstraints, cacheablePrefixRatio };
+    }
+
     // For mechanical low-overhead tasks on auto budget, constrain to cheap/fast models.
     // This prevents routine git ops, script runs, and narrow test generation from consuming
     // expensive subscription quota or pay-per-token credits when cheaper models are sufficient.
@@ -890,6 +920,7 @@ export class Orchestrator {
     let aggregateCostUsd = 0;
     let aggregateInputTokens = 0;
     let aggregateOutputTokens = 0;
+    let aggregateCachedInputTokens = 0;
     let autoDisabledProvider: TaskResult['autoDisabledProvider'];
 
     if (dailyBudget?.blocked) {
@@ -983,6 +1014,10 @@ export class Orchestrator {
               agentRole: agent.role,
               userMessage: request.userMessage,
               signal: request.signal,
+              // Reuse expected → let cache-capable providers write the stable
+              // prefix even on tool-less turns (the agentic loop already caches
+              // via tools; this covers threaded chat with a substantial prefix).
+              ...(cacheablePrefixRatio >= CACHE_PREFIX_REUSE_THRESHOLD ? { cacheStablePrefix: true } : {}),
             },
             onTextChunk,
             onProgress,
@@ -990,6 +1025,7 @@ export class Orchestrator {
           aggregateCostUsd += taskAttempt.costUsd;
           aggregateInputTokens += taskAttempt.completion.inputTokens;
           aggregateOutputTokens += taskAttempt.completion.outputTokens;
+          aggregateCachedInputTokens += taskAttempt.completion.cachedInputTokens ?? 0;
           attemptedModels.add(currentModel);
 
           // Mid-flight daily budget check: if we've consumed enough to tip
@@ -1166,6 +1202,7 @@ export class Orchestrator {
     const costUsd = aggregateCostUsd || finalAttempt.costUsd;
     const inputTokens = aggregateInputTokens || completion.inputTokens;
     const outputTokens = aggregateOutputTokens || completion.outputTokens;
+    const cachedInputTokens = aggregateCachedInputTokens || (completion.cachedInputTokens ?? 0);
     const estimatedCompressionSavingsUsd = compressionEnabled
       ? Math.max(0, (estimateTokens(String((request.context['sessionContext'] ?? '') + '\n' + (request.context['nativeChatContext'] ?? '') + '\n' + (request.context['attachmentContext'] ?? ''))) - estimateTokens(String(completion.content))) * ((this.router.getModelInfo(modelUsed)?.inputPricePer1k ?? 0) / 1000))
       : 0;
@@ -1188,7 +1225,7 @@ export class Orchestrator {
     };
 
     const billedModel = finalAttempt.model || modelUsed;
-    const finalCost = this.estimateCostBreakdown(billedModel, inputTokens, outputTokens);
+    const finalCost = this.estimateCostBreakdown(billedModel, inputTokens, outputTokens, cachedInputTokens);
 
     this.costs.record({
       taskId: request.id,
@@ -1201,9 +1238,11 @@ export class Orchestrator {
       ...(typeof request.context['chatMessageId'] === 'string' ? { messageId: request.context['chatMessageId'] } : {}),
       inputTokens,
       outputTokens,
+      ...(cachedInputTokens > 0 ? { cachedInputTokens } : {}),
       costUsd: costUsd,
       budgetCostUsd: finalCost.budgetCostUsd,
       compressionSavingsUsd: estimatedCompressionSavingsUsd,
+      ...(finalCost.cacheSavingsUsd ? { cacheSavingsUsd: finalCost.cacheSavingsUsd } : {}),
       timestamp: new Date().toISOString(),
     });
 
@@ -1230,7 +1269,11 @@ export class Orchestrator {
     // Track agent and model performance for adaptive selection
     const success = completion.finishReason !== 'error';
     this.agents.recordOutcome(agent.id, success);
-    this.router.recordModelOutcome(modelUsed, success);
+    // Direction 2 — outcome-driven routing: feed a graded execution-quality
+    // signal (not just success/failure) into the router's decayed outcome channel,
+    // bucketed by this task's reasoning tier so routing adapts per task context.
+    this.router.recordExecutionOutcome(modelUsed, gradeExecutionQuality(completion), baseTaskProfile.reasoning);
+    this.onModelOutcomeRecorded?.(this.router.getExecutionOutcomes());
 
     // When the model returned nothing, run a two-step recovery before surfacing a failure:
     //  1. Self-recovery: reprompt with workspace-investigation instruction; if still
@@ -1297,7 +1340,7 @@ export class Orchestrator {
       plan = options.planOverride;
     } else {
       try {
-        plan = await planner.plan(goal, constraints, signal);
+        plan = await planner.plan(goal, this.withRoleModel(constraints, 'planningModelId'), signal);
       } catch (err) {
         onProgress?.({ type: 'error', message: err instanceof Error ? err.message : String(err) });
         throw err;
@@ -1573,7 +1616,7 @@ export class Orchestrator {
     const planner = new Planner(this.router, this.providers, this.taskProfiler, this.memory, this.skills);
     let plan: ProjectPlan;
     try {
-      plan = await planner.plan(request.userMessage, request.constraints);
+      plan = await planner.plan(request.userMessage, this.withRoleModel(request.constraints, 'planningModelId'));
     } catch {
       plan = {
         id: `plan-${Date.now()}`,
@@ -1719,7 +1762,7 @@ export class Orchestrator {
     model: string,
     messages: ChatMessage[],
     tools: ToolDefinition[],
-    context: { taskId: string; agentId: string; budgetCapUsd?: number; taskProfile: TaskProfile; allowEscalation: boolean; projectTddPolicy?: ProjectTddPolicy; agentRole?: string; userMessage?: string; signal?: AbortSignal },
+    context: { taskId: string; agentId: string; budgetCapUsd?: number; taskProfile: TaskProfile; allowEscalation: boolean; projectTddPolicy?: ProjectTddPolicy; agentRole?: string; userMessage?: string; signal?: AbortSignal; cacheStablePrefix?: boolean },
     onTextChunk?: (chunk: string) => void,
     onProgress?: (message: string) => void,
   ): Promise<{ completion: CompletionResponse; artifacts?: Omit<SubTaskExecutionArtifacts, 'changedFiles' | 'diffPreview'>; escalationReason?: string; toolCapabilityMissing?: boolean; iterationLimitHit?: boolean; suggestedIterationLimit?: number; suggestedToolCallsPerTurnLimit?: number }> {
@@ -1769,6 +1812,7 @@ export class Orchestrator {
         temperature: 0.2,
         maxTokens: clampedMaxTokens,
         signal: context.signal,
+        ...(context.cacheStablePrefix ? { cacheStablePrefix: true } : {}),
       }, forceWorkspaceToolBackedInvestigation && workspaceRepromptCount === 0 ? undefined : onTextChunk);
 
       totalInputTokens += completion.inputTokens;
@@ -2385,7 +2429,7 @@ export class Orchestrator {
     model: string,
     messages: ChatMessage[],
     tools: ToolDefinition[],
-    context: { taskId: string; agentId: string; budgetCapUsd?: number; taskProfile: TaskProfile; allowEscalation: boolean; projectTddPolicy?: ProjectTddPolicy; agentRole?: string; userMessage?: string; signal?: AbortSignal },
+    context: { taskId: string; agentId: string; budgetCapUsd?: number; taskProfile: TaskProfile; allowEscalation: boolean; projectTddPolicy?: ProjectTddPolicy; agentRole?: string; userMessage?: string; signal?: AbortSignal; cacheStablePrefix?: boolean },
     onTextChunk?: (chunk: string) => void,
     onProgress?: (message: string) => void,
   ): Promise<TaskExecutionAttempt> {
@@ -3202,7 +3246,22 @@ export class Orchestrator {
     return { lowUsd, highUsd };
   }
 
-  private estimateCostBreakdown(model: string, inputTokens: number, outputTokens: number): CostEstimate {
+  /**
+   * Direction 3 — role-based routing. Pin a model configured for a routing role
+   * (e.g. the planning "brain" via `atlasmind.planningModelId`, or the synthesis
+   * model via `atlasmind.synthesisModelId`) onto the constraints, so that phase is
+   * handled by the chosen model while other phases route normally. Falls back
+   * silently to normal routing when the setting is unset or the model is unknown.
+   */
+  private withRoleModel(constraints: RoutingConstraints, settingKey: string): RoutingConstraints {
+    const modelId = (vscode.workspace.getConfiguration('atlasmind').get<string>(settingKey, '') ?? '').trim();
+    if (!modelId || !this.router.getModelInfo(modelId)) {
+      return constraints;
+    }
+    return { ...constraints, preferredModel: modelId };
+  }
+
+  private estimateCostBreakdown(model: string, inputTokens: number, outputTokens: number, cachedInputTokens = 0): CostEstimate {
     const modelInfo = this.router.getModelInfo(model);
     if (!modelInfo) {
       return {
@@ -3215,6 +3274,12 @@ export class Orchestrator {
     const inputRate = modelInfo.inputPricePer1k;
     const outputRate = modelInfo.outputPricePer1k;
     const listedCostUsd = ((inputTokens / 1000) * inputRate) + ((outputTokens / 1000) * outputRate);
+    // Cache savings are reported as avoided spend (like compression savings) rather
+    // than discounting listedCostUsd, keeping cost figures consistent. It values the
+    // cached input tokens at the gap between the full input rate and the cache-read rate.
+    const cacheReadRate = this.router.cacheReadPricePer1k(modelInfo);
+    const cachedTokens = Math.min(Math.max(0, cachedInputTokens), inputTokens);
+    const cacheSavingsUsd = (cachedTokens / 1000) * Math.max(0, inputRate - cacheReadRate);
     const provider = this.router.getProviderConfig(modelInfo.provider);
 
     if (!provider || provider.pricingModel === 'pay-per-token') {
@@ -3224,6 +3289,7 @@ export class Orchestrator {
         billingCategory: 'pay-per-token',
         costUsd: listedCostUsd,
         budgetCostUsd: listedCostUsd,
+        ...(cacheSavingsUsd > 0 ? { cacheSavingsUsd } : {}),
       };
     }
 
@@ -3251,6 +3317,7 @@ export class Orchestrator {
         billingCategory: 'subscription-overflow',
         costUsd: listedCostUsd,
         budgetCostUsd: listedCostUsd,
+        ...(cacheSavingsUsd > 0 ? { cacheSavingsUsd } : {}),
       };
     }
 
