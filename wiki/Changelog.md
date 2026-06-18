@@ -6,6 +6,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.100.3 — Documentation Accuracy Sweep
+
+- **Corrected stale docs found while auditing changes since 0.80.0.** Fixed the `atlasmind.maxToolIterations` default (documented as `20`, actually `10`) in the configuration reference and wiki, and refreshed the Voice section that still claimed there was "no host-side OS-native speech adapter" — contradicting the OS host speech engine (0.80.0) and on-device Whisper STT (0.81.0). Docs-only.
+
 ## v0.100.2 — SSOT Tracked in Git (Selective)
 
 - **The `project_memory/` "project brain" is now version-controlled** (agents, decisions, ideas, architecture, roadmap, routines, …) instead of being blanket-ignored. Volatile or potentially-sensitive content — chat session transcripts, temp scratch files, and dated run-history dumps — stays out of the public repo. Repo-hygiene change only.

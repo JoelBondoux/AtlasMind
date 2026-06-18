@@ -162,7 +162,7 @@ These settings only affect AtlasMind's governance scaffolding for Atlas-built or
 
 | Setting | Type | Default | Description |
 |---|---|---|---|
-| `atlasmind.maxToolIterations` | `number` | `20` | Maximum tool-call loop iterations per agent turn (1–50). |
+| `atlasmind.maxToolIterations` | `number` | `10` | Maximum tool-call loop iterations per agent turn (1–50). |
 | `atlasmind.maxToolCallsPerTurn` | `number` | `8` | Maximum parallel tool calls the model may issue in a single turn (1–30). |
 | `atlasmind.toolExecutionTimeoutMs` | `number` | `15000` | Per-tool execution timeout in milliseconds (minimum 1000). |
 | `atlasmind.providerTimeoutMs` | `number` | `30000` | Maximum time to wait for a model provider response in milliseconds (minimum 5000). |
@@ -203,7 +203,7 @@ These settings only affect AtlasMind's governance scaffolding for Atlas-built or
 | `atlasmind.voice.outputDeviceId` | `string` | `""` | Preferred speaker device id. AtlasMind can apply it to ElevenLabs audio playback when the runtime supports `setSinkId`; Web Speech output may still use the default device. |
 | `atlasmind.voice.elevenLabsVoiceId` | `string` | `""` | ElevenLabs voice id for server-side TTS. Empty uses the default demo voice (`Rachel`). Requires an ElevenLabs API key configured in Specialist Integrations. |
 
-AtlasMind's current voice stack is still webview-first: Web Speech API for in-panel STT and fallback TTS, plus optional ElevenLabs server-side TTS. There is not yet a host-side OS-native speech adapter, so microphone and speaker routing remains partly dependent on browser or Electron capabilities.
+AtlasMind's voice stack spans three backends. For TTS the priority is ElevenLabs server-side TTS (when keyed) → the on-device OS host engine (`voice.hostSpeechEnabled`: Windows SAPI/PowerShell, macOS `say`, Linux `espeak-ng`) → the in-panel Web Speech API. For STT, on-device Whisper (`voice.sttEngine`) keeps audio entirely local, with the Web Speech API as fallback. Microphone and speaker device routing still depends partly on browser or Electron capabilities.
 
 ## API Keys
 

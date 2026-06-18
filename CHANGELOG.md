@@ -8,7 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-## [0.100.2] - 2026-06-18
+## [0.100.3] - 2026-06-18
+
+### Fixed
+- **Documentation accuracy sweep for changes since 0.80.0** (`docs/configuration.md`, `wiki/Configuration.md`): corrected three stale/inaccurate items found while auditing the docs against the 0.81.0→0.100.2 changelog. (1) The `atlasmind.maxToolIterations` default was documented as `20` in both `docs/configuration.md` and `wiki/Configuration.md`, but `package.json` (and the README) set it to `10`; both now read `10`. (2) The Voice section in `docs/configuration.md` still claimed "There is not yet a host-side OS-native speech adapter," directly contradicting the `voice.hostSpeechEnabled` / `HostSpeechSynthesizer` engine shipped in 0.80.0 and documented in the same section; the closing paragraph now describes the actual three-backend TTS priority (ElevenLabs → OS host engine → Web Speech) and the on-device Whisper STT path. (3) The same paragraph's "webview-first" framing (which predated 0.80.0/0.81.0) was updated accordingly.
 
 ### Changed
 - **`.gitignore`: selectively track the `project_memory/` SSOT** instead of blanket-ignoring it. The folder was previously fully ignored yet ~49 curated files were force-tracked anyway, so new SSOT entries silently fell outside git unless added with `-f`. The "project brain" (agents, decisions, ideas, architecture, domain, operations, roadmap, skills, index, routines) is now tracked by default, while volatile / potentially-sensitive content stays out of this **public** repo: `project_memory/sessions/` (chat transcripts), `project_memory/temp/`, and dated `project_memory/operations/project-run-*.json` run-history dumps. The stale `project_memory/temp/vision-enhancement.md` was untracked, and the previously-untracked curated entries were added.
