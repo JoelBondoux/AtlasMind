@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.95.0",
+  "version": "0.96.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -1022,6 +1022,12 @@
           "default": "",
           "description": "Optional model ID to pin for the synthesis phase (summarizing results/sessions into reasoning context). Leave empty to route synthesis normally.",
           "markdownDescription": "Optional model ID pinned for the synthesis phase — summarizing results or a chat session into reusable reasoning context. Like planning, synthesis is a no-tool reasoning step, so this completes the planner-brain / tool-executor / synthesis role-routing trio: pin a strong reasoner here while tool-using execution still routes to workers.\n\nWhen set to a known model ID, synthesis uses it directly (bypassing budget/speed gates); empty (default) routes synthesis with normal scoring. Falls back to normal routing if the model is unknown.\n\nExamples:\n- `anthropic/claude-sonnet-4`\n- `claude-cli/opus`"
+        },
+        "atlasmind.draftModelId": {
+          "type": "string",
+          "default": "",
+          "description": "Optional model ID pinned to draft mechanical/low-stakes tasks (e.g. a fast local model). Struggle-gated escalation upgrades to a stronger model if the draft falls short. Leave empty to route normally.",
+          "markdownDescription": "Optional model ID pinned to **draft** mechanical, low-stakes tasks (routine edits, script runs, narrow test generation) — the local-draft half of local-draft / frontier-escalate routing. A fast local model is a good choice.\n\nWhen set, draftable tasks (auto budget + mechanical) start with this model; if the draft struggles (low confidence / repeated tool failures), AtlasMind's existing escalation upgrades to a stronger reasoning-capable model automatically. The pin applies only to the first attempt and never blocks escalation. Empty (default) routes normally; an unknown model falls back to normal routing.\n\nExamples:\n- `local/llama-3.1-8b-instruct`\n- `google/gemini-2.0-flash`"
         },
         "atlasmind.localOpenAiBaseUrl": {
           "type": "string",
