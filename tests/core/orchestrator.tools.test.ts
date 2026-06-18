@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { describe, expect, it, vi } from 'vitest';
-import { Orchestrator, buildProjectSessionContextBundle, classifySubTaskFailure, collapseDuplicatedTrailingBlock, resolveProviderIdForModel, shouldBiasTowardWorkspaceInvestigation, TOOL_EXECUTION_FAILURE_PREFIX } from '../../src/core/orchestrator.ts';
+import { Orchestrator, appendVerificationCaveat, buildProjectSessionContextBundle, classifySubTaskFailure, collapseDuplicatedTrailingBlock, detectVerificationContradiction, resolveProviderIdForModel, responseClaimsSuccessWithoutCaveat, shouldBiasTowardWorkspaceInvestigation, TOOL_EXECUTION_FAILURE_PREFIX, verificationIndicatesFailure } from '../../src/core/orchestrator.ts';
 import { MAX_TOOL_ITERATIONS } from '../../src/constants.ts';
 import { AgentRegistry } from '../../src/core/agentRegistry.ts';
 import { SkillsRegistry } from '../../src/core/skillsRegistry.ts';
@@ -264,6 +264,50 @@ describe('project subtask failure classification', () => {
     expect(sub.status).not.toBe('completed');
     expect(sub.error).toMatch(/without delivering/i);
   });
+});
+
+describe('verification-contradiction detection', () => {
+  it('treats structured failure markers as a failed verification', () => {
+    expect(verificationIndicatesFailure('FAIL: npm run test (exit 1)')).toBe(true);
+    expect(verificationIndicatesFailure('Triggered by: vitest\nexit code 2')).toBe(true);
+    expect(verificationIndicatesFailure('3 failed | 10 passed')).toBe(true);
+    expect(verificationIndicatesFailure('✗ Colour Sampler > saveSwatch')).toBe(true);
+  });
+
+  it('does not treat passing or benign output as failure', () => {
+    expect(verificationIndicatesFailure('PASS: npm run test (exit 0)')).toBe(false);
+    expect(verificationIndicatesFailure('0 failed | 42 passed')).toBe(false);
+    expect(verificationIndicatesFailure('All tests passed; no failures.')).toBe(false);
+    expect(verificationIndicatesFailure(undefined)).toBe(false);
+    expect(verificationIndicatesFailure('')).toBe(false);
+  });
+
+  it('detects a success claim that does not acknowledge a failure', () => {
+    expect(responseClaimsSuccessWithoutCaveat('I added the test and the implementation is moving forward.')).toBe(true);
+    expect(responseClaimsSuccessWithoutCaveat('I added the test, but the suite is still failing.')).toBe(false);
+    expect(responseClaimsSuccessWithoutCaveat('Here is what I found in the module.')).toBe(false);
+  });
+
+  it('flags a success claim contradicted by a failing verification run', () => {
+    expect(detectVerificationContradiction(
+      'I added a test case; this moves the implementation forward.',
+      'FAIL: npm run test (exit 1)',
+    )).toBe(true);
+  });
+
+  it('does not flag when the verification passed or the response acknowledged failure', () => {
+    expect(detectVerificationContradiction('I added a passing test.', 'PASS: npm run test (exit 0)')).toBe(false);
+    expect(detectVerificationContradiction('I added a test but it is still failing.', 'FAIL: npm run test (exit 1)')).toBe(false);
+  });
+
+  it('appends a deterministic caveat citing the failing line', () => {
+    const caveat = appendVerificationCaveat('All done — the fix is complete.', 'Triggered by: vitest\nFAIL: npm run test (exit 1)\nmore log');
+    expect(caveat).toContain('All done');
+    expect(caveat).toContain('Verification did not pass');
+    expect(caveat).toContain('FAIL: npm run test (exit 1)');
+    expect(caveat).toContain('not complete');
+  });
+
 });
 
 describe('Orchestrator agentic loop', () => {

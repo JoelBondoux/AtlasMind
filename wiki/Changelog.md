@@ -6,6 +6,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.103.3 — No Success Claims Over a Failing Verification
+
+- **A turn can no longer report success while its own verification run failed.** If a response claimed the work was done while the post-edit verification reported `FAIL` / a non-zero exit code, AtlasMind now gives the model one chance to reconcile (fix it or state the task isn't complete) and, if it still claims success, appends a deterministic caveat citing the failing line and marking the task **not complete**. Detection keys on structured markers (`FAIL:`, `exit N`, `N failed`, `✗`) and is overridden by `PASS:` / `0 failed`, so a test merely *named* "…fails when…" isn't misread.
+
 ## v0.103.2 — Honest Subtask Outcomes
 
 - **Project subtasks that didn't actually deliver are no longer reported as completed.** A subtask that ended on a hard tool error (e.g. a missing-file read), returned only a preamble ("Let's inspect…") with no work, or otherwise signalled incomplete delivery used to be recorded as `completed` — letting the run build dependents on a broken foundation and report a false "N/N completed". These are now classified as `failed` (with an explanatory reason), so dependents are skipped and the run's completed/failed counts are honest. A failing subtask also gets one recovery retry before it's marked failed. (Iteration-cap pauses remain `needs-input`, from v0.101.0.)

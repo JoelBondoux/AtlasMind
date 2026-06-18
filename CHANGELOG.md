@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.103.3] - 2026-06-18
+
+### Fixed
+- **A turn can no longer report success while its own verification run failed** (`src/core/orchestrator.ts`). When an agent answer claimed the work was done/"moving forward" but the post-edit verification (`verificationSummary`) reported `FAIL` / a non-zero `exit` / `N failed`, the response still asserted success — contradicting the failure the harness had already captured.
+  - New `detectVerificationContradiction` (with `verificationIndicatesFailure`, `responseClaimsSuccessWithoutCaveat`, and `appendVerificationCaveat`) gates the agentic loop's natural stop. On a contradiction it first injects **one** reconcile reprompt (`buildVerificationContradictionReprompt`) asking the model to either make verification pass or state plainly that the task is not complete; if the response still claims success, a **deterministic, non-model-authored caveat** is appended citing the failing line and marking the task **not complete**.
+  - Failure detection keys on structured markers (`FAIL:`, `exit N≥1`, `N failed` with N≥1, `✗`) and is overridden by `PASS:` / `0 failed` / "no failures", so a test merely *named* "…fails when…" is not misread as a failure. The gate never fires when the response already acknowledges the failure.
+
+### Added
+- **Tests**: `tests/core/orchestrator.tools.test.ts` covers `verificationIndicatesFailure` (structured failure vs. passing/benign), `responseClaimsSuccessWithoutCaveat`, `detectVerificationContradiction`, and `appendVerificationCaveat`.
+
 ## [0.103.2] - 2026-06-18
 
 ### Fixed

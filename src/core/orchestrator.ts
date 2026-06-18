@@ -1844,6 +1844,7 @@ export class Orchestrator {
     const forceWorkspaceToolBackedInvestigation = workspaceToolBias !== 'none';
     let workspaceRepromptCount = 0;
     let completionIntegrityRepromptDone = false;
+    let verificationContradictionRepromptDone = false;
     let readonlyExplorationTurns = 0;
     let readonlyExplorationNudged = false;
     let lastToolResults: Array<{ toolCall: ToolCall; result: string; isFailure?: boolean }> = [];
@@ -1949,6 +1950,23 @@ export class Orchestrator {
           messages.push({ role: 'assistant', content: completion.content });
           messages.push({ role: 'user', content: buildCompletionIntegrityReprompt() });
           continue;
+        }
+        // Verification-contradiction gate: the response claims success while the
+        // latest post-edit verification run failed. Give the model one chance to
+        // reconcile; if it still claims success, append a deterministic caveat so
+        // the surfaced answer cannot assert a result its own verification refutes.
+        if (detectVerificationContradiction(completion.content, verificationSummary)) {
+          if (!verificationContradictionRepromptDone) {
+            verificationContradictionRepromptDone = true;
+            onProgress?.('AtlasMind detected a claim of success that contradicts a failing verification run — re-prompting the agent to reconcile.');
+            messages.push({ role: 'assistant', content: completion.content });
+            messages.push({ role: 'user', content: buildVerificationContradictionReprompt(verificationSummary) });
+            continue;
+          }
+          completion = {
+            ...completion,
+            content: appendVerificationCaveat(completion.content, verificationSummary),
+          };
         }
         if (lastToolResults.length > 0 && lastToolResults.every(isFailedToolEntry)) {
           completion = {
@@ -3867,6 +3885,68 @@ export function classifySubTaskFailure(response: string): string | undefined {
     return 'Subtask reported incomplete or unverified work.';
   }
   return undefined;
+}
+
+/**
+ * Whether a post-edit verification summary indicates the run did NOT pass.
+ *
+ * Keyed on structured markers the host verifier emits (`FAIL:`, a non-zero
+ * `exit N`, an `N failed` count ≥ 1, `✗`) rather than the bare word "fail", so a
+ * test merely *named* "…fails when…" or a "0 failed" / "no failures" line is not
+ * misread as a failure.
+ */
+export function verificationIndicatesFailure(summary?: string): boolean {
+  if (!summary || summary.trim().length === 0) { return false; }
+  return /\bFAIL:|\bexit\s+(?:code\s+)?[1-9]\d*\b|\b[1-9]\d* failed\b|✗/i.test(summary);
+}
+
+const SUCCESS_CLAIM_PATTERN = /\b(?:fixed|added|implemented|completed?|done|passes|passing|works?|working|resolved|succeeded|successfully|all\s+(?:tests\s+)?(?:pass|green)|moving\s+(?:the\s+implementation\s+)?forward)\b/i;
+const FAILURE_ACKNOWLEDGEMENT_PATTERN = /\b(?:fail(?:s|ed|ing|ure)?|did\s?n'?t\s+pass|does\s?n'?t\s+pass|not\s+pass|still\s+(?:failing|broken|red)|unresolved|blocker|blocked|exit\s+[1-9]|not\s+yet|incomplete|unverified|could\s?n'?t|cannot|unable)\b/i;
+
+/**
+ * Whether a response asserts success/progress WITHOUT acknowledging a failure.
+ * Used together with {@link verificationIndicatesFailure} to detect a response
+ * that claims the work is done while its own verification run failed.
+ */
+export function responseClaimsSuccessWithoutCaveat(response: string): boolean {
+  if (!response) { return false; }
+  return SUCCESS_CLAIM_PATTERN.test(response) && !FAILURE_ACKNOWLEDGEMENT_PATTERN.test(response);
+}
+
+/** A response that reports success contradicted by a failing verification run. */
+export function detectVerificationContradiction(response: string, verificationSummary?: string): boolean {
+  return verificationIndicatesFailure(verificationSummary) && responseClaimsSuccessWithoutCaveat(response);
+}
+
+function extractVerificationFailureLine(summary: string): string {
+  const line = summary
+    .split('\n')
+    .map(entry => entry.trim())
+    .find(entry => verificationIndicatesFailure(entry));
+  return line ? truncateToChars(line, 200) : 'the latest verification run did not pass';
+}
+
+/**
+ * Deterministic honesty safety net: appends a non-model-authored caveat when a
+ * response claims success that its verification run does not support. Applied
+ * only after the model has already been given one chance to reconcile.
+ */
+export function appendVerificationCaveat(content: string, verificationSummary?: string): string {
+  const detail = verificationSummary ? extractVerificationFailureLine(verificationSummary) : 'the latest verification run did not pass';
+  const rendered = /\bFAIL:|exit\s+(?:code\s+)?[1-9]/i.test(detail) ? `\`${detail}\`` : detail;
+  return `${content.replace(/\s+$/, '')}\n\n---\n⚠️ **Verification did not pass** — ${rendered}. The claim of success above is not supported by the latest verification run; treat this task as **not complete** until verification passes.`;
+}
+
+function buildVerificationContradictionReprompt(verificationSummary?: string): string {
+  return [
+    'Your response reports success or progress, but the latest verification run did NOT pass:',
+    '',
+    verificationSummary ? truncateToChars(verificationSummary, 800) : '(verification failed)',
+    '',
+    'You must now do one of the following — no exceptions:',
+    '- Fix the underlying problem and re-run the verification so it passes, then report the passing result.',
+    '- If you cannot make it pass in this session, state plainly that the task is NOT complete, exactly what is failing, and what remains. Do not describe the work as done, finished, or "moving forward".',
+  ].join('\n');
 }
 
 function buildCompletionIntegrityReprompt(): string {
