@@ -1153,6 +1153,17 @@ async function refreshWorkspaceMemoryFreshness(
   return status;
 }
 
+/**
+ * Whether to automatically re-import stale imported SSOT entries on activation /
+ * file changes. Default off: the re-import is an expensive LLM re-summarization of
+ * every stale entry, so running it on every launch is slow and costly. When off,
+ * the freshness check still flags staleness (via `setMemoryNeedsUpdateContext`), so
+ * the "Update Memory" affordance is surfaced for an explicit, on-demand refresh.
+ */
+function isStaleMemoryAutoRefreshEnabled(): boolean {
+  return vscode.workspace.getConfiguration('atlasmind').get<boolean>('autoRefreshStaleMemory', false);
+}
+
 async function autoRefreshProjectMemoryIfStale(
   workspaceFolder: vscode.WorkspaceFolder,
   atlas: AtlasMindContext,
@@ -1416,6 +1427,10 @@ function registerProjectMemoryAutoRefresh(
         return;
       }
 
+      if (!isStaleMemoryAutoRefreshEnabled()) {
+        outputChannel.appendLine('[activate] memoryFreshness auto-refresh disabled (atlasmind.autoRefreshStaleMemory=false); memory marked stale — use the Update Memory action to refresh on demand.');
+        return;
+      }
       refreshInFlight = true;
       lastAttemptedGeneration = scheduledGeneration;
       void autoRefreshProjectMemoryIfStale(workspaceFolder, atlas, outputChannel, reason)
@@ -1880,7 +1895,14 @@ async function bootstrapAtlasMind(
         modelRouter,
         providerRegistry,
         outputChannel,
-        { includeInteractiveProviders, globalState: context.globalState },
+        {
+          includeInteractiveProviders,
+          globalState: context.globalState,
+          // Skip discovery for providers the user has not configured (no API key /
+          // credentials), so unconfigured providers (e.g. Bedrock with no AWS keys,
+          // whose health check otherwise attempts a ~30s network call) are not probed.
+          isProviderConfigured: (providerId: string) => atlasContext?.isProviderConfigured(providerId as ProviderId) ?? Promise.resolve(true),
+        },
       );
       applyModelAvailabilityState(
         modelRouter,
@@ -2346,12 +2368,14 @@ async function bootstrapAtlasMind(
       atlasContext?.sessionContextManager.setSsotRoot(resolved.uri);
       await setSsotPresentContext(true);
       await refreshWorkspaceMemoryFreshness(workspaceFolder, outputChannel);
-      if (atlasContext) {
+      if (atlasContext && isStaleMemoryAutoRefreshEnabled()) {
         void autoRefreshProjectMemoryIfStale(workspaceFolder, atlasContext, outputChannel, 'ssot-load')
           .catch(error => {
             const detail = error instanceof Error ? error.stack ?? error.message : String(error);
             outputChannel.appendLine(`[activate] memoryFreshness ssot-load auto-refresh failed: ${detail}`);
           });
+      } else if (atlasContext) {
+        outputChannel.appendLine('[activate] memoryFreshness auto-refresh disabled (atlasmind.autoRefreshStaleMemory=false); memory marked stale — use the Update Memory action to refresh on demand.');
       }
     });
   } else {
@@ -2737,6 +2761,8 @@ async function refreshProviderModelsCatalog(
   options?: {
     includeInteractiveProviders?: boolean;
     globalState?: vscode.Memento;
+    /** When provided, providers that report not-configured are skipped (no health check, no discovery). */
+    isProviderConfigured?: (providerId: string) => Promise<boolean>;
   },
 ): Promise<{ providersUpdated: number; modelsAvailable: number }> {
   const providers = modelRouter.listProviders();
@@ -2776,6 +2802,20 @@ async function refreshProviderModelsCatalog(
     if (!adapter) {
       outputChannel?.appendLine(`[providers] ${provider.id}: no adapter registered; skipping discovery.`);
       return { updated: false, modelEntries: provider.models.length };
+    }
+
+    // Skip providers the user hasn't configured (no API key / credentials) before
+    // any health check — this avoids slow network probes for unconfigured providers
+    // (e.g. Bedrock). Interactive providers (Copilot / Claude CLI) are excluded from
+    // this check since their "configured" state is their own (slow) health probe and
+    // they are already deferred above when not explicitly activated.
+    if (options?.isProviderConfigured && !requiresExplicitProviderActivation(provider.id)) {
+      const configured = await options.isProviderConfigured(provider.id);
+      if (!configured) {
+        modelRouter.setProviderHealth(provider.id, false);
+        outputChannel?.appendLine(`[providers] ${provider.id}: not configured (no credentials); skipping discovery.`);
+        return { updated: false, modelEntries: provider.models.length };
+      }
     }
 
     try {
