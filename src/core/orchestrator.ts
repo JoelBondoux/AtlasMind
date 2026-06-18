@@ -410,7 +410,8 @@ export class Orchestrator {
    * the caller controls the full prompt.
    */
   async summarizeText(systemPrompt: string, userPrompt: string): Promise<string> {
-    const constraints: RoutingConstraints = { budget: 'balanced', speed: 'fast' };
+    // Synthesis is a no-tool reasoning phase; honour a configured synthesis "brain".
+    const constraints = this.withRoleModel({ budget: 'balanced', speed: 'fast' }, 'synthesisModelId');
     const taskProfile = this.taskProfiler.profileTask({ userMessage: userPrompt, phase: 'synthesis', requiresTools: false });
     const model = this.router.selectModel(constraints, undefined, taskProfile);
     const providerId = resolveProviderIdForModel(model, this.router, 'copilot');
@@ -1338,7 +1339,7 @@ export class Orchestrator {
       plan = options.planOverride;
     } else {
       try {
-        plan = await planner.plan(goal, this.withPlanningBrainModel(constraints), signal);
+        plan = await planner.plan(goal, this.withRoleModel(constraints, 'planningModelId'), signal);
       } catch (err) {
         onProgress?.({ type: 'error', message: err instanceof Error ? err.message : String(err) });
         throw err;
@@ -1614,7 +1615,7 @@ export class Orchestrator {
     const planner = new Planner(this.router, this.providers, this.taskProfiler, this.memory, this.skills);
     let plan: ProjectPlan;
     try {
-      plan = await planner.plan(request.userMessage, this.withPlanningBrainModel(request.constraints));
+      plan = await planner.plan(request.userMessage, this.withRoleModel(request.constraints, 'planningModelId'));
     } catch {
       plan = {
         id: `plan-${Date.now()}`,
@@ -3245,19 +3246,18 @@ export class Orchestrator {
   }
 
   /**
-   * Direction 3 — planner-brain role routing. When `atlasmind.planningModelId`
-   * pins a "brain" model (e.g. a strong reasoner, or a Claude subscription, since
-   * planning is a no-tool reasoning phase), pin it for the planning constraints so
-   * decomposition is done by the chosen model while execution still routes to
-   * tool-capable workers. Falls back silently to normal routing when unset or the
-   * model is unknown.
+   * Direction 3 — role-based routing. Pin a model configured for a routing role
+   * (e.g. the planning "brain" via `atlasmind.planningModelId`, or the synthesis
+   * model via `atlasmind.synthesisModelId`) onto the constraints, so that phase is
+   * handled by the chosen model while other phases route normally. Falls back
+   * silently to normal routing when the setting is unset or the model is unknown.
    */
-  private withPlanningBrainModel(constraints: RoutingConstraints): RoutingConstraints {
-    const brainModelId = (vscode.workspace.getConfiguration('atlasmind').get<string>('planningModelId', '') ?? '').trim();
-    if (!brainModelId || !this.router.getModelInfo(brainModelId)) {
+  private withRoleModel(constraints: RoutingConstraints, settingKey: string): RoutingConstraints {
+    const modelId = (vscode.workspace.getConfiguration('atlasmind').get<string>(settingKey, '') ?? '').trim();
+    if (!modelId || !this.router.getModelInfo(modelId)) {
       return constraints;
     }
-    return { ...constraints, preferredModel: brainModelId };
+    return { ...constraints, preferredModel: modelId };
   }
 
   private estimateCostBreakdown(model: string, inputTokens: number, outputTokens: number, cachedInputTokens = 0): CostEstimate {

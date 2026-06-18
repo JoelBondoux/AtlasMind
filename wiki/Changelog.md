@@ -6,6 +6,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.94.0 — Synthesis Role Pin
+
+- **Complete the role-routing trio** (`src/core/orchestrator.ts`): a new `atlasmind.synthesisModelId` setting pins the synthesis phase (summarizing results/sessions) to a chosen reasoner, symmetric to `atlasmind.planningModelId`. Together they implement plan-with-the-brain → execute-with-workers → synthesize-with-the-brain over the `preferredModel` pin. See [[Configuration]] and [[Model-Routing]].
+
 ## v0.93.0 — Context-Aware Outcome Routing
 
 - **Outcome bias per reasoning tier** (`src/core/modelRouter.ts`): the learned routing bias now tracks each model's outcomes both in aggregate and per reasoning tier (low/medium/high), so a model strong at deep reasoning but weak at mechanical work is preferred only where it actually performs. Falls back to the aggregate when a tier bucket is sparse. See [[Model-Routing]].

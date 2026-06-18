@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.94.0] - 2026-06-18
+
+### Added
+- **Synthesis-phase role pin — completing the role-routing trio (Direction 3)** (`src/core/orchestrator.ts`, `package.json`, `docs/configuration.md`, `wiki/Configuration.md`): a new `atlasmind.synthesisModelId` setting pins the synthesis phase (summarizing results or a chat session into reusable reasoning context — a no-tool reasoning step) to a chosen model, symmetric to `atlasmind.planningModelId`. Together they realise the full **plan (brain) → execute (tool-capable workers) → synthesize (brain)** role-routing pattern over the `preferredModel` primitive. The per-role helper `withPlanningBrainModel` was generalised to `withRoleModel(constraints, settingKey)` and applied at the planning call sites and `summarizeText`. When set to a known model the pinned model is used directly (bypassing budget/speed gates); empty routes normally, and an unknown model falls back to normal routing.
+
 ## [0.93.0] - 2026-06-18
 
 ### Added
