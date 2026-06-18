@@ -6,6 +6,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.103.1 — Inline Sidebar Brand Header
+
+- **The sidebar brand header is now a single inline line.** The project name moved from a stacked subtitle to an inline **`AtlasMind/ProjectName`** form — the project name follows a forward slash after the wordmark in a slightly smaller, dimmer font — reclaiming the vertical space the second row used. When no project name is available, the slash and name are hidden and only the clickable "AtlasMind" wordmark remains. Both segments stay independently clickable (wordmark → Settings, project name → Project Dashboard).
+
 ## v0.103.0 — Smarter Triage Routing, Cleaner Answers & a Clickable Sidebar Brand Header
 
 - **Open-ended "what should we work on next / is anything incomplete?" prompts now route to a capable model.** They previously matched no reasoning hint and fell through to the cheapest (often sub-10B) model, which can't do whole-project triage. They are now classified as high-reasoning so the router steers them to a stronger model. Mechanical follow-ups (e.g. "commit") are unaffected.

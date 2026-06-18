@@ -233,6 +233,7 @@
   const panelTitle = document.getElementById('panelTitle');
   const panelSubtitle = document.getElementById('panelSubtitle');
   const brandTitle = document.getElementById('brandTitle');
+  const brandSeparator = document.getElementById('brandSeparator');
   const brandProject = document.getElementById('brandProject');
   const composerHint = document.getElementById('composerHint');
   const pendingRunReviewBar = document.getElementById('pendingRunReviewBar');
@@ -3605,10 +3606,12 @@
 
       if (brandProject) {
         var projectName = state.projectName || '';
-        brandProject.textContent = projectName || 'No project open';
-        brandProject.title = projectName
-          ? 'Open the Project Dashboard for ' + projectName
-          : 'Open the Project Dashboard';
+        brandProject.textContent = projectName;
+        brandProject.title = 'Open the Project Dashboard for ' + projectName;
+        brandProject.classList.toggle('hidden', !projectName);
+        if (brandSeparator) {
+          brandSeparator.classList.toggle('hidden', !projectName);
+        }
       }
 
       var isRun = state.activeSurface === 'run';

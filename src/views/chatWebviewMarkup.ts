@@ -37,7 +37,8 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           <div class="chat-column">
             <header class="atlas-brand" role="banner">
               <button id="brandTitle" class="atlas-brand-title" type="button" title="Open AtlasMind Settings" aria-label="Open AtlasMind Settings">AtlasMind</button>
-              <button id="brandProject" class="atlas-brand-subtitle" type="button" title="Open the Project Dashboard" aria-label="Open the Project Dashboard">No project open</button>
+              <span id="brandSeparator" class="atlas-brand-separator hidden" aria-hidden="true">/</span>
+              <button id="brandProject" class="atlas-brand-project hidden" type="button" title="Open the Project Dashboard" aria-label="Open the Project Dashboard"></button>
             </header>
             <main class="main-panel">
               <section class="panel-header">
@@ -232,13 +233,15 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
         .atlas-brand {
           flex: 0 0 auto;
           display: flex;
-          flex-direction: column;
-          align-items: flex-start;
+          flex-direction: row;
+          align-items: baseline;
           gap: 1px;
-          padding: 8px 12px 6px;
+          min-width: 0;
+          padding: 6px 12px;
           border-bottom: 1px solid var(--vscode-sideBar-border, var(--vscode-widget-border, #444));
         }
         .atlas-brand-title {
+          flex: 0 0 auto;
           background: none;
           border: 0;
           padding: 0;
@@ -255,23 +258,30 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           color: var(--vscode-textLink-foreground);
           text-decoration: underline;
         }
-        .atlas-brand-subtitle {
+        .atlas-brand-separator {
+          flex: 0 0 auto;
+          color: var(--vscode-descriptionForeground);
+          font-size: 0.86em;
+          user-select: none;
+        }
+        .atlas-brand-project {
+          flex: 0 1 auto;
+          min-width: 0;
           background: none;
           border: 0;
           padding: 0;
           margin: 0;
           cursor: pointer;
-          font-size: 0.78em;
+          font-size: 0.82em;
           color: var(--vscode-descriptionForeground);
           font-family: inherit;
           text-align: left;
-          max-width: 100%;
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
         }
-        .atlas-brand-subtitle:hover,
-        .atlas-brand-subtitle:focus-visible {
+        .atlas-brand-project:hover,
+        .atlas-brand-project:focus-visible {
           color: var(--vscode-textLink-foreground);
           text-decoration: underline;
         }

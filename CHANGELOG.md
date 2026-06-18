@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.103.1] - 2026-06-18
+
+### Changed
+- **Sidebar brand header is now a single inline line** (`src/views/chatWebviewMarkup.ts`, `media/chatPanel.js`). The project name moved from a second subtitle row to an inline `AtlasMind/ProjectName` form — the connected project name follows a forward slash after the wordmark and renders in a slightly smaller, dimmer font — reclaiming the vertical space the stacked subtitle used. The slash separator and project name are hidden entirely when no project name is available (Git remote or workspace folder), leaving just the clickable "AtlasMind" wordmark. Both segments remain independently clickable (wordmark → Settings, project name → Project Dashboard).
+
 ## [0.103.0] - 2026-06-18
 
 ### Changed
