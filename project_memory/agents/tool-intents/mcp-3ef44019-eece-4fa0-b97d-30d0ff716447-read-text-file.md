@@ -1,0 +1,3 @@
+Natural-language request "fix this issue in the workspace autonomously continue through implementation and verification without waiting for another prompt unless you hit a real blocker" previously resolved to "mcp:3ef44019-eece-4fa0-b97d-30d0ff716447:read_text_file". Likely cues: text file, read, read text file, open, open text file, view.
+Last successful tool result:
+TDD gate: establish a failing relevant test signal before editing non-test implementation files or invoking risky external execution for implementation work. Add, update, or create the smallest relevant test or spec first if none exists yet, then run test-run or terminal-run to observe the failing behavior before retr…

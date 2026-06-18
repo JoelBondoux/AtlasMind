@@ -6,6 +6,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.100.2 — SSOT Tracked in Git (Selective)
+
+- **The `project_memory/` "project brain" is now version-controlled** (agents, decisions, ideas, architecture, roadmap, routines, …) instead of being blanket-ignored. Volatile or potentially-sensitive content — chat session transcripts, temp scratch files, and dated run-history dumps — stays out of the public repo. Repo-hygiene change only.
+
 ## v0.100.1 — Open Knowledge Format (OKF) Interoperability Planning
 
 - **Planned OKF support** for Google Cloud's new vendor-neutral knowledge format (OKF v0.1, 2026-06-16). AtlasMind's SSOT is already structurally OKF-shaped, so the plan is to add **import/export** — including a **"Convert project to OKF"** command that emits an ingested project as a portable bundle — plus a **spec-watch sync** that tracks the standard as it evolves and only raises an advisory on changes (never auto-editing your memory). Evaluation and design captured in the project roadmap; planning only, no implementation yet.

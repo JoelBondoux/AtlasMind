@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.100.2] - 2026-06-18
+
+### Changed
+- **`.gitignore`: selectively track the `project_memory/` SSOT** instead of blanket-ignoring it. The folder was previously fully ignored yet ~49 curated files were force-tracked anyway, so new SSOT entries silently fell outside git unless added with `-f`. The "project brain" (agents, decisions, ideas, architecture, domain, operations, roadmap, skills, index, routines) is now tracked by default, while volatile / potentially-sensitive content stays out of this **public** repo: `project_memory/sessions/` (chat transcripts), `project_memory/temp/`, and dated `project_memory/operations/project-run-*.json` run-history dumps. The stale `project_memory/temp/vision-enhancement.md` was untracked, and the previously-untracked curated entries were added.
+
 ## [0.100.1] - 2026-06-18
 
 ### Added
