@@ -1036,6 +1036,7 @@ export class ProjectRunCenterPanel {
         if (update.result.status === 'failed') {
           failedSubtaskTitles.push(update.result.title);
         }
+        const isPaused = update.result.status === 'needs-input';
         const previousSnapshot = getLastImpactSnapshot();
         const impact = await collectWorkspaceChangesSince(previousSnapshot);
         const diffPreview = buildChangedFilesDiffPreview(previousSnapshot, impact.snapshot, impact.changedFiles);
@@ -1047,11 +1048,17 @@ export class ProjectRunCenterPanel {
           completedSubtaskCount: update.completed,
           totalSubtaskCount: update.total,
           failedSubtaskTitles: [...failedSubtaskTitles],
+          ...(isPaused ? { paused: true } : {}),
           subTaskArtifacts: upsertArtifact(run.subTaskArtifacts, artifact),
         }));
+        const outcomeLabel = update.result.status === 'failed'
+          ? 'failed'
+          : isPaused
+            ? `paused (tool-iteration limit reached${typeof update.result.suggestedIterationLimit === 'number' ? `; raise to ${update.result.suggestedIterationLimit} to resume` : ''})`
+            : 'completed';
         await appendLog(
-          update.result.status === 'failed' ? 'warning' : 'info',
-          `${update.result.title} ${update.result.status === 'failed' ? 'failed' : 'completed'} ` +
+          (update.result.status === 'failed' || isPaused) ? 'warning' : 'info',
+          `${update.result.title} ${outcomeLabel} ` +
           `(${update.completed}/${update.total}). tool calls: ${artifact.toolCallCount}.` +
           (impact.changedFiles.length > 0 ? ` ${impact.changedFiles.length} file(s) changed.` : ''),
         );
@@ -2277,6 +2284,13 @@ export class ProjectRunCenterPanel {
           line-height: 1;
         }
 
+        .subtask-pause {
+          font-size: 14px;
+          font-weight: 700;
+          color: var(--run-warn);
+          line-height: 1;
+        }
+
         .subtask-pending-dot {
           width: 10px;
           height: 10px;
@@ -2761,18 +2775,24 @@ function buildScript(): string {
     let doneCount = 0;
     let failedCount = 0;
     let runningCount = 0;
+    let pausedCount = 0;
 
     const rows = tasks.map(task => {
       const artifact = artifacts.find(a => a.title === task.title);
       let state = 'pending';
       if (artifact) {
-        state = artifact.status === 'failed' ? 'failed' : 'completed';
+        state = artifact.status === 'failed'
+          ? 'failed'
+          : artifact.status === 'needs-input'
+            ? 'paused'
+            : 'completed';
       } else if (runningTitle && task.title === runningTitle) {
         state = 'running';
       }
 
       if (state === 'completed') { doneCount++; }
       else if (state === 'failed') { failedCount++; }
+      else if (state === 'paused') { pausedCount++; }
       else if (state === 'running') { runningCount++; }
 
       let iconHtml;
@@ -2782,13 +2802,17 @@ function buildScript(): string {
         iconHtml = '<div class="subtask-icon"><span class="subtask-tick">✓<' + '/span><' + '/div>';
       } else if (state === 'failed') {
         iconHtml = '<div class="subtask-icon"><span class="subtask-cross">✗<' + '/span><' + '/div>';
+      } else if (state === 'paused') {
+        iconHtml = '<div class="subtask-icon"><span class="subtask-pause">⏸<' + '/span><' + '/div>';
       } else {
         iconHtml = '<div class="subtask-icon"><div class="subtask-pending-dot"><' + '/div><' + '/div>';
       }
 
       const retryHint = state === 'failed'
         ? '<span class="subtask-retry-hint">requires retry<' + '/span>'
-        : '';
+        : state === 'paused'
+          ? '<span class="subtask-retry-hint">raise limit to resume<' + '/span>'
+          : '';
 
       return '<div class="subtask-track-row is-' + state + '">' +
         iconHtml +
@@ -2806,8 +2830,9 @@ function buildScript(): string {
     const parts = [];
     if (doneCount > 0) { parts.push(doneCount + ' done'); }
     if (runningCount > 0) { parts.push(runningCount + ' running'); }
+    if (pausedCount > 0) { parts.push(pausedCount + ' paused'); }
     if (failedCount > 0) { parts.push(failedCount + ' failed'); }
-    const pending = tasks.length - doneCount - failedCount - runningCount;
+    const pending = tasks.length - doneCount - failedCount - runningCount - pausedCount;
     if (pending > 0) { parts.push(pending + ' pending'); }
     subtaskTrackerSummary.textContent = parts.length > 0 ? parts.join(' · ') : String(tasks.length) + ' subtasks';
   }

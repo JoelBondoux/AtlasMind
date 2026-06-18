@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { describe, expect, it, vi } from 'vitest';
-import { Orchestrator, buildProjectSessionContextBundle, resolveProviderIdForModel, shouldBiasTowardWorkspaceInvestigation } from '../../src/core/orchestrator.ts';
+import { Orchestrator, appendVerificationCaveat, buildProjectSessionContextBundle, classifySubTaskFailure, collapseDuplicatedTrailingBlock, detectVerificationContradiction, resolveProviderIdForModel, responseClaimsSuccessWithoutCaveat, shouldBiasTowardWorkspaceInvestigation, TOOL_EXECUTION_FAILURE_PREFIX, verificationIndicatesFailure } from '../../src/core/orchestrator.ts';
 import { MAX_TOOL_ITERATIONS } from '../../src/constants.ts';
 import { AgentRegistry } from '../../src/core/agentRegistry.ts';
 import { SkillsRegistry } from '../../src/core/skillsRegistry.ts';
@@ -163,6 +163,152 @@ function makeOrchestrator(
     { toolApprovalGate, writeCheckpointHook, postToolVerifier, generatedSkillApprovalGate } as never,
   );
 }
+
+describe('collapseDuplicatedTrailingBlock', () => {
+  it('removes a verbatim-duplicated trailing answer block', () => {
+    const block = '### Final Answer\n\n' + 'The exact file path to change is server/tests/batch.test.ts. '.repeat(8);
+    const doubled = block + block;
+    const collapsed = collapseDuplicatedTrailingBlock(doubled);
+    expect(collapsed).toBe(block.replace(/\s+$/, ''));
+  });
+
+  it('tolerates whitespace between the duplicated copies', () => {
+    const block = 'Here is a sufficiently long answer block that the model unfortunately decided to emit twice in a row. '.repeat(4);
+    const collapsed = collapseDuplicatedTrailingBlock(block + '\n\n' + block);
+    // Keeps a single copy; never longer than the doubled input.
+    expect(collapsed.length).toBeLessThan((block + block).length);
+    expect(collapsed.includes(block.trim().slice(0, 50))).toBe(true);
+  });
+
+  it('leaves a normal non-duplicated response untouched', () => {
+    const text = 'This is a normal answer with some structure.\n\n## Section\n\nDetails here, no repetition at all.';
+    expect(collapseDuplicatedTrailingBlock(text)).toBe(text);
+  });
+
+  it('does not collapse short or legitimately repeated small phrases', () => {
+    const text = 'Yes. Yes.';
+    expect(collapseDuplicatedTrailingBlock(text)).toBe(text);
+  });
+
+  it('preserves a prefix that precedes the duplicated block', () => {
+    const prefix = 'Unique intro paragraph that only appears once.\n\n';
+    const block = 'A long repeated conclusion paragraph that the model duplicated by mistake here. '.repeat(4);
+    const collapsed = collapseDuplicatedTrailingBlock(prefix + block + block);
+    expect(collapsed.startsWith('Unique intro paragraph')).toBe(true);
+    expect(collapsed).toBe((prefix + block).replace(/\s+$/, ''));
+  });
+});
+
+describe('classifySubTaskFailure', () => {
+  it('flags an unrecovered tool-execution failure', () => {
+    const response = `${TOOL_EXECUTION_FAILURE_PREFIX}\nThe underlying tool reported:\n- file-read: ENOENT: no such file`;
+    expect(classifySubTaskFailure(response)).toMatch(/tool-execution failure/i);
+  });
+
+  it('flags a preamble-only response that announces an action but delivers nothing', () => {
+    expect(classifySubTaskFailure("Let's inspect 'src/components/colourSampler.ts'.")).toMatch(/without delivering/i);
+    expect(classifySubTaskFailure("I'll inspect the contents of tests/colour-sampler/brush-overlay.test.ts to understand the test expectations.")).toMatch(/without delivering/i);
+  });
+
+  it('flags an empty response', () => {
+    expect(classifySubTaskFailure('   ')).toMatch(/no output/i);
+  });
+
+  it('flags an incomplete-delivery response', () => {
+    expect(classifySubTaskFailure('I created the handler but it is not yet wired into the router. Important follow-up remains.')).toBeTruthy();
+  });
+
+  it('returns undefined for genuine completed work', () => {
+    expect(classifySubTaskFailure('Implemented getConcurrencyLimit and added a passing test; the suite is green.')).toBeUndefined();
+    expect(classifySubTaskFailure('I reviewed the auth module and confirmed no changes are needed.')).toBeUndefined();
+  });
+
+  it('does not flag a short past-tense summary as a preamble', () => {
+    expect(classifySubTaskFailure('Let me know if you need anything else.')).toBeUndefined();
+  });
+});
+
+describe('project subtask failure classification', () => {
+  it('records a non-delivering subtask as failed instead of completed', async () => {
+    let planned = false;
+    const provider: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn(async () => {
+        if (!planned) {
+          planned = true;
+          return {
+            content: JSON.stringify({
+              subTasks: [
+                { id: 'explore', title: 'Explore codebase', description: 'Look around.', role: 'tester', skills: [], dependsOn: [] },
+              ],
+            }),
+            model: 'local/echo-1', inputTokens: 8, outputTokens: 12, finishReason: 'stop',
+          };
+        }
+        // Both the first attempt and the recovery retry return a bare preamble.
+        return {
+          content: "Let's inspect 'src/components/colourSampler.ts'.",
+          model: 'local/echo-1', inputTokens: 5, outputTokens: 4, finishReason: 'stop',
+        };
+      }),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+    const orchestrator = makeOrchestrator(provider, [], makeSkillContext());
+
+    const result = await orchestrator.processProject('Explore the codebase', { budget: 'balanced', speed: 'balanced' });
+
+    expect(result.subTaskResults).toHaveLength(1);
+    const sub = result.subTaskResults[0]!;
+    expect(sub.status).toBe('failed');
+    expect(sub.status).not.toBe('completed');
+    expect(sub.error).toMatch(/without delivering/i);
+  });
+});
+
+describe('verification-contradiction detection', () => {
+  it('treats structured failure markers as a failed verification', () => {
+    expect(verificationIndicatesFailure('FAIL: npm run test (exit 1)')).toBe(true);
+    expect(verificationIndicatesFailure('Triggered by: vitest\nexit code 2')).toBe(true);
+    expect(verificationIndicatesFailure('3 failed | 10 passed')).toBe(true);
+    expect(verificationIndicatesFailure('✗ Colour Sampler > saveSwatch')).toBe(true);
+  });
+
+  it('does not treat passing or benign output as failure', () => {
+    expect(verificationIndicatesFailure('PASS: npm run test (exit 0)')).toBe(false);
+    expect(verificationIndicatesFailure('0 failed | 42 passed')).toBe(false);
+    expect(verificationIndicatesFailure('All tests passed; no failures.')).toBe(false);
+    expect(verificationIndicatesFailure(undefined)).toBe(false);
+    expect(verificationIndicatesFailure('')).toBe(false);
+  });
+
+  it('detects a success claim that does not acknowledge a failure', () => {
+    expect(responseClaimsSuccessWithoutCaveat('I added the test and the implementation is moving forward.')).toBe(true);
+    expect(responseClaimsSuccessWithoutCaveat('I added the test, but the suite is still failing.')).toBe(false);
+    expect(responseClaimsSuccessWithoutCaveat('Here is what I found in the module.')).toBe(false);
+  });
+
+  it('flags a success claim contradicted by a failing verification run', () => {
+    expect(detectVerificationContradiction(
+      'I added a test case; this moves the implementation forward.',
+      'FAIL: npm run test (exit 1)',
+    )).toBe(true);
+  });
+
+  it('does not flag when the verification passed or the response acknowledged failure', () => {
+    expect(detectVerificationContradiction('I added a passing test.', 'PASS: npm run test (exit 0)')).toBe(false);
+    expect(detectVerificationContradiction('I added a test but it is still failing.', 'FAIL: npm run test (exit 1)')).toBe(false);
+  });
+
+  it('appends a deterministic caveat citing the failing line', () => {
+    const caveat = appendVerificationCaveat('All done — the fix is complete.', 'Triggered by: vitest\nFAIL: npm run test (exit 1)\nmore log');
+    expect(caveat).toContain('All done');
+    expect(caveat).toContain('Verification did not pass');
+    expect(caveat).toContain('FAIL: npm run test (exit 1)');
+    expect(caveat).toContain('not complete');
+  });
+
+});
 
 describe('Orchestrator agentic loop', () => {
   it('biases localhost and Ollama runtime checks toward workspace investigation', () => {
@@ -417,6 +563,63 @@ describe('Orchestrator agentic loop', () => {
     expect(recordedRequests[1]?.messages.at(-1)?.content).toContain('AUTONOMOUS DELIVERY POLICY');
     expect(recordedRequests[1]?.messages.at(-1)?.content).toContain('Add, update, or create the smallest automated test or spec');
     expect(recordedRequests[2]?.messages[0]?.content).toContain('A task is only COMPLETE when all implementation is wired end-to-end and verified');
+  });
+
+  it('surfaces a subtask that hits the tool-iteration cap as needs-input, not completed', async () => {
+    const providerCalls: CompletionRequest[] = [];
+    const provider: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn(async (request: CompletionRequest) => {
+        providerCalls.push(request);
+        // Call 1 is the planner — return a single subtask.
+        if (providerCalls.length === 1) {
+          return {
+            content: JSON.stringify({
+              subTasks: [
+                {
+                  id: 'loop',
+                  title: 'Loop forever',
+                  description: 'A subtask that never converges.',
+                  role: 'general-assistant',
+                  skills: [],
+                  dependsOn: [],
+                },
+              ],
+            }),
+            model: 'local/echo-1',
+            inputTokens: 8,
+            outputTokens: 12,
+            finishReason: 'stop',
+          };
+        }
+        // Every subsequent call (the subtask's agentic loop, then synthesis)
+        // keeps requesting an unknown tool, so the loop caps without an answer.
+        return {
+          content: '',
+          model: 'local/echo-1',
+          inputTokens: 5,
+          outputTokens: 2,
+          finishReason: 'tool_calls',
+          toolCalls: [{ id: 'c', name: 'unknown-tool', arguments: {} }],
+        };
+      }),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+    const orchestrator = makeOrchestrator(provider, [], makeSkillContext());
+
+    const result = await orchestrator.processProject('Loop forever', {
+      budget: 'balanced',
+      speed: 'balanced',
+    });
+
+    expect(result.subTaskResults).toHaveLength(1);
+    const sub = result.subTaskResults[0]!;
+    // The cap is a recoverable pause, not a silent "completed" with placeholder text.
+    expect(sub.status).toBe('needs-input');
+    expect(sub.iterationLimitHit).toBe(true);
+    expect(typeof sub.suggestedIterationLimit).toBe('number');
+    expect(sub.suggestedIterationLimit!).toBeGreaterThan(0);
   });
 
   it('blocks non-test implementation writes until a failing test signal is observed during /project execution', async () => {

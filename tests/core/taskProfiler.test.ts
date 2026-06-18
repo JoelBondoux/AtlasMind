@@ -42,6 +42,32 @@ describe('TaskProfiler', () => {
     expect(profile.preferredCapabilities).toContain('reasoning');
   });
 
+  it('treats open-ended triage prompts as high reasoning instead of cheap-routed low', () => {
+    const profiler = new TaskProfiler();
+
+    for (const userMessage of [
+      'what should we work on next? Is there anything incomplete?',
+      "What's next for this project?",
+      'Is there anything missing or unfinished?',
+      'What would you recommend we do next?',
+      'where should we focus?',
+    ]) {
+      const profile = profiler.profileTask({ userMessage, phase: 'execution', requiresTools: false });
+      expect(profile.reasoning, userMessage).toBe('high');
+      expect(profile.preferredCapabilities, userMessage).toContain('reasoning');
+    }
+  });
+
+  it('does not over-escalate a plain action follow-up to high reasoning', () => {
+    const profiler = new TaskProfiler();
+    const profile = profiler.profileTask({
+      userMessage: 'commit the changes',
+      phase: 'execution',
+      requiresTools: false,
+    });
+    expect(profile.reasoning).not.toBe('high');
+  });
+
   it('escalates important thread-based follow-ups beyond low reasoning', () => {
     const profiler = new TaskProfiler();
 

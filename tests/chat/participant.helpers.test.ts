@@ -48,6 +48,7 @@ import {
   summarizeRoadmapStatus,
   toApprovedProjectPrompt,
   toSerializableAttribution,
+  detectResponseQuickReplies,
   type ProjectRunOutcome,
 } from '../../src/chat/participant.ts';
 import type { TaskImageAttachment } from '../../src/types.ts';
@@ -64,6 +65,36 @@ function makeSnapshotEntry(relativePath: string, signature: string) {
     uri: { fsPath: `C:/workspace/${relativePath}` },
   };
 }
+
+describe('detectResponseQuickReplies', () => {
+  it('builds pick-one pills for a 3-option enumerated question', () => {
+    const result = detectResponseQuickReplies(
+      'Where should we start: batch concurrency, Shopify sync, or edge cases?',
+    );
+    expect(result?.quickReplies?.map(r => r.label)).toEqual(['Batch concurrency', 'Shopify sync', 'Edge cases']);
+    expect(result?.quickReplies?.map(r => r.prompt)).toEqual(['batch concurrency', 'Shopify sync', 'edge cases']);
+  });
+
+  it('still handles the two-option case', () => {
+    const result = detectResponseQuickReplies('Should I raise the limit or skip the subtask?');
+    expect(result?.quickReplies).toHaveLength(2);
+  });
+
+  it('handles yes/no questions', () => {
+    const result = detectResponseQuickReplies('Do you want me to proceed?');
+    expect(result?.quickReplies?.map(r => r.prompt)).toEqual(['yes', 'no']);
+  });
+
+  it('does not fabricate pills for a prose question with no clean options', () => {
+    const result = detectResponseQuickReplies('What is the overall architecture of this project?');
+    expect(result?.quickReplies).toBeUndefined();
+    expect(result?.followupQuestion).toBeTruthy();
+  });
+
+  it('returns nothing when the response does not end with a question', () => {
+    expect(detectResponseQuickReplies('Here is the final answer. All done.')).toBeUndefined();
+  });
+});
 
 describe('participant helper logic', () => {
   it('loads the session SSOT bundle for project execution context', async () => {

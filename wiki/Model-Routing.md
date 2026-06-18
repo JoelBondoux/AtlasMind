@@ -195,6 +195,7 @@ Models pass through three gates:
 | **Enabled** | Provider and model must both be enabled |
 | **Health** | Provider must be marked healthy |
 | **Whitelist** | If agent has `allowedModels`, model must be in the list |
+| **Trusted-model gate** | If the assembled context is classified by the [Data Privacy](Security#data-privacy-confidential-data-is-gated-to-trusted-models) policy, candidates are restricted to the trusted-model allow-list (`RoutingConstraints.requireTrustedModel`). When no trusted model is available, routing is unchanged and classified spans are redacted to `[CONFIDENTIAL]` as a fail-safe. Deny-by-default: an empty trusted list trusts nothing |
 | **Capabilities** | Model must support all `requiredCapabilities` from the task profile |
 | **Budget gate** | Model's budget tier must be in the allowed set for the configured budget mode |
 | **Speed gate** | Model's speed tier must be in the allowed set for the configured speed mode |
@@ -315,6 +316,8 @@ Preferred capabilities from the profile add:
 - +0.6 for other capability matches
 
 Important follow-up prompts that rely on carry-forward chat context, such as requests framed as "based on the chat thread" or other high-stakes continuation turns, are intentionally profiled more aggressively so AtlasMind can move off a weak local model on later turns.
+
+Open-ended triage/advisory prompts ("what should we work on next?", "is there anything incomplete?", "what would you recommend?") are likewise profiled as **high** reasoning. They are short but demand whole-project reasoning, so without this they fell through to `low` and were routed to the cheapest (often sub-10B) model. Mechanical follow-ups such as "commit" remain low/medium.
 
 Cheapness is also normalized during scoring. Free and subscription-backed models still get a strong cost advantage, but that advantage no longer overwhelms clear reasoning or task-fit signals on higher-stakes turns.
 

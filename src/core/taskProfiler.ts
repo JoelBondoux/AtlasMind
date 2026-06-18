@@ -11,6 +11,25 @@ const MEDIUM_REASONING_HINTS = /\b(explain|analyze|analysis|summarize|summary|im
 
 const HIGH_IMPORTANCE_HINTS = /\b(important|critical|high[-\s]?stakes|careful|carefully|accurate|accuracy|correct|correctly|production|prod|safest|reliable|reliably|must\s+be\s+right|cannot\s+be\s+wrong|need\s+confidence)\b/i;
 
+// Open-ended advisory / triage prompts that look deceptively simple ("what should
+// we work on next?", "is there anything incomplete?") but actually require broad
+// reasoning over the whole project. Without this, such prompts match no reasoning
+// hint and fall through to 'low', routing them to the cheapest (often sub-10B)
+// model — which cannot do the triage the user is asking for.
+const OPEN_ENDED_ADVISORY_HINTS = new RegExp(
+  [
+    /what(?:'s| is| are)?\s+(?:next|left|remaining|missing|incomplete|outstanding)\b/.source,
+    /what\s+should\s+(?:we|i|you)\s+(?:work\s+on|do|build|tackle|focus|prioriti[sz]e|fix|improve|start)/.source,
+    /what\s+(?:can|could|would)\s+(?:we|i|you)\s+(?:work\s+on|do|build|improve|tackle)/.source,
+    /what\s+(?:would|do|should|can|could)\s+you\s+(?:recommend|suggest|advise|think\s+we|do)/.source,
+    /what\s+(?:do\s+you\s+)?(?:recommend|suggest)\b/.source,
+    /(?:is\s+there\s+)?anything\s+(?:else\s+)?(?:incomplete|missing|left|outstanding|unfinished|broken|to\s+(?:do|fix|improve|address|finish))/.source,
+    /where\s+should\s+(?:we|i)\s+(?:focus|start|begin)/.source,
+    /what\s+needs\s+(?:doing|attention|work|fixing|to\s+be\s+done)/.source,
+  ].join('|'),
+  'i',
+);
+
 const CONTEXTUAL_FOLLOWUP_HINTS = /\b(based\s+on\s+(this|the|our)\s+(chat|thread|conversation|discussion)|from\s+(this|the|our)\s+(chat|thread|conversation|discussion)|using\s+(this|the|our)\s+(chat|thread|conversation|discussion)|given\s+(this|the|our)\s+(chat|thread|conversation|discussion)|given\s+the\s+above|based\s+on\s+the\s+above|from\s+the\s+above|earlier\s+in\s+(the\s+)?(chat|thread|conversation)|previous\s+messages|prior\s+messages|conversation\s+so\s+far|thread\s+so\s+far)\b/i;
 
 // Mechanical git/build operations that stay low-reasoning regardless of prior conversation
@@ -147,6 +166,9 @@ function inferReasoning(
     return 'high';
   }
   if (HIGH_REASONING_HINTS.test(userMessage)) {
+    return 'high';
+  }
+  if (OPEN_ENDED_ADVISORY_HINTS.test(userMessage)) {
     return 'high';
   }
   if (modality === 'mixed') {

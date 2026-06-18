@@ -35,6 +35,11 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
             </div>
           </aside>
           <div class="chat-column">
+            <header class="atlas-brand" role="banner">
+              <button id="brandTitle" class="atlas-brand-title" type="button" title="Open AtlasMind Settings" aria-label="Open AtlasMind Settings">AtlasMind</button>
+              <span id="brandSeparator" class="atlas-brand-separator hidden" aria-hidden="true">/</span>
+              <button id="brandProject" class="atlas-brand-project hidden" type="button" title="Open the Project Dashboard" aria-label="Open the Project Dashboard"></button>
+            </header>
             <main class="main-panel">
               <section class="panel-header">
                 <div>
@@ -222,6 +227,63 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           display: flex;
           flex-direction: column;
           overflow: hidden;
+        }
+
+        /* ---- Sidebar brand header ---- */
+        .atlas-brand {
+          flex: 0 0 auto;
+          display: flex;
+          flex-direction: row;
+          align-items: baseline;
+          gap: 1px;
+          min-width: 0;
+          padding: 6px 12px;
+          border-bottom: 1px solid var(--vscode-sideBar-border, var(--vscode-widget-border, #444));
+        }
+        .atlas-brand-title {
+          flex: 0 0 auto;
+          background: none;
+          border: 0;
+          padding: 0;
+          margin: 0;
+          cursor: pointer;
+          font-size: 1rem;
+          font-weight: 600;
+          letter-spacing: 0.02em;
+          color: var(--vscode-foreground);
+          font-family: inherit;
+        }
+        .atlas-brand-title:hover,
+        .atlas-brand-title:focus-visible {
+          color: var(--vscode-textLink-foreground);
+          text-decoration: underline;
+        }
+        .atlas-brand-separator {
+          flex: 0 0 auto;
+          color: var(--vscode-descriptionForeground);
+          font-size: 0.86em;
+          user-select: none;
+        }
+        .atlas-brand-project {
+          flex: 0 1 auto;
+          min-width: 0;
+          background: none;
+          border: 0;
+          padding: 0;
+          margin: 0;
+          cursor: pointer;
+          font-size: 0.82em;
+          color: var(--vscode-descriptionForeground);
+          font-family: inherit;
+          text-align: left;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .atlas-brand-project:hover,
+        .atlas-brand-project:focus-visible {
+          color: var(--vscode-textLink-foreground);
+          text-decoration: underline;
         }
 
         /* ---- Sessions collapsible panel ---- */

@@ -16,7 +16,7 @@ All settings are prefixed with `atlasmind.` and can be configured via VS Code Se
 
 Every AtlasMind setting also includes a detailed hover tooltip inside the VS Code Settings UI. Those hovers expand on the short descriptions below with practical guidance and example values for individual workspaces, team defaults, and more scaled automation flows.
 
-The default agentic execution cap is now `20` tool iterations per turn through `atlasmind.maxToolIterations`.
+The default agentic execution cap is `10` tool iterations per turn through `atlasmind.maxToolIterations`.
 
 Example `settings.json` presets:
 

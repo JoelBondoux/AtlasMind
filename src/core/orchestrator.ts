@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { AgentDefinition, MemoryEntry, ModelCapability, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, TaskProfile, TaskRequest, TaskResult, TestingMethodologyId, ToolExecutionArtifact } from '../types.js';
+import type { AgentDefinition, MemoryEntry, ModelCapability, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, SubTaskStatus, TaskProfile, TaskRequest, TaskResult, TestingMethodologyId, ToolExecutionArtifact } from '../types.js';
 import type { AgentAutoUpdater } from './agentAutoUpdater.js';
 import { ClassifierService, type ClassificationResult } from './classifierService.js';
 import { formatCost } from './currencyFormatter.js';
@@ -36,6 +36,7 @@ import {
   CONTEXT_SAFE_OUTPUT_MARGIN,
 } from '../constants.js';
 import { redactSecretsWithWarning } from '../utils/secretRedactor.js';
+import type { DataPrivacyManager } from './dataPrivacyManager.js';
 import { readProjectTestingConfig, inferTestingMethodologyForSubTask, resolveTestingModelOverride, buildMethodologySystemPromptHint } from './testingConfigLoader.js';
 
 const defaultConfig: OrchestratorConfig = {
@@ -366,6 +367,8 @@ export class Orchestrator {
   private readonly failedAutoSyntheses = new Map<string, string>();
   private readonly classifier: ClassifierService;
   private agentAutoUpdater?: AgentAutoUpdater;
+  private dataPrivacy?: DataPrivacyManager;
+  private onClassifiedContentForUntrustedModel?: OrchestratorHooks['onClassifiedContentForUntrustedModel'];
 
   constructor(
     private agents: AgentRegistry,
@@ -389,6 +392,7 @@ export class Orchestrator {
     this.onQuotaUpdated = hooks?.onQuotaUpdated;
     this.onModelOutcomeRecorded = hooks?.onModelOutcomeRecorded;
     this.onModelSelected = hooks?.onModelSelected;
+    this.onClassifiedContentForUntrustedModel = hooks?.onClassifiedContentForUntrustedModel;
     this.classifier = new ClassifierService(router, providers, taskProfiler);
     this.cfg = { ...defaultConfig, ...config };
   }
@@ -399,6 +403,104 @@ export class Orchestrator {
 
   setAgentAutoUpdater(updater: AgentAutoUpdater): void {
     this.agentAutoUpdater = updater;
+  }
+
+  /** Inject the project Data Privacy policy used to gate routing and redact context. */
+  setDataPrivacyManager(manager: DataPrivacyManager): void {
+    this.dataPrivacy = manager;
+  }
+
+  /**
+   * Fail-safe redaction: replace any classified spans with a placeholder when
+   * `modelId` is not on the trusted allow-list. No-op when the policy is
+   * disabled or the model is trusted.
+   */
+  private privacyRedact(text: string, modelId: string): string {
+    if (!this.dataPrivacy?.isEnabled() || !text) {
+      return text;
+    }
+    return this.dataPrivacy.redactForModel(text, modelId).text;
+  }
+
+  /**
+   * Redact a tool result for an un-trusted model. File-read tools whose target
+   * path is classified are withheld entirely; everything else is scanned for
+   * classified terms/regex/regulated data and redacted span-by-span.
+   */
+  private redactToolResultForModel(toolCall: ToolCall, result: string, modelId: string): string {
+    if (!this.dataPrivacy?.isEnabled() || this.dataPrivacy.isModelTrusted(modelId) || !result) {
+      return result;
+    }
+    const args = (toolCall.arguments ?? {}) as Record<string, unknown>;
+    const candidatePath = ['path', 'filePath', 'file', 'uri', 'target']
+      .map(key => (typeof args[key] === 'string' ? (args[key] as string) : undefined))
+      .find(Boolean);
+    if (candidatePath) {
+      const rule = this.dataPrivacy.classifyPath(candidatePath, this.skillContext.workspaceRootPath ?? undefined);
+      if (rule) {
+        return `[CONFIDENTIAL FILE WITHHELD] "${candidatePath}" is classified by the Data Privacy policy and cannot be read by an un-trusted model. Assign a trusted model in the Project Dashboard → Privacy page to access it.`;
+      }
+    }
+    return this.dataPrivacy.redactForModel(result, modelId).text;
+  }
+
+  /**
+   * Data Privacy routing gate. Classifies the assembled context; when it
+   * contains confidential / regulated data, restricts the agent's candidate
+   * models to the trusted allow-list so the content is only ever sent to a
+   * user-selected model. Returns the (possibly model-restricted) agent plus the
+   * effective constraints. When no trusted model is available, leaves routing
+   * unchanged and relies on the redaction fail-safe — notifying the UI so the
+   * user can assign one.
+   */
+  private applyDataPrivacyGate(
+    agent: AgentDefinition,
+    constraints: RoutingConstraints,
+    retrievalContext: RetrievalContextBundle,
+    requestContext: Record<string, unknown>,
+    onProgress?: (message: string) => void,
+  ): { agent: AgentDefinition; constraints: RoutingConstraints } {
+    if (!this.dataPrivacy?.isEnabled()) {
+      return { agent, constraints };
+    }
+    const corpus = [
+      ...retrievalContext.memoryEntries.map(e => `${e.title}\n${e.snippet}`),
+      ...retrievalContext.liveEvidence.map(e => e.excerpt),
+      String(requestContext['sessionContext'] ?? ''),
+      String(requestContext['nativeChatContext'] ?? ''),
+      String(requestContext['attachmentContext'] ?? ''),
+      String(requestContext['workstationContext'] ?? ''),
+    ].join('\n');
+    const wsRoot = this.skillContext.workspaceRootPath ?? undefined;
+    const pathClassified = retrievalContext.liveEvidence.some(
+      e => this.dataPrivacy?.classifyPath(e.path, wsRoot),
+    );
+    const classification = this.dataPrivacy.classifyText(corpus);
+    if (!classification.hasClassified && !pathClassified) {
+      return { agent, constraints };
+    }
+
+    const trusted = this.dataPrivacy.getTrustedModelIds();
+    const gatedConstraints: RoutingConstraints = { ...constraints, requireTrustedModel: true };
+    const usableTrusted = trusted.filter(id => this.router.getModelInfo(id));
+    if (usableTrusted.length === 0) {
+      // No trusted model configured/available: rely on the redaction fail-safe.
+      onProgress?.('Data Privacy: confidential content detected but no trusted model is available — the content will be redacted before it is sent. Assign a trusted model in the Project Dashboard → Privacy page.');
+      this.onClassifiedContentForUntrustedModel?.({ selectedModel: 'none', matches: classification.matches });
+      return { agent, constraints: gatedConstraints };
+    }
+
+    const existing = agent.allowedModels ?? [];
+    const gatedModels = existing.length > 0
+      ? existing.filter(id => usableTrusted.includes(id))
+      : usableTrusted;
+    const effectiveModels = gatedModels.length > 0 ? gatedModels : usableTrusted;
+    const labels = [...new Set(classification.matches.map(m => m.label))].slice(0, 4).join(', ');
+    onProgress?.(`Data Privacy: confidential content detected (${labels}); restricting routing to ${effectiveModels.length} trusted model(s).`);
+    return {
+      agent: { ...agent, allowedModels: effectiveModels },
+      constraints: gatedConstraints,
+    };
   }
 
   async classify(userMessage: string, options?: { hasImageAttachment?: boolean }): Promise<ClassificationResult> {
@@ -767,6 +869,15 @@ export class Orchestrator {
     }
 
     let routingConstraints = buildExecutionRoutingConstraints(request.constraints, activeAgentSkills.length > 0);
+
+    // Data Privacy routing gate — when the assembled context contains
+    // confidential / regulated data, restrict routing to the user's trusted
+    // model allow-list so the content is only ever sent to a selected model.
+    {
+      const gated = this.applyDataPrivacyGate(agent, routingConstraints, retrievalContext, request.context, onProgress);
+      agent = gated.agent;
+      routingConstraints = gated.constraints;
+    }
 
     // Cache-aware routing: when a substantial reused context prefix is carried
     // into this turn (threaded / iterative work), the stable prefix can be
@@ -1223,7 +1334,7 @@ export class Orchestrator {
       id: request.id,
       agentId: agent.id,
       modelUsed,
-      response: completion.content,
+      response: collapseDuplicatedTrailingBlock(completion.content),
       costUsd,
       inputTokens,
       outputTokens,
@@ -1496,13 +1607,17 @@ export class Orchestrator {
     try {
       let result = await attemptSubTask(userMessage);
 
-      // On transient or non-billing errors, attempt one retry with a simplified prompt.
+      // On transient or non-billing failures, attempt one retry with a simplified
+      // prompt. This covers an empty response, an iteration-capped no-op, and a
+      // first-attempt failure to deliver (tool error / incomplete / preamble-only)
+      // — giving the subtask one recovery pass before it is recorded as failed.
       if (
         result.response.trim().length === 0 ||
-        (result.artifacts && result.artifacts.toolCallCount === 0 && result.iterationLimitHit)
+        (result.artifacts && result.artifacts.toolCallCount === 0 && result.iterationLimitHit) ||
+        (!result.iterationLimitHit && classifySubTaskFailure(result.response) !== undefined)
       ) {
         const simplifiedMessage = `${userMessage}\n\n[Recovery attempt] If the previous approach failed, try a simpler, more direct approach to accomplish: ${task.description}`;
-        onProgress?.({ type: 'subtask-retry', subTaskId: task.id, title: task.title, reason: 'empty or iteration-capped response' });
+        onProgress?.({ type: 'subtask-retry', subTaskId: task.id, title: task.title, reason: 'empty, iteration-capped, or non-delivering response' });
         result = await attemptSubTask(simplifiedMessage);
       }
 
@@ -1528,10 +1643,45 @@ export class Orchestrator {
         };
       }
 
+      // The subtask hit a safety cap (tool-iteration or tools-per-turn) without
+      // producing a final answer, even after the recovery retry above. Surface a
+      // recoverable pause rather than silently marking it "completed" with the
+      // "Execution stopped…" placeholder as its output — the UI can then offer
+      // the raise-limit actions and resume the run.
+      if (result.iterationLimitHit) {
+        return {
+          subTaskId: task.id,
+          title: task.title,
+          status: 'needs-input',
+          output: result.response,
+          costUsd: result.costUsd,
+          inputTokens: result.inputTokens,
+          outputTokens: result.outputTokens,
+          durationMs: result.durationMs,
+          role: task.role,
+          dependsOn: [...task.dependsOn],
+          iterationLimitHit: true,
+          ...(typeof result.suggestedIterationLimit === 'number' ? { suggestedIterationLimit: result.suggestedIterationLimit } : {}),
+          ...(typeof result.suggestedToolCallsPerTurnLimit === 'number' ? { suggestedToolCallsPerTurnLimit: result.suggestedToolCallsPerTurnLimit } : {}),
+          error: result.response,
+          artifacts: result.artifacts
+            ? { ...result.artifacts, output: result.response, outputPreview: truncatePreview(result.response), changedFiles: [], ...(subTaskMethodologyId ? { testingMethodologyId: subTaskMethodologyId } : {}) }
+            : { output: result.response, outputPreview: truncatePreview(result.response), toolCallCount: 0, toolCalls: [], checkpointedTools: [], changedFiles: [], ...(subTaskMethodologyId ? { testingMethodologyId: subTaskMethodologyId } : {}) },
+        };
+      }
+
+      // Even without an iteration cap, the (possibly retried) response may still not
+      // be a real deliverable: a hard tool failure, an incomplete delivery, or a
+      // bare preamble. Recording these as `completed` let the scheduler build
+      // dependents on a broken foundation and inflated the run's success count, so
+      // classify them as `failed` instead.
+      const failureReason = classifySubTaskFailure(result.response);
+      const subTaskStatus: SubTaskStatus = failureReason ? 'failed' : 'completed';
+
       return {
         subTaskId: task.id,
         title: task.title,
-        status: 'completed',
+        status: subTaskStatus,
         output: result.response,
         costUsd: result.costUsd,
         inputTokens: result.inputTokens,
@@ -1539,6 +1689,7 @@ export class Orchestrator {
         durationMs: result.durationMs,
         role: task.role,
         dependsOn: [...task.dependsOn],
+        ...(failureReason ? { error: failureReason } : {}),
         artifacts: result.artifacts
           ? {
             ...result.artifacts,
@@ -1663,6 +1814,11 @@ export class Orchestrator {
           // Stream partial output text as each subtask completes.
           if (result.status === 'completed' && result.output.trim()) {
             onTextChunk?.(`\n\n**${result.title}**\n\n${result.output}`);
+          } else if (result.status === 'needs-input') {
+            const raiseHint = typeof result.suggestedIterationLimit === 'number'
+              ? ` Raise the tool-iteration limit to ${result.suggestedIterationLimit} (once or permanently) to resume.`
+              : '';
+            onTextChunk?.(`\n\n**${result.title}** — paused (needs input)\n\nReached the agentic safety limit before finishing.${raiseHint}`);
           } else if (result.status === 'failed') {
             const actionableHint = buildRecoveryHint(result);
             onTextChunk?.(`\n\n**${result.title}** — failed\n\n*${result.error ?? 'unknown error'}*${actionableHint}`);
@@ -1799,6 +1955,7 @@ export class Orchestrator {
     const forceWorkspaceToolBackedInvestigation = workspaceToolBias !== 'none';
     let workspaceRepromptCount = 0;
     let completionIntegrityRepromptDone = false;
+    let verificationContradictionRepromptDone = false;
     let readonlyExplorationTurns = 0;
     let readonlyExplorationNudged = false;
     let lastToolResults: Array<{ toolCall: ToolCall; result: string; isFailure?: boolean }> = [];
@@ -1904,6 +2061,23 @@ export class Orchestrator {
           messages.push({ role: 'assistant', content: completion.content });
           messages.push({ role: 'user', content: buildCompletionIntegrityReprompt() });
           continue;
+        }
+        // Verification-contradiction gate: the response claims success while the
+        // latest post-edit verification run failed. Give the model one chance to
+        // reconcile; if it still claims success, append a deterministic caveat so
+        // the surfaced answer cannot assert a result its own verification refutes.
+        if (detectVerificationContradiction(completion.content, verificationSummary)) {
+          if (!verificationContradictionRepromptDone) {
+            verificationContradictionRepromptDone = true;
+            onProgress?.('AtlasMind detected a claim of success that contradicts a failing verification run — re-prompting the agent to reconcile.');
+            messages.push({ role: 'assistant', content: completion.content });
+            messages.push({ role: 'user', content: buildVerificationContradictionReprompt(verificationSummary) });
+            continue;
+          }
+          completion = {
+            ...completion,
+            content: appendVerificationCaveat(completion.content, verificationSummary),
+          };
         }
         if (lastToolResults.length > 0 && lastToolResults.every(isFailedToolEntry)) {
           completion = {
@@ -2172,7 +2346,9 @@ export class Orchestrator {
       for (const { toolCall, result } of toolResults) {
         messages.push({
           role: 'tool',
-          content: result,
+          // Data Privacy fail-safe: withhold/redact confidential file reads and
+          // classified content when the running model is not trusted.
+          content: this.redactToolResultForModel(toolCall, result, model),
           toolCallId: toolCall.id,
           toolName: toolCall.name,
         });
@@ -3112,32 +3288,35 @@ export class Orchestrator {
       }
       return raw;
     })();
-    const rawWorkstationContext = typeof requestContext['workstationContext'] === 'string'
-      ? requestContext['workstationContext'].trim()
-      : '';
+    const rawWorkstationContext = this.privacyRedact(
+      typeof requestContext['workstationContext'] === 'string'
+        ? requestContext['workstationContext'].trim()
+        : '',
+      modelId,
+    );
     const rawSpecialistRoutingHint = typeof requestContext['specialistRoutingHint'] === 'string'
       ? requestContext['specialistRoutingHint'].trim()
       : '';
     const imageAttachments = toImageAttachments(requestContext['imageAttachments']);
     const hasCarryForwardImages = Boolean(requestContext['carryForwardImages']) && imageAttachments.length > 0;
     const promptBudget = buildPromptBudget(this.router.getModelInfo(modelId)?.contextWindow, imageAttachments.length);
-    const memoryLines = redactSecretsWithWarning(
+    const memoryLines = this.privacyRedact(redactSecretsWithWarning(
       compressionEnabled
         ? compactMemoryContext(retrievalContext.memoryEntries, this.memory, promptBudget.memoryChars)
         : compactMemoryContext(retrievalContext.memoryEntries, this.memory, Number.MAX_SAFE_INTEGER),
       'memory-context',
-    );
-    const liveEvidenceLines = redactSecretsWithWarning(
+    ), modelId);
+    const liveEvidenceLines = this.privacyRedact(redactSecretsWithWarning(
       compressionEnabled
         ? compactLiveEvidence(retrievalContext.liveEvidence, Math.max(200, Math.floor(promptBudget.memoryChars * 0.75)))
         : compactLiveEvidence(retrievalContext.liveEvidence, Number.MAX_SAFE_INTEGER),
       'live-evidence',
-    );
+    ), modelId);
     const personalityProfilePrompt = this.getPersonalityProfilePrompt?.()?.trim() ?? '';
     const supplementalContext = buildSupplementalContextMessage([
-      { id: 'session-context', label: 'Recent session context', content: rawSessionContext },
-      { id: 'native-chat-context', label: 'Native chat context', content: rawNativeChatContext },
-      { id: 'attachment-context', label: 'Attached context', content: rawAttachmentContext },
+      { id: 'session-context', label: 'Recent session context', content: this.privacyRedact(rawSessionContext, modelId) },
+      { id: 'native-chat-context', label: 'Native chat context', content: this.privacyRedact(rawNativeChatContext, modelId) },
+      { id: 'attachment-context', label: 'Attached context', content: this.privacyRedact(rawAttachmentContext, modelId) },
     ], promptBudget.supplementalChars);
     // The LLM classifier gives a single workspaceBias value ('act'|'investigate'|'none').
     // The legacy heuristics are OR'd in because:
@@ -3399,13 +3578,17 @@ function looksLikeToolFailure(result: string): boolean {
     || /\b(?:not found|does not exist|no such|no currently active|no active|already stopped|timed out|denied by policy|was denied|unable to|cannot|can't|could not|must provide|must pass|re-run with|rerun with|requires confirmation|requires .*true)\b/.test(normalized);
 }
 
+/** Leading line of {@link summarizeFailedToolResults}; also used to detect, at the
+ *  subtask boundary, that an agent turn ended on an unrecovered tool failure. */
+export const TOOL_EXECUTION_FAILURE_PREFIX = 'I hit a tool-execution problem while trying to complete that step.';
+
 function summarizeFailedToolResults(toolResults: ReadonlyArray<{ toolCall: ToolCall; result: string }>): string {
   // Bound each line so a verbose failure (e.g. a multi-thousand-line build log) can't
   // flood the chat surface. Genuine failure messages are short; the cap is generous.
   const lines = toolResults.map(entry => `- ${entry.toolCall.name}: ${truncateToChars(entry.result.trim(), 1500)}`);
   const guidance = buildToolFailureGuidance(toolResults);
   return [
-    'I hit a tool-execution problem while trying to complete that step.',
+    TOOL_EXECUTION_FAILURE_PREFIX,
     'The underlying tool reported:',
     ...lines,
     '',
@@ -3775,6 +3958,111 @@ function looksLikeIncompleteDelivery(response: string): boolean {
     return true;
   }
   return false;
+}
+
+/**
+ * Detects a "preamble-only" response: the agent announced an action it was about
+ * to take ("Let's inspect…", "I'll read…") but never delivered anything. These are
+ * truncations the integrity reprompt did not recover, and they must not be reported
+ * as completed subtasks.
+ */
+export function looksLikePreambleOnly(response: string): boolean {
+  const trimmed = response.trim();
+  if (trimmed.length === 0) { return true; }
+  // Real deliverables are longer; cap keeps this from flagging substantive answers.
+  if (trimmed.length > 240) { return false; }
+  // Any delivered code/diff means it is not preamble-only.
+  if (/```/.test(trimmed)) { return false; }
+  // Future-intent announcement of an investigation step with no follow-through.
+  return /^(?:ok(?:ay)?[,.\s]*)?(?:let'?s|let me|i'?ll|i will|now\s+(?:i'?ll|let'?s)|first,?\s+(?:i'?ll|let'?s|i\s+will))\b[^\n]*\b(inspect|check|look|read|search|examine|review|open|explore|see|view|find|investigate|analyze|analyse|locate|scan)\b/i
+    .test(trimmed);
+}
+
+/**
+ * Classify a subtask's final response as a failure when it did not actually
+ * deliver. Returns a short human-readable reason, or `undefined` when the
+ * response looks like genuine completed work. Used by the project scheduler so a
+ * tool error, an incomplete delivery, or a bare preamble is recorded as `failed`
+ * — not silently `completed`, which let the run charge ahead and report a false
+ * "N/N completed". Iteration-cap pauses are handled separately (→ `needs-input`).
+ */
+export function classifySubTaskFailure(response: string): string | undefined {
+  const trimmed = response.trim();
+  if (trimmed.length === 0) {
+    return 'Subtask produced no output.';
+  }
+  if (trimmed.startsWith(TOOL_EXECUTION_FAILURE_PREFIX)) {
+    return 'Subtask ended on a tool-execution failure without recovering.';
+  }
+  if (looksLikePreambleOnly(trimmed)) {
+    return 'Subtask stopped after announcing an action without delivering any result.';
+  }
+  if (looksLikeIncompleteDelivery(response)) {
+    return 'Subtask reported incomplete or unverified work.';
+  }
+  return undefined;
+}
+
+/**
+ * Whether a post-edit verification summary indicates the run did NOT pass.
+ *
+ * Keyed on structured markers the host verifier emits (`FAIL:`, a non-zero
+ * `exit N`, an `N failed` count ≥ 1, `✗`) rather than the bare word "fail", so a
+ * test merely *named* "…fails when…" or a "0 failed" / "no failures" line is not
+ * misread as a failure.
+ */
+export function verificationIndicatesFailure(summary?: string): boolean {
+  if (!summary || summary.trim().length === 0) { return false; }
+  return /\bFAIL:|\bexit\s+(?:code\s+)?[1-9]\d*\b|\b[1-9]\d* failed\b|✗/i.test(summary);
+}
+
+const SUCCESS_CLAIM_PATTERN = /\b(?:fixed|added|implemented|completed?|done|passes|passing|works?|working|resolved|succeeded|successfully|all\s+(?:tests\s+)?(?:pass|green)|moving\s+(?:the\s+implementation\s+)?forward)\b/i;
+const FAILURE_ACKNOWLEDGEMENT_PATTERN = /\b(?:fail(?:s|ed|ing|ure)?|did\s?n'?t\s+pass|does\s?n'?t\s+pass|not\s+pass|still\s+(?:failing|broken|red)|unresolved|blocker|blocked|exit\s+[1-9]|not\s+yet|incomplete|unverified|could\s?n'?t|cannot|unable)\b/i;
+
+/**
+ * Whether a response asserts success/progress WITHOUT acknowledging a failure.
+ * Used together with {@link verificationIndicatesFailure} to detect a response
+ * that claims the work is done while its own verification run failed.
+ */
+export function responseClaimsSuccessWithoutCaveat(response: string): boolean {
+  if (!response) { return false; }
+  return SUCCESS_CLAIM_PATTERN.test(response) && !FAILURE_ACKNOWLEDGEMENT_PATTERN.test(response);
+}
+
+/** A response that reports success contradicted by a failing verification run. */
+export function detectVerificationContradiction(response: string, verificationSummary?: string): boolean {
+  return verificationIndicatesFailure(verificationSummary) && responseClaimsSuccessWithoutCaveat(response);
+}
+
+function extractVerificationFailureLine(summary: string): string {
+  const line = summary
+    .split('\n')
+    .map(entry => entry.trim())
+    .find(entry => verificationIndicatesFailure(entry));
+  return line ? truncateToChars(line, 200) : 'the latest verification run did not pass';
+}
+
+/**
+ * Deterministic honesty safety net: appends a non-model-authored caveat when a
+ * response claims success that its verification run does not support. Applied
+ * only after the model has already been given one chance to reconcile.
+ */
+export function appendVerificationCaveat(content: string, verificationSummary?: string): string {
+  const detail = verificationSummary ? extractVerificationFailureLine(verificationSummary) : 'the latest verification run did not pass';
+  const rendered = /\bFAIL:|exit\s+(?:code\s+)?[1-9]/i.test(detail) ? `\`${detail}\`` : detail;
+  return `${content.replace(/\s+$/, '')}\n\n---\n⚠️ **Verification did not pass** — ${rendered}. The claim of success above is not supported by the latest verification run; treat this task as **not complete** until verification passes.`;
+}
+
+function buildVerificationContradictionReprompt(verificationSummary?: string): string {
+  return [
+    'Your response reports success or progress, but the latest verification run did NOT pass:',
+    '',
+    verificationSummary ? truncateToChars(verificationSummary, 800) : '(verification failed)',
+    '',
+    'You must now do one of the following — no exceptions:',
+    '- Fix the underlying problem and re-run the verification so it passes, then report the passing result.',
+    '- If you cannot make it pass in this session, state plainly that the task is NOT complete, exactly what is failing, and what remains. Do not describe the work as done, finished, or "moving forward".',
+  ].join('\n');
 }
 
 function buildCompletionIntegrityReprompt(): string {
@@ -4191,6 +4479,38 @@ function isIdeationScopedRequest(request: TaskRequest): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Collapse a verbatim-duplicated trailing block in model output.
+ *
+ * Weak or looping models sometimes emit their final answer twice in a row
+ * (`prefix + B + B`). This is a degenerate generation artifact, not content the
+ * user asked for, so we drop the second copy. The guard is intentionally
+ * conservative: it only acts on a *large* (≥ 200-char) trailing block that is an
+ * exact duplicate of the block immediately preceding it, after trimming the
+ * boundary whitespace, so it cannot eat legitimately repeated short phrases or
+ * structured code. Only the largest such duplication is removed (one pass).
+ */
+export function collapseDuplicatedTrailingBlock(text: string): string {
+  if (!text) { return text; }
+  const n = text.length;
+  // Too short to be a meaningful duplicated block, or pathologically large.
+  // (Operate on the raw string — pre-trimming the end can make the length odd
+  // and shift `maxL` off the true block boundary by one.)
+  if (n < 500 || n > 500_000) { return text; }
+
+  const MIN_BLOCK = 200;
+  const maxL = Math.floor(n / 2);
+  for (let L = maxL; L >= MIN_BLOCK; L--) {
+    const tail = text.slice(n - L);
+    const prev = text.slice(n - 2 * L, n - L);
+    // Exact match is the common looping case; tolerate only boundary whitespace.
+    if (tail === prev || tail.trim() === prev.trim()) {
+      return text.slice(0, n - L).replace(/\s+$/, '');
+    }
+  }
+  return text;
 }
 
 export function shouldBiasTowardWorkspaceInvestigation(

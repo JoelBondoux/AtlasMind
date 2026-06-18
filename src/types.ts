@@ -232,6 +232,14 @@ export interface RoutingConstraints {
    * prefix) so single-shot turns are unaffected.
    */
   cacheablePrefixRatio?: number;
+  /**
+   * When set, the task's context contains data classified by the Data Privacy
+   * policy (see {@link DataPrivacyConfig}). The router must restrict candidate
+   * selection to the user's trusted-model allow-list so confidential or
+   * regulated data is never sent to an un-trusted model. The orchestrator's
+   * redaction boundary is the fail-safe when no trusted model can be selected.
+   */
+  requireTrustedModel?: boolean;
 }
 
 export type ToolApprovalMode = 'always-ask' | 'ask-on-write' | 'ask-on-external' | 'allow-safe-readonly';
@@ -637,6 +645,67 @@ export interface ProjectTestingConfig {
   methodologies: ProjectTestingMethodologyConfig[];
 }
 
+// ── Data Privacy ─────────────────────────────────────────────────
+
+/**
+ * How sensitive a classified data point is. Surfaced in redaction notices and
+ * the audit log; does not (currently) change enforcement — any classified
+ * content is gated to trusted models regardless of level.
+ */
+export type DataPrivacySensitivity = 'confidential' | 'proprietary' | 'secret';
+
+/**
+ * A single user-defined privacy rule. Matches either text content (literal
+ * term or regex) or a file/folder path (glob). Any match marks the surrounding
+ * context as classified, which gates model routing to the trusted allow-list.
+ */
+export interface DataPrivacyRule {
+  id: string;
+  kind: 'term' | 'regex' | 'path';
+  /** The literal term, regex source, or workspace-relative glob. */
+  value: string;
+  /** Optional human label shown in redaction notices (never the value itself). */
+  label?: string;
+  sensitivity: DataPrivacySensitivity;
+  enabled: boolean;
+}
+
+/**
+ * Project-scoped data-privacy policy. Stored at
+ * `project_memory/operations/data-privacy.json`.
+ *
+ * Classified content (matched by custom {@link DataPrivacyRule}s or enabled
+ * compliance packs) may only be sent to models listed in `trustedModelIds`.
+ * Enforcement is primarily a routing gate ({@link RoutingConstraints.requireTrustedModel});
+ * the orchestrator's redaction boundary is the fail-safe when a trusted model
+ * cannot be selected.
+ */
+export interface DataPrivacyConfig {
+  version: 1;
+  /** Master switch. When false, no classification or gating occurs. */
+  enabled: boolean;
+  /** User-defined term/regex/path rules. */
+  rules: DataPrivacyRule[];
+  /**
+   * IDs of enabled built-in compliance packs (e.g. `gdpr-pii`, `hipaa-phi`,
+   * `pci-dss`). Each pack contributes regulated-data detectors to the
+   * classifier. See `src/core/compliancePacks.ts`.
+   */
+  compliancePacks: string[];
+  /** Model IDs permitted to receive classified content. Empty = nothing trusted. */
+  trustedModelIds: string[];
+  updatedAt?: string;
+}
+
+/** A single classification hit, used for notices and audit logging. */
+export interface DataPrivacyMatch {
+  /** `rule:<id>` for custom rules or `pack:<packId>:<detectorId>` for packs. */
+  source: string;
+  /** Human label for the notice (e.g. "GDPR PII — email address"). */
+  label: string;
+  sensitivity: DataPrivacySensitivity;
+}
+
 // ── Skills ──────────────────────────────────────────────────────
 
 /**
@@ -707,6 +776,18 @@ export interface OrchestratorHooks {
     tddStatus: 'verified' | 'blocked' | 'missing' | 'not-applicable' | undefined,
     agentRole: string,
   ) => Promise<{ passed: boolean; blockers?: string[] }>;
+
+  /**
+   * Called when a task's context contains data classified by the Data Privacy
+   * policy but no trusted model is available to receive it. The orchestrator
+   * redacts the classified spans regardless (fail-safe); this hook lets the UI
+   * surface a notice prompting the user to assign a trusted model/provider.
+   * Fire-and-forget — the orchestrator does not await a decision.
+   */
+  onClassifiedContentForUntrustedModel?: (info: {
+    selectedModel: string;
+    matches: DataPrivacyMatch[];
+  }) => void;
 }
 
 /**
@@ -1132,7 +1213,16 @@ export interface SubTask {
   dependsOn: string[];
 }
 
-export type SubTaskStatus = 'pending' | 'running' | 'completed' | 'failed';
+/**
+ * Lifecycle state of a single subtask.
+ *
+ * `needs-input` is a non-terminal pause: the subtask stopped because it hit a
+ * safety cap (e.g. `maxToolIterations`) without producing a final answer, and a
+ * human decision is required to raise the limit and resume, or to skip it.
+ * It is deliberately distinct from `failed` so the UI can surface the
+ * raise-limit actions instead of treating the run as a hard failure.
+ */
+export type SubTaskStatus = 'pending' | 'running' | 'completed' | 'failed' | 'needs-input';
 
 export interface ToolExecutionArtifact {
   toolName: string;
@@ -1171,6 +1261,12 @@ export interface SubTaskResult {
   artifacts?: SubTaskExecutionArtifacts;
   /** Set when the subtask failed because a provider was billing-paused with no fallback available. Signals the project runner to abort remaining batches. */
   billingAbort?: boolean;
+  /** True when the subtask stopped because it hit the agentic tool-iteration cap (or tools-per-turn cap) without a final answer. Pairs with `status: 'needs-input'`. */
+  iterationLimitHit?: boolean;
+  /** Orchestrator-suggested higher `maxToolIterations` value the user can apply to resume this subtask. */
+  suggestedIterationLimit?: number;
+  /** Orchestrator-suggested higher `maxToolCallsPerTurn` value the user can apply to resume this subtask. */
+  suggestedToolCallsPerTurnLimit?: number;
 }
 
 /** A decomposed project plan ready for parallel execution. */

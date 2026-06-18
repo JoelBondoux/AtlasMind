@@ -318,6 +318,7 @@ project_memory/
     cutting-edge-routing-roadmap.md
     development-guardrails.md
     feature-enhancement-project-planner.md
+    okf-alignment-evaluation.md
   domain/
     .gitkeep
     ai-instructions-sync.md
@@ -326,10 +327,12 @@ project_memory/
     product-capabilities.md
   ideas/
     .gitkeep
+    okf-interop.md
   index/
     .gitkeep
     import-catalog.md
     import-freshness.md
+    okf-frontmatter-audit.md
     testing-config.json
   misadventures/
     .gitkeep
@@ -390,8 +393,8 @@ project_memory/
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-06-18T03:21:43.858Z
+generated-at: 2026-06-18T03:47:22.234Z
 source-paths: src | tests | docs | wiki | project_memory | .github
-source-fingerprint: 075bc2d0
-body-fingerprint: 9b0e33fa
+source-fingerprint: f7a4bc29
+body-fingerprint: d8b4d0d9
 -->

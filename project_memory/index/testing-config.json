@@ -1,0 +1,111 @@
+{
+  "version": 1,
+  "updatedAt": "2026-06-09T17:19:24.311Z",
+  "methodologies": [
+    {
+      "id": "tdd",
+      "enabled": true,
+      "assignedAgentId": "test-developer"
+    },
+    {
+      "id": "bdd",
+      "enabled": true,
+      "assignedAgentId": "test-developer"
+    },
+    {
+      "id": "atdd",
+      "enabled": true,
+      "assignedAgentId": "test-developer"
+    },
+    {
+      "id": "sdd",
+      "enabled": false
+    },
+    {
+      "id": "v-model",
+      "enabled": false
+    },
+    {
+      "id": "unit",
+      "enabled": true,
+      "assignedAgentId": "test-developer"
+    },
+    {
+      "id": "integration",
+      "enabled": false
+    },
+    {
+      "id": "mutation",
+      "enabled": true,
+      "assignedAgentId": "test-developer"
+    },
+    {
+      "id": "property",
+      "enabled": true,
+      "assignedAgentId": "test-developer"
+    },
+    {
+      "id": "continuous",
+      "enabled": true,
+      "assignedAgentId": "test-developer"
+    },
+    {
+      "id": "white-box",
+      "enabled": true,
+      "assignedAgentId": "test-developer"
+    },
+    {
+      "id": "e2e",
+      "enabled": true,
+      "assignedAgentId": "test-developer"
+    },
+    {
+      "id": "snapshot",
+      "enabled": false
+    },
+    {
+      "id": "contract",
+      "enabled": true,
+      "assignedAgentId": "test-developer"
+    },
+    {
+      "id": "mbt",
+      "enabled": true,
+      "assignedAgentId": "test-developer"
+    },
+    {
+      "id": "test-design",
+      "enabled": false
+    },
+    {
+      "id": "black-box",
+      "enabled": false
+    },
+    {
+      "id": "gray-box",
+      "enabled": false
+    },
+    {
+      "id": "performance",
+      "enabled": true,
+      "assignedAgentId": "test-developer"
+    },
+    {
+      "id": "security-testing",
+      "enabled": true,
+      "assignedAgentId": "test-developer"
+    },
+    {
+      "id": "visual",
+      "enabled": false
+    },
+    {
+      "id": "exploratory",
+      "enabled": false
+    },
+    {
+      "id": "agile-testing",
+      "enabled": false
+    }
+  ]
+}

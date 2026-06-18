@@ -796,6 +796,7 @@ export async function runProjectCommand(
   stream.progress('Planning project...');
 
   const failedSubtaskTitles: string[] = [];
+  const pausedSubtasks: Array<{ title: string; suggestedIterationLimit?: number; suggestedToolCallsPerTurnLimit?: number }> = [];
 
   const onProgress = (update: ProjectProgressUpdate): void => {
     if (token.isCancellationRequested) { return; }
@@ -822,16 +823,34 @@ export async function runProjectCommand(
         break;
       case 'subtask-done': {
         const r = update.result;
-        const icon = r.status === 'completed' ? '\u2705' : '\u274c';
-        const body = r.status === 'completed'
-          ? r.output.slice(0, 400) + (r.output.length > 400 ? '\u2026' : '')
-          : `*Error: ${r.error ?? 'unknown'}*`;
+        const icon = r.status === 'completed'
+          ? '\u2705'
+          : r.status === 'needs-input'
+            ? '\u23f8\ufe0f'
+            : '\u274c';
+        let body: string;
+        if (r.status === 'completed') {
+          body = r.output.slice(0, 400) + (r.output.length > 400 ? '\u2026' : '');
+        } else if (r.status === 'needs-input') {
+          const raiseHint = typeof r.suggestedIterationLimit === 'number'
+            ? ` Raise the tool-iteration limit to **${r.suggestedIterationLimit}** to resume.`
+            : '';
+          body = `*Paused \u2014 reached the agentic safety limit before finishing.*${raiseHint}`;
+        } else {
+          body = `*Error: ${r.error ?? 'unknown'}*`;
+        }
         stream.markdown(
           `${icon} **${r.title}** \u2014 ${update.completed}/${update.total} ` +
           `(${r.durationMs}ms, ${formatCost(r.costUsd, 4)})\n\n${body}\n\n---\n`,
         );
         if (r.status === 'failed') {
           failedSubtaskTitles.push(r.title);
+        } else if (r.status === 'needs-input') {
+          pausedSubtasks.push({
+            title: r.title,
+            ...(typeof r.suggestedIterationLimit === 'number' ? { suggestedIterationLimit: r.suggestedIterationLimit } : {}),
+            ...(typeof r.suggestedToolCallsPerTurnLimit === 'number' ? { suggestedToolCallsPerTurnLimit: r.suggestedToolCallsPerTurnLimit } : {}),
+          });
         }
         impactReporting = impactReporting.then(async () => {
           const impact = await collectWorkspaceChangesSince(lastImpactSnapshot);
@@ -888,6 +907,34 @@ export async function runProjectCommand(
       `${formatCostAdaptive(result.totalCostUsd)} \u00b7 ` +
       `${result.totalInputTokens.toLocaleString()} in / ${result.totalOutputTokens.toLocaleString()} out*`,
     );
+
+    // One or more subtasks paused at the agentic safety cap rather than failing.
+    // Surface the choice the user actually has \u2014 raise the limit (once or
+    // permanently) and re-run, or skip \u2014 instead of letting the run end silently.
+    if (pausedSubtasks.length > 0) {
+      const suggested = pausedSubtasks
+        .map(p => p.suggestedIterationLimit)
+        .filter((v): v is number => typeof v === 'number')
+        .reduce((max, v) => Math.max(max, v), 0);
+      const titles = pausedSubtasks.map(p => `**${p.title}**`).join(', ');
+      stream.markdown(
+        `\n\n### \u23f8\ufe0f Paused \u2014 tool-iteration limit reached\n\n` +
+        `${pausedSubtasks.length} subtask(s) stopped at the agentic safety cap (\`maxToolIterations\`) ` +
+        `before finishing: ${titles}. The run did **not** fail \u2014 it is waiting on your decision:\n\n` +
+        (suggested > 0
+          ? `- **Raise permanently** to \`${suggested}\` in Settings, then re-run \`/project\` to resume.\n` +
+            `- **Raise once** by re-running \`/project\` after temporarily bumping the limit.\n`
+          : `- **Raise** \`maxToolIterations\` in Settings, then re-run \`/project\` to resume.\n`) +
+        `- **Skip** these subtasks and accept the partial result above.\n`,
+      );
+      stream.button({
+        command: 'workbench.action.openSettings',
+        title: suggested > 0 ? `Raise max tool iterations (suggested: ${suggested})` : 'Open tool-iteration limit setting',
+        arguments: ['atlasmind.maxToolIterations'],
+        tooltip: 'Open the maxToolIterations setting so you can raise the agentic safety cap, then re-run /project to resume.',
+      });
+    }
+
     if (changedFiles.length > 0) {
       stream.markdown(
         `\n\n### Changed Files\n\n` +
@@ -934,7 +981,7 @@ export async function runProjectCommand(
       id: result.id,
       title: goal.replace(/\s+/g, ' ').trim().slice(0, 80) || 'Project run',
       goal,
-      status: failedSubtaskTitles.length > 0 ? 'failed' : 'completed',
+      status: (failedSubtaskTitles.length > 0 || pausedSubtasks.length > 0) ? 'failed' : 'completed',
       createdAt: runStartedAt,
       updatedAt: new Date().toISOString(),
       estimatedFiles,
@@ -948,7 +995,7 @@ export async function runProjectCommand(
       plan: preview,
       subTaskArtifacts,
       requireBatchApproval: false,
-      paused: false,
+      paused: pausedSubtasks.length > 0,
       awaitingBatchApproval: false,
       reportPath,
       summary: report,
@@ -961,10 +1008,12 @@ export async function runProjectCommand(
       logs: [
         {
           timestamp: new Date().toISOString(),
-          level: failedSubtaskTitles.length > 0 ? 'warning' : 'info',
-          message: failedSubtaskTitles.length > 0
-            ? `Run completed with ${failedSubtaskTitles.length} failed subtask(s).`
-            : 'Run completed successfully.',
+          level: (failedSubtaskTitles.length > 0 || pausedSubtasks.length > 0) ? 'warning' : 'info',
+          message: pausedSubtasks.length > 0
+            ? `Run paused: ${pausedSubtasks.length} subtask(s) hit the tool-iteration limit and need a decision to resume.${failedSubtaskTitles.length > 0 ? ` ${failedSubtaskTitles.length} subtask(s) also failed.` : ''}`
+            : failedSubtaskTitles.length > 0
+              ? `Run completed with ${failedSubtaskTitles.length} failed subtask(s).`
+              : 'Run completed successfully.',
         },
       ],
     });
@@ -1584,7 +1633,7 @@ function summarizeToolActionsForDisplay(toolCalls: Array<{ toolName: string }>):
  * Detection is intentionally conservative: we only recognise well-known question
  * shapes so we don't accidentally generate buttons on rhetorical questions.
  */
-function detectResponseQuickReplies(responseText: string): {
+export function detectResponseQuickReplies(responseText: string): {
   followupQuestion: string;
   quickReplies?: SessionSuggestedFollowup[];
 } | undefined {
@@ -1602,6 +1651,25 @@ function detectResponseQuickReplies(responseText: string): {
         { label: 'No', prompt: 'no' },
       ],
     };
+  }
+
+  // Enumerated list — "…: A, B, or C?" style questions (3–4 options). Checked
+  // before the 2-option case so triage answers ("work on X, Y, or Z?") become a
+  // clickable pick-one list instead of falling through to a plain text input.
+  {
+    const optionSegment = question.replace(/\?+\s*$/, '').split(/[:：]/).pop()?.trim() ?? '';
+    if (/,/.test(optionSegment) && /\bor\b/i.test(optionSegment)) {
+      const rawParts = optionSegment.split(/\s*,\s*|\s+\bor\b\s+/i).map(part => part.trim()).filter(Boolean);
+      const cleaned = rawParts
+        .map(part => part.replace(/^(?:should\s+i|shall\s+i|do\s+you\s+(?:want|prefer)|would\s+you\s+(?:like|prefer)|either|and|or)\s+/i, '').trim())
+        .filter(part => part.length >= 2 && part.length <= 40 && !/[.!?]$/.test(part));
+      if (cleaned.length >= 3 && cleaned.length <= 4 && cleaned.length === rawParts.length) {
+        return {
+          followupQuestion: question,
+          quickReplies: cleaned.map(opt => ({ label: opt.charAt(0).toUpperCase() + opt.slice(1), prompt: opt })),
+        };
+      }
+    }
   }
 
   // A or B — extract option labels from "X or Y?" patterns (max 2 options, labels ≤ 40 chars each)

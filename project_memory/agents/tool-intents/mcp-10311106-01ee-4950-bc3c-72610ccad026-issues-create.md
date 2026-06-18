@@ -1,0 +1,3 @@
+Natural-language request "commit and push" previously resolved to "mcp:10311106-01ee-4950-bc3c-72610ccad026:issues_create". Likely cues: issues create, issues create gitkraken.
+Last successful tool result:
+{"data":{"id":"4584641322","url":"https://github.com/JoelBondoux/AtlasMind/issues/69","number":"69","title":"Fix failing test suite and re-enable pre-commit hook validation","description":"The pre-commit hook was temporarily disabled to push a set of fixes. The test suite, particularly `tests/views/treeViews.test.ts`,…

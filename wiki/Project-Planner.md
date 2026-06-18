@@ -93,6 +93,12 @@ The `TaskScheduler` takes the dependency DAG and:
 3. Executes each batch with up to **5 concurrent** subtasks
 4. Each subtask runs through the orchestrator with an ephemeral agent
 
+### Subtask outcomes
+
+Each subtask resolves to one of: `completed`, `failed`, or **`needs-input`**. The last is a *pause*, not a failure: it means the subtask hit the agentic tool-iteration cap (`maxToolIterations`) before producing a final answer. Rather than silently recording the cap message as a successful result, the run surfaces a *"⏸️ Paused — tool-iteration limit reached"* section with the orchestrator's suggested higher limit and a button to open the setting. You can then **raise the limit permanently** (and re-run `/project`), **raise it once** and re-run, or **skip** the subtask and accept the partial result. The run is recorded as `paused` and the Project Run Center marks the subtask with a ⏸ icon and a *raise limit to resume* hint.
+
+A subtask is only marked `completed` when it actually delivered. A response that ends on an unrecovered tool error, that announces an action without following through ("Let's inspect…"), or that signals incomplete/unverified work is classified as `failed` (after one recovery retry), so dependents are skipped and the run reports honest completed/failed counts rather than a false "N/N completed".
+
 ### Ephemeral Agents
 
 Each subtask spawns a temporary agent with a role-specific system prompt:

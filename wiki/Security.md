@@ -54,6 +54,18 @@ Patterns covered: Anthropic/OpenAI API keys, GitHub tokens, bearer tokens, PEM p
 
 When redaction fires, a console warning names the count and pattern types matched. The redacted text is forwarded to the provider; the original is never sent.
 
+### Data Privacy: confidential data is gated to trusted models
+
+Beyond credential redaction, AtlasMind enforces a project **Data Privacy** policy (`project_memory/operations/data-privacy.json`, managed from the Project Dashboard → **Privacy** page). You mark language/terms, files, and folders as proprietary, confidential, or secret — and optionally enable built-in compliance packs (GDPR, HIPAA, PCI-DSS, CCPA/CPRA, Financial) that add curated detectors for regulated data points such as emails, payment-card numbers, and health terms.
+
+Classified content may only ever be sent to the **trusted models you select**. Enforcement is layered:
+
+- **Routing gate** — when the assembled context is classified, model selection is restricted to the trusted allow-list (`RoutingConstraints.requireTrustedModel`).
+- **Redaction fail-safe** — if an un-trusted model is selected anyway (a pinned model, a parallel slot, or no trusted model available), classified spans are replaced with `[CONFIDENTIAL]` before dispatch, keyed on the actually-selected model.
+- **Tool-read gate** — a `file-read` of a classified path by an un-trusted model is withheld.
+
+**Deny-by-default**: an empty trusted list trusts nothing — enabling the policy with no trusted model redacts classified content for every model until you select one. When confidential content is detected but no trusted model is available, the content is redacted and the user is notified with a shortcut to the Privacy page. The compliance detectors are heuristic aids, **not** a certification of GDPR/HIPAA/PCI-DSS compliance.
+
 ### 5. Terminal Allow-List
 
 - Only ~40 pre-approved commands are allowed via `terminal-run`

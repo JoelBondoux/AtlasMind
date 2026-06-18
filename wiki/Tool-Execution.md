@@ -124,10 +124,29 @@ Read-only Docker inspection is classified as `terminal-read`. Container lifecycl
 ## Tool Call Limits
 
 - **Max 8 tool calls per turn** — prevents runaway loops
+- **Agentic loop cap** (`maxToolIterations`, default 10) — caps tool-call rounds per turn
 - Multiple tool calls in the same turn execute concurrently via `Promise.all`
 - Each call is independently gated by the approval system
 - Task-scoped bypass decisions are keyed to the active orchestrator task ID so they do not silently leak into unrelated runs
 - Tool timeouts: default 15s, `web-fetch` 30s, `test-run` 120s
+
+### Hitting the cap
+
+When a turn reaches `maxToolIterations` (or the per-turn tool-call limit) without producing a final answer, AtlasMind **stops and asks** rather than failing silently:
+
+- **Single-turn chat** surfaces *Raise to N (permanent)* / *Raise to N (this task)* buttons; choosing one updates `maxToolIterations` (workspace setting for permanent, in-memory for this task only) and resumes from the original prompt.
+- **Autonomous `/project` subtasks** report a `needs-input` pause (a distinct state from `failed`) carrying the suggested higher limit. The project report renders a *"⏸️ Paused — tool-iteration limit reached"* section with a button to open the `atlasmind.maxToolIterations` setting and the choices to raise permanently and re-run, raise once and re-run, or skip. See [[Project-Planner]].
+
+---
+
+## Data Privacy: gated tool reads
+
+When a project [Data Privacy](Security#data-privacy-confidential-data-is-gated-to-trusted-models) policy is enabled, tool results are filtered before they re-enter the model loop, keyed on the **running** model:
+
+- A `file-read` (or similar) whose target path matches a confidential `path` rule is **withheld** from an un-trusted model — the result is replaced with a notice pointing to the Project Dashboard → Privacy page.
+- Other tool output is scanned for classified terms / regulated data and redacted span-by-span (`[CONFIDENTIAL]`).
+
+Trusted models receive tool results unchanged. This closes the mid-task leak vector where a confidential file is read after routing has already chosen a model.
 
 ---
 
@@ -170,6 +189,15 @@ When `atlasmind.autoVerifyAfterWrite` is `true` (default):
 If verification fails, the LLM sees the error output and can attempt a fix in the same turn.
 
 Post-write verification is not the first line of defense. AtlasMind now tries to establish the failing signal before risky implementation actions, then uses post-write verification to confirm the green side of the loop.
+
+### Success claims are gated against verification
+
+A response cannot report success while its own verification run failed. When an answer claims the work is done/"moving forward" but the post-edit verification reports a structured failure (`FAIL:`, a non-zero `exit N`, `N failed`, `✗`), AtlasMind:
+
+1. Injects **one** reconcile reprompt asking the model to either make verification pass or state plainly that the task is **not complete**; and
+2. If the response still claims success, appends a **deterministic caveat** (not authored by the model) that cites the failing line and marks the task not complete.
+
+Detection is conservative: it keys only on structured failure markers, is overridden by `PASS:` / `0 failed` / "no failures" (so a test merely *named* "…fails when…" is not misread), and never fires when the response already acknowledges the failure.
 
 ---
 

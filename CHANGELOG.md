@@ -8,6 +8,91 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.104.3] - 2026-06-18
+
+### Fixed
+- **Restored VSIX packaging** broken by the 0.104.2 dev-dependency bump. Dependabot raised `@types/vscode` to `^1.125.0`, which `vsce` rejects when it is newer than `engines.vscode` (`^1.120.0`). Pinned `@types/vscode` back to `^1.120.0` to match the declared engine rather than raising the minimum VS Code version users must run. `npm audit` still reports 0 vulnerabilities and the package builds cleanly.
+
+## [0.104.2] - 2026-06-18
+
+### Security
+- **Applied Dependabot security updates for development dependencies** (lockfile + `package.json`). Merged PRs #96, #97, and #98:
+  - `js-yaml` 4.1.1 → 4.2.0
+  - `form-data` 4.0.5 → 4.0.6
+  - developer-tooling group: `@types/vscode` ^1.120.0 → ^1.125.0, `@typescript-eslint/eslint-plugin` ^8.61.0 → ^8.61.1, `@vitest/coverage-v8` ^4.1.8 → ^4.1.9, `eslint` ^10.4.1 → ^10.5.0 (plus grouped transitive bumps).
+  - `npm audit` reports **0 vulnerabilities**; full build and all 1104 tests pass against the updated toolchain. No runtime dependencies changed.
+
+## [0.104.1] - 2026-06-18
+
+### Fixed
+- **A turn can no longer report success while its own verification run failed** (`src/core/orchestrator.ts`). When an agent answer claimed the work was done/"moving forward" but the post-edit verification (`verificationSummary`) reported `FAIL` / a non-zero `exit` / `N failed`, the response still asserted success — contradicting the failure the harness had already captured.
+  - New `detectVerificationContradiction` (with `verificationIndicatesFailure`, `responseClaimsSuccessWithoutCaveat`, and `appendVerificationCaveat`) gates the agentic loop's natural stop. On a contradiction it first injects **one** reconcile reprompt (`buildVerificationContradictionReprompt`) asking the model to either make verification pass or state plainly that the task is not complete; if the response still claims success, a **deterministic, non-model-authored caveat** is appended citing the failing line and marking the task **not complete**.
+  - Failure detection keys on structured markers (`FAIL:`, `exit N≥1`, `N failed` with N≥1, `✗`) and is overridden by `PASS:` / `0 failed` / "no failures", so a test merely *named* "…fails when…" is not misread as a failure. The gate never fires when the response already acknowledges the failure.
+
+### Added
+- **Tests**: `tests/core/orchestrator.tools.test.ts` covers `verificationIndicatesFailure` (structured failure vs. passing/benign), `responseClaimsSuccessWithoutCaveat`, `detectVerificationContradiction`, and `appendVerificationCaveat`.
+
+## [0.104.0] - 2026-06-18
+
+### Added
+- **Data Privacy: classify confidential data and gate it to trusted models only.** A new project-scoped privacy policy lets you mark language/terms, files, and folders as proprietary, confidential, or secret. Classified content is only ever sent to the **trusted models you select** — every other model receives a redacted `[CONFIDENTIAL]` placeholder. Managed from the Project Dashboard → new **Privacy** page; the policy is stored at `project_memory/operations/data-privacy.json`.
+  - `src/core/dataPrivacyManager.ts` (`DataPrivacyManager`) — classifies text (literal terms, regex) and file/folder paths (globs, traversal-safe), tracks the trusted-model allow-list (empty = nothing trusted, deny-by-default), and redacts classified spans for un-trusted models.
+  - `src/core/compliancePacks.ts` — built-in, checkbox-enabled compliance packs (**GDPR** personal data, **HIPAA** PHI, **PCI-DSS** cardholder data with Luhn validation, **CCPA/CPRA**, **Financial** with IBAN mod-97). Each pack contributes curated regulated-data detectors to the classifier. Heuristic aids, not a compliance certification.
+  - Enforcement (`src/core/orchestrator.ts`): a **routing gate** restricts candidate models to the trusted allow-list when the assembled context is classified; a **redaction fail-safe** in `buildMessages` strips classified spans for the actually-selected model (covers pins, parallel overflow); and **tool reads are gated** — a `file-read` of a classified path by an un-trusted model is withheld. When confidential content is detected but no trusted model is available, the content is redacted and the user is notified (with a shortcut to the Privacy page) — `RoutingConstraints.requireTrustedModel`, `OrchestratorHooks.onClassifiedContentForUntrustedModel`.
+  - New types: `DataPrivacyConfig`, `DataPrivacyRule`, `DataPrivacyMatch`, `DataPrivacySensitivity` (`src/types.ts`).
+  - Project Dashboard **Privacy** page (`src/views/projectDashboardPanel.ts`, `media/projectDashboard.js`): enable toggle, compliance-standard checkboxes, custom term/regex/path rules, trusted-model multi-select, and a "test against text/path" preview. All webview messages are validated before any write.
+- **Tests**: `tests/core/dataPrivacyManager.test.ts` and `tests/core/compliancePacks.test.ts` cover term/regex/path classification, traversal rejection, invalid-regex safety, deny-by-default trust semantics, Luhn/IBAN validators, and per-pack detector behaviour.
+
+## [0.103.2] - 2026-06-18
+
+### Fixed
+- **Project subtasks that did not actually deliver are no longer reported as `completed`** (`src/core/orchestrator.ts`). `executeSubTask` previously returned `status: 'completed'` for any non-billing, non-iteration-capped result — so a subtask that ended on a hard tool error (e.g. `file-read` ENOENT), returned a bare preamble ("Let's inspect…") with no work, or otherwise signalled incomplete delivery was recorded as success. That let the scheduler build dependents on a broken foundation and made the run report a false "N/N subtask(s) completed".
+  - New exported `classifySubTaskFailure` (with `looksLikePreambleOnly` and the shared `TOOL_EXECUTION_FAILURE_PREFIX`) detects three non-delivery shapes — unrecovered tool-execution failure, preamble-only/announce-without-deliver, and incomplete/unverified delivery — and resolves the subtask to `status: 'failed'` with an explanatory `error`, so downstream dependents are skipped and the run reports honest completed/failed counts.
+  - The single recovery retry now also covers a first-attempt non-delivery (not just an empty or iteration-capped response), giving the subtask one more pass before it is marked failed.
+  - Note: iteration-cap pauses remain `needs-input` (0.101.0); this change covers the other failure modes. Gating a single-turn commit/success *message* against its verification result (a model-output-honesty concern) is tracked separately and not part of this change.
+
+### Added
+- **Tests**: `tests/core/orchestrator.tools.test.ts` covers `classifySubTaskFailure` (tool-error, preamble-only, empty, incomplete, and genuine-completion/past-tense cases) and a project run where a non-delivering subtask is recorded as `failed` rather than `completed`.
+
+## [0.103.1] - 2026-06-18
+
+### Changed
+- **Sidebar brand header is now a single inline line** (`src/views/chatWebviewMarkup.ts`, `media/chatPanel.js`). The project name moved from a second subtitle row to an inline `AtlasMind/ProjectName` form — the connected project name follows a forward slash after the wordmark and renders in a slightly smaller, dimmer font — reclaiming the vertical space the stacked subtitle used. The slash separator and project name are hidden entirely when no project name is available (Git remote or workspace folder), leaving just the clickable "AtlasMind" wordmark. Both segments remain independently clickable (wordmark → Settings, project name → Project Dashboard).
+
+## [0.103.0] - 2026-06-18
+
+### Changed
+- **Open-ended triage/advisory prompts are no longer routed to sub-10B models** (`src/core/taskProfiler.ts`). Prompts like *"what should we work on next? Is there anything incomplete?"* matched no reasoning hint and fell through to `low`, so the router picked the cheapest model (e.g. an 8B local model) — which cannot do the whole-project reasoning the question demands. A new `OPEN_ENDED_ADVISORY_HINTS` pattern classifies these triage/recommendation/"what's next" questions as **high** reasoning, so the existing router penalties steer them to a capable model. Mechanical follow-ups (e.g. "commit the changes") are unaffected.
+
+### Fixed
+- **Verbatim-duplicated model output is now collapsed before display** (`src/core/orchestrator.ts`). Weak or looping models sometimes emit their final answer twice in a row (`prefix + B + B`); the new `collapseDuplicatedTrailingBlock` guard drops the duplicate copy. It is conservative — it only removes a large (≥ 200-char) trailing block that exactly duplicates the block immediately before it — so it never touches legitimately repeated short phrases or structured code.
+
+### Added
+- **Pick-one quick-reply pills for enumerated questions** (`src/chat/participant.ts`). `detectResponseQuickReplies` previously only produced clickable buttons for yes/no and a single "A or B?" question. It now also recognises a trailing 3–4 option list (*"…: batch concurrency, Shopify sync, or edge cases?"*) and renders one pill per option, so triage answers that end in a clear choice become one-tap selectable instead of a plain text prompt.
+- **Tests**: `tests/core/taskProfiler.test.ts` (triage prompts → high reasoning; plain action follow-up stays low), `tests/core/orchestrator.tools.test.ts` (`collapseDuplicatedTrailingBlock` behavior incl. prefix preservation and non-duplicated passthrough), and `tests/chat/participant.helpers.test.ts` (`detectResponseQuickReplies` 2/3-option, yes/no, prose, and no-question cases).
+- **Clickable brand header in the AtlasMind sidebar** (`src/views/chatWebviewMarkup.ts`, `media/chatPanel.js`, `src/views/chatPanel.ts`, `src/views/chatProtocol.ts`). The chat view — the topmost surface in the AtlasMind sidebar — now opens with an "AtlasMind" wordmark that opens the Settings panel when clicked, and a subtitle announcing the active project that opens the Project Dashboard. Both are keyboard-focusable buttons routed through the validated webview message protocol (new `openSettings` and `openProjectDashboard` messages) to the existing `atlasmind.openSettings` and `atlasmind.openProjectDashboard` commands. The activity-bar container title itself is not bindable through the VS Code API, so the brand header lives inside the topmost view where it is reachable.
+  - The announced project name is the **connected Git repository name** when the workspace has a remote (resolved from the built-in `vscode.git` extension's `origin` remote, e.g. `https://github.com/owner/AtlasMind.git` → `AtlasMind`), falling back to the **workspace folder name** when no remote is configured or Git tooling is unavailable. The name resolves asynchronously, is cached, and is re-resolved when a repository or remote is connected later in the session.
+
+## [0.101.0] - 2026-06-18
+
+### Changed
+- **Autonomous /project subtasks that hit the tool-iteration cap now pause for a decision instead of silently dying** (`src/core/orchestrator.ts`, `src/types.ts`, `src/chat/participant.ts`, `src/views/projectRunCenterPanel.ts`, `src/cli/main.ts`). Previously, when a subtask in a project run reached the `maxToolIterations` safety cap, `executeSubTask` returned `status: 'completed'` with the bare "Execution stopped after reaching the safety limit…" string as its output — so the scheduler moved on as if the subtask had succeeded, the run was recorded as completed, and the user was never offered the override that single-turn chat already provides.
+  - New `SubTaskStatus` value **`needs-input`** (`src/types.ts`): a non-terminal pause distinct from `failed`. `SubTaskResult` now carries `iterationLimitHit`, `suggestedIterationLimit`, and `suggestedToolCallsPerTurnLimit` so the cap signal survives into the project layer.
+  - The orchestrator now returns `needs-input` (not `completed`) for a capped subtask, propagating the suggested raised limits.
+  - The chat/project report renders a prominent **"⏸️ Paused — tool-iteration limit reached"** section listing the paused subtask(s), the suggested higher limit, and a button to open the `atlasmind.maxToolIterations` setting, plus the three explicit choices (raise permanently, raise once and re-run, or skip). The run is recorded as `paused` rather than `completed`.
+  - The Project Run Center reflects the paused state in the subtask tracker (new ⏸ icon, "raise limit to resume" hint, `paused` summary count) and run log; the CLI shows a ⏸ marker with the resume hint.
+
+### Added
+- **Test**: `tests/core/orchestrator.tools.test.ts` covers that a project subtask hitting the agentic cap surfaces as `needs-input` with `iterationLimitHit` and a positive `suggestedIterationLimit`, rather than a false `completed`.
+
+## [0.100.3] - 2026-06-18
+
+### Fixed
+- **Documentation accuracy sweep for changes since 0.80.0** (`docs/configuration.md`, `wiki/Configuration.md`): corrected three stale/inaccurate items found while auditing the docs against the 0.81.0→0.100.2 changelog. (1) The `atlasmind.maxToolIterations` default was documented as `20` in both `docs/configuration.md` and `wiki/Configuration.md`, but `package.json` (and the README) set it to `10`; both now read `10`. (2) The Voice section in `docs/configuration.md` still claimed "There is not yet a host-side OS-native speech adapter," directly contradicting the `voice.hostSpeechEnabled` / `HostSpeechSynthesizer` engine shipped in 0.80.0 and documented in the same section; the closing paragraph now describes the actual three-backend TTS priority (ElevenLabs → OS host engine → Web Speech) and the on-device Whisper STT path. (3) The same paragraph's "webview-first" framing (which predated 0.80.0/0.81.0) was updated accordingly.
+
+### Changed
+- **`.gitignore`: selectively track the `project_memory/` SSOT** instead of blanket-ignoring it. The folder was previously fully ignored yet ~49 curated files were force-tracked anyway, so new SSOT entries silently fell outside git unless added with `-f`. The "project brain" (agents, decisions, ideas, architecture, domain, operations, roadmap, skills, index, routines) is now tracked by default, while volatile / potentially-sensitive content stays out of this **public** repo: `project_memory/sessions/` (chat transcripts), `project_memory/temp/`, and dated `project_memory/operations/project-run-*.json` run-history dumps. The stale `project_memory/temp/vision-enhancement.md` was untracked, and the previously-untracked curated entries were added.
+
 ## [0.100.1] - 2026-06-18
 
 ### Added

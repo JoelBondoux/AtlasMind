@@ -232,6 +232,9 @@
   const createSession = document.getElementById('createSession');
   const panelTitle = document.getElementById('panelTitle');
   const panelSubtitle = document.getElementById('panelSubtitle');
+  const brandTitle = document.getElementById('brandTitle');
+  const brandSeparator = document.getElementById('brandSeparator');
+  const brandProject = document.getElementById('brandProject');
   const composerHint = document.getElementById('composerHint');
   const pendingRunReviewBar = document.getElementById('pendingRunReviewBar');
   const pendingRunReviewTitle = document.getElementById('pendingRunReviewTitle');
@@ -3472,6 +3475,16 @@
     });
   }
 
+  if (brandTitle) {
+    brandTitle.addEventListener('click', function () {
+      vscode.postMessage({ type: 'openSettings' });
+    });
+  }
+  if (brandProject) {
+    brandProject.addEventListener('click', function () {
+      vscode.postMessage({ type: 'openProjectDashboard' });
+    });
+  }
   clearConversation.addEventListener('click', function () {
     vscode.postMessage({ type: 'clearConversation' });
   });
@@ -3589,6 +3602,16 @@
         toggleAutopilotBtn.title = autopilotOn
           ? 'Autopilot ON — click to disable (tool approvals will be required again)'
           : 'Toggle Autopilot — grant all tool approvals automatically';
+      }
+
+      if (brandProject) {
+        var projectName = state.projectName || '';
+        brandProject.textContent = projectName;
+        brandProject.title = 'Open the Project Dashboard for ' + projectName;
+        brandProject.classList.toggle('hidden', !projectName);
+        if (brandSeparator) {
+          brandSeparator.classList.toggle('hidden', !projectName);
+        }
       }
 
       var isRun = state.activeSurface === 'run';

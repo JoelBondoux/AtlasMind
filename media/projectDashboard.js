@@ -34,6 +34,9 @@
     activeTestCategory: 'all',
     selectedTestId: '',
     testSearch: '',
+    privacyDraftRule: { kind: 'term', value: '', sensitivity: 'confidential' },
+    privacyTest: { kind: 'text', value: '' },
+    privacyTestResult: null,
   };
 
   refreshButton?.addEventListener('click', () => {
@@ -57,6 +60,12 @@
 
     if (message.type === 'navigate') {
       state.activePage = typeof message.payload === 'string' ? message.payload : 'overview';
+      render();
+      return;
+    }
+
+    if (message.type === 'dataPrivacyTestResult') {
+      state.privacyTestResult = message.payload || null;
       render();
       return;
     }
@@ -200,6 +209,38 @@
       vscode.postMessage({ type: 'addressGap', payload });
       return;
     }
+    if (action === 'privacy-add-rule') {
+      const snapshot = state.snapshot;
+      if (!snapshot || !snapshot.privacy) { return; }
+      const draft = state.privacyDraftRule;
+      const value = (draft.value || '').trim();
+      if (!value) { return; }
+      const config = privacyConfigFromSnapshot(snapshot.privacy);
+      config.rules = config.rules.concat([{
+        id: 'rule-' + Date.now().toString(36),
+        kind: draft.kind,
+        value: value,
+        sensitivity: draft.sensitivity,
+        enabled: true,
+      }]);
+      state.privacyDraftRule = { kind: 'term', value: '', sensitivity: 'confidential' };
+      savePrivacy(config);
+      return;
+    }
+    if (action === 'privacy-remove-rule') {
+      const snapshot = state.snapshot;
+      if (!snapshot || !snapshot.privacy) { return; }
+      const config = privacyConfigFromSnapshot(snapshot.privacy);
+      config.rules = config.rules.filter(rule => rule.id !== payload);
+      savePrivacy(config);
+      return;
+    }
+    if (action === 'privacy-test') {
+      const value = (state.privacyTest.value || '').trim();
+      if (!value) { return; }
+      vscode.postMessage({ type: 'testDataPrivacy', payload: { kind: state.privacyTest.kind, value: value } });
+      return;
+    }
   });
 
   root?.addEventListener('input', event => {
@@ -214,6 +255,14 @@
     if (target instanceof HTMLInputElement && target.id === 'test-search-input') {
       state.testSearch = target.value;
       render();
+    }
+    if (target instanceof HTMLInputElement && target.id === 'privacy-rule-value') {
+      state.privacyDraftRule.value = target.value;
+      return;
+    }
+    if (target instanceof HTMLInputElement && target.id === 'privacy-test-value') {
+      state.privacyTest.value = target.value;
+      return;
     }
   });
 
@@ -248,6 +297,66 @@
     if (target.id === 'test-select-jump') {
       state.selectedTestId = target.value;
       render();
+    }
+  });
+
+  // Data Privacy controls: checkboxes (enable / packs / models / rule toggles)
+  // and the rule/test selects.
+  root?.addEventListener('change', event => {
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    if (!target) { return; }
+    const snapshot = state.snapshot;
+
+    if (target instanceof HTMLSelectElement) {
+      if (target.id === 'privacy-rule-kind') {
+        state.privacyDraftRule.kind = target.value;
+        render();
+        return;
+      }
+      if (target.id === 'privacy-rule-sensitivity') {
+        state.privacyDraftRule.sensitivity = target.value;
+        return;
+      }
+      if (target.id === 'privacy-test-kind') {
+        state.privacyTest.kind = target.value;
+        render();
+        return;
+      }
+      return;
+    }
+
+    if (!(target instanceof HTMLInputElement) || !snapshot || !snapshot.privacy) { return; }
+
+    if (target.hasAttribute('data-privacy-enable')) {
+      const config = privacyConfigFromSnapshot(snapshot.privacy);
+      config.enabled = target.checked;
+      savePrivacy(config);
+      return;
+    }
+    if (target.hasAttribute('data-privacy-pack')) {
+      const packId = target.getAttribute('data-privacy-pack');
+      const config = privacyConfigFromSnapshot(snapshot.privacy);
+      config.compliancePacks = target.checked
+        ? config.compliancePacks.concat(config.compliancePacks.includes(packId) ? [] : [packId])
+        : config.compliancePacks.filter(id => id !== packId);
+      savePrivacy(config);
+      return;
+    }
+    if (target.hasAttribute('data-privacy-model')) {
+      const modelId = target.getAttribute('data-privacy-model');
+      const config = privacyConfigFromSnapshot(snapshot.privacy);
+      config.trustedModelIds = target.checked
+        ? config.trustedModelIds.concat(config.trustedModelIds.includes(modelId) ? [] : [modelId])
+        : config.trustedModelIds.filter(id => id !== modelId);
+      savePrivacy(config);
+      return;
+    }
+    if (target.hasAttribute('data-privacy-rule-toggle')) {
+      const ruleId = target.getAttribute('data-privacy-rule-toggle');
+      const config = privacyConfigFromSnapshot(snapshot.privacy);
+      config.rules = config.rules.map(rule => rule.id === ruleId ? { ...rule, enabled: target.checked } : rule);
+      savePrivacy(config);
+      return;
     }
   });
 
@@ -350,6 +459,7 @@
         ['roadmap', 'Roadmap'],
         ['gapAnalysis', 'Gap Analysis'],
         ['security', 'Security'],
+        ['privacy', 'Privacy'],
         ['delivery', 'Delivery'],
       ];
 
@@ -391,6 +501,7 @@
         ${renderRoadmap(snapshot)}
         ${renderGapAnalysis(snapshot)}
         ${renderSecurity(snapshot)}
+        ${renderPrivacy(snapshot)}
         ${renderDelivery(snapshot)}
       `;
 
@@ -1323,6 +1434,127 @@
               <button type="button" class="action-link" data-action="file" data-payload="SECURITY.md">Open security policy</button>
               <button type="button" class="action-link" data-action="file" data-payload=".github/CODEOWNERS">Open CODEOWNERS</button>
             </div>
+          </article>
+        </div>
+      </section>
+    `;
+  }
+
+  function privacyConfigFromSnapshot(p) {
+    return {
+      version: 1,
+      enabled: !!p.enabled,
+      rules: Array.isArray(p.rules) ? p.rules : [],
+      compliancePacks: Array.isArray(p.compliancePacks) ? p.compliancePacks : [],
+      trustedModelIds: Array.isArray(p.trustedModelIds) ? p.trustedModelIds : [],
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  function savePrivacy(config) {
+    if (state.snapshot && state.snapshot.privacy) {
+      // Optimistically update so the UI stays consistent before the round-trip.
+      state.snapshot.privacy.enabled = config.enabled;
+      state.snapshot.privacy.rules = config.rules;
+      state.snapshot.privacy.compliancePacks = config.compliancePacks;
+      state.snapshot.privacy.trustedModelIds = config.trustedModelIds;
+    }
+    render();
+    vscode.postMessage({ type: 'saveDataPrivacyConfig', payload: config });
+  }
+
+  function renderPrivacy(snapshot) {
+    const privacy = snapshot.privacy || { enabled: false, rules: [], compliancePacks: [], trustedModelIds: [], availableModels: [], packs: [] };
+    const trusted = privacy.trustedModelIds || [];
+    const draft = state.privacyDraftRule;
+    const testResult = state.privacyTestResult;
+    const sensitivityOptions = ['confidential', 'proprietary', 'secret'];
+    return `
+      <section class="page-section ${state.activePage === 'privacy' ? 'active' : ''}">
+        <div class="security-grid">
+          <article class="panel-card">
+            <p class="section-kicker">Data Privacy policy</p>
+            <h3>Confidential &amp; regulated data</h3>
+            <p class="section-copy">Mark language, terms, files, and folders as proprietary or confidential. Classified content is only ever sent to the trusted models you select below — every other model receives a redacted <code>[CONFIDENTIAL]</code> placeholder. These detectors are heuristic aids, not a compliance certification.</p>
+            <label class="privacy-toggle">
+              <input type="checkbox" data-privacy-enable ${privacy.enabled ? 'checked' : ''} />
+              <span>Enable Data Privacy enforcement</span>
+            </label>
+            ${privacy.enabled && trusted.length === 0 ? '<p class="privacy-warn">No trusted model is selected yet — while enabled, classified content will be redacted for every model until you trust at least one.</p>' : ''}
+          </article>
+
+          <article class="panel-card">
+            <p class="section-kicker">Compliance standards</p>
+            <h3>Regulated-data packs</h3>
+            <p class="section-copy">Enabling a pack adds curated detectors for that standard's data points (e.g. emails, card numbers, health terms). Matches are gated to trusted models exactly like custom rules.</p>
+            <div class="signal-grid">
+              ${(privacy.packs || []).map(pack => `
+                <label class="privacy-pack ${privacy.compliancePacks.includes(pack.id) ? 'on' : ''}">
+                  <input type="checkbox" data-privacy-pack="${escapeAttr(pack.id)}" ${privacy.compliancePacks.includes(pack.id) ? 'checked' : ''} />
+                  <span class="privacy-pack-label">${escapeHtml(pack.label)}</span>
+                  <span class="privacy-pack-desc">${escapeHtml(pack.description)}</span>
+                  <span class="tag">${pack.detectorCount} detector(s)</span>
+                </label>
+              `).join('')}
+            </div>
+          </article>
+
+          <article class="panel-card">
+            <p class="section-kicker">Trusted models</p>
+            <h3>Who may receive confidential data</h3>
+            <p class="section-copy">Local models are the natural choice for confidential work. Only checked models may receive classified content.</p>
+            <div class="privacy-model-list">
+              ${(privacy.availableModels || []).length > 0 ? privacy.availableModels.map(model => `
+                <label class="privacy-model ${trusted.includes(model.id) ? 'on' : ''}">
+                  <input type="checkbox" data-privacy-model="${escapeAttr(model.id)}" ${trusted.includes(model.id) ? 'checked' : ''} />
+                  <span class="privacy-model-name">${escapeHtml(model.name)}</span>
+                  <span class="privacy-model-meta">${escapeHtml(model.provider)}${model.configured ? '' : ' · not configured'}</span>
+                </label>
+              `).join('') : '<p class="section-copy">No models available. Configure a provider first.</p>'}
+            </div>
+          </article>
+
+          <article class="panel-card">
+            <p class="section-kicker">Custom rules</p>
+            <h3>Terms, patterns &amp; paths</h3>
+            <div class="privacy-rule-form">
+              <select id="privacy-rule-kind">
+                <option value="term" ${draft.kind === 'term' ? 'selected' : ''}>Term</option>
+                <option value="regex" ${draft.kind === 'regex' ? 'selected' : ''}>Regex</option>
+                <option value="path" ${draft.kind === 'path' ? 'selected' : ''}>File/Folder glob</option>
+              </select>
+              <input type="text" id="privacy-rule-value" placeholder="${draft.kind === 'path' ? 'e.g. secrets/** or **/*.key' : draft.kind === 'regex' ? 'e.g. ACME-\\d{4}' : 'e.g. Project Codename'}" value="${escapeAttr(draft.value)}" />
+              <select id="privacy-rule-sensitivity">
+                ${sensitivityOptions.map(s => `<option value="${s}" ${draft.sensitivity === s ? 'selected' : ''}>${s}</option>`).join('')}
+              </select>
+              <button type="button" class="action-link" data-action="privacy-add-rule">Add rule</button>
+            </div>
+            <div class="privacy-rules">
+              ${(privacy.rules || []).length > 0 ? privacy.rules.map(rule => `
+                <div class="privacy-rule-row">
+                  <input type="checkbox" data-privacy-rule-toggle="${escapeAttr(rule.id)}" ${rule.enabled ? 'checked' : ''} title="Enable / disable" />
+                  <span class="tag mono">${escapeHtml(rule.kind)}</span>
+                  <span class="privacy-rule-value mono">${escapeHtml(rule.value)}</span>
+                  <span class="tag">${escapeHtml(rule.sensitivity)}</span>
+                  <button type="button" class="action-link" data-action="privacy-remove-rule" data-payload="${escapeAttr(rule.id)}">Remove</button>
+                </div>
+              `).join('') : '<p class="section-copy">No custom rules yet.</p>'}
+            </div>
+          </article>
+
+          <article class="panel-card">
+            <p class="section-kicker">Test coverage</p>
+            <h3>Preview classification</h3>
+            <p class="section-copy">Check whether a snippet of text or a file path would be classified by the current policy (packs + rules).</p>
+            <div class="privacy-rule-form">
+              <select id="privacy-test-kind">
+                <option value="text" ${state.privacyTest.kind === 'text' ? 'selected' : ''}>Text</option>
+                <option value="path" ${state.privacyTest.kind === 'path' ? 'selected' : ''}>Path</option>
+              </select>
+              <input type="text" id="privacy-test-value" placeholder="${state.privacyTest.kind === 'path' ? 'src/secrets/key.pem' : 'paste text to test'}" value="${escapeAttr(state.privacyTest.value)}" />
+              <button type="button" class="action-link" data-action="privacy-test">Test</button>
+            </div>
+            ${testResult ? `<p class="${testResult.ok ? 'privacy-test-hit' : 'privacy-test-clear'}">${escapeHtml(testResult.summary)}${testResult.labels && testResult.labels.length ? ' — ' + escapeHtml(testResult.labels.join(', ')) : ''}</p>` : ''}
           </article>
         </div>
       </section>

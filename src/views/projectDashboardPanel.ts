@@ -11,6 +11,8 @@ import { buildAssistantResponseMetadata, buildWorkstationContext, reconcileAssis
 import { resolvePickedImageAttachments } from '../chat/imageAttachments.js';
 import { collectTestingDashboardSnapshot, writeProjectTestingConfig, type TestingDashboardSnapshot } from './settingsPanel.js';
 import { getWebviewHtmlShell } from './webviewUtils.js';
+import { DataPrivacyManager, readDataPrivacyConfig, writeDataPrivacyConfig, defaultDataPrivacyConfig } from '../core/dataPrivacyManager.js';
+import { COMPLIANCE_PACKS } from '../core/compliancePacks.js';
 
 const execFileAsync = promisify(execFile);
 const PROJECT_DASHBOARD_VIEW_TYPE = 'atlasmind.projectDashboard';
@@ -82,7 +84,9 @@ type ProjectDashboardMessage =
   | { type: 'resolveGapItem'; payload: string }
   | { type: 'resolveGapGroup'; payload: string }
   | { type: 'openGapFiles'; payload: string }
-  | { type: 'saveTestingConfig'; payload: import('../types.js').ProjectTestingConfig };
+  | { type: 'saveTestingConfig'; payload: import('../types.js').ProjectTestingConfig }
+  | { type: 'saveDataPrivacyConfig'; payload: import('../types.js').DataPrivacyConfig }
+  | { type: 'testDataPrivacy'; payload: { kind: 'text' | 'path'; value: string } };
 
 type DashboardWebviewMessage =
   | { type: 'state'; payload: DashboardSnapshot }
@@ -93,7 +97,8 @@ type DashboardWebviewMessage =
   | { type: 'ideationResponseReset' }
   | { type: 'ideationResponseChunk'; payload: string }
   | { type: 'gapAnalysisBusy'; payload: boolean }
-  | { type: 'gapAnalysisStatus'; payload: string };
+  | { type: 'gapAnalysisStatus'; payload: string }
+  | { type: 'dataPrivacyTestResult'; payload: { ok: boolean; summary: string; labels: string[] } };
 
 type Tone = 'accent' | 'good' | 'warn' | 'critical' | 'neutral';
 
@@ -556,6 +561,7 @@ interface DashboardSnapshot {
   score: DashboardScoreBreakdown;
   ideation: DashboardIdeationSnapshot;
   gapAnalysis: DashboardGapAnalysisSnapshot;
+  privacy: DashboardPrivacySnapshot;
   quickActions: Array<{
     label: string;
     description: string;
@@ -563,6 +569,15 @@ interface DashboardSnapshot {
     command?: string;
     filePath?: string;
   }>;
+}
+
+interface DashboardPrivacySnapshot {
+  enabled: boolean;
+  rules: import('../types.js').DataPrivacyRule[];
+  compliancePacks: string[];
+  trustedModelIds: string[];
+  availableModels: Array<{ id: string; name: string; provider: string; configured: boolean }>;
+  packs: Array<{ id: string; label: string; description: string; detectorCount: number }>;
 }
 
 interface SsotDiskSnapshot {
@@ -1057,6 +1072,41 @@ export class ProjectDashboardPanel {
           }
         }
         return;
+      case 'saveDataPrivacyConfig':
+        {
+          const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          if (workspaceRoot) {
+            await writeDataPrivacyConfig(workspaceRoot, message.payload);
+            // Apply immediately to the live policy so enforcement reflects the
+            // saved config without waiting for the file watcher.
+            this.atlas.dataPrivacyManager.setConfig(message.payload);
+            await this.syncState();
+          }
+        }
+        return;
+      case 'testDataPrivacy':
+        {
+          const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          const config = workspaceRoot ? readDataPrivacyConfig(workspaceRoot) : undefined;
+          // Force-enable a throwaway manager so the test works even while the
+          // policy master switch is off in the editor.
+          const tester = new DataPrivacyManager({ ...(config ?? defaultDataPrivacyConfig()), enabled: true });
+          let result: { ok: boolean; summary: string; labels: string[] };
+          if (message.payload.kind === 'path') {
+            const rule = tester.classifyPath(message.payload.value, workspaceRoot);
+            result = rule
+              ? { ok: true, summary: `Classified by rule "${rule.label || rule.value}" (${rule.sensitivity}).`, labels: [rule.label || rule.value] }
+              : { ok: false, summary: 'No path rule matches this path.', labels: [] };
+          } else {
+            const classification = tester.classifyText(message.payload.value);
+            const labels = [...new Set(classification.matches.map(m => m.label))];
+            result = classification.hasClassified
+              ? { ok: true, summary: `Classified — ${labels.length} detector(s) fired.`, labels }
+              : { ok: false, summary: 'No classified content detected in this text.', labels: [] };
+          }
+          void this.panel.webview.postMessage({ type: 'dataPrivacyTestResult', payload: result });
+        }
+        return;
       case 'runIdeationLoop':
         await this.runIdeationLoop(message.payload);
         return;
@@ -1489,7 +1539,43 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return typeof p === 'object' && p !== null && p['version'] === 1 && Array.isArray(p['methodologies']);
   }
 
+  if (candidate['type'] === 'saveDataPrivacyConfig') {
+    return isDataPrivacyConfigPayload(candidate['payload']);
+  }
+
+  if (candidate['type'] === 'testDataPrivacy') {
+    const p = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof p === 'object' && p !== null
+      && (p['kind'] === 'text' || p['kind'] === 'path')
+      && typeof p['value'] === 'string';
+  }
+
   return false;
+}
+
+function isDataPrivacyConfigPayload(payload: unknown): payload is import('../types.js').DataPrivacyConfig {
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
+    return false;
+  }
+  const p = payload as Record<string, unknown>;
+  if (p['version'] !== 1 || typeof p['enabled'] !== 'boolean') {
+    return false;
+  }
+  if (!Array.isArray(p['rules']) || !Array.isArray(p['compliancePacks']) || !Array.isArray(p['trustedModelIds'])) {
+    return false;
+  }
+  const validRule = (r: unknown): boolean => {
+    if (typeof r !== 'object' || r === null) { return false; }
+    const rule = r as Record<string, unknown>;
+    return typeof rule['id'] === 'string'
+      && (rule['kind'] === 'term' || rule['kind'] === 'regex' || rule['kind'] === 'path')
+      && typeof rule['value'] === 'string'
+      && (rule['sensitivity'] === 'confidential' || rule['sensitivity'] === 'proprietary' || rule['sensitivity'] === 'secret')
+      && typeof rule['enabled'] === 'boolean';
+  };
+  return (p['rules'] as unknown[]).every(validRule)
+    && (p['compliancePacks'] as unknown[]).every(id => typeof id === 'string')
+    && (p['trustedModelIds'] as unknown[]).every(id => typeof id === 'string');
 }
 
 function isDashboardRoadmapSavePayload(payload: unknown): payload is DashboardRoadmapSavePayload {
@@ -1828,7 +1914,40 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
       updatedRelative: formatRelativeDate(ideationBoard.updatedAt),
     },
     gapAnalysis,
+    privacy: buildPrivacySnapshot(atlas),
     quickActions,
+  };
+}
+
+function buildPrivacySnapshot(atlas: AtlasMindContext): DashboardPrivacySnapshot {
+  const config = atlas.dataPrivacyManager?.getConfig() ?? defaultDataPrivacyConfig();
+  const availableModels = atlas.modelRouter.listProviders()
+    .flatMap(provider => provider.models.map(model => ({
+      id: model.id,
+      name: model.name,
+      provider: provider.displayName,
+      configured: model.enabled,
+    })))
+    .sort((a, b) => a.provider.localeCompare(b.provider) || a.id.localeCompare(b.id));
+  // Ensure any trusted model that is no longer in the catalog is still listed
+  // so the user can see and unassign it.
+  for (const trustedId of config.trustedModelIds) {
+    if (!availableModels.some(m => m.id === trustedId)) {
+      availableModels.push({ id: trustedId, name: trustedId, provider: 'Unavailable', configured: false });
+    }
+  }
+  return {
+    enabled: config.enabled,
+    rules: config.rules,
+    compliancePacks: config.compliancePacks,
+    trustedModelIds: config.trustedModelIds,
+    availableModels,
+    packs: COMPLIANCE_PACKS.map(pack => ({
+      id: pack.id,
+      label: pack.label,
+      description: pack.description,
+      detectorCount: pack.detectors.length,
+    })),
   };
 }
 
@@ -4153,6 +4272,65 @@ const DASHBOARD_CSS = `
   .review-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+
+  .privacy-toggle,
+  .privacy-pack,
+  .privacy-model {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 8px;
+    border: 1px solid var(--vscode-panel-border, rgba(255,255,255,0.1));
+    border-radius: 6px;
+    cursor: pointer;
+    flex-wrap: wrap;
+  }
+  .privacy-pack.on,
+  .privacy-model.on {
+    border-color: var(--vscode-focusBorder, #4daafc);
+  }
+  .privacy-pack-label,
+  .privacy-model-name { font-weight: 600; }
+  .privacy-pack-desc,
+  .privacy-model-meta {
+    flex-basis: 100%;
+    opacity: 0.75;
+    font-size: 0.85em;
+  }
+  .privacy-model-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    max-height: 320px;
+    overflow-y: auto;
+  }
+  .privacy-rule-form {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+  }
+  .privacy-rule-form input[type="text"] { flex: 1 1 200px; }
+  .privacy-rule-form input,
+  .privacy-rule-form select {
+    background: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    border: 1px solid var(--vscode-input-border, transparent);
+    border-radius: 4px;
+    padding: 4px 6px;
+  }
+  .privacy-rule-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--vscode-panel-border, rgba(255,255,255,0.08));
+    flex-wrap: wrap;
+  }
+  .privacy-rule-value { flex: 1 1 160px; word-break: break-all; }
+  .privacy-warn,
+  .privacy-test-hit { color: var(--vscode-editorWarning-foreground, #cca700); }
+  .privacy-test-clear { opacity: 0.75; }
 
   .action-grid,
   .panel-grid,

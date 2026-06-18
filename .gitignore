@@ -4,5 +4,9 @@ node_modules/
 .vscode-test/
 coverage/
 .claude/
-project_memory/
+# project_memory: track curated SSOT (the shared "project brain"), but keep
+# volatile / potentially-sensitive content out of this PUBLIC repo.
+project_memory/sessions/
+project_memory/temp/
+project_memory/operations/project-run-*.json
 .atlasmind/

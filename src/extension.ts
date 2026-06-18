@@ -11,6 +11,7 @@ import type { ProjectMemoryFreshnessStatus } from './bootstrap/bootstrapper.js';
 import type { SessionConversation, SessionPolicySnapshot } from './chat/sessionConversation.js';
 import type { VoiceManager } from './voice/voiceManager.js';
 import type { Orchestrator } from './core/orchestrator.js';
+import type { DataPrivacyManager } from './core/dataPrivacyManager.js';
 import type { AgentRegistry } from './core/agentRegistry.js';
 import type { SkillsRegistry } from './core/skillsRegistry.js';
 import type { ModelRouter } from './core/modelRouter.js';
@@ -151,6 +152,7 @@ const PERSONALITY_PROFILE_PROMPT_FIELDS: ReadonlyArray<{ key: string; label: str
 
 export interface AtlasMindContext {
   orchestrator: Orchestrator;
+  dataPrivacyManager: DataPrivacyManager;
   agentRegistry: AgentRegistry;
   skillsRegistry: SkillsRegistry;
   modelRouter: ModelRouter;
@@ -1524,6 +1526,7 @@ async function bootstrapAtlasMind(
       runtimeCoreModule,
       toolPolicyModule,
       routineRegistryModule,
+      dataPrivacyModule,
     ] = await Promise.all([
       import('./chat/participant.js'),
       import('./views/treeViews.js'),
@@ -1550,6 +1553,7 @@ async function bootstrapAtlasMind(
       import('./runtime/core.js'),
       import('./core/toolPolicy.js'),
       import('./core/routineRegistry.js'),
+      import('./core/dataPrivacyManager.js'),
     ]);
 
     return {
@@ -1594,6 +1598,8 @@ async function bootstrapAtlasMind(
       getToolApprovalMode: toolPolicyModule.getToolApprovalMode,
       requiresToolApproval: toolPolicyModule.requiresToolApproval,
       RoutineRegistry: routineRegistryModule.RoutineRegistry,
+      DataPrivacyManager: dataPrivacyModule.DataPrivacyManager,
+      readDataPrivacyConfig: dataPrivacyModule.readDataPrivacyConfig,
     };
   });
   if (!startupModules) {
@@ -1839,7 +1845,25 @@ async function bootstrapAtlasMind(
       getPersonalityProfilePrompt: () => buildWorkspaceIdentityPrompt(context.workspaceState),
       providerAdapters,
       toolWebhookDispatcher,
-      hooks: { toolApprovalGate, generatedSkillApprovalGate, writeCheckpointHook, postToolVerifier, onQuotaUpdated: (pid, rem, tot) => quotaUpdatedRef(pid, rem, tot), onModelOutcomeRecorded: outcomes => persistExecutionOutcomes(context.globalState, outcomes) },
+      hooks: {
+        toolApprovalGate,
+        generatedSkillApprovalGate,
+        writeCheckpointHook,
+        postToolVerifier,
+        onQuotaUpdated: (pid, rem, tot) => quotaUpdatedRef(pid, rem, tot),
+        onModelOutcomeRecorded: outcomes => persistExecutionOutcomes(context.globalState, outcomes),
+        onClassifiedContentForUntrustedModel: ({ matches }) => {
+          const kinds = [...new Set(matches.map(m => m.label))].slice(0, 3).join(', ') || 'confidential data';
+          void vscode.window.showWarningMessage(
+            `Data Privacy: detected ${kinds} but no trusted model is available. The content was redacted before being sent. Assign a trusted model to use it.`,
+            'Open Privacy Settings',
+          ).then(choice => {
+            if (choice === 'Open Privacy Settings') {
+              void vscode.commands.executeCommand('atlasmind.openProjectDashboard');
+            }
+          });
+        },
+      },
       config: {
         maxToolIterations: vscode.workspace.getConfiguration('atlasmind').get<number>('maxToolIterations')!,
         maxToolCallsPerTurn: vscode.workspace.getConfiguration('atlasmind').get<number>('maxToolCallsPerTurn')!,
@@ -2018,6 +2042,28 @@ async function bootstrapAtlasMind(
     );
     orchestrator.setAgentAutoUpdater(agentAutoUpdater);
 
+    // Data Privacy: load the project policy (project_memory/operations/data-privacy.json)
+    // and inject it so the orchestrator gates routing to trusted models and
+    // redacts confidential / regulated content for everything else.
+    const dataPrivacyRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const dataPrivacyManager = new startupModules.DataPrivacyManager(
+      dataPrivacyRoot ? startupModules.readDataPrivacyConfig(dataPrivacyRoot) : undefined,
+    );
+    orchestrator.setDataPrivacyManager(dataPrivacyManager);
+    const reloadDataPrivacyConfig = () => {
+      if (!dataPrivacyRoot) { return; }
+      const next = startupModules.readDataPrivacyConfig(dataPrivacyRoot);
+      if (next) { dataPrivacyManager.setConfig(next); }
+    };
+    if (dataPrivacyRoot) {
+      const dpWatcher = vscode.workspace.createFileSystemWatcher(
+        new vscode.RelativePattern(dataPrivacyRoot, 'project_memory/operations/data-privacy.json'),
+      );
+      dpWatcher.onDidChange(reloadDataPrivacyConfig);
+      dpWatcher.onDidCreate(reloadDataPrivacyConfig);
+      context.subscriptions.push(dpWatcher);
+    }
+
     // Periodically refresh snippets for stale SSOT entries (max 3 per cycle to avoid cost spikes).
     const ssotSnippetRefreshHandle = setInterval(() => {
       const ssotRoot = sessionContextManager.getSsotRoot();
@@ -2060,6 +2106,7 @@ async function bootstrapAtlasMind(
 
     atlasContext = {
       orchestrator,
+      dataPrivacyManager,
       agentRegistry,
       skillsRegistry,
       modelRouter,

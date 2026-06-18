@@ -6,6 +6,51 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.104.3 — Packaging Fix
+
+- **Restored VSIX packaging** after the 0.104.2 dependency bump. `@types/vscode` was pinned back to `^1.120.0` to match `engines.vscode`, since `vsce` rejects types newer than the declared engine. The supported minimum VS Code version is unchanged.
+
+## v0.104.2 — Dependency Security Maintenance
+
+- **Applied Dependabot security updates for development dependencies** (`js-yaml` 4.1.1→4.2.0, `form-data` 4.0.5→4.0.6, and the developer-tooling group: `@types/vscode`, `@typescript-eslint/eslint-plugin`, `@vitest/coverage-v8`, `eslint`). `npm audit` reports 0 vulnerabilities; the full build and all 1104 tests pass. No runtime dependencies changed.
+
+## v0.104.1 — No Success Claims Over a Failing Verification
+
+- **A turn can no longer report success while its own verification run failed.** If a response claimed the work was done while the post-edit verification reported `FAIL` / a non-zero exit code, AtlasMind now gives the model one chance to reconcile (fix it or state the task isn't complete) and, if it still claims success, appends a deterministic caveat citing the failing line and marking the task **not complete**. Detection keys on structured markers (`FAIL:`, `exit N`, `N failed`, `✗`) and is overridden by `PASS:` / `0 failed`, so a test merely *named* "…fails when…" isn't misread.
+
+## v0.104.0 — Data Privacy & Trusted-Model Gating
+
+- **Mark confidential data and keep it on the models you choose.** A new project Data Privacy policy lets you classify language/terms, files, and folders as proprietary, confidential, or secret — and enable built-in compliance packs (GDPR, HIPAA, PCI-DSS, CCPA/CPRA, Financial) that detect regulated data points like emails, payment-card numbers, and health terms. Classified content is only ever sent to the **trusted models you select**; every other model receives a redacted `[CONFIDENTIAL]` placeholder.
+- Enforcement is layered: a **routing gate** restricts model selection to trusted models when context is classified, a **redaction fail-safe** strips classified spans for the actually-selected model, and **tool reads are gated** so a confidential file read by an un-trusted model is withheld. Deny-by-default — an empty trusted list trusts nothing.
+- Managed from the Project Dashboard → new **Privacy** page (enable toggle, compliance-standard checkboxes, custom term/regex/path rules, trusted-model multi-select, and a test-against-text/path preview). The detectors are heuristic aids, not a compliance certification.
+
+## v0.103.2 — Honest Subtask Outcomes
+
+- **Project subtasks that didn't actually deliver are no longer reported as completed.** A subtask that ended on a hard tool error (e.g. a missing-file read), returned only a preamble ("Let's inspect…") with no work, or otherwise signalled incomplete delivery used to be recorded as `completed` — letting the run build dependents on a broken foundation and report a false "N/N completed". These are now classified as `failed` (with an explanatory reason), so dependents are skipped and the run's completed/failed counts are honest. A failing subtask also gets one recovery retry before it's marked failed. (Iteration-cap pauses remain `needs-input`, from v0.101.0.)
+
+## v0.103.1 — Inline Sidebar Brand Header
+
+- **The sidebar brand header is now a single inline line.** The project name moved from a stacked subtitle to an inline **`AtlasMind/ProjectName`** form — the project name follows a forward slash after the wordmark in a slightly smaller, dimmer font — reclaiming the vertical space the second row used. When no project name is available, the slash and name are hidden and only the clickable "AtlasMind" wordmark remains. Both segments stay independently clickable (wordmark → Settings, project name → Project Dashboard).
+
+## v0.103.0 — Smarter Triage Routing, Cleaner Answers & a Clickable Sidebar Brand Header
+
+- **Open-ended "what should we work on next / is anything incomplete?" prompts now route to a capable model.** They previously matched no reasoning hint and fell through to the cheapest (often sub-10B) model, which can't do whole-project triage. They are now classified as high-reasoning so the router steers them to a stronger model. Mechanical follow-ups (e.g. "commit") are unaffected.
+- **Duplicated answers are collapsed.** When a weak/looping model emits its final answer twice in a row, AtlasMind now drops the duplicate copy before display (conservative: only large, exact, adjacent duplicates).
+- **Pick-one buttons for enumerated questions.** Answers that end in a 3–4 option choice ("…: A, B, or C?") now render one clickable pill per option, not just for yes/no or two-option questions.
+- **The AtlasMind sidebar now leads with a clickable brand header.** The chat view (the topmost sidebar surface) opens with an **"AtlasMind"** wordmark that opens the **Settings** panel, and a subtitle announcing the active project that opens the **Project Dashboard**. The project name is the **connected Git repository name** when the workspace has a remote (e.g. `…/AtlasMind.git` → `AtlasMind`), falling back to the **workspace folder name** otherwise. Both are keyboard-focusable and routed through the validated webview message protocol to the existing commands. (The activity-bar container title can't be made clickable through the VS Code API, so the header lives inside the topmost view where it's reachable.)
+
+## v0.101.0 — Paused Subtasks on Iteration Cap
+
+- **Autonomous `/project` subtasks now pause instead of silently dying when they hit the tool-iteration cap.** A capped subtask previously returned `completed` with the bare "Execution stopped…" message as its output, so the run rolled on as if it had succeeded and the user never got the override that single-turn chat already offers. Subtasks now report a new **`needs-input`** state carrying the orchestrator's suggested higher limit; the project report shows a **"⏸️ Paused — tool-iteration limit reached"** section with a button to raise `maxToolIterations` and the choices to raise permanently, raise once and re-run, or skip. The Project Run Center, run log, and CLI all reflect the paused state.
+
+## v0.100.3 — Documentation Accuracy Sweep
+
+- **Corrected stale docs found while auditing changes since 0.80.0.** Fixed the `atlasmind.maxToolIterations` default (documented as `20`, actually `10`) in the configuration reference and wiki, and refreshed the Voice section that still claimed there was "no host-side OS-native speech adapter" — contradicting the OS host speech engine (0.80.0) and on-device Whisper STT (0.81.0). Docs-only.
+
+## v0.100.2 — SSOT Tracked in Git (Selective)
+
+- **The `project_memory/` "project brain" is now version-controlled** (agents, decisions, ideas, architecture, roadmap, routines, …) instead of being blanket-ignored. Volatile or potentially-sensitive content — chat session transcripts, temp scratch files, and dated run-history dumps — stays out of the public repo. Repo-hygiene change only.
+
 ## v0.100.1 — Open Knowledge Format (OKF) Interoperability Planning
 
 - **Planned OKF support** for Google Cloud's new vendor-neutral knowledge format (OKF v0.1, 2026-06-16). AtlasMind's SSOT is already structurally OKF-shaped, so the plan is to add **import/export** — including a **"Convert project to OKF"** command that emits an ingested project as a portable bundle — plus a **spec-watch sync** that tracks the standard as it evolves and only raises an advisory on changes (never auto-editing your memory). Evaluation and design captured in the project roadmap; planning only, no implementation yet.
