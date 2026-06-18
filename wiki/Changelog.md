@@ -6,6 +6,11 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.99.0 — Compare Models, Refined
+
+- **Reworked Compare Models panel** to match the other dashboards (topbar, cards, ranked results with a highlighted winner). It now lists **only models from providers you've configured** (grouped by provider), adds a **Select All** toggle, and ships **ready-made sample prompts** (reasoning, code, summarize) as one-click chips.
+- **Easier to reach**: a beaker icon on the **Models** view titlebar opens it, and there's a **Compare Models** quick-action on the Settings overview. See [[Chat-Commands]].
+
 ## v0.98.0 — Skip Unconfigured Providers + On-Demand Memory Refresh
 
 - **Unconfigured providers are no longer probed** (`src/extension.ts`): startup discovery skips any provider with no API key/credentials before its health check — so an unconfigured Bedrock (no AWS keys) no longer burns ~30s on a network probe, and the ~20 providers you haven't set up are skipped entirely. Configured ones are unaffected.
