@@ -30,6 +30,8 @@ src/
     criticality.ts
     currencyFormatter.ts
     environmentManager.ts
+    executionQuality.ts
+    modelEvalHarness.ts
     modelRouter.ts
     orchestrator.ts
     planner.ts
@@ -37,9 +39,7 @@ src/
     routineRegistry.ts
     routineRunner.ts
     scannerRulesManager.ts
-    skillAutoAssigner.ts
-    skillDrafting.ts
-    ... (9 more entries)
+    ... (12 more entries)
   mcp/
     mcpClient.ts
     mcpServerRegistry.ts
@@ -66,6 +66,10 @@ src/
     openrouter.ts
     providerPricingSync.ts
     registry.ts
+  remote/
+    protocol.ts
+    remoteBridge.ts
+    remoteControlServer.ts
   runtime/
     core.ts
     secrets.ts
@@ -94,12 +98,16 @@ src/
   utils/
     aiInstructionSync.ts
     secretRedactor.ts
+    testingProtocolSync.ts
     workspacePicker.ts
   views/
     agentManagerPanel.ts
     chatPanel.ts
+    chatProtocol.ts
+    chatWebviewMarkup.ts
     costDashboardPanel.ts
     mcpPanel.ts
+    modelComparisonPanel.ts
     modelProviderPanel.ts
     personalityProfilePanel.ts
     projectDashboardPanel.ts
@@ -113,9 +121,17 @@ src/
     treeViews.ts
     visionPanel.ts
     voicePanel.ts
-    webviewUtils.ts
+    ... (1 more entries)
   voice/
+    hostSpeechSynthesizer.ts
+    localTranscriber.ts
     voiceManager.ts
+  web/
+    chatClientPanel.ts
+    dashboardPanel.ts
+    extension.ts
+    remoteClient.ts
+    tsconfig.json
   commands.ts
   constants.ts
   extension.ts
@@ -143,6 +159,7 @@ tests/
   core/
     checkpointManager.test.ts
     costTracker.test.ts
+    modelEvalHarness.test.ts
     modelRouter.test.ts
     orchestrator.security.test.ts
     orchestrator.tools.test.ts
@@ -153,6 +170,8 @@ tests/
     skillDrafting.test.ts
     skillScanner.test.ts
     taskProfiler.test.ts
+    testingConfigLoader.test.ts
+    testingScaffolder.test.ts
     toolApprovalManager.test.ts
     toolPolicy.test.ts
     toolWebhookDispatcher.test.ts
@@ -167,12 +186,18 @@ tests/
     memoryPersistence.test.ts
     memoryScanner.test.ts
   providers/
+    anthropicCaching.test.ts
+    claudeCliPrompt.test.ts
     copilotDiscovery.test.ts
     copilotMultiplierSync.test.ts
+    inferModelMetadata.test.ts
     localModelRecommendationRegistry.test.ts
     modelCatalog.test.ts
     modelMetadataInference.test.ts
     providerAdapters.test.ts
+  remote/
+    protocol.test.ts
+    remoteBridge.test.ts
   runtime/
     core.test.ts
   skills/
@@ -197,6 +222,8 @@ tests/
     memoryQuery.test.ts
     memoryWrite.test.ts
     ... (10 more entries)
+  utils/
+    testingProtocolSync.test.ts
   views/
     panelFlows.test.ts
     skillScannerPanel.test.ts
@@ -204,6 +231,9 @@ tests/
     voicePanel.test.ts
     webviewMessages.test.ts
     webviewSecurity.test.ts
+  voice/
+    hostSpeechSynthesizer.test.ts
+    localTranscriber.test.ts
   commands.test.ts
   extensionActivation.test.ts
   nodeMemoryManager-cache.spec.ts
@@ -223,6 +253,7 @@ docs/
   development.md
   github-workflow.md
   model-routing.md
+  remote-control.md
   roadmap.md
   ssot-memory.md
   user-environment.md
@@ -247,6 +278,7 @@ wiki/
   Memory-System.md
   Model-Routing.md
   Project-Planner.md
+  Remote-Control.md
   Security.md
   Skills.md
   Tool-Execution.md
@@ -283,6 +315,7 @@ project_memory/
     runtime-and-surfaces.md
   decisions/
     .gitkeep
+    cutting-edge-routing-roadmap.md
     development-guardrails.md
     feature-enhancement-project-planner.md
   domain/
@@ -357,8 +390,8 @@ project_memory/
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-06-12T17:24:01.898Z
+generated-at: 2026-06-18T03:21:43.858Z
 source-paths: src | tests | docs | wiki | project_memory | .github
-source-fingerprint: a9bdd514
-body-fingerprint: 2eb95316
+source-fingerprint: 075bc2d0
+body-fingerprint: 9b0e33fa
 -->

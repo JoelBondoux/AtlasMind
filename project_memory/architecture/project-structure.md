@@ -23,16 +23,13 @@ LICENSE
 README.md
 SECURITY.md
 architecture/
-atlasmind-0.76.5.vsix
-atlasmind-0.77.2.vsix
-atlasmind-0.78.1.vsix
-atlasmind-0.78.5.vsix
-atlasmind-0.79.1.vsix
 atlasmind-0.79.2.vsix
+atlasmind-0.95.0.vsix
 coverage/
 data/
 debug_node.js
 docs/
+esbuild.mjs
 eslint.config.mjs
 implementation-plan.md
 media/
@@ -52,8 +49,8 @@ wiki/
 <!-- atlasmind-import
 entry-path: architecture/project-structure.md
 generator-version: 2
-generated-at: 2026-06-14T04:00:02.468Z
+generated-at: 2026-06-18T03:21:43.858Z
 source-paths: workspace-root
-source-fingerprint: e95c6dad
-body-fingerprint: cfe0c8b3
+source-fingerprint: 580d8b3e
+body-fingerprint: 93677b10
 -->

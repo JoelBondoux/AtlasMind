@@ -787,13 +787,25 @@ export class Orchestrator {
     // For mechanical low-overhead tasks on auto budget, constrain to cheap/fast models.
     // This prevents routine git ops, script runs, and narrow test generation from consuming
     // expensive subscription quota or pay-per-token credits when cheaper models are sufficient.
-    if (request.constraints.budget === 'auto' && isSimpleMechanicalTask(request.userMessage, baseTaskProfile)) {
+    const isDraftableTask = request.constraints.budget === 'auto' && isSimpleMechanicalTask(request.userMessage, baseTaskProfile);
+    if (isDraftableTask) {
       routingConstraints = { ...routingConstraints, budget: 'cheap', speed: 'fast' };
     }
 
+    // Direction 3 — local-draft / frontier-escalate: for draftable (mechanical,
+    // low-stakes) tasks, pin a configured draft model (`atlasmind.draftModelId`,
+    // e.g. a fast local model) for the FIRST attempt, while the existing
+    // struggle-gated escalation upgrades to a stronger model if the draft falls
+    // short. The pin is applied to a separate initial-selection constraints object
+    // only — escalation uses the unpinned `routingConstraints`, so it is never
+    // blocked by the draft pin.
+    const initialSelectionConstraints = isDraftableTask
+      ? this.withRoleModel(routingConstraints, 'draftModelId')
+      : routingConstraints;
+
     const requiresStrictInitialModelSelection = (agent.allowedModels?.length ?? 0) > 0;
     let selectedBestInitialModel = this.router.selectBestModel(
-      routingConstraints,
+      initialSelectionConstraints,
       agent.allowedModels,
       baseTaskProfile,
     );
@@ -2514,6 +2526,9 @@ export class Orchestrator {
       ...constraints,
       budget: 'expensive',
       speed: 'considered',
+      // Escalation is a deliberate upgrade: never honour a role/draft model pin
+      // here, or escalation would re-select the model it is trying to move off.
+      preferredModel: undefined,
       requiredCapabilities: [
         ...(constraints.requiredCapabilities ?? []),
         'reasoning',

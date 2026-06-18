@@ -8,6 +8,68 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.100.1] - 2026-06-18
+
+### Added
+- **Open Knowledge Format (OKF) interoperability planning** (`docs/roadmap.md`, `project_memory/`): evaluation and design for adopting Google Cloud's Open Knowledge Format (OKF v0.1, published 2026-06-16). Rather than reformatting AtlasMind's own docs to a two-day-old spec, the plan adds OKF **import/export** — including a user-facing **"Convert project to OKF"** command that emits an ingested project as a portable, redaction-safe bundle — plus a lightweight **spec-watch sync** (modeled on the existing provider/pricing sync services) that tracks the spec as it evolves and raises an advisory on version bumps without auto-mutating memory. Captured in `project_memory/decisions/okf-alignment-evaluation.md` (verdict: align the SSOT, don't migrate wholesale), `project_memory/index/okf-frontmatter-audit.md` (AtlasMind's stores are structurally OKF-shaped but metadata-divergent, so export/import is favored over reformatting), and `project_memory/ideas/okf-interop.md`. Added to the Frontier / Horizon Watch (Horizon 1) in the human-facing roadmap. Planning only — no implementation yet.
+
+## [0.100.0] - 2026-06-18
+
+### Changed
+- **Compare Models: list every configured model, grouped by provider** (`src/views/modelComparisonPanel.ts`): the picker previously showed only routing-`enabled` models, so most of a configured provider's catalog was hidden and very few models appeared. It now mirrors the Models tree — every model from a credentialed provider is listed in a collapsible per-provider group with a provider-level "select all" (plus the global Select All); disabled models are still selectable and marked.
+- **Sortable results table** (`src/views/modelComparisonPanel.ts`): results are now rendered client-side from structured data and any column header (Model, Quality, Completion, Cost, Latency, Tokens) can be clicked to sort ascending/descending. The first row in the current sort order is flagged as the leader.
+- **Quality, clarified** (`src/core/executionQuality.ts` doc, panel legend): the old single "Quality" column was the coarse completion-integrity grade (error 0 · empty 0.2 · truncated 0.6 · clean 1.0), which is ~1.0 for any clean response and so unhelpful for ranking. It is now labelled **Completion** with an inline legend explaining exactly what it measures.
+
+### Added
+- **Optional LLM answer-quality judge** (`src/core/modelEvalHarness.ts`, `src/views/modelComparisonPanel.ts`): an opt-in toggle (default off) grades each model's answer 0–100 for correctness, completeness, and usefulness using a judge model you pick from your configured models. When enabled, a **Quality** column appears (with the judge's rationale on hover) and drives the ranking. New pure, unit-tested helpers `buildModelJudgePrompt` and `parseModelJudgeVerdicts` (defensive JSON parsing, id matching, score clamping) back it; the harness gained an injected `judge` hook (`ModelEvalResult.judgeScore`/`judgeRationale`). The judge is display/ranking only — the **completion grade** remains what is recorded into outcome-driven routing, so routing calibration stays consistent with normal turns.
+
+## [0.99.1] - 2026-06-18
+
+### Changed
+- **Defer the activation-time memory freshness scan** (`src/extension.ts`): even with stale-memory auto-refresh off (v0.98.0), the `loadSsotFromDisk` step still ran the freshness *detection* — `getProjectMemoryFreshness` → `buildImportSnapshot`, which walks the entire repository to fingerprint imported sources — synchronously on the startup-critical path (observed ~4.5s on a large workspace). That scan exists only to light up the "Update Memory" badge, so it no longer sits between SSOT load and provider discovery: the SSOT is loaded from disk immediately, and the freshness scan is scheduled `MEMORY_FRESHNESS_STARTUP_DELAY_MS` (8s) after activation settles (cleaned up via a registered disposable). The on-save file watcher keeps freshness current thereafter; this one-shot scan still catches edits made while VS Code was closed — it just no longer delays startup. Resolves the residual slow-load between `loadSsotFromDisk completed` and the first `[providers]` lines.
+
+## [0.99.0] - 2026-06-18
+
+### Changed
+- **Compare Models panel reworked** (`src/views/modelComparisonPanel.ts`): the panel now matches the visual language of the other dashboards (topbar kicker/title, rounded cards, pill buttons, ranked results table with a highlighted winner). Key behaviour changes:
+  - **Only configured models are offered.** The model picker now lists models exclusively from providers the user has actually configured with credentials (checked via `isProviderConfigured`, run in parallel on open and grouped by provider), so a comparison can always be run for real instead of failing on un-credentialed providers.
+  - **Select All** toggle (with indeterminate state and a live selected-count) to quickly compare every configured model.
+  - **Ready-made sample prompts** (reasoning puzzle, code generation, summarize & extract) as one-click chips that populate the prompt box.
+- **Compare Models is now discoverable** (`package.json`, `src/views/settingsPanel.ts`): added a beaker icon to the **Models** view titlebar that opens the panel, and a **Compare Models** quick-action card on the Settings overview page.
+
+## [0.98.0] - 2026-06-18
+
+### Changed
+- **Skip discovery for unconfigured providers** (`src/extension.ts`): startup model discovery health-checked and listed models for **every** registered provider, including the ~20 the user has not configured with any credentials — so an unconfigured Amazon Bedrock (with no AWS keys) spent ~30s on a SigV4/network health attempt, and other unconfigured providers were probed pointlessly. Discovery now consults `isProviderConfigured` and **skips any provider with no API key / credentials** before any health check or `/models` call (keeping its seeded models and marking it unhealthy until configured). Interactive providers (Copilot, Claude CLI) are exempt from this pre-check since their configured-state is their own health probe. Combined with v0.97.2's concurrency + per-provider timeout, the `[providers]` startup stream now finishes quickly even with many unconfigured providers registered.
+
+### Added
+- **`atlasmind.autoRefreshStaleMemory` setting (default off)** (`src/extension.ts`, `package.json`): the automatic re-import of stale imported SSOT memory entries on startup/file-changes is an expensive LLM re-summarization of every stale entry — it slowed dashboards and panels on launch (the `[activate] memoryFreshness auto-refresh` work) and, when ineffective, simply re-ran. It is now **off by default**: AtlasMind still detects staleness and surfaces the **Update Memory** affordance (`setMemoryNeedsUpdateContext`) for an explicit, on-demand refresh, so startup stays fast and no LLM tokens are spent silently. Set the new setting to `true` to restore continuous auto-refresh.
+
+## [0.97.2] - 2026-06-18
+
+### Fixed
+- **Faster startup: provider discovery is now concurrent and bounded** (`src/extension.ts`, `tests/extensionActivation.test.ts`): `refreshProviderModelsCatalog` discovered models from ~24 providers in a **serial** loop — each provider's health check + `/models` fetch ran one after another, so a few slow providers (or a hanging health probe such as the Claude CLI's 60-second one) summed to nearly a minute of the `[providers]` startup stream during which model-dependent UI lagged. Discovery now runs **concurrently** (`Promise.all`), and each provider is wrapped in a per-provider timeout (`STARTUP_PROVIDER_DISCOVERY_TIMEOUT_MS`, 10s) via a new `withTimeout` helper, so one slow or hanging provider can no longer stall the rest — it is marked unhealthy, its existing models are kept, and it is retried on the next refresh. Total discovery time collapses from ~the sum of all providers to ~the slowest single one (capped at the timeout). Added 3 `withTimeout` tests (settles in time, slow → fallback, reject → fallback).
+
+## [0.97.1] - 2026-06-18
+
+### Fixed
+- **Silent activation failures are now surfaced** (`src/extension.ts`): if `bootstrapAtlasMind()`'s `buildAtlasContext` step throws, the error was caught and logged but never shown, leaving `atlasContext` unassigned — so every chat-view title icon that calls `requireAtlas()` (Cost Dashboard, Project Dashboard, Model Providers, Personality, Run Center, etc.) silently no-opped while Settings (the only command that does not require the context) still worked. The activation promise now has a `.catch()`, and the post-bootstrap step detects an unassigned context and shows an actionable error with a **Show Output** button pointing at the "AtlasMind" output channel (which logs the actual failing step). This does not change the underlying failure — it makes it visible so it can be diagnosed and fixed instead of presenting as dead toolbar icons.
+
+## [0.97.0] - 2026-06-18
+
+### Added
+- **Model Comparison panel** (`src/views/modelComparisonPanel.ts`, `src/commands.ts`): the `AtlasMind: Compare Models on a Prompt` command now opens a dedicated webview instead of the output channel. Enter a prompt, tick 2+ models, and run them to get a ranked, sortable table of graded quality, cost, latency, and an output preview per model; graded outcomes are recorded into the router to calibrate routing. The panel reuses the pure `compareModelsOnPrompt` harness, validates inbound webview messages (prompt is a non-empty string; model IDs are checked against the known-model set), renders all dynamic content with `escapeHtml`, uses a nonce-protected script with no inline handlers, and aborts an in-flight run when the panel is closed. The previous output-channel implementation (and its helper) were removed.
+
+## [0.96.1] - 2026-06-18
+
+### Changed
+- **Higher-fidelity Claude "brain" context via the Claude Code CLI bridge (Direction 3)** (`src/providers/claude-cli.ts`, `tests/providers/claudeCliPrompt.test.ts`): the chat-only `claude-cli` bridge previously truncated **every** message uniformly to 4,000 chars, which starved the brain-role calls (planning / synthesis) that carry the goal plus a large memory context in a single user message. `buildClaudeCliPrompt` now allocates a per-role budget: prior-turn history is capped small (2,500 chars each) while the **latest** turn gets up to 16,000 chars (≈4× more), reduced dynamically when history is large so the assembled prompt stays within a 26,000-char total budget — safely under the Windows ~32,767-char command-line limit (the prompt is passed on the command line). This makes `claude-cli` a far more capable choice for `planningModelId` / `synthesisModelId`. Added 3 tests covering the enlarged latest-turn budget, small history truncation, and the total bound under heavy history.
+
+## [0.96.0] - 2026-06-18
+
+### Added
+- **Local-draft / frontier-escalate routing (Direction 3)** (`src/core/orchestrator.ts`, `package.json`): a new `atlasmind.draftModelId` setting pins a draft model (e.g. a fast local model) for the **first attempt** of draftable tasks (auto budget + mechanical/low-stakes), with AtlasMind's existing struggle-gated escalation upgrading to a stronger reasoning-capable model if the draft falls short. This completes the role-routing set (draft / plan / execute / synthesize) over the `preferredModel` pin. The pin is applied to a separate initial-selection constraints object so it never blocks escalation, and `selectEscalatedModel` now explicitly clears `preferredModel` — escalation is a deliberate upgrade that must not re-select the model it is moving off. Empty (default) routes normally; an unknown model falls back to normal routing.
+
 ## [0.95.0] - 2026-06-18
 
 ### Added

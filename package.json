@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.95.0",
+  "version": "0.100.1",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -136,7 +136,8 @@
       },
       {
         "command": "atlasmind.compareModels",
-        "title": "AtlasMind: Compare Models on a Prompt"
+        "title": "AtlasMind: Compare Models on a Prompt",
+        "icon": "$(beaker)"
       },
       {
         "command": "atlasmind.collapseAllSidebarTrees",
@@ -583,6 +584,11 @@
           "group": "navigation@1"
         },
         {
+          "command": "atlasmind.compareModels",
+          "when": "view == atlasmind.modelsView",
+          "group": "navigation@2"
+        },
+        {
           "command": "atlasmind.openSettingsModels",
           "when": "view == atlasmind.modelsView",
           "group": "4_config@1"
@@ -1023,6 +1029,12 @@
           "description": "Optional model ID to pin for the synthesis phase (summarizing results/sessions into reasoning context). Leave empty to route synthesis normally.",
           "markdownDescription": "Optional model ID pinned for the synthesis phase — summarizing results or a chat session into reusable reasoning context. Like planning, synthesis is a no-tool reasoning step, so this completes the planner-brain / tool-executor / synthesis role-routing trio: pin a strong reasoner here while tool-using execution still routes to workers.\n\nWhen set to a known model ID, synthesis uses it directly (bypassing budget/speed gates); empty (default) routes synthesis with normal scoring. Falls back to normal routing if the model is unknown.\n\nExamples:\n- `anthropic/claude-sonnet-4`\n- `claude-cli/opus`"
         },
+        "atlasmind.draftModelId": {
+          "type": "string",
+          "default": "",
+          "description": "Optional model ID pinned to draft mechanical/low-stakes tasks (e.g. a fast local model). Struggle-gated escalation upgrades to a stronger model if the draft falls short. Leave empty to route normally.",
+          "markdownDescription": "Optional model ID pinned to **draft** mechanical, low-stakes tasks (routine edits, script runs, narrow test generation) — the local-draft half of local-draft / frontier-escalate routing. A fast local model is a good choice.\n\nWhen set, draftable tasks (auto budget + mechanical) start with this model; if the draft struggles (low confidence / repeated tool failures), AtlasMind's existing escalation upgrades to a stronger reasoning-capable model automatically. The pin applies only to the first attempt and never blocks escalation. Empty (default) routes normally; an unknown model falls back to normal routing.\n\nExamples:\n- `local/llama-3.1-8b-instruct`\n- `google/gemini-2.0-flash`"
+        },
         "atlasmind.localOpenAiBaseUrl": {
           "type": "string",
           "default": "http://127.0.0.1:11434/v1",
@@ -1064,6 +1076,12 @@
           "default": "project_memory",
           "description": "Relative path to the SSOT memory folder. If that path is missing, AtlasMind auto-detects an existing MindAtlas project in the current workspace when possible.",
           "markdownDescription": "Relative path to the SSOT memory folder. AtlasMind expects a safe workspace-relative path and will auto-detect an existing memory folder when possible if the configured path is missing.\n\nExamples:\n- Default project memory: `project_memory`\n- Monorepo app memory: `apps/api/project_memory`\n- Team convention with shared docs folder: `docs/atlasmind-memory`\n\nPrefer stable relative paths so onboarding, imports, and automation all resolve the same folder structure."
+        },
+        "atlasmind.autoRefreshStaleMemory": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically re-import stale imported SSOT memory entries on startup and file changes. Off by default — the re-import is an expensive LLM re-summarization; when off, AtlasMind still flags stale memory so you can refresh on demand via Update Memory.",
+          "markdownDescription": "Automatically re-import stale imported SSOT memory entries on startup and when workspace files change.\n\n**Off by default.** The auto-refresh re-summarizes every stale imported entry with the LLM, which is slow on startup and costs tokens. When off, AtlasMind still detects staleness and surfaces the **Update Memory** action so you can refresh on demand. Turn this on only if you want imported memory kept continuously in sync automatically and accept the cost.\n\nExamples:\n- Fast startup, refresh memory manually: `false` (default)\n- Always keep imported memory in lockstep with the workspace: `true`"
         },
         "atlasmind.showImportProjectAction": {
           "type": "boolean",

@@ -54,6 +54,7 @@ Example `settings.json` presets:
 | `atlasmind.feedbackRoutingWeight` | number | `1` | Multiplier for thumbs-based routing bias (also scales the outcome-driven bias). Use `0` to disable feedback-weighted routing or values up to `2` for a stronger but still capped influence. |
 | `atlasmind.planningModelId` | string | `""` | Optional model ID pinned for the planning phase (the planner "brain"). When set to a known model the planner uses it directly while execution routes normally; empty routes planning normally. |
 | `atlasmind.synthesisModelId` | string | `""` | Optional model ID pinned for the synthesis phase (summarizing results/sessions). Symmetric to `planningModelId`; empty routes synthesis normally. |
+| `atlasmind.draftModelId` | string | `""` | Optional model ID pinned to draft mechanical/low-stakes tasks (e.g. a fast local model); struggle-gated escalation upgrades if needed. Empty routes normally. |
 | `atlasmind.specialistRoutingOverrides` | object | `{}` | Per-domain overrides for specialist routing automation. Supported domain keys today are `media-generation`, `visual-analysis`, `voice`, `research`, `robotics`, and `simulation`. |
 | `atlasmind.localOpenAiEndpoints` | object[] | `[]` | Labeled local OpenAI-compatible endpoints AtlasMind should aggregate under the Local provider |
 | `atlasmind.localOpenAiBaseUrl` | string | `""` | Legacy single local OpenAI-compatible endpoint fallback |
@@ -124,6 +125,7 @@ See [[Agents]] for full details on the update criteria and per-agent exclusion.
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `atlasmind.showImportProjectAction` | boolean | `true` | Show the `Import Existing Project` toolbar button in the AtlasMind Memory view. AtlasMind Settings is always available from each AtlasMind view's three-dots menu. |
+| `atlasmind.autoRefreshStaleMemory` | boolean | `false` | Automatically re-import stale imported SSOT entries on startup/file changes (expensive LLM re-summarization). Off by default; staleness is still flagged for on-demand Update Memory. |
 
 See [[Memory System]] for folder structure and retrieval details.
 

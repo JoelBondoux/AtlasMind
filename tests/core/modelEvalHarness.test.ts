@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { compareModelsOnPrompt } from '../../src/core/modelEvalHarness.ts';
+import {
+  buildModelJudgePrompt,
+  compareModelsOnPrompt,
+  parseModelJudgeVerdicts,
+} from '../../src/core/modelEvalHarness.ts';
 import type { CompletionResponse } from '../../src/providers/adapter.ts';
 
 function completion(content: string, finishReason: CompletionResponse['finishReason'] = 'stop'): CompletionResponse {
@@ -74,5 +78,85 @@ describe('compareModelsOnPrompt', () => {
     const results = await compareModelsOnPrompt('p', ['a', 'b'], run, { signal: controller.signal });
     expect(run).not.toHaveBeenCalled();
     expect(results).toHaveLength(0);
+  });
+
+  it('applies judge scores and ranks by them when a judge is provided', async () => {
+    const results = await compareModelsOnPrompt(
+      'prompt',
+      ['weak', 'strong'],
+      async (modelId) => completion(`answer from ${modelId}`),
+      {
+        judge: async (_prompt, entries) => {
+          const map = new Map<string, { score: number; rationale?: string }>();
+          for (const entry of entries) {
+            map.set(entry.modelId, { score: entry.modelId === 'strong' ? 95 : 40, rationale: 'graded' });
+          }
+          return map;
+        },
+      },
+    );
+
+    // 'strong' has a worse completion tie but a far higher judge score, so it wins.
+    expect(results[0].modelId).toBe('strong');
+    expect(results[0].judgeScore).toBe(95);
+    expect(results[0].judgeRationale).toBe('graded');
+    expect(results[1].judgeScore).toBe(40);
+  });
+
+  it('keeps completion-graded results when the judge throws', async () => {
+    const results = await compareModelsOnPrompt(
+      'prompt',
+      ['a', 'b'],
+      async () => completion('fine'),
+      { judge: async () => { throw new Error('judge offline'); } },
+    );
+
+    expect(results).toHaveLength(2);
+    expect(results.every(r => r.judgeScore === undefined)).toBe(true);
+    expect(results.every(r => r.quality === 1)).toBe(true);
+  });
+});
+
+describe('buildModelJudgePrompt', () => {
+  it('embeds each answer with its id and the task', () => {
+    const prompt = buildModelJudgePrompt('Add 2 and 2.', [
+      { modelId: 'm1', response: 'four' },
+      { modelId: 'm2', response: '4' },
+    ]);
+    expect(prompt).toContain('Add 2 and 2.');
+    expect(prompt).toContain('id: m1');
+    expect(prompt).toContain('four');
+    expect(prompt).toContain('id: m2');
+    expect(prompt).toContain('JSON array');
+  });
+});
+
+describe('parseModelJudgeVerdicts', () => {
+  const entries = [
+    { modelId: 'openai/gpt', response: 'a' },
+    { modelId: 'anthropic/claude', response: 'b' },
+  ];
+
+  it('parses a clean JSON array and clamps scores', () => {
+    const text = '[{"id":"openai/gpt","score":120,"reason":"great"},{"id":"anthropic/claude","score":-5,"reason":"poor"}]';
+    const verdicts = parseModelJudgeVerdicts(text, entries);
+    expect(verdicts.get('openai/gpt')).toEqual({ score: 100, rationale: 'great' });
+    expect(verdicts.get('anthropic/claude')).toEqual({ score: 0, rationale: 'poor' });
+  });
+
+  it('tolerates surrounding prose and matches ids case-insensitively', () => {
+    const text = 'Here are the grades:\n[{"id":"OpenAI/GPT","score":80}]\nThanks!';
+    const verdicts = parseModelJudgeVerdicts(text, entries);
+    expect(verdicts.get('openai/gpt')?.score).toBe(80);
+  });
+
+  it('returns an empty map for unparseable output', () => {
+    expect(parseModelJudgeVerdicts('no json here', entries).size).toBe(0);
+    expect(parseModelJudgeVerdicts('[not, valid]', entries).size).toBe(0);
+  });
+
+  it('drops verdicts for unknown ids and non-numeric scores', () => {
+    const text = '[{"id":"ghost","score":50},{"id":"openai/gpt","score":"high"}]';
+    expect(parseModelJudgeVerdicts(text, entries).size).toBe(0);
   });
 });

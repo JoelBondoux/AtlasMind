@@ -447,7 +447,8 @@ export function registerCommands(
     }),
 
     vscode.commands.registerCommand('atlasmind.compareModels', async () => {
-      await runCompareModels(getAtlas());
+      const { ModelComparisonPanel } = await import('./views/modelComparisonPanel.js');
+      ModelComparisonPanel.createOrShow(getAtlas());
     }),
 
     vscode.commands.registerCommand('atlasmind.collapseAllSidebarTrees', async () => {
@@ -2720,114 +2721,6 @@ function toSpeedMode(value: string | undefined): 'fast' | 'balanced' | 'consider
     default:
       return 'balanced';
   }
-}
-
-function cancellationTokenToSignal(token: vscode.CancellationToken): AbortSignal {
-  const controller = new AbortController();
-  if (token.isCancellationRequested) {
-    controller.abort();
-  } else {
-    token.onCancellationRequested(() => controller.abort());
-  }
-  return controller.signal;
-}
-
-/**
- * Direction 2 follow-up — model-eval harness command. Runs a user-supplied prompt
- * across selected models, reports a ranked quality/cost/latency comparison in an
- * output channel, and records the graded outcomes into the router so the
- * benchmark also calibrates outcome-driven routing.
- */
-async function runCompareModels(atlas: AtlasMindContext | undefined): Promise<void> {
-  if (!atlas) {
-    void vscode.window.showErrorMessage('AtlasMind is not ready yet.');
-    return;
-  }
-
-  const prompt = await vscode.window.showInputBox({
-    title: 'Compare Models',
-    prompt: 'Enter a prompt to run across candidate models',
-    placeHolder: 'e.g. Summarize how this project routes models',
-    ignoreFocusOut: true,
-  });
-  if (!prompt || !prompt.trim()) {
-    return;
-  }
-
-  const modelItems = atlas.modelRouter.listProviders()
-    .flatMap(provider => provider.models.filter(model => model.enabled).map(model => ({ label: model.id, description: model.name })))
-    .sort((a, b) => a.label.localeCompare(b.label));
-  if (modelItems.length === 0) {
-    void vscode.window.showInformationMessage('No models are available to compare.');
-    return;
-  }
-
-  const picks = await vscode.window.showQuickPick(modelItems, {
-    title: 'Compare Models',
-    placeHolder: 'Select 2+ models to benchmark on the prompt',
-    canPickMany: true,
-    ignoreFocusOut: true,
-  });
-  if (!picks || picks.length < 2) {
-    void vscode.window.showInformationMessage('Select at least two models to compare.');
-    return;
-  }
-  const modelIds = picks.map(pick => pick.label);
-
-  const { compareModelsOnPrompt } = await import('./core/modelEvalHarness.js');
-  const channel = vscode.window.createOutputChannel('AtlasMind: Model Comparison');
-  channel.show(true);
-  channel.appendLine(`Comparing ${modelIds.length} models on prompt:\n  ${prompt.trim()}\n`);
-
-  const results = await vscode.window.withProgress(
-    { location: vscode.ProgressLocation.Notification, title: 'AtlasMind: comparing models…', cancellable: true },
-    (_progress, token) => compareModelsOnPrompt(
-      prompt.trim(),
-      modelIds,
-      async (modelId, body, signal) => {
-        const providerId = resolveProviderIdForModel(modelId, atlas.modelRouter, 'local');
-        const provider = atlas.providerRegistry.get(providerId);
-        if (!provider) {
-          throw new Error(`No provider adapter registered for "${providerId}".`);
-        }
-        return provider.complete({
-          model: modelId,
-          temperature: 0.2,
-          maxTokens: 1024,
-          messages: [{ role: 'user', content: body }],
-          signal,
-        });
-      },
-      {
-        signal: cancellationTokenToSignal(token),
-        estimateCostUsd: (modelId, inputTokens, outputTokens) => {
-          const info = atlas.modelRouter.getModelInfo(modelId);
-          if (!info) { return 0; }
-          return ((inputTokens / 1000) * info.inputPricePer1k) + ((outputTokens / 1000) * info.outputPricePer1k);
-        },
-        onResult: (modelId, quality) => atlas.modelRouter.recordExecutionOutcome(modelId, quality),
-      },
-    ),
-  );
-
-  channel.appendLine('Results (ranked by quality, then cost):');
-  results.forEach((result, index) => {
-    channel.appendLine(`\n${index + 1}. ${result.modelId}`);
-    if (result.error) {
-      channel.appendLine(`   ERROR: ${result.error}`);
-      return;
-    }
-    channel.appendLine(`   quality ${result.quality.toFixed(2)} · cost $${result.costUsd.toFixed(5)} · ${result.latencyMs} ms · ${result.inputTokens}→${result.outputTokens} tokens`);
-    channel.appendLine(`   ${result.contentPreview.replace(/\s+/g, ' ').trim()}`);
-  });
-  channel.appendLine('\nGraded outcomes were recorded to calibrate outcome-driven routing.');
-
-  const winner = results.find(result => !result.error);
-  void vscode.window.showInformationMessage(
-    winner
-      ? `Model comparison complete — top model: ${winner.modelId} (quality ${winner.quality.toFixed(2)}). See the output channel for details.`
-      : 'Model comparison complete — all runs failed. See the output channel for details.',
-  );
 }
 
 function resolveProviderIdForModel(

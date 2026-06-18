@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.95.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.100.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -134,7 +134,7 @@ Access these from the VS Code Command Palette (`Ctrl+Shift+P`).
 | `AtlasMind: Specialist Integrations` | Configure specialist search and media providers |
 | `AtlasMind: Tool Webhooks` | Configure outbound tool execution webhooks |
 | `AtlasMind: Scaffold Testing Framework` | Construct a stack-aware starter framework (config, example tests, strategy playbook) for the enabled testing methodologies |
-| `AtlasMind: Compare Models on a Prompt` | Run one prompt across selected models and view a ranked quality/cost/latency comparison; records outcomes to calibrate routing |
+| `AtlasMind: Compare Models on a Prompt` | Run one prompt across your configured models (grouped by provider, Select All + sample prompts) and view a sortable comparison. An optional LLM **judge** scores each answer 0–100; click any column header to sort. Records outcomes to calibrate routing. Reachable from the Models view titlebar (beaker icon) and the Settings overview. |
 | `AtlasMind: Sync Testing Protocols to AI Agents` | Write the enabled testing protocols into detected AI agent instruction files (`CLAUDE.md`, `copilot-instructions.md`, `AGENTS.md`, etc.) |
 | `AtlasMind: Enable Remote Control` | Start the localhost server so the web build can drive this desktop instance (desktop) |
 | `AtlasMind: Disable Remote Control` | Stop the remote-control server and drop sessions (desktop) |
@@ -222,6 +222,7 @@ Key settings under `atlasmind.*` in VS Code settings:
 | `speedMode` | `balanced` | Model speed preference: `fast`, `balanced`, `considered`, `auto` |
 | `planningModelId` | `""` | Optional model ID pinned for the planning "brain" phase; empty routes planning normally |
 | `synthesisModelId` | `""` | Optional model ID pinned for the synthesis (summarization) phase; empty routes synthesis normally |
+| `draftModelId` | `""` | Optional model pinned to draft mechanical tasks (local-draft / frontier-escalate); empty routes normally |
 | `toolApprovalMode` | `ask-on-write` | When to prompt for tool approval: `always-ask`, `ask-on-write`, `ask-on-external`, `allow-safe-readonly` |
 | `dailyCostLimitUsd` | `0` | Daily spend cap in USD (0 = unlimited) |
 | `agentAutoUpdateCadence` | `never` | How often to AI-refresh agent definitions: `never`, `daily`, `weekly`, `monthly`, `every-use` |
@@ -271,7 +272,7 @@ See [Funding and Sponsorship](wiki/Funding-and-Sponsorship.md) for details.
 - Skills and tool handlers: `src/skills/`
 - Shared utilities: `src/utils/` (including `secretRedactor.ts` — pattern-based secret scanner used to scrub credentials from memory context before LLM dispatch; `aiInstructionSync.ts` — inbound merge of external agent rule files; `testingProtocolSync.ts` — outbound sync of enabled testing protocols into external agent instruction files)
 - Testing strategy: `src/core/testingConfigLoader.ts` (methodology resolution for orchestrated runs) and `src/core/testingScaffolder.ts` (stack-aware framework scaffolding)
-- Routing intelligence: `src/core/executionQuality.ts` (shared output-quality scorer) and `src/core/modelEvalHarness.ts` (scored-replay model comparison)
+- Routing intelligence: `src/core/executionQuality.ts` (shared output-quality scorer), `src/core/modelEvalHarness.ts` (scored-replay model comparison), and `src/views/modelComparisonPanel.ts` (comparison webview)
 - Webview and sidebar surfaces: `src/views/` (`chatProtocol.ts` and `chatWebviewMarkup.ts` are Node-free so they are shared with the web build)
 - Voice (TTS/STT): `src/voice/` (`voiceManager.ts` bridge, `hostSpeechSynthesizer.ts` on-device OS speech engine, `localTranscriber.ts` on-device Whisper STT)
 - Memory and MCP layers: `src/memory/`, `src/mcp/`

@@ -1153,6 +1153,17 @@ async function refreshWorkspaceMemoryFreshness(
   return status;
 }
 
+/**
+ * Whether to automatically re-import stale imported SSOT entries on activation /
+ * file changes. Default off: the re-import is an expensive LLM re-summarization of
+ * every stale entry, so running it on every launch is slow and costly. When off,
+ * the freshness check still flags staleness (via `setMemoryNeedsUpdateContext`), so
+ * the "Update Memory" affordance is surfaced for an explicit, on-demand refresh.
+ */
+function isStaleMemoryAutoRefreshEnabled(): boolean {
+  return vscode.workspace.getConfiguration('atlasmind').get<boolean>('autoRefreshStaleMemory', false);
+}
+
 async function autoRefreshProjectMemoryIfStale(
   workspaceFolder: vscode.WorkspaceFolder,
   atlas: AtlasMindContext,
@@ -1416,6 +1427,10 @@ function registerProjectMemoryAutoRefresh(
         return;
       }
 
+      if (!isStaleMemoryAutoRefreshEnabled()) {
+        outputChannel.appendLine('[activate] memoryFreshness auto-refresh disabled (atlasmind.autoRefreshStaleMemory=false); memory marked stale — use the Update Memory action to refresh on demand.');
+        return;
+      }
       refreshInFlight = true;
       lastAttemptedGeneration = scheduledGeneration;
       void autoRefreshProjectMemoryIfStale(workspaceFolder, atlas, outputChannel, reason)
@@ -1880,7 +1895,14 @@ async function bootstrapAtlasMind(
         modelRouter,
         providerRegistry,
         outputChannel,
-        { includeInteractiveProviders, globalState: context.globalState },
+        {
+          includeInteractiveProviders,
+          globalState: context.globalState,
+          // Skip discovery for providers the user has not configured (no API key /
+          // credentials), so unconfigured providers (e.g. Bedrock with no AWS keys,
+          // whose health check otherwise attempts a ~30s network call) are not probed.
+          isProviderConfigured: (providerId: string) => atlasContext?.isProviderConfigured(providerId as ProviderId) ?? Promise.resolve(true),
+        },
       );
       applyModelAvailabilityState(
         modelRouter,
@@ -2345,14 +2367,29 @@ async function bootstrapAtlasMind(
       }
       atlasContext?.sessionContextManager.setSsotRoot(resolved.uri);
       await setSsotPresentContext(true);
-      await refreshWorkspaceMemoryFreshness(workspaceFolder, outputChannel);
-      if (atlasContext) {
-        void autoRefreshProjectMemoryIfStale(workspaceFolder, atlasContext, outputChannel, 'ssot-load')
-          .catch(error => {
-            const detail = error instanceof Error ? error.stack ?? error.message : String(error);
-            outputChannel.appendLine(`[activate] memoryFreshness ssot-load auto-refresh failed: ${detail}`);
-          });
-      }
+
+      // Defer the expensive workspace freshness scan off the startup-critical
+      // window. Loading the SSOT from disk above is cheap; fingerprinting the
+      // whole repo to detect staleness is not, and it only feeds the "Update
+      // Memory" badge — so run it shortly after activation settles.
+      const freshnessTimer = setTimeout(() => {
+        runBackgroundActivationTask('memoryFreshnessScan', outputChannel, async () => {
+          if (!atlasContext) {
+            return;
+          }
+          await refreshWorkspaceMemoryFreshness(workspaceFolder, outputChannel);
+          if (isStaleMemoryAutoRefreshEnabled()) {
+            await autoRefreshProjectMemoryIfStale(workspaceFolder, atlasContext, outputChannel, 'ssot-load')
+              .catch(error => {
+                const detail = error instanceof Error ? error.stack ?? error.message : String(error);
+                outputChannel.appendLine(`[activate] memoryFreshness ssot-load auto-refresh failed: ${detail}`);
+              });
+          } else {
+            outputChannel.appendLine('[activate] memoryFreshness auto-refresh disabled (atlasmind.autoRefreshStaleMemory=false); memory marked stale — use the Update Memory action to refresh on demand.');
+          }
+        });
+      }, MEMORY_FRESHNESS_STARTUP_DELAY_MS);
+      context.subscriptions.push(new vscode.Disposable(() => clearTimeout(freshnessTimer)));
     });
   } else {
     await setSsotPresentContext(false);
@@ -2485,7 +2522,27 @@ export function activate(context: vscode.ExtensionContext): void {
       atlasContext.modelsRefresh.fire();
       atlasContext.projectRunsRefresh?.fire();
       atlasContext.memoryRefresh.fire();
+    } else {
+      // Bootstrap finished but the core context was never assigned — a build step
+      // (typically `buildAtlasContext`) failed and was caught/logged but not
+      // surfaced. Make it visible instead of leaving every atlas-dependent
+      // command (every chat-view title icon except Settings) silently no-op.
+      atlasStartupState = { status: 'failed', phase: atlasStartupState.phase, startedAt: atlasStartupState.startedAt };
+      outputChannel.appendLine('[activate] AtlasMind core services did not initialise; startup did not complete. See the failing activation step above for the error.');
+      void vscode.window.showErrorMessage(
+        'AtlasMind did not finish starting up — core services failed to initialise, so its panels and dashboards will not open. Open the "AtlasMind" output channel for the underlying error.',
+        'Show Output',
+      ).then(choice => { if (choice === 'Show Output') { outputChannel.show(true); } });
     }
+  }).catch((error: unknown) => {
+    (globalThis as any).atlasmindActivating = false;
+    const message = error instanceof Error ? error.message : String(error);
+    atlasStartupState = { status: 'failed', phase: atlasStartupState.phase, startedAt: atlasStartupState.startedAt };
+    outputChannel.appendLine(`[activate] AtlasMind activation threw: ${message}`);
+    void vscode.window.showErrorMessage(
+      `AtlasMind failed to start: ${message}. Open the "AtlasMind" output channel for details.`,
+      'Show Output',
+    ).then(choice => { if (choice === 'Show Output') { outputChannel.show(true); } });
   });
 }
 
@@ -2689,6 +2746,36 @@ export function deactivate(): void {
   atlasContext = undefined;
 }
 
+/** Per-provider timeout for startup model discovery, so one slow provider can't stall the rest. */
+const STARTUP_PROVIDER_DISCOVERY_TIMEOUT_MS = 10_000;
+
+/**
+ * Delay before the activation-time workspace memory freshness scan runs. The scan
+ * walks the whole repo to fingerprint imported sources (seconds on a large
+ * workspace) purely to light up the "Update Memory" badge, so it is pushed off
+ * the startup-critical window. The on-save file watcher keeps freshness current
+ * thereafter; this one-shot scan only catches edits made while VS Code was closed.
+ */
+const MEMORY_FRESHNESS_STARTUP_DELAY_MS = 8_000;
+
+/**
+ * Resolves to the promise's value, or to `onTimeout()` if it does not settle within
+ * `ms`. The original promise is left to settle in the background (its result is
+ * ignored) — used to bound provider discovery without aborting in-flight work.
+ */
+export function withTimeout<T>(promise: Promise<T>, ms: number, onTimeout: () => T): Promise<T> {
+  return new Promise<T>(resolve => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) { settled = true; resolve(onTimeout()); }
+    }, ms);
+    promise.then(
+      value => { if (!settled) { settled = true; clearTimeout(timer); resolve(value); } },
+      () => { if (!settled) { settled = true; clearTimeout(timer); resolve(onTimeout()); } },
+    );
+  });
+}
+
 async function refreshProviderModelsCatalog(
   modelRouter: ModelRouter,
   providerRegistry: ProviderRegistry,
@@ -2696,6 +2783,8 @@ async function refreshProviderModelsCatalog(
   options?: {
     includeInteractiveProviders?: boolean;
     globalState?: vscode.Memento;
+    /** When provided, providers that report not-configured are skipped (no health check, no discovery). */
+    isProviderConfigured?: (providerId: string) => Promise<boolean>;
   },
 ): Promise<{ providersUpdated: number; modelsAvailable: number }> {
   const providers = modelRouter.listProviders();
@@ -2721,22 +2810,34 @@ async function refreshProviderModelsCatalog(
     ? await refreshAllProviderPricingSync(options.globalState, activeProviderIds, outputChannel)
     : new Map();
 
-  for (const provider of providers) {
+  const processProvider = async (provider: (typeof providers)[number]): Promise<{ updated: boolean; modelEntries: number }> => {
     if (!provider.enabled) {
-      continue;
+      return { updated: false, modelEntries: 0 };
     }
     if (!includeInteractiveProviders && requiresExplicitProviderActivation(provider.id)) {
       modelRouter.setProviderHealth(provider.id, false);
       outputChannel?.appendLine(`[providers] Deferred ${provider.id} discovery until the user explicitly activates that provider.`);
-      modelsAvailable += provider.models.length;
-      continue;
+      return { updated: false, modelEntries: provider.models.length };
     }
 
     const adapter = providerRegistry.get(provider.id);
     if (!adapter) {
       outputChannel?.appendLine(`[providers] ${provider.id}: no adapter registered; skipping discovery.`);
-      modelsAvailable += provider.models.length;
-      continue;
+      return { updated: false, modelEntries: provider.models.length };
+    }
+
+    // Skip providers the user hasn't configured (no API key / credentials) before
+    // any health check — this avoids slow network probes for unconfigured providers
+    // (e.g. Bedrock). Interactive providers (Copilot / Claude CLI) are excluded from
+    // this check since their "configured" state is their own (slow) health probe and
+    // they are already deferred above when not explicitly activated.
+    if (options?.isProviderConfigured && !requiresExplicitProviderActivation(provider.id)) {
+      const configured = await options.isProviderConfigured(provider.id);
+      if (!configured) {
+        modelRouter.setProviderHealth(provider.id, false);
+        outputChannel?.appendLine(`[providers] ${provider.id}: not configured (no credentials); skipping discovery.`);
+        return { updated: false, modelEntries: provider.models.length };
+      }
     }
 
     try {
@@ -2763,8 +2864,7 @@ async function refreshProviderModelsCatalog(
 
       if (discoveredIds.length === 0) {
         outputChannel?.appendLine(`[providers] ${provider.id} discovery returned 0 models; keeping ${provider.models.length} existing.`);
-        modelsAvailable += provider.models.length;
-        continue;
+        return { updated: false, modelEntries: provider.models.length };
       }
 
       const normalized = [...new Set(discoveredIds.map(modelId => normalizeModelId(provider.id, modelId)))];
@@ -2779,16 +2879,39 @@ async function refreshProviderModelsCatalog(
       const merged = mergeProviderModels(provider, normalized, hintsById, multiplierSync, multiplierOverrides, localSync, providerPricingSync);
       modelRouter.registerProvider({ ...provider, models: merged });
       modelRouter.clearProviderFailures(provider.id);
-      providersUpdated += 1;
-      modelsAvailable += merged.length;
       outputChannel?.appendLine(`[providers] ${provider.id}: registered ${merged.length} model(s) after merge.`);
+      return { updated: true, modelEntries: merged.length };
     } catch (err) {
       outputChannel?.appendLine(
         `[providers] Model refresh failed for ${provider.id}: ` +
         `${err instanceof Error ? err.message : String(err)}`,
       );
-      modelsAvailable += provider.models.length;
+      return { updated: false, modelEntries: provider.models.length };
     }
+  };
+
+  // Discover all providers concurrently, each bounded by a per-provider timeout so
+  // one slow or hanging provider cannot stall the whole refresh. Previously a serial
+  // loop — ~24 providers' multi-second health checks summed to nearly a minute of the
+  // `[providers]` startup stream; concurrency collapses that to roughly the slowest
+  // single provider (capped at the timeout).
+  const results = await Promise.all(providers.map(provider =>
+    withTimeout(
+      processProvider(provider),
+      STARTUP_PROVIDER_DISCOVERY_TIMEOUT_MS,
+      () => {
+        modelRouter.setProviderHealth(provider.id, false);
+        outputChannel?.appendLine(`[providers] ${provider.id}: discovery exceeded ${STARTUP_PROVIDER_DISCOVERY_TIMEOUT_MS}ms; keeping existing models and deprioritizing until the next refresh.`);
+        return { updated: false, modelEntries: provider.models.length };
+      },
+    ),
+  ));
+
+  for (const result of results) {
+    if (result.updated) {
+      providersUpdated += 1;
+    }
+    modelsAvailable += result.modelEntries;
   }
 
   outputChannel?.appendLine(

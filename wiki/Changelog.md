@@ -6,6 +6,51 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.100.1 — Open Knowledge Format (OKF) Interoperability Planning
+
+- **Planned OKF support** for Google Cloud's new vendor-neutral knowledge format (OKF v0.1, 2026-06-16). AtlasMind's SSOT is already structurally OKF-shaped, so the plan is to add **import/export** — including a **"Convert project to OKF"** command that emits an ingested project as a portable bundle — plus a **spec-watch sync** that tracks the standard as it evolves and only raises an advisory on changes (never auto-editing your memory). Evaluation and design captured in the project roadmap; planning only, no implementation yet.
+
+## v0.100.0 — Compare Models: All Providers, Sorting & a Quality Judge
+
+- **Every configured model is now listed**, grouped by provider in collapsible sections (like the Models tree), with a per-provider and a global Select All. Previously only routing-enabled models showed, so most of your catalog was hidden.
+- **Sortable results** — click any column header (Model, Quality, Completion, Cost, Latency, Tokens) to sort.
+- **Clearer "Completion" column** — the coarse completion-integrity grade (always ~1.0 for clean answers) is now labelled and explained, instead of masquerading as answer "Quality".
+- **Optional LLM judge** (off by default) — pick a judge model and it scores each answer 0–100 for correctness, completeness, and usefulness, adding a real **Quality** column that drives the ranking (rationale on hover). The judge is display-only; routing still calibrates on the completion grade. See [[Chat-Commands]].
+
+## v0.99.1 — Faster Startup (Deferred Freshness Scan)
+
+- **Startup no longer waits on the memory freshness scan.** The check that fingerprints the whole repo to flag stale imported memory (and light up the "Update Memory" badge) was still running on the startup-critical path — seconds of work on a large workspace. It now runs ~8s after activation settles instead. The SSOT still loads immediately, the on-save watcher keeps freshness current, and the badge just appears a moment later.
+
+## v0.99.0 — Compare Models, Refined
+
+- **Reworked Compare Models panel** to match the other dashboards (topbar, cards, ranked results with a highlighted winner). It now lists **only models from providers you've configured** (grouped by provider), adds a **Select All** toggle, and ships **ready-made sample prompts** (reasoning, code, summarize) as one-click chips.
+- **Easier to reach**: a beaker icon on the **Models** view titlebar opens it, and there's a **Compare Models** quick-action on the Settings overview. See [[Chat-Commands]].
+
+## v0.98.0 — Skip Unconfigured Providers + On-Demand Memory Refresh
+
+- **Unconfigured providers are no longer probed** (`src/extension.ts`): startup discovery skips any provider with no API key/credentials before its health check — so an unconfigured Bedrock (no AWS keys) no longer burns ~30s on a network probe, and the ~20 providers you haven't set up are skipped entirely. Configured ones are unaffected.
+- **Stale-memory auto-refresh is now off by default** (`atlasmind.autoRefreshStaleMemory`): re-importing stale imported memory is an expensive LLM re-summarization that slowed dashboard/panel load on launch. AtlasMind now flags stale memory and surfaces **Update Memory** for an on-demand refresh instead; set the new setting to `true` to restore auto-refresh. See [[Configuration]].
+
+## v0.97.2 — Faster, Bounded Startup Discovery
+
+- **No more ~1-minute `[providers]` stall** (`src/extension.ts`): startup model discovery across ~24 providers ran serially, so slow providers (or a hanging Claude CLI health probe with a 60s timeout) summed to nearly a minute. Discovery is now concurrent and each provider is bounded by a 10s timeout, so one slow provider can't stall the rest — total time drops to roughly the slowest single provider. See [[FAQ]].
+
+## v0.97.1 — Surface Silent Activation Failures
+
+- **Dead toolbar icons now explain themselves** (`src/extension.ts`): when a core startup step fails, the context was left unassigned and every chat-view title icon that needs it silently did nothing (only Settings worked). Activation now catches the failure and shows an actionable error with a Show Output button pointing at the "AtlasMind" output channel, where the failing step is logged. See [[FAQ]].
+
+## v0.97.0 — Model Comparison Panel
+
+- **A real UI for model comparison** (`src/views/modelComparisonPanel.ts`): the Compare Models command now opens a webview — enter a prompt, pick 2+ models, and see a ranked table of quality/cost/latency with output previews, instead of plain output-channel text. Graded outcomes still calibrate routing. Nonce-protected, message-validated, output escaped. See [[Architecture]] and [[Chat-Commands]].
+
+## v0.96.1 — Higher-Fidelity Claude Brain
+
+- **More context for the Claude Code CLI bridge** (`src/providers/claude-cli.ts`): instead of truncating every message to 4k chars, the bridge now gives the latest turn up to 16k (≈4×) while keeping history small and the total within the OS command-line limit. This directly benefits brain-role pins (`planningModelId` / `synthesisModelId`) where a single message carries the goal + memory context. See [[Model-Routing]].
+
+## v0.96.0 — Local-Draft / Frontier-Escalate
+
+- **Draft cheap, escalate when needed** (`src/core/orchestrator.ts`): the new `atlasmind.draftModelId` setting pins a draft model (e.g. a fast local model) for the first attempt of mechanical/low-stakes tasks, while the existing struggle-gated escalation upgrades to a stronger model if the draft falls short — completing the draft/plan/execute/synthesize role-routing set. The pin never blocks escalation (which now explicitly clears any model pin). See [[Configuration]] and [[Model-Routing]].
+
 ## v0.95.0 — Model Comparison Harness
 
 - **Benchmark models on your own prompt** (`src/core/modelEvalHarness.ts`, `AtlasMind: Compare Models on a Prompt`): run one prompt across selected models and get a ranked comparison (quality, cost, latency, tokens, preview). The graded outcomes feed the outcome-driven routing channel, so benchmarking also calibrates routing. The scoring core is pure and unit-tested; the quality scorer is now shared (`executionQuality.ts`). See [[Model-Routing]] and [[Chat-Commands]].
