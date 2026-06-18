@@ -6,6 +6,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.99.1 — Faster Startup (Deferred Freshness Scan)
+
+- **Startup no longer waits on the memory freshness scan.** The check that fingerprints the whole repo to flag stale imported memory (and light up the "Update Memory" badge) was still running on the startup-critical path — seconds of work on a large workspace. It now runs ~8s after activation settles instead. The SSOT still loads immediately, the on-save watcher keeps freshness current, and the badge just appears a moment later.
+
 ## v0.99.0 — Compare Models, Refined
 
 - **Reworked Compare Models panel** to match the other dashboards (topbar, cards, ranked results with a highlighted winner). It now lists **only models from providers you've configured** (grouped by provider), adds a **Select All** toggle, and ships **ready-made sample prompts** (reasoning, code, summarize) as one-click chips.

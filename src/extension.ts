@@ -2367,16 +2367,29 @@ async function bootstrapAtlasMind(
       }
       atlasContext?.sessionContextManager.setSsotRoot(resolved.uri);
       await setSsotPresentContext(true);
-      await refreshWorkspaceMemoryFreshness(workspaceFolder, outputChannel);
-      if (atlasContext && isStaleMemoryAutoRefreshEnabled()) {
-        void autoRefreshProjectMemoryIfStale(workspaceFolder, atlasContext, outputChannel, 'ssot-load')
-          .catch(error => {
-            const detail = error instanceof Error ? error.stack ?? error.message : String(error);
-            outputChannel.appendLine(`[activate] memoryFreshness ssot-load auto-refresh failed: ${detail}`);
-          });
-      } else if (atlasContext) {
-        outputChannel.appendLine('[activate] memoryFreshness auto-refresh disabled (atlasmind.autoRefreshStaleMemory=false); memory marked stale — use the Update Memory action to refresh on demand.');
-      }
+
+      // Defer the expensive workspace freshness scan off the startup-critical
+      // window. Loading the SSOT from disk above is cheap; fingerprinting the
+      // whole repo to detect staleness is not, and it only feeds the "Update
+      // Memory" badge — so run it shortly after activation settles.
+      const freshnessTimer = setTimeout(() => {
+        runBackgroundActivationTask('memoryFreshnessScan', outputChannel, async () => {
+          if (!atlasContext) {
+            return;
+          }
+          await refreshWorkspaceMemoryFreshness(workspaceFolder, outputChannel);
+          if (isStaleMemoryAutoRefreshEnabled()) {
+            await autoRefreshProjectMemoryIfStale(workspaceFolder, atlasContext, outputChannel, 'ssot-load')
+              .catch(error => {
+                const detail = error instanceof Error ? error.stack ?? error.message : String(error);
+                outputChannel.appendLine(`[activate] memoryFreshness ssot-load auto-refresh failed: ${detail}`);
+              });
+          } else {
+            outputChannel.appendLine('[activate] memoryFreshness auto-refresh disabled (atlasmind.autoRefreshStaleMemory=false); memory marked stale — use the Update Memory action to refresh on demand.');
+          }
+        });
+      }, MEMORY_FRESHNESS_STARTUP_DELAY_MS);
+      context.subscriptions.push(new vscode.Disposable(() => clearTimeout(freshnessTimer)));
     });
   } else {
     await setSsotPresentContext(false);
@@ -2735,6 +2748,15 @@ export function deactivate(): void {
 
 /** Per-provider timeout for startup model discovery, so one slow provider can't stall the rest. */
 const STARTUP_PROVIDER_DISCOVERY_TIMEOUT_MS = 10_000;
+
+/**
+ * Delay before the activation-time workspace memory freshness scan runs. The scan
+ * walks the whole repo to fingerprint imported sources (seconds on a large
+ * workspace) purely to light up the "Update Memory" badge, so it is pushed off
+ * the startup-critical window. The on-save file watcher keeps freshness current
+ * thereafter; this one-shot scan only catches edits made while VS Code was closed.
+ */
+const MEMORY_FRESHNESS_STARTUP_DELAY_MS = 8_000;
 
 /**
  * Resolves to the promise's value, or to `onTimeout()` if it does not settle within
