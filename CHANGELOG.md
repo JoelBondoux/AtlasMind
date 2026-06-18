@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.104.2] - 2026-06-18
+
+### Security
+- **Applied Dependabot security updates for development dependencies** (lockfile + `package.json`). Merged PRs #96, #97, and #98:
+  - `js-yaml` 4.1.1 → 4.2.0
+  - `form-data` 4.0.5 → 4.0.6
+  - developer-tooling group: `@types/vscode` ^1.120.0 → ^1.125.0, `@typescript-eslint/eslint-plugin` ^8.61.0 → ^8.61.1, `@vitest/coverage-v8` ^4.1.8 → ^4.1.9, `eslint` ^10.4.1 → ^10.5.0 (plus grouped transitive bumps).
+  - `npm audit` reports **0 vulnerabilities**; full build and all 1104 tests pass against the updated toolchain. No runtime dependencies changed.
+
 ## [0.104.1] - 2026-06-18
 
 ### Fixed

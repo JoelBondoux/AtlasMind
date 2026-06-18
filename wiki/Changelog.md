@@ -6,6 +6,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.104.2 — Dependency Security Maintenance
+
+- **Applied Dependabot security updates for development dependencies** (`js-yaml` 4.1.1→4.2.0, `form-data` 4.0.5→4.0.6, and the developer-tooling group: `@types/vscode`, `@typescript-eslint/eslint-plugin`, `@vitest/coverage-v8`, `eslint`). `npm audit` reports 0 vulnerabilities; the full build and all 1104 tests pass. No runtime dependencies changed.
+
 ## v0.104.1 — No Success Claims Over a Failing Verification
 
 - **A turn can no longer report success while its own verification run failed.** If a response claimed the work was done while the post-edit verification reported `FAIL` / a non-zero exit code, AtlasMind now gives the model one chance to reconcile (fix it or state the task isn't complete) and, if it still claims success, appends a deterministic caveat citing the failing line and marking the task **not complete**. Detection keys on structured markers (`FAIL:`, `exit N`, `N failed`, `✗`) and is overridden by `PASS:` / `0 failed`, so a test merely *named* "…fails when…" isn't misread.
