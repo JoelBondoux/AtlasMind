@@ -137,6 +137,7 @@ See [[Remote Control]] for the full model.
 - Webhook URLs must use **HTTPS** only
 - Sensitive fields in webhook payloads are **redacted**
 - All network operations have configurable timeouts
+- **Agentic Resource Discovery (ARD)** treats every fetched manifest and `/search` response as untrusted: strict schema validation (`urn:ai:` identifiers, the spec's value-or-reference exclusivity, byte/entry caps). Discovered and referral URLs must be **HTTPS** and are screened against private/loopback/link-local hosts (same SSRF guard as `web-fetch`); `http`/localhost is only permitted for finders the user explicitly marked insecure with `atlasmind.ard.allowInsecureEndpoints`. Federation and nested-catalog expansion are **depth-bounded** to prevent referral loops. Agent Finders ship **disabled** (no outbound discovery until opt-in). The relevance score is surfaced as informational only and **must not** be read as a trust or safety rating; `trustManifest` metadata is shown read-only and is not cryptographically verified. Nothing auto-installs — discovered MCP servers land disabled behind the existing MCP trust gate, and the `discover-resources` skill is read-only. Catalog export redacts system prompts, secrets, and MCP `env`. See [[Resource Discovery]].
 
 ### 9. Model Output Validation
 
@@ -163,6 +164,7 @@ Each iteration of the agentic loop now computes a safe `maxTokens` value: `min(D
 | Path traversal | Workspace-root sandboxing on all file ops |
 | Shell injection | execFile (no shell) + allow-list + operator blocking |
 | SSRF via web-fetch | IP range blocking + metadata endpoint blocking |
+| SSRF / malicious manifests via ARD discovery | HTTPS enforcement + private-host screening + schema validation + depth-bounded federation + opt-in finders + disabled-by-default installs |
 | XSS in webviews | CSP + nonces + escapeHtml |
 | Runaway tool execution | 8 calls/turn limit + timeouts + cost limits |
 | Supply chain (custom skills) | Security scanner + manual review gate |

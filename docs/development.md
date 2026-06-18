@@ -88,6 +88,7 @@ AtlasMind/
 │   ├── core/             Orchestrator, registries, router, skill drafting, task profiler, cost tracker, currency formatter, webhook dispatcher, testing config loader + scaffolder (`testingScaffolder.ts`), routing intelligence (`executionQuality.ts`, `modelEvalHarness.ts`)
 │   ├── utils/            Shared helpers: `secretRedactor.ts`, `aiInstructionSync.ts` (inbound), `testingProtocolSync.ts` (outbound testing-protocol sync)
 │   ├── mcp/              MCP client + server registry
+│   ├── ard/              Agentic Resource Discovery: `ardClient.ts`, `ardRegistry.ts`, `ardInstaller.ts`, `ardCatalogExporter.ts`
 │   ├── memory/           SSOT memory manager
 │   ├── providers/        LLM provider adapters (for example `anthropic.ts`, `claude-cli.ts`, `copilot.ts`); also `copilotMultiplierSync.ts`, `localModelSync.ts`, and `localModelRecommendationRegistry.ts`
 │   ├── skills/           Built-in skill handlers (for example `dockerCli.ts`, `terminalRun.ts`, `gitApplyPatch.ts`)
@@ -98,6 +99,7 @@ AtlasMind/
 │   ├── core/             Core service unit tests
 │   ├── memory/           Memory manager and scanner tests
 │   ├── mcp/              MCP client and registry unit tests
+│   ├── ard/              ARD client, registry, installer, and catalog exporter tests
 │   └── skills/           Built-in skill unit tests
 └── out/                  Compiled JavaScript (gitignored)
 

@@ -247,6 +247,11 @@ const NATURAL_LANGUAGE_COMMAND_INTENTS: AtlasCommandIntentDefinition[] = [
     summary: 'Opened AtlasMind Model Providers.',
   },
   {
+    pattern: /\b(?:open|show|launch|bring up)\s+(?:the\s+)?(?:atlasmind\s+)?(?:resource\s+discovery|agent\s+finder|discovery\s+panel)\b/i,
+    commandId: 'atlasmind.openResourceDiscovery',
+    summary: 'Opened AtlasMind Resource Discovery.',
+  },
+  {
     pattern: /\b(?:open|show|launch|bring up)\s+(?:the\s+)?(?:atlasmind\s+)?chat\s+panel\b/i,
     commandId: 'atlasmind.openChatPanel',
     summary: 'Opened the AtlasMind Chat Panel.',
@@ -630,6 +635,10 @@ async function handleChatRequest(
 
     case 'skills':
       await handleSkillsCommand(stream, atlas);
+      break;
+
+    case 'discover':
+      await handleDiscoverCommand(request.prompt, stream, atlas);
       break;
 
     case 'memory':
@@ -1239,6 +1248,104 @@ async function handleSkillsCommand(
   }
   const lines = skills.map(s => `- **${s.name}** \u2013 ${s.description}`);
   stream.markdown(`### Registered Skills\n\n${lines.join('\n')}`);
+}
+
+async function handleDiscoverCommand(
+  prompt: string,
+  stream: vscode.ChatResponseStream,
+  atlas: AtlasMindContext,
+): Promise<void> {
+  const query = prompt.trim();
+  if (!query) {
+    stream.markdown(
+      'Usage: `/discover <what you need>` \u2014 searches enabled Agentic Resource Discovery (ARD) ' +
+      'Agent Finders for MCP servers, agents, skills, and APIs.',
+    );
+    stream.button({
+      command: 'atlasmind.openResourceDiscovery',
+      title: 'Open Resource Discovery',
+      tooltip: 'Manage Agent Finders and browse discovered resources.',
+    });
+    return;
+  }
+
+  const endpoints = atlas.ardRegistry.listEnabled();
+  if (endpoints.length === 0) {
+    stream.markdown(
+      '### Resource Discovery\n\n' +
+      'No Agent Finders are enabled. Finders ship **disabled** so AtlasMind makes no outbound ' +
+      'discovery calls until you opt in. Open Resource Discovery and enable a finder ' +
+      '(e.g. GitHub Agent Finder or Hugging Face Discover) to search.',
+    );
+    stream.button({
+      command: 'atlasmind.openResourceDiscovery',
+      title: 'Open Resource Discovery',
+      tooltip: 'Enable an Agent Finder, then run /discover again.',
+    });
+    return;
+  }
+
+  stream.progress(`Searching ${endpoints.length} Agent Finder(s) for \u201c${query}\u201d\u2026`);
+
+  let results: import('../types.js').ArdDiscoveredResource[];
+  let errors: Array<{ endpoint: string; message: string }>;
+  try {
+    const outcome = await atlas.ardClient.searchEndpoints(endpoints, query);
+    results = outcome.results;
+    errors = outcome.errors;
+  } catch (err) {
+    stream.markdown(`\u274c Discovery failed: ${err instanceof Error ? err.message : String(err)}`);
+    return;
+  }
+
+  atlas.ardRegistry.setRecentResults(results);
+
+  if (results.length === 0) {
+    stream.markdown(
+      `No resources found for **${query}** across ${endpoints.length} finder(s).` +
+      (errors.length > 0 ? `\n\n_Finder errors:_\n${errors.map(e => `- ${e.endpoint}: ${e.message}`).join('\n')}` : ''),
+    );
+    return;
+  }
+
+  const rows = results.map(r => {
+    const score = typeof r.score === 'number' ? `${r.score}/100` : '\u2014';
+    const ref = r.url ? ` [link](${r.url})` : '';
+    return `| ${escapeTableCell(r.displayName)} | \`${escapeTableCell(shortDiscoverType(r.type))}\` | ${score} | ${escapeTableCell(r.sourceName)} |${ref}`;
+  });
+  stream.markdown(
+    `### Discovered ${results.length} resource(s) for \u201c${query}\u201d\n\n` +
+    `| Resource | Type | Relevance | Finder |\n|---|---|---|---|\n${rows.join('\n')}\n\n` +
+    `_Relevance is a semantic match score \u2014 **not** a trust, compliance, or safety rating. ` +
+    `Review each resource before installing._`,
+  );
+
+  if (errors.length > 0) {
+    stream.markdown(`\n_${errors.length} finder(s) errored: ${errors.map(e => `${e.endpoint} (${e.message})`).join('; ')}._`);
+  }
+
+  // Offer one-click install for the top results (MCP servers land disabled behind the MCP trust gate).
+  for (const r of results.slice(0, 5)) {
+    stream.button({
+      command: 'atlasmind.ard.installEntry',
+      title: `Install: ${r.displayName}`,
+      arguments: [r.identifier],
+      tooltip: `Install "${r.displayName}" (${r.type}). MCP servers are added disabled for you to review.`,
+    });
+  }
+  stream.button({
+    command: 'atlasmind.openResourceDiscovery',
+    title: 'Open Resource Discovery',
+    tooltip: 'Browse all results, manage finders, or export this project\'s catalog.',
+  });
+}
+
+function shortDiscoverType(type: string): string {
+  return type.replace(/^application\//, '').replace(/\+json$/, '').replace(/^vnd\.atlasmind\./, '');
+}
+
+function escapeTableCell(text: string): string {
+  return text.replace(/\|/g, '\\|').replace(/\n/g, ' ');
 }
 
 async function handleCostCommand(

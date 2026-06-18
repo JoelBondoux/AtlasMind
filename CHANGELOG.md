@@ -8,6 +8,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.106.0] - 2026-06-18
+
+### Added
+- **Agentic Resource Discovery (ARD) — AtlasMind is now a first-class ARD client and publisher.** [ARD](https://agenticresourcediscovery.org/) is a discovery-only protocol for finding agentic resources (MCP servers, A2A agents, Skills, APIs) *before* invocation. New `src/ard/` module:
+  - **`ArdClient`** (`src/ard/ardClient.ts`) — speaks both ARD mechanisms: the registry `POST /search` API (with bounded, loop-safe federation across `auto`/`referrals`/`none` modes) and static `/.well-known/ai-catalog.json` manifests (with nested-catalog expansion). All external data is treated as untrusted: strict schema validation, `urn:ai:` identifier checks, the spec's strict value-or-reference rule, byte/entry caps, HTTPS enforcement, and a private-host SSRF guard.
+  - **`ArdRegistry`** (`src/ard/ardRegistry.ts`) — persists "Agent Finders" in `globalState`, seeded with the GitHub Agent Finder and Hugging Face Discover **disabled** (opt-in; no outbound traffic until enabled), and caches recent results for the tree view.
+  - **`ArdInstaller`** (`src/ard/ardInstaller.ts`) — maps a chosen result to a non-destructive action: discovered MCP servers are added **disabled** (enabling goes through the existing MCP trust gate), nested catalogs/registries become disabled finders, and A2A agents / skills / APIs are surfaced as references (no auto-wiring of remote execution).
+  - **Catalog publisher** (`src/ard/ardCatalogExporter.ts`) — `AtlasMind: Export Resource Catalog` writes a spec-conformant `ai-catalog.json` describing this project's agents, skills, and MCP servers. System prompts, secrets, and MCP `env` are never included.
+  - **In-task discovery skill** — a read-only `discover-resources` built-in skill lets agents find missing capabilities mid-task and surface ranked candidates for approval (it never installs).
+  - **UI** — a new **Resource Discovery** webview panel and sidebar tree view, the `/discover <query>` chat command, and the `AtlasMind: Resource Discovery` / `Discover Resources (ARD)` commands. The relevance score is always labelled as a semantic match — **not** a trust or safety rating.
+  - **Settings** — `atlasmind.ard.enabled`, `ard.federationMode`, `ard.maxResults`, `ard.requestTimeoutMs`, and `ard.allowInsecureEndpoints`.
+
+## [0.105.2] - 2026-06-18
+
+### Fixed
+- **Sidebar chat now mirrors the main chat panel's sessions and transcript.** The chat webview (`media/chatPanel.js`) only ever *listened* for `state` updates and relied on the host's one-shot `syncState()` in the `ChatPanel` constructor for its initial render. When that push raced ahead of the webview script attaching its message listener, the message was dropped and the surface stayed on the static `SESSIONS 0` / `Ready.` markup. The detached editor panel (`retainContextWhenHidden: true`) usually recovered on a later change event, but the sidebar view (`retainContextWhenHidden: false`) is destroyed and re-resolved from scratch every time it is hidden, so it repeatedly lost the race and showed an empty chat that did not reflect the main window. Added a standard ready handshake: the webview posts `{ type: 'ready' }` once its listeners are attached, and `ChatPanel.handleMessage` replies with a full `syncState()`. Both surfaces now load correct state deterministically. (`src/views/chatProtocol.ts`, `src/views/chatPanel.ts`, `media/chatPanel.js`)
+
+## [0.105.1] - 2026-06-18
+
+### Fixed
+- **Privacy page Trusted Models tree now lists only connected providers**, not the entire seeded catalog. Unconfigured providers (no credentials / deferred activation) are marked unhealthy at startup, so the tree filters on `isProviderHealthy` — a provider is only shown if it is connected or already hosts a trusted model. This also removes the large webview DOM that was slowing the Project Dashboard / Settings first paint.
+- **Checkbox/tree clicks no longer jump the list back to the top.** `render()` now captures and restores the page scroll position and the inner scroll of any `[data-scroll-key]` container (the provider tree) across the full re-render, so selecting a model or expanding a provider keeps your place.
+
+### Added
+- **Provider data management now links to the dedicated Data Subject Request (DSAR) process** where a provider publishes one — e.g. Mistral's request portal — via a new `dataSubjectRequestUrl` in `src/core/providerDataGovernance.ts`, surfaced as a prominent "Submit a data-subject request" button on the Privacy page.
+
+## [0.105.0] - 2026-06-18
+
+### Added
+- **Privacy page: provider/model trust tree, catch charts, and provider data-management.** Enhancements to the Project Dashboard → Privacy page (`src/views/projectDashboardPanel.ts`, `media/projectDashboard.js`):
+  - **Trusted Models** is now a collapsible **provider → model tree** instead of a flat list, and shows **only currently-active (enabled) models** (plus any trusted-but-now-disabled model so it can still be unassigned). A provider-level checkbox trusts/untrusts all of that provider's models at once, with an indeterminate state when only some are trusted.
+  - **Classification activity charts**: the `DataPrivacyManager` now records a catch each time a custom rule or compliance detector fires during a real task (`recordCatch`/`getActivity`, persisted workspace-scoped via `workspaceState`). The page renders a catches-over-time chart, total/redacted counters, and a per-detector breakdown so you can see what is being caught.
+  - **Provider data management**: a new `src/core/providerDataGovernance.ts` registry surfaces each trusted provider's GDPR / data-subject request portal, privacy policy, DPA, retention summary, and default training stance. Links open externally (https-validated); AtlasMind does not submit requests on your behalf.
+- New type `DataPrivacyActivityEvent` (`src/types.ts`); new dashboard message `openExternalUrl` (https-only, validated).
+- **Tests**: `tests/core/providerDataGovernance.test.ts` and new activity-log cases in `tests/core/dataPrivacyManager.test.ts`.
+
 ## [0.104.3] - 2026-06-18
 
 ### Fixed

@@ -174,6 +174,20 @@ See [[Project Planner]] for the full planning and execution flow.
 
 ---
 
+## Resource Discovery (ARD)
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `atlasmind.ard.enabled` | boolean | `true` | Enable [[Resource Discovery]]: the panel, `/discover`, and the read-only `discover-resources` skill |
+| `atlasmind.ard.federationMode` | string | `referrals` | Federation across registries: `auto`, `referrals`, or `none` |
+| `atlasmind.ard.maxResults` | number | `10` | Maximum results per discovery search (1–100) |
+| `atlasmind.ard.requestTimeoutMs` | number | `15000` | Per-request timeout for ARD calls (ms, 1000–60000) |
+| `atlasmind.ard.allowInsecureEndpoints` | boolean | `false` | Allow `http://`/localhost Agent Finders (e.g. the conformance demo); otherwise HTTPS is required and private hosts rejected |
+
+Agent Finders ship **disabled** and are managed from the Resource Discovery panel/tree (stored in globalState, not settings).
+
+---
+
 ## Voice
 
 | Setting | Type | Default | Description |

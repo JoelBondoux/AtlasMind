@@ -125,6 +125,8 @@ Built-in **compliance packs** (`src/core/compliancePacks.ts`) contribute curated
 
 Enforcement lives in the `Orchestrator`: `applyDataPrivacyGate()` classifies the assembled context before model selection and restricts the agent's candidate models to the trusted allow-list (`RoutingConstraints.requireTrustedModel`); `buildMessages()` applies `privacyRedact()` to memory, live evidence, and supplemental context keyed on the actually-selected model (the fail-safe for pins/parallel overflow); and `redactToolResultForModel()` withholds `file-read` results for classified paths when the running model is un-trusted. When classified content is found but no trusted model is available, the content is redacted and the UI is notified via `OrchestratorHooks.onClassifiedContentForUntrustedModel`.
 
+The gate also records a **catch** (`recordCatch`) each time a rule/detector fires for a real task, capturing the source label and sensitivity (never the matched value) and whether the selected model was trusted. The activity log is persisted workspace-scoped and powers the Privacy dashboard charts (catches over time + per-detector breakdown). `src/core/providerDataGovernance.ts` is a static reference mapping each provider to its GDPR/data-subject request portal, privacy policy, DPA, retention summary, and default training stance, surfaced on the Privacy page for the providers hosting trusted models. The Privacy page renders the trusted-model allow-list as a collapsible provider→model tree limited to currently-active models.
+
 ### TaskProfiler (`src/core/taskProfiler.ts`)
 
 Infers a `TaskProfile` from the current phase and request text. It classifies modality (`text`, `code`, `vision`, `mixed`), reasoning intensity (`low`, `medium`, `high`), and any hard or soft capability needs used by the router.
@@ -215,6 +217,19 @@ Wraps `@modelcontextprotocol/sdk` `Client` for a single server. Supports `connec
 ### McpServerRegistry (`src/mcp/mcpServerRegistry.ts`)
 
 Manages `McpServerConfig` persistence (key: `atlasmind.mcpServers` in `globalState`) and live `McpClient` instances. On `connectServer()`: instantiates a client, calls `connect()`, then registers each discovered tool as a `SkillDefinition` in `SkillsRegistry` (ID: `mcp:<serverId>:<toolName>`) with auto-approved scan status. On `disconnectServer()`: disables or unregisters the corresponding skills. `connectAll()` is called non-blocking on activation; `disposeAll()` is called on deactivation.
+
+### Agentic Resource Discovery (`src/ard/`)
+
+[ARD](resource-discovery.md) is a discovery-only protocol layered in front of invocation. Three core services, plus a webview panel and a sidebar tree:
+
+- **`ArdClient` (`src/ard/ardClient.ts`)** — the protocol client. `search()` issues `POST /search` to registry finders (following `referrals[]` up to `MAX_ARD_FEDERATION_DEPTH` with a loop guard) or fetches and locally ranks `manifest` finders; `fetchCatalog()` reads `/.well-known/ai-catalog.json` and expands nested catalogs. All responses pass strict validation (`urn:ai:` identifiers, value-or-reference exclusivity, byte/entry caps) and URL screening (HTTPS + private-host SSRF guard). Tunables are read fresh per call via an injected config getter.
+- **`ArdRegistry` (`src/ard/ardRegistry.ts`)** — persists Agent Finders (key: `atlasmind.ardEndpoints` in `globalState`), seeded once from `DEFAULT_ARD_FINDERS` (all **disabled**), and caches recent results for the tree view. Mirrors `McpServerRegistry`'s persistence pattern.
+- **`ArdInstaller` (`src/ard/ardInstaller.ts`)** — maps a discovered resource to a non-destructive action: MCP servers → `McpServerRegistry.addServer({ enabled: false })`; nested catalogs/registries → disabled finders; A2A/skill/API → reference only.
+- **`buildAtlasMindCatalog` (`src/ard/ardCatalogExporter.ts`)** — the publisher; emits a spec-conformant `ai-catalog.json` of agents/skills/MCP servers with secrets, prompts, and env redacted.
+- **`discover-resources` skill** (`src/skills/discoverResources.ts`) — read-only in-task discovery, registered via a factory closure over `ArdClient`/`ArdRegistry`.
+- **UI** — `ArdDiscoveryPanel` (`src/views/ardDiscoveryPanel.ts`) and the `atlasmind.discoveryView` tree provider in `src/views/treeViews.ts`.
+
+The services are constructed in `activate()` and bundled into `AtlasMindContext` as `ardRegistry`, `ardClient`, `ardInstaller`, and `discoveryRefresh`.
 
 ## Data Flow
 

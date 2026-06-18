@@ -34,12 +34,14 @@ describe('registerTreeViews', () => {
       modelsRefresh: { event: vi.fn() },
       projectRunsRefresh: { event: vi.fn() },
       memoryRefresh: { event: vi.fn() },
+      discoveryRefresh: { event: vi.fn() },
+      ardRegistry: { list: vi.fn(() => []), getRecentResults: vi.fn(() => []) },
       sessionConversation: { onDidChange: vi.fn() },
     };
     registerTreeViews(mockContext as any, mockAtlas as any);
 
     expect(vscode.window.registerWebviewViewProvider).toHaveBeenCalledTimes(1);
-    expect(vscode.window.registerTreeDataProvider).toHaveBeenCalledTimes(5);
+    expect(vscode.window.registerTreeDataProvider).toHaveBeenCalledTimes(6);
     expect(vscode.window.createTreeView).toHaveBeenCalledTimes(2);
     expect(vscode.commands.registerCommand).toHaveBeenCalledTimes(2);
   });

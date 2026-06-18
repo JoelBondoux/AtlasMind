@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.104.3</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.106.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -96,6 +96,7 @@ Use these in the AtlasMind chat panel by typing `@atlas /<command>`.
 | `/project <goal>` | Decompose a goal into tests-first subtasks and execute autonomously |
 | `/agents` | List or manage registered agents |
 | `/skills` | List or manage registered skills |
+| `/discover <query>` | Discover external agentic resources (MCP servers, agents, skills, APIs) via [Agentic Resource Discovery](https://agenticresourcediscovery.org/), with one-click install of the results |
 | `/memory` | Query or manage the SSOT memory system |
 | `/cost` | Show cost summary for the current session |
 | `/runs` | Open the Project Run Center and inspect recent autonomous runs |
@@ -131,6 +132,9 @@ Access these from the VS Code Command Palette (`Ctrl+Shift+P`).
 | `AtlasMind: Open Voice Panel` | Open TTS/STT voice interaction panel |
 | `AtlasMind: Open Vision Panel` | Open multimodal image analysis panel |
 | `AtlasMind: Manage MCP Servers` | Configure MCP server connections |
+| `AtlasMind: Resource Discovery` | Open the Agentic Resource Discovery (ARD) panel: search Agent Finders, install discovered resources, manage finders, and export this project's catalog |
+| `AtlasMind: Discover Resources (ARD)` | Prompt for a query and search enabled Agent Finders |
+| `AtlasMind: Export Resource Catalog (ai-catalog.json)` | Publish AtlasMind's agents, skills, and MCP servers as a spec-conformant `ai-catalog.json` (secrets/prompts excluded) |
 | `AtlasMind: Specialist Integrations` | Configure specialist search and media providers |
 | `AtlasMind: Tool Webhooks` | Configure outbound tool execution webhooks |
 | `AtlasMind: Scaffold Testing Framework` | Construct a stack-aware starter framework (config, example tests, strategy playbook) for the enabled testing methodologies |
@@ -162,6 +166,7 @@ AtlasMind adds a sidebar with the following tree and webview panels:
 | **Agents** | Enable/disable and inspect registered agents |
 | **Skills** | Enable/disable, scan, and manage skills and custom folders |
 | **MCP Servers** | Status and summary of connected MCP servers |
+| **Resource Discovery** | ARD Agent Finders (enable/disable) and recently discovered resources |
 | **Models** | Available models by provider with enable/disable and routing controls |
 
 ---
@@ -196,7 +201,7 @@ Agents can be **auto-updated on a configurable cadence** (never/daily/weekly/mon
 
 ## Built-in Skills
 
-35 built-in skills organized by category. All skills are enable/disable toggleable and undergo security scanning before use.
+36 built-in skills organized by category. All skills are enable/disable toggleable and undergo security scanning before use.
 
 | Category | Skills |
 |---|---|
@@ -204,7 +209,7 @@ Agents can be **auto-updated on a configurable cadence** (never/daily/weekly/mon
 | **Git & Review** | git-status, git-diff, git-commit, git-push, git-log, git-branch, git-apply-patch, rollback-checkpoint, diff-preview |
 | **Execution & Testing** | terminal-run, terminal-read, test-run, debug-session, docker-cli, workspace-observability |
 | **Code Intelligence** | diagnostics, code-symbols, rename-symbol, code-action, code-format |
-| **Search & Fetch** | text-search, web-fetch, http-request, exa-search |
+| **Search & Fetch** | text-search, web-fetch, http-request, exa-search, discover-resources |
 | **Memory** | memory-query, memory-write, memory-delete |
 | **VS Code** | vscode-extensions |
 
@@ -232,6 +237,11 @@ Key settings under `atlasmind.*` in VS Code settings:
 | `ssotPath` | `project_memory` | Relative path to the SSOT memory folder |
 | `localOpenAiBaseUrl` | `http://127.0.0.1:11434/v1` | Base URL for Ollama or LM Studio |
 | `toolWebhookEnabled` | `false` | Send tool execution events to an outbound webhook |
+| `ard.enabled` | `true` | Enable Agentic Resource Discovery (panel, `/discover`, and the read-only `discover-resources` skill) |
+| `ard.federationMode` | `referrals` | How ARD searches fan out across federated registries: `auto`, `referrals`, `none` |
+| `ard.maxResults` | `10` | Maximum results returned from a discovery search |
+| `ard.requestTimeoutMs` | `15000` | Timeout for each outbound ARD discovery request (ms) |
+| `ard.allowInsecureEndpoints` | `false` | Allow `http://`/localhost Agent Finders (e.g. the ARD conformance demo); otherwise HTTPS is required and private hosts are rejected |
 | `remote.enabled` | `false` | Allow the web build to remote-control this desktop instance over a localhost WebSocket |
 | `remote.port` | `0` | Localhost port for the remote-control server (0 = auto) |
 
@@ -271,12 +281,13 @@ See [Funding and Sponsorship](wiki/Funding-and-Sponsorship.md) for details.
 - Provider adapters and catalogs: `src/providers/` (including `localModelSync.ts` and `localModelRecommendationRegistry.ts`)
 - Skills and tool handlers: `src/skills/`
 - Shared utilities: `src/utils/` (including `secretRedactor.ts` — pattern-based secret scanner used to scrub credentials from memory context before LLM dispatch; `aiInstructionSync.ts` — inbound merge of external agent rule files; `testingProtocolSync.ts` — outbound sync of enabled testing protocols into external agent instruction files)
-- Data privacy: `src/core/dataPrivacyManager.ts` (classifies confidential/proprietary terms, files, and folders and gates them to user-selected "trusted" models) and `src/core/compliancePacks.ts` (built-in GDPR/HIPAA/PCI-DSS/CCPA detector packs). Managed from the Project Dashboard → **Privacy** page; policy stored at `project_memory/operations/data-privacy.json`.
+- Data privacy: `src/core/dataPrivacyManager.ts` (classifies confidential/proprietary terms, files, and folders and gates them to user-selected "trusted" models; records catch activity for the dashboard charts), `src/core/compliancePacks.ts` (built-in GDPR/HIPAA/PCI-DSS/CCPA detector packs), and `src/core/providerDataGovernance.ts` (per-provider GDPR/data-management reference links). Managed from the Project Dashboard → **Privacy** page (provider/model trust tree, catch charts, and provider data-management panel); policy stored at `project_memory/operations/data-privacy.json`.
 - Testing strategy: `src/core/testingConfigLoader.ts` (methodology resolution for orchestrated runs) and `src/core/testingScaffolder.ts` (stack-aware framework scaffolding)
 - Routing intelligence: `src/core/executionQuality.ts` (shared output-quality scorer), `src/core/modelEvalHarness.ts` (scored-replay model comparison), and `src/views/modelComparisonPanel.ts` (comparison webview)
 - Webview and sidebar surfaces: `src/views/` (`chatProtocol.ts` and `chatWebviewMarkup.ts` are Node-free so they are shared with the web build)
 - Voice (TTS/STT): `src/voice/` (`voiceManager.ts` bridge, `hostSpeechSynthesizer.ts` on-device OS speech engine, `localTranscriber.ts` on-device Whisper STT)
 - Memory and MCP layers: `src/memory/`, `src/mcp/`
+- Agentic Resource Discovery: `src/ard/` (`ardClient.ts` protocol client, `ardRegistry.ts` Agent Finder registry, `ardInstaller.ts` install mapping, `ardCatalogExporter.ts` publisher) and `src/views/ardDiscoveryPanel.ts` (discovery webview). See [Resource Discovery](docs/resource-discovery.md).
 - Remote control: `src/remote/` (`protocol.ts` wire format, `remoteControlServer.ts` desktop server, `remoteBridge.ts` synthetic webview host) and `src/web/` (browser thin-client entry, `remoteClient.ts`, `chatClientPanel.ts`, `dashboardPanel.ts`)
 
 ---

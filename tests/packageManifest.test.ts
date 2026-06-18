@@ -310,6 +310,7 @@ describe('package manifest', () => {
       'atlasmind.agentsView',
       'atlasmind.skillsView',
       'atlasmind.mcpServersView',
+      'atlasmind.discoveryView',
       'atlasmind.modelsView',
     ]);
 
@@ -320,6 +321,7 @@ describe('package manifest', () => {
       expect.objectContaining({ id: 'atlasmind.agentsView', visibility: 'collapsed' }),
       expect.objectContaining({ id: 'atlasmind.skillsView', visibility: 'collapsed' }),
       expect.objectContaining({ id: 'atlasmind.mcpServersView', visibility: 'collapsed' }),
+      expect.objectContaining({ id: 'atlasmind.discoveryView', visibility: 'collapsed' }),
       expect.objectContaining({ id: 'atlasmind.modelsView', visibility: 'collapsed' }),
     ]));
   });
@@ -488,5 +490,39 @@ describe('package manifest', () => {
       minimum: 0,
       maximum: 2,
     });
+  });
+
+  it('contributes the Agentic Resource Discovery (ARD) chat command, panel, view, and commands', () => {
+    const participants = (manifest.contributes?.chatParticipants ?? []) as Array<{ id: string; commands?: Array<{ name: string }> }>;
+    const atlas = participants.find(entry => entry.id === 'atlasmind.orchestrator');
+    expect(atlas?.commands?.some(command => command.name === 'discover')).toBe(true);
+
+    const commands = (manifest.contributes?.commands ?? []) as ContributedCommand[];
+    expect(commands.find(entry => entry.command === 'atlasmind.openResourceDiscovery')?.title).toBe('AtlasMind: Resource Discovery');
+    expect(commands.find(entry => entry.command === 'atlasmind.ard.exportCatalog')?.title).toContain('ai-catalog.json');
+    expect(commands.some(entry => entry.command === 'atlasmind.ard.installEntry')).toBe(true);
+    expect(commands.some(entry => entry.command === 'atlasmind.ard.toggleFinder')).toBe(true);
+
+    const views = (manifest.contributes?.views?.['atlasmind-sidebar'] ?? []) as Array<{ id: string; name?: string }>;
+    expect(views.find(entry => entry.id === 'atlasmind.discoveryView')?.name).toBe('Resource Discovery');
+
+    // The install/finder commands are tree-driven and must stay out of the palette.
+    const paletteMenus = (manifest.contributes?.menus?.commandPalette ?? []) as ManifestMenuItem[];
+    expect(paletteMenus).toEqual(expect.arrayContaining([
+      expect.objectContaining({ command: 'atlasmind.ard.installEntry', when: 'false' }),
+      expect.objectContaining({ command: 'atlasmind.ard.toggleFinder', when: 'false' }),
+      expect.objectContaining({ command: 'atlasmind.ard.removeFinder', when: 'false' }),
+    ]));
+  });
+
+  it('ships ARD discovery finders disabled-by-default via an opt-in master switch', () => {
+    const configuration = manifest.contributes?.configuration as { properties?: Record<string, ManifestConfigurationProperty> } | undefined;
+    const enabled = configuration?.properties?.['atlasmind.ard.enabled'];
+    const federation = configuration?.properties?.['atlasmind.ard.federationMode'];
+    const insecure = configuration?.properties?.['atlasmind.ard.allowInsecureEndpoints'];
+
+    expect(enabled).toMatchObject({ type: 'boolean', default: true });
+    expect(federation).toMatchObject({ type: 'string', default: 'referrals' });
+    expect(insecure).toMatchObject({ type: 'boolean', default: false });
   });
 });

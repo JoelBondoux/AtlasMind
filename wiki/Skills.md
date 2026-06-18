@@ -59,6 +59,7 @@ AtlasMind ships with **42 built-in skills** that agents can call during executio
 | `web-fetch` | Fetch URL content with SSRF protection (blocks localhost, private IPs, metadata endpoints); 30s timeout |
 | `http-request` | Make an HTTP request with configurable method (GET/POST/PUT/PATCH/DELETE), headers, and body; same SSRF protection as web-fetch; useful for REST API and webhook testing |
 | `exa-search` | Search the web using the EXA AI search API; requires EXA API key stored in Specialist Integrations panel |
+| `discover-resources` | Read-only [[Resource Discovery]] (ARD) search across enabled Agent Finders for MCP servers, agents, skills, and APIs; surfaces ranked candidates for the user to install and never installs anything itself (requires `atlasmind.ard.enabled`) |
 
 ### Memory
 

@@ -24,7 +24,8 @@ type PanelMessage =
   | { type: 'refresh' }
   | { type: 'importVsCodeConfig' }
   | { type: 'openSettingsSafety' }
-  | { type: 'openAgentPanel' };
+  | { type: 'openAgentPanel' }
+  | { type: 'openResourceDiscovery' };
 
 interface AddServerPayload {
   editServerId?: string;
@@ -257,6 +258,9 @@ export class McpPanel {
       case 'openAgentPanel':
         await vscode.commands.executeCommand('atlasmind.openAgentPanel');
         return;
+      case 'openResourceDiscovery':
+        await vscode.commands.executeCommand('atlasmind.openResourceDiscovery');
+        return;
     }
 
     this.panel.webview.html = this.buildHtml();
@@ -340,6 +344,10 @@ function buildBody(servers: McpServerState[], target?: McpPanelTarget): string {
           <button type="button" id="open-agent-panel" class="action-card">
             <span class="action-title">Open Agent Workspace</span>
             <span class="action-copy">Inspect or edit the agents that can consume MCP-provided skills.</span>
+          </button>
+          <button type="button" id="open-resource-discovery" class="action-card">
+            <span class="action-title">Discover Servers via ARD</span>
+            <span class="action-copy">Search Agentic Resource Discovery finders for MCP servers and other resources to install.</span>
           </button>
         </div>
         <div class="summary-grid">
@@ -1088,6 +1096,10 @@ function buildMcpScript(target?: McpPanelTarget, servers: McpServerState[] = [])
     vscode.postMessage({ type: 'openAgentPanel' });
   });
 
+  document.getElementById('open-resource-discovery')?.addEventListener('click', () => {
+    vscode.postMessage({ type: 'openResourceDiscovery' });
+  });
+
   window.addEventListener('message', event => {
     const message = event.data;
     if (!message || typeof message !== 'object') { return; }
@@ -1164,6 +1176,8 @@ export function validatePanelMessage(raw: unknown): PanelMessage | null {
       return { type: 'openSettingsSafety' };
     case 'openAgentPanel':
       return { type: 'openAgentPanel' };
+    case 'openResourceDiscovery':
+      return { type: 'openResourceDiscovery' };
     default:
       return null;
   }

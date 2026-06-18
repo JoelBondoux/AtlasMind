@@ -95,6 +95,9 @@ When asked to publish or ship a release, follow these steps in order:
 | `ModelEvalHarness` | `src/core/modelEvalHarness.ts` | Scored-replay model comparison (`compareModelsOnPrompt`); ranks models by graded quality/cost and records outcomes to calibrate routing |
 | `ProviderRegistry` | `src/providers/index.ts` | Maps provider IDs to adapter instances |
 | `McpServerRegistry` | `src/mcp/mcpServerRegistry.ts` | Manages MCP server connections and tool dispatch |
+| `ArdClient` | `src/ard/ardClient.ts` | Agentic Resource Discovery client: registry `POST /search` (bounded federation) + static `ai-catalog.json` fetch, with untrusted-input validation and SSRF screening |
+| `ArdRegistry` | `src/ard/ardRegistry.ts` | Persists ARD Agent Finders (seeded disabled) and caches recent results |
+| `ArdInstaller` | `src/ard/ardInstaller.ts` | Maps a discovered resource to a non-destructive install (MCP→disabled server, catalog→finder, else reference) |
 
 ### UI Surfaces
 | Surface | File | Description |
@@ -111,6 +114,7 @@ When asked to publish or ship a release, follow these steps in order:
 | Memory Browser panel | `src/views/memoryBrowserPanel.ts` | Browse and edit SSOT memory entries |
 | Personality Profile panel | `src/views/personalityProfilePanel.ts` | Agent personality configuration |
 | Project Planner panel | `src/views/projectPlannerPanel.ts` | Multi-step project planning UI |
+| Resource Discovery panel | `src/views/ardDiscoveryPanel.ts` | Search ARD Agent Finders, install discovered resources, manage finders, export catalog |
 | Status bar items | `src/extension.ts` | Provider health, cost, and model indicators |
 
 ### Type System

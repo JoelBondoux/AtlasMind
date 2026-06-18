@@ -13,6 +13,8 @@ import { collectTestingDashboardSnapshot, writeProjectTestingConfig, type Testin
 import { getWebviewHtmlShell } from './webviewUtils.js';
 import { DataPrivacyManager, readDataPrivacyConfig, writeDataPrivacyConfig, defaultDataPrivacyConfig } from '../core/dataPrivacyManager.js';
 import { COMPLIANCE_PACKS } from '../core/compliancePacks.js';
+import { getProviderDataGovernance } from '../core/providerDataGovernance.js';
+import type { DataPrivacyActivityEvent, DataPrivacySensitivity } from '../types.js';
 
 const execFileAsync = promisify(execFile);
 const PROJECT_DASHBOARD_VIEW_TYPE = 'atlasmind.projectDashboard';
@@ -86,7 +88,8 @@ type ProjectDashboardMessage =
   | { type: 'openGapFiles'; payload: string }
   | { type: 'saveTestingConfig'; payload: import('../types.js').ProjectTestingConfig }
   | { type: 'saveDataPrivacyConfig'; payload: import('../types.js').DataPrivacyConfig }
-  | { type: 'testDataPrivacy'; payload: { kind: 'text' | 'path'; value: string } };
+  | { type: 'testDataPrivacy'; payload: { kind: 'text' | 'path'; value: string } }
+  | { type: 'openExternalUrl'; payload: string };
 
 type DashboardWebviewMessage =
   | { type: 'state'; payload: DashboardSnapshot }
@@ -571,13 +574,46 @@ interface DashboardSnapshot {
   }>;
 }
 
+interface DashboardPrivacyModelNode {
+  id: string;
+  name: string;
+  active: boolean;
+  trusted: boolean;
+}
+
+interface DashboardPrivacyProviderNode {
+  id: string;
+  name: string;
+  models: DashboardPrivacyModelNode[];
+  trustedCount: number;
+}
+
+interface DashboardPrivacyGovernanceNode {
+  providerId: string;
+  providerName: string;
+  retentionSummary: string;
+  trainsOnDataByDefault: boolean | 'unknown';
+  privacyPolicyUrl?: string;
+  dataRequestUrl?: string;
+  dataSubjectRequestUrl?: string;
+  dpaUrl?: string;
+  notes?: string;
+}
+
 interface DashboardPrivacySnapshot {
   enabled: boolean;
   rules: import('../types.js').DataPrivacyRule[];
   compliancePacks: string[];
   trustedModelIds: string[];
-  availableModels: Array<{ id: string; name: string; provider: string; configured: boolean }>;
+  providers: DashboardPrivacyProviderNode[];
   packs: Array<{ id: string; label: string; description: string; detectorCount: number }>;
+  activity: {
+    total: number;
+    redactedCount: number;
+    bySource: Array<{ label: string; count: number; sensitivity: string }>;
+    byDay: DashboardSeriesPoint[];
+  };
+  governance: DashboardPrivacyGovernanceNode[];
 }
 
 interface SsotDiskSnapshot {
@@ -1107,6 +1143,11 @@ export class ProjectDashboardPanel {
           void this.panel.webview.postMessage({ type: 'dataPrivacyTestResult', payload: result });
         }
         return;
+      case 'openExternalUrl':
+        // Only https URLs reach here (validated in isProjectDashboardMessage);
+        // these originate from the static provider-governance registry.
+        await vscode.env.openExternal(vscode.Uri.parse(message.payload));
+        return;
       case 'runIdeationLoop':
         await this.runIdeationLoop(message.payload);
         return;
@@ -1550,6 +1591,10 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
       && typeof p['value'] === 'string';
   }
 
+  if (candidate['type'] === 'openExternalUrl') {
+    return typeof candidate['payload'] === 'string' && /^https:\/\//i.test(candidate['payload']);
+  }
+
   return false;
 }
 
@@ -1921,34 +1966,126 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
 
 function buildPrivacySnapshot(atlas: AtlasMindContext): DashboardPrivacySnapshot {
   const config = atlas.dataPrivacyManager?.getConfig() ?? defaultDataPrivacyConfig();
-  const availableModels = atlas.modelRouter.listProviders()
-    .flatMap(provider => provider.models.map(model => ({
-      id: model.id,
-      name: model.name,
-      provider: provider.displayName,
-      configured: model.enabled,
-    })))
-    .sort((a, b) => a.provider.localeCompare(b.provider) || a.id.localeCompare(b.id));
-  // Ensure any trusted model that is no longer in the catalog is still listed
-  // so the user can see and unassign it.
-  for (const trustedId of config.trustedModelIds) {
-    if (!availableModels.some(m => m.id === trustedId)) {
-      availableModels.push({ id: trustedId, name: trustedId, provider: 'Unavailable', configured: false });
+  const trustedSet = new Set(config.trustedModelIds);
+
+  // Provider/model tree. Only CONNECTED providers are listed — unconfigured
+  // providers (no credentials / deferred activation) are marked unhealthy at
+  // startup, so `isProviderHealthy` is the synchronous "connected" signal. This
+  // keeps the tree to what the user has actually wired up instead of the full
+  // seeded catalog (and keeps the webview DOM small). A provider that hosts a
+  // trusted model is always kept so it stays manageable even if it later goes
+  // unhealthy. Children are limited to currently-active (enabled) models, plus
+  // any trusted-but-disabled model so it can still be unassigned.
+  const providers: DashboardPrivacyProviderNode[] = [];
+  const placedTrusted = new Set<string>();
+  for (const provider of atlas.modelRouter.listProviders()) {
+    const hostsTrusted = provider.models.some(model => trustedSet.has(model.id));
+    if (!atlas.modelRouter.isProviderHealthy(provider.id) && !hostsTrusted) {
+      continue; // not connected and holds nothing trusted — hide it
     }
+    const models: DashboardPrivacyModelNode[] = [];
+    for (const model of provider.models) {
+      const trusted = trustedSet.has(model.id);
+      if (!model.enabled && !trusted) {
+        continue; // show only active models (and trusted-but-disabled ones)
+      }
+      if (trusted) { placedTrusted.add(model.id); }
+      models.push({ id: model.id, name: model.name, active: model.enabled, trusted });
+    }
+    if (models.length === 0) {
+      continue;
+    }
+    models.sort((a, b) => a.name.localeCompare(b.name));
+    providers.push({
+      id: provider.id,
+      name: provider.displayName,
+      models,
+      trustedCount: models.filter(m => m.trusted).length,
+    });
   }
+  providers.sort((a, b) => a.name.localeCompare(b.name));
+
+  // Any trusted model no longer present in the catalog: surface under an
+  // "Unavailable" group so it remains manageable.
+  const orphanTrusted = config.trustedModelIds.filter(id => !placedTrusted.has(id));
+  if (orphanTrusted.length > 0) {
+    providers.push({
+      id: '__unavailable__',
+      name: 'Unavailable / removed',
+      models: orphanTrusted.map(id => ({ id, name: id, active: false, trusted: true })),
+      trustedCount: orphanTrusted.length,
+    });
+  }
+
+  // Trusted-provider data governance (GDPR / data-management links).
+  const trustedProviderIds = new Set<string>();
+  for (const id of config.trustedModelIds) {
+    const providerId = atlas.modelRouter.getModelInfo(id)?.provider ?? (id.includes('/') ? id.split('/')[0] : undefined);
+    if (providerId) { trustedProviderIds.add(providerId); }
+  }
+  const providerNameById = new Map(atlas.modelRouter.listProviders().map(p => [p.id, p.displayName]));
+  const governance: DashboardPrivacyGovernanceNode[] = [...trustedProviderIds]
+    .sort()
+    .map(providerId => ({
+      providerId,
+      providerName: providerNameById.get(providerId) ?? providerId,
+      ...getProviderDataGovernance(providerId),
+    }));
+
   return {
     enabled: config.enabled,
     rules: config.rules,
     compliancePacks: config.compliancePacks,
     trustedModelIds: config.trustedModelIds,
-    availableModels,
+    providers,
     packs: COMPLIANCE_PACKS.map(pack => ({
       id: pack.id,
       label: pack.label,
       description: pack.description,
       detectorCount: pack.detectors.length,
     })),
+    activity: aggregatePrivacyActivity(atlas.dataPrivacyManager?.getActivity() ?? []),
+    governance,
   };
+}
+
+function aggregatePrivacyActivity(events: readonly DataPrivacyActivityEvent[]): DashboardPrivacySnapshot['activity'] {
+  const SENSITIVITY_RANK: Record<DataPrivacySensitivity, number> = { confidential: 0, proprietary: 1, secret: 2 };
+  const bySourceMap = new Map<string, { label: string; count: number; sensitivity: DataPrivacySensitivity }>();
+  let redactedCount = 0;
+  for (const event of events) {
+    if (!event.trusted) { redactedCount += 1; }
+    const existing = bySourceMap.get(event.label);
+    if (existing) {
+      existing.count += 1;
+      if (SENSITIVITY_RANK[event.sensitivity] > SENSITIVITY_RANK[existing.sensitivity]) {
+        existing.sensitivity = event.sensitivity;
+      }
+    } else {
+      bySourceMap.set(event.label, { label: event.label, count: 1, sensitivity: event.sensitivity });
+    }
+  }
+  const bySource = [...bySourceMap.values()]
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 12)
+    .map(entry => ({ label: entry.label, count: entry.count, sensitivity: entry.sensitivity }));
+
+  // 90-day series so the dashboard timescale switch (7/30/90) has data to slice.
+  const byDay: DashboardSeriesPoint[] = [];
+  const dayCounts = new Map<string, number>();
+  for (const event of events) {
+    const key = new Date(event.ts).toISOString().slice(0, 10);
+    dayCounts.set(key, (dayCounts.get(key) ?? 0) + 1);
+  }
+  const today = new Date();
+  for (let i = SERIES_DAY_RANGE - 1; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(today.getDate() - i);
+    const iso = d.toISOString().slice(0, 10);
+    byDay.push({ date: iso, label: iso.slice(5), value: dayCounts.get(iso) ?? 0 });
+  }
+
+  return { total: events.length, redactedCount, bySource, byDay };
 }
 
 function summarizeRuntimeTdd(runs: Array<{ subTaskArtifacts: Array<{ tddStatus?: 'verified' | 'blocked' | 'missing' | 'not-applicable' }> }>): DashboardTddSummary {
@@ -4331,6 +4468,36 @@ const DASHBOARD_CSS = `
   .privacy-warn,
   .privacy-test-hit { color: var(--vscode-editorWarning-foreground, #cca700); }
   .privacy-test-clear { opacity: 0.75; }
+
+  .privacy-span { grid-column: 1 / -1; }
+  .privacy-tree { display: flex; flex-direction: column; gap: 6px; max-height: 360px; overflow-y: auto; }
+  .privacy-tree-provider {
+    border: 1px solid var(--vscode-panel-border, rgba(255,255,255,0.1));
+    border-radius: 6px;
+    padding: 6px 8px;
+  }
+  .privacy-tree-provider.has-trusted { border-color: var(--vscode-focusBorder, #4daafc); }
+  .privacy-tree-head { display: flex; align-items: center; gap: 8px; }
+  .privacy-tree-twisty {
+    background: transparent;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+    font-size: 0.9em;
+    padding: 0 2px;
+  }
+  .privacy-tree-provider-label { display: flex; align-items: center; gap: 6px; flex: 1; cursor: pointer; }
+  .privacy-tree-provider-name { font-weight: 600; }
+  .privacy-tree-count { opacity: 0.7; font-size: 0.8em; white-space: nowrap; }
+  .privacy-tree-models { display: flex; flex-direction: column; gap: 4px; margin: 6px 0 2px 22px; }
+  .privacy-tree-model { display: flex; align-items: center; gap: 6px; padding: 2px 0; cursor: pointer; }
+  .privacy-tree-model.on .privacy-tree-model-name { font-weight: 600; }
+  .privacy-source-bars { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+  .privacy-governance {
+    border-top: 1px solid var(--vscode-panel-border, rgba(255,255,255,0.08));
+    padding: 10px 0;
+  }
+  .privacy-governance:first-of-type { border-top: none; }
 
   .action-grid,
   .panel-grid,

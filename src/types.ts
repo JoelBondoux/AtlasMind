@@ -706,6 +706,21 @@ export interface DataPrivacyMatch {
   sensitivity: DataPrivacySensitivity;
 }
 
+/**
+ * One recorded "catch" — a point in time at which a custom rule or compliance
+ * detector matched task context. Aggregated into the Privacy dashboard charts.
+ * Values are never stored; only the source/label and sensitivity.
+ */
+export interface DataPrivacyActivityEvent {
+  /** Epoch milliseconds. */
+  ts: number;
+  source: string;
+  label: string;
+  sensitivity: DataPrivacySensitivity;
+  /** Whether the selected model was trusted (false = content was redacted). */
+  trusted: boolean;
+}
+
 // ── Skills ──────────────────────────────────────────────────────
 
 /**
@@ -1541,6 +1556,185 @@ export interface McpServerState {
   /** Set when status is 'error'. */
   error?: string;
   tools: McpToolInfo[];
+}
+
+// ── Agentic Resource Discovery (ARD) ─────────────────────────────
+//
+// ARD (https://agenticresourcediscovery.org/) is a discovery-only protocol:
+// it locates agentic resources (MCP servers, A2A agents, Skills, APIs) BEFORE
+// invocation. AtlasMind acts as an ARD client (search + install + in-task
+// discovery) and publisher (export its own catalog). All external manifests
+// and search responses are treated as untrusted input.
+
+/**
+ * IANA media types used by ARD catalog entries to identify the kind of agentic
+ * resource an entry points to. Open union — unknown types from external
+ * catalogs are preserved verbatim rather than rejected.
+ */
+export type ArdResourceType =
+  | 'application/mcp-server+json'
+  | 'application/a2a-agent-card+json'
+  | 'application/ai-skill'
+  | 'application/ai-catalog+json'
+  | 'application/ai-registry+json'
+  | (string & {});
+
+/** Federation behaviour for a registry `POST /search` request. */
+export type ArdFederationMode = 'auto' | 'referrals' | 'none';
+
+/**
+ * How an Agent Finder is queried:
+ * - `registry` — a live discovery service exposing `POST /search`.
+ * - `manifest` — a static `ai-catalog.json` fetched and searched locally.
+ */
+export type ArdEndpointKind = 'registry' | 'manifest';
+
+/**
+ * Identity / compliance metadata attached to a catalog host or entry. Surfaced
+ * read-only in AtlasMind; cryptographic verification is NOT performed in this
+ * version (the relevance score and these attestations are informational only).
+ */
+export interface ArdTrustManifest {
+  identity?: string;
+  identityType?: string;
+  attestations?: Array<{ type: string; uri?: string; digest?: string }>;
+  provenance?: Array<{ relation: string; sourceId?: string; sourceDigest?: string }>;
+}
+
+/** The publisher/host block of an `ai-catalog.json` manifest. */
+export interface ArdHostInfo {
+  displayName?: string;
+  identifier?: string;
+  documentationUrl?: string;
+  logoUrl?: string;
+  trustManifest?: ArdTrustManifest;
+}
+
+/**
+ * A single entry in an `ai-catalog.json` manifest. Per the spec's strict
+ * Value-or-Reference rule, exactly one of `url` or `data` is present.
+ */
+export interface ArdCatalogEntry {
+  /** Domain-anchored URN: `urn:ai:<publisher>:<namespace>:<name>`. */
+  identifier: string;
+  displayName: string;
+  type: ArdResourceType;
+  /** Remote reference to the artifact — mutually exclusive with `data`. */
+  url?: string;
+  /** Embedded artifact JSON — mutually exclusive with `url`. */
+  data?: Record<string, unknown>;
+  description?: string;
+  representativeQueries?: string[];
+  capabilities?: string[];
+  tags?: string[];
+  version?: string;
+  updatedAt?: string;
+  trustManifest?: ArdTrustManifest;
+}
+
+/** A parsed, validated `ai-catalog.json` manifest. */
+export interface ArdCatalog {
+  specVersion: string;
+  host?: ArdHostInfo;
+  entries: ArdCatalogEntry[];
+}
+
+/** Filter constraints for a registry search (dot-notation keys; OR within a key, AND across keys). */
+export type ArdSearchFilter = Record<string, string[]>;
+
+/** A `POST /search` request body. */
+export interface ArdSearchRequest {
+  query: { text: string; filter?: ArdSearchFilter };
+  federation?: ArdFederationMode;
+  pageSize?: number;
+  pageToken?: string;
+}
+
+/** One ranked result from a registry search. */
+export interface ArdSearchResult {
+  identifier: string;
+  displayName: string;
+  type: ArdResourceType;
+  url?: string;
+  data?: Record<string, unknown>;
+  description?: string;
+  capabilities?: string[];
+  tags?: string[];
+  trustManifest?: ArdTrustManifest;
+  /** Semantic relevance 0–100. Explicitly NOT a trust, compliance, or safety rating. */
+  score?: number;
+  /** Identifier/URL of the registry that produced this result. */
+  source?: string;
+}
+
+/** A referral to another registry the client may choose to query (federation). */
+export interface ArdReferral {
+  identifier: string;
+  displayName: string;
+  type: ArdResourceType;
+  url: string;
+}
+
+/** A `POST /search` response body. */
+export interface ArdSearchResponse {
+  results: ArdSearchResult[];
+  referrals?: ArdReferral[];
+  pageToken?: string;
+}
+
+/**
+ * A persisted "Agent Finder" — a discovery endpoint AtlasMind can query.
+ * Stored in globalState by the ArdRegistry; the shipped defaults are disabled
+ * so no outbound discovery traffic occurs until the user opts in.
+ */
+export interface ArdDiscoveryEndpoint {
+  id: string;
+  name: string;
+  url: string;
+  kind: ArdEndpointKind;
+  enabled: boolean;
+  /**
+   * Allow http/localhost targets (e.g. the ARD conformance demo registry).
+   * Only honoured when `atlasmind.ard.allowInsecureEndpoints` is true.
+   */
+  insecure?: boolean;
+  /** True for the finders shipped with the extension. */
+  builtIn?: boolean;
+}
+
+/**
+ * A normalized discovered resource (catalog entry or search result) annotated
+ * with the finder that surfaced it. Used by the discovery panel/tree and the
+ * install flow.
+ */
+export interface ArdDiscoveredResource {
+  identifier: string;
+  displayName: string;
+  type: ArdResourceType;
+  url?: string;
+  data?: Record<string, unknown>;
+  description?: string;
+  capabilities?: string[];
+  tags?: string[];
+  trustManifest?: ArdTrustManifest;
+  score?: number;
+  /** Display name of the Agent Finder that surfaced this resource. */
+  sourceName: string;
+  /** Endpoint id of the finder that surfaced this resource. */
+  sourceEndpointId?: string;
+}
+
+/** Outcome of an {@link ArdInstaller} action for a single discovered resource. */
+export interface ArdInstallResult {
+  /** What happened: a resource was installed, a finder added, or it was recorded as a reference. */
+  kind: 'mcp-server' | 'finder' | 'reference' | 'unsupported';
+  ok: boolean;
+  /** Human-readable summary for the UI / chat. */
+  message: string;
+  /** When kind is 'mcp-server', the id of the newly added (disabled) server. */
+  mcpServerId?: string;
+  /** When kind is 'finder', the id of the newly added (disabled) finder. */
+  finderId?: string;
 }
 
 // ── Voice (TTS / STT) ────────────────────────────────────────────────────────

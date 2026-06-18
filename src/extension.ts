@@ -21,6 +21,9 @@ import type { CostTracker } from './core/costTracker.js';
 import type { ScannerRulesManager } from './core/scannerRulesManager.js';
 import type { ToolWebhookDispatcher } from './core/toolWebhookDispatcher.js';
 import type { McpServerRegistry } from './mcp/mcpServerRegistry.js';
+import type { ArdRegistry } from './ard/ardRegistry.js';
+import type { ArdClient } from './ard/ardClient.js';
+import type { ArdInstaller } from './ard/ardInstaller.js';
 import type { CheckpointManager } from './core/checkpointManager.js';
 import type { ProjectRunHistory } from './core/projectRunHistory.js';
 import type { RoutineRegistry } from './core/routineRegistry.js';
@@ -164,6 +167,11 @@ export interface AtlasMindContext {
   modelsRefresh: vscode.EventEmitter<void>;
   scannerRulesManager: ScannerRulesManager;
   mcpServerRegistry: McpServerRegistry;
+  /** Agentic Resource Discovery — finder registry, protocol client, and installer. */
+  ardRegistry: ArdRegistry;
+  ardClient: ArdClient;
+  ardInstaller: ArdInstaller;
+  discoveryRefresh: vscode.EventEmitter<void>;
   extensionContext: vscode.ExtensionContext;
   refreshProviderModels(includeInteractiveProviders?: boolean): Promise<{ providersUpdated: number; modelsAvailable: number }>;
   refreshProviderHealth(): Promise<void>;
@@ -1527,6 +1535,9 @@ async function bootstrapAtlasMind(
       toolPolicyModule,
       routineRegistryModule,
       dataPrivacyModule,
+      ardClientModule,
+      ardRegistryModule,
+      ardInstallerModule,
     ] = await Promise.all([
       import('./chat/participant.js'),
       import('./views/treeViews.js'),
@@ -1554,6 +1565,9 @@ async function bootstrapAtlasMind(
       import('./core/toolPolicy.js'),
       import('./core/routineRegistry.js'),
       import('./core/dataPrivacyManager.js'),
+      import('./ard/ardClient.js'),
+      import('./ard/ardRegistry.js'),
+      import('./ard/ardInstaller.js'),
     ]);
 
     return {
@@ -1600,6 +1614,10 @@ async function bootstrapAtlasMind(
       RoutineRegistry: routineRegistryModule.RoutineRegistry,
       DataPrivacyManager: dataPrivacyModule.DataPrivacyManager,
       readDataPrivacyConfig: dataPrivacyModule.readDataPrivacyConfig,
+      ArdClient: ardClientModule.ArdClient,
+      ArdRegistry: ardRegistryModule.ArdRegistry,
+      ArdInstaller: ardInstallerModule.ArdInstaller,
+      createDiscoverResourcesSkill: skillsModule.createDiscoverResourcesSkill,
     };
   });
   if (!startupModules) {
@@ -1615,6 +1633,7 @@ async function bootstrapAtlasMind(
     const modelsRefresh = new vscode.EventEmitter<void>();
     const projectRunsRefresh = new vscode.EventEmitter<void>();
     const memoryRefresh = new vscode.EventEmitter<void>();
+    const discoveryRefresh = new vscode.EventEmitter<void>();
     const scannerRulesManager = new startupModules.ScannerRulesManager(context.globalState);
     const toolWebhookDispatcher = new startupModules.ToolWebhookDispatcher(context, outputChannel);
     const voiceManager = new startupModules.VoiceManager(context.secrets, undefined, {
@@ -2049,6 +2068,15 @@ async function bootstrapAtlasMind(
     const dataPrivacyManager = new startupModules.DataPrivacyManager(
       dataPrivacyRoot ? startupModules.readDataPrivacyConfig(dataPrivacyRoot) : undefined,
     );
+    // Restore prior catch activity (workspace-scoped telemetry powering the
+    // Privacy dashboard charts) and persist new catches as they are recorded.
+    const storedPrivacyActivity = context.workspaceState.get<import('./types.js').DataPrivacyActivityEvent[]>('atlasmind.dataPrivacyActivity', []);
+    if (Array.isArray(storedPrivacyActivity) && storedPrivacyActivity.length > 0) {
+      dataPrivacyManager.setActivity(storedPrivacyActivity);
+    }
+    dataPrivacyManager.setActivityListener(activity => {
+      void context.workspaceState.update('atlasmind.dataPrivacyActivity', [...activity]);
+    });
     orchestrator.setDataPrivacyManager(dataPrivacyManager);
     const reloadDataPrivacyConfig = () => {
       if (!dataPrivacyRoot) { return; }
@@ -2104,6 +2132,28 @@ async function bootstrapAtlasMind(
     );
     mcpServerRegistry.loadFromStorage();
 
+    // ── Agentic Resource Discovery (ARD) ──────────────────────────
+    const ardRegistry = new startupModules.ArdRegistry(
+      context.globalState,
+      () => discoveryRefresh.fire(),
+    );
+    ardRegistry.loadFromStorage();
+    const ardClient = new startupModules.ArdClient(() => {
+      const cfg = vscode.workspace.getConfiguration('atlasmind');
+      const federationRaw = cfg.get<string>('ard.federationMode', 'referrals');
+      return {
+        timeoutMs: cfg.get<number>('ard.requestTimeoutMs', 15_000),
+        maxResults: cfg.get<number>('ard.maxResults', 10),
+        federation: federationRaw === 'auto' || federationRaw === 'none' ? federationRaw : 'referrals',
+        allowInsecureEndpoints: cfg.get<boolean>('ard.allowInsecureEndpoints', false),
+      };
+    });
+    const ardInstaller = new startupModules.ArdInstaller(mcpServerRegistry, ardRegistry);
+    // Register the read-only in-task discovery skill (closure over the ARD services).
+    if (vscode.workspace.getConfiguration('atlasmind').get<boolean>('ard.enabled', true)) {
+      skillsRegistry.register(startupModules.createDiscoverResourcesSkill(ardClient, ardRegistry));
+    }
+
     atlasContext = {
       orchestrator,
       dataPrivacyManager,
@@ -2118,6 +2168,10 @@ async function bootstrapAtlasMind(
       modelsRefresh,
       scannerRulesManager,
       mcpServerRegistry,
+      ardRegistry,
+      ardClient,
+      ardInstaller,
+      discoveryRefresh,
       extensionContext: context,
       refreshProviderModels,
       refreshProviderHealth,
@@ -2336,6 +2390,7 @@ async function bootstrapAtlasMind(
   context.subscriptions.push(modelsRefresh);
     context.subscriptions.push(projectRunsRefresh);
     context.subscriptions.push(memoryRefresh);
+    context.subscriptions.push(discoveryRefresh);
     context.subscriptions.push(voiceManager);
     agentsRefresh.event(() => {
       void context.globalState.update('atlasmind.agentPerformance', agentRegistry.dumpPerformance());
