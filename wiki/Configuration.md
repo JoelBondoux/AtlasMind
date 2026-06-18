@@ -53,6 +53,7 @@ Example `settings.json` presets:
 | `atlasmind.speedMode` | enum | `balanced` | Speed preference for model selection. Options: `fast`, `balanced`, `considered`, `auto` |
 | `atlasmind.feedbackRoutingWeight` | number | `1` | Multiplier for thumbs-based routing bias (also scales the outcome-driven bias). Use `0` to disable feedback-weighted routing or values up to `2` for a stronger but still capped influence. |
 | `atlasmind.planningModelId` | string | `""` | Optional model ID pinned for the planning phase (the planner "brain"). When set to a known model the planner uses it directly while execution routes normally; empty routes planning normally. |
+| `atlasmind.synthesisModelId` | string | `""` | Optional model ID pinned for the synthesis phase (summarizing results/sessions). Symmetric to `planningModelId`; empty routes synthesis normally. |
 | `atlasmind.specialistRoutingOverrides` | object | `{}` | Per-domain overrides for specialist routing automation. Supported domain keys today are `media-generation`, `visual-analysis`, `voice`, `research`, `robotics`, and `simulation`. |
 | `atlasmind.localOpenAiEndpoints` | object[] | `[]` | Labeled local OpenAI-compatible endpoints AtlasMind should aggregate under the Local provider |
 | `atlasmind.localOpenAiBaseUrl` | string | `""` | Legacy single local OpenAI-compatible endpoint fallback |

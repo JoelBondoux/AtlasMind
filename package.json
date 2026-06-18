@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.93.0",
+  "version": "0.94.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -1012,6 +1012,12 @@
           "default": "",
           "description": "Optional model ID to pin for the planning/decomposition phase (the 'brain'). Leave empty to route planning normally.",
           "markdownDescription": "Optional model ID pinned for the planning/decomposition phase — the project planner's 'brain'. Planning is a no-tool reasoning step, so this is a good place to use a strong reasoner (or a Claude subscription via `claude-cli`) while execution subtasks still route to tool-capable workers.\n\nWhen set to a known model ID, the planner uses it directly (bypassing budget/speed gates, since it is a deliberate choice); execution routing is unaffected. Leave empty (default) to route planning with normal budget/speed/outcome scoring. If the model is unknown or unavailable, AtlasMind falls back to normal routing.\n\nExamples:\n- `anthropic/claude-sonnet-4`\n- `claude-cli/opus`\n- `openai/o3`"
+        },
+        "atlasmind.synthesisModelId": {
+          "type": "string",
+          "default": "",
+          "description": "Optional model ID to pin for the synthesis phase (summarizing results/sessions into reasoning context). Leave empty to route synthesis normally.",
+          "markdownDescription": "Optional model ID pinned for the synthesis phase — summarizing results or a chat session into reusable reasoning context. Like planning, synthesis is a no-tool reasoning step, so this completes the planner-brain / tool-executor / synthesis role-routing trio: pin a strong reasoner here while tool-using execution still routes to workers.\n\nWhen set to a known model ID, synthesis uses it directly (bypassing budget/speed gates); empty (default) routes synthesis with normal scoring. Falls back to normal routing if the model is unknown.\n\nExamples:\n- `anthropic/claude-sonnet-4`\n- `claude-cli/opus`"
         },
         "atlasmind.localOpenAiBaseUrl": {
           "type": "string",
