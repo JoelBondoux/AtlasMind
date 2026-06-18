@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.95.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.96.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -222,6 +222,7 @@ Key settings under `atlasmind.*` in VS Code settings:
 | `speedMode` | `balanced` | Model speed preference: `fast`, `balanced`, `considered`, `auto` |
 | `planningModelId` | `""` | Optional model ID pinned for the planning "brain" phase; empty routes planning normally |
 | `synthesisModelId` | `""` | Optional model ID pinned for the synthesis (summarization) phase; empty routes synthesis normally |
+| `draftModelId` | `""` | Optional model pinned to draft mechanical tasks (local-draft / frontier-escalate); empty routes normally |
 | `toolApprovalMode` | `ask-on-write` | When to prompt for tool approval: `always-ask`, `ask-on-write`, `ask-on-external`, `allow-safe-readonly` |
 | `dailyCostLimitUsd` | `0` | Daily spend cap in USD (0 = unlimited) |
 | `agentAutoUpdateCadence` | `never` | How often to AI-refresh agent definitions: `never`, `daily`, `weekly`, `monthly`, `every-use` |

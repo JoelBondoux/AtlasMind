@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.96.0] - 2026-06-18
+
+### Added
+- **Local-draft / frontier-escalate routing (Direction 3)** (`src/core/orchestrator.ts`, `package.json`): a new `atlasmind.draftModelId` setting pins a draft model (e.g. a fast local model) for the **first attempt** of draftable tasks (auto budget + mechanical/low-stakes), with AtlasMind's existing struggle-gated escalation upgrading to a stronger reasoning-capable model if the draft falls short. This completes the role-routing set (draft / plan / execute / synthesize) over the `preferredModel` pin. The pin is applied to a separate initial-selection constraints object so it never blocks escalation, and `selectEscalatedModel` now explicitly clears `preferredModel` — escalation is a deliberate upgrade that must not re-select the model it is moving off. Empty (default) routes normally; an unknown model falls back to normal routing.
+
 ## [0.95.0] - 2026-06-18
 
 ### Added
