@@ -14,7 +14,9 @@ import { getWebviewHtmlShell } from './webviewUtils.js';
 import { DataPrivacyManager, readDataPrivacyConfig, writeDataPrivacyConfig, defaultDataPrivacyConfig } from '../core/dataPrivacyManager.js';
 import { COMPLIANCE_PACKS } from '../core/compliancePacks.js';
 import { getProviderDataGovernance } from '../core/providerDataGovernance.js';
-import type { DataPrivacyActivityEvent, DataPrivacySensitivity } from '../types.js';
+import { DELIVERY_SSOT_PATH, DELIVERY_SUMMARY_SSOT_PATH, sanitizeDeliveryConfig } from '../core/deliveryManager.js';
+import { buildPromotionPlan, evaluatePromotionGate, runPromotion } from '../core/promotionRunner.js';
+import type { DataPrivacyActivityEvent, DataPrivacySensitivity, DeliveryConfig, DeploymentStage, PromotionPath } from '../types.js';
 
 const execFileAsync = promisify(execFile);
 const PROJECT_DASHBOARD_VIEW_TYPE = 'atlasmind.projectDashboard';
@@ -88,6 +90,9 @@ type ProjectDashboardMessage =
   | { type: 'openGapFiles'; payload: string }
   | { type: 'saveTestingConfig'; payload: import('../types.js').ProjectTestingConfig }
   | { type: 'saveDataPrivacyConfig'; payload: import('../types.js').DataPrivacyConfig }
+  | { type: 'saveDeliveryConfig'; payload: import('../types.js').DeliveryConfig }
+  | { type: 'requestPromotionPlan'; payload: { pathId: string; mode: 'execute' | 'runbook' } }
+  | { type: 'runPromotion'; payload: { pathId: string; attestations: string[]; confirmText: string } }
   | { type: 'testDataPrivacy'; payload: { kind: 'text' | 'path'; value: string } }
   | { type: 'openExternalUrl'; payload: string };
 
@@ -101,7 +106,11 @@ type DashboardWebviewMessage =
   | { type: 'ideationResponseChunk'; payload: string }
   | { type: 'gapAnalysisBusy'; payload: boolean }
   | { type: 'gapAnalysisStatus'; payload: string }
-  | { type: 'dataPrivacyTestResult'; payload: { ok: boolean; summary: string; labels: string[] } };
+  | { type: 'dataPrivacyTestResult'; payload: { ok: boolean; summary: string; labels: string[] } }
+  | { type: 'promotionPlan'; payload: { plan: import('../types.js').PromotionPlan; mode: 'execute' | 'runbook' } }
+  | { type: 'promotionProgress'; payload: { stepId: string; label: string; index: number; total: number; status: string; output?: string } }
+  | { type: 'promotionDone'; payload: import('../types.js').PromotionRunResult }
+  | { type: 'promotionError'; payload: string };
 
 type Tone = 'accent' | 'good' | 'warn' | 'critical' | 'neutral';
 
@@ -458,6 +467,70 @@ interface DashboardVersionSnapshot {
   production?: DashboardVersionEntry;
 }
 
+interface DashboardStageView {
+  id: string;
+  name: string;
+  kind: DeploymentStage['kind'];
+  rank: number;
+  description: string;
+  /** Empty string when the stage maps to the working tree rather than a branch. */
+  branchRef: string;
+  branchExists: boolean;
+  /** Package version committed on the stage's branch, or '—'. */
+  deployedVersion: string;
+  isCurrentBranch: boolean;
+  isProtected: boolean;
+  hostingProvider: string;
+  hostingUrl: string;
+  healthCheckUrl: string;
+  configLabel: string;
+  dataLabel: string;
+  backupRequired: boolean;
+  backupConfigured: boolean;
+  /** Plain-English security/safety reasoning shown on the card for beginners. */
+  securityNotes: string[];
+}
+
+interface DashboardPromotionPathView {
+  id: string;
+  fromStageId: string;
+  toStageId: string;
+  fromName: string;
+  toName: string;
+  /** Routine ID that will execute this push, or '' when none is bound yet. */
+  routineId: string;
+  /** Ordered guardrail sequence (preflight → backup → promote → verify). */
+  guardrails: string[];
+  /** Named checks that must pass before the push runs. */
+  gates: string[];
+  requiresApproval: boolean;
+  backupRequired: boolean;
+  backupConfigured: boolean;
+  /** Deny-by-default: backup required for the target but no command set. */
+  blocked: boolean;
+  blockReason: string;
+  versionDelta: string;
+  lastPromotion?: { ranAt: string; succeeded: boolean; version: string };
+}
+
+interface DashboardStagePipeline {
+  /** Workspace-relative path of the JSON source of truth. */
+  configPath: string;
+  /** Workspace-relative path of the human-readable markdown mirror. */
+  summaryPath: string;
+  stages: DashboardStageView[];
+  paths: DashboardPromotionPathView[];
+  /**
+   * The raw, editable config (secret-free) so the dashboard stage editor can
+   * mutate a copy and post it back. Null when no pipeline exists yet.
+   */
+  config: DeliveryConfig | null;
+  /** True when this view seeded a default pipeline on first open. */
+  seeded: boolean;
+  /** True when no git repository is present, so stages cannot be modelled yet. */
+  notInGitRepo: boolean;
+}
+
 type DashboardGapPriority = 'P1' | 'P2' | 'P3';
 type DashboardGapCategory = 'architecture' | 'security' | 'functionality' | 'ui-ux' | 'memory' | 'code-structure' | 'testing' | 'delivery' | 'documentation' | 'quality' | 'general';
 
@@ -560,6 +633,7 @@ interface DashboardSnapshot {
     ciSignals: Array<{ label: string; ok: boolean }>;
     reviewReadiness: Array<{ label: string; ok: boolean }>;
     artifacts: ArtifactSignal[];
+    stages: DashboardStagePipeline;
   };
   score: DashboardScoreBreakdown;
   ideation: DashboardIdeationSnapshot;
@@ -1120,6 +1194,23 @@ export class ProjectDashboardPanel {
           }
         }
         return;
+      case 'saveDeliveryConfig':
+        {
+          // The webview payload is untrusted: sanitize it (clamp strings, coerce
+          // types, drop dangling promotion edges) before it touches disk.
+          const clean = sanitizeDeliveryConfig(message.payload);
+          if (clean) {
+            await this.atlas.deliveryManager.save(clean);
+            await this.syncState();
+          }
+        }
+        return;
+      case 'requestPromotionPlan':
+        await this.handlePromotionPlanRequest(message.payload.pathId, message.payload.mode);
+        return;
+      case 'runPromotion':
+        await this.handleRunPromotion(message.payload);
+        return;
       case 'testDataPrivacy':
         {
           const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -1491,6 +1582,79 @@ export class ProjectDashboardPanel {
     });
   }
 
+  private async handlePromotionPlanRequest(pathId: string, mode: 'execute' | 'runbook'): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const config = this.atlas.deliveryManager.getConfig();
+    if (!workspaceRoot || !config) {
+      await this.postMessage({ type: 'promotionError', payload: 'No delivery pipeline is available.' });
+      return;
+    }
+    const promo = config.paths.find(candidate => candidate.id === pathId);
+    const from = promo && config.stages.find(stage => stage.id === promo.fromStageId);
+    const to = promo && config.stages.find(stage => stage.id === promo.toStageId);
+    if (!promo || !from || !to) {
+      await this.postMessage({ type: 'promotionError', payload: 'That promotion path no longer exists.' });
+      return;
+    }
+    const facts = await gatherPromotionFacts(workspaceRoot, from, to);
+    await this.atlas.routineRegistry.reload(workspaceRoot).catch(() => undefined);
+    const routine = promo.routineId ? this.atlas.routineRegistry.get(promo.routineId) : undefined;
+    const plan = buildPromotionPlan({ config, pathId, ...facts, routine });
+    if (!plan) {
+      await this.postMessage({ type: 'promotionError', payload: 'Could not build a promotion plan.' });
+      return;
+    }
+    await this.postMessage({ type: 'promotionPlan', payload: { plan, mode } });
+  }
+
+  private async handleRunPromotion(payload: { pathId: string; attestations: string[]; confirmText: string }): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const config = this.atlas.deliveryManager.getConfig();
+    if (!workspaceRoot || !config) {
+      await this.postMessage({ type: 'promotionError', payload: 'No delivery pipeline is available.' });
+      return;
+    }
+    const promo = config.paths.find(candidate => candidate.id === payload.pathId);
+    const from = promo && config.stages.find(stage => stage.id === promo.fromStageId);
+    const to = promo && config.stages.find(stage => stage.id === promo.toStageId);
+    if (!promo || !from || !to) {
+      await this.postMessage({ type: 'promotionError', payload: 'That promotion path no longer exists.' });
+      return;
+    }
+    // Rebuild the plan from live state so gates are enforced against current facts,
+    // not whatever the webview last saw.
+    const facts = await gatherPromotionFacts(workspaceRoot, from, to);
+    await this.atlas.routineRegistry.reload(workspaceRoot).catch(() => undefined);
+    const routine = promo.routineId ? this.atlas.routineRegistry.get(promo.routineId) : undefined;
+    const plan = buildPromotionPlan({ config, pathId: payload.pathId, ...facts, routine });
+    if (!plan) {
+      await this.postMessage({ type: 'promotionError', payload: 'Could not build a promotion plan.' });
+      return;
+    }
+    const gate = evaluatePromotionGate(plan, payload.attestations, payload.confirmText, to.name);
+    if (!gate.allowed) {
+      await this.postMessage({ type: 'promotionError', payload: gate.reason ?? 'Promotion is not permitted.' });
+      return;
+    }
+    const result = await runPromotion({
+      workspaceRoot,
+      plan,
+      config,
+      routine,
+      onProgress: update => { void this.postMessage({ type: 'promotionProgress', payload: update }); },
+    });
+    // Record the outcome on the path and persist (updates delivery.json + delivery.md).
+    const updated: DeliveryConfig = {
+      ...config,
+      paths: config.paths.map(candidate => candidate.id === payload.pathId
+        ? { ...candidate, lastPromotion: { ranAt: result.startedAt, succeeded: result.succeeded, version: facts.fromVersion } }
+        : candidate),
+    };
+    await this.atlas.deliveryManager.save(updated);
+    await this.postMessage({ type: 'promotionDone', payload: result });
+    await this.syncState();
+  }
+
   private getHtml(): string {
     const scriptFileUri = vscode.Uri.joinPath(this.context.extensionUri, 'media', 'projectDashboard.js');
     const scriptUri = this.panel.webview.asWebviewUri(scriptFileUri);
@@ -1578,6 +1742,23 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
   if (candidate['type'] === 'saveTestingConfig') {
     const p = candidate['payload'] as Record<string, unknown> | undefined;
     return typeof p === 'object' && p !== null && p['version'] === 1 && Array.isArray(p['methodologies']);
+  }
+
+  if (candidate['type'] === 'saveDeliveryConfig') {
+    const p = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof p === 'object' && p !== null && p['version'] === 1 && Array.isArray(p['stages']) && Array.isArray(p['paths']);
+  }
+
+  if (candidate['type'] === 'requestPromotionPlan') {
+    const p = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof p === 'object' && p !== null && typeof p['pathId'] === 'string' && p['pathId'].length > 0
+      && (p['mode'] === 'execute' || p['mode'] === 'runbook');
+  }
+
+  if (candidate['type'] === 'runPromotion') {
+    const p = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof p === 'object' && p !== null && typeof p['pathId'] === 'string' && p['pathId'].length > 0
+      && Array.isArray(p['attestations']) && typeof p['confirmText'] === 'string';
   }
 
   if (candidate['type'] === 'saveDataPrivacyConfig') {
@@ -1670,6 +1851,7 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
     collectRoadmapSnapshot(workspaceRoot, ssotPath),
   ]);
   const versionSnapshot = await collectVersionSnapshot(workspaceRoot, gitSnapshot.currentBranch, packageSnapshot.version);
+  const stagePipeline = await collectDeliveryStagePipeline(atlas, workspaceRoot, gitSnapshot.currentBranch);
 
   const testingSnapshot = collectTestingDashboardSnapshot(atlas);
   const providers = atlas.modelRouter.listProviders();
@@ -1943,6 +2125,7 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
       ciSignals,
       reviewReadiness,
       artifacts: await collectArtifacts(workspaceRoot),
+      stages: stagePipeline,
     },
     score: scoreBreakdown,
     ideation: {
@@ -2392,6 +2575,223 @@ async function readPackageVersionFromGitRef(workspaceRoot: string, ref: string):
   } catch {
     return undefined;
   }
+}
+
+/** True when the given branch/tag/ref resolves to a commit in the repository. */
+async function gitRefExists(workspaceRoot: string, ref: string): Promise<boolean> {
+  try {
+    await runGit(workspaceRoot, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Gather the live facts a promotion plan's preflight checks depend on: the
+ * source/target package versions, whether the working tree is clean, and
+ * whether CHANGELOG.md references the source version.
+ */
+async function gatherPromotionFacts(
+  workspaceRoot: string,
+  from: DeploymentStage,
+  to: DeploymentStage,
+): Promise<{ fromVersion: string; toVersion: string; workingTreeClean: boolean; changelogHasFromVersion: boolean }> {
+  const fromVersion = (await resolveStageVersion(workspaceRoot, from)) ?? '0.0.0';
+  const toVersion = (await resolveStageVersion(workspaceRoot, to)) ?? '0.0.0';
+  let workingTreeClean = false;
+  try {
+    const status = await runGit(workspaceRoot, ['status', '--porcelain']);
+    workingTreeClean = status.trim().length === 0;
+  } catch {
+    workingTreeClean = false;
+  }
+  let changelogHasFromVersion = false;
+  try {
+    const changelog = await fs.readFile(path.join(workspaceRoot, 'CHANGELOG.md'), 'utf-8');
+    changelogHasFromVersion = fromVersion !== '0.0.0' && changelog.includes(fromVersion);
+  } catch {
+    changelogHasFromVersion = false;
+  }
+  return { fromVersion, toVersion, workingTreeClean, changelogHasFromVersion };
+}
+
+/**
+ * The package version representing a stage: read from its branch's package.json,
+ * or — for a stage with no branch (the working tree) — from the live file.
+ */
+async function resolveStageVersion(workspaceRoot: string, stage: DeploymentStage): Promise<string | undefined> {
+  if (stage.branchRef) {
+    if (await gitRefExists(workspaceRoot, stage.branchRef)) {
+      return readPackageVersionFromGitRef(workspaceRoot, stage.branchRef);
+    }
+    return undefined;
+  }
+  try {
+    const raw = await fs.readFile(path.join(workspaceRoot, 'package.json'), 'utf-8');
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    return typeof parsed['version'] === 'string' ? parsed['version'] : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Load (and on first open, seed) the deployment-stage pipeline and compute its
+ * live status: the package version committed on each stage's branch, whether
+ * that branch exists, and the safety reasoning surfaced on each card. Read-only
+ * in this phase — no promotion is executed here.
+ */
+async function collectDeliveryStagePipeline(
+  atlas: AtlasMindContext,
+  workspaceRoot: string | undefined,
+  currentBranch: string,
+): Promise<DashboardStagePipeline> {
+  const base: DashboardStagePipeline = {
+    configPath: DELIVERY_SSOT_PATH,
+    summaryPath: DELIVERY_SUMMARY_SSOT_PATH,
+    stages: [],
+    paths: [],
+    config: null,
+    seeded: false,
+    notInGitRepo: false,
+  };
+  const manager = atlas.deliveryManager;
+  if (!workspaceRoot || !manager) {
+    return base;
+  }
+
+  const isGit = currentBranch !== 'Not a git repository' && currentBranch !== 'Detached';
+  let config = manager.getConfig();
+  let seeded = false;
+  if (!config) {
+    if (!isGit) {
+      return { ...base, notInGitRepo: true };
+    }
+    // Keep the detected ref unnormalised so a remote-only production branch
+    // (e.g. `origin/master` with no local `master`) still resolves its version.
+    const productionRef = await detectProductionBranchRef(workspaceRoot, currentBranch);
+    const developExists = await gitRefExists(workspaceRoot, 'develop');
+    config = await manager.ensureSeeded({
+      currentBranch,
+      productionBranch: productionRef ?? undefined,
+      developBranch: developExists ? 'develop' : undefined,
+    });
+    seeded = true;
+  }
+
+  const orderedStages = [...config.stages].sort((left, right) => left.rank - right.rank);
+  const stageViews = await Promise.all(
+    orderedStages.map(stage => buildStageView(workspaceRoot, stage, currentBranch)),
+  );
+  const pathViews = config.paths
+    .map(promo => buildPromotionPathView(promo, config as DeliveryConfig, stageViews))
+    .filter((view): view is DashboardPromotionPathView => view !== undefined);
+
+  return { ...base, stages: stageViews, paths: pathViews, config, seeded };
+}
+
+async function buildStageView(
+  workspaceRoot: string,
+  stage: DeploymentStage,
+  currentBranch: string,
+): Promise<DashboardStageView> {
+  let deployedVersion = '—';
+  let branchExists = false;
+  if (stage.branchRef) {
+    branchExists = await gitRefExists(workspaceRoot, stage.branchRef);
+    if (branchExists) {
+      deployedVersion = (await readPackageVersionFromGitRef(workspaceRoot, stage.branchRef)) ?? '—';
+    }
+  }
+  const backupConfigured = Boolean(stage.backupPolicy.command && stage.backupPolicy.command.trim().length > 0);
+  return {
+    id: stage.id,
+    name: stage.name,
+    kind: stage.kind,
+    rank: stage.rank,
+    description: stage.description,
+    branchRef: stage.branchRef ?? '',
+    branchExists,
+    deployedVersion,
+    isCurrentBranch: stage.branchRef
+      ? normalizeBranchRef(stage.branchRef) === normalizeBranchRef(currentBranch)
+      : false,
+    isProtected: stage.isProtected,
+    hostingProvider: stage.hosting.provider ?? '',
+    hostingUrl: stage.hosting.url ?? '',
+    healthCheckUrl: stage.hosting.healthCheckUrl ?? '',
+    configLabel: stage.config.sourceLabel ?? '',
+    dataLabel: stage.data.label ?? stage.data.kind ?? '',
+    backupRequired: stage.backupPolicy.required,
+    backupConfigured,
+    securityNotes: buildStageSecurityNotes(stage, backupConfigured),
+  };
+}
+
+function buildStageSecurityNotes(stage: DeploymentStage, backupConfigured: boolean): string[] {
+  const notes: string[] = [];
+  if (stage.isProtected) {
+    notes.push('Protected stage — every push here asks for confirmation and is never force-pushed.');
+  }
+  if (stage.backupPolicy.required && !backupConfigured) {
+    notes.push('A data backup is required before any push, but no backup command is set yet — pushes to this stage stay blocked until you add one.');
+  } else if (stage.backupPolicy.required) {
+    notes.push('A data backup runs automatically before any change, so this stage can be recovered.');
+  }
+  if (stage.promotionPolicy.requiresApproval) {
+    notes.push('Pushes require explicit human approval before anything runs.');
+  }
+  if (stage.config.sourceLabel) {
+    notes.push(`Secrets live in ${stage.config.sourceLabel} — only the location is recorded here, never the values.`);
+  }
+  return notes;
+}
+
+function buildPromotionPathView(
+  promo: PromotionPath,
+  config: DeliveryConfig,
+  stageViews: DashboardStageView[],
+): DashboardPromotionPathView | undefined {
+  const from = config.stages.find(stage => stage.id === promo.fromStageId);
+  const to = config.stages.find(stage => stage.id === promo.toStageId);
+  if (!from || !to) {
+    return undefined;
+  }
+  const fromView = stageViews.find(view => view.id === promo.fromStageId);
+  const toView = stageViews.find(view => view.id === promo.toStageId);
+  const backupConfigured = Boolean(to.backupPolicy.command && to.backupPolicy.command.trim().length > 0);
+  const blocked = to.backupPolicy.required && !backupConfigured;
+  const guardrails = [
+    'Preflight gate — required checks must pass, or the push aborts',
+    to.backupPolicy.required ? `Backup — snapshot ${to.name} before any change` : 'Backup — optional for this target',
+    'Promote — merge/tag forward (never force-push)',
+    'Verify — health-check the target after deploy',
+  ];
+  const versionDelta = fromView && toView ? `v${fromView.deployedVersion} → v${toView.deployedVersion}` : '';
+  return {
+    id: promo.id,
+    fromStageId: promo.fromStageId,
+    toStageId: promo.toStageId,
+    fromName: from.name,
+    toName: to.name,
+    routineId: promo.routineId ?? '',
+    guardrails,
+    gates: to.promotionPolicy.requiredChecks,
+    requiresApproval: to.promotionPolicy.requiresApproval,
+    backupRequired: to.backupPolicy.required,
+    backupConfigured,
+    blocked,
+    blockReason: blocked ? `Define a backup command for ${to.name} before this push can run.` : '',
+    versionDelta,
+    lastPromotion: promo.lastPromotion
+      ? {
+          ranAt: promo.lastPromotion.ranAt,
+          succeeded: promo.lastPromotion.succeeded,
+          version: promo.lastPromotion.version ?? '',
+        }
+      : undefined,
+  };
 }
 
 async function collectWorkflowSnapshot(workspaceRoot: string | undefined): Promise<DashboardWorkflow[]> {
@@ -5452,4 +5852,100 @@ const DASHBOARD_CSS = `
   .methodology-category-header { font-weight: 700; font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.07em; color: var(--vscode-descriptionForeground); padding-top: 10px !important; border-bottom: none !important; }
   .methodology-toggle-label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
   .methodology-name-cell { width: 60%; }
+
+  /* ── Delivery: Stages & Promotion ─────────────────────────────── */
+  .stage-pipeline-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  .stage-pipeline-header .tag-row { margin-top: 6px; }
+  .stage-seeded-note { font-size: 0.82em; color: var(--vscode-descriptionForeground); margin: 4px 0 0; }
+  .stage-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; align-items: stretch; margin-bottom: 18px; }
+  .stage-card { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 12px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.25)); background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); }
+  .stage-card.is-current { border-color: var(--vscode-focusBorder, #4daafc); box-shadow: 0 0 0 1px var(--vscode-focusBorder, #4daafc) inset; }
+  .stage-card.kind-production { background: linear-gradient(180deg, rgba(220,80,80,0.10), transparent 60%); }
+  .stage-card.kind-staging { background: linear-gradient(180deg, rgba(220,170,60,0.10), transparent 60%); }
+  .stage-card.kind-local { background: linear-gradient(180deg, rgba(110,160,220,0.10), transparent 60%); }
+  .stage-head { display: flex; align-items: center; gap: 8px; }
+  .stage-rank { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; font-size: 0.78em; font-weight: 700; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); flex: 0 0 auto; }
+  .stage-head h4 { margin: 0; font-size: 1.02em; }
+  .stage-kind-badge { font-size: 0.7em; text-transform: uppercase; letter-spacing: 0.06em; padding: 2px 7px; border-radius: 999px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.3)); color: var(--vscode-descriptionForeground); }
+  .stage-lock { margin-left: auto; font-size: 0.95em; }
+  .stage-current-tag { font-size: 0.68em; text-transform: uppercase; letter-spacing: 0.06em; color: var(--vscode-focusBorder, #4daafc); font-weight: 700; }
+  .stage-desc { margin: 0; font-size: 0.86em; color: var(--vscode-descriptionForeground); line-height: 1.45; }
+  .stage-facts { display: grid; grid-template-columns: 1fr; gap: 4px; margin: 2px 0; }
+  .stage-fact { display: flex; justify-content: space-between; gap: 10px; font-size: 0.82em; padding: 3px 0; border-bottom: 1px dashed var(--vscode-widget-border, rgba(127,127,127,0.18)); }
+  .stage-fact span { color: var(--vscode-descriptionForeground); }
+  .stage-fact b { font-weight: 600; text-align: right; word-break: break-word; }
+  .stage-fact .missing-ref { color: var(--vscode-errorForeground, #f14c4c); }
+  .stage-security { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .stage-security li { position: relative; padding-left: 18px; font-size: 0.8em; line-height: 1.4; color: var(--vscode-foreground); }
+  .stage-security li::before { content: "🛡"; position: absolute; left: 0; top: 0; font-size: 0.85em; opacity: 0.85; }
+  .stage-security li.warn { color: var(--vscode-editorWarning-foreground, #cca700); }
+  .stage-security li.warn::before { content: "⚠"; }
+  .stage-card .action-link { align-self: flex-start; }
+
+  .promotion-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+  .promotion-card { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 12px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.25)); background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); }
+  .promotion-card.blocked { border-color: var(--vscode-editorWarning-foreground, #cca700); }
+  .promotion-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .promotion-head h4 { margin: 0; font-size: 0.98em; }
+  .promotion-head .version-delta { font-family: var(--vscode-editor-font-family, monospace); font-size: 0.8em; color: var(--vscode-descriptionForeground); }
+  .guardrail-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+  .guardrail-list li { font-size: 0.82em; line-height: 1.4; }
+  .gate-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 0.8em; color: var(--vscode-descriptionForeground); }
+  .promotion-block-note { font-size: 0.8em; color: var(--vscode-editorWarning-foreground, #cca700); margin: 0; display: flex; gap: 6px; }
+  .promotion-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 2px; }
+  .promotion-ghost-btn { font-size: 0.8em; padding: 5px 10px; border-radius: 7px; border: 1px dashed var(--vscode-widget-border, rgba(127,127,127,0.4)); background: transparent; color: var(--vscode-descriptionForeground); cursor: not-allowed; }
+  .promotion-last { font-size: 0.78em; color: var(--vscode-descriptionForeground); margin: 0; }
+
+  /* ── Delivery: stage / promotion editors (Phase 2) ────────────── */
+  .stage-card-foot { margin-top: auto; padding-top: 6px; display: flex; justify-content: flex-end; }
+  .promotion-section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .action-link.primary { font-weight: 700; color: var(--vscode-button-foreground, #fff); background: var(--vscode-button-background, #0e639c); padding: 5px 12px; border-radius: 7px; border: none; }
+  .action-link.primary:hover { background: var(--vscode-button-hoverBackground, #1177bb); }
+  .action-link.danger { color: var(--vscode-errorForeground, #f14c4c); }
+  .stage-editor, .path-editor { grid-column: 1 / -1; margin: 6px 0 12px; border-color: var(--vscode-focusBorder, #4daafc); }
+  .stage-edit-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin: 4px 0; }
+  .stage-edit-field { display: flex; flex-direction: column; gap: 3px; font-size: 0.8em; }
+  .stage-edit-field > span { color: var(--vscode-descriptionForeground); }
+  .stage-edit-field input[type="text"], .stage-edit-field input[type="number"], .stage-edit-field textarea, .stage-edit-field select {
+    width: 100%; box-sizing: border-box; padding: 5px 7px; border-radius: 6px;
+    border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, rgba(127,127,127,0.4)));
+    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
+    font-family: inherit; font-size: 1em;
+  }
+  .stage-edit-field textarea { resize: vertical; min-height: 38px; }
+  .stage-edit-check { display: flex; align-items: center; gap: 7px; font-size: 0.82em; margin: 6px 0; }
+  .stage-edit-check input { flex: 0 0 auto; }
+  .stage-edit-group { margin: 12px 0 2px; font-size: 0.74em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--vscode-descriptionForeground); border-top: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.18)); padding-top: 8px; }
+  .stage-edit-group small { font-weight: 400; text-transform: none; letter-spacing: 0; margin-left: 6px; opacity: 0.85; }
+  .stage-edit-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; }
+  .stage-remove-confirm { font-size: 0.82em; color: var(--vscode-editorWarning-foreground, #cca700); display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+
+  /* ── Delivery: promotion execution modal (Phase 3) ────────────── */
+  .promo-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: flex; align-items: flex-start; justify-content: center; padding: 40px 16px; z-index: 1000; overflow-y: auto; }
+  .promo-modal { width: min(680px, 100%); background: var(--vscode-editorWidget-background, var(--vscode-editor-background)); border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.4)); border-radius: 14px; padding: 20px 22px; box-shadow: 0 18px 50px rgba(0,0,0,0.45); }
+  .promo-modal > h3 { margin: 0 0 12px; font-size: 1.1em; }
+  .promo-section { margin: 14px 0; }
+  .promo-section > h4 { margin: 0 0 6px; font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.06em; color: var(--vscode-descriptionForeground); }
+  .promo-plan-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .promo-plan-step { padding: 8px 10px; border-radius: 8px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.2)); background: var(--vscode-editor-background); }
+  .promo-plan-step-head { display: flex; align-items: center; gap: 8px; }
+  .promo-step-badge { font-size: 0.66em; text-transform: uppercase; letter-spacing: 0.05em; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.35)); color: var(--vscode-descriptionForeground); }
+  .promo-step-badge.managed { color: var(--vscode-charts-blue, #4daafc); border-color: currentColor; }
+  .promo-plan-step-detail { font-size: 0.8em; color: var(--vscode-descriptionForeground); margin-top: 3px; }
+  .promo-cmd { margin: 6px 0 0; padding: 6px 8px; border-radius: 6px; background: var(--vscode-textCodeBlock-background, rgba(127,127,127,0.12)); font-family: var(--vscode-editor-font-family, monospace); font-size: 0.78em; white-space: pre-wrap; word-break: break-word; }
+  .promo-check-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .promo-check { font-size: 0.84em; display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+  .promo-check small { color: var(--vscode-descriptionForeground); width: 100%; padding-left: 18px; }
+  .promo-check.pass { color: var(--vscode-charts-green, #89d185); }
+  .promo-check.fail { color: var(--vscode-errorForeground, #f14c4c); }
+  .promo-check.manual { color: var(--vscode-foreground); }
+  .promo-check.manual label { display: inline-flex; gap: 7px; align-items: center; cursor: pointer; }
+  .promo-progress-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+  .promo-step { font-size: 0.84em; }
+  .promo-step.done { color: var(--vscode-charts-green, #89d185); }
+  .promo-step.failed { color: var(--vscode-errorForeground, #f14c4c); }
+  .promo-step.running { color: var(--vscode-charts-blue, #4daafc); }
+  .promo-step-out { font-family: var(--vscode-editor-font-family, monospace); font-size: 0.82em; color: var(--vscode-descriptionForeground); margin: 2px 0 0 18px; white-space: pre-wrap; word-break: break-word; }
+  .promo-result.good > h4 { color: var(--vscode-charts-green, #89d185); }
+  .promo-result.bad > h4 { color: var(--vscode-errorForeground, #f14c4c); }
 `;

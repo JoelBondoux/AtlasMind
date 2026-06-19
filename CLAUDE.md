@@ -91,6 +91,8 @@ When asked to publish or ship a release, follow these steps in order:
 | `ProjectRunHistory` | `src/core/projectRunHistory.ts` | Persists per-project task run records |
 | `SkillScanner` | `src/core/skillScanner.ts` | Auto-discovers workspace tool definitions |
 | `TestingScaffolder` | `src/core/testingScaffolder.ts` | Constructs a stack-aware starter testing framework from enabled methodologies (non-destructive) |
+| `DeliveryManager` | `src/core/deliveryManager.ts` | Models deployment stages (Local → Staging → Production) + promotion ("push") edges; seeds from repo branches, persists `project_memory/operations/delivery.json` + `delivery.md` runbook mirror; safety-first (production protected, deny-by-default backup gate) |
+| `PromotionRunner` | `src/core/promotionRunner.ts` | Guarded promotion engine: builds the preflight→backup→deploy→verify→record plan, enforces the authorization gate (auto/manual checks, approval, protected type-to-confirm), executes user-authored commands with live progress + rollback hint; never force-pushes, commands sourced server-side only |
 | `TestingProtocolSync` | `src/utils/testingProtocolSync.ts` | Outbound sync of enabled testing protocols into external agent instruction files via a managed, path-safe block |
 | `ModelEvalHarness` | `src/core/modelEvalHarness.ts` | Scored-replay model comparison (`compareModelsOnPrompt`); ranks models by graded quality/cost and records outcomes to calibrate routing |
 | `ProviderRegistry` | `src/providers/index.ts` | Maps provider IDs to adapter instances |

@@ -38,6 +38,10 @@
     privacyTest: { kind: 'text', value: '' },
     privacyTestResult: null,
     privacyExpandedProviders: {},
+    editingStageId: '',
+    confirmRemoveStageId: '',
+    editingPathId: '',
+    promotion: null,
   };
 
   refreshButton?.addEventListener('click', () => {
@@ -79,6 +83,52 @@
 
     if (message.type === 'gapAnalysisStatus') {
       state.gapStatus = typeof message.payload === 'string' ? message.payload : '';
+      render();
+      return;
+    }
+
+    if (message.type === 'promotionPlan') {
+      state.promotion = {
+        plan: message.payload.plan,
+        mode: message.payload.mode,
+        attestations: {},
+        confirmText: '',
+        running: false,
+        progress: [],
+        result: null,
+        error: '',
+      };
+      render();
+      return;
+    }
+
+    if (message.type === 'promotionProgress') {
+      if (state.promotion) {
+        state.promotion.running = true;
+        const list = state.promotion.progress;
+        const existing = list.find(entry => entry.stepId === message.payload.stepId);
+        if (existing) { Object.assign(existing, message.payload); }
+        else { list.push(message.payload); }
+        render();
+      }
+      return;
+    }
+
+    if (message.type === 'promotionDone') {
+      if (state.promotion) {
+        state.promotion.running = false;
+        state.promotion.result = message.payload;
+        render();
+      }
+      return;
+    }
+
+    if (message.type === 'promotionError') {
+      if (!state.promotion) {
+        state.promotion = { plan: null, mode: 'execute', attestations: {}, confirmText: '', running: false, progress: [], result: null, error: '' };
+      }
+      state.promotion.error = message.payload || 'Promotion failed.';
+      state.promotion.running = false;
       render();
       return;
     }
@@ -248,8 +298,111 @@
       render();
       return;
     }
-    if (action === 'privacy-open-url') {
+    if (action === 'privacy-open-url' || action === 'external-url') {
       vscode.postMessage({ type: 'openExternalUrl', payload });
+      return;
+    }
+    if (action === 'stage-edit') { state.editingStageId = payload; state.confirmRemoveStageId = ''; render(); return; }
+    if (action === 'stage-add') { state.editingStageId = 'new'; state.confirmRemoveStageId = ''; render(); return; }
+    if (action === 'stage-cancel') { state.editingStageId = ''; state.confirmRemoveStageId = ''; render(); return; }
+    if (action === 'stage-remove') { state.confirmRemoveStageId = payload; render(); return; }
+    if (action === 'stage-remove-cancel') { state.confirmRemoveStageId = ''; render(); return; }
+    if (action === 'stage-remove-confirm') {
+      const cfg = cloneDeliveryConfig();
+      cfg.stages = cfg.stages.filter(s => s.id !== payload);
+      cfg.paths = cfg.paths.filter(p => p.fromStageId !== payload && p.toStageId !== payload);
+      state.editingStageId = '';
+      state.confirmRemoveStageId = '';
+      postDeliveryConfig(cfg);
+      return;
+    }
+    if (action === 'stage-save') {
+      const container = document.getElementById('stage-editor');
+      if (!container) { return; }
+      const cfg = cloneDeliveryConfig();
+      if (payload === 'new') {
+        const stage = collectStageFromEditor(container, defaultNewStage());
+        if (!stage.name || !stage.name.trim()) { return; }
+        let id = 'stage-' + slugClient(stage.name);
+        let unique = id;
+        let n = 1;
+        while (cfg.stages.some(s => s.id === unique)) { unique = id + '-' + (n++); }
+        stage.id = unique;
+        cfg.stages.push(stage);
+      } else {
+        const idx = cfg.stages.findIndex(s => s.id === payload);
+        if (idx < 0) { return; }
+        cfg.stages[idx] = collectStageFromEditor(container, cfg.stages[idx]);
+      }
+      state.editingStageId = '';
+      state.confirmRemoveStageId = '';
+      postDeliveryConfig(cfg);
+      return;
+    }
+    if (action === 'path-edit') { state.editingPathId = payload; render(); return; }
+    if (action === 'path-add') { state.editingPathId = 'new'; render(); return; }
+    if (action === 'path-cancel') { state.editingPathId = ''; render(); return; }
+    if (action === 'path-remove') {
+      const cfg = cloneDeliveryConfig();
+      cfg.paths = cfg.paths.filter(p => p.id !== payload);
+      state.editingPathId = '';
+      postDeliveryConfig(cfg);
+      return;
+    }
+    if (action === 'path-save') {
+      const container = document.getElementById('path-editor');
+      if (!container) { return; }
+      const fromEl = container.querySelector('[data-field="fromStageId"]');
+      const toEl = container.querySelector('[data-field="toStageId"]');
+      const routineEl = container.querySelector('[data-field="routineId"]');
+      const fromId = fromEl ? fromEl.value : '';
+      const toId = toEl ? toEl.value : '';
+      const routineId = routineEl ? routineEl.value.trim() : '';
+      if (!fromId || !toId || fromId === toId) { return; }
+      const cfg = cloneDeliveryConfig();
+      if (payload === 'new') {
+        let id = 'promote-' + fromId + '-' + toId;
+        let unique = id;
+        let n = 1;
+        while (cfg.paths.some(p => p.id === unique)) { unique = id + '-' + (n++); }
+        cfg.paths.push({ id: unique, fromStageId: fromId, toStageId: toId, routineId: routineId });
+      } else {
+        const idx = cfg.paths.findIndex(p => p.id === payload);
+        if (idx < 0) { return; }
+        cfg.paths[idx] = Object.assign({}, cfg.paths[idx], { fromStageId: fromId, toStageId: toId, routineId: routineId });
+      }
+      state.editingPathId = '';
+      postDeliveryConfig(cfg);
+      return;
+    }
+    if (action === 'promote-plan') {
+      vscode.postMessage({ type: 'requestPromotionPlan', payload: { pathId: payload, mode: 'execute' } });
+      return;
+    }
+    if (action === 'promote-runbook') {
+      vscode.postMessage({ type: 'requestPromotionPlan', payload: { pathId: payload, mode: 'runbook' } });
+      return;
+    }
+    if (action === 'promotion-cancel') {
+      state.promotion = null;
+      render();
+      return;
+    }
+    if (action === 'promotion-run') {
+      const p = state.promotion;
+      if (!p || !p.plan || p.running) { return; }
+      if (p.plan.isProtected && (p.confirmText || '').trim().toLowerCase() !== p.plan.toName.trim().toLowerCase()) {
+        p.error = 'Type the target name “' + p.plan.toName + '” exactly to confirm a protected promotion.';
+        render();
+        return;
+      }
+      const attest = Object.keys(p.attestations).filter(key => p.attestations[key]);
+      p.error = '';
+      p.running = true;
+      p.progress = [];
+      p.result = null;
+      render();
+      vscode.postMessage({ type: 'runPromotion', payload: { pathId: p.plan.pathId, attestations: attest, confirmText: p.confirmText || '' } });
       return;
     }
   });
@@ -273,6 +426,10 @@
     }
     if (target instanceof HTMLInputElement && target.id === 'privacy-test-value') {
       state.privacyTest.value = target.value;
+      return;
+    }
+    if (target instanceof HTMLInputElement && target.id === 'promotion-confirm-text') {
+      if (state.promotion) { state.promotion.confirmText = target.value; }
       return;
     }
   });
@@ -309,6 +466,20 @@
       state.selectedTestId = target.value;
       render();
     }
+  });
+
+  // Promotion modal: manual preflight attestations and the approval checkbox.
+  root?.addEventListener('change', event => {
+    const target = event.target instanceof HTMLInputElement ? event.target : null;
+    if (!target || !target.classList.contains('promotion-attest') || !state.promotion) {
+      return;
+    }
+    const checkId = target.getAttribute('data-check-id');
+    if (!checkId) {
+      return;
+    }
+    state.promotion.attestations[checkId] = target.checked;
+    render();
   });
 
   // Data Privacy controls: checkboxes (enable / packs / models / rule toggles)
@@ -538,6 +709,7 @@
         ${renderSecurity(snapshot)}
         ${renderPrivacy(snapshot)}
         ${renderDelivery(snapshot)}
+        ${renderPromotionModal()}
       `;
 
       // --- Restore focus and cursor position if needed ---
@@ -1724,9 +1896,397 @@
     `;
   }
 
+  function renderStagePipeline(snapshot) {
+    const pipeline = snapshot.delivery && snapshot.delivery.stages;
+    if (!pipeline) { return ''; }
+    if (pipeline.notInGitRepo) {
+      return `
+        <article class="list-card" style="grid-column: 1 / -1">
+          <p class="section-kicker">Stages &amp; Promotion</p>
+          <h3>Deployment pipeline</h3>
+          <div class="dashboard-empty">Initialise a git repository to model development, staging, and production stages.</div>
+        </article>`;
+    }
+    if (!pipeline.stages || pipeline.stages.length === 0) {
+      return '';
+    }
+    const summaryPath = pipeline.summaryPath;
+    const stageEditor = state.editingStageId
+      ? (state.editingStageId === 'new' ? renderStageEditor(defaultNewStage(), true) : renderStageEditor(findRawStage(state.editingStageId), false))
+      : '';
+    let pathEditor = '';
+    if (state.editingPathId === 'new') {
+      pathEditor = renderPathEditor(null, true);
+    } else if (state.editingPathId) {
+      const rawPath = findRawPath(state.editingPathId);
+      pathEditor = rawPath ? renderPathEditor(rawPath, false) : '';
+    }
+    return `
+      <article class="list-card" style="grid-column: 1 / -1">
+        <div class="stage-pipeline-header">
+          <div>
+            <p class="section-kicker">Stages &amp; Promotion</p>
+            <h3>Deployment pipeline</h3>
+            ${pipeline.seeded ? '<p class="stage-seeded-note">Seeded from your branches on first open — everything here is editable.</p>' : ''}
+          </div>
+          <div class="tag-row">
+            ${state.editingStageId === 'new' ? '' : '<button type="button" class="action-link" data-action="stage-add" data-payload="">+ Add stage</button>'}
+            <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(summaryPath)}">📖 Open runbook (delivery.md)</button>
+            <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(pipeline.configPath)}">Edit delivery.json</button>
+          </div>
+        </div>
+        <div class="stage-row">
+          ${pipeline.stages.map(renderStageCard).join('')}
+        </div>
+        ${stageEditor}
+        <div class="promotion-section-head">
+          <p class="section-kicker" style="margin-top:6px">Promotions (“pushes”)</p>
+          ${state.editingPathId === 'new' ? '' : '<button type="button" class="action-link" data-action="path-add" data-payload="">+ Add push</button>'}
+        </div>
+        ${pipeline.paths && pipeline.paths.length > 0
+          ? `<div class="promotion-list">${pipeline.paths.map(p => renderPromotionCard(p, summaryPath)).join('')}</div>`
+          : '<div class="dashboard-empty">No promotion paths yet. Use “+ Add push” to connect two stages.</div>'}
+        ${pathEditor}
+      </article>`;
+  }
+
+  function renderStageCard(stage) {
+    const branchText = stage.branchRef
+      ? `<b class="${stage.branchExists ? '' : 'missing-ref'}">${escapeHtml(stage.branchRef)}${stage.branchExists ? '' : ' (missing)'}</b>`
+      : '<b>— working tree</b>';
+    const facts = [
+      ['Branch', branchText],
+      ['Deployed', `<b>v${escapeHtml(stage.deployedVersion)}</b>`],
+      ['Hosting', `<b>${escapeHtml(stage.hostingProvider || '—')}</b>`],
+      ['Data', `<b>${escapeHtml(stage.dataLabel || '—')}</b>`],
+      ['Config', `<b>${escapeHtml(stage.configLabel || '—')}</b>`],
+    ];
+    const urlButton = /^https:\/\//i.test(stage.hostingUrl || '')
+      ? `<button type="button" class="action-link" data-action="external-url" data-payload="${escapeAttr(stage.hostingUrl)}">Open ${escapeHtml(stage.name)} ↗</button>`
+      : '';
+    return `
+      <article class="stage-card kind-${escapeAttr(stage.kind)} ${stage.isCurrentBranch ? 'is-current' : ''}">
+        <div class="stage-head">
+          <span class="stage-rank">${stage.rank + 1}</span>
+          <h4>${escapeHtml(stage.name)}</h4>
+          <span class="stage-kind-badge">${escapeHtml(stage.kind)}</span>
+          ${stage.isProtected ? '<span class="stage-lock" title="Protected stage">🔒</span>' : ''}
+        </div>
+        ${stage.isCurrentBranch ? '<span class="stage-current-tag">● current branch</span>' : ''}
+        <p class="stage-desc">${escapeHtml(stage.description)}</p>
+        <div class="stage-facts">
+          ${facts.map(fact => `<div class="stage-fact"><span>${escapeHtml(fact[0])}</span>${fact[1]}</div>`).join('')}
+        </div>
+        ${urlButton}
+        ${stage.securityNotes && stage.securityNotes.length > 0 ? `
+          <ul class="stage-security">
+            ${stage.securityNotes.map(note => `<li class="${/blocked until you add one/i.test(note) ? 'warn' : ''}">${escapeHtml(note)}</li>`).join('')}
+          </ul>` : ''}
+        <div class="stage-card-foot">
+          <button type="button" class="action-link" data-action="stage-edit" data-payload="${escapeAttr(stage.id)}">Edit</button>
+        </div>
+      </article>`;
+  }
+
+  function renderPromotionCard(path, summaryPath) {
+    const gates = (path.gates || []).length > 0
+      ? path.gates.map(g => `<span class="tag mono">${escapeHtml(g)}</span>`).join('')
+      : '<span class="tag">none configured</span>';
+    const last = path.lastPromotion
+      ? `<p class="promotion-last">Last push: v${escapeHtml(path.lastPromotion.version || '?')} · ${path.lastPromotion.succeeded ? 'succeeded' : 'failed'} · ${escapeHtml(relativeLabel(path.lastPromotion.ranAt))}</p>`
+      : '';
+    return `
+      <article class="promotion-card ${path.blocked ? 'blocked' : ''}">
+        <div class="promotion-head">
+          <h4>${escapeHtml(path.fromName)} → ${escapeHtml(path.toName)}</h4>
+          ${path.versionDelta ? `<span class="version-delta">${escapeHtml(path.versionDelta)}</span>` : ''}
+        </div>
+        <ol class="guardrail-list">
+          ${path.guardrails.map(step => `<li>${escapeHtml(step)}</li>`).join('')}
+        </ol>
+        <div class="gate-row"><span>Gates:</span> ${gates}</div>
+        ${path.blocked ? `<p class="promotion-block-note">⚠ ${escapeHtml(path.blockReason)}</p>` : ''}
+        <div class="promotion-actions">
+          ${path.blocked
+            ? `<button type="button" class="promotion-ghost-btn" disabled title="${escapeAttr(path.blockReason)}">Promote ▸ (blocked)</button>`
+            : `<button type="button" class="action-link primary" data-action="promote-plan" data-payload="${escapeAttr(path.id)}">Promote ▸</button>`}
+          <button type="button" class="action-link" data-action="promote-runbook" data-payload="${escapeAttr(path.id)}">📖 Runbook</button>
+          <button type="button" class="action-link" data-action="path-edit" data-payload="${escapeAttr(path.id)}">Edit</button>
+        </div>
+        ${last}
+      </article>`;
+  }
+
+  // ── Delivery: stage / promotion editors (Phase 2) ───────────────
+
+  function getDeliveryConfig() {
+    const sp = state.snapshot && state.snapshot.delivery && state.snapshot.delivery.stages;
+    return sp && sp.config ? sp.config : null;
+  }
+
+  function cloneDeliveryConfig() {
+    const cfg = getDeliveryConfig();
+    return cfg ? JSON.parse(JSON.stringify(cfg)) : { version: 1, stages: [], paths: [] };
+  }
+
+  function postDeliveryConfig(cfg) {
+    vscode.postMessage({ type: 'saveDeliveryConfig', payload: cfg });
+  }
+
+  function findRawStage(id) {
+    const cfg = getDeliveryConfig();
+    return (cfg && cfg.stages.find(s => s.id === id)) || defaultNewStage();
+  }
+
+  function findRawPath(id) {
+    const cfg = getDeliveryConfig();
+    return (cfg && cfg.paths.find(p => p.id === id)) || null;
+  }
+
+  function slugClient(text) {
+    return String(text || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || String(Date.now());
+  }
+
+  function defaultNewStage() {
+    const cfg = getDeliveryConfig();
+    const maxRank = cfg && cfg.stages.length ? Math.max.apply(null, cfg.stages.map(s => s.rank)) : -1;
+    return {
+      id: '', name: '', kind: 'custom', rank: maxRank + 1, description: '', branchRef: '',
+      config: { sourceLabel: '', sourcePath: '' },
+      hosting: { provider: '', url: '', healthCheckUrl: '' },
+      data: { kind: '', label: '', migrationsPath: '' },
+      backupPolicy: { required: false, command: '', runbookRef: '', retention: '' },
+      promotionPolicy: { requiresApproval: false, requireVersionBump: false, requireChangelog: false, requiredChecks: [] },
+      rollbackPolicy: { command: '', runbookRef: '' },
+      isProtected: false,
+    };
+  }
+
+  function edText(label, field, value, ph) {
+    return `<label class="stage-edit-field"><span>${escapeHtml(label)}</span><input type="text" data-field="${escapeAttr(field)}" value="${escapeAttr(value || '')}" placeholder="${escapeAttr(ph || '')}" /></label>`;
+  }
+  function edNum(label, field, value) {
+    return `<label class="stage-edit-field"><span>${escapeHtml(label)}</span><input type="number" min="0" max="99" data-field="${escapeAttr(field)}" value="${escapeAttr(value == null ? '' : String(value))}" /></label>`;
+  }
+  function edArea(label, field, value, ph) {
+    return `<label class="stage-edit-field"><span>${escapeHtml(label)}</span><textarea rows="2" data-field="${escapeAttr(field)}" placeholder="${escapeAttr(ph || '')}">${escapeHtml(value || '')}</textarea></label>`;
+  }
+  function edCheck(label, field, checked) {
+    return `<label class="stage-edit-check"><input type="checkbox" data-field="${escapeAttr(field)}" ${checked ? 'checked' : ''} /> <span>${escapeHtml(label)}</span></label>`;
+  }
+  function edSelect(label, field, value, options) {
+    return `<label class="stage-edit-field"><span>${escapeHtml(label)}</span><select data-field="${escapeAttr(field)}">${options.map(o => `<option value="${escapeAttr(o.value)}" ${o.value === value ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('')}</select></label>`;
+  }
+
+  function renderStageEditor(stage, isNew) {
+    const kinds = ['local', 'development', 'staging', 'production', 'preview', 'custom'].map(k => ({ value: k, label: k }));
+    const checks = ((stage.promotionPolicy && stage.promotionPolicy.requiredChecks) || []).join('\n');
+    const removeControl = !isNew
+      ? (state.confirmRemoveStageId === stage.id
+        ? `<span class="stage-remove-confirm">Remove “${escapeHtml(stage.name)}”? <button type="button" class="action-link danger" data-action="stage-remove-confirm" data-payload="${escapeAttr(stage.id)}">Yes, remove</button> <button type="button" class="action-link" data-action="stage-remove-cancel" data-payload="">No</button></span>`
+        : `<button type="button" class="action-link danger" data-action="stage-remove" data-payload="${escapeAttr(stage.id)}">Remove stage</button>`)
+      : '';
+    return `
+      <article class="stage-card stage-editor" id="stage-editor">
+        <div class="stage-head"><h4>${isNew ? 'Add stage' : 'Edit stage'}</h4></div>
+        <div class="stage-edit-grid">
+          ${edText('Name', 'name', stage.name, 'Staging')}
+          ${edSelect('Kind', 'kind', stage.kind, kinds)}
+          ${edNum('Order (rank)', 'rank', stage.rank)}
+          ${edText('Branch / tag', 'branchRef', stage.branchRef, 'develop')}
+        </div>
+        ${edArea('Description (plain English)', 'description', stage.description, 'What is this stage for?')}
+        <p class="stage-edit-group">Config &amp; secrets <small>location only — never values</small></p>
+        <div class="stage-edit-grid">
+          ${edText('Config label', 'config.sourceLabel', stage.config.sourceLabel, '.env.staging')}
+          ${edText('Config path', 'config.sourcePath', stage.config.sourcePath, '.env.staging')}
+        </div>
+        <p class="stage-edit-group">Hosting</p>
+        <div class="stage-edit-grid">
+          ${edText('Provider', 'hosting.provider', stage.hosting.provider, 'Vercel / AWS / Fly.io')}
+          ${edText('URL', 'hosting.url', stage.hosting.url, 'https://staging.example.com')}
+          ${edText('Health-check URL', 'hosting.healthCheckUrl', stage.hosting.healthCheckUrl, 'https://staging.example.com/health')}
+        </div>
+        <p class="stage-edit-group">Data</p>
+        <div class="stage-edit-grid">
+          ${edText('Type', 'data.kind', stage.data.kind, 'postgres / s3 / none')}
+          ${edText('Label', 'data.label', stage.data.label, 'Staging database')}
+          ${edText('Migrations path', 'data.migrationsPath', stage.data.migrationsPath, 'db/migrations')}
+        </div>
+        <p class="stage-edit-group">Backup &amp; recovery <small>runs before any push to this stage</small></p>
+        ${edCheck('Backup required before any push to this stage', 'backupPolicy.required', stage.backupPolicy.required)}
+        <div class="stage-edit-grid">
+          ${edText('Backup command', 'backupPolicy.command', stage.backupPolicy.command, 'pg_dump … (taken before promote)')}
+          ${edText('Backup runbook ref', 'backupPolicy.runbookRef', stage.backupPolicy.runbookRef, '')}
+          ${edText('Retention', 'backupPolicy.retention', stage.backupPolicy.retention, '7 daily snapshots')}
+        </div>
+        <p class="stage-edit-group">Promotion gates <small>apply to pushes INTO this stage</small></p>
+        ${edCheck('Require human approval before a push runs', 'promotionPolicy.requiresApproval', stage.promotionPolicy.requiresApproval)}
+        ${edCheck('Require a version bump', 'promotionPolicy.requireVersionBump', stage.promotionPolicy.requireVersionBump)}
+        ${edCheck('Require a changelog entry', 'promotionPolicy.requireChangelog', stage.promotionPolicy.requireChangelog)}
+        ${edArea('Required checks (one per line)', 'promotionPolicy.requiredChecks', checks, 'Working tree clean\nTests pass\nCI green')}
+        <p class="stage-edit-group">Rollback</p>
+        <div class="stage-edit-grid">
+          ${edText('Rollback command', 'rollbackPolicy.command', stage.rollbackPolicy.command, '')}
+          ${edText('Rollback runbook ref', 'rollbackPolicy.runbookRef', stage.rollbackPolicy.runbookRef, '')}
+        </div>
+        ${edCheck('Protected stage — always confirm, never force-push', 'isProtected', stage.isProtected)}
+        <div class="stage-edit-actions">
+          <button type="button" class="action-link primary" data-action="stage-save" data-payload="${escapeAttr(isNew ? 'new' : stage.id)}">Save</button>
+          <button type="button" class="action-link" data-action="stage-cancel" data-payload="">Cancel</button>
+          ${removeControl}
+        </div>
+      </article>`;
+  }
+
+  function renderPathEditor(path, isNew) {
+    const cfg = getDeliveryConfig();
+    const stages = cfg ? cfg.stages.slice().sort((a, b) => a.rank - b.rank) : [];
+    const opts = stages.map(s => ({ value: s.id, label: `${s.name} (${s.kind})` }));
+    const from = path ? path.fromStageId : (opts[0] ? opts[0].value : '');
+    const to = path ? path.toStageId : (opts[1] ? opts[1].value : (opts[0] ? opts[0].value : ''));
+    const routineId = path ? (path.routineId || '') : '';
+    return `
+      <article class="promotion-card path-editor" id="path-editor">
+        <div class="promotion-head"><h4>${isNew ? 'Add push' : 'Edit push'}</h4></div>
+        <div class="stage-edit-grid">
+          ${edSelect('From', 'fromStageId', from, opts)}
+          ${edSelect('To', 'toStageId', to, opts)}
+          ${edText('Promotion routine id', 'routineId', routineId, 'promote-production')}
+        </div>
+        <div class="stage-edit-actions">
+          <button type="button" class="action-link primary" data-action="path-save" data-payload="${escapeAttr(isNew ? 'new' : path.id)}">Save</button>
+          <button type="button" class="action-link" data-action="path-cancel" data-payload="">Cancel</button>
+          ${!isNew ? `<button type="button" class="action-link danger" data-action="path-remove" data-payload="${escapeAttr(path.id)}">Remove</button>` : ''}
+        </div>
+      </article>`;
+  }
+
+  function collectStageFromEditor(container, base) {
+    const stage = JSON.parse(JSON.stringify(base));
+    container.querySelectorAll('[data-field]').forEach(el => {
+      const fieldName = el.getAttribute('data-field');
+      let value;
+      if (el.type === 'checkbox') { value = el.checked; }
+      else if (el.type === 'number') { value = Number(el.value); }
+      else { value = el.value; }
+      setNestedField(stage, fieldName, value);
+    });
+    return stage;
+  }
+
+  function setNestedField(obj, fieldPath, value) {
+    if (fieldPath === 'promotionPolicy.requiredChecks') {
+      value = String(value).split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    }
+    const parts = fieldPath.split('.');
+    let cur = obj;
+    for (let i = 0; i < parts.length - 1; i++) {
+      if (typeof cur[parts[i]] !== 'object' || cur[parts[i]] === null) { cur[parts[i]] = {}; }
+      cur = cur[parts[i]];
+    }
+    cur[parts[parts.length - 1]] = value;
+  }
+
+  // ── Delivery: promotion execution modal (Phase 3) ───────────────
+
+  function promotionRunEnabled(p) {
+    const plan = p.plan;
+    if (!plan || plan.blockers.length) { return false; }
+    if (plan.checks.some(c => c.kind === 'auto' && c.status !== 'pass')) { return false; }
+    if (!plan.checks.filter(c => c.kind === 'manual').every(c => p.attestations[c.id])) { return false; }
+    if (plan.requiresApproval && !p.attestations['approve']) { return false; }
+    return true;
+  }
+
+  function promoStatusIcon(status) {
+    if (status === 'done') { return '✓'; }
+    if (status === 'failed') { return '✗'; }
+    if (status === 'skipped') { return '•'; }
+    return '⏳';
+  }
+
+  function renderPromotionModal() {
+    const p = state.promotion;
+    if (!p) { return ''; }
+    if (!p.plan) {
+      return `
+        <div class="promo-overlay">
+          <div class="promo-modal">
+            <h3>Promotion</h3>
+            <p class="promotion-block-note">⚠ ${escapeHtml(p.error || 'Unavailable.')}</p>
+            <div class="stage-edit-actions"><button type="button" class="action-link" data-action="promotion-cancel" data-payload="">Close</button></div>
+          </div>
+        </div>`;
+    }
+    const plan = p.plan;
+    const runbook = p.mode === 'runbook';
+    const blocked = plan.blockers.length > 0;
+    const running = p.running;
+    const done = !!p.result;
+    const summaryPath = (state.snapshot && state.snapshot.delivery && state.snapshot.delivery.stages && state.snapshot.delivery.stages.summaryPath) || '';
+
+    const stepsHtml = plan.steps.map(s => `
+      <li class="promo-plan-step kind-${escapeAttr(s.kind)}">
+        <div class="promo-plan-step-head">
+          <span class="promo-step-badge ${s.managed ? 'managed' : 'custom'}">${s.managed ? 'managed' : 'custom'}</span>
+          <strong>${escapeHtml(s.label)}</strong>
+        </div>
+        <div class="promo-plan-step-detail">${escapeHtml(s.detail)}</div>
+        ${s.command ? `<pre class="promo-cmd">${escapeHtml(s.command)}</pre>` : ''}
+      </li>`).join('');
+
+    const autoChecks = plan.checks.filter(c => c.kind === 'auto');
+    const manualChecks = plan.checks.filter(c => c.kind === 'manual');
+    const checksHtml = `
+      ${autoChecks.map(c => `<li class="promo-check ${c.status === 'pass' ? 'pass' : 'fail'}">${c.status === 'pass' ? '✓' : '✗'} <span>${escapeHtml(c.label)}</span><small>${escapeHtml(c.detail)}</small></li>`).join('')}
+      ${runbook
+        ? manualChecks.map(c => `<li class="promo-check manual">☐ <span>${escapeHtml(c.label)}</span> <small>(manual confirmation)</small></li>`).join('')
+        : manualChecks.map(c => `<li class="promo-check manual"><label><input type="checkbox" class="promotion-attest" data-check-id="${escapeAttr(c.id)}" ${p.attestations[c.id] ? 'checked' : ''}/> <span>${escapeHtml(c.label)}</span></label></li>`).join('')}
+    `;
+
+    let actions;
+    if (runbook) {
+      actions = `<button type="button" class="action-link primary" data-action="promotion-cancel" data-payload="">Close</button>
+                 ${summaryPath ? `<button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(summaryPath)}">Open delivery.md</button>` : ''}`;
+    } else if (done) {
+      actions = `<button type="button" class="action-link primary" data-action="promotion-cancel" data-payload="">Close</button>`;
+    } else if (running) {
+      actions = `<button type="button" class="promotion-ghost-btn" disabled>Running…</button>`;
+    } else {
+      const enabled = promotionRunEnabled(p) && !blocked;
+      actions = `<button type="button" class="action-link primary" data-action="promotion-run" data-payload="" ${enabled ? '' : 'disabled'}>Confirm &amp; run</button>
+                 <button type="button" class="action-link" data-action="promotion-cancel" data-payload="">Cancel</button>`;
+    }
+
+    return `
+      <div class="promo-overlay">
+        <div class="promo-modal">
+          <h3>${runbook ? 'Runbook' : 'Promote'} — ${escapeHtml(plan.fromName)} → ${escapeHtml(plan.toName)} ${plan.isProtected ? '🔒' : ''}</h3>
+          ${blocked ? `<div class="promo-blockers">${plan.blockers.map(b => `<p class="promotion-block-note">⚠ ${escapeHtml(b)}</p>`).join('')}</div>` : ''}
+          <div class="promo-section">
+            <h4>Plan</h4>
+            <ol class="promo-plan-list">${stepsHtml}</ol>
+          </div>
+          ${plan.checks.length ? `<div class="promo-section"><h4>Preflight checks</h4><ul class="promo-check-list">${checksHtml}</ul></div>` : ''}
+          ${(!runbook && plan.requiresApproval) ? `<label class="stage-edit-check"><input type="checkbox" class="promotion-attest" data-check-id="approve" ${p.attestations['approve'] ? 'checked' : ''}/> <span>I approve this promotion to ${escapeHtml(plan.toName)}.</span></label>` : ''}
+          ${(!runbook && plan.isProtected) ? `<label class="stage-edit-field"><span>Type “${escapeHtml(plan.toName)}” to confirm (protected stage)</span><input type="text" id="promotion-confirm-text" value="${escapeAttr(p.confirmText)}" placeholder="${escapeAttr(plan.toName)}" autocomplete="off" /></label>` : ''}
+          ${p.progress && p.progress.length ? `<div class="promo-section"><h4>Progress</h4><ul class="promo-progress-list">${p.progress.map(s => `<li class="promo-step ${escapeAttr(s.status)}">${promoStatusIcon(s.status)} ${escapeHtml(s.label)}${s.output ? `<div class="promo-step-out">${escapeHtml(s.output)}</div>` : ''}</li>`).join('')}</ul></div>` : ''}
+          ${done ? `<div class="promo-section promo-result ${p.result.succeeded ? 'good' : 'bad'}">
+            <h4>${p.result.succeeded ? '✓ Promotion completed' : '✗ Promotion failed'}</h4>
+            <ul class="promo-progress-list">${p.result.steps.map(s => `<li class="promo-step ${s.skipped ? 'skipped' : (s.ok ? 'done' : 'failed')}">${s.skipped ? '•' : (s.ok ? '✓' : '✗')} ${escapeHtml(s.label)}${s.output ? `<div class="promo-step-out">${escapeHtml(s.output)}</div>` : ''}</li>`).join('')}</ul>
+            ${(p.result.rollback && (p.result.rollback.command || p.result.rollback.runbookRef)) ? `<p class="promotion-last">Recovery: ${escapeHtml(p.result.rollback.command || p.result.rollback.runbookRef)}</p>` : ''}
+          </div>` : ''}
+          ${p.error ? `<p class="promotion-block-note">⚠ ${escapeHtml(p.error)}</p>` : ''}
+          <div class="stage-edit-actions">${actions}</div>
+        </div>
+      </div>`;
+  }
+
   function renderDelivery(snapshot) {
     return `
       <section class="page-section ${state.activePage === 'delivery' ? 'active' : ''}">
+        ${renderStagePipeline(snapshot)}
         <div class="delivery-grid">
           <article class="panel-card">
             <p class="section-kicker">Dependencies</p>

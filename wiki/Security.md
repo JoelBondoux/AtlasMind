@@ -30,6 +30,16 @@ AtlasMind is designed with a **safety-first** principle: the extension defaults 
 
 - All webview panels use a strict **Content Security Policy (CSP)**
 - Destructive webview-triggered actions such as project-memory purge require extension-side confirmation and a typed confirmation phrase before any filesystem deletion occurs
+- Delivery **stage edits** are posted whole and re-sanitised server-side (`sanitizeDeliveryConfig`) before they touch disk: string lengths are clamped, types coerced (booleans strict `=== true`), ids de-duplicated, and dangling/self promotion edges dropped. No secret values are ever stored — only config-source *locations*
+
+### 3a. Promotion Execution Boundary
+
+Executing a promotion ("push") on the Delivery page runs real shell commands, so it is held to a stricter boundary than ordinary tool use (see [[Tool-Execution]]):
+
+- **Commands are server-sourced.** The webview sends only a path id, manual-check attestations, and a confirmation string. Every command actually executed (backup, deploy/migration routine steps) is read server-side from the persisted, user-authored stage config and routine files — a webview message can never inject a command.
+- **Authorization gate.** `evaluatePromotionGate` is the single chokepoint and is re-run against live git state at execution time: it refuses on any hard blocker, any failing automatic preflight check, an un-attested manual check, a missing approval, or — for a **protected** target — a confirmation string that does not match the target name.
+- **Deny-by-default backups.** A data-bearing target with a required-but-undefined backup command cannot be promoted to.
+- **Non-destructive bias.** AtlasMind never force-pushes; each run records its outcome and a rollback handle.
 
 ### 4. Memory Scanner
 

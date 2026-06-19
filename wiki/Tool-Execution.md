@@ -270,3 +270,14 @@ Tools from connected MCP servers follow the same approval and safety pipeline:
 5. MCP tools are pre-approved (skip the skill security scanner)
 
 See [[Skills]] for MCP server setup.
+
+## Promotion Execution (Delivery)
+
+Promoting a build between deployment stages on the Project Dashboard → **Delivery** page (`PromotionRunner`) is a high-trust action and carries its own guardrails on top of the tool pipeline:
+
+1. **Inspect before run.** Clicking **Promote ▸** (or **Runbook**) opens a dialog showing the full assembled plan — *preflight gate → backup → deploy → verify → record* — with every command spelled out, so nothing runs unseen.
+2. **Preflight gate.** Checks AtlasMind can evaluate (version bump, changelog entry, clean working tree) are computed automatically; any other named check must be **manually attested** with a checkbox. A failing automatic check blocks the run.
+3. **Deny-by-default backup.** A target whose backup is *required* but has no backup command cannot be promoted to at all — the run is hard-blocked until a command is added in the stage editor.
+4. **Approval & protected confirmation.** When the target requires approval, an explicit approval checkbox is mandatory; when the target is **protected**, the operator must type the target's name to confirm.
+5. **Commands are server-sourced.** Every executed command (backup, deploy/migration routine steps, rollback hint) is read from the persisted, user-authored stage config and routine files. The webview can only *trigger* and *attest* — it can never supply a command string.
+6. **Non-destructive bias.** AtlasMind never force-pushes; the deploy body is the user's own routine; the gate is re-evaluated against live git state at execution time; and each run records its outcome plus a rollback handle.
