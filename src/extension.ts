@@ -27,6 +27,7 @@ import type { ArdInstaller } from './ard/ardInstaller.js';
 import type { CheckpointManager } from './core/checkpointManager.js';
 import type { ProjectRunHistory } from './core/projectRunHistory.js';
 import type { RoutineRegistry } from './core/routineRegistry.js';
+import type { DeliveryManager } from './core/deliveryManager.js';
 import { getConfiguredLocalEndpoints, type ProviderRegistry } from './providers/index.js';
 import { getModelInfoUrl, getProviderInfoUrl, lookupCatalog } from './providers/modelCatalog.js';
 import { inferContextWindow, inferCapabilities, inferSpecialistDomains, inferPricing } from './providers/modelMetadataInference.js';
@@ -193,6 +194,8 @@ export interface AtlasMindContext {
   memoryRefresh: vscode.EventEmitter<void>;
   routineRegistry: RoutineRegistry;
   routinesRefresh: vscode.EventEmitter<void>;
+  /** Deployment-stage pipeline (local → staging → production) and promotion edges. */
+  deliveryManager: DeliveryManager;
   rollbackLastCheckpoint(): Promise<{ ok: boolean; summary: string; restoredPaths: string[] }>;
   /** Trigger AI-based skill re-assessment for a single auto-managed agent. */
   assessAgentSkills?(agentId: string): Promise<void>;
@@ -1534,6 +1537,7 @@ async function bootstrapAtlasMind(
       runtimeCoreModule,
       toolPolicyModule,
       routineRegistryModule,
+      deliveryManagerModule,
       dataPrivacyModule,
       ardClientModule,
       ardRegistryModule,
@@ -1564,6 +1568,7 @@ async function bootstrapAtlasMind(
       import('./runtime/core.js'),
       import('./core/toolPolicy.js'),
       import('./core/routineRegistry.js'),
+      import('./core/deliveryManager.js'),
       import('./core/dataPrivacyManager.js'),
       import('./ard/ardClient.js'),
       import('./ard/ardRegistry.js'),
@@ -1612,6 +1617,7 @@ async function bootstrapAtlasMind(
       getToolApprovalMode: toolPolicyModule.getToolApprovalMode,
       requiresToolApproval: toolPolicyModule.requiresToolApproval,
       RoutineRegistry: routineRegistryModule.RoutineRegistry,
+      DeliveryManager: deliveryManagerModule.DeliveryManager,
       DataPrivacyManager: dataPrivacyModule.DataPrivacyManager,
       readDataPrivacyConfig: dataPrivacyModule.readDataPrivacyConfig,
       ArdClient: ardClientModule.ArdClient,
@@ -1652,6 +1658,7 @@ async function bootstrapAtlasMind(
     if (workspaceRootPath) {
       void routineRegistry.reload(workspaceRootPath);
     }
+    const deliveryManager = new startupModules.DeliveryManager(workspaceRootPath);
     const projectRunHistory = new startupModules.ProjectRunHistory(context.workspaceState, {
       workspaceKey: workspaceRootPath,
       legacyState: context.globalState,
@@ -2272,6 +2279,7 @@ async function bootstrapAtlasMind(
       memoryRefresh,
       routineRegistry,
       routinesRefresh,
+      deliveryManager,
       rollbackLastCheckpoint: async () => {
         if (!checkpointManager) {
           return { ok: false, summary: 'No workspace checkpoint manager is available.', restoredPaths: [] };

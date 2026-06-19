@@ -6,6 +6,17 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.108.0 — Deployment Stages & Promotion pipeline
+
+- **The Project Dashboard → Delivery page now opens with a Stages & Promotion pipeline.** Your environments — Local → Staging → Production — are modelled as first-class, plain-English cards. On first open AtlasMind **seeds a professional pipeline from your repository's branches** (detected production branch, `develop` as staging).
+- **Each stage card explains itself.** Branch, the package version currently deployed there, hosting/config/data facets, and the **safety reasoning in everyday language** — why production is protected, that secrets are referenced by location only (never stored), and that a backup runs before any change.
+- **Full in-dashboard editor.** Add, edit, reorder, and remove stages (all four facets + description + backup/gate/rollback policies), and manage promotion edges ("pushes") — add, re-point, set a routine id, remove. Edits are sanitised before they touch disk.
+- **Promotions ("pushes") are described as a guarded sequence:** preflight gate → backup → promote (never force-push) → verify, with the required checks and approval listed. A data-bearing target with no backup command set is **deny-by-default blocked** until you add one.
+- **Guarded execution — Execute & Runbook.** The **Promote ▸** button opens a confirmation dialog with the full plan, the preflight checks (auto-evaluated where possible, otherwise tick-to-confirm), an approval checkbox, and a type-the-name-to-confirm field for protected targets. **Confirm & run** executes the pipeline with live per-step progress (backup → your deploy/migration routine steps → health check → record), then surfaces the result and a rollback hint. **Runbook** shows the same plan read-only. Commands are always sourced from your own saved config/routines, never injected; AtlasMind never force-pushes.
+- The pipeline is saved as `project_memory/operations/delivery.json` with a human-readable `delivery.md` runbook mirror, both openable from the dashboard.
+
+---
+
 ## v0.107.0 — Resource Discovery moves into Settings
 
 - **Resource Discovery is now a tab in the Settings dashboard.** Searching Agent Finders, installing discovered MCP servers/agents/skills/APIs, managing finders, and exporting your project's catalog now happen on a **Resource Discovery** tab inside `AtlasMind Settings` — same chrome, same navigation. The `AtlasMind: Resource Discovery` command, the sidebar tree, and `/discover` all open that tab; the separate Resource Discovery webview has been retired.

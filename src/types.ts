@@ -1029,6 +1029,233 @@ export interface RoutineRunResult {
   durationMs: number;
 }
 
+// ── Delivery / Deployment Stages ─────────────────────────────────
+
+/**
+ * The lifecycle role a deployment stage plays. Drives pipeline ordering, the
+ * default guardrails applied to it, and how strongly AtlasMind protects it.
+ * `production` is the most protected; `local` the least.
+ */
+export type DeploymentStageKind =
+  | 'local'
+  | 'development'
+  | 'staging'
+  | 'production'
+  | 'preview'
+  | 'custom';
+
+/**
+ * Where a stage's runtime configuration and secrets live. Only a human label
+ * and a workspace-relative path/reference are stored here — never secret VALUES,
+ * which remain in VS Code SecretStorage or the user's own secret manager. This
+ * preserves the redaction boundary: the dashboard can describe *where* config
+ * comes from without ever surfacing the config itself.
+ */
+export interface StageConfigSource {
+  /** Human label, e.g. ".env.staging" or "Doppler · staging". */
+  sourceLabel?: string;
+  /** Workspace-relative path or opaque reference (never a secret value). */
+  sourcePath?: string;
+}
+
+/** Where a stage is hosted and how its health is checked after a promotion. */
+export interface StageHosting {
+  /** e.g. "Vercel", "AWS ECS", "Fly.io", "bare-metal". */
+  provider?: string;
+  /** Public URL of the running stage. */
+  url?: string;
+  /** Endpoint polled by the post-promotion verify guardrail. */
+  healthCheckUrl?: string;
+}
+
+/** The data store a stage reads/writes, and where its migrations live. */
+export interface StageDataRepository {
+  /** e.g. "postgres", "mysql", "mongodb", "s3", "none". */
+  kind?: string;
+  /** Human label, e.g. "Neon · staging branch". Never a connection secret. */
+  label?: string;
+  /** Workspace-relative path to migration scripts, if any. */
+  migrationsPath?: string;
+}
+
+/**
+ * Backup / recovery policy enforced BEFORE any promotion that can change this
+ * stage's data. Safety-first: a stage that has a data repository but no backup
+ * command defined is blocked from being promoted *to* until one is set
+ * (deny-by-default).
+ */
+export interface StageBackupPolicy {
+  /** When true, a successful backup step is mandatory before promotion. */
+  required: boolean;
+  /** Shell command that snapshots this stage's data (user-authored). */
+  command?: string;
+  /** Reference to a written runbook (path or URL) describing recovery. */
+  runbookRef?: string;
+  /** Human description of retention, e.g. "30 daily snapshots". */
+  retention?: string;
+}
+
+/** Gates that must pass before a promotion INTO a stage is allowed to run. */
+export interface StagePromotionPolicy {
+  /** Require explicit human approval in the confirmation step. */
+  requiresApproval: boolean;
+  /** Require the version to be bumped relative to the target before promoting. */
+  requireVersionBump: boolean;
+  /** Require a CHANGELOG entry for the new version. */
+  requireChangelog: boolean;
+  /**
+   * Free-form named checks that must pass (e.g. "CI green", "e2e:staging").
+   * Surfaced in the dashboard and the runbook so the gates are self-documenting.
+   */
+  requiredChecks: string[];
+}
+
+/** How to roll a stage back if a promotion goes wrong. */
+export interface StageRollbackPolicy {
+  /** Shell command that restores the prior state (user-authored). */
+  command?: string;
+  /** Reference to a written rollback runbook (path or URL). */
+  runbookRef?: string;
+}
+
+/**
+ * One named deployment stage (e.g. Development, Staging, Production). Stored in
+ * {@link DeliveryConfig}. Descriptions are natural-language so the pipeline is
+ * understandable to a newcomer without asking the AI.
+ */
+export interface DeploymentStage {
+  id: string;
+  name: string;
+  kind: DeploymentStageKind;
+  /** Pipeline order, lowest first (local = 0 … production highest). */
+  rank: number;
+  /** Plain-English description of what this stage is for. */
+  description: string;
+  /** Git branch or tag whose committed package version represents this stage. */
+  branchRef?: string;
+  config: StageConfigSource;
+  hosting: StageHosting;
+  data: StageDataRepository;
+  backupPolicy: StageBackupPolicy;
+  promotionPolicy: StagePromotionPolicy;
+  rollbackPolicy: StageRollbackPolicy;
+  /** When true the stage is protected: promotions to it always confirm + never force-push. */
+  isProtected: boolean;
+}
+
+/** Outcome summary of a single promotion run, persisted for the dashboard. */
+export interface PromotionRecord {
+  /** ISO 8601 timestamp of the run. */
+  ranAt: string;
+  succeeded: boolean;
+  /** Version that was promoted (source package version at run time). */
+  version?: string;
+  /** ID of the ProjectRunRecord capturing the full step log. */
+  runId?: string;
+  /** Handle the user can act on to roll back, when available. */
+  rollbackHandle?: string;
+}
+
+/**
+ * A directed promotion edge between two stages (source → target). Binds the
+ * pair to the {@link RoutineDefinition} that performs the promotion, plus a
+ * record of the most recent promotion run along the edge.
+ */
+export interface PromotionPath {
+  id: string;
+  fromStageId: string;
+  toStageId: string;
+  /** Routine ID that executes this promotion (wrapped by managed guardrail steps). */
+  routineId?: string;
+  /** Summary of the most recent promotion run along this path. */
+  lastPromotion?: PromotionRecord;
+}
+
+/**
+ * Project-scoped delivery configuration. Stored at
+ * `project_memory/operations/delivery.json` with a human-readable
+ * `project_memory/operations/delivery.md` mirror so the pipeline is
+ * maintainable in natural language and reviewable in version control.
+ */
+export interface DeliveryConfig {
+  version: 1;
+  stages: DeploymentStage[];
+  paths: PromotionPath[];
+  updatedAt?: string;
+}
+
+// ── Delivery / Promotion execution ───────────────────────────────
+
+/** Whether a preflight check is evaluated by AtlasMind or attested by a human. */
+export type PromotionCheckKind = 'auto' | 'manual';
+
+/** Result state of a preflight check. `manual` = awaiting human attestation. */
+export type PromotionCheckStatus = 'pass' | 'fail' | 'manual' | 'skipped';
+
+export interface PromotionPreflightCheck {
+  id: string;
+  label: string;
+  kind: PromotionCheckKind;
+  status: PromotionCheckStatus;
+  detail: string;
+}
+
+/** The lifecycle phase a plan step belongs to. */
+export type PromotionStepKind = 'preflight' | 'backup' | 'deploy' | 'verify' | 'record';
+
+export interface PromotionPlanStep {
+  id: string;
+  kind: PromotionStepKind;
+  label: string;
+  detail: string;
+  /** Shell command this step will run, when applicable (shown in the runbook). */
+  command?: string;
+  /** Managed guardrail steps are injected by AtlasMind and cannot be removed. */
+  managed: boolean;
+}
+
+/**
+ * A fully-assembled, inspectable promotion plan for one path. Built fresh each
+ * time the user opens the Execute/Runbook dialog so it reflects live git state.
+ * The plan never carries secret values — only labels, the user-authored command
+ * strings (sourced from persisted config/routines), and check outcomes.
+ */
+export interface PromotionPlan {
+  pathId: string;
+  fromStageId: string;
+  toStageId: string;
+  fromName: string;
+  toName: string;
+  steps: PromotionPlanStep[];
+  checks: PromotionPreflightCheck[];
+  /** Hard blockers that prevent execution entirely (e.g. missing required backup). */
+  blockers: string[];
+  requiresApproval: boolean;
+  isProtected: boolean;
+  /** Whether a bound promotion routine with steps was found on disk. */
+  hasRoutine: boolean;
+  routineId?: string;
+}
+
+export interface PromotionStepResult {
+  id: string;
+  label: string;
+  ok: boolean;
+  skipped: boolean;
+  /** Trimmed/last-N output for display; never the full unbounded stream. */
+  output: string;
+}
+
+export interface PromotionRunResult {
+  pathId: string;
+  succeeded: boolean;
+  steps: PromotionStepResult[];
+  startedAt: string;
+  durationMs: number;
+  /** Recovery hint surfaced after the run (rollback command / runbook ref). */
+  rollback?: { command?: string; runbookRef?: string };
+}
+
 // ── Scanner rule configuration ────────────────────────────────────
 
 /**
