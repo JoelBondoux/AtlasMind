@@ -15,35 +15,33 @@ Your own machine. Where you write and run code day to day. Data here is disposab
 
 - **Branch:** — (working tree)
 - **Hosting:** localhost
-- **Config source:** .env.local (location only — secret values stay in your secret store)
-- **Data:** Local development database (disposable)
+- **Config source:** — (location only — secret values stay in your secret store)
+- **Data:** No application database
 - **Backup before promotion:** not required
 
-### 2. Staging — `staging`
+### 2. Integration — `staging`
 
-A production-like rehearsal environment. Changes land here first so they can be tested against realistic data and settings before any real users are affected.
+Shared integration branch (`develop`). Work merges here and is built, linted, and tested together before a release is promoted to production.
 
 - **Branch:** `develop`
-- **Hosting:** TBD
-- **Config source:** .env.staging (location only — secret values stay in your secret store)
-- **Data:** Staging database (safe to reset)
+- **Hosting:** —
+- **Config source:** — (location only — secret values stay in your secret store)
+- **Data:** No application database
 - **Backup before promotion:** not required
-  - Retention: Optional — staging data is generally reproducible.
 
 ### 3. Production — `production` 🔒 protected
 
-The live environment your real users depend on. Every change here is treated as high-risk: it is backed up first, requires sign-off, and is never force-pushed.
+The released product your users install or consume via VS Code Marketplace. Promotion is the release: version-gated, requires sign-off, and never force-pushed.
 
 - **Branch:** `master`
-- **Hosting:** TBD
-- **Config source:** .env.production (location only — secret values stay in your secret store)
-- **Data:** Production database (real user data)
-- **Backup before promotion:** required — ⚠️ no backup command set yet, so promotion to this stage is blocked until you add one
-  - Retention: Recommended: keep at least 7 daily snapshots.
+- **Hosting:** VS Code Marketplace
+- **Config source:** — (location only — secret values stay in your secret store)
+- **Data:** No application database
+- **Backup before promotion:** not required
 
 ## Promotions
 
-### Local → Staging
+### Local → Integration
 
 Every promotion runs the same guarded sequence:
 
@@ -52,25 +50,25 @@ Every promotion runs the same guarded sequence:
 3. **Promote** — the build is merged/tagged forward. AtlasMind never force-pushes.
 4. **Verify** — the target is health-checked after deploy.
 
-- **Required checks:** `Working tree clean`, `Compile passes`, `Tests pass`
+- **Required checks:** `Working tree clean`, `Compile/build passes`, `Lint passes`, `Tests pass`
 - **Approval:** not required
 - **Version bump required:** yes
 - **Changelog entry required:** yes
 
-### Staging → Production
+### Integration → Production
 
 Every promotion runs the same guarded sequence:
 
 1. **Preflight gate** — the required checks below must all pass, or the promotion aborts.
-2. **Backup** — a snapshot of **Production** is taken before any change, so it can be recovered.
+2. **Backup** — optional for this target.
 3. **Promote** — the build is merged/tagged forward. AtlasMind never force-pushes.
 4. **Verify** — the target is health-checked after deploy.
 
-- **Required checks:** `Working tree clean`, `Compile passes`, `Tests pass`, `CI green`, `Staging verified`
+- **Required checks:** `Working tree clean`, `Compile/build passes`, `Lint passes`, `Tests pass`, `CI green`
 - **Approval:** a human must sign off before anything runs
 - **Version bump required:** yes
 - **Changelog entry required:** yes
 
 ---
 
-_Last updated: 2026-06-20T04:20:02.255Z._
+_Last updated: 2026-06-20T13:37:40.959Z._

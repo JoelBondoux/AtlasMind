@@ -42,6 +42,7 @@
     confirmRemoveStageId: '',
     editingPathId: '',
     promotion: null,
+    reimportConfirm: false,
   };
 
   refreshButton?.addEventListener('click', () => {
@@ -377,6 +378,14 @@
     }
     if (action === 'delivery-mark-reviewed') {
       vscode.postMessage({ type: 'markDeliveryReviewed' });
+      return;
+    }
+    if (action === 'delivery-reimport') { state.reimportConfirm = true; render(); return; }
+    if (action === 'delivery-reimport-cancel') { state.reimportConfirm = false; render(); return; }
+    if (action === 'delivery-reimport-confirm') {
+      state.reimportConfirm = false;
+      vscode.postMessage({ type: 'reimportDelivery' });
+      render();
       return;
     }
     if (action === 'promote-plan') {
@@ -1935,6 +1944,9 @@
           </div>
           <div class="tag-row">
             ${state.editingStageId === 'new' ? '' : '<button type="button" class="action-link" data-action="stage-add" data-payload="">+ Add stage</button>'}
+            ${state.reimportConfirm
+              ? '<span class="reimport-confirm">Replace pipeline from repo signals? <button type="button" class="action-link danger" data-action="delivery-reimport-confirm" data-payload="">Yes, re-import</button> <button type="button" class="action-link" data-action="delivery-reimport-cancel" data-payload="">Cancel</button></span>'
+              : '<button type="button" class="action-link" data-action="delivery-reimport" data-payload="">↻ Re-import from repo</button>'}
             <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(summaryPath)}">📖 Open runbook (delivery.md)</button>
             <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(pipeline.configPath)}">Edit delivery.json</button>
           </div>

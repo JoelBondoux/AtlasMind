@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.113.0] - 2026-06-20
+
+### Changed
+- **Delivery seeding now imports the repository's *actual* protocol instead of a generic template.** Previously the pipeline was seeded from branch names alone and assumed a web-app-with-database shape, producing inaccurate fields for projects that don't match — most damagingly a phantom "production database" with a required-but-empty backup command, which **deny-by-default blocked the production push for a database that doesn't exist**. Seeding now imports real signals: **project archetype** (VS Code extension / library / web service / generic), **database presence** (dependency + `migrations`/`prisma` detection), **publish target** (VS Code Marketplace / npm / container registry), **`.env` files** (only referenced when they exist), **package scripts** (required checks mirror the `compile`/`lint`/`test` you actually have, plus "CI green" when workflows are present), and **existing routines** (the production push binds to your real publish/release/ship/deploy or default routine — e.g. `publishing-routine` — instead of inventing non-existent ones). Deploy-less projects get an **Integration** stage (mapping the integration branch) rather than a fictional staging-server-with-DB, and no backup gate is imposed when there is no database.
+
+### Added
+- **"Re-import from repo" action on the Delivery page.** Re-detects the current signals and rebuilds the pipeline, so an already-seeded project (whose protocol has since moved on, or which was seeded by the old generic logic) can refresh to match reality. Two-click confirmed, and it re-baselines the review state.
+- Regenerated AtlasMind's own `project_memory/operations/delivery.json` with the corrected importer (Marketplace production bound to `publishing-routine`, no phantom database/backup gate).
+
 ## [0.112.1] - 2026-06-20
 
 ### Security

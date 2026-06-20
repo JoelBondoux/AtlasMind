@@ -6,6 +6,14 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.113.0 — Delivery imports your real protocol (not a generic template)
+
+- **Accurate seeding.** The Delivery pipeline now imports the repository's actual signals — project archetype (VS Code extension / library / web service), database presence, publish target (Marketplace / npm / container), `.env` files, package scripts, CI, and existing routines — instead of assuming a web-app-with-database. No more phantom "production database" with a backup gate that blocked the production push on projects that have no database.
+- **Real routine binding + real checks.** The production push binds to your existing publish/release/ship/deploy (or default) routine, and required checks mirror the `compile`/`lint`/`test` scripts you actually have (plus "CI green" when workflows exist). Deploy-less projects get an **Integration** stage instead of a fictional staging server.
+- **Re-import from repo.** A new button re-detects signals and rebuilds the pipeline, so already-seeded projects can refresh to match reality.
+
+---
+
 ## v0.112.1 — Security: clear all Dependabot alerts
 
 - **All 6 open Dependabot alerts resolved** by pinning `undici` to `^7.28.0` (npm `overrides`). They all came from one transitive **dev-only** dependency in the packaging toolchain (`@vscode/vsce → cheerio → undici`), which is **not shipped in the extension** — installed users were never exposed. `npm audit` now reports 0 vulnerabilities.

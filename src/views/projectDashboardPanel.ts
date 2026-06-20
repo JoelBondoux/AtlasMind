@@ -14,7 +14,7 @@ import { getWebviewHtmlShell } from './webviewUtils.js';
 import { DataPrivacyManager, readDataPrivacyConfig, writeDataPrivacyConfig, defaultDataPrivacyConfig } from '../core/dataPrivacyManager.js';
 import { COMPLIANCE_PACKS } from '../core/compliancePacks.js';
 import { getProviderDataGovernance } from '../core/providerDataGovernance.js';
-import { DELIVERY_SSOT_PATH, DELIVERY_SUMMARY_SSOT_PATH, sanitizeDeliveryConfig } from '../core/deliveryManager.js';
+import { DELIVERY_SSOT_PATH, DELIVERY_SUMMARY_SSOT_PATH, sanitizeDeliveryConfig, seedDeliveryConfig, type DeliverySeedInput, type DeliveryArchetype } from '../core/deliveryManager.js';
 import { buildPromotionPlan, evaluatePromotionGate, runPromotion } from '../core/promotionRunner.js';
 import type { DataPrivacyActivityEvent, DataPrivacySensitivity, DeliveryConfig, DeploymentStage, PromotionPath } from '../types.js';
 
@@ -94,6 +94,7 @@ type ProjectDashboardMessage =
   | { type: 'requestPromotionPlan'; payload: { pathId: string; mode: 'execute' | 'runbook' } }
   | { type: 'runPromotion'; payload: { pathId: string; attestations: string[]; confirmText: string } }
   | { type: 'markDeliveryReviewed' }
+  | { type: 'reimportDelivery' }
   | { type: 'testDataPrivacy'; payload: { kind: 'text' | 'path'; value: string } }
   | { type: 'openExternalUrl'; payload: string };
 
@@ -1244,6 +1245,9 @@ export class ProjectDashboardPanel {
         await this.storeDeliveryReviewBaseline();
         await this.syncState();
         return;
+      case 'reimportDelivery':
+        await this.handleReimportDelivery();
+        return;
       case 'requestPromotionPlan':
         await this.handlePromotionPlanRequest(message.payload.pathId, message.payload.mode);
         return;
@@ -1643,6 +1647,33 @@ export class ProjectDashboardPanel {
     );
   }
 
+  /**
+   * Re-detect the repository's delivery signals and rebuild the pipeline from
+   * them, replacing the stored config. Used by the "Re-import from repo" action
+   * to refresh an already-seeded project after its real protocol has moved on.
+   */
+  private async handleReimportDelivery(): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot || !this.atlas.deliveryManager) {
+      return;
+    }
+    let currentBranch = 'Detached';
+    try {
+      currentBranch = (await runGit(workspaceRoot, ['rev-parse', '--abbrev-ref', 'HEAD'])).trim() || 'Detached';
+    } catch {
+      currentBranch = 'Not a git repository';
+    }
+    if (currentBranch === 'Not a git repository') {
+      return;
+    }
+    const signals = await detectDeliverySignals(this.atlas, workspaceRoot, currentBranch);
+    const config = seedDeliveryConfig(signals);
+    await this.atlas.deliveryManager.save(config);
+    // The re-import is itself an authored review of the current state.
+    await this.storeDeliveryReviewBaseline();
+    await this.syncState();
+  }
+
   private async handlePromotionPlanRequest(pathId: string, mode: 'execute' | 'runbook'): Promise<void> {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const config = this.atlas.deliveryManager.getConfig();
@@ -1772,7 +1803,7 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
   }
 
   const candidate = message as Record<string, unknown>;
-  if (candidate['type'] === 'ready' || candidate['type'] === 'refresh' || candidate['type'] === 'runGapAnalysis' || candidate['type'] === 'markDeliveryReviewed') {
+  if (candidate['type'] === 'ready' || candidate['type'] === 'refresh' || candidate['type'] === 'runGapAnalysis' || candidate['type'] === 'markDeliveryReviewed' || candidate['type'] === 'reimportDelivery') {
     return true;
   }
 
@@ -2648,6 +2679,111 @@ async function gitRefExists(workspaceRoot: string, ref: string): Promise<boolean
   }
 }
 
+async function pathExists(absolutePath: string): Promise<boolean> {
+  try {
+    await fs.access(absolutePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Import the repository's actual delivery signals so the seeded pipeline reflects
+ * the protocol already in place rather than a generic template: branch layout,
+ * project archetype, database presence, publish target, env files, package
+ * scripts, CI, and any existing routine to bind to a promotion path.
+ */
+async function detectDeliverySignals(
+  atlas: AtlasMindContext,
+  workspaceRoot: string,
+  currentBranch: string,
+): Promise<DeliverySeedInput> {
+  const productionRef = await detectProductionBranchRef(workspaceRoot, currentBranch);
+  const developExists = await gitRefExists(workspaceRoot, 'develop');
+
+  let pkg: Record<string, unknown> = {};
+  try {
+    pkg = JSON.parse(await fs.readFile(path.join(workspaceRoot, 'package.json'), 'utf-8')) as Record<string, unknown>;
+  } catch {
+    pkg = {};
+  }
+  const deps = { ...(pkg['dependencies'] as Record<string, string> | undefined), ...(pkg['devDependencies'] as Record<string, string> | undefined) };
+  const depNames = Object.keys(deps);
+  const scriptsObj = (pkg['scripts'] as Record<string, string> | undefined) ?? {};
+  const engines = pkg['engines'] as Record<string, unknown> | undefined;
+
+  // Archetype.
+  const isVscodeExt = Boolean(engines?.['vscode'] || pkg['contributes'] || depNames.includes('@vscode/vsce') || depNames.includes('@types/vscode'));
+  const serverDeps = ['express', 'fastify', 'koa', '@nestjs/core', 'next', 'nuxt', '@hapi/hapi', 'hono', 'apollo-server'];
+  const hasDockerfile = await pathExists(path.join(workspaceRoot, 'Dockerfile'));
+  const hasServer = serverDeps.some(dep => depNames.includes(dep)) || Boolean(scriptsObj['start']) || hasDockerfile;
+  let archetype: DeliveryArchetype = 'generic';
+  if (isVscodeExt) { archetype = 'vscode-extension'; }
+  else if (hasServer) { archetype = 'web-service'; }
+  else if (pkg['main'] || pkg['exports'] || pkg['module']) { archetype = 'library'; }
+
+  // Database.
+  const dbRe = /^(pg|mysql2?|mongodb|mongoose|prisma|@prisma\/client|sqlite3|better-sqlite3|redis|ioredis|drizzle-orm|sequelize|typeorm|knex)$/;
+  const hasDatabase = depNames.some(dep => dbRe.test(dep))
+    || await pathExists(path.join(workspaceRoot, 'migrations'))
+    || await pathExists(path.join(workspaceRoot, 'prisma'));
+
+  // Publish target.
+  let publishTarget: string | undefined;
+  const publishScripts = `${scriptsObj['publish:release'] ?? ''} ${scriptsObj['publish'] ?? ''} ${scriptsObj['deploy'] ?? ''}`;
+  if (isVscodeExt || depNames.includes('@vscode/vsce') || /vsce/.test(publishScripts)) {
+    publishTarget = 'VS Code Marketplace';
+  } else if (hasDockerfile) {
+    publishTarget = 'Container registry';
+  } else if (scriptsObj['publish'] && pkg['private'] !== true) {
+    publishTarget = 'npm registry';
+  }
+
+  // Env files.
+  const envFiles: { local?: string; staging?: string; production?: string } = {};
+  if (await pathExists(path.join(workspaceRoot, '.env.local'))) { envFiles.local = '.env.local'; }
+  else if (await pathExists(path.join(workspaceRoot, '.env.development'))) { envFiles.local = '.env.development'; }
+  if (await pathExists(path.join(workspaceRoot, '.env.staging'))) { envFiles.staging = '.env.staging'; }
+  if (await pathExists(path.join(workspaceRoot, '.env.production'))) { envFiles.production = '.env.production'; }
+
+  const scripts = {
+    build: Boolean(scriptsObj['compile'] || scriptsObj['build']),
+    lint: Boolean(scriptsObj['lint']),
+    test: Boolean(scriptsObj['test']),
+  };
+  const hasCi = (await collectWorkflowSnapshot(workspaceRoot)).length > 0;
+
+  // Bind an existing routine to the production path (publish/release/ship/deploy
+  // or the default routine), and a staging/integration routine when present.
+  let productionRoutineId: string | undefined;
+  let stagingRoutineId: string | undefined;
+  try {
+    await atlas.routineRegistry.reload(workspaceRoot);
+    const routines = atlas.routineRegistry.list();
+    const prod = routines.find(routine => /publish|release|ship|deploy|promote.*prod/i.test(`${routine.id} ${routine.name}`))
+      ?? routines.find(routine => routine.default);
+    productionRoutineId = prod?.id;
+    stagingRoutineId = routines.find(routine => /stag|integrat/i.test(`${routine.id} ${routine.name}`))?.id;
+  } catch {
+    // No routines — leave promotion paths unbound (accurate).
+  }
+
+  return {
+    currentBranch,
+    productionBranch: productionRef ?? undefined,
+    developBranch: developExists ? 'develop' : undefined,
+    archetype,
+    hasDatabase,
+    publishTarget,
+    envFiles,
+    scripts,
+    hasCi,
+    productionRoutineId,
+    stagingRoutineId,
+  };
+}
+
 /**
  * Gather the live facts a promotion plan's preflight checks depend on: the
  * source/target package versions, whether the working tree is clean, and
@@ -2732,15 +2868,8 @@ async function collectDeliveryStagePipeline(
     if (!isGit) {
       return { ...base, notInGitRepo: true };
     }
-    // Keep the detected ref unnormalised so a remote-only production branch
-    // (e.g. `origin/master` with no local `master`) still resolves its version.
-    const productionRef = await detectProductionBranchRef(workspaceRoot, currentBranch);
-    const developExists = await gitRefExists(workspaceRoot, 'develop');
-    config = await manager.ensureSeeded({
-      currentBranch,
-      productionBranch: productionRef ?? undefined,
-      developBranch: developExists ? 'develop' : undefined,
-    });
+    const signals = await detectDeliverySignals(atlas, workspaceRoot, currentBranch);
+    config = await manager.ensureSeeded(signals);
     seeded = true;
   }
 
@@ -6099,6 +6228,7 @@ const DASHBOARD_CSS = `
   .stage-edit-group small { font-weight: 400; text-transform: none; letter-spacing: 0; margin-left: 6px; opacity: 0.85; }
   .stage-edit-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; }
   .stage-remove-confirm { font-size: 0.82em; color: var(--vscode-editorWarning-foreground, #cca700); display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .reimport-confirm { font-size: 0.82em; color: var(--vscode-editorWarning-foreground, #cca700); display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 
   /* ── Delivery: promotion execution modal (Phase 3) ────────────── */
   .promo-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: flex; align-items: flex-start; justify-content: center; padding: 40px 16px; z-index: 1000; overflow-y: auto; }
