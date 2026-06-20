@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { AgentDefinition, DataPrivacyMatch, MemoryEntry, ModelCapability, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, SubTaskStatus, TaskProfile, TaskRequest, TaskResult, TestingMethodologyId, ToolExecutionArtifact } from '../types.js';
+import type { AgentDefinition, BudgetMode, DataPrivacyMatch, MemoryEntry, ModelCapability, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, SubTaskStatus, TaskProfile, TaskRequest, TaskResult, TestingMethodologyId, ToolExecutionArtifact } from '../types.js';
 import type { AgentAutoUpdater } from './agentAutoUpdater.js';
 import { ClassifierService, type ClassificationResult } from './classifierService.js';
 import { formatCost } from './currencyFormatter.js';
@@ -632,13 +632,28 @@ export class Orchestrator {
     onTextChunk?: (chunk: string) => void,
     onProgress?: (message: string) => void,
   ): Promise<string> {
-    // ── Step 1: reprompt with workspace-investigation instruction ─────────────
-    const providerId = resolveProviderIdForModel(modelUsed, this.router, 'local');
+    // ── Step 1: reprompt on an ESCALATED model with a workspace-investigation
+    // instruction ─────────────────────────────────────────────────────────────
+    // The model returned nothing. Re-prompting the SAME model — often a flaky or
+    // under-powered local model — tends to return empty again, so record the
+    // empty result as a failure (routing avoids it this session) and escalate to
+    // a capable, reasoning-class model for the recovery attempt. Fall back to the
+    // original model only when nothing better is available.
+    this.router.recordModelFailure(modelUsed, 'Returned an empty completion (no content).');
+    const escalatedModel = this.selectEscalatedModel(
+      modelUsed,
+      buildExecutionRoutingConstraints(request.constraints, tools.length > 0),
+      agent.allowedModels,
+      taskProfile,
+      tools.length > 0,
+    );
+    const recoveryModel = escalatedModel ?? modelUsed;
+    const providerId = resolveProviderIdForModel(recoveryModel, this.router, 'local');
     const provider = this.providers.get(providerId);
 
     if (provider) {
       const baseMessages = this.buildMessages(
-        agent, activeAgentSkills, retrievalContext, request.userMessage, request.context, modelUsed,
+        agent, activeAgentSkills, retrievalContext, request.userMessage, request.context, recoveryModel,
       );
       const recoveryMessages: ChatMessage[] = [
         ...baseMessages,
@@ -654,10 +669,12 @@ export class Orchestrator {
       ];
 
       try {
-        onProgress?.('Self-recovery: attempting workspace investigation before asking for clarification…');
+        onProgress?.(escalatedModel
+          ? `Self-recovery: the previous model returned nothing — retrying on a more capable model (${recoveryModel}).`
+          : 'Self-recovery: attempting workspace investigation before asking for clarification…');
         const attempt = await this.executeTaskAttempt(
           provider,
-          modelUsed,
+          recoveryModel,
           recoveryMessages,
           tools,
           {
@@ -887,6 +904,29 @@ export class Orchestrator {
       const gated = this.applyDataPrivacyGate(agent, routingConstraints, retrievalContext, request.context, onProgress);
       agent = gated.agent;
       routingConstraints = gated.constraints;
+    }
+
+    // High-stakes correction guard: when the user is disputing or correcting the
+    // assistant's previous answer ("that's not correct", "no, that's wrong"),
+    // never downgrade the turn to a cheap/local draft model. Escalate routing
+    // toward a capable, reasoning-class model and force the task profile to high
+    // reasoning so the pushback is met with the model's best effort — not
+    // silently routed to the cheapest model (which previously could return an
+    // empty answer when the user challenged a wrong result).
+    if (isUserCorrectionTurn(request.userMessage)) {
+      baseTaskProfile = {
+        ...baseTaskProfile,
+        reasoning: 'high',
+        preferredCapabilities: baseTaskProfile.preferredCapabilities.includes('reasoning')
+          ? baseTaskProfile.preferredCapabilities
+          : [...baseTaskProfile.preferredCapabilities, 'reasoning'],
+      };
+      routingConstraints = {
+        ...routingConstraints,
+        budget: budgetForCorrection(routingConstraints.budget),
+        speed: 'considered',
+      };
+      onProgress?.('Detected a correction of the previous answer — routing to a capable model instead of downgrading.');
     }
 
     // Cache-aware routing: when a substantial reused context prefix is carried
@@ -4650,6 +4690,55 @@ function isSimpleMechanicalTask(userMessage: string, taskProfile: TaskProfile): 
   }
 
   return false;
+}
+
+/**
+ * Markers that the user is disputing or correcting the assistant's *previous*
+ * answer ("that's not correct", "no, that's wrong", "you got it wrong", "are
+ * you sure?", "re-check that"). Deliberately biased toward catching genuine
+ * pushback; an occasional false positive only costs a slightly more capable
+ * model, while a missed correction risks the failure this guards against —
+ * silently routing a high-stakes disagreement to the cheapest model.
+ */
+const USER_CORRECTION_PATTERN = new RegExp(
+  [
+    String.raw`\bnot\s+(?:correct|right|true|accurate)\b`,
+    String.raw`\b(?:isn't|isnt|aren't|arent|wasn't|wasnt)\s+(?:correct|right|true|accurate)\b`,
+    String.raw`\b(?:that|this|it|that's|thats|you|you're|youre)\b[^.?!\n]{0,40}\b(?:incorrect|wrong|mistaken|false)\b`,
+    String.raw`\byou\s+got\s+(?:it|that|this)\s+wrong\b`,
+    String.raw`\byou\s+misunderstood\b`,
+    String.raw`\b(?:doesn't|doesnt|does\s+not|don't|dont)\s+(?:seem|look)\s+(?:right|correct)\b`,
+    String.raw`\bare\s+you\s+(?:sure|certain)\b`,
+    String.raw`\b(?:re-?check|double[-\s]?check|check\s+(?:again|that|this|it)|look\s+again|re-?examine)\b`,
+    String.raw`^(?:no|nope)\b[\s,]+(?:that|this|it|those|these|you|i|we|the|wrong|incorrect|not)\b`,
+    String.raw`^actually\b`,
+    String.raw`\bthat's\s+not\s+(?:it|what|how|right|correct|true)\b`,
+  ].join('|'),
+  'i',
+);
+
+/**
+ * True when the user's turn is a correction/disagreement with the assistant's
+ * prior response. Such turns are high-stakes and must not be downgraded to a
+ * cheap/local model. See {@link USER_CORRECTION_PATTERN}.
+ */
+export function isUserCorrectionTurn(userMessage: string): boolean {
+  const message = userMessage.trim();
+  if (!message) {
+    return false;
+  }
+  // Correction markers, when present, appear at the start of the user's turn;
+  // bound the scan so a long pasted log doesn't make this needlessly expensive.
+  return USER_CORRECTION_PATTERN.test(message.slice(0, 600));
+}
+
+/**
+ * Budget tier to use for a correction turn. Escalates toward quality, but
+ * respects an explicit `cheap` budget by lifting only one tier so a
+ * cost-conscious user isn't forced to the most expensive models.
+ */
+export function budgetForCorrection(budget: BudgetMode): BudgetMode {
+  return budget === 'cheap' ? 'balanced' : 'expensive';
 }
 
 function collectActionableContext(requestContext: Record<string, unknown>): string {

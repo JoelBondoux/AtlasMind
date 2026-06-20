@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.116.3] - 2026-06-20
+
+### Fixed
+- **A user correcting the assistant is never downgraded to a weak model.** When a turn disputes or corrects the previous answer (`isUserCorrectionTurn` — "that's not correct", "no, that's wrong", "you got it wrong", "are you sure?", "re-check that"), the orchestrator now forces **high** reasoning, prefers a reasoning-capable model, and escalates the routing budget/speed (`budgetForCorrection`: `cheap → balanced`, otherwise `→ expensive`; speed `→ considered`). Previously a pushback against a wrong answer could be silently routed to the cheapest/local model — the failure that let a flaky local model field a high-stakes correction.
+- **An empty model completion now escalates instead of surfacing a blank turn.** The self-recovery path used to re-prompt the *same* model that returned nothing — typically a flaky/under-powered local model that returns empty again. It now records the empty result as a model failure (so routing avoids it this session) and retries on an **escalated, reasoning-class model** (`selectEscalatedModel`), falling back to the original model only when nothing better exists. A zero-output completion is treated as a failure to recover from, never presented as the assistant's reply.
+- Added orchestrator tests for `isUserCorrectionTurn`, `budgetForCorrection`, and the empty-completion escalation path.
+
 ## [0.116.2] - 2026-06-20
 
 ### Fixed

@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { describe, expect, it, vi } from 'vitest';
-import { Orchestrator, appendVerificationCaveat, buildProjectSessionContextBundle, classifySubTaskFailure, collapseDuplicatedTrailingBlock, detectVerificationContradiction, resolveProviderIdForModel, responseClaimsSuccessWithoutCaveat, shouldBiasTowardWorkspaceInvestigation, TOOL_EXECUTION_FAILURE_PREFIX, verificationIndicatesFailure } from '../../src/core/orchestrator.ts';
+import { Orchestrator, appendVerificationCaveat, budgetForCorrection, buildProjectSessionContextBundle, classifySubTaskFailure, collapseDuplicatedTrailingBlock, detectVerificationContradiction, isUserCorrectionTurn, resolveProviderIdForModel, responseClaimsSuccessWithoutCaveat, shouldBiasTowardWorkspaceInvestigation, TOOL_EXECUTION_FAILURE_PREFIX, verificationIndicatesFailure } from '../../src/core/orchestrator.ts';
 import { MAX_TOOL_ITERATIONS } from '../../src/constants.ts';
 import { AgentRegistry } from '../../src/core/agentRegistry.ts';
 import { SkillsRegistry } from '../../src/core/skillsRegistry.ts';
@@ -3511,5 +3511,118 @@ describe('Orchestrator agentic loop', () => {
     expect(providerCalls.length).toBeGreaterThanOrEqual(2);
     expect(providerCalls.some(call =>
       call.messages.at(-1)?.content.includes('TDD gate: establish a failing relevant test signal'))).toBe(false);
+  });
+});
+
+describe('isUserCorrectionTurn', () => {
+  it('detects the user disputing or correcting the previous answer', () => {
+    expect(isUserCorrectionTurn("That's not correct though is it? This repo has a develop and a master branch.")).toBe(true);
+    expect(isUserCorrectionTurn("No, that's wrong — it should be master.")).toBe(true);
+    expect(isUserCorrectionTurn('you got it wrong')).toBe(true);
+    expect(isUserCorrectionTurn('Are you sure about that?')).toBe(true);
+    expect(isUserCorrectionTurn("that isn't right")).toBe(true);
+    expect(isUserCorrectionTurn('Actually, the production branch is master.')).toBe(true);
+    expect(isUserCorrectionTurn('please re-check the production branch')).toBe(true);
+    expect(isUserCorrectionTurn("that doesn't look right")).toBe(true);
+    expect(isUserCorrectionTurn("you're mistaken")).toBe(true);
+  });
+
+  it('does not fire on ordinary task requests that merely mention correctness', () => {
+    expect(isUserCorrectionTurn('commit and push')).toBe(false);
+    expect(isUserCorrectionTurn('add a correctness test for the parser')).toBe(false);
+    expect(isUserCorrectionTurn('fix the incorrect branch reference in delivery.json')).toBe(false);
+    expect(isUserCorrectionTurn('verify the deployment succeeded')).toBe(false);
+    expect(isUserCorrectionTurn('no changes needed, ship it')).toBe(false);
+    expect(isUserCorrectionTurn('')).toBe(false);
+  });
+});
+
+describe('budgetForCorrection', () => {
+  it('lifts a cheap budget one tier and otherwise escalates to the most capable tier', () => {
+    expect(budgetForCorrection('cheap')).toBe('balanced');
+    expect(budgetForCorrection('balanced')).toBe('expensive');
+    expect(budgetForCorrection('auto')).toBe('expensive');
+    expect(budgetForCorrection('expensive')).toBe('expensive');
+  });
+});
+
+describe('empty-completion recovery', () => {
+  it('escalates to a capable model when the initial model returns an empty completion', async () => {
+    // The cheap local model returns 0 output tokens — the exact failure that
+    // previously surfaced as a blank assistant turn when a weak/flaky model was
+    // routed to. Recovery must escalate, not re-prompt the same dead model.
+    const emptyLocalProvider = makeMockProvider([{
+      content: '',
+      model: 'local/echo-1',
+      inputTokens: 12,
+      outputTokens: 0,
+      finishReason: 'stop',
+    }]);
+
+    const frontierProvider: ProviderAdapter = {
+      providerId: 'frontier',
+      complete: vi.fn().mockResolvedValue({
+        content: 'The production branch is `master`; this repo has no `main`.',
+        model: 'frontier/reasoner',
+        inputTokens: 20,
+        outputTokens: 16,
+        finishReason: 'stop',
+      }),
+      listModels: vi.fn().mockResolvedValue(['frontier/reasoner']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const orchestrator = makeOrchestrator(
+      emptyLocalProvider,
+      [],
+      makeSkillContext(),
+      undefined,
+      [],
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        modelCapabilities: ['chat', 'code'],
+        extraProviders: [
+          {
+            providerId: 'frontier',
+            adapter: frontierProvider,
+            models: [{
+              // Priced above local so the cheap initial pick is the local model;
+              // it is reasoning-capable so escalation can select it.
+              id: 'frontier/reasoner',
+              name: 'Frontier Reasoner',
+              contextWindow: 200000,
+              inputPricePer1k: 0.05,
+              outputPricePer1k: 0.15,
+              capabilities: ['chat', 'code', 'reasoning'],
+            }],
+          },
+        ],
+      },
+    );
+
+    const result = await orchestrator.processTaskWithAgent({
+      id: 'task-empty-recovery',
+      userMessage: 'Summarise how the delivery pipeline models its stages.',
+      context: {},
+      constraints: { budget: 'cheap', speed: 'fast' },
+      timestamp: new Date().toISOString(),
+    }, {
+      id: 'generalist',
+      name: 'Generalist',
+      role: 'generalist',
+      description: 'General assistant.',
+      systemPrompt: 'You are helpful.',
+      skills: [],
+    });
+
+    // The blank initial answer is recovered: the capable model was invoked and
+    // its content surfaced instead of an empty turn.
+    expect(frontierProvider.complete).toHaveBeenCalled();
+    expect(result.response.trim().length).toBeGreaterThan(0);
+    expect(result.response).toContain('master');
   });
 });
