@@ -93,6 +93,7 @@ type ProjectDashboardMessage =
   | { type: 'saveDeliveryConfig'; payload: import('../types.js').DeliveryConfig }
   | { type: 'requestPromotionPlan'; payload: { pathId: string; mode: 'execute' | 'runbook' } }
   | { type: 'runPromotion'; payload: { pathId: string; attestations: string[]; confirmText: string } }
+  | { type: 'markDeliveryReviewed' }
   | { type: 'testDataPrivacy'; payload: { kind: 'text' | 'path'; value: string } }
   | { type: 'openExternalUrl'; payload: string };
 
@@ -513,6 +514,34 @@ interface DashboardPromotionPathView {
   lastPromotion?: { ranAt: string; succeeded: boolean; version: string };
 }
 
+/**
+ * Fingerprint of the review-relevant delivery state. Stored (workspace-scoped)
+ * when the user marks the pipeline reviewed, then diffed on later renders to
+ * detect drift "since the last review".
+ */
+interface DeliveryReviewParts {
+  /** Stable JSON projection of the stages/paths protocol. */
+  config: string;
+  /** Stage-candidate branches in the repo not yet mapped to any stage. */
+  candidates: string[];
+  /** Stage branch refs that no longer exist in the repo. */
+  missing: string[];
+  /** CI/CD workflow file names. */
+  workflows: string[];
+}
+
+interface StoredDeliveryReview {
+  reviewedAt: string;
+  parts: DeliveryReviewParts;
+}
+
+interface DashboardDeliveryReview {
+  needsReview: boolean;
+  reasons: string[];
+  reviewedAt: string | null;
+  reviewedRelative: string;
+}
+
 interface DashboardStagePipeline {
   /** Workspace-relative path of the JSON source of truth. */
   configPath: string;
@@ -520,6 +549,8 @@ interface DashboardStagePipeline {
   summaryPath: string;
   stages: DashboardStageView[];
   paths: DashboardPromotionPathView[];
+  /** Drift / "review needed" status comparing live state to the last review. */
+  review: DashboardDeliveryReview;
   /**
    * The raw, editable config (secret-free) so the dashboard stage editor can
    * mutate a copy and post it back. Null when no pipeline exists yet.
@@ -1077,6 +1108,7 @@ export class ProjectDashboardPanel {
 
     this.atlas.skillsRefresh.event(() => { void this.syncState(); }, null, this.disposables);
     this.atlas.modelsRefresh.event(() => { void this.syncState(); }, null, this.disposables);
+    this.atlas.deliveryRefresh?.event(() => { void this.syncState(); }, null, this.disposables);
     this.atlas.projectRunsRefresh.event(() => { void this.syncState(); }, null, this.disposables);
     this.atlas.memoryRefresh.event(() => { void this.syncState(); }, null, this.disposables);
     this.atlas.sessionConversation.onDidChange(() => { void this.syncState(); }, null, this.disposables);
@@ -1201,9 +1233,16 @@ export class ProjectDashboardPanel {
           const clean = sanitizeDeliveryConfig(message.payload);
           if (clean) {
             await this.atlas.deliveryManager.save(clean);
+            // The user just authored this protocol, so treat the save as a review —
+            // the "review needed" banner is for drift the user did NOT make.
+            await this.storeDeliveryReviewBaseline();
             await this.syncState();
           }
         }
+        return;
+      case 'markDeliveryReviewed':
+        await this.storeDeliveryReviewBaseline();
+        await this.syncState();
         return;
       case 'requestPromotionPlan':
         await this.handlePromotionPlanRequest(message.payload.pathId, message.payload.mode);
@@ -1582,6 +1621,28 @@ export class ProjectDashboardPanel {
     });
   }
 
+  /**
+   * Snapshot the current review-relevant delivery state as the new baseline, so
+   * the "review needed" banner clears until something drifts again. Called when
+   * the user marks the pipeline reviewed and (implicitly) when they save edits.
+   */
+  private async storeDeliveryReviewBaseline(): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const config = this.atlas.deliveryManager?.getConfig();
+    if (!workspaceRoot || !config) {
+      return;
+    }
+    const stageViews = await Promise.all(
+      [...config.stages].sort((a, b) => a.rank - b.rank).map(stage => buildStageView(workspaceRoot, stage, '')),
+    );
+    const workflowNames = (await collectWorkflowSnapshot(workspaceRoot)).map(workflow => workflow.name);
+    const parts = await computeDeliveryReviewParts(workspaceRoot, config, stageViews, workflowNames);
+    await this.context.workspaceState.update(
+      DELIVERY_REVIEW_STATE_KEY,
+      { reviewedAt: new Date().toISOString(), parts } satisfies StoredDeliveryReview,
+    );
+  }
+
   private async handlePromotionPlanRequest(pathId: string, mode: 'execute' | 'runbook'): Promise<void> {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const config = this.atlas.deliveryManager.getConfig();
@@ -1711,7 +1772,7 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
   }
 
   const candidate = message as Record<string, unknown>;
-  if (candidate['type'] === 'ready' || candidate['type'] === 'refresh' || candidate['type'] === 'runGapAnalysis') {
+  if (candidate['type'] === 'ready' || candidate['type'] === 'refresh' || candidate['type'] === 'runGapAnalysis' || candidate['type'] === 'markDeliveryReviewed') {
     return true;
   }
 
@@ -1851,7 +1912,7 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
     collectRoadmapSnapshot(workspaceRoot, ssotPath),
   ]);
   const versionSnapshot = await collectVersionSnapshot(workspaceRoot, gitSnapshot.currentBranch, packageSnapshot.version);
-  const stagePipeline = await collectDeliveryStagePipeline(atlas, workspaceRoot, gitSnapshot.currentBranch);
+  const stagePipeline = await collectDeliveryStagePipeline(atlas, workspaceRoot, gitSnapshot.currentBranch, workflowSnapshot.map(workflow => workflow.name));
 
   const testingSnapshot = collectTestingDashboardSnapshot(atlas);
   const providers = atlas.modelRouter.listProviders();
@@ -2646,12 +2707,15 @@ async function collectDeliveryStagePipeline(
   atlas: AtlasMindContext,
   workspaceRoot: string | undefined,
   currentBranch: string,
+  workflowNames: string[],
 ): Promise<DashboardStagePipeline> {
+  const noReview: DashboardDeliveryReview = { needsReview: false, reasons: [], reviewedAt: null, reviewedRelative: '' };
   const base: DashboardStagePipeline = {
     configPath: DELIVERY_SSOT_PATH,
     summaryPath: DELIVERY_SUMMARY_SSOT_PATH,
     stages: [],
     paths: [],
+    review: noReview,
     config: null,
     seeded: false,
     notInGitRepo: false,
@@ -2688,7 +2752,117 @@ async function collectDeliveryStagePipeline(
     .map(promo => buildPromotionPathView(promo, config as DeliveryConfig, stageViews))
     .filter((view): view is DashboardPromotionPathView => view !== undefined);
 
-  return { ...base, stages: stageViews, paths: pathViews, config, seeded };
+  const reviewParts = await computeDeliveryReviewParts(workspaceRoot, config, stageViews, workflowNames);
+  let storedReview: StoredDeliveryReview | undefined;
+  try {
+    storedReview = atlas.extensionContext?.workspaceState?.get<StoredDeliveryReview>(DELIVERY_REVIEW_STATE_KEY) ?? undefined;
+  } catch {
+    storedReview = undefined;
+  }
+  const review = summarizeDeliveryReview(reviewParts, storedReview);
+
+  return { ...base, stages: stageViews, paths: pathViews, review, config, seeded };
+}
+
+const DELIVERY_REVIEW_STATE_KEY = 'atlasmind.deliveryReview';
+
+const STAGE_CANDIDATE_EXACT = new Set([
+  'main', 'master', 'develop', 'development', 'staging', 'stage', 'production', 'prod',
+  'preview', 'uat', 'qa', 'demo', 'release', 'sandbox',
+]);
+const STAGE_CANDIDATE_PREFIX = ['release/', 'hotfix/', 'env/', 'deploy/', 'stage/', 'staging/', 'prod/', 'production/'];
+
+function isStageCandidateBranch(name: string): boolean {
+  const normalized = name.toLowerCase();
+  return STAGE_CANDIDATE_EXACT.has(normalized) || STAGE_CANDIDATE_PREFIX.some(prefix => normalized.startsWith(prefix));
+}
+
+/** All local + origin-remote branch short names, de-duped and normalised. */
+async function listRepoBranchRefs(workspaceRoot: string): Promise<string[]> {
+  try {
+    const out = await runGit(workspaceRoot, ['for-each-ref', '--format=%(refname:short)', 'refs/heads', 'refs/remotes/origin']);
+    const set = new Set<string>();
+    for (const line of out.split(/\r?\n/)) {
+      const name = normalizeBranchRef(line.trim());
+      if (name && !name.endsWith('/HEAD')) {
+        set.add(name);
+      }
+    }
+    return [...set].sort();
+  } catch {
+    return [];
+  }
+}
+
+/** Stable JSON projection of the protocol-relevant config fields for fingerprinting. */
+function projectConfigForReview(config: DeliveryConfig): string {
+  const stages = [...config.stages].sort((a, b) => a.rank - b.rank).map(stage => ({
+    id: stage.id,
+    name: stage.name,
+    kind: stage.kind,
+    rank: stage.rank,
+    branchRef: stage.branchRef ?? '',
+    backupRequired: stage.backupPolicy.required,
+    requiresApproval: stage.promotionPolicy.requiresApproval,
+    requireVersionBump: stage.promotionPolicy.requireVersionBump,
+    requireChangelog: stage.promotionPolicy.requireChangelog,
+    requiredChecks: [...stage.promotionPolicy.requiredChecks],
+    isProtected: stage.isProtected,
+  }));
+  const paths = [...config.paths]
+    .map(path => ({ from: path.fromStageId, to: path.toStageId, routineId: path.routineId ?? '' }))
+    .sort((a, b) => `${a.from}${a.to}`.localeCompare(`${b.from}${b.to}`));
+  return JSON.stringify({ stages, paths });
+}
+
+async function computeDeliveryReviewParts(
+  workspaceRoot: string,
+  config: DeliveryConfig,
+  stageViews: DashboardStageView[],
+  workflowNames: string[],
+): Promise<DeliveryReviewParts> {
+  const modeled = new Set(
+    config.stages
+      .map(stage => (stage.branchRef ? normalizeBranchRef(stage.branchRef).toLowerCase() : ''))
+      .filter(Boolean),
+  );
+  const repoBranches = await listRepoBranchRefs(workspaceRoot);
+  const candidates = repoBranches.filter(branch => isStageCandidateBranch(branch) && !modeled.has(branch.toLowerCase()));
+  const missing = stageViews.filter(view => view.branchRef && !view.branchExists).map(view => view.branchRef).sort();
+  return { config: projectConfigForReview(config), candidates, missing, workflows: [...workflowNames].sort() };
+}
+
+function summarizeDeliveryReview(parts: DeliveryReviewParts, stored: StoredDeliveryReview | undefined): DashboardDeliveryReview {
+  const reviewedAt = stored?.reviewedAt ?? null;
+  const reviewedRelative = reviewedAt ? formatRelativeDate(reviewedAt) : '';
+  if (!stored) {
+    return { needsReview: true, reasons: ['This delivery pipeline has not been reviewed yet.'], reviewedAt, reviewedRelative };
+  }
+  const reasons: string[] = [];
+  const prev = stored.parts;
+  if (prev.config !== parts.config) {
+    reasons.push('The delivery configuration changed since your last review.');
+  }
+  const prevCandidates = new Set(prev.candidates ?? []);
+  const newCandidates = parts.candidates.filter(branch => !prevCandidates.has(branch));
+  if (newCandidates.length > 0) {
+    reasons.push(`New branch(es) that may warrant a stage: ${formatBranchList(newCandidates)}.`);
+  }
+  const prevMissing = new Set(prev.missing ?? []);
+  const newMissing = parts.missing.filter(branch => !prevMissing.has(branch));
+  if (newMissing.length > 0) {
+    reasons.push(`Stage branch(es) no longer in the repo: ${formatBranchList(newMissing)}.`);
+  }
+  if (JSON.stringify(prev.workflows ?? []) !== JSON.stringify(parts.workflows)) {
+    reasons.push('CI/CD workflow files changed since your last review.');
+  }
+  return { needsReview: reasons.length > 0, reasons, reviewedAt, reviewedRelative };
+}
+
+function formatBranchList(branches: string[]): string {
+  const shown = branches.slice(0, 5);
+  const extra = branches.length - shown.length;
+  return extra > 0 ? `${shown.join(', ')} +${extra} more` : shown.join(', ');
 }
 
 async function buildStageView(
@@ -5857,6 +6031,12 @@ const DASHBOARD_CSS = `
   .stage-pipeline-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
   .stage-pipeline-header .tag-row { margin-top: 6px; }
   .stage-seeded-note { font-size: 0.82em; color: var(--vscode-descriptionForeground); margin: 4px 0 0; }
+  .delivery-review-banner { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 10px 12px; border-radius: 10px; margin-bottom: 14px; }
+  .delivery-review-banner.warn { border: 1px solid var(--vscode-editorWarning-foreground, #cca700); background: color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) 10%, transparent); }
+  .delivery-review-banner.ok { border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.25)); color: var(--vscode-descriptionForeground); font-size: 0.84em; padding: 6px 12px; }
+  .delivery-review-body strong { font-size: 0.9em; }
+  .delivery-review-body ul { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; }
+  .delivery-review-body li { font-size: 0.83em; line-height: 1.4; }
   .stage-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; align-items: stretch; margin-bottom: 18px; }
   .stage-card { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 12px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.25)); background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); }
   .stage-card.is-current { border-color: var(--vscode-focusBorder, #4daafc); box-shadow: 0 0 0 1px var(--vscode-focusBorder, #4daafc) inset; }

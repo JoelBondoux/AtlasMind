@@ -375,6 +375,10 @@
       postDeliveryConfig(cfg);
       return;
     }
+    if (action === 'delivery-mark-reviewed') {
+      vscode.postMessage({ type: 'markDeliveryReviewed' });
+      return;
+    }
     if (action === 'promote-plan') {
       vscode.postMessage({ type: 'requestPromotionPlan', payload: { pathId: payload, mode: 'execute' } });
       return;
@@ -1935,6 +1939,7 @@
             <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(pipeline.configPath)}">Edit delivery.json</button>
           </div>
         </div>
+        ${renderDeliveryReviewBanner(pipeline.review)}
         <div class="stage-row">
           ${pipeline.stages.map(renderStageCard).join('')}
         </div>
@@ -1948,6 +1953,24 @@
           : '<div class="dashboard-empty">No promotion paths yet. Use “+ Add push” to connect two stages.</div>'}
         ${pathEditor}
       </article>`;
+  }
+
+  function renderDeliveryReviewBanner(review) {
+    if (!review) { return ''; }
+    if (review.needsReview) {
+      return `
+        <div class="delivery-review-banner warn">
+          <div class="delivery-review-body">
+            <strong>⟳ Review needed — the delivery setup changed since your last review</strong>
+            <ul>${(review.reasons || []).map(reason => `<li>${escapeHtml(reason)}</li>`).join('')}</ul>
+          </div>
+          <button type="button" class="action-link primary" data-action="delivery-mark-reviewed" data-payload="">Mark reviewed</button>
+        </div>`;
+    }
+    if (review.reviewedAt) {
+      return `<div class="delivery-review-banner ok"><span>✓ Delivery setup reviewed ${escapeHtml(review.reviewedRelative || '')}</span></div>`;
+    }
+    return '';
   }
 
   function renderStageCard(stage) {

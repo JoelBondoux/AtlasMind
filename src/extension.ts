@@ -197,6 +197,8 @@ export interface AtlasMindContext {
   routinesRefresh: vscode.EventEmitter<void>;
   /** Deployment-stage pipeline (local → staging → production) and promotion edges. */
   deliveryManager: DeliveryManager;
+  /** Fires when delivery.json changes on disk, so the dashboard can re-sync. */
+  deliveryRefresh: vscode.EventEmitter<void>;
   /** Audit trail + persistence for autonomous Mission Loop runs. */
   missionRegistry: MissionRegistry;
   rollbackLastCheckpoint(): Promise<{ ok: boolean; summary: string; restoredPaths: string[] }>;
@@ -1646,6 +1648,7 @@ async function bootstrapAtlasMind(
     const projectRunsRefresh = new vscode.EventEmitter<void>();
     const memoryRefresh = new vscode.EventEmitter<void>();
     const discoveryRefresh = new vscode.EventEmitter<void>();
+    const deliveryRefresh = new vscode.EventEmitter<void>();
     const scannerRulesManager = new startupModules.ScannerRulesManager(context.globalState);
     const toolWebhookDispatcher = new startupModules.ToolWebhookDispatcher(context, outputChannel);
     const voiceManager = new startupModules.VoiceManager(context.secrets, undefined, {
@@ -1665,6 +1668,18 @@ async function bootstrapAtlasMind(
       void routineRegistry.reload(workspaceRootPath);
     }
     const deliveryManager = new startupModules.DeliveryManager(workspaceRootPath);
+    if (workspaceRootPath) {
+      // Keep the Delivery dashboard current when delivery.json changes outside the
+      // dashboard editor (hand edits, a teammate's change via git pull, a script).
+      const deliveryWatcher = vscode.workspace.createFileSystemWatcher(
+        new vscode.RelativePattern(workspaceRootPath, 'project_memory/operations/delivery.json'),
+      );
+      const reloadDelivery = () => { deliveryManager.reload(); deliveryRefresh.fire(); };
+      deliveryWatcher.onDidChange(reloadDelivery);
+      deliveryWatcher.onDidCreate(reloadDelivery);
+      deliveryWatcher.onDidDelete(reloadDelivery);
+      context.subscriptions.push(deliveryWatcher);
+    }
     const missionRegistry = new startupModules.MissionRegistry(workspaceRootPath);
     const projectRunHistory = new startupModules.ProjectRunHistory(context.workspaceState, {
       workspaceKey: workspaceRootPath,
@@ -2287,6 +2302,7 @@ async function bootstrapAtlasMind(
       routineRegistry,
       routinesRefresh,
       deliveryManager,
+      deliveryRefresh,
       missionRegistry,
       rollbackLastCheckpoint: async () => {
         if (!checkpointManager) {
