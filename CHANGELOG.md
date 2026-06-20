@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.115.0] - 2026-06-20
+
+### Added
+- **Delivery hardening — gap-analysis follow-up across four fronts.**
+  - **Real CI enforcement (not honor-system).** Required CI status checks are now **verified live** via `gh` at promote time (check-run status for the source branch's head commit) — a failing *or still-pending* check makes the preflight gate refuse. When `gh` is unavailable it gracefully falls back to manual attestation. Previously "CI green" was a checkbox.
+  - **Audit log + executable rollback.** Every promotion and rollback is appended to `project_memory/operations/delivery-history.json` (who/when/what/outcome) and shown as **Recent promotions** on the dashboard. Stages with a rollback command get a **Roll back** action (two-click; protected stages require typing the stage name); it executes the user-authored command and is itself audited.
+  - **Broader import (polyglot + PaaS/IaC).** Detection now recognises Python / Go / Rust / Java / .NET projects (manifests, web frameworks, ORMs, conventional build/lint/test) and PaaS/IaC targets — Fly.io, Vercel, Netlify, Render, Google App Engine, Serverless, Kubernetes, Terraform, containers — feeding production hosting + database presence. A production URL is derived where possible (e.g. fly.toml app → `https://<app>.fly.dev`).
+  - **Readability.** A compact **pipeline flow diagram** (stage → stage with branch + deployed version + status) heads the Delivery page, and each stage with a health URL gets a **Test health** button that pings it and reports the status.
+- New engine/exports: `runRollback`, `checkHealthUrl` (`promotionRunner.ts`); `appendPromotionHistory`/`readPromotionHistory` + `PromotionHistoryEntry` (`deliveryManager.ts` / `types.ts`).
+
 ## [0.114.0] - 2026-06-20
 
 ### Added

@@ -1272,6 +1272,26 @@ export interface PromotionRunResult {
   rollback?: { command?: string; runbookRef?: string };
 }
 
+/**
+ * One append-only audit record of a promotion or rollback, persisted to
+ * `project_memory/operations/delivery-history.json` so the dashboard can show
+ * what shipped where, when, and by whom.
+ */
+export interface PromotionHistoryEntry {
+  id: string;
+  /** 'promotion' (forward) or 'rollback' (recovery). */
+  kind: 'promotion' | 'rollback';
+  pathId?: string;
+  fromName?: string;
+  toName: string;
+  version?: string;
+  succeeded: boolean;
+  ranAt: string;
+  durationMs?: number;
+  /** git user that ran it (name <email>), when resolvable. */
+  actor?: string;
+}
+
 // ── Scanner rule configuration ────────────────────────────────────
 
 /**

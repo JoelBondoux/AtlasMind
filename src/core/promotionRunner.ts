@@ -57,6 +57,12 @@ export interface PromotionPlanInput {
   changelogHasFromVersion: boolean;
   /** The bound promotion routine, when one exists on disk. */
   routine?: RoutineDefinition;
+  /**
+   * Live CI status per check context, resolved from `gh` at plan time. When a
+   * required status check appears here it becomes an *auto* preflight check
+   * (verified), instead of a manual attestation. Absent ⇒ fall back to manual.
+   */
+  liveStatusChecks?: Record<string, 'pass' | 'fail' | 'pending'>;
 }
 
 /**
@@ -137,15 +143,32 @@ export function buildPromotionPlan(input: PromotionPlanInput): PromotionPlan | u
   }
 
   // CI status checks imported from the repo's workflows / branch protection.
-  // Attested manually (AtlasMind does not poll live CI status in this phase).
+  // When live status is available (resolved from `gh` at plan time) the check is
+  // *verified* automatically; otherwise it falls back to manual attestation.
+  const live = input.liveStatusChecks;
   for (const context of to.promotionPolicy.requiredStatusChecks ?? []) {
-    checks.push({
-      id: `status-${slugify(context)}`,
-      label: `CI green: ${context}`,
-      kind: 'manual',
-      status: 'manual',
-      detail: viaPullRequest ? 'Confirm this CI check is green on the Pull Request.' : 'Confirm this CI check is green.',
-    });
+    const liveState = live?.[context];
+    if (liveState) {
+      checks.push({
+        id: `status-${slugify(context)}`,
+        label: `CI: ${context}`,
+        kind: 'auto',
+        status: liveState === 'pass' ? 'pass' : 'fail',
+        detail: liveState === 'pass'
+          ? 'Green on the latest run.'
+          : liveState === 'pending' ? 'Still running — not green yet.' : 'Failing on the latest run.',
+      });
+    } else {
+      checks.push({
+        id: `status-${slugify(context)}`,
+        label: `CI green: ${context}`,
+        kind: 'manual',
+        status: 'manual',
+        detail: viaPullRequest
+          ? 'Confirm this CI check is green on the Pull Request (live status unavailable).'
+          : 'Confirm this CI check is green (live status unavailable).',
+      });
+    }
   }
 
   const steps: PromotionPlanStep[] = [];
@@ -338,6 +361,20 @@ export async function runPromotion(options: PromotionRunOptions): Promise<Promot
   };
 }
 
+/**
+ * Execute a stage's rollback command (user-authored, server-sourced). The caller
+ * is responsible for confirmation/authorization before invoking this.
+ */
+export async function runRollback(workspaceRoot: string, command: string): Promise<{ ok: boolean; output: string }> {
+  try {
+    const { stdout, stderr } = await execAsync(command, { cwd: workspaceRoot, timeout: STEP_TIMEOUT_MS, windowsHide: true });
+    return { ok: true, output: clip(`${stdout}${stderr ? `\n${stderr}` : ''}`) || 'Rollback command completed.' };
+  } catch (err: unknown) {
+    const e = err as { stdout?: string; stderr?: string; message?: string };
+    return { ok: false, output: clip(`${e.stdout ?? ''}${e.stderr ? `\n${e.stderr}` : ''}${e.message ? `\n${e.message}` : ''}`.trim() || 'Rollback failed.') };
+  }
+}
+
 async function runCommandStep(step: PromotionPlanStep, workspaceRoot: string): Promise<PromotionStepResult> {
   try {
     const { stdout, stderr } = await execAsync(step.command as string, {
@@ -385,6 +422,20 @@ function routineOnFail(routine: RoutineDefinition | undefined, stepId: string): 
 function clip(text: string): string {
   const trimmed = text.trim();
   return trimmed.length > MAX_OUTPUT_CHARS ? `${trimmed.slice(0, MAX_OUTPUT_CHARS)}\n… (truncated)` : trimmed;
+}
+
+/** Ping a health-check URL (used by the stage editor's "Test" button). */
+export async function checkHealthUrl(url: string): Promise<{ ok: boolean; status: number; error?: string }> {
+  const trimmed = (url ?? '').trim();
+  if (!/^https?:\/\//i.test(trimmed)) {
+    return { ok: false, status: 0, error: 'Enter an http(s) URL first.' };
+  }
+  try {
+    const status = await httpStatus(trimmed);
+    return { ok: status >= 200 && status < 400, status };
+  } catch (err) {
+    return { ok: false, status: 0, error: (err as Error).message };
+  }
 }
 
 /** Return only the HTTP status code for a bounded GET; rejects on error/timeout. */

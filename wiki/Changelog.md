@@ -6,6 +6,15 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.115.0 — Delivery hardening (gap-analysis follow-up)
+
+- **CI is actually enforced now.** Required CI checks are verified live via `gh` at promote time — a failing or still-running check blocks the gate (graceful fallback to manual when `gh` is unavailable). No more honor-system "CI green" checkbox.
+- **Audit log + rollback.** Every promotion/rollback is recorded (who/when/what/outcome) and shown as *Recent promotions*; stages with a rollback command get a confirm-gated **Roll back** button that executes it.
+- **Broader import.** Detects Python/Go/Rust/Java/.NET projects and PaaS/IaC targets (Fly.io, Vercel, Netlify, Render, GAE, Serverless, Kubernetes, Terraform, containers); derives a production URL where possible.
+- **Readability.** A pipeline **flow diagram** (stage → stage with branch, version, status) heads the page, and a **Test health** button pings a stage's health URL.
+
+---
+
 ## v0.114.0 — Delivery imports your PR/CI promotion protocol
 
 - **PR-based promotion is now first-class.** The pipeline detects whether promoting into a branch goes through a **Pull Request** (from GitHub branch protection via `gh`, falling back to the bound routine's `gh pr create`) and the **exact required CI status checks** (branch-protection contexts like `quality (ubuntu-latest)`, else the gating workflow names from `.github/workflows`).

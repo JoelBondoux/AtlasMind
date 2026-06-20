@@ -40,6 +40,8 @@ Executing a promotion ("push") on the Delivery page runs real shell commands, so
 - **Authorization gate.** `evaluatePromotionGate` is the single chokepoint and is re-run against live git state at execution time: it refuses on any hard blocker, any failing automatic preflight check, an un-attested manual check, a missing approval, or — for a **protected** target — a confirmation string that does not match the target name.
 - **Deny-by-default backups.** A data-bearing target with a required-but-undefined backup command cannot be promoted to.
 - **Non-destructive bias.** AtlasMind never force-pushes; each run records its outcome and a rollback handle.
+- **Verified CI, not honor-system.** Required CI status checks are verified live via `gh` (a failing or pending run blocks the gate), with graceful fallback to manual attestation only when `gh` is unavailable.
+- **Audit trail.** Every promotion and rollback is appended to `project_memory/operations/delivery-history.json` with the git actor, timestamp, and outcome. Rollback execution runs only the stage's user-authored command and re-applies the protected-stage type-to-confirm authorization.
 
 ### 4. Memory Scanner
 

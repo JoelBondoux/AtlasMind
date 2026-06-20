@@ -14,9 +14,9 @@ import { getWebviewHtmlShell } from './webviewUtils.js';
 import { DataPrivacyManager, readDataPrivacyConfig, writeDataPrivacyConfig, defaultDataPrivacyConfig } from '../core/dataPrivacyManager.js';
 import { COMPLIANCE_PACKS } from '../core/compliancePacks.js';
 import { getProviderDataGovernance } from '../core/providerDataGovernance.js';
-import { DELIVERY_SSOT_PATH, DELIVERY_SUMMARY_SSOT_PATH, sanitizeDeliveryConfig, seedDeliveryConfig, type DeliverySeedInput, type DeliveryArchetype } from '../core/deliveryManager.js';
-import { buildPromotionPlan, evaluatePromotionGate, runPromotion } from '../core/promotionRunner.js';
-import type { DataPrivacyActivityEvent, DataPrivacySensitivity, DeliveryConfig, DeploymentStage, PromotionPath } from '../types.js';
+import { DELIVERY_SSOT_PATH, DELIVERY_SUMMARY_SSOT_PATH, sanitizeDeliveryConfig, seedDeliveryConfig, appendPromotionHistory, readPromotionHistory, type DeliverySeedInput, type DeliveryArchetype } from '../core/deliveryManager.js';
+import { buildPromotionPlan, evaluatePromotionGate, runPromotion, runRollback, checkHealthUrl } from '../core/promotionRunner.js';
+import type { DataPrivacyActivityEvent, DataPrivacySensitivity, DeliveryConfig, DeploymentStage, PromotionPath, PromotionHistoryEntry } from '../types.js';
 
 const execFileAsync = promisify(execFile);
 const PROJECT_DASHBOARD_VIEW_TYPE = 'atlasmind.projectDashboard';
@@ -95,6 +95,8 @@ type ProjectDashboardMessage =
   | { type: 'runPromotion'; payload: { pathId: string; attestations: string[]; confirmText: string } }
   | { type: 'markDeliveryReviewed' }
   | { type: 'reimportDelivery' }
+  | { type: 'rollbackStage'; payload: { stageId: string; confirmText: string } }
+  | { type: 'testHealthUrl'; payload: { url: string } }
   | { type: 'testDataPrivacy'; payload: { kind: 'text' | 'path'; value: string } }
   | { type: 'openExternalUrl'; payload: string };
 
@@ -112,7 +114,9 @@ type DashboardWebviewMessage =
   | { type: 'promotionPlan'; payload: { plan: import('../types.js').PromotionPlan; mode: 'execute' | 'runbook' } }
   | { type: 'promotionProgress'; payload: { stepId: string; label: string; index: number; total: number; status: string; output?: string } }
   | { type: 'promotionDone'; payload: import('../types.js').PromotionRunResult }
-  | { type: 'promotionError'; payload: string };
+  | { type: 'promotionError'; payload: string }
+  | { type: 'rollbackResult'; payload: { ok: boolean; summary: string } }
+  | { type: 'healthTestResult'; payload: { ok: boolean; summary: string } };
 
 type Tone = 'accent' | 'good' | 'warn' | 'critical' | 'neutral';
 
@@ -489,6 +493,8 @@ interface DashboardStageView {
   dataLabel: string;
   backupRequired: boolean;
   backupConfigured: boolean;
+  /** Whether a rollback command is configured (enables the Roll back action). */
+  hasRollback: boolean;
   /** Plain-English security/safety reasoning shown on the card for beginners. */
   securityNotes: string[];
 }
@@ -561,6 +567,8 @@ interface DashboardStagePipeline {
    * mutate a copy and post it back. Null when no pipeline exists yet.
    */
   config: DeliveryConfig | null;
+  /** Recent promotion/rollback audit records (newest first). */
+  history: PromotionHistoryEntry[];
   /** True when this view seeded a default pipeline on first open. */
   seeded: boolean;
   /** True when no git repository is present, so stages cannot be modelled yet. */
@@ -1252,6 +1260,18 @@ export class ProjectDashboardPanel {
       case 'reimportDelivery':
         await this.handleReimportDelivery();
         return;
+      case 'rollbackStage':
+        await this.handleRollbackStage(message.payload);
+        return;
+      case 'testHealthUrl':
+        {
+          const result = await checkHealthUrl(message.payload.url);
+          const summary = result.ok
+            ? `Healthy — responded ${result.status}.`
+            : result.error ? `Unreachable — ${result.error}` : `Responded ${result.status} (not 2xx/3xx).`;
+          await this.postMessage({ type: 'healthTestResult', payload: { ok: result.ok, summary } });
+        }
+        return;
       case 'requestPromotionPlan':
         await this.handlePromotionPlanRequest(message.payload.pathId, message.payload.mode);
         return;
@@ -1678,6 +1698,22 @@ export class ProjectDashboardPanel {
     await this.syncState();
   }
 
+  /** Resolve live CI status for the branch being promoted (best-effort, gh). */
+  private async resolveLiveCiStatus(
+    workspaceRoot: string,
+    from: DeploymentStage,
+  ): Promise<Record<string, 'pass' | 'fail' | 'pending'> | undefined> {
+    let sourceRef = from.branchRef;
+    if (!sourceRef) {
+      try {
+        sourceRef = (await runGit(workspaceRoot, ['rev-parse', '--abbrev-ref', 'HEAD'])).trim();
+      } catch {
+        sourceRef = undefined;
+      }
+    }
+    return sourceRef ? gatherLiveCiStatus(workspaceRoot, sourceRef) : undefined;
+  }
+
   private async handlePromotionPlanRequest(pathId: string, mode: 'execute' | 'runbook'): Promise<void> {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const config = this.atlas.deliveryManager.getConfig();
@@ -1695,7 +1731,8 @@ export class ProjectDashboardPanel {
     const facts = await gatherPromotionFacts(workspaceRoot, from, to);
     await this.atlas.routineRegistry.reload(workspaceRoot).catch(() => undefined);
     const routine = promo.routineId ? this.atlas.routineRegistry.get(promo.routineId) : undefined;
-    const plan = buildPromotionPlan({ config, pathId, ...facts, routine });
+    const liveStatusChecks = await this.resolveLiveCiStatus(workspaceRoot, from);
+    const plan = buildPromotionPlan({ config, pathId, ...facts, routine, liveStatusChecks });
     if (!plan) {
       await this.postMessage({ type: 'promotionError', payload: 'Could not build a promotion plan.' });
       return;
@@ -1722,7 +1759,8 @@ export class ProjectDashboardPanel {
     const facts = await gatherPromotionFacts(workspaceRoot, from, to);
     await this.atlas.routineRegistry.reload(workspaceRoot).catch(() => undefined);
     const routine = promo.routineId ? this.atlas.routineRegistry.get(promo.routineId) : undefined;
-    const plan = buildPromotionPlan({ config, pathId: payload.pathId, ...facts, routine });
+    const liveStatusChecks = await this.resolveLiveCiStatus(workspaceRoot, from);
+    const plan = buildPromotionPlan({ config, pathId: payload.pathId, ...facts, routine, liveStatusChecks });
     if (!plan) {
       await this.postMessage({ type: 'promotionError', payload: 'Could not build a promotion plan.' });
       return;
@@ -1747,7 +1785,58 @@ export class ProjectDashboardPanel {
         : candidate),
     };
     await this.atlas.deliveryManager.save(updated);
+    // Append an immutable audit record (who/when/what/outcome).
+    await appendPromotionHistory(workspaceRoot, {
+      id: `promo-${Date.now()}`,
+      kind: 'promotion',
+      pathId: payload.pathId,
+      fromName: from.name,
+      toName: to.name,
+      version: facts.fromVersion,
+      succeeded: result.succeeded,
+      ranAt: result.startedAt,
+      durationMs: result.durationMs,
+      actor: await resolveGitActor(workspaceRoot),
+    }).catch(() => undefined);
     await this.postMessage({ type: 'promotionDone', payload: result });
+    await this.syncState();
+  }
+
+  /**
+   * Execute a stage's user-authored rollback command after authorization
+   * (protected stages require the typed stage name). Records an audit entry.
+   */
+  private async handleRollbackStage(payload: { stageId: string; confirmText: string }): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const config = this.atlas.deliveryManager?.getConfig();
+    if (!workspaceRoot || !config) {
+      await this.postMessage({ type: 'rollbackResult', payload: { ok: false, summary: 'No delivery pipeline is available.' } });
+      return;
+    }
+    const stage = config.stages.find(candidate => candidate.id === payload.stageId);
+    if (!stage) {
+      await this.postMessage({ type: 'rollbackResult', payload: { ok: false, summary: 'That stage no longer exists.' } });
+      return;
+    }
+    const command = (stage.rollbackPolicy.command ?? '').trim();
+    if (!command) {
+      await this.postMessage({ type: 'rollbackResult', payload: { ok: false, summary: `No rollback command is configured for ${stage.name}.` } });
+      return;
+    }
+    if (stage.isProtected && payload.confirmText.trim().toLowerCase() !== stage.name.trim().toLowerCase()) {
+      await this.postMessage({ type: 'rollbackResult', payload: { ok: false, summary: `Type the stage name "${stage.name}" to confirm a protected rollback.` } });
+      return;
+    }
+    const result = await runRollback(workspaceRoot, command);
+    await appendPromotionHistory(workspaceRoot, {
+      id: `rollback-${Date.now()}`,
+      kind: 'rollback',
+      toName: stage.name,
+      succeeded: result.ok,
+      ranAt: new Date().toISOString(),
+      actor: await resolveGitActor(workspaceRoot),
+    }).catch(() => undefined);
+    await this.postMessage({ type: 'rollbackResult', payload: { ok: result.ok, summary: `${stage.name} rollback ${result.ok ? 'succeeded' : 'failed'}: ${result.output}` } });
     await this.syncState();
   }
 
@@ -1855,6 +1944,17 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     const p = candidate['payload'] as Record<string, unknown> | undefined;
     return typeof p === 'object' && p !== null && typeof p['pathId'] === 'string' && p['pathId'].length > 0
       && Array.isArray(p['attestations']) && typeof p['confirmText'] === 'string';
+  }
+
+  if (candidate['type'] === 'rollbackStage') {
+    const p = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof p === 'object' && p !== null && typeof p['stageId'] === 'string' && p['stageId'].length > 0
+      && typeof p['confirmText'] === 'string';
+  }
+
+  if (candidate['type'] === 'testHealthUrl') {
+    const p = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof p === 'object' && p !== null && typeof p['url'] === 'string';
   }
 
   if (candidate['type'] === 'saveDataPrivacyConfig') {
@@ -2692,6 +2792,15 @@ async function pathExists(absolutePath: string): Promise<boolean> {
   }
 }
 
+/** Top-level file names in a directory (empty on error). */
+async function listDirFiles(dir: string): Promise<string[]> {
+  try {
+    return (await fs.readdir(dir, { withFileTypes: true })).filter(entry => entry.isFile()).map(entry => entry.name);
+  } catch {
+    return [];
+  }
+}
+
 /** Extract the branch filter for a workflow trigger (`pull_request` / `push`). */
 function extractTriggerBranches(content: string, trigger: string): string[] | 'all' | null {
   // Inline form: `on: [push, pull_request]` → gates all branches.
@@ -2792,6 +2901,46 @@ async function fetchBranchProtection(
 }
 
 /**
+ * Resolve live CI status (per check-run name) for a branch's head commit via
+ * `gh`, so required status checks can be *verified* rather than self-attested.
+ * Best-effort: returns undefined when gh is unavailable or the repo is not on
+ * GitHub. Worst state per name wins (fail > pending > pass).
+ */
+async function gatherLiveCiStatus(workspaceRoot: string, sourceRef: string): Promise<Record<string, 'pass' | 'fail' | 'pending'> | undefined> {
+  const ref = normalizeBranchRef(sourceRef);
+  if (!ref || ref === 'Not a git repository' || ref === 'Detached') {
+    return undefined;
+  }
+  let slug: string | undefined;
+  try {
+    slug = (await runGh(workspaceRoot, ['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'])) || undefined;
+  } catch {
+    return undefined;
+  }
+  if (!slug) {
+    return undefined;
+  }
+  try {
+    const raw = await runGh(workspaceRoot, ['api', `repos/${slug}/commits/${ref}/check-runs`, '--jq', '.check_runs']);
+    const runs = JSON.parse(raw) as Array<{ name?: string; status?: string; conclusion?: string | null }>;
+    const rank = { pass: 0, pending: 1, fail: 2 } as const;
+    const map: Record<string, 'pass' | 'fail' | 'pending'> = {};
+    for (const run of runs) {
+      const name = (run.name ?? '').trim();
+      if (!name) { continue; }
+      const state: 'pass' | 'fail' | 'pending' = run.status !== 'completed'
+        ? 'pending'
+        : (run.conclusion === 'success' || run.conclusion === 'neutral' || run.conclusion === 'skipped') ? 'pass' : 'fail';
+      const prev = map[name];
+      if (!prev || rank[state] > rank[prev]) { map[name] = state; }
+    }
+    return map;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Import the repository's actual delivery signals so the seeded pipeline reflects
  * the protocol already in place rather than a generic template: branch layout,
  * project archetype, database presence, publish target, env files, package
@@ -2817,32 +2966,80 @@ async function detectDeliverySignals(
   const scriptsObj = (pkg['scripts'] as Record<string, string> | undefined) ?? {};
   const engines = pkg['engines'] as Record<string, unknown> | undefined;
 
-  // Archetype.
+  // ── Polyglot manifests + PaaS/IaC signals ───────────────────────
+  const hasFile = (rel: string): Promise<boolean> => pathExists(path.join(workspaceRoot, rel));
+  const readSafe = async (rel: string): Promise<string> => {
+    try { return await fs.readFile(path.join(workspaceRoot, rel), 'utf-8'); } catch { return ''; }
+  };
+  const topFiles = await listDirFiles(workspaceRoot);
+  const [hasPyproject, hasRequirements, hasGoMod, hasCargo, hasPom, hasGradle, hasDockerfile, hasCompose] = await Promise.all([
+    hasFile('pyproject.toml'), hasFile('requirements.txt'), hasFile('go.mod'), hasFile('Cargo.toml'),
+    hasFile('pom.xml'), hasFile('build.gradle'), hasFile('Dockerfile'), hasFile('docker-compose.yml'),
+  ]);
+  const hasCsproj = topFiles.some(name => /\.(csproj|sln)$/i.test(name));
+  const ecosystem: 'node' | 'python' | 'go' | 'rust' | 'java' | 'dotnet' | 'unknown' =
+    Object.keys(pkg).length > 0 ? 'node'
+      : (hasPyproject || hasRequirements) ? 'python'
+        : hasGoMod ? 'go'
+          : hasCargo ? 'rust'
+            : (hasPom || hasGradle) ? 'java'
+              : hasCsproj ? 'dotnet'
+                : 'unknown';
+  const manifestText = (await Promise.all([
+    readSafe('requirements.txt'), readSafe('pyproject.toml'), readSafe('go.mod'),
+    readSafe('Cargo.toml'), readSafe('pom.xml'), readSafe('build.gradle'),
+  ])).join('\n').toLowerCase();
+  const composeText = `${(await readSafe('docker-compose.yml'))}${await readSafe('docker-compose.yaml')}`.toLowerCase();
+
+  // PaaS / IaC hosting + a derivable production URL where possible.
+  const flyToml = await readSafe('fly.toml');
+  let productionUrl: string | undefined;
+  const flyApp = flyToml.match(/^\s*app\s*=\s*["']?([a-z0-9-]+)/mi)?.[1];
+  if (flyApp) { productionUrl = `https://${flyApp}.fly.dev`; }
+  const paas =
+    flyToml ? 'Fly.io'
+      : (await hasFile('vercel.json')) ? 'Vercel'
+        : (await hasFile('netlify.toml')) ? 'Netlify'
+          : (await hasFile('render.yaml')) ? 'Render'
+            : (await hasFile('app.yaml')) ? 'Google App Engine'
+              : (await hasFile('serverless.yml')) || (await hasFile('serverless.yaml')) ? 'Serverless'
+                : undefined;
+  const hasK8s = (await hasFile('kustomization.yaml')) || (await hasFile('k8s')) || (await hasFile('manifests'));
+  const hasTerraform = topFiles.some(name => /\.tf$/i.test(name));
+
+  // Archetype (Node signals + polyglot frameworks).
   const isVscodeExt = Boolean(engines?.['vscode'] || pkg['contributes'] || depNames.includes('@vscode/vsce') || depNames.includes('@types/vscode'));
-  const serverDeps = ['express', 'fastify', 'koa', '@nestjs/core', 'next', 'nuxt', '@hapi/hapi', 'hono', 'apollo-server'];
-  const hasDockerfile = await pathExists(path.join(workspaceRoot, 'Dockerfile'));
-  const hasServer = serverDeps.some(dep => depNames.includes(dep)) || Boolean(scriptsObj['start']) || hasDockerfile;
+  const nodeServerDeps = ['express', 'fastify', 'koa', '@nestjs/core', 'next', 'nuxt', '@hapi/hapi', 'hono', 'apollo-server'];
+  const webFrameworkRe = /(django|flask|fastapi|starlette|uvicorn|gunicorn|gin-gonic|labstack\/echo|gofiber|axum|actix-web|rocket|spring-boot|quarkus|micronaut|aspnetcore)/;
+  const hasServer = nodeServerDeps.some(dep => depNames.includes(dep)) || Boolean(scriptsObj['start'])
+    || hasDockerfile || hasCompose || Boolean(paas) || hasK8s || webFrameworkRe.test(manifestText);
   let archetype: DeliveryArchetype = 'generic';
   if (isVscodeExt) { archetype = 'vscode-extension'; }
   else if (hasServer) { archetype = 'web-service'; }
-  else if (pkg['main'] || pkg['exports'] || pkg['module']) { archetype = 'library'; }
+  else if (pkg['main'] || pkg['exports'] || pkg['module'] || hasPyproject || hasCargo || hasPom) { archetype = 'library'; }
 
-  // Database.
+  // Database (Node deps + polyglot ORMs + compose services + migration dirs).
   const dbRe = /^(pg|mysql2?|mongodb|mongoose|prisma|@prisma\/client|sqlite3|better-sqlite3|redis|ioredis|drizzle-orm|sequelize|typeorm|knex)$/;
+  const dbManifestRe = /(psycopg|sqlalchemy|asyncpg|pymongo|gorm|sqlx|diesel|hibernate|spring-data|entityframework|npgsql)/;
+  const dbComposeRe = /image:\s*["']?(postgres|mysql|mariadb|mongo|redis|cockroach)/;
   const hasDatabase = depNames.some(dep => dbRe.test(dep))
-    || await pathExists(path.join(workspaceRoot, 'migrations'))
-    || await pathExists(path.join(workspaceRoot, 'prisma'));
+    || dbManifestRe.test(manifestText)
+    || dbComposeRe.test(composeText)
+    || await hasFile('migrations')
+    || await hasFile('prisma')
+    || await hasFile('alembic');
 
   // Publish target.
-  let publishTarget: string | undefined;
   const publishScripts = `${scriptsObj['publish:release'] ?? ''} ${scriptsObj['publish'] ?? ''} ${scriptsObj['deploy'] ?? ''}`;
-  if (isVscodeExt || depNames.includes('@vscode/vsce') || /vsce/.test(publishScripts)) {
-    publishTarget = 'VS Code Marketplace';
-  } else if (hasDockerfile) {
-    publishTarget = 'Container registry';
-  } else if (scriptsObj['publish'] && pkg['private'] !== true) {
-    publishTarget = 'npm registry';
-  }
+  let publishTarget: string | undefined;
+  if (isVscodeExt || depNames.includes('@vscode/vsce') || /vsce/.test(publishScripts)) { publishTarget = 'VS Code Marketplace'; }
+  else if (paas) { publishTarget = paas; }
+  else if (hasK8s) { publishTarget = 'Kubernetes'; }
+  else if (hasDockerfile || hasCompose) { publishTarget = 'Container registry'; }
+  else if (hasTerraform) { publishTarget = 'Terraform-managed infrastructure'; }
+  else if (scriptsObj['publish'] && pkg['private'] !== true) { publishTarget = 'npm registry'; }
+  else if (ecosystem === 'python' && /(hatchling|setuptools|poetry|twine|flit)/.test(manifestText)) { publishTarget = 'PyPI'; }
+  else if (ecosystem === 'rust') { publishTarget = 'crates.io'; }
 
   // Env files.
   const envFiles: { local?: string; staging?: string; production?: string } = {};
@@ -2851,11 +3048,15 @@ async function detectDeliverySignals(
   if (await pathExists(path.join(workspaceRoot, '.env.staging'))) { envFiles.staging = '.env.staging'; }
   if (await pathExists(path.join(workspaceRoot, '.env.production'))) { envFiles.production = '.env.production'; }
 
-  const scripts = {
-    build: Boolean(scriptsObj['compile'] || scriptsObj['build']),
-    lint: Boolean(scriptsObj['lint']),
-    test: Boolean(scriptsObj['test']),
-  };
+  // Scripts: Node from package scripts; otherwise ecosystem conventions.
+  const scripts = ecosystem === 'node'
+    ? { build: Boolean(scriptsObj['compile'] || scriptsObj['build']), lint: Boolean(scriptsObj['lint']), test: Boolean(scriptsObj['test']) }
+    : ecosystem === 'python' ? { build: false, lint: /(ruff|flake8|pylint|black)/.test(manifestText), test: true }
+      : ecosystem === 'go' ? { build: true, lint: /golangci/.test(manifestText), test: true }
+        : ecosystem === 'rust' ? { build: true, lint: true, test: true }
+          : ecosystem === 'java' ? { build: true, lint: false, test: true }
+            : ecosystem === 'dotnet' ? { build: true, lint: false, test: true }
+              : { build: false, lint: false, test: false };
   const hasCi = (await collectWorkflowSnapshot(workspaceRoot)).length > 0;
 
   // Bind an existing routine to the production path (publish/release/ship/deploy
@@ -2915,6 +3116,7 @@ async function detectDeliverySignals(
     archetype,
     hasDatabase,
     publishTarget,
+    productionUrl,
     envFiles,
     scripts,
     hasCi,
@@ -2923,6 +3125,19 @@ async function detectDeliverySignals(
     viaPullRequest: { staging: stagingViaPr, production: productionViaPr },
     statusChecks: { staging: stagingChecks, production: productionChecks },
   };
+}
+
+/** The git identity that ran an action (`Name <email>`), for the audit log. */
+async function resolveGitActor(workspaceRoot: string): Promise<string | undefined> {
+  try {
+    const name = (await runGit(workspaceRoot, ['config', 'user.name'])).trim();
+    let email = '';
+    try { email = (await runGit(workspaceRoot, ['config', 'user.email'])).trim(); } catch { email = ''; }
+    if (!name && !email) { return undefined; }
+    return email ? `${name} <${email}>`.trim() : name;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -2994,6 +3209,7 @@ async function collectDeliveryStagePipeline(
     paths: [],
     review: noReview,
     config: null,
+    history: [],
     seeded: false,
     notInGitRepo: false,
   };
@@ -3030,8 +3246,9 @@ async function collectDeliveryStagePipeline(
     storedReview = undefined;
   }
   const review = summarizeDeliveryReview(reviewParts, storedReview);
+  const history = readPromotionHistory(workspaceRoot).slice(0, 12);
 
-  return { ...base, stages: stageViews, paths: pathViews, review, config, seeded };
+  return { ...base, stages: stageViews, paths: pathViews, review, config, history, seeded };
 }
 
 const DELIVERY_REVIEW_STATE_KEY = 'atlasmind.deliveryReview';
@@ -3169,6 +3386,7 @@ async function buildStageView(
     dataLabel: stage.data.label ?? stage.data.kind ?? '',
     backupRequired: stage.backupPolicy.required,
     backupConfigured,
+    hasRollback: Boolean(stage.rollbackPolicy.command && stage.rollbackPolicy.command.trim().length > 0),
     securityNotes: buildStageSecurityNotes(stage, backupConfigured),
   };
 }
@@ -6322,6 +6540,16 @@ const DASHBOARD_CSS = `
   .delivery-review-body strong { font-size: 0.9em; }
   .delivery-review-body ul { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; }
   .delivery-review-body li { font-size: 0.83em; line-height: 1.4; }
+  .pipeline-flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; margin: 4px 0 16px; }
+  .flow-node { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.3)); background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); min-width: 130px; }
+  .flow-node.current { border-color: var(--vscode-focusBorder, #4daafc); box-shadow: 0 0 0 1px var(--vscode-focusBorder, #4daafc) inset; }
+  .flow-node.kind-production { border-left: 3px solid var(--vscode-charts-red, #f14c4c); }
+  .flow-node.kind-staging { border-left: 3px solid var(--vscode-charts-yellow, #cca700); }
+  .flow-node.kind-local { border-left: 3px solid var(--vscode-charts-blue, #4daafc); }
+  .flow-name { font-weight: 700; font-size: 0.86em; }
+  .flow-branch { font-size: 0.74em; color: var(--vscode-descriptionForeground); }
+  .flow-ver { font-size: 0.78em; }
+  .flow-arrow { display: flex; align-items: center; font-size: 1.2em; color: var(--vscode-descriptionForeground); }
   .stage-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; align-items: stretch; margin-bottom: 18px; }
   .stage-card { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 12px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.25)); background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); }
   .stage-card.is-current { border-color: var(--vscode-focusBorder, #4daafc); box-shadow: 0 0 0 1px var(--vscode-focusBorder, #4daafc) inset; }
@@ -6386,6 +6614,12 @@ const DASHBOARD_CSS = `
   .stage-edit-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; }
   .stage-remove-confirm { font-size: 0.82em; color: var(--vscode-editorWarning-foreground, #cca700); display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
   .reimport-confirm { font-size: 0.82em; color: var(--vscode-editorWarning-foreground, #cca700); display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .rollback-input { padding: 3px 6px; border-radius: 5px; border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, rgba(127,127,127,0.4))); background: var(--vscode-input-background); color: var(--vscode-input-foreground); font-size: 0.95em; }
+  .stage-card-foot { gap: 10px; }
+  .history-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 0.82em; padding: 4px 0; border-bottom: 1px dashed var(--vscode-widget-border, rgba(127,127,127,0.18)); }
+  .history-row.good > span:first-child { color: var(--vscode-charts-green, #89d185); }
+  .history-row.bad > span:first-child { color: var(--vscode-errorForeground, #f14c4c); }
+  .history-row .list-meta { color: var(--vscode-descriptionForeground); }
 
   /* ── Delivery: promotion execution modal (Phase 3) ────────────── */
   .promo-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: flex; align-items: flex-start; justify-content: center; padding: 40px 16px; z-index: 1000; overflow-y: auto; }

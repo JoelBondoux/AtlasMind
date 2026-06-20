@@ -43,6 +43,10 @@
     editingPathId: '',
     promotion: null,
     reimportConfirm: false,
+    rollbackArmedStageId: '',
+    rollbackText: '',
+    rollbackNotice: '',
+    healthNotice: '',
   };
 
   refreshButton?.addEventListener('click', () => {
@@ -121,6 +125,18 @@
         state.promotion.result = message.payload;
         render();
       }
+      return;
+    }
+
+    if (message.type === 'rollbackResult') {
+      state.rollbackNotice = (message.payload && message.payload.summary) || '';
+      render();
+      return;
+    }
+
+    if (message.type === 'healthTestResult') {
+      state.healthNotice = (message.payload && message.payload.summary) || '';
+      render();
       return;
     }
 
@@ -380,6 +396,22 @@
       vscode.postMessage({ type: 'markDeliveryReviewed' });
       return;
     }
+    if (action === 'test-health-url') {
+      if (!payload) { return; }
+      state.healthNotice = 'Testing ' + payload + ' …';
+      render();
+      vscode.postMessage({ type: 'testHealthUrl', payload: { url: payload } });
+      return;
+    }
+    if (action === 'stage-rollback') { state.rollbackArmedStageId = payload; state.rollbackText = ''; render(); return; }
+    if (action === 'stage-rollback-cancel') { state.rollbackArmedStageId = ''; state.rollbackText = ''; render(); return; }
+    if (action === 'stage-rollback-confirm') {
+      vscode.postMessage({ type: 'rollbackStage', payload: { stageId: payload, confirmText: state.rollbackText || '' } });
+      state.rollbackArmedStageId = '';
+      state.rollbackText = '';
+      render();
+      return;
+    }
     if (action === 'delivery-reimport') { state.reimportConfirm = true; render(); return; }
     if (action === 'delivery-reimport-cancel') { state.reimportConfirm = false; render(); return; }
     if (action === 'delivery-reimport-confirm') {
@@ -443,6 +475,10 @@
     }
     if (target instanceof HTMLInputElement && target.id === 'promotion-confirm-text') {
       if (state.promotion) { state.promotion.confirmText = target.value; }
+      return;
+    }
+    if (target instanceof HTMLInputElement && target.id === 'rollback-confirm-text') {
+      state.rollbackText = target.value;
       return;
     }
   });
@@ -1952,6 +1988,7 @@
           </div>
         </div>
         ${renderDeliveryReviewBanner(pipeline.review)}
+        ${renderPipelineFlow(pipeline.stages)}
         <div class="stage-row">
           ${pipeline.stages.map(renderStageCard).join('')}
         </div>
@@ -1964,6 +2001,9 @@
           ? `<div class="promotion-list">${pipeline.paths.map(p => renderPromotionCard(p, summaryPath)).join('')}</div>`
           : '<div class="dashboard-empty">No promotion paths yet. Use “+ Add push” to connect two stages.</div>'}
         ${pathEditor}
+        ${state.rollbackNotice ? `<p class="stage-seeded-note">${escapeHtml(state.rollbackNotice)}</p>` : ''}
+        ${state.healthNotice ? `<p class="stage-seeded-note">${escapeHtml(state.healthNotice)}</p>` : ''}
+        ${renderDeliveryHistory(pipeline.history)}
       </article>`;
   }
 
@@ -2018,9 +2058,52 @@
             ${stage.securityNotes.map(note => `<li class="${/blocked until you add one/i.test(note) ? 'warn' : ''}">${escapeHtml(note)}</li>`).join('')}
           </ul>` : ''}
         <div class="stage-card-foot">
+          ${stage.healthCheckUrl ? `<button type="button" class="action-link" data-action="test-health-url" data-payload="${escapeAttr(stage.healthCheckUrl)}">Test health</button>` : ''}
+          ${renderStageRollback(stage)}
           <button type="button" class="action-link" data-action="stage-edit" data-payload="${escapeAttr(stage.id)}">Edit</button>
         </div>
       </article>`;
+  }
+
+  function renderPipelineFlow(stages) {
+    if (!stages || stages.length === 0) { return ''; }
+    return `
+      <div class="pipeline-flow">
+        ${stages.map((s, i) => `
+          <div class="flow-node kind-${escapeAttr(s.kind)} ${s.isCurrentBranch ? 'current' : ''}">
+            <span class="flow-name">${escapeHtml(s.name)} ${s.isProtected ? '🔒' : ''}</span>
+            <span class="flow-branch mono">${escapeHtml(s.branchRef || 'working tree')}${s.branchRef && !s.branchExists ? ' ⚠' : ''}</span>
+            <span class="flow-ver mono">v${escapeHtml(s.deployedVersion)}</span>
+          </div>
+          ${i < stages.length - 1 ? '<div class="flow-arrow">→</div>' : ''}
+        `).join('')}
+      </div>`;
+  }
+
+  function renderStageRollback(stage) {
+    if (!stage.hasRollback) { return ''; }
+    if (state.rollbackArmedStageId !== stage.id) {
+      return `<button type="button" class="action-link danger" data-action="stage-rollback" data-payload="${escapeAttr(stage.id)}">↩ Roll back</button>`;
+    }
+    const typeToConfirm = stage.isProtected
+      ? `<input type="text" id="rollback-confirm-text" value="${escapeAttr(state.rollbackText)}" placeholder="type ${escapeAttr(stage.name)}" autocomplete="off" class="rollback-input" />`
+      : '';
+    return `<span class="reimport-confirm">Run ${escapeHtml(stage.name)} rollback command? ${typeToConfirm}
+      <button type="button" class="action-link danger" data-action="stage-rollback-confirm" data-payload="${escapeAttr(stage.id)}">Confirm</button>
+      <button type="button" class="action-link" data-action="stage-rollback-cancel" data-payload="">Cancel</button></span>`;
+  }
+
+  function renderDeliveryHistory(history) {
+    if (!history || history.length === 0) { return ''; }
+    return `
+      <p class="section-kicker" style="margin-top:6px">Recent promotions</p>
+      <div class="stack-list">
+        ${history.slice(0, 8).map(h => `
+          <div class="history-row ${h.succeeded ? 'good' : 'bad'}">
+            <span>${h.succeeded ? '✓' : '✗'} ${h.kind === 'rollback' ? '↩ Rollback of ' : ''}${escapeHtml((h.kind !== 'rollback' && h.fromName) ? `${h.fromName} → ` : '')}${escapeHtml(h.toName || '')}${h.version ? ` (v${escapeHtml(h.version)})` : ''}</span>
+            <span class="list-meta">${escapeHtml(relativeLabel(h.ranAt))}${h.actor ? ` · ${escapeHtml(h.actor)}` : ''}</span>
+          </div>`).join('')}
+      </div>`;
   }
 
   function renderPromotionCard(path, summaryPath) {

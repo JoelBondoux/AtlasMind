@@ -29,11 +29,35 @@ import type {
   DeliveryConfig,
   DeploymentStage,
   DeploymentStageKind,
+  PromotionHistoryEntry,
   PromotionPath,
 } from '../types.js';
 
 export const DELIVERY_SSOT_PATH = 'project_memory/operations/delivery.json';
 export const DELIVERY_SUMMARY_SSOT_PATH = 'project_memory/operations/delivery.md';
+export const DELIVERY_HISTORY_SSOT_PATH = 'project_memory/operations/delivery-history.json';
+
+/** Most recent promotion/rollback records retained on disk. */
+const MAX_HISTORY = 200;
+
+export function readPromotionHistory(workspaceRoot: string): PromotionHistoryEntry[] {
+  try {
+    const raw = readFileSync(path.join(workspaceRoot, DELIVERY_HISTORY_SSOT_PATH), 'utf8');
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? (parsed as PromotionHistoryEntry[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Append an audit record (newest first), capped at {@link MAX_HISTORY}. */
+export async function appendPromotionHistory(workspaceRoot: string, entry: PromotionHistoryEntry): Promise<void> {
+  const file = path.join(workspaceRoot, DELIVERY_HISTORY_SSOT_PATH);
+  const history = readPromotionHistory(workspaceRoot);
+  history.unshift(entry);
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(file, JSON.stringify(history.slice(0, MAX_HISTORY), null, 2), 'utf-8');
+}
 
 /** Broad project shape used to tailor the seeded pipeline to reality. */
 export type DeliveryArchetype = 'vscode-extension' | 'library' | 'web-service' | 'generic';
@@ -55,8 +79,10 @@ export interface DeliverySeedInput {
   archetype?: DeliveryArchetype;
   /** Whether the project has an application database (drives backup-required). */
   hasDatabase?: boolean;
-  /** Where production ships (e.g. "VS Code Marketplace", "npm registry"). */
+  /** Where production ships (e.g. "VS Code Marketplace", "npm registry", "Fly.io"). */
   publishTarget?: string;
+  /** Public production URL, when derivable (e.g. from fly.toml app name). */
+  productionUrl?: string;
   /** Detected env/config files per stage role (workspace-relative names). */
   envFiles?: { local?: string; staging?: string; production?: string };
   /** Which standard npm scripts exist, used to derive required checks. */
@@ -164,7 +190,7 @@ export function seedDeliveryConfig(input: DeliverySeedInput): DeliveryConfig {
       : 'The live environment your real users depend on. Every change here is treated as high-risk: it is backed up first, requires sign-off, and is never force-pushed.',
     branchRef: productionBranch,
     config: configFor(input.envFiles?.production),
-    hosting: { provider: input.publishTarget ?? 'TBD', url: '', healthCheckUrl: '' },
+    hosting: { provider: input.publishTarget ?? 'TBD', url: input.productionUrl ?? '', healthCheckUrl: '' },
     data: dataFor('production'),
     backupPolicy: hasDatabase
       ? {
