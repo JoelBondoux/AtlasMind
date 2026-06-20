@@ -85,6 +85,12 @@ export function buildPromotionPlan(input: PromotionPlanInput): PromotionPlan | u
     blockers.push(`A data backup is required before promoting to ${to.name}, but no backup command is set. Add one in the stage editor before this push can run.`);
   }
 
+  const viaPullRequest = to.promotionPolicy.viaPullRequest === true;
+  const hasRoutine = Boolean(input.routine && input.routine.steps.length > 0);
+  if (viaPullRequest && !hasRoutine) {
+    blockers.push(`Promotion to ${to.name} must go through a Pull Request into \`${to.branchRef ?? 'the protected branch'}\`, but no promotion routine is bound to open one. Bind a routine (in the push editor) that runs your PR / merge / publish flow.`);
+  }
+
   if (to.promotionPolicy.requireVersionBump) {
     const ahead = compareSemver(input.fromVersion, input.toVersion) > 0;
     checks.push({
@@ -128,6 +134,18 @@ export function buildPromotionPlan(input: PromotionPlanInput): PromotionPlan | u
         detail: 'Confirm this is satisfied before proceeding.',
       });
     }
+  }
+
+  // CI status checks imported from the repo's workflows / branch protection.
+  // Attested manually (AtlasMind does not poll live CI status in this phase).
+  for (const context of to.promotionPolicy.requiredStatusChecks ?? []) {
+    checks.push({
+      id: `status-${slugify(context)}`,
+      label: `CI green: ${context}`,
+      kind: 'manual',
+      status: 'manual',
+      detail: viaPullRequest ? 'Confirm this CI check is green on the Pull Request.' : 'Confirm this CI check is green.',
+    });
   }
 
   const steps: PromotionPlanStep[] = [];
@@ -198,7 +216,8 @@ export function buildPromotionPlan(input: PromotionPlanInput): PromotionPlan | u
     blockers,
     requiresApproval: to.promotionPolicy.requiresApproval,
     isProtected: to.isProtected,
-    hasRoutine: Boolean(input.routine && input.routine.steps.length > 0),
+    viaPullRequest,
+    hasRoutine,
     routineId: path.routineId,
   };
 }

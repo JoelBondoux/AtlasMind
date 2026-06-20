@@ -6,6 +6,15 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.114.0 — Delivery imports your PR/CI promotion protocol
+
+- **PR-based promotion is now first-class.** The pipeline detects whether promoting into a branch goes through a **Pull Request** (from GitHub branch protection via `gh`, falling back to the bound routine's `gh pr create`) and the **exact required CI status checks** (branch-protection contexts like `quality (ubuntu-latest)`, else the gating workflow names from `.github/workflows`).
+- **Surfaced everywhere.** Stage and push cards show a **🔀 via PR** badge and the real check names; the promotion dialog lists each CI check as a preflight item; the runbook says "Promote via Pull Request into a protected branch."
+- **New guardrail.** A PR-required promotion with no routine bound to open the PR is blocked — a protected branch is never targeted by a direct push.
+- The `gh` probe runs only at seed / re-import (short timeout, full fallback to local signals).
+
+---
+
 ## v0.113.0 — Delivery imports your real protocol (not a generic template)
 
 - **Accurate seeding.** The Delivery pipeline now imports the repository's actual signals — project archetype (VS Code extension / library / web service), database presence, publish target (Marketplace / npm / container), `.env` files, package scripts, CI, and existing routines — instead of assuming a web-app-with-database. No more phantom "production database" with a backup gate that blocked the production push on projects that have no database.

@@ -1104,10 +1104,24 @@ export interface StagePromotionPolicy {
   /** Require a CHANGELOG entry for the new version. */
   requireChangelog: boolean;
   /**
-   * Free-form named checks that must pass (e.g. "CI green", "e2e:staging").
+   * Free-form named checks that must pass (e.g. "e2e:staging").
    * Surfaced in the dashboard and the runbook so the gates are self-documenting.
    */
   requiredChecks: string[];
+  /**
+   * When true, promotion into this stage's branch goes through a **Pull Request**
+   * to a protected branch — not a direct merge/push. Imported from the repo's
+   * workflows (a `pull_request`-triggered CI on the branch), the bound routine's
+   * `gh pr create`, and/or GitHub branch protection.
+   */
+  viaPullRequest?: boolean;
+  /**
+   * Named CI status checks (workflow / context names) that must be green for the
+   * promotion — imported from the repository's CI workflows and, when available,
+   * the branch's protection settings. Distinct from {@link requiredChecks}
+   * (the free-form human checklist).
+   */
+  requiredStatusChecks?: string[];
 }
 
 /** How to roll a stage back if a promotion goes wrong. */
@@ -1232,6 +1246,8 @@ export interface PromotionPlan {
   blockers: string[];
   requiresApproval: boolean;
   isProtected: boolean;
+  /** Promotion into the target goes through a Pull Request to a protected branch. */
+  viaPullRequest: boolean;
   /** Whether a bound promotion routine with steps was found on disk. */
   hasRoutine: boolean;
   routineId?: string;

@@ -67,6 +67,10 @@ export interface DeliverySeedInput {
   productionRoutineId?: string;
   /** Existing routine id to bind to the staging/integration promotion path. */
   stagingRoutineId?: string;
+  /** Whether promotion into the integration/production branch goes via a Pull Request. */
+  viaPullRequest?: { staging?: boolean; production?: boolean };
+  /** CI status-check names gating the integration/production branch. */
+  statusChecks?: { staging?: string[]; production?: string[] };
 }
 
 export function defaultDeliveryConfig(): DeliveryConfig {
@@ -95,8 +99,8 @@ export function seedDeliveryConfig(input: DeliverySeedInput): DeliveryConfig {
   if (input.scripts?.build) { baseChecks.push('Compile/build passes'); }
   if (input.scripts?.lint) { baseChecks.push('Lint passes'); }
   if (input.scripts?.test) { baseChecks.push('Tests pass'); }
-  const productionChecks = [...baseChecks];
-  if (input.hasCi) { productionChecks.push('CI green'); }
+  // CI is represented as first-class required *status checks* (below), not a
+  // generic "CI green" label.
 
   const dataFor = (role: 'local' | 'staging' | 'production'): DeploymentStage['data'] => {
     if (!hasDatabase) { return { kind: 'none', label: 'No application database' }; }
@@ -138,7 +142,14 @@ export function seedDeliveryConfig(input: DeliverySeedInput): DeliveryConfig {
     backupPolicy: hasDatabase
       ? { required: false, retention: 'Optional — staging data is generally reproducible.' }
       : { required: false },
-    promotionPolicy: { requiresApproval: false, requireVersionBump: true, requireChangelog: true, requiredChecks: [...baseChecks] },
+    promotionPolicy: {
+      requiresApproval: false,
+      requireVersionBump: true,
+      requireChangelog: true,
+      requiredChecks: [...baseChecks],
+      viaPullRequest: input.viaPullRequest?.staging ?? false,
+      requiredStatusChecks: input.statusChecks?.staging ?? [],
+    },
     rollbackPolicy: { runbookRef: DELIVERY_SUMMARY_SSOT_PATH },
     isProtected: false,
   };
@@ -165,7 +176,14 @@ export function seedDeliveryConfig(input: DeliverySeedInput): DeliveryConfig {
           retention: 'Recommended: keep at least 7 daily snapshots.',
         }
       : { required: false, runbookRef: DELIVERY_SUMMARY_SSOT_PATH },
-    promotionPolicy: { requiresApproval: true, requireVersionBump: true, requireChangelog: true, requiredChecks: productionChecks },
+    promotionPolicy: {
+      requiresApproval: true,
+      requireVersionBump: true,
+      requireChangelog: true,
+      requiredChecks: [...baseChecks],
+      viaPullRequest: input.viaPullRequest?.production ?? false,
+      requiredStatusChecks: input.statusChecks?.production ?? [],
+    },
     rollbackPolicy: { runbookRef: DELIVERY_SUMMARY_SSOT_PATH },
     isProtected: true,
   };
@@ -296,6 +314,10 @@ export function sanitizeDeliveryConfig(input: unknown): DeliveryConfig | undefin
         requireChangelog: asBool(promo['requireChangelog']),
         requiredChecks: Array.isArray(promo['requiredChecks'])
           ? (promo['requiredChecks'] as unknown[]).map(check => clampStr(check, 120)).filter(Boolean).slice(0, 30)
+          : [],
+        viaPullRequest: asBool(promo['viaPullRequest']),
+        requiredStatusChecks: Array.isArray(promo['requiredStatusChecks'])
+          ? (promo['requiredStatusChecks'] as unknown[]).map(check => clampStr(check, 160)).filter(Boolean).slice(0, 30)
           : [],
       },
       rollbackPolicy: {
@@ -430,15 +452,23 @@ export function renderDeliveryMarkdown(config: DeliveryConfig): string {
     }
     lines.push(`### ${from.name} → ${to.name}`);
     lines.push('');
+    const viaPr = to.promotionPolicy.viaPullRequest === true;
     lines.push('Every promotion runs the same guarded sequence:');
     lines.push('');
     lines.push('1. **Preflight gate** — the required checks below must all pass, or the promotion aborts.');
     lines.push(`2. **Backup** — ${to.backupPolicy.required ? `a snapshot of **${to.name}** is taken before any change, so it can be recovered` : 'optional for this target'}.`);
-    lines.push('3. **Promote** — the build is merged/tagged forward. AtlasMind never force-pushes.');
+    lines.push(viaPr
+      ? `3. **Promote via Pull Request** — open a PR into \`${to.branchRef ?? to.name}\` (a protected branch); the required status checks must be green and the PR merged. AtlasMind never force-pushes or pushes directly.`
+      : '3. **Promote** — the build is merged/tagged forward. AtlasMind never force-pushes.');
     lines.push('4. **Verify** — the target is health-checked after deploy.');
     lines.push('');
     const checks = to.promotionPolicy.requiredChecks;
     lines.push(`- **Required checks:** ${checks.length > 0 ? checks.map(c => `\`${c}\``).join(', ') : 'none configured'}`);
+    const statusChecks = to.promotionPolicy.requiredStatusChecks ?? [];
+    if (statusChecks.length > 0) {
+      lines.push(`- **Required CI status checks:** ${statusChecks.map(c => `\`${c}\``).join(', ')}`);
+    }
+    lines.push(`- **Promotion mechanism:** ${viaPr ? 'Pull Request into a protected branch' : 'direct merge/tag'}`);
     lines.push(`- **Approval:** ${to.promotionPolicy.requiresApproval ? 'a human must sign off before anything runs' : 'not required'}`);
     lines.push(`- **Version bump required:** ${to.promotionPolicy.requireVersionBump ? 'yes' : 'no'}`);
     lines.push(`- **Changelog entry required:** ${to.promotionPolicy.requireChangelog ? 'yes' : 'no'}`);

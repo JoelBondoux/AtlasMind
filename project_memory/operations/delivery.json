@@ -52,6 +52,12 @@
           "Compile/build passes",
           "Lint passes",
           "Tests pass"
+        ],
+        "viaPullRequest": false,
+        "requiredStatusChecks": [
+          "quality (ubuntu-latest)",
+          "quality (windows-latest)",
+          "quality (macos-latest)"
         ]
       },
       "rollbackPolicy": {
@@ -88,8 +94,13 @@
           "Working tree clean",
           "Compile/build passes",
           "Lint passes",
-          "Tests pass",
-          "CI green"
+          "Tests pass"
+        ],
+        "viaPullRequest": true,
+        "requiredStatusChecks": [
+          "quality (ubuntu-latest)",
+          "quality (windows-latest)",
+          "quality (macos-latest)"
         ]
       },
       "rollbackPolicy": {
@@ -111,5 +122,5 @@
       "routineId": "publishing-routine"
     }
   ],
-  "updatedAt": "2026-06-20T13:37:40.959Z"
+  "updatedAt": "2026-06-20T13:57:47.754Z"
 }

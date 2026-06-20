@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.114.0] - 2026-06-20
+
+### Added
+- **Delivery seeding now imports the Git PR/CI promotion protocol as first-class.** Previously the pipeline only added a generic "CI green" label and left the real mechanism implicit inside a routine's shell. The importer now detects, per branch: whether promotion goes **through a Pull Request** (from GitHub **branch protection** via `gh` when available — `required_pull_request_reviews` — with graceful fallback to the bound routine's `gh pr create`), and the **exact required CI status checks** (branch-protection contexts, e.g. `quality (ubuntu-latest)`, else the gating workflow names parsed from `.github/workflows`). New `StagePromotionPolicy.viaPullRequest` and `requiredStatusChecks` fields carry this. The promotion dialog/runbook now lists each CI check as a preflight item, the stage card and push card show a **"🔀 via PR"** badge and the real check names, the runbook describes *"Promote via Pull Request into a protected branch"*, and a **guardrail blocks a PR-required promotion that has no routine bound to open the PR** — so a protected branch is never targeted by a direct push. AtlasMind's own `delivery.json` was regenerated with this (Production = PR-required into `master` with the three `quality` checks; Integration = direct-push `develop`, CI-gated).
+- A best-effort `gh` branch-protection probe runs only at seed / re-import (never on the render path), with a short timeout and full fallback to local signals when `gh` is unavailable.
+
 ## [0.113.0] - 2026-06-20
 
 ### Changed

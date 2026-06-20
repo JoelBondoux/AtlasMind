@@ -506,6 +506,10 @@ interface DashboardPromotionPathView {
   /** Named checks that must pass before the push runs. */
   gates: string[];
   requiresApproval: boolean;
+  /** Promotion into the target goes through a Pull Request to a protected branch. */
+  viaPullRequest: boolean;
+  /** CI status checks imported from the repo's workflows / branch protection. */
+  statusChecks: string[];
   backupRequired: boolean;
   backupConfigured: boolean;
   /** Deny-by-default: backup required for the target but no command set. */
@@ -2688,11 +2692,111 @@ async function pathExists(absolutePath: string): Promise<boolean> {
   }
 }
 
+/** Extract the branch filter for a workflow trigger (`pull_request` / `push`). */
+function extractTriggerBranches(content: string, trigger: string): string[] | 'all' | null {
+  // Inline form: `on: [push, pull_request]` → gates all branches.
+  const inline = content.match(/^on:\s*\[([^\]]*)\]/m);
+  if (inline) {
+    return inline[1].split(',').map(part => part.trim()).includes(trigger) ? 'all' : null;
+  }
+  if (new RegExp(`^on:\\s*${trigger}\\s*$`, 'm').test(content)) {
+    return 'all';
+  }
+  const lines = content.split(/\r?\n/);
+  const triggerIdx = lines.findIndex(line => new RegExp(`^\\s{1,6}${trigger}:\\s*$`).test(line));
+  if (triggerIdx < 0) {
+    return null;
+  }
+  const baseIndent = lines[triggerIdx].match(/^(\s*)/)?.[1].length ?? 0;
+  for (let j = triggerIdx + 1; j < lines.length; j++) {
+    if (lines[j].trim() === '') { continue; }
+    const indent = lines[j].match(/^(\s*)/)?.[1].length ?? 0;
+    if (indent <= baseIndent) { break; }
+    const branchesMatch = lines[j].match(/^\s*branches:\s*(.*)$/);
+    if (branchesMatch) {
+      const rest = branchesMatch[1].trim();
+      if (rest.startsWith('[')) {
+        return rest.replace(/[[\]]/g, '').split(',').map(part => part.trim().replace(/['"]/g, '')).filter(Boolean);
+      }
+      const branches: string[] = [];
+      for (let k = j + 1; k < lines.length; k++) {
+        const item = lines[k].match(/^\s*-\s*(.+)$/);
+        if (!item) { break; }
+        branches.push(item[1].trim().replace(/['"]/g, ''));
+      }
+      return branches.length > 0 ? branches : 'all';
+    }
+  }
+  return 'all';
+}
+
+/**
+ * Parse `.github/workflows/*.yml` to determine which workflows gate a branch and
+ * whether any do so on `pull_request` (implying PR-based promotion). Returns the
+ * gating workflow names and a viaPr flag.
+ */
+async function detectBranchCiGating(workspaceRoot: string, branch: string): Promise<{ viaPr: boolean; checks: string[] }> {
+  const dir = path.join(workspaceRoot, '.github', 'workflows');
+  let files: string[];
+  try {
+    files = (await fs.readdir(dir)).filter(name => /\.ya?ml$/i.test(name));
+  } catch {
+    return { viaPr: false, checks: [] };
+  }
+  const target = normalizeBranchRef(branch).toLowerCase();
+  const matches = (sel: string[] | 'all' | null): boolean =>
+    sel === 'all' || (Array.isArray(sel) && sel.map(b => normalizeBranchRef(b).toLowerCase()).includes(target));
+  const checks = new Set<string>();
+  let viaPr = false;
+  for (const file of files) {
+    let content = '';
+    try {
+      content = await fs.readFile(path.join(dir, file), 'utf-8');
+    } catch {
+      continue;
+    }
+    const name = (content.match(/^name:\s*(.+)$/m)?.[1] ?? file.replace(/\.ya?ml$/i, '')).trim();
+    const pr = extractTriggerBranches(content, 'pull_request');
+    const push = extractTriggerBranches(content, 'push');
+    if (matches(pr)) { viaPr = true; checks.add(name); }
+    else if (matches(push)) { checks.add(name); }
+  }
+  return { viaPr, checks: [...checks].sort() };
+}
+
+/** Run a `gh` command (best-effort; short timeout, never used on the render path). */
+async function runGh(workspaceRoot: string, args: string[]): Promise<string> {
+  const { stdout } = await execFileAsync('gh', args, { cwd: workspaceRoot, windowsHide: true, timeout: 8000, maxBuffer: 1024 * 1024 });
+  return stdout.trim();
+}
+
+/** Best-effort GitHub branch-protection import: exact required-check contexts + PR requirement. */
+async function fetchBranchProtection(
+  workspaceRoot: string,
+  slug: string,
+  branch: string,
+): Promise<{ requiresPr: boolean; contexts: string[] } | undefined> {
+  try {
+    const raw = await runGh(workspaceRoot, ['api', `repos/${slug}/branches/${normalizeBranchRef(branch)}/protection`]);
+    const parsed = JSON.parse(raw) as {
+      required_status_checks?: { contexts?: string[]; checks?: Array<{ context?: string }> };
+      required_pull_request_reviews?: unknown;
+    };
+    const contexts = parsed.required_status_checks?.contexts
+      ?? parsed.required_status_checks?.checks?.map(check => check.context ?? '').filter(Boolean)
+      ?? [];
+    return { requiresPr: Boolean(parsed.required_pull_request_reviews), contexts };
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Import the repository's actual delivery signals so the seeded pipeline reflects
  * the protocol already in place rather than a generic template: branch layout,
  * project archetype, database presence, publish target, env files, package
- * scripts, CI, and any existing routine to bind to a promotion path.
+ * scripts, CI, the PR/CI promotion protocol, and any existing routine to bind to
+ * a promotion path.
  */
 async function detectDeliverySignals(
   atlas: AtlasMindContext,
@@ -2769,6 +2873,41 @@ async function detectDeliverySignals(
     // No routines — leave promotion paths unbound (accurate).
   }
 
+  // ── PR / CI promotion protocol ──────────────────────────────────
+  const prodShort = productionRef ? normalizeBranchRef(productionRef) : 'main';
+  const stagingShort = developExists ? 'develop' : normalizeBranchRef(currentBranch);
+
+  const prodGating = await detectBranchCiGating(workspaceRoot, prodShort);
+  const stagingGating = await detectBranchCiGating(workspaceRoot, stagingShort);
+
+  // Best-effort enrichment from GitHub branch protection (exact check contexts +
+  // PR requirement). Graceful fallback to local signals if gh is unavailable.
+  let repoSlug: string | undefined;
+  try {
+    repoSlug = (await runGh(workspaceRoot, ['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'])) || undefined;
+  } catch {
+    repoSlug = undefined;
+  }
+  const prodProtection = repoSlug ? await fetchBranchProtection(workspaceRoot, repoSlug, prodShort) : undefined;
+  const stagingProtection = repoSlug ? await fetchBranchProtection(workspaceRoot, repoSlug, stagingShort) : undefined;
+
+  // A bound production routine that opens a PR also signals PR-based promotion.
+  let routineOpensPr = false;
+  if (productionRoutineId) {
+    const routine = atlas.routineRegistry.get(productionRoutineId);
+    routineOpensPr = Boolean(routine?.steps.some(step =>
+      /gh\s+pr\s+create/i.test(step.run) && new RegExp(`--base\\s+(${prodShort}|master|main)`).test(step.run)));
+  }
+
+  // "Via PR" means PRs are *required* — sourced authoritatively from branch
+  // protection when gh is available, else from a routine that opens a PR. CI
+  // merely having a pull_request trigger is NOT treated as "PR required" (a
+  // branch can accept direct pushes yet still run CI on PRs, like `develop`).
+  const productionViaPr = prodProtection ? (prodProtection.requiresPr || routineOpensPr) : routineOpensPr;
+  const productionChecks = (prodProtection?.contexts.length ? prodProtection.contexts : prodGating.checks);
+  const stagingViaPr = stagingProtection ? stagingProtection.requiresPr : false;
+  const stagingChecks = (stagingProtection?.contexts.length ? stagingProtection.contexts : stagingGating.checks);
+
   return {
     currentBranch,
     productionBranch: productionRef ?? undefined,
@@ -2781,6 +2920,8 @@ async function detectDeliverySignals(
     hasCi,
     productionRoutineId,
     stagingRoutineId,
+    viaPullRequest: { staging: stagingViaPr, production: productionViaPr },
+    statusChecks: { staging: stagingChecks, production: productionChecks },
   };
 }
 
@@ -3045,6 +3186,9 @@ function buildStageSecurityNotes(stage: DeploymentStage, backupConfigured: boole
   if (stage.promotionPolicy.requiresApproval) {
     notes.push('Pushes require explicit human approval before anything runs.');
   }
+  if (stage.promotionPolicy.viaPullRequest) {
+    notes.push(`Pushes into this stage go through a Pull Request to the ${stage.branchRef ?? 'protected'} branch — never a direct push.`);
+  }
   if (stage.config.sourceLabel) {
     notes.push(`Secrets live in ${stage.config.sourceLabel} — only the location is recorded here, never the values.`);
   }
@@ -3064,13 +3208,23 @@ function buildPromotionPathView(
   const fromView = stageViews.find(view => view.id === promo.fromStageId);
   const toView = stageViews.find(view => view.id === promo.toStageId);
   const backupConfigured = Boolean(to.backupPolicy.command && to.backupPolicy.command.trim().length > 0);
-  const blocked = to.backupPolicy.required && !backupConfigured;
+  const viaPullRequest = to.promotionPolicy.viaPullRequest === true;
+  const needsPrRoutine = viaPullRequest && !promo.routineId;
+  const backupBlocked = to.backupPolicy.required && !backupConfigured;
+  const blocked = backupBlocked || needsPrRoutine;
   const guardrails = [
     'Preflight gate — required checks must pass, or the push aborts',
     to.backupPolicy.required ? `Backup — snapshot ${to.name} before any change` : 'Backup — optional for this target',
-    'Promote — merge/tag forward (never force-push)',
+    viaPullRequest
+      ? `Promote — open a Pull Request into ${to.branchRef ?? 'the protected branch'} (never a direct push)`
+      : 'Promote — merge/tag forward (never force-push)',
     'Verify — health-check the target after deploy',
   ];
+  const blockReason = backupBlocked
+    ? `Define a backup command for ${to.name} before this push can run.`
+    : needsPrRoutine
+      ? `Bind a promotion routine that opens a Pull Request into ${to.branchRef ?? 'the protected branch'}.`
+      : '';
   const versionDelta = fromView && toView ? `v${fromView.deployedVersion} → v${toView.deployedVersion}` : '';
   return {
     id: promo.id,
@@ -3082,10 +3236,12 @@ function buildPromotionPathView(
     guardrails,
     gates: to.promotionPolicy.requiredChecks,
     requiresApproval: to.promotionPolicy.requiresApproval,
+    viaPullRequest,
+    statusChecks: to.promotionPolicy.requiredStatusChecks ?? [],
     backupRequired: to.backupPolicy.required,
     backupConfigured,
     blocked,
-    blockReason: blocked ? `Define a backup command for ${to.name} before this push can run.` : '',
+    blockReason,
     versionDelta,
     lastPromotion: promo.lastPromotion
       ? {
@@ -6197,6 +6353,7 @@ const DASHBOARD_CSS = `
   .promotion-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
   .promotion-head h4 { margin: 0; font-size: 0.98em; }
   .promotion-head .version-delta { font-family: var(--vscode-editor-font-family, monospace); font-size: 0.8em; color: var(--vscode-descriptionForeground); }
+  .via-pr-badge { font-size: 0.68em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--vscode-charts-purple, #b180d7); color: var(--vscode-charts-purple, #b180d7); white-space: nowrap; }
   .guardrail-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
   .guardrail-list li { font-size: 0.82em; line-height: 1.4; }
   .gate-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 0.8em; color: var(--vscode-descriptionForeground); }

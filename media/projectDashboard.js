@@ -2033,13 +2033,14 @@
     return `
       <article class="promotion-card ${path.blocked ? 'blocked' : ''}">
         <div class="promotion-head">
-          <h4>${escapeHtml(path.fromName)} → ${escapeHtml(path.toName)}</h4>
+          <h4>${escapeHtml(path.fromName)} → ${escapeHtml(path.toName)} ${path.viaPullRequest ? '<span class="via-pr-badge">🔀 via PR</span>' : ''}</h4>
           ${path.versionDelta ? `<span class="version-delta">${escapeHtml(path.versionDelta)}</span>` : ''}
         </div>
         <ol class="guardrail-list">
           ${path.guardrails.map(step => `<li>${escapeHtml(step)}</li>`).join('')}
         </ol>
         <div class="gate-row"><span>Gates:</span> ${gates}</div>
+        ${(path.statusChecks || []).length > 0 ? `<div class="gate-row"><span>CI:</span> ${path.statusChecks.map(c => `<span class="tag mono">${escapeHtml(c)}</span>`).join('')}</div>` : ''}
         ${path.blocked ? `<p class="promotion-block-note">⚠ ${escapeHtml(path.blockReason)}</p>` : ''}
         <div class="promotion-actions">
           ${path.blocked
@@ -2297,7 +2298,7 @@
     return `
       <div class="promo-overlay">
         <div class="promo-modal">
-          <h3>${runbook ? 'Runbook' : 'Promote'} — ${escapeHtml(plan.fromName)} → ${escapeHtml(plan.toName)} ${plan.isProtected ? '🔒' : ''}</h3>
+          <h3>${runbook ? 'Runbook' : 'Promote'} — ${escapeHtml(plan.fromName)} → ${escapeHtml(plan.toName)} ${plan.isProtected ? '🔒' : ''}${plan.viaPullRequest ? ' <span class="via-pr-badge">🔀 via PR</span>' : ''}</h3>
           ${blocked ? `<div class="promo-blockers">${plan.blockers.map(b => `<p class="promotion-block-note">⚠ ${escapeHtml(b)}</p>`).join('')}</div>` : ''}
           <div class="promo-section">
             <h4>Plan</h4>

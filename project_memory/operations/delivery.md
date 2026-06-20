@@ -51,6 +51,8 @@ Every promotion runs the same guarded sequence:
 4. **Verify** — the target is health-checked after deploy.
 
 - **Required checks:** `Working tree clean`, `Compile/build passes`, `Lint passes`, `Tests pass`
+- **Required CI status checks:** `quality (ubuntu-latest)`, `quality (windows-latest)`, `quality (macos-latest)`
+- **Promotion mechanism:** direct merge/tag
 - **Approval:** not required
 - **Version bump required:** yes
 - **Changelog entry required:** yes
@@ -61,14 +63,16 @@ Every promotion runs the same guarded sequence:
 
 1. **Preflight gate** — the required checks below must all pass, or the promotion aborts.
 2. **Backup** — optional for this target.
-3. **Promote** — the build is merged/tagged forward. AtlasMind never force-pushes.
+3. **Promote via Pull Request** — open a PR into `master` (a protected branch); the required status checks must be green and the PR merged. AtlasMind never force-pushes or pushes directly.
 4. **Verify** — the target is health-checked after deploy.
 
-- **Required checks:** `Working tree clean`, `Compile/build passes`, `Lint passes`, `Tests pass`, `CI green`
+- **Required checks:** `Working tree clean`, `Compile/build passes`, `Lint passes`, `Tests pass`
+- **Required CI status checks:** `quality (ubuntu-latest)`, `quality (windows-latest)`, `quality (macos-latest)`
+- **Promotion mechanism:** Pull Request into a protected branch
 - **Approval:** a human must sign off before anything runs
 - **Version bump required:** yes
 - **Changelog entry required:** yes
 
 ---
 
-_Last updated: 2026-06-20T13:37:40.959Z._
+_Last updated: 2026-06-20T13:57:47.754Z._
