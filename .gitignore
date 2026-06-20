@@ -9,4 +9,5 @@ coverage/
 project_memory/sessions/
 project_memory/temp/
 project_memory/operations/project-run-*.json
+project_memory/operations/.delivery-lock.json
 .atlasmind/

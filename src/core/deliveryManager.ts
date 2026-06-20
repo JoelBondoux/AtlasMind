@@ -24,7 +24,7 @@
 
 import * as path from 'node:path';
 import { readFileSync } from 'node:fs';
-import { writeFile, mkdir } from 'node:fs/promises';
+import { writeFile, mkdir, rm } from 'node:fs/promises';
 import type {
   DeliveryConfig,
   DeploymentStage,
@@ -57,6 +57,49 @@ export async function appendPromotionHistory(workspaceRoot: string, entry: Promo
   history.unshift(entry);
   await mkdir(path.dirname(file), { recursive: true });
   await writeFile(file, JSON.stringify(history.slice(0, MAX_HISTORY), null, 2), 'utf-8');
+}
+
+// ── Concurrency lock ─────────────────────────────────────────────
+
+export const DELIVERY_LOCK_SSOT_PATH = 'project_memory/operations/.delivery-lock.json';
+/** A lock older than this is treated as stale (a crashed run) and ignored. */
+const LOCK_STALE_MS = 60 * 60 * 1000;
+
+export interface DeliveryLock {
+  label: string;
+  startedAt: string;
+}
+
+/** Return a live (non-stale) lock if one is held, else undefined. */
+export function readDeliveryLock(workspaceRoot: string): DeliveryLock | undefined {
+  try {
+    const parsed = JSON.parse(readFileSync(path.join(workspaceRoot, DELIVERY_LOCK_SSOT_PATH), 'utf8')) as DeliveryLock;
+    if (!parsed || typeof parsed.startedAt !== 'string') {
+      return undefined;
+    }
+    return (Date.now() - new Date(parsed.startedAt).getTime() > LOCK_STALE_MS) ? undefined : parsed;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Acquire the single-flight delivery lock; returns false if one is already held. */
+export async function acquireDeliveryLock(workspaceRoot: string, label: string): Promise<boolean> {
+  if (readDeliveryLock(workspaceRoot)) {
+    return false;
+  }
+  const file = path.join(workspaceRoot, DELIVERY_LOCK_SSOT_PATH);
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(file, JSON.stringify({ label, startedAt: new Date().toISOString() }, null, 2), 'utf-8');
+  return true;
+}
+
+export async function releaseDeliveryLock(workspaceRoot: string): Promise<void> {
+  try {
+    await rm(path.join(workspaceRoot, DELIVERY_LOCK_SSOT_PATH));
+  } catch {
+    // Already released.
+  }
 }
 
 /** Broad project shape used to tailor the seeded pipeline to reality. */
@@ -97,6 +140,8 @@ export interface DeliverySeedInput {
   viaPullRequest?: { staging?: boolean; production?: boolean };
   /** CI status-check names gating the integration/production branch. */
   statusChecks?: { staging?: string[]; production?: string[] };
+  /** CD workflow file to dispatch for promotion (trigger CD instead of local deploy). */
+  dispatchWorkflow?: { staging?: string; production?: string };
 }
 
 export function defaultDeliveryConfig(): DeliveryConfig {
@@ -175,6 +220,7 @@ export function seedDeliveryConfig(input: DeliverySeedInput): DeliveryConfig {
       requiredChecks: [...baseChecks],
       viaPullRequest: input.viaPullRequest?.staging ?? false,
       requiredStatusChecks: input.statusChecks?.staging ?? [],
+      dispatchWorkflow: input.dispatchWorkflow?.staging,
     },
     rollbackPolicy: { runbookRef: DELIVERY_SUMMARY_SSOT_PATH },
     isProtected: false,
@@ -209,6 +255,7 @@ export function seedDeliveryConfig(input: DeliverySeedInput): DeliveryConfig {
       requiredChecks: [...baseChecks],
       viaPullRequest: input.viaPullRequest?.production ?? false,
       requiredStatusChecks: input.statusChecks?.production ?? [],
+      dispatchWorkflow: input.dispatchWorkflow?.production,
     },
     rollbackPolicy: { runbookRef: DELIVERY_SUMMARY_SSOT_PATH },
     isProtected: true,
@@ -327,10 +374,12 @@ export function sanitizeDeliveryConfig(input: unknown): DeliveryConfig | undefin
         kind: optStr(data['kind']),
         label: optStr(data['label']),
         migrationsPath: optStr(data['migrationsPath'], MAX_PATH),
+        migrateCommand: optStr(data['migrateCommand'], MAX_LONG),
       },
       backupPolicy: {
         required: asBool(backup['required']),
         command: optStr(backup['command'], MAX_LONG),
+        verifyCommand: optStr(backup['verifyCommand'], MAX_LONG),
         runbookRef: optStr(backup['runbookRef'], MAX_PATH),
         retention: optStr(backup['retention']),
       },
@@ -345,6 +394,8 @@ export function sanitizeDeliveryConfig(input: unknown): DeliveryConfig | undefin
         requiredStatusChecks: Array.isArray(promo['requiredStatusChecks'])
           ? (promo['requiredStatusChecks'] as unknown[]).map(check => clampStr(check, 160)).filter(Boolean).slice(0, 30)
           : [],
+        dispatchWorkflow: optStr(promo['dispatchWorkflow'], 200),
+        requireDistinctApprover: asBool(promo['requireDistinctApprover']),
       },
       rollbackPolicy: {
         command: optStr(rollback['command'], MAX_LONG),

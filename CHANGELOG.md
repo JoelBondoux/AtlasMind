@@ -8,6 +8,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.116.0] - 2026-06-20
+
+### Added
+- **Delivery hardening pt 2 — the remaining gaps.**
+  - **Concurrency lock.** A workspace lock (`project_memory/operations/.delivery-lock.json`) guarantees only one promotion *or* rollback runs at a time; a second is refused with a clear message (the lock auto-clears after 60 min if a run crashes).
+  - **Trigger-CD promotion.** When a stage sets `promotionPolicy.dispatchWorkflow` (auto-detected from a `workflow_dispatch` deploy/release workflow when no routine is bound), the promote step becomes **`gh workflow run <file>`** — production deploys run in CI/CD with its identity and logs, not on the developer's machine.
+  - **Backup verification + migrations as managed steps.** `backupPolicy.verifyCommand` runs right after the backup and must pass (turning "backup ran" into "backup verified"); `data.migrateCommand` applies schema changes inside the guarded sequence (after backup, before deploy).
+  - **Separation of duties.** `promotionPolicy.requireDistinctApprover` adds an automatic gate that the person promoting (git actor email) must differ from the author of the change being promoted (source head-commit author); when identities can't be resolved it degrades to a manual attestation.
+  - All four are editable in the stage editor and surfaced as stage **security notes** / preflight checks / plan steps.
+
+> Deferred (warrant dedicated design; representable today via custom stages + routines): first-class **progressive delivery** (canary / blue-green) and **ephemeral per-PR preview environments**.
+
 ## [0.115.0] - 2026-06-20
 
 ### Added

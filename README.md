@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.115.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.116.0</strong> · </sub></p>
 
 
 <p align="center">

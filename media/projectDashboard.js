@@ -2231,11 +2231,13 @@
           ${edText('Type', 'data.kind', stage.data.kind, 'postgres / s3 / none')}
           ${edText('Label', 'data.label', stage.data.label, 'Staging database')}
           ${edText('Migrations path', 'data.migrationsPath', stage.data.migrationsPath, 'db/migrations')}
+          ${edText('Migrate command', 'data.migrateCommand', stage.data.migrateCommand, 'npm run db:migrate (runs during promote)')}
         </div>
         <p class="stage-edit-group">Backup &amp; recovery <small>runs before any push to this stage</small></p>
         ${edCheck('Backup required before any push to this stage', 'backupPolicy.required', stage.backupPolicy.required)}
         <div class="stage-edit-grid">
           ${edText('Backup command', 'backupPolicy.command', stage.backupPolicy.command, 'pg_dump … (taken before promote)')}
+          ${edText('Backup verify command', 'backupPolicy.verifyCommand', stage.backupPolicy.verifyCommand, 'confirms the snapshot is restorable')}
           ${edText('Backup runbook ref', 'backupPolicy.runbookRef', stage.backupPolicy.runbookRef, '')}
           ${edText('Retention', 'backupPolicy.retention', stage.backupPolicy.retention, '7 daily snapshots')}
         </div>
@@ -2243,7 +2245,9 @@
         ${edCheck('Require human approval before a push runs', 'promotionPolicy.requiresApproval', stage.promotionPolicy.requiresApproval)}
         ${edCheck('Require a version bump', 'promotionPolicy.requireVersionBump', stage.promotionPolicy.requireVersionBump)}
         ${edCheck('Require a changelog entry', 'promotionPolicy.requireChangelog', stage.promotionPolicy.requireChangelog)}
+        ${edCheck('Separation of duties — approver must differ from the change author', 'promotionPolicy.requireDistinctApprover', stage.promotionPolicy.requireDistinctApprover)}
         ${edArea('Required checks (one per line)', 'promotionPolicy.requiredChecks', checks, 'Working tree clean\nTests pass\nCI green')}
+        ${edText('Dispatch CD workflow (trigger CD instead of local deploy)', 'promotionPolicy.dispatchWorkflow', stage.promotionPolicy.dispatchWorkflow, 'release.yml')}
         <p class="stage-edit-group">Rollback</p>
         <div class="stage-edit-grid">
           ${edText('Rollback command', 'rollbackPolicy.command', stage.rollbackPolicy.command, '')}

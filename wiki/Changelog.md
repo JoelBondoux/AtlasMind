@@ -6,6 +6,16 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.116.0 — Delivery hardening pt 2 (remaining gaps)
+
+- **Concurrency lock** — only one promotion/rollback runs at a time (auto-clears after 60 min if a run crashes).
+- **Trigger-CD** — a stage can promote by dispatching a CD workflow (`gh workflow run`) instead of deploying from your machine; auto-detected from a `workflow_dispatch` deploy/release workflow.
+- **Backup verification + migrations** — an optional verify-backup command must pass after the backup, and a migrate command runs inside the guarded sequence.
+- **Separation of duties** — optionally require the promoter to be a different person from the change's author (auto-checked via git identity).
+- _Deferred (need dedicated design): first-class progressive delivery (canary/blue-green) and ephemeral per-PR preview environments._
+
+---
+
 ## v0.115.0 — Delivery hardening (gap-analysis follow-up)
 
 - **CI is actually enforced now.** Required CI checks are verified live via `gh` at promote time — a failing or still-running check blocks the gate (graceful fallback to manual when `gh` is unavailable). No more honor-system "CI green" checkbox.

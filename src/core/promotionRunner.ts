@@ -63,6 +63,10 @@ export interface PromotionPlanInput {
    * (verified), instead of a manual attestation. Absent ⇒ fall back to manual.
    */
   liveStatusChecks?: Record<string, 'pass' | 'fail' | 'pending'>;
+  /** Identity running the promotion (git actor), for separation-of-duties. */
+  approver?: string;
+  /** Author of the source branch's head commit, for separation-of-duties. */
+  lastCommitAuthor?: string;
 }
 
 /**
@@ -92,9 +96,10 @@ export function buildPromotionPlan(input: PromotionPlanInput): PromotionPlan | u
   }
 
   const viaPullRequest = to.promotionPolicy.viaPullRequest === true;
+  const dispatchWorkflow = (to.promotionPolicy.dispatchWorkflow ?? '').trim();
   const hasRoutine = Boolean(input.routine && input.routine.steps.length > 0);
-  if (viaPullRequest && !hasRoutine) {
-    blockers.push(`Promotion to ${to.name} must go through a Pull Request into \`${to.branchRef ?? 'the protected branch'}\`, but no promotion routine is bound to open one. Bind a routine (in the push editor) that runs your PR / merge / publish flow.`);
+  if (viaPullRequest && !hasRoutine && !dispatchWorkflow) {
+    blockers.push(`Promotion to ${to.name} must go through a Pull Request into \`${to.branchRef ?? 'the protected branch'}\`, but nothing is bound to open one. Bind a routine, or set a CD workflow to dispatch, in the push editor.`);
   }
 
   if (to.promotionPolicy.requireVersionBump) {
@@ -171,6 +176,30 @@ export function buildPromotionPlan(input: PromotionPlanInput): PromotionPlan | u
     }
   }
 
+  // Separation of duties: the approver must differ from the change's author.
+  if (to.promotionPolicy.requireDistinctApprover) {
+    const approver = (input.approver ?? '').trim().toLowerCase();
+    const author = (input.lastCommitAuthor ?? '').trim().toLowerCase();
+    if (approver && author) {
+      const distinct = approver !== author;
+      checks.push({
+        id: 'distinct-approver',
+        label: 'Separation of duties — approver ≠ author',
+        kind: 'auto',
+        status: distinct ? 'pass' : 'fail',
+        detail: distinct ? 'You are not the author of the change being promoted.' : 'You authored the change being promoted; a different person must approve it.',
+      });
+    } else {
+      checks.push({
+        id: 'distinct-approver',
+        label: 'Separation of duties — approver ≠ author',
+        kind: 'manual',
+        status: 'manual',
+        detail: 'Confirm a different person from the change author is approving (identities could not be resolved automatically).',
+      });
+    }
+  }
+
   const steps: PromotionPlanStep[] = [];
   steps.push({
     id: 'preflight',
@@ -191,6 +220,28 @@ export function buildPromotionPlan(input: PromotionPlanInput): PromotionPlan | u
       managed: true,
     });
   }
+  const verifyBackupCommand = (to.backupPolicy.verifyCommand ?? '').trim();
+  if (verifyBackupCommand) {
+    steps.push({
+      id: 'backup-verify',
+      kind: 'backup',
+      label: 'Verify backup is restorable',
+      detail: 'Confirms the snapshot exists / is usable before proceeding.',
+      command: verifyBackupCommand,
+      managed: true,
+    });
+  }
+  const migrateCommand = (to.data.migrateCommand ?? '').trim();
+  if (migrateCommand) {
+    steps.push({
+      id: 'migrate',
+      kind: 'deploy',
+      label: 'Run database migrations',
+      detail: 'Applies schema changes inside the guarded sequence.',
+      command: migrateCommand,
+      managed: true,
+    });
+  }
   if (input.routine && input.routine.steps.length > 0) {
     for (const routineStep of input.routine.steps) {
       steps.push({
@@ -202,6 +253,16 @@ export function buildPromotionPlan(input: PromotionPlanInput): PromotionPlan | u
         managed: false,
       });
     }
+  } else if (dispatchWorkflow) {
+    const ref = from.branchRef || to.branchRef || '';
+    steps.push({
+      id: 'deploy-dispatch',
+      kind: 'deploy',
+      label: `Trigger CD: ${dispatchWorkflow}`,
+      detail: 'Promotion runs in CI/CD (gh workflow run), not on your machine.',
+      command: `gh workflow run ${dispatchWorkflow}${ref ? ` --ref ${ref}` : ''}`,
+      managed: true,
+    });
   } else {
     steps.push({
       id: 'deploy-none',
@@ -209,7 +270,7 @@ export function buildPromotionPlan(input: PromotionPlanInput): PromotionPlan | u
       label: 'Deploy steps',
       detail: path.routineId
         ? `No routine "${path.routineId}" found in project_memory/routines/. Add your deploy/migration steps there.`
-        : 'No promotion routine bound. Bind one (in the push editor) to run real deploy/migration commands.',
+        : 'No promotion routine bound. Bind one (or set a CD workflow to dispatch) in the push editor.',
       managed: false,
     });
   }

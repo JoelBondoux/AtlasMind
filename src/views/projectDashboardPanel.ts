@@ -14,7 +14,7 @@ import { getWebviewHtmlShell } from './webviewUtils.js';
 import { DataPrivacyManager, readDataPrivacyConfig, writeDataPrivacyConfig, defaultDataPrivacyConfig } from '../core/dataPrivacyManager.js';
 import { COMPLIANCE_PACKS } from '../core/compliancePacks.js';
 import { getProviderDataGovernance } from '../core/providerDataGovernance.js';
-import { DELIVERY_SSOT_PATH, DELIVERY_SUMMARY_SSOT_PATH, sanitizeDeliveryConfig, seedDeliveryConfig, appendPromotionHistory, readPromotionHistory, type DeliverySeedInput, type DeliveryArchetype } from '../core/deliveryManager.js';
+import { DELIVERY_SSOT_PATH, DELIVERY_SUMMARY_SSOT_PATH, sanitizeDeliveryConfig, seedDeliveryConfig, appendPromotionHistory, readPromotionHistory, acquireDeliveryLock, releaseDeliveryLock, type DeliverySeedInput, type DeliveryArchetype } from '../core/deliveryManager.js';
 import { buildPromotionPlan, evaluatePromotionGate, runPromotion, runRollback, checkHealthUrl } from '../core/promotionRunner.js';
 import type { DataPrivacyActivityEvent, DataPrivacySensitivity, DeliveryConfig, DeploymentStage, PromotionPath, PromotionHistoryEntry } from '../types.js';
 
@@ -1760,7 +1760,9 @@ export class ProjectDashboardPanel {
     await this.atlas.routineRegistry.reload(workspaceRoot).catch(() => undefined);
     const routine = promo.routineId ? this.atlas.routineRegistry.get(promo.routineId) : undefined;
     const liveStatusChecks = await this.resolveLiveCiStatus(workspaceRoot, from);
-    const plan = buildPromotionPlan({ config, pathId: payload.pathId, ...facts, routine, liveStatusChecks });
+    const approver = await resolveGitActorEmail(workspaceRoot);
+    const lastCommitAuthor = await resolveLastCommitAuthor(workspaceRoot, from.branchRef);
+    const plan = buildPromotionPlan({ config, pathId: payload.pathId, ...facts, routine, liveStatusChecks, approver, lastCommitAuthor });
     if (!plan) {
       await this.postMessage({ type: 'promotionError', payload: 'Could not build a promotion plan.' });
       return;
@@ -1770,35 +1772,44 @@ export class ProjectDashboardPanel {
       await this.postMessage({ type: 'promotionError', payload: gate.reason ?? 'Promotion is not permitted.' });
       return;
     }
-    const result = await runPromotion({
-      workspaceRoot,
-      plan,
-      config,
-      routine,
-      onProgress: update => { void this.postMessage({ type: 'promotionProgress', payload: update }); },
-    });
-    // Record the outcome on the path and persist (updates delivery.json + delivery.md).
-    const updated: DeliveryConfig = {
-      ...config,
-      paths: config.paths.map(candidate => candidate.id === payload.pathId
-        ? { ...candidate, lastPromotion: { ranAt: result.startedAt, succeeded: result.succeeded, version: facts.fromVersion } }
-        : candidate),
-    };
-    await this.atlas.deliveryManager.save(updated);
-    // Append an immutable audit record (who/when/what/outcome).
-    await appendPromotionHistory(workspaceRoot, {
-      id: `promo-${Date.now()}`,
-      kind: 'promotion',
-      pathId: payload.pathId,
-      fromName: from.name,
-      toName: to.name,
-      version: facts.fromVersion,
-      succeeded: result.succeeded,
-      ranAt: result.startedAt,
-      durationMs: result.durationMs,
-      actor: await resolveGitActor(workspaceRoot),
-    }).catch(() => undefined);
-    await this.postMessage({ type: 'promotionDone', payload: result });
+    // Single-flight: refuse to start while another promotion/rollback is running.
+    if (!await acquireDeliveryLock(workspaceRoot, `promote ${from.name} → ${to.name}`)) {
+      await this.postMessage({ type: 'promotionError', payload: 'Another promotion or rollback is already in progress. Wait for it to finish (or it clears automatically after 60 min).' });
+      return;
+    }
+    try {
+      const result = await runPromotion({
+        workspaceRoot,
+        plan,
+        config,
+        routine,
+        onProgress: update => { void this.postMessage({ type: 'promotionProgress', payload: update }); },
+      });
+      // Record the outcome on the path and persist (updates delivery.json + delivery.md).
+      const updated: DeliveryConfig = {
+        ...config,
+        paths: config.paths.map(candidate => candidate.id === payload.pathId
+          ? { ...candidate, lastPromotion: { ranAt: result.startedAt, succeeded: result.succeeded, version: facts.fromVersion } }
+          : candidate),
+      };
+      await this.atlas.deliveryManager.save(updated);
+      // Append an immutable audit record (who/when/what/outcome).
+      await appendPromotionHistory(workspaceRoot, {
+        id: `promo-${Date.now()}`,
+        kind: 'promotion',
+        pathId: payload.pathId,
+        fromName: from.name,
+        toName: to.name,
+        version: facts.fromVersion,
+        succeeded: result.succeeded,
+        ranAt: result.startedAt,
+        durationMs: result.durationMs,
+        actor: await resolveGitActor(workspaceRoot),
+      }).catch(() => undefined);
+      await this.postMessage({ type: 'promotionDone', payload: result });
+    } finally {
+      await releaseDeliveryLock(workspaceRoot);
+    }
     await this.syncState();
   }
 
@@ -1827,16 +1838,24 @@ export class ProjectDashboardPanel {
       await this.postMessage({ type: 'rollbackResult', payload: { ok: false, summary: `Type the stage name "${stage.name}" to confirm a protected rollback.` } });
       return;
     }
-    const result = await runRollback(workspaceRoot, command);
-    await appendPromotionHistory(workspaceRoot, {
-      id: `rollback-${Date.now()}`,
-      kind: 'rollback',
-      toName: stage.name,
-      succeeded: result.ok,
-      ranAt: new Date().toISOString(),
-      actor: await resolveGitActor(workspaceRoot),
-    }).catch(() => undefined);
-    await this.postMessage({ type: 'rollbackResult', payload: { ok: result.ok, summary: `${stage.name} rollback ${result.ok ? 'succeeded' : 'failed'}: ${result.output}` } });
+    if (!await acquireDeliveryLock(workspaceRoot, `rollback ${stage.name}`)) {
+      await this.postMessage({ type: 'rollbackResult', payload: { ok: false, summary: 'Another promotion or rollback is already in progress. Wait for it to finish.' } });
+      return;
+    }
+    try {
+      const result = await runRollback(workspaceRoot, command);
+      await appendPromotionHistory(workspaceRoot, {
+        id: `rollback-${Date.now()}`,
+        kind: 'rollback',
+        toName: stage.name,
+        succeeded: result.ok,
+        ranAt: new Date().toISOString(),
+        actor: await resolveGitActor(workspaceRoot),
+      }).catch(() => undefined);
+      await this.postMessage({ type: 'rollbackResult', payload: { ok: result.ok, summary: `${stage.name} rollback ${result.ok ? 'succeeded' : 'failed'}: ${result.output}` } });
+    } finally {
+      await releaseDeliveryLock(workspaceRoot);
+    }
     await this.syncState();
   }
 
@@ -2873,6 +2892,33 @@ async function detectBranchCiGating(workspaceRoot: string, branch: string): Prom
   return { viaPr, checks: [...checks].sort() };
 }
 
+/** Find a `workflow_dispatch` deploy/release/promote workflow file, if any. */
+async function detectDispatchWorkflow(workspaceRoot: string): Promise<string | undefined> {
+  const dir = path.join(workspaceRoot, '.github', 'workflows');
+  let files: string[];
+  try {
+    files = (await fs.readdir(dir)).filter(name => /\.ya?ml$/i.test(name));
+  } catch {
+    return undefined;
+  }
+  for (const file of files) {
+    let content = '';
+    try {
+      content = await fs.readFile(path.join(dir, file), 'utf-8');
+    } catch {
+      continue;
+    }
+    if (!/workflow_dispatch/.test(content)) {
+      continue;
+    }
+    const name = (content.match(/^name:\s*(.+)$/m)?.[1] ?? '').toLowerCase();
+    if (/(deploy|release|promote|publish|ship)/.test(name) || /(deploy|release|promote|publish|ship)/i.test(file)) {
+      return file;
+    }
+  }
+  return undefined;
+}
+
 /** Run a `gh` command (best-effort; short timeout, never used on the render path). */
 async function runGh(workspaceRoot: string, args: string[]): Promise<string> {
   const { stdout } = await execFileAsync('gh', args, { cwd: workspaceRoot, windowsHide: true, timeout: 8000, maxBuffer: 1024 * 1024 });
@@ -3109,6 +3155,10 @@ async function detectDeliverySignals(
   const stagingViaPr = stagingProtection ? stagingProtection.requiresPr : false;
   const stagingChecks = (stagingProtection?.contexts.length ? stagingProtection.contexts : stagingGating.checks);
 
+  // Trigger-CD: when there's no bound production routine, a dispatchable
+  // deploy/release workflow becomes the promote mechanism (CD, not laptop).
+  const dispatchFile = productionRoutineId ? undefined : await detectDispatchWorkflow(workspaceRoot);
+
   return {
     currentBranch,
     productionBranch: productionRef ?? undefined,
@@ -3124,7 +3174,27 @@ async function detectDeliverySignals(
     stagingRoutineId,
     viaPullRequest: { staging: stagingViaPr, production: productionViaPr },
     statusChecks: { staging: stagingChecks, production: productionChecks },
+    dispatchWorkflow: dispatchFile ? { production: dispatchFile } : undefined,
   };
+}
+
+/** The git actor's email (for separation-of-duties comparison against authors). */
+async function resolveGitActorEmail(workspaceRoot: string): Promise<string | undefined> {
+  try {
+    return (await runGit(workspaceRoot, ['config', 'user.email'])).trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Email of the head-commit author for a branch (defaults to HEAD), for SoD. */
+async function resolveLastCommitAuthor(workspaceRoot: string, ref?: string): Promise<string | undefined> {
+  const target = ref ? normalizeBranchRef(ref) : 'HEAD';
+  try {
+    return (await runGit(workspaceRoot, ['log', '-1', '--format=%ae', target])).trim() || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** The git identity that ran an action (`Name <email>`), for the audit log. */
@@ -3406,6 +3476,12 @@ function buildStageSecurityNotes(stage: DeploymentStage, backupConfigured: boole
   }
   if (stage.promotionPolicy.viaPullRequest) {
     notes.push(`Pushes into this stage go through a Pull Request to the ${stage.branchRef ?? 'protected'} branch — never a direct push.`);
+  }
+  if (stage.promotionPolicy.dispatchWorkflow) {
+    notes.push(`Pushes run in CI/CD (dispatch ${stage.promotionPolicy.dispatchWorkflow}), not on a developer's machine.`);
+  }
+  if (stage.promotionPolicy.requireDistinctApprover) {
+    notes.push('Separation of duties — whoever promotes must not be the author of the change.');
   }
   if (stage.config.sourceLabel) {
     notes.push(`Secrets live in ${stage.config.sourceLabel} — only the location is recorded here, never the values.`);

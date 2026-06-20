@@ -1076,6 +1076,12 @@ export interface StageDataRepository {
   label?: string;
   /** Workspace-relative path to migration scripts, if any. */
   migrationsPath?: string;
+  /**
+   * Command that applies database migrations. When set, it runs as a managed
+   * step during promotion (after backup, before deploy) so schema changes are
+   * applied as part of the guarded sequence rather than out of band.
+   */
+  migrateCommand?: string;
 }
 
 /**
@@ -1089,6 +1095,12 @@ export interface StageBackupPolicy {
   required: boolean;
   /** Shell command that snapshots this stage's data (user-authored). */
   command?: string;
+  /**
+   * Optional command that verifies the backup is restorable (e.g. checks the
+   * snapshot exists / is non-empty). When set, it runs as a managed step right
+   * after the backup and must pass — turning "backup ran" into "backup verified".
+   */
+  verifyCommand?: string;
   /** Reference to a written runbook (path or URL) describing recovery. */
   runbookRef?: string;
   /** Human description of retention, e.g. "30 daily snapshots". */
@@ -1122,6 +1134,19 @@ export interface StagePromotionPolicy {
    * (the free-form human checklist).
    */
   requiredStatusChecks?: string[];
+  /**
+   * When set, the promotion is performed by **dispatching a CI/CD workflow**
+   * (`gh workflow run <file>`) rather than running deploy commands on the
+   * developer's machine — so production deploys happen in CD, with its identity
+   * and logs. The deploy step becomes "Trigger CD: <file>".
+   */
+  dispatchWorkflow?: string;
+  /**
+   * Separation of duties: when true, the person running the promotion (the git
+   * actor) must be different from the author of the change being promoted (the
+   * source branch's head-commit author). Enforced as an automatic gate.
+   */
+  requireDistinctApprover?: boolean;
 }
 
 /** How to roll a stage back if a promotion goes wrong. */

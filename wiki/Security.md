@@ -42,6 +42,9 @@ Executing a promotion ("push") on the Delivery page runs real shell commands, so
 - **Non-destructive bias.** AtlasMind never force-pushes; each run records its outcome and a rollback handle.
 - **Verified CI, not honor-system.** Required CI status checks are verified live via `gh` (a failing or pending run blocks the gate), with graceful fallback to manual attestation only when `gh` is unavailable.
 - **Audit trail.** Every promotion and rollback is appended to `project_memory/operations/delivery-history.json` with the git actor, timestamp, and outcome. Rollback execution runs only the stage's user-authored command and re-applies the protected-stage type-to-confirm authorization.
+- **Single-flight lock.** A workspace lock makes promotions/rollbacks mutually exclusive (auto-clears after 60 min), preventing racing deploys.
+- **Separation of duties.** A stage can require the promoter (git actor) to differ from the change's author, enforced automatically.
+- **Deploy in CD, not on a laptop.** A stage can promote by dispatching a CD workflow (`gh workflow run`) so production deploys carry CI/CD identity and logs.
 
 ### 4. Memory Scanner
 
