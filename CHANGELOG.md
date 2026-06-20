@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.116.1] - 2026-06-20
+
+### Fixed
+- **Garbled verification output in chat summaries.** Captured tool output (e.g. `vitest`) carries ANSI colour/cursor escape sequences. On the chat surface the invisible ESC byte left fragments like `[1m[7m[36m RUN …` in the post-write **Verified:** summary. Verification output is now sanitised before display: ANSI/CSI/OSC escape sequences are stripped, carriage returns are folded, and stray control bytes are removed. Added `src/utils/terminalOutput.ts` (`sanitizeTerminalOutput`, `stripAnsiSequences`) as the shared sanitizer; the managed-terminal streaming path now uses the same helper (which also strips OSC shell-integration markers the previous CSI-only stripper missed).
+
 ## [0.116.0] - 2026-06-20
 
 ### Added

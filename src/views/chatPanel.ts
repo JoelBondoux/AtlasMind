@@ -36,6 +36,7 @@ import { classifyToolInvocation, getToolApprovalMode, requiresToolApproval } fro
 import { extractSessionCarryForwardImages, resolvePickedImageAttachments } from '../chat/imageAttachments.js';
 import { buildChatWebviewHtml } from './chatWebviewMarkup.js';
 import { hasAiInstructionSyncFile, scanAiInstructionFiles, syncAiInstructionFiles } from '../utils/aiInstructionSync.js';
+import { stripAnsiSequences } from '../utils/terminalOutput.js';
 
 import {
   type ComposerSendMode,
@@ -1462,7 +1463,7 @@ export class ChatPanel {
         if (!chunk) {
           continue;
         }
-        executionRecord.output = appendManagedTerminalOutput(executionRecord.output, stripAnsi(chunk));
+        executionRecord.output = appendManagedTerminalOutput(executionRecord.output, stripAnsiSequences(chunk));
         executionRecord.statusLine = 'Running...';
         try {
           await renderManagedTerminal(`Running command ${executions.length}...`);
@@ -2801,11 +2802,6 @@ function sanitizeManagedTerminalCommand(value: string | undefined): string | und
 
 function truncateToolApprovalSummary(commandLine: string): string {
   return commandLine.length > 120 ? `${commandLine.slice(0, 117)}...` : commandLine;
-}
-
-function stripAnsi(value: string): string {
-  const ansiPattern = `${String.fromCharCode(27)}\\[[0-9;?]*[ -/]*[@-~]`;
-  return value.replace(new RegExp(ansiPattern, 'g'), '');
 }
 
 async function waitForTerminalShellIntegration(
