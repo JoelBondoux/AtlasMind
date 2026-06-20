@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.116.2 — Delivery no longer invents a `main` production branch
+
+- **Honest branch import.** When the production branch can't be detected, the Delivery seeder used to default the Production stage to `main` — wrong for repos that use `master`/`develop`. It now leaves the branch unset and the dashboard shows "not detected" rather than importing a fabricated target. Corrected the persisted pipeline's Production branch back to `master` and added regression tests.
+
+---
+
 ## v0.116.1 — Fix garbled verification output in chat
 
 - **No more `[1m[7m[36m RUN …` noise.** Captured tool output (e.g. `vitest`) carries ANSI colour/cursor escape sequences that rendered as garbled fragments in the post-write **Verified:** chat summary. Verification output is now sanitised first — ANSI/CSI/OSC sequences stripped, carriage returns folded, stray control bytes removed — via the shared `src/utils/terminalOutput.ts` helper, which the managed-terminal stream also uses.

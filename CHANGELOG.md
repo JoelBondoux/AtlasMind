@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.116.2] - 2026-06-20
+
+### Fixed
+- **Delivery pipeline no longer fabricates a `main` production branch.** When the repository's production branch couldn't be detected, `seedDeliveryConfig` silently defaulted the Production stage's `branchRef` to `"main"` — a branch that may not exist (this repo uses `master`/`develop`). The seeder now leaves the production branch **unset** when detection finds none, so the dashboard reports an honest "not detected" instead of importing a wrong branch that could mislead a promotion target. The runbook mirror labels a branchless non-local stage `— (not detected)` (the genuinely branchless Local stage still reads `— (working tree)`). Also corrected the persisted `project_memory/operations/delivery.json`, whose Production `branchRef` had been hand-edited to the incorrect `"main"`, back to `"master"` (restoring agreement with the `delivery.md` mirror). Added `tests/core/deliveryManager.test.ts` covering branch import and the no-fabrication guarantee.
+
 ## [0.116.1] - 2026-06-20
 
 ### Fixed

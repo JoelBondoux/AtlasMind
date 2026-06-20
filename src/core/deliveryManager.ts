@@ -164,7 +164,12 @@ export function seedDeliveryConfig(input: DeliverySeedInput): DeliveryConfig {
   const deployless = archetype === 'vscode-extension' || archetype === 'library';
   const hasDatabase = input.hasDatabase ?? false;
   const stagingBranch = input.developBranch ?? input.currentBranch;
-  const productionBranch = input.productionBranch ?? 'main';
+  // Never fabricate a production branch. If detection found none (no
+  // main/master/production/… ref in this repo), leave it unset rather than
+  // inventing `main` — a branch that may not exist here. An honest "not
+  // detected" is safer than a wrong import that could mislead a promotion
+  // target. Detection supplies the real branch when one is found.
+  const productionBranch = input.productionBranch;
 
   const baseChecks: string[] = ['Working tree clean'];
   if (input.scripts?.build) { baseChecks.push('Compile/build passes'); }
@@ -501,7 +506,10 @@ export function renderDeliveryMarkdown(config: DeliveryConfig): string {
     lines.push('');
     lines.push(stage.description);
     lines.push('');
-    lines.push(`- **Branch:** ${stage.branchRef ? `\`${stage.branchRef}\`` : '— (working tree)'}`);
+    const branchLabel = stage.branchRef
+      ? `\`${stage.branchRef}\``
+      : stage.kind === 'local' ? '— (working tree)' : '— (not detected)';
+    lines.push(`- **Branch:** ${branchLabel}`);
     lines.push(`- **Hosting:** ${describe(stage.hosting.provider)}${stage.hosting.url ? ` — ${stage.hosting.url}` : ''}`);
     if (stage.hosting.healthCheckUrl) {
       lines.push(`- **Health check:** ${stage.hosting.healthCheckUrl}`);
