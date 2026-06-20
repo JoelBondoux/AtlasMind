@@ -6,6 +6,35 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.111.0 — Mission Loop asks before stopping on a setting block
+
+- **No more silent cancels on recoverable settings.** When a Mission Loop can't verify progress because a relaxable setting is in the way — e.g. tests can't run because `atlasmind.allowTerminalWrite` is off — it now prompts you instead of ending: **Override for this run** (relax it just for this mission, auto-reverted when the run ends), **Open settings** (deep-link to the Safety page), or **Stop**. Deny-by-default — dismissing the prompt stops safely. Works from `/loop`, the chat panel's **New Loop**, and Mission Control.
+- **In-surface decision buttons.** Loop checkpoint approvals and block-recovery prompts now appear as buttons — at the base of the chat bubble in the chat panel, and as a unified in-panel decision card in Mission Control — instead of OS modal dialog boxes. The chat panel's **New Loop** also starts in its own fresh session.
+
+---
+
+## v0.110.1 — Competitive watch: SUPACODE
+
+- **Competitive analysis added.** A watch note on [SUPACODE](https://supacode.sh/) — a native-macOS command center that runs 50+ CLI coding agents in parallel, each in its own `git worktree`. It maps SUPACODE's strengths to AtlasMind's current state, flags a latent write-race in parallel subtask batches (they share one working tree today), and frames worktree-per-agent isolation, a parallel multi-lane UX, and PR-native GitHub automation as a prioritization signal for items already on the roadmap. Docs-only (`project_memory/ideas/supacode-competitive-analysis.md` + `docs/roadmap.md`).
+
+---
+
+## v0.110.0 — WCAG Contrast Checker in the recommended MCP catalogue
+
+- **New recommended MCP preset: WCAG Contrast Checker.** The Settings → MCP server picker now offers a one-click prefill for `npx -y contrast-checker-mcp` — WCAG 2.1/2.2 AA/AAA contrast checks, colour parsing across formats, and accessible-colour suggestions for UI and frontend work. Tagged `community` provenance with verified npm/GitHub references, Node.js runtime-install hints, and a custom-CA note for the Env vars field.
+
+---
+
+## v0.109.0 — Mission Loop (autonomous goal-seeking loop)
+
+- **An optional looping development process.** Define a goal, guardrails, and a *closed parameter envelope* (cost / iteration / token / wall-clock caps + a no-progress stop) at the start of a run, and AtlasMind loops on top of the existing plan→execute→synthesize machinery — planning each increment (grounded in SSOT memory, guardrails, and success criteria), executing it, then **re-evaluating progress against the goal** — until the goal is met or a guardrail confines progress.
+- **Hybrid autonomy.** The loop runs on its own but pauses for **deny-by-default** approval checkpoints at configurable triggers (every N iterations, a budget-fraction crossing, or before write/commit batches).
+- **Sends agents out to learn.** Discovery is prefer-existing (registered agents/skills/MCP tools first) and may synthesize new agents/skills or use Agentic Resource Discovery — always behind the existing approval gates.
+- **Verification-weighted "done."** A goal is only *achieved* with passing verification where behaviour changed; the project's Testing Methodology Matrix and TDD policy are inherited automatically. Deployments route through the guarded delivery pipeline, never run directly.
+- **Surfaces:** the `/loop <goal>` chat command (preview → `--approve` → live iterations), a **New Loop** send-mode in the chat panel composer (runs the prompt as a mission goal), the **Mission Control** panel (`AtlasMind: Open Mission Control`), a dedicated **Mission Loop** page in the Settings dashboard for the `atlasmind.loop.*` defaults, and a live **Current Loops** section on the Cost Dashboard showing in-flight loop spend against the cost cap. Every run is audited to `project_memory/operations/missions.json` + a `missions.md` runbook mirror.
+
+---
+
 ## v0.108.0 — Deployment Stages & Promotion pipeline
 
 - **The Project Dashboard → Delivery page now opens with a Stages & Promotion pipeline.** Your environments — Local → Staging → Production — are modelled as first-class, plain-English cards. On first open AtlasMind **seeds a professional pipeline from your repository's branches** (detected production branch, `develop` as staging).

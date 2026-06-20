@@ -13,7 +13,7 @@ import { scanAiInstructionFiles, syncAiInstructionFiles } from '../utils/aiInstr
 import { syncTestingProtocols } from '../utils/testingProtocolSync.js';
 import { scaffoldTestingFramework } from '../core/testingScaffolder.js';
 import type { ArdDiscoveredResource, ArdDiscoveryEndpoint } from '../types.js';
-import { getDisplayCurrency } from '../core/currencyFormatter.js';
+import { getDisplayCurrency, getExchangeRate } from '../core/currencyFormatter.js';
 import { isLocalSyncStale, LOCAL_MODEL_SYNC_CACHE_KEY, syncLocalModels, type LocalModelSyncResult } from '../providers/localModelSync.js';
 import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
 
@@ -78,6 +78,17 @@ const SETTINGS_HELP = {
   projectDependencyMonitoringIssueTemplate: 'Adds a dependency review issue template during governance scaffolding. Keep it on when updates need formal review or compliance evidence, and off for lightweight personal repos.',
   experimentalSkillLearningEnabled: 'Enables Atlas-generated custom skill drafts. Keep it off in production workspaces and enable it only in sandboxes where generated artifacts will be manually reviewed.',
   maxToolIterations: 'Maximum tool-call loop iterations before AtlasMind stops and surfaces Continue and Cancel actions. Examples: 10 for conservative environments, 20 for the default balance, or 25 for complex multi-step workflows. Higher values allow deeper automation but increase latency and cost.',
+  loopEnabled: 'Enable the autonomous goal-seeking Mission Loop (the /loop chat command and Mission Control). When off, AtlasMind will not start any looping run.',
+  loopDefaultMaxIterations: 'Default hard cap on Mission Loop iterations before the loop stops regardless of progress. Examples: 3 for a quick scoped task, 8 for the default balance, or 15 for a larger multi-step effort.',
+  loopDefaultMaxCostUsd: 'Default hard ceiling, in USD, on the cumulative cost of one Mission Loop run. Enforced before each iteration on top of the daily cost limit. Examples: 1 for a tight cap, 5 for the default balance, or 20 for a larger sanctioned run.',
+  loopDefaultMaxTokens: 'Default hard ceiling on cumulative input+output tokens across a Mission Loop run. Examples: 300000 for a small task, 2000000 for the default balance, or 5000000 for a large effort.',
+  loopDefaultMaxDurationMinutes: 'Default hard wall-clock cap, in minutes, for a Mission Loop run. The loop stops at the next iteration boundary once this is exceeded. Examples: 10 for a short supervised run, 30 for the default balance, or 120 for a long unattended run.',
+  loopMaxConsecutiveNoProgress: 'Stop the Mission Loop after this many consecutive iterations the goal evaluator judges as making no measurable progress. Examples: 1 to fail fast, 2 for the default balance, or 3 to give the loop more room to recover.',
+  loopCheckpointEveryNIterations: 'Pause the Mission Loop for a deny-by-default approval checkpoint every N iterations. Use 0 to disable cadence checkpoints. Examples: 1 to approve every iteration, 3 for the default balance, or 5 for fewer interruptions.',
+  loopCheckpointAtBudgetFraction: 'Pause for an approval checkpoint the first time cumulative spend crosses this fraction (0.01–1) of the cost budget. Examples: 0.5 to check in early, 0.75 for the default balance, or 0.9 to check in only near the cap.',
+  loopRequireApprovalBeforeWriteBatches: 'Require an approval checkpoint before any Mission Loop iteration expected to write files or commit. Strongest safety posture; most interruptive.',
+  loopAllowDiscovery: 'Allow the Mission Loop to fill capability gaps by synthesizing new agents/skills and using Agentic Resource Discovery. New capabilities always pass the existing approval gates; the loop prefers already-registered capabilities first.',
+  loopGoalAchievedConfidenceThreshold: 'Minimum goal-evaluator confidence (0–1) required to accept an "achieved" verdict and stop the loop successfully. Below this the loop keeps iterating, so a low-confidence evaluator can never falsely declare success. Examples: 0.6 to stop more readily, 0.7 for the default balance, or 0.85 to demand high certainty.',
 } as const;
 
 type BudgetMode = (typeof BUDGET_MODES)[number];
@@ -178,7 +189,7 @@ interface LocalModelRecommendationPayload {
   installedModels: InstalledLocalModelItem[];
 }
 
-export const SETTINGS_PAGE_IDS = ['overview', 'chat', 'models', 'safety', 'testing', 'project', 'experimental', 'ai-instructions', 'discovery'] as const;
+export const SETTINGS_PAGE_IDS = ['overview', 'chat', 'models', 'safety', 'testing', 'project', 'loop', 'experimental', 'ai-instructions', 'discovery'] as const;
 export type SettingsPageId = (typeof SETTINGS_PAGE_IDS)[number];
 export interface SettingsPanelTarget {
   page?: SettingsPageId;
@@ -218,6 +229,17 @@ type SettingsMessage =
   | { type: 'setProjectDependencyMonitoringIssueTemplate'; payload: boolean }
   | { type: 'setExperimentalSkillLearningEnabled'; payload: boolean }
   | { type: 'setMaxToolIterations'; payload: number }
+  | { type: 'setLoopEnabled'; payload: boolean }
+  | { type: 'setLoopDefaultMaxIterations'; payload: number }
+  | { type: 'setLoopDefaultMaxCostUsd'; payload: number }
+  | { type: 'setLoopDefaultMaxTokens'; payload: number }
+  | { type: 'setLoopDefaultMaxDurationMinutes'; payload: number }
+  | { type: 'setLoopMaxConsecutiveNoProgress'; payload: number }
+  | { type: 'setLoopCheckpointEveryNIterations'; payload: number }
+  | { type: 'setLoopCheckpointAtBudgetFraction'; payload: number }
+  | { type: 'setLoopRequireApprovalBeforeWriteBatches'; payload: boolean }
+  | { type: 'setLoopAllowDiscovery'; payload: boolean }
+  | { type: 'setLoopGoalAchievedConfidenceThreshold'; payload: number }
   | { type: 'purgeProjectMemory' }
   | { type: 'openChatView' }
   | { type: 'openChatPanel' }
@@ -814,6 +836,60 @@ export class SettingsPanel {
         await configuration.update('maxToolIterations', clamped, vscode.ConfigurationTarget.Workspace);
         return;
       }
+
+      case 'setLoopEnabled':
+        await configuration.update('loop.enabled', message.payload, vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'setLoopDefaultMaxIterations': {
+        const clamped = Math.max(1, Math.min(50, Math.round(message.payload)));
+        await configuration.update('loop.defaultMaxIterations', clamped, vscode.ConfigurationTarget.Workspace);
+        return;
+      }
+
+      case 'setLoopDefaultMaxCostUsd': {
+        // The field is entered in the user's display currency; store USD-canonical.
+        const rate = getExchangeRate(getDisplayCurrency());
+        const usd = rate > 0 ? message.payload / rate : message.payload;
+        await configuration.update('loop.defaultMaxCostUsd', Math.max(0.01, usd), vscode.ConfigurationTarget.Workspace);
+        return;
+      }
+
+      case 'setLoopDefaultMaxTokens':
+        await configuration.update('loop.defaultMaxTokens', Math.max(1000, Math.round(message.payload)), vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'setLoopDefaultMaxDurationMinutes':
+        await configuration.update('loop.defaultMaxDurationMinutes', Math.max(1, Math.round(message.payload)), vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'setLoopMaxConsecutiveNoProgress': {
+        const clamped = Math.max(1, Math.min(10, Math.round(message.payload)));
+        await configuration.update('loop.maxConsecutiveNoProgress', clamped, vscode.ConfigurationTarget.Workspace);
+        return;
+      }
+
+      case 'setLoopCheckpointEveryNIterations': {
+        const clamped = Math.max(0, Math.min(50, Math.round(message.payload)));
+        await configuration.update('loop.checkpointEveryNIterations', clamped, vscode.ConfigurationTarget.Workspace);
+        return;
+      }
+
+      case 'setLoopCheckpointAtBudgetFraction':
+        await configuration.update('loop.checkpointAtBudgetFraction', Math.max(0.01, Math.min(1, message.payload)), vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'setLoopRequireApprovalBeforeWriteBatches':
+        await configuration.update('loop.requireApprovalBeforeWriteBatches', message.payload, vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'setLoopAllowDiscovery':
+        await configuration.update('loop.allowDiscovery', message.payload, vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'setLoopGoalAchievedConfidenceThreshold':
+        await configuration.update('loop.goalAchievedConfidenceThreshold', Math.max(0, Math.min(1, message.payload)), vscode.ConfigurationTarget.Workspace);
+        return;
 
       case 'purgeProjectMemory':
         await vscode.commands.executeCommand('atlasmind.purgeProjectMemory');
@@ -1428,6 +1504,25 @@ export class SettingsPanel {
     const projectDependencyMonitoringIssueTemplate = configuration.get<boolean>('projectDependencyMonitoringIssueTemplate', true);
     const experimentalSkillLearningEnabled = configuration.get<boolean>('experimentalSkillLearningEnabled', false);
     const maxToolIterations = getPositiveInteger(configuration.get<number>('maxToolIterations'), 20);
+
+    // Mission Loop defaults.
+    const loopEnabled = configuration.get<boolean>('loop.enabled', true);
+    const loopDefaultMaxIterations = getPositiveInteger(configuration.get<number>('loop.defaultMaxIterations'), 8);
+    const loopDefaultMaxCostUsd = getPositiveNumber(configuration.get<number>('loop.defaultMaxCostUsd'), 5);
+    // Cost cap is stored USD-canonical but shown in the user's selected display currency.
+    const loopDisplayCurrency = getDisplayCurrency();
+    const loopFxRate = getExchangeRate(loopDisplayCurrency);
+    const loopDefaultMaxCostDisplay = formatPlainNumber(loopDefaultMaxCostUsd * loopFxRate, 2);
+    const loopDefaultMaxTokens = getPositiveInteger(configuration.get<number>('loop.defaultMaxTokens'), 2000000);
+    const loopDefaultMaxTokensDisplay = groupThousands(loopDefaultMaxTokens);
+    const loopDefaultMaxDurationMinutes = getPositiveInteger(configuration.get<number>('loop.defaultMaxDurationMinutes'), 30);
+    const loopMaxConsecutiveNoProgress = getPositiveInteger(configuration.get<number>('loop.maxConsecutiveNoProgress'), 2);
+    const loopCheckpointEveryNIterations = getNonNegativeInteger(configuration.get<number>('loop.checkpointEveryNIterations'), 3);
+    const loopCheckpointAtBudgetFraction = getRangedNumber(configuration.get<number>('loop.checkpointAtBudgetFraction'), 0.75, 0.01, 1);
+    const loopRequireApprovalBeforeWriteBatches = configuration.get<boolean>('loop.requireApprovalBeforeWriteBatches', false);
+    const loopAllowDiscovery = configuration.get<boolean>('loop.allowDiscovery', true);
+    const loopGoalAchievedConfidenceThreshold = getRangedNumber(configuration.get<number>('loop.goalAchievedConfidenceThreshold'), 0.7, 0, 1);
+
     const testingDashboard = collectTestingDashboardSnapshot(this.atlasContext);
 
     const initialPage = this.initialTarget?.page ?? 'overview';
@@ -1471,6 +1566,7 @@ export class SettingsPanel {
           <button type="button" class="nav-link ${initialPage === 'safety' ? 'active' : ''}" id="tab-safety" data-page-target="safety" data-search="safety verification approvals tool approval terminal write scripts timeout max tool iterations loop limit" role="tab" aria-selected="${initialPage === 'safety' ? 'true' : 'false'}" aria-controls="page-safety" ${initialPage === 'safety' ? '' : 'tabindex="-1"'}>Safety & Verification</button>
           <button type="button" class="nav-link ${initialPage === 'testing' ? 'active' : ''}" id="tab-testing" data-page-target="testing" data-search="testing methodology tdd bdd unit integration e2e mutation property snapshot contract performance security visual exploratory test strategy agent override model" role="tab" aria-selected="${initialPage === 'testing' ? 'true' : 'false'}" aria-controls="page-testing" ${initialPage === 'testing' ? '' : 'tabindex="-1"'}>Testing</button>
           <button type="button" class="nav-link ${initialPage === 'project' ? 'active' : ''}" id="tab-project" data-page-target="project" data-search="project runs approval threshold estimated files changed file references report folder dependency monitoring dependabot renovate governance updates" role="tab" aria-selected="${initialPage === 'project' ? 'true' : 'false'}" aria-controls="page-project" ${initialPage === 'project' ? '' : 'tabindex="-1"'}>Project Runs</button>
+          <button type="button" class="nav-link ${initialPage === 'loop' ? 'active' : ''}" id="tab-loop" data-page-target="loop" data-search="mission loop autonomous goal seeking iterations cost cap token cap time cap no progress checkpoint approval budget fraction discovery confidence threshold envelope" role="tab" aria-selected="${initialPage === 'loop' ? 'true' : 'false'}" aria-controls="page-loop" ${initialPage === 'loop' ? '' : 'tabindex="-1"'}>Mission Loop</button>
           <button type="button" class="nav-link ${initialPage === 'experimental' ? 'active' : ''}" id="tab-experimental" data-page-target="experimental" data-search="experimental skill learning generated drafts" role="tab" aria-selected="${initialPage === 'experimental' ? 'true' : 'false'}" aria-controls="page-experimental" ${initialPage === 'experimental' ? '' : 'tabindex="-1"'}>Experimental</button>
           <button type="button" class="nav-link ${initialPage === 'ai-instructions' ? 'active' : ''}" id="tab-ai-instructions" data-page-target="ai-instructions" data-search="ai instructions sync copilot claude cursor cline continue codex gemini windsurf aider import instruction sets" role="tab" aria-selected="${initialPage === 'ai-instructions' ? 'true' : 'false'}" aria-controls="page-ai-instructions" ${initialPage === 'ai-instructions' ? '' : 'tabindex="-1"'}>AI Instructions</button>
           <button type="button" class="nav-link ${initialPage === 'discovery' ? 'active' : ''}" id="tab-discovery" data-page-target="discovery" data-search="resource discovery ard agent finders mcp servers agents skills apis search install publish catalog manifest registry" role="tab" aria-selected="${initialPage === 'discovery' ? 'true' : 'false'}" aria-controls="page-discovery" ${initialPage === 'discovery' ? '' : 'tabindex="-1"'}>Resource Discovery</button>
@@ -1894,6 +1990,95 @@ export class SettingsPanel {
                   </span>
                 </label>
                 <p class="info-note">AtlasMind also writes SSOT starter docs for dependency policy and operational review history. The built-in set now covers GitHub-native, Renovate, Snyk, and Azure DevOps patterns, and repo-specific services can still be layered in later.</p>
+              </article>
+            </div>
+          </section>
+
+          <section id="page-loop" class="settings-page ${initialPage === 'loop' ? 'active fallback-visible' : ''}" role="tabpanel" aria-labelledby="tab-loop" tabindex="0">
+            <div class="page-header">
+              <p class="page-kicker">Mission Loop</p>
+              <h2>Autonomous goal-seeking loop defaults</h2>
+              <p>Defaults for the <code>/loop</code> command and the Mission Control panel. Every budget value below is a <strong>hard stop</strong> — the loop checks them before each iteration and halts when any is exceeded. These are starting values for new missions; you can still fine-tune each run in Mission Control.</p>
+            </div>
+
+            <div class="page-grid">
+              <article class="settings-card">
+                <div class="card-header">
+                  <p class="card-kicker">Availability</p>
+                  <h3>${renderHeadingWithHelp('Enable the Mission Loop', 'loopEnabled')}</h3>
+                </div>
+                <label class="checkbox-card">
+                  <input id="loopEnabled" type="checkbox" ${loopEnabled ? 'checked' : ''}>
+                  <span>
+                    <strong>Allow autonomous loop runs</strong>
+                    <span class="muted-line">When off, <code>/loop</code> and Mission Control will not start a run.</span>
+                  </span>
+                </label>
+              </article>
+
+              <article class="settings-card">
+                <div class="card-header">
+                  <p class="card-kicker">Closed parameter envelope</p>
+                  <h3>${renderHeadingWithHelp('Hard stops', 'loopDefaultMaxIterations')}</h3>
+                </div>
+                <div class="field-grid">
+                  ${renderFieldLabel('loopDefaultMaxIterations', 'Max iterations', 'loopDefaultMaxIterations')}
+                  <input id="loopDefaultMaxIterations" type="number" min="1" max="50" step="1" value="${loopDefaultMaxIterations}" />
+
+                  ${renderFieldLabel('loopDefaultMaxCostUsd', `Cost cap (${loopDisplayCurrency})`, 'loopDefaultMaxCostUsd')}
+                  <input id="loopDefaultMaxCostUsd" type="number" min="0.01" step="0.5" value="${loopDefaultMaxCostDisplay}" />
+
+                  ${renderFieldLabel('loopDefaultMaxTokens', 'Token cap', 'loopDefaultMaxTokens')}
+                  <input id="loopDefaultMaxTokens" type="text" inputmode="numeric" autocomplete="off" value="${loopDefaultMaxTokensDisplay}" />
+
+                  ${renderFieldLabel('loopDefaultMaxDurationMinutes', 'Time cap (minutes)', 'loopDefaultMaxDurationMinutes')}
+                  <input id="loopDefaultMaxDurationMinutes" type="number" min="1" step="1" value="${loopDefaultMaxDurationMinutes}" />
+
+                  ${renderFieldLabel('loopMaxConsecutiveNoProgress', 'No-progress stop (iterations)', 'loopMaxConsecutiveNoProgress')}
+                  <input id="loopMaxConsecutiveNoProgress" type="number" min="1" max="10" step="1" value="${loopMaxConsecutiveNoProgress}" />
+                </div>
+                <p class="info-note">The cost cap is enforced on top of the daily cost limit. The loop also stops the moment the goal is verifiably achieved.</p>
+              </article>
+
+              <article class="settings-card">
+                <div class="card-header">
+                  <p class="card-kicker">Checkpoints &amp; autonomy</p>
+                  <h3>${renderHeadingWithHelp('Approval checkpoints', 'loopCheckpointEveryNIterations')}</h3>
+                </div>
+                <div class="field-grid">
+                  ${renderFieldLabel('loopCheckpointEveryNIterations', 'Checkpoint every N iterations (0 = off)', 'loopCheckpointEveryNIterations')}
+                  <input id="loopCheckpointEveryNIterations" type="number" min="0" max="50" step="1" value="${loopCheckpointEveryNIterations}" />
+
+                  ${renderFieldLabel('loopCheckpointAtBudgetFraction', 'Checkpoint at budget fraction', 'loopCheckpointAtBudgetFraction')}
+                  <input id="loopCheckpointAtBudgetFraction" type="number" min="0.01" max="1" step="0.05" value="${loopCheckpointAtBudgetFraction}" />
+                </div>
+                <label class="checkbox-card top-gap">
+                  <input id="loopRequireApprovalBeforeWriteBatches" type="checkbox" ${loopRequireApprovalBeforeWriteBatches ? 'checked' : ''}>
+                  <span>
+                    <strong>${renderHeadingWithHelp('Require approval before write/commit batches', 'loopRequireApprovalBeforeWriteBatches')}</strong>
+                    <span class="muted-line">Strongest safety posture; most interruptive.</span>
+                  </span>
+                </label>
+                <p class="info-note">Checkpoints are deny-by-default: if no one approves, the loop stops safely rather than continuing unattended.</p>
+              </article>
+
+              <article class="settings-card">
+                <div class="card-header">
+                  <p class="card-kicker">Discovery &amp; completion</p>
+                  <h3>${renderHeadingWithHelp('How the loop learns and decides "done"', 'loopAllowDiscovery')}</h3>
+                </div>
+                <label class="checkbox-card">
+                  <input id="loopAllowDiscovery" type="checkbox" ${loopAllowDiscovery ? 'checked' : ''}>
+                  <span>
+                    <strong>Allow capability discovery</strong>
+                    <span class="muted-line">Synthesize new agents/skills and use Agentic Resource Discovery to fill gaps — always behind the existing approval gates, preferring registered capabilities first.</span>
+                  </span>
+                </label>
+                <div class="field-grid top-gap">
+                  ${renderFieldLabel('loopGoalAchievedConfidenceThreshold', 'Goal-achieved confidence threshold', 'loopGoalAchievedConfidenceThreshold')}
+                  <input id="loopGoalAchievedConfidenceThreshold" type="number" min="0" max="1" step="0.05" value="${loopGoalAchievedConfidenceThreshold}" />
+                </div>
+                <p class="info-note">A goal is only accepted as achieved with passing verification and at least this evaluator confidence, so a low-confidence verdict can never falsely declare success.</p>
               </article>
             </div>
           </section>
@@ -3060,7 +3245,7 @@ export class SettingsPanel {
         const pages = Array.from(document.querySelectorAll('.settings-page'));
         const searchInput = document.getElementById('settingsSearch');
         const searchStatus = document.getElementById('searchStatus');
-        const knownPages = new Set(['overview', 'chat', 'models', 'safety', 'testing', 'project', 'experimental', 'ai-instructions', 'discovery']);
+        const knownPages = new Set(['overview', 'chat', 'models', 'safety', 'testing', 'project', 'loop', 'experimental', 'ai-instructions', 'discovery']);
 
         function focusSection(sectionId) {
           if (typeof sectionId !== 'string' || sectionId.trim().length === 0) {
@@ -3652,6 +3837,36 @@ export class SettingsPanel {
             element.addEventListener('blur', emit);
           }
 
+          function bindCheckboxSetting(id, messageType) {
+            const element = document.getElementById(id);
+            if (!(element instanceof HTMLInputElement)) {
+              return;
+            }
+            element.addEventListener('change', () => {
+              vscode.postMessage({ type: messageType, payload: element.checked });
+            });
+          }
+
+          // Integer field that displays a thousands separator (comma every three digits)
+          // for readability while sending a plain integer to the extension.
+          function bindIntegerWithCommas(id, messageType) {
+            const element = document.getElementById(id);
+            if (!(element instanceof HTMLInputElement)) {
+              return;
+            }
+            const handle = () => {
+              const digits = element.value.replace(/[^0-9]/g, '');
+              const value = Number.parseInt(digits, 10);
+              if (!Number.isFinite(value) || value < 1) {
+                return;
+              }
+              vscode.postMessage({ type: messageType, payload: value });
+              element.value = value.toLocaleString('en-US');
+            };
+            element.addEventListener('change', handle);
+            element.addEventListener('blur', handle);
+          }
+
           bindNonNegativeNumberInput('dailyCostLimitUsd', 'setDailyCostLimitUsd');
 
           const displayCurrency = document.getElementById('displayCurrency');
@@ -3672,6 +3887,19 @@ export class SettingsPanel {
           bindPositiveIntegerInput('chatSessionContextChars', 'setChatSessionContextChars');
           bindPositiveIntegerInput('projectEstimatedFilesPerSubtask', 'setProjectEstimatedFilesPerSubtask');
           bindPositiveIntegerInput('projectChangedFileReferenceLimit', 'setProjectChangedFileReferenceLimit');
+
+          // Mission Loop defaults.
+          bindPositiveIntegerInput('loopDefaultMaxIterations', 'setLoopDefaultMaxIterations');
+          bindNonNegativeNumberInput('loopDefaultMaxCostUsd', 'setLoopDefaultMaxCostUsd');
+          bindIntegerWithCommas('loopDefaultMaxTokens', 'setLoopDefaultMaxTokens');
+          bindPositiveIntegerInput('loopDefaultMaxDurationMinutes', 'setLoopDefaultMaxDurationMinutes');
+          bindPositiveIntegerInput('loopMaxConsecutiveNoProgress', 'setLoopMaxConsecutiveNoProgress');
+          bindNonNegativeNumberInput('loopCheckpointEveryNIterations', 'setLoopCheckpointEveryNIterations');
+          bindRangedNumberInput('loopCheckpointAtBudgetFraction', 'setLoopCheckpointAtBudgetFraction', 0.01, 1);
+          bindRangedNumberInput('loopGoalAchievedConfidenceThreshold', 'setLoopGoalAchievedConfidenceThreshold', 0, 1);
+          bindCheckboxSetting('loopEnabled', 'setLoopEnabled');
+          bindCheckboxSetting('loopRequireApprovalBeforeWriteBatches', 'setLoopRequireApprovalBeforeWriteBatches');
+          bindCheckboxSetting('loopAllowDiscovery', 'setLoopAllowDiscovery');
 
           const voiceTtsEnabled = document.getElementById('voiceTtsEnabled');
           if (voiceTtsEnabled instanceof HTMLInputElement) {
@@ -5136,6 +5364,38 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
     return typeof message.payload === 'boolean';
   }
 
+  if (
+    message.type === 'setLoopEnabled' ||
+    message.type === 'setLoopRequireApprovalBeforeWriteBatches' ||
+    message.type === 'setLoopAllowDiscovery'
+  ) {
+    return typeof message.payload === 'boolean';
+  }
+
+  if (
+    message.type === 'setLoopDefaultMaxIterations' ||
+    message.type === 'setLoopDefaultMaxTokens' ||
+    message.type === 'setLoopDefaultMaxDurationMinutes' ||
+    message.type === 'setLoopMaxConsecutiveNoProgress'
+  ) {
+    return typeof message.payload === 'number' && Number.isFinite(message.payload) && message.payload >= 1;
+  }
+
+  if (message.type === 'setLoopDefaultMaxCostUsd') {
+    return typeof message.payload === 'number' && Number.isFinite(message.payload) && message.payload > 0;
+  }
+
+  if (message.type === 'setLoopCheckpointEveryNIterations') {
+    return typeof message.payload === 'number' && Number.isFinite(message.payload) && message.payload >= 0;
+  }
+
+  if (
+    message.type === 'setLoopCheckpointAtBudgetFraction' ||
+    message.type === 'setLoopGoalAchievedConfidenceThreshold'
+  ) {
+    return typeof message.payload === 'number' && Number.isFinite(message.payload) && message.payload >= 0 && message.payload <= 1;
+  }
+
   if (message.type === 'openWorkspaceFile') {
     return isSafeWorkspaceRelativePath(message.payload);
   }
@@ -5293,6 +5553,33 @@ function getPositiveInteger(value: number | undefined, fallback: number): number
     return fallback;
   }
   return Math.floor(value);
+}
+
+function getPositiveNumber(value: number | undefined, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    return fallback;
+  }
+  return value;
+}
+
+function getNonNegativeInteger(value: number | undefined, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    return fallback;
+  }
+  return Math.floor(value);
+}
+
+/** Format a number with up to `decimals` places, trimming trailing zeros (e.g. 5.00 → "5"). */
+function formatPlainNumber(value: number, decimals: number): string {
+  if (!Number.isFinite(value)) {
+    return '0';
+  }
+  return value.toFixed(decimals).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
+}
+
+/** Format an integer with a thousands separator (comma every three digits). */
+function groupThousands(value: number): string {
+  return Math.round(value).toLocaleString('en-US');
 }
 
 function getRangedNumber(value: number | undefined, fallback: number, min: number, max: number, decimals = 2): string {

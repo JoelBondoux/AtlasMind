@@ -369,6 +369,17 @@ Safety behavior:
 
 This is intended as assisted scaffolding, not autonomous self-trust.
 
+### Mission Loop & capability discovery
+
+The autonomous **Mission Loop** (`/loop` chat command and the Mission Control panel, backed by `src/core/missionRunner.ts`) sends agents out to "learn what's required" across multiple iterations — but it does so **prefer-existing and gated**:
+
+- Each increment runs through the orchestrator's normal subtask execution, so it first uses already-registered agents, skills, and MCP tools.
+- When `atlasmind.loop.allowDiscovery` is on, the loop may fill a genuine capability gap by **synthesizing** a new agent/skill (the same `skillDrafting`/`agentDrafting` paths as Experimental Skill Learning) or by using **Agentic Resource Discovery**. New capabilities pass the **existing approval gates** before use; nothing is silently auto-trusted.
+- The loop never bypasses guarded delivery: a goal that implies staging/production deployment is surfaced as a checkpoint/`blocked` and routed through the `PromotionRunner` pipeline rather than executed directly.
+- A goal is only judged **achieved** when the iteration shows passing verification where behaviour changed — the project's Testing Methodology Matrix and TDD policy are inherited automatically (see [Testing](#project-dashboard--testing-page)).
+
+See [Project Planner](../wiki/Project-Planner.md) for how the loop relates to the single-pass planner and scheduler.
+
 ### Registering Skills
 
 ```typescript

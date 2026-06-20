@@ -179,6 +179,24 @@ Agent Finder definitions are stored in `globalState` and managed from the Resour
 | `atlasmind.toolExecutionTimeoutMs` | `number` | `15000` | Per-tool execution timeout in milliseconds (minimum 1000). |
 | `atlasmind.providerTimeoutMs` | `number` | `30000` | Maximum time to wait for a model provider response in milliseconds (minimum 5000). |
 
+## Mission Loop
+
+The autonomous goal-seeking loop (`/loop` chat command and the Mission Control panel). Every budget setting is a **hard stop**: the loop checks them before each iteration and halts when any is exceeded. The loop is safety-first — deny-by-default checkpoints, validated evaluator output, and discovery behind the existing approval gates. These defaults are also editable from a dedicated **Mission Loop** page in the AtlasMind Settings dashboard.
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `atlasmind.loop.enabled` | `boolean` | `true` | Enable the Mission Loop. When off, `/loop` and Mission Control will not start a run. |
+| `atlasmind.loop.defaultMaxIterations` | `number` | `8` | Default hard cap on loop iterations (1–50). |
+| `atlasmind.loop.defaultMaxCostUsd` | `number` | `5` | Default hard ceiling on cumulative USD cost for a run; enforced on top of `dailyCostLimitUsd`. |
+| `atlasmind.loop.defaultMaxTokens` | `number` | `2000000` | Default hard ceiling on cumulative (input + output) tokens for a run. |
+| `atlasmind.loop.defaultMaxDurationMinutes` | `number` | `30` | Default hard wall-clock cap (minutes) for a run. |
+| `atlasmind.loop.maxConsecutiveNoProgress` | `number` | `2` | Stop after this many consecutive no-progress iterations (1–10). |
+| `atlasmind.loop.checkpointEveryNIterations` | `number` | `3` | Pause for a deny-by-default approval checkpoint every N iterations (`0` disables cadence checkpoints). |
+| `atlasmind.loop.checkpointAtBudgetFraction` | `number` | `0.75` | Pause the first time cumulative spend crosses this fraction (0.01–1) of the cost budget. |
+| `atlasmind.loop.requireApprovalBeforeWriteBatches` | `boolean` | `false` | Require an approval checkpoint before any iteration that may write files or commit. |
+| `atlasmind.loop.allowDiscovery` | `boolean` | `true` | Allow the loop to synthesize new agents/skills and use Agentic Resource Discovery to fill gaps (always behind existing approval gates; prefers registered capabilities first). |
+| `atlasmind.loop.goalAchievedConfidenceThreshold` | `number` | `0.7` | Minimum evaluator confidence (0–1) required to accept an `achieved` verdict and stop the loop successfully. |
+
 ## Remote Control
 
 | Setting | Type | Default | Description |

@@ -1662,6 +1662,223 @@ export type ProjectProgressUpdate =
   | { type: 'synthesizing' }
   | { type: 'error'; message: string };
 
+// ── Mission Loop (autonomous goal-seeking loop) ─────────────────
+
+/**
+ * The closed parameter envelope that bounds a mission. Every field is a HARD
+ * stop: {@link MissionRunner} checks each one before starting an iteration and
+ * halts with the corresponding {@link MissionStopReason} when any is exceeded.
+ * This is the "closed set of parameters" that confines progress.
+ */
+export interface MissionBudget {
+  /** Maximum number of loop iterations before forcing a stop. */
+  maxIterations: number;
+  /** Hard ceiling on cumulative USD cost across all iterations. */
+  maxCostUsd: number;
+  /** Hard ceiling on cumulative (input + output) tokens across all iterations. */
+  maxTokens: number;
+  /** Hard ceiling on wall-clock duration in milliseconds. */
+  maxDurationMs: number;
+  /**
+   * Stop after this many consecutive iterations the goal evaluator judges as
+   * making no measurable progress. Prevents the loop from burning budget while
+   * spinning on a problem it cannot move forward.
+   */
+  maxConsecutiveNoProgress: number;
+}
+
+/**
+ * Free-text and structured constraints injected into every subtask agent prompt
+ * for the duration of the mission. Treated as high-priority instructions that
+ * compose with (and never override) the immutable guardrails.
+ */
+export interface MissionGuardrails {
+  /** Plain-language rules the mission must respect (e.g. "do not touch auth"). */
+  instructions: string[];
+  /**
+   * Workspace-relative paths the mission must not modify. Surfaced to agents and
+   * used to flag (and checkpoint) any increment that would touch them.
+   */
+  protectedPaths?: string[];
+}
+
+/**
+ * When the hybrid-autonomy loop must pause for human approval. Any trigger that
+ * fires forces a checkpoint before the next iteration proceeds; the checkpoint
+ * is denied by default if no approver responds.
+ */
+export interface MissionCheckpointPolicy {
+  /** Require approval every N iterations (0 / undefined disables). */
+  everyNIterations?: number;
+  /**
+   * Require approval the first time cumulative spend crosses each of these
+   * fractions (0..1) of the cost budget (e.g. [0.5, 0.9]).
+   */
+  atBudgetFractions?: number[];
+  /** Require approval before any iteration expected to write files or commit. */
+  beforeWriteBatches?: boolean;
+}
+
+/** A fully specified mission: goal + guardrails + the closed parameter envelope. */
+export interface MissionConfig {
+  id: string;
+  /** The high-level objective the loop works toward. */
+  goal: string;
+  /**
+   * Explicit, checkable "definition of done". Optional — when omitted the goal
+   * evaluator infers criteria from the goal. Drives the `achieved` decision.
+   */
+  successCriteria?: string[];
+  guardrails: MissionGuardrails;
+  budget: MissionBudget;
+  checkpointPolicy: MissionCheckpointPolicy;
+  /** Budget/speed routing constraints applied to every increment. */
+  constraints: RoutingConstraints;
+  /**
+   * When true, the loop may synthesize new agents/skills and use Agentic
+   * Resource Discovery to fill capability gaps — always behind the existing
+   * approval gates. When false, the loop is restricted to registered capabilities.
+   */
+  allowDiscovery: boolean;
+  /** When seeded from an ideation board/card, the origin for audit + write-back. */
+  ideationOrigin?: ProjectRunIdeationOrigin;
+}
+
+/** The goal evaluator's high-level judgement for one iteration. */
+export type GoalVerdictKind = 'achieved' | 'progressing' | 'stalled' | 'blocked';
+
+/** The goal evaluator's structured, validated verdict for one iteration. */
+export interface GoalVerdict {
+  verdict: GoalVerdictKind;
+  /** Evaluator confidence in the verdict, 0..1. */
+  confidence: number;
+  /** Outstanding work items still required to satisfy the goal. */
+  remaining: string[];
+  /** Suggested focus for the next increment. */
+  nextFocus: string;
+  /** Short rationale for the verdict. */
+  rationale: string;
+}
+
+/** A capability the loop discovered or created during a mission (for audit). */
+export interface MissionCapabilityRecord {
+  kind: 'agent' | 'skill' | 'mcp-tool' | 'discovered-resource';
+  id: string;
+  name: string;
+  source: 'registry' | 'synthesized' | 'ard';
+}
+
+/** Outcome of a single mission iteration. */
+export interface MissionIterationResult {
+  index: number;
+  /** The increment plan executed this iteration. */
+  plan: ProjectPlan;
+  /** The synthesized report from this iteration's execution. */
+  synthesis: string;
+  verdict: GoalVerdict;
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  durationMs: number;
+  changedFiles: ChangedWorkspaceFile[];
+  createdCapabilities: MissionCapabilityRecord[];
+  /** Subtask outcomes for this iteration (drives verification weighting). */
+  subTaskResults: SubTaskResult[];
+}
+
+/** Why a mission stopped looping. */
+export type MissionStopReason =
+  | 'goal-achieved'
+  | 'budget-exhausted'
+  | 'max-iterations'
+  | 'no-progress'
+  | 'time-exhausted'
+  | 'token-exhausted'
+  | 'blocked'
+  | 'cancelled'
+  | 'error'
+  | 'stopped-by-user';
+
+export type MissionStatus =
+  | 'previewed'
+  | 'running'
+  | 'awaiting-checkpoint'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
+
+/** Final result after the mission loop terminates. */
+export interface MissionResult {
+  id: string;
+  goal: string;
+  iterations: MissionIterationResult[];
+  stopReason: MissionStopReason;
+  /** True only when the loop terminated because the goal was achieved. */
+  achieved: boolean;
+  /** Final assembled report across all iterations. */
+  finalSynthesis: string;
+  totalCostUsd: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalDurationMs: number;
+}
+
+/**
+ * A recoverable block: the loop could not make verifiable progress because a
+ * relaxable AtlasMind setting (e.g. terminal-write being disabled) prevented a
+ * required action. Surfaced to the user so they can override, change the
+ * setting, or stop — instead of the loop silently cancelling.
+ */
+export interface MissionSettingBlocker {
+  /** Fully-qualified setting key for display (e.g. "atlasmind.allowTerminalWrite"). */
+  settingKey: string;
+  /** Config key (without the "atlasmind." prefix) used to apply an in-run override. */
+  configKey: string;
+  /** Value to set when the user chooses "override for this run". */
+  overrideValue: boolean;
+  /** Command id that opens the settings page where this setting can be changed. */
+  settingsCommand: string;
+  /** Short title for the prompt. */
+  title: string;
+  /** Plain-language explanation of what is blocked and why. */
+  detail: string;
+}
+
+/** Progress event emitted as a mission loops. Mirrors {@link ProjectProgressUpdate}. */
+export type MissionProgressUpdate =
+  | { type: 'mission-start'; config: MissionConfig }
+  | { type: 'iteration-start'; index: number; maxIterations: number; focus: string }
+  | { type: 'planned-increment'; index: number; plan: ProjectPlan }
+  | { type: 'executing'; index: number }
+  | { type: 'evaluated'; index: number; verdict: GoalVerdict }
+  | { type: 'checkpoint-required'; index: number; reason: string; spentUsd: number; budgetUsd: number }
+  | { type: 'checkpoint-resolved'; index: number; approved: boolean }
+  | { type: 'blocked'; index: number; blocker: MissionSettingBlocker }
+  | { type: 'budget-status'; spentUsd: number; budgetUsd: number; iterations: number; maxIterations: number }
+  | { type: 'mission-stopped'; result: MissionResult }
+  | { type: 'error'; message: string };
+
+/** A persisted mission run (audit trail + resume), stored by MissionRegistry. */
+export interface MissionRunRecord {
+  id: string;
+  goal: string;
+  workspaceKey?: string;
+  chatSessionId?: string;
+  status: MissionStatus;
+  createdAt: string;
+  updatedAt: string;
+  config: MissionConfig;
+  iterations: MissionIterationResult[];
+  stopReason?: MissionStopReason;
+  achieved: boolean;
+  totalCostUsd: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalDurationMs: number;
+  /** Capabilities created across the whole mission (deduped). */
+  createdCapabilities: MissionCapabilityRecord[];
+}
+
 // ── Orchestrator ────────────────────────────────────────────────
 
 export interface TaskRequest {

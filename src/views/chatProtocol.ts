@@ -6,9 +6,28 @@
 // remote-control transport. See docs/remote-control.md.
 import type { ToolApprovalDecision, ProjectRunReviewDecision } from '../types.js';
 
-export type ComposerSendMode = 'send' | 'steer' | 'new-chat' | 'new-session';
+export type ComposerSendMode = 'send' | 'steer' | 'new-chat' | 'new-session' | 'new-loop';
 
 export type PersistentComposerSendMode = Extract<ComposerSendMode, 'send' | 'steer'>;
+
+/** A single choice in an in-chat Mission Loop decision card. */
+export interface LoopDecisionOption {
+  id: string;
+  label: string;
+  kind?: 'primary' | 'danger' | 'default';
+}
+
+/**
+ * An in-chat decision the running Mission Loop is waiting on (checkpoint approval
+ * or a recoverable-block recovery). Rendered as buttons at the base of the chat
+ * surface — never an OS modal — and resolved by a `resolveLoopDecision` message.
+ */
+export interface LoopDecisionRequest {
+  id: string;
+  title: string;
+  detail: string;
+  options: LoopDecisionOption[];
+}
 
 export type ChatPanelImportedItem =
   | { transport: 'workspace-path'; value: string }
@@ -18,6 +37,7 @@ export type ChatPanelImportedItem =
 export type ChatPanelMessage =
   | { type: 'ready' }
   | { type: 'submitPrompt'; payload: { prompt: string; mode: ComposerSendMode } }
+  | { type: 'resolveLoopDecision'; payload: { id: string; choice: string } }
   | { type: 'stopPrompt' }
   | { type: 'voteAssistantMessage'; payload: { entryId: string; vote: 'up' | 'down' | 'clear' } }
   | { type: 'resolveToolApproval'; payload: { requestId: string; decision: ToolApprovalDecision } }
@@ -60,12 +80,12 @@ export function getStatusDrivenComposerMode(isBusy: boolean): PersistentComposer
   return isBusy ? 'steer' : 'send';
 }
 
-export function isOneShotComposerMode(mode: ComposerSendMode | undefined): mode is Extract<ComposerSendMode, 'new-chat' | 'new-session'> {
-  return mode === 'new-chat' || mode === 'new-session';
+export function isOneShotComposerMode(mode: ComposerSendMode | undefined): mode is Extract<ComposerSendMode, 'new-chat' | 'new-session' | 'new-loop'> {
+  return mode === 'new-chat' || mode === 'new-session' || mode === 'new-loop';
 }
 
 export function isComposerSendMode(value: unknown): value is ComposerSendMode {
-  return value === 'send' || value === 'steer' || value === 'new-chat' || value === 'new-session';
+  return value === 'send' || value === 'steer' || value === 'new-chat' || value === 'new-session' || value === 'new-loop';
 }
 
 export function isAssistantVoteMessage(value: unknown): value is 'up' | 'down' | 'clear' {
@@ -147,6 +167,13 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
       && message.payload !== null
       && typeof (message.payload as { requestId?: unknown }).requestId === 'string'
       && isToolApprovalDecision((message.payload as { decision?: unknown }).decision);
+  }
+
+  if (message.type === 'resolveLoopDecision') {
+    return typeof message.payload === 'object'
+      && message.payload !== null
+      && typeof (message.payload as { id?: unknown }).id === 'string'
+      && typeof (message.payload as { choice?: unknown }).choice === 'string';
   }
 
   if (message.type === 'reviewRunFile') {

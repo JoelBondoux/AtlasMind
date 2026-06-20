@@ -186,6 +186,13 @@ describe('RECOMMENDED_MCP_SERVERS', () => {
       command: 'node',
       args: ['${userHome}/Work-Timer/dist/mcp/server.js'],
     });
+    expect(getRecommendedMcpStarterDetails('mcp-server-contrast-checker')).toMatchObject({
+      setupMode: 'prefill',
+      transport: 'stdio',
+      command: 'npx',
+      args: ['-y', 'contrast-checker-mcp'],
+    });
+    expect(RECOMMENDED_MCP_SERVERS.find(server => server.id === 'mcp-server-contrast-checker')?.provenance).toBe('community');
     expect(getRecommendedMcpStarterDetails('mcp-server-git').runtimeInstalls?.win32?.[0]?.packageId).toBe('astral-sh.uv');
     expect(getRecommendedMcpStarterDetails('mcp-server-git').runtimeInstalls?.darwin?.[0]?.packageManager).toBe('brew');
     expect(getRecommendedMcpStarterDetails('mcp-server-git').runtimeInstalls?.linux?.length).toBeGreaterThan(0);

@@ -161,6 +161,17 @@ See [[Remote Control]] for the full model.
 
 Each iteration of the agentic loop now computes a safe `maxTokens` value: `min(DEFAULT_CHAT_MAX_TOKENS, modelContextWindow − estimatedInputTokens − 1024)`. This prevents completion requests from overflowing the model's context window as conversation history grows, which could otherwise cause silent truncation or provider errors on long-running tasks.
 
+### 11. Autonomous Mission Loop Containment
+
+The Mission Loop (`/loop` and Mission Control) is autonomous, so it is bounded on every axis:
+
+- **Closed parameter envelope.** Every run is capped by hard stops — max iterations, cumulative cost (USD), cumulative tokens, wall-clock time, and a consecutive-no-progress limit — checked **before each iteration**, on top of the project-wide daily budget gate. The loop cannot run away with budget or time.
+- **Deny-by-default checkpoints.** Hybrid autonomy means the loop pauses for human approval at configured triggers; an unanswered, dismissed, or throwing checkpoint resolves as **denied** and stops the run.
+- **Untrusted evaluator output.** The goal evaluator's verdict is parsed and validated field-by-field (safe fallback to `stalled`/zero-confidence); a confidence threshold plus a verification guard mean a malformed or over-eager evaluator can never falsely declare success, and unverified behaviour changes are never accepted as "done".
+- **Guardrail injection.** The mission's guardrails (rules + protected paths) are folded into every increment's planning/execution prompt as high-priority constraints that compose with — never override — the immutable guardrails.
+- **Gated discovery, no deployment bypass.** New agents/skills/resources pass the existing approval gates before use; deployments route through the guarded promotion pipeline, never run directly.
+- **Auditable.** Each run is persisted to `project_memory/operations/missions.json` + a `missions.md` mirror, with no secret values and bounded text.
+
 ---
 
 ## Threat Model
@@ -177,6 +188,8 @@ Each iteration of the agentic loop now computes a safe `maxTokens` value: `min(D
 | SSRF / malicious manifests via ARD discovery | HTTPS enforcement + private-host screening + schema validation + depth-bounded federation + opt-in finders + disabled-by-default installs |
 | XSS in webviews | CSP + nonces + escapeHtml |
 | Runaway tool execution | 8 calls/turn limit + timeouts + cost limits |
+| Runaway autonomous loop | Mission Loop closed parameter envelope (iterations/cost/tokens/time/no-progress) + daily budget gate + deny-by-default checkpoints |
+| False "goal achieved" on unverified work | Validated evaluator output + confidence threshold + verification guard (TDD/verification status) |
 | Supply chain (custom skills) | Security scanner + manual review gate |
 
 ---

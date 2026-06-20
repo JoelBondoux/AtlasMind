@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.108.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.111.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -94,6 +94,7 @@ Use these in the AtlasMind chat panel by typing `@atlas /<command>`.
 | `/bootstrap` | Initialise a new project with SSOT memory structure |
 | `/import` | Import an existing project by scanning files and populating memory |
 | `/project <goal>` | Decompose a goal into tests-first subtasks and execute autonomously |
+| `/loop <goal>` | Run an autonomous, goal-seeking **Mission Loop** within a closed budget envelope: plan → execute → re-evaluate each iteration until the goal is met or a guardrail (cost/iterations/no-progress/time) confines progress. Pauses for approval at configurable checkpoints |
 | `/agents` | List or manage registered agents |
 | `/skills` | List or manage registered skills |
 | `/discover <query>` | Discover external agentic resources (MCP servers, agents, skills, APIs) via [Agentic Resource Discovery](https://agenticresourcediscovery.org/), with one-click install of the results |
@@ -123,10 +124,11 @@ Access these from the VS Code Command Palette (`Ctrl+Shift+P`).
 | `AtlasMind: Bootstrap Project` | Create SSOT memory structure for a new project |
 | `AtlasMind: Import Existing Project` | Populate memory from an existing project |
 | `AtlasMind: Update Project Memory` | Re-scan and refresh the SSOT memory |
-| `AtlasMind: Open Cost Dashboard` | Per-session and per-model cost breakdown |
+| `AtlasMind: Open Cost Dashboard` | Per-session and per-model cost breakdown, plus a live "Current Loops" section for in-flight Mission Loop spend |
 | `AtlasMind: Open Project Dashboard` | Project health, gap analysis, and roadmap |
 | `AtlasMind: Open Project Ideation` | Ideation whiteboard before launching a project run |
 | `AtlasMind: Open Project Run Center` | Task run history and checkpoint browser |
+| `AtlasMind: Open Mission Control` | Define, launch, watch, checkpoint, and audit autonomous Mission Loop runs |
 | `AtlasMind: Show Cost Summary` | Quick cost summary in the chat |
 | `AtlasMind: Toggle Autopilot` | Toggle autopilot mode |
 | `AtlasMind: Open Voice Panel` | Open TTS/STT voice interaction panel |
@@ -232,6 +234,17 @@ Key settings under `atlasmind.*` in VS Code settings:
 | `dailyCostLimitUsd` | `0` | Daily spend cap in USD (0 = unlimited) |
 | `agentAutoUpdateCadence` | `never` | How often to AI-refresh agent definitions: `never`, `daily`, `weekly`, `monthly`, `every-use` |
 | `maxToolIterations` | `10` | Max tool-call loop iterations per agent turn |
+| `loop.enabled` | `true` | Enable the autonomous Mission Loop (`/loop` + Mission Control) |
+| `loop.defaultMaxIterations` | `8` | Default hard cap on Mission Loop iterations |
+| `loop.defaultMaxCostUsd` | `5` | Default hard ceiling (USD) on a Mission Loop run |
+| `loop.defaultMaxTokens` | `2000000` | Default cumulative token cap for a Mission Loop run |
+| `loop.defaultMaxDurationMinutes` | `30` | Default wall-clock cap (minutes) for a Mission Loop run |
+| `loop.maxConsecutiveNoProgress` | `2` | Stop after this many consecutive no-progress iterations |
+| `loop.checkpointEveryNIterations` | `3` | Pause for approval every N iterations (0 = off) |
+| `loop.checkpointAtBudgetFraction` | `0.75` | Pause when spend crosses this fraction (0..1) of the cost budget |
+| `loop.requireApprovalBeforeWriteBatches` | `false` | Require approval before any write/commit iteration |
+| `loop.allowDiscovery` | `true` | Allow the loop to synthesize/discover capabilities (gated) |
+| `loop.goalAchievedConfidenceThreshold` | `0.7` | Min evaluator confidence to accept an `achieved` verdict |
 | `allowTerminalWrite` | `false` | Allow terminal subprocesses (installs, commits) after explicit approval |
 | `autoVerifyAfterWrite` | `true` | Run verification scripts after workspace writes |
 | `ssotPath` | `project_memory` | Relative path to the SSOT memory folder |
@@ -283,6 +296,7 @@ See [Funding and Sponsorship](wiki/Funding-and-Sponsorship.md) for details.
 - Shared utilities: `src/utils/` (including `secretRedactor.ts` — pattern-based secret scanner used to scrub credentials from memory context before LLM dispatch; `aiInstructionSync.ts` — inbound merge of external agent rule files; `testingProtocolSync.ts` — outbound sync of enabled testing protocols into external agent instruction files)
 - Data privacy: `src/core/dataPrivacyManager.ts` (classifies confidential/proprietary terms, files, and folders and gates them to user-selected "trusted" models; records catch activity for the dashboard charts), `src/core/compliancePacks.ts` (built-in GDPR/HIPAA/PCI-DSS/CCPA detector packs), and `src/core/providerDataGovernance.ts` (per-provider GDPR/data-management reference links). Managed from the Project Dashboard → **Privacy** page (provider/model trust tree, catch charts, and provider data-management panel); policy stored at `project_memory/operations/data-privacy.json`.
 - Delivery & deployment stages: `src/core/deliveryManager.ts` (models Local → Staging → Production stages and promotion "push" edges; seeds a pipeline from the repo's branches, sanitises dashboard edits via `sanitizeDeliveryConfig`, and persists `project_memory/operations/delivery.json` + a human-readable `delivery.md` runbook mirror) and `src/core/promotionRunner.ts` (the guarded promotion engine: builds the preflight → backup → deploy → verify → record plan, enforces the authorization gate, and executes user-authored commands with live progress). Surfaced on the Project Dashboard → **Delivery** page as an editable **Stages & Promotion** pipeline with **Execute / Runbook** push buttons; production is protected, a data-bearing target with no backup command is deny-by-default blocked, executed commands are sourced only from your saved config/routines, and AtlasMind never force-pushes.
+- Mission Loop (autonomous goal-seeking loop): `src/core/missionRunner.ts` (the outer plan → execute → evaluate loop with the closed parameter envelope and deny-by-default checkpoints), `src/core/goalEvaluator.ts` (validated, untrusted-output progress verdicts), and `src/core/missionRegistry.ts` (audit persistence to `project_memory/operations/missions.json` + a `missions.md` runbook mirror). Defined/launched/watched from the **Mission Control** webview (`src/views/missionControlPanel.ts`) and the `/loop` chat command.
 - Testing strategy: `src/core/testingConfigLoader.ts` (methodology resolution for orchestrated runs) and `src/core/testingScaffolder.ts` (stack-aware framework scaffolding)
 - Routing intelligence: `src/core/executionQuality.ts` (shared output-quality scorer), `src/core/modelEvalHarness.ts` (scored-replay model comparison), and `src/views/modelComparisonPanel.ts` (comparison webview)
 - Webview and sidebar surfaces: `src/views/` (`chatProtocol.ts` and `chatWebviewMarkup.ts` are Node-free so they are shared with the web build)

@@ -13,6 +13,7 @@
   const runListContainer = document.getElementById('runListContainer');
   const runCountBadge = document.getElementById('runCount');
   const pendingApprovals = document.getElementById('pendingApprovals');
+  const pendingLoopDecision = document.getElementById('pendingLoopDecision');
   const transcript = document.getElementById('transcript');
   const runInspector = document.getElementById('runInspector');
   const promptInput = document.getElementById('promptInput');
@@ -1058,7 +1059,7 @@
   }
 
   function isOneShotComposerMode(mode) {
-    return mode === 'new-chat' || mode === 'new-session';
+    return mode === 'new-chat' || mode === 'new-session' || mode === 'new-loop';
   }
 
   function applyComposerModePreference(requestedMode, options) {
@@ -1598,6 +1599,59 @@
 
       pendingApprovals.appendChild(card);
     }
+  }
+
+  function renderLoopDecision(decision) {
+    if (!pendingLoopDecision) {
+      return;
+    }
+    pendingLoopDecision.innerHTML = '';
+    var hasDecision = decision && Array.isArray(decision.options) && decision.options.length > 0;
+    pendingLoopDecision.classList.toggle('hidden', !hasDecision);
+    if (!hasDecision) {
+      return;
+    }
+
+    var card = document.createElement('div');
+    card.className = 'approval-card';
+
+    var title = document.createElement('div');
+    title.className = 'approval-card-title';
+    title.textContent = decision.title || 'Mission decision required';
+    card.appendChild(title);
+
+    if (decision.detail) {
+      var detail = document.createElement('div');
+      detail.className = 'approval-detail';
+      detail.textContent = decision.detail;
+      card.appendChild(detail);
+    }
+
+    var actions = document.createElement('div');
+    actions.className = 'approval-actions';
+    for (var i = 0; i < decision.options.length; i += 1) {
+      actions.appendChild(createLoopDecisionButton(decision.id, decision.options[i]));
+    }
+    card.appendChild(actions);
+
+    pendingLoopDecision.appendChild(card);
+  }
+
+  function createLoopDecisionButton(decisionId, option) {
+    var button = document.createElement('button');
+    button.type = 'button';
+    if (option.kind === 'danger') {
+      button.classList.add('danger');
+    }
+    button.textContent = option.label;
+    button.addEventListener('click', function () {
+      vscode.postMessage({
+        type: 'resolveLoopDecision',
+        payload: { id: decisionId, choice: option.id },
+      });
+      scheduleComposerFocusRestore({ force: true });
+    });
+    return button;
   }
 
   function createApprovalButton(label, requestId, decision, extraClass) {
@@ -3592,6 +3646,7 @@
       var standaloneRuns = renderSessions(state.sessions, state.selectedSessionId, state.projectRuns, state.selectedRunId || (state.selectedRun ? state.selectedRun.id : undefined), state.busySessionId);
       renderRuns(standaloneRuns, state.selectedRunId || (state.selectedRun ? state.selectedRun.id : undefined));
       renderPendingApprovals(state.pendingToolApprovals);
+      renderLoopDecision(state.pendingLoopDecision);
       renderPendingRunReview(state.pendingRunReview, state.selectedRunId || (state.selectedRun ? state.selectedRun.id : undefined));
       renderAttachments(state.attachments);
       renderOpenFiles(state.openFiles);

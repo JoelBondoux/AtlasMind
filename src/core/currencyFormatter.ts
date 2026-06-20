@@ -76,19 +76,22 @@ export function detectSystemCurrency(): string {
 }
 
 /**
- * Returns the active display currency: either the user-configured value or the
- * auto-detected system currency.
+ * Returns the active display currency. Defaults to USD; a user-selected currency
+ * is honoured app-wide, and the special value `auto` detects from the OS locale.
  */
 export function getDisplayCurrency(): string {
   try {
-    const setting = vscode.workspace.getConfiguration('atlasmind').get<string>('displayCurrency', 'auto');
-    if (setting && setting !== 'auto') {
+    const setting = vscode.workspace.getConfiguration('atlasmind').get<string>('displayCurrency', 'USD');
+    if (setting === 'auto') {
+      return detectSystemCurrency();
+    }
+    if (setting) {
       return setting.toUpperCase();
     }
   } catch {
     // vscode may not be available in CLI contexts
   }
-  return detectSystemCurrency();
+  return 'USD';
 }
 
 /**
