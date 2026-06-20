@@ -57,6 +57,16 @@ export interface PromotionPlanInput {
   changelogHasFromVersion: boolean;
   /** The bound promotion routine, when one exists on disk. */
   routine?: RoutineDefinition;
+  /**
+   * Live CI status per check context, resolved from `gh` at plan time. When a
+   * required status check appears here it becomes an *auto* preflight check
+   * (verified), instead of a manual attestation. Absent ⇒ fall back to manual.
+   */
+  liveStatusChecks?: Record<string, 'pass' | 'fail' | 'pending'>;
+  /** Identity running the promotion (git actor), for separation-of-duties. */
+  approver?: string;
+  /** Author of the source branch's head commit, for separation-of-duties. */
+  lastCommitAuthor?: string;
 }
 
 /**
@@ -83,6 +93,13 @@ export function buildPromotionPlan(input: PromotionPlanInput): PromotionPlan | u
   const backupConfigured = backupCommand.length > 0;
   if (to.backupPolicy.required && !backupConfigured) {
     blockers.push(`A data backup is required before promoting to ${to.name}, but no backup command is set. Add one in the stage editor before this push can run.`);
+  }
+
+  const viaPullRequest = to.promotionPolicy.viaPullRequest === true;
+  const dispatchWorkflow = (to.promotionPolicy.dispatchWorkflow ?? '').trim();
+  const hasRoutine = Boolean(input.routine && input.routine.steps.length > 0);
+  if (viaPullRequest && !hasRoutine && !dispatchWorkflow) {
+    blockers.push(`Promotion to ${to.name} must go through a Pull Request into \`${to.branchRef ?? 'the protected branch'}\`, but nothing is bound to open one. Bind a routine, or set a CD workflow to dispatch, in the push editor.`);
   }
 
   if (to.promotionPolicy.requireVersionBump) {
@@ -130,6 +147,59 @@ export function buildPromotionPlan(input: PromotionPlanInput): PromotionPlan | u
     }
   }
 
+  // CI status checks imported from the repo's workflows / branch protection.
+  // When live status is available (resolved from `gh` at plan time) the check is
+  // *verified* automatically; otherwise it falls back to manual attestation.
+  const live = input.liveStatusChecks;
+  for (const context of to.promotionPolicy.requiredStatusChecks ?? []) {
+    const liveState = live?.[context];
+    if (liveState) {
+      checks.push({
+        id: `status-${slugify(context)}`,
+        label: `CI: ${context}`,
+        kind: 'auto',
+        status: liveState === 'pass' ? 'pass' : 'fail',
+        detail: liveState === 'pass'
+          ? 'Green on the latest run.'
+          : liveState === 'pending' ? 'Still running — not green yet.' : 'Failing on the latest run.',
+      });
+    } else {
+      checks.push({
+        id: `status-${slugify(context)}`,
+        label: `CI green: ${context}`,
+        kind: 'manual',
+        status: 'manual',
+        detail: viaPullRequest
+          ? 'Confirm this CI check is green on the Pull Request (live status unavailable).'
+          : 'Confirm this CI check is green (live status unavailable).',
+      });
+    }
+  }
+
+  // Separation of duties: the approver must differ from the change's author.
+  if (to.promotionPolicy.requireDistinctApprover) {
+    const approver = (input.approver ?? '').trim().toLowerCase();
+    const author = (input.lastCommitAuthor ?? '').trim().toLowerCase();
+    if (approver && author) {
+      const distinct = approver !== author;
+      checks.push({
+        id: 'distinct-approver',
+        label: 'Separation of duties — approver ≠ author',
+        kind: 'auto',
+        status: distinct ? 'pass' : 'fail',
+        detail: distinct ? 'You are not the author of the change being promoted.' : 'You authored the change being promoted; a different person must approve it.',
+      });
+    } else {
+      checks.push({
+        id: 'distinct-approver',
+        label: 'Separation of duties — approver ≠ author',
+        kind: 'manual',
+        status: 'manual',
+        detail: 'Confirm a different person from the change author is approving (identities could not be resolved automatically).',
+      });
+    }
+  }
+
   const steps: PromotionPlanStep[] = [];
   steps.push({
     id: 'preflight',
@@ -150,6 +220,28 @@ export function buildPromotionPlan(input: PromotionPlanInput): PromotionPlan | u
       managed: true,
     });
   }
+  const verifyBackupCommand = (to.backupPolicy.verifyCommand ?? '').trim();
+  if (verifyBackupCommand) {
+    steps.push({
+      id: 'backup-verify',
+      kind: 'backup',
+      label: 'Verify backup is restorable',
+      detail: 'Confirms the snapshot exists / is usable before proceeding.',
+      command: verifyBackupCommand,
+      managed: true,
+    });
+  }
+  const migrateCommand = (to.data.migrateCommand ?? '').trim();
+  if (migrateCommand) {
+    steps.push({
+      id: 'migrate',
+      kind: 'deploy',
+      label: 'Run database migrations',
+      detail: 'Applies schema changes inside the guarded sequence.',
+      command: migrateCommand,
+      managed: true,
+    });
+  }
   if (input.routine && input.routine.steps.length > 0) {
     for (const routineStep of input.routine.steps) {
       steps.push({
@@ -161,6 +253,16 @@ export function buildPromotionPlan(input: PromotionPlanInput): PromotionPlan | u
         managed: false,
       });
     }
+  } else if (dispatchWorkflow) {
+    const ref = from.branchRef || to.branchRef || '';
+    steps.push({
+      id: 'deploy-dispatch',
+      kind: 'deploy',
+      label: `Trigger CD: ${dispatchWorkflow}`,
+      detail: 'Promotion runs in CI/CD (gh workflow run), not on your machine.',
+      command: `gh workflow run ${dispatchWorkflow}${ref ? ` --ref ${ref}` : ''}`,
+      managed: true,
+    });
   } else {
     steps.push({
       id: 'deploy-none',
@@ -168,7 +270,7 @@ export function buildPromotionPlan(input: PromotionPlanInput): PromotionPlan | u
       label: 'Deploy steps',
       detail: path.routineId
         ? `No routine "${path.routineId}" found in project_memory/routines/. Add your deploy/migration steps there.`
-        : 'No promotion routine bound. Bind one (in the push editor) to run real deploy/migration commands.',
+        : 'No promotion routine bound. Bind one (or set a CD workflow to dispatch) in the push editor.',
       managed: false,
     });
   }
@@ -198,7 +300,8 @@ export function buildPromotionPlan(input: PromotionPlanInput): PromotionPlan | u
     blockers,
     requiresApproval: to.promotionPolicy.requiresApproval,
     isProtected: to.isProtected,
-    hasRoutine: Boolean(input.routine && input.routine.steps.length > 0),
+    viaPullRequest,
+    hasRoutine,
     routineId: path.routineId,
   };
 }
@@ -319,6 +422,20 @@ export async function runPromotion(options: PromotionRunOptions): Promise<Promot
   };
 }
 
+/**
+ * Execute a stage's rollback command (user-authored, server-sourced). The caller
+ * is responsible for confirmation/authorization before invoking this.
+ */
+export async function runRollback(workspaceRoot: string, command: string): Promise<{ ok: boolean; output: string }> {
+  try {
+    const { stdout, stderr } = await execAsync(command, { cwd: workspaceRoot, timeout: STEP_TIMEOUT_MS, windowsHide: true });
+    return { ok: true, output: clip(`${stdout}${stderr ? `\n${stderr}` : ''}`) || 'Rollback command completed.' };
+  } catch (err: unknown) {
+    const e = err as { stdout?: string; stderr?: string; message?: string };
+    return { ok: false, output: clip(`${e.stdout ?? ''}${e.stderr ? `\n${e.stderr}` : ''}${e.message ? `\n${e.message}` : ''}`.trim() || 'Rollback failed.') };
+  }
+}
+
 async function runCommandStep(step: PromotionPlanStep, workspaceRoot: string): Promise<PromotionStepResult> {
   try {
     const { stdout, stderr } = await execAsync(step.command as string, {
@@ -366,6 +483,20 @@ function routineOnFail(routine: RoutineDefinition | undefined, stepId: string): 
 function clip(text: string): string {
   const trimmed = text.trim();
   return trimmed.length > MAX_OUTPUT_CHARS ? `${trimmed.slice(0, MAX_OUTPUT_CHARS)}\n… (truncated)` : trimmed;
+}
+
+/** Ping a health-check URL (used by the stage editor's "Test" button). */
+export async function checkHealthUrl(url: string): Promise<{ ok: boolean; status: number; error?: string }> {
+  const trimmed = (url ?? '').trim();
+  if (!/^https?:\/\//i.test(trimmed)) {
+    return { ok: false, status: 0, error: 'Enter an http(s) URL first.' };
+  }
+  try {
+    const status = await httpStatus(trimmed);
+    return { ok: status >= 200 && status < 400, status };
+  } catch (err) {
+    return { ok: false, status: 0, error: (err as Error).message };
+  }
 }
 
 /** Return only the HTTP status code for a bounded GET; rejects on error/timeout. */

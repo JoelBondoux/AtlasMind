@@ -8,6 +8,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.116.0] - 2026-06-20
+
+### Added
+- **Delivery hardening pt 2 — the remaining gaps.**
+  - **Concurrency lock.** A workspace lock (`project_memory/operations/.delivery-lock.json`) guarantees only one promotion *or* rollback runs at a time; a second is refused with a clear message (the lock auto-clears after 60 min if a run crashes).
+  - **Trigger-CD promotion.** When a stage sets `promotionPolicy.dispatchWorkflow` (auto-detected from a `workflow_dispatch` deploy/release workflow when no routine is bound), the promote step becomes **`gh workflow run <file>`** — production deploys run in CI/CD with its identity and logs, not on the developer's machine.
+  - **Backup verification + migrations as managed steps.** `backupPolicy.verifyCommand` runs right after the backup and must pass (turning "backup ran" into "backup verified"); `data.migrateCommand` applies schema changes inside the guarded sequence (after backup, before deploy).
+  - **Separation of duties.** `promotionPolicy.requireDistinctApprover` adds an automatic gate that the person promoting (git actor email) must differ from the author of the change being promoted (source head-commit author); when identities can't be resolved it degrades to a manual attestation.
+  - All four are editable in the stage editor and surfaced as stage **security notes** / preflight checks / plan steps.
+
+> Deferred (warrant dedicated design; representable today via custom stages + routines): first-class **progressive delivery** (canary / blue-green) and **ephemeral per-PR preview environments**.
+
+## [0.115.0] - 2026-06-20
+
+### Added
+- **Delivery hardening — gap-analysis follow-up across four fronts.**
+  - **Real CI enforcement (not honor-system).** Required CI status checks are now **verified live** via `gh` at promote time (check-run status for the source branch's head commit) — a failing *or still-pending* check makes the preflight gate refuse. When `gh` is unavailable it gracefully falls back to manual attestation. Previously "CI green" was a checkbox.
+  - **Audit log + executable rollback.** Every promotion and rollback is appended to `project_memory/operations/delivery-history.json` (who/when/what/outcome) and shown as **Recent promotions** on the dashboard. Stages with a rollback command get a **Roll back** action (two-click; protected stages require typing the stage name); it executes the user-authored command and is itself audited.
+  - **Broader import (polyglot + PaaS/IaC).** Detection now recognises Python / Go / Rust / Java / .NET projects (manifests, web frameworks, ORMs, conventional build/lint/test) and PaaS/IaC targets — Fly.io, Vercel, Netlify, Render, Google App Engine, Serverless, Kubernetes, Terraform, containers — feeding production hosting + database presence. A production URL is derived where possible (e.g. fly.toml app → `https://<app>.fly.dev`).
+  - **Readability.** A compact **pipeline flow diagram** (stage → stage with branch + deployed version + status) heads the Delivery page, and each stage with a health URL gets a **Test health** button that pings it and reports the status.
+- New engine/exports: `runRollback`, `checkHealthUrl` (`promotionRunner.ts`); `appendPromotionHistory`/`readPromotionHistory` + `PromotionHistoryEntry` (`deliveryManager.ts` / `types.ts`).
+
+## [0.114.0] - 2026-06-20
+
+### Added
+- **Delivery seeding now imports the Git PR/CI promotion protocol as first-class.** Previously the pipeline only added a generic "CI green" label and left the real mechanism implicit inside a routine's shell. The importer now detects, per branch: whether promotion goes **through a Pull Request** (from GitHub **branch protection** via `gh` when available — `required_pull_request_reviews` — with graceful fallback to the bound routine's `gh pr create`), and the **exact required CI status checks** (branch-protection contexts, e.g. `quality (ubuntu-latest)`, else the gating workflow names parsed from `.github/workflows`). New `StagePromotionPolicy.viaPullRequest` and `requiredStatusChecks` fields carry this. The promotion dialog/runbook now lists each CI check as a preflight item, the stage card and push card show a **"🔀 via PR"** badge and the real check names, the runbook describes *"Promote via Pull Request into a protected branch"*, and a **guardrail blocks a PR-required promotion that has no routine bound to open the PR** — so a protected branch is never targeted by a direct push. AtlasMind's own `delivery.json` was regenerated with this (Production = PR-required into `master` with the three `quality` checks; Integration = direct-push `develop`, CI-gated).
+- A best-effort `gh` branch-protection probe runs only at seed / re-import (never on the render path), with a short timeout and full fallback to local signals when `gh` is unavailable.
+
+## [0.113.0] - 2026-06-20
+
+### Changed
+- **Delivery seeding now imports the repository's *actual* protocol instead of a generic template.** Previously the pipeline was seeded from branch names alone and assumed a web-app-with-database shape, producing inaccurate fields for projects that don't match — most damagingly a phantom "production database" with a required-but-empty backup command, which **deny-by-default blocked the production push for a database that doesn't exist**. Seeding now imports real signals: **project archetype** (VS Code extension / library / web service / generic), **database presence** (dependency + `migrations`/`prisma` detection), **publish target** (VS Code Marketplace / npm / container registry), **`.env` files** (only referenced when they exist), **package scripts** (required checks mirror the `compile`/`lint`/`test` you actually have, plus "CI green" when workflows are present), and **existing routines** (the production push binds to your real publish/release/ship/deploy or default routine — e.g. `publishing-routine` — instead of inventing non-existent ones). Deploy-less projects get an **Integration** stage (mapping the integration branch) rather than a fictional staging-server-with-DB, and no backup gate is imposed when there is no database.
+
+### Added
+- **"Re-import from repo" action on the Delivery page.** Re-detects the current signals and rebuilds the pipeline, so an already-seeded project (whose protocol has since moved on, or which was seeded by the old generic logic) can refresh to match reality. Two-click confirmed, and it re-baselines the review state.
+- Regenerated AtlasMind's own `project_memory/operations/delivery.json` with the corrected importer (Marketplace production bound to `publishing-routine`, no phantom database/backup gate).
+
 ## [0.112.1] - 2026-06-20
 
 ### Security

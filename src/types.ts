@@ -1076,6 +1076,12 @@ export interface StageDataRepository {
   label?: string;
   /** Workspace-relative path to migration scripts, if any. */
   migrationsPath?: string;
+  /**
+   * Command that applies database migrations. When set, it runs as a managed
+   * step during promotion (after backup, before deploy) so schema changes are
+   * applied as part of the guarded sequence rather than out of band.
+   */
+  migrateCommand?: string;
 }
 
 /**
@@ -1089,6 +1095,12 @@ export interface StageBackupPolicy {
   required: boolean;
   /** Shell command that snapshots this stage's data (user-authored). */
   command?: string;
+  /**
+   * Optional command that verifies the backup is restorable (e.g. checks the
+   * snapshot exists / is non-empty). When set, it runs as a managed step right
+   * after the backup and must pass — turning "backup ran" into "backup verified".
+   */
+  verifyCommand?: string;
   /** Reference to a written runbook (path or URL) describing recovery. */
   runbookRef?: string;
   /** Human description of retention, e.g. "30 daily snapshots". */
@@ -1104,10 +1116,37 @@ export interface StagePromotionPolicy {
   /** Require a CHANGELOG entry for the new version. */
   requireChangelog: boolean;
   /**
-   * Free-form named checks that must pass (e.g. "CI green", "e2e:staging").
+   * Free-form named checks that must pass (e.g. "e2e:staging").
    * Surfaced in the dashboard and the runbook so the gates are self-documenting.
    */
   requiredChecks: string[];
+  /**
+   * When true, promotion into this stage's branch goes through a **Pull Request**
+   * to a protected branch — not a direct merge/push. Imported from the repo's
+   * workflows (a `pull_request`-triggered CI on the branch), the bound routine's
+   * `gh pr create`, and/or GitHub branch protection.
+   */
+  viaPullRequest?: boolean;
+  /**
+   * Named CI status checks (workflow / context names) that must be green for the
+   * promotion — imported from the repository's CI workflows and, when available,
+   * the branch's protection settings. Distinct from {@link requiredChecks}
+   * (the free-form human checklist).
+   */
+  requiredStatusChecks?: string[];
+  /**
+   * When set, the promotion is performed by **dispatching a CI/CD workflow**
+   * (`gh workflow run <file>`) rather than running deploy commands on the
+   * developer's machine — so production deploys happen in CD, with its identity
+   * and logs. The deploy step becomes "Trigger CD: <file>".
+   */
+  dispatchWorkflow?: string;
+  /**
+   * Separation of duties: when true, the person running the promotion (the git
+   * actor) must be different from the author of the change being promoted (the
+   * source branch's head-commit author). Enforced as an automatic gate.
+   */
+  requireDistinctApprover?: boolean;
 }
 
 /** How to roll a stage back if a promotion goes wrong. */
@@ -1232,6 +1271,8 @@ export interface PromotionPlan {
   blockers: string[];
   requiresApproval: boolean;
   isProtected: boolean;
+  /** Promotion into the target goes through a Pull Request to a protected branch. */
+  viaPullRequest: boolean;
   /** Whether a bound promotion routine with steps was found on disk. */
   hasRoutine: boolean;
   routineId?: string;
@@ -1254,6 +1295,26 @@ export interface PromotionRunResult {
   durationMs: number;
   /** Recovery hint surfaced after the run (rollback command / runbook ref). */
   rollback?: { command?: string; runbookRef?: string };
+}
+
+/**
+ * One append-only audit record of a promotion or rollback, persisted to
+ * `project_memory/operations/delivery-history.json` so the dashboard can show
+ * what shipped where, when, and by whom.
+ */
+export interface PromotionHistoryEntry {
+  id: string;
+  /** 'promotion' (forward) or 'rollback' (recovery). */
+  kind: 'promotion' | 'rollback';
+  pathId?: string;
+  fromName?: string;
+  toName: string;
+  version?: string;
+  succeeded: boolean;
+  ranAt: string;
+  durationMs?: number;
+  /** git user that ran it (name <email>), when resolvable. */
+  actor?: string;
 }
 
 // ── Scanner rule configuration ────────────────────────────────────

@@ -42,6 +42,11 @@
     confirmRemoveStageId: '',
     editingPathId: '',
     promotion: null,
+    reimportConfirm: false,
+    rollbackArmedStageId: '',
+    rollbackText: '',
+    rollbackNotice: '',
+    healthNotice: '',
   };
 
   refreshButton?.addEventListener('click', () => {
@@ -120,6 +125,18 @@
         state.promotion.result = message.payload;
         render();
       }
+      return;
+    }
+
+    if (message.type === 'rollbackResult') {
+      state.rollbackNotice = (message.payload && message.payload.summary) || '';
+      render();
+      return;
+    }
+
+    if (message.type === 'healthTestResult') {
+      state.healthNotice = (message.payload && message.payload.summary) || '';
+      render();
       return;
     }
 
@@ -379,6 +396,30 @@
       vscode.postMessage({ type: 'markDeliveryReviewed' });
       return;
     }
+    if (action === 'test-health-url') {
+      if (!payload) { return; }
+      state.healthNotice = 'Testing ' + payload + ' …';
+      render();
+      vscode.postMessage({ type: 'testHealthUrl', payload: { url: payload } });
+      return;
+    }
+    if (action === 'stage-rollback') { state.rollbackArmedStageId = payload; state.rollbackText = ''; render(); return; }
+    if (action === 'stage-rollback-cancel') { state.rollbackArmedStageId = ''; state.rollbackText = ''; render(); return; }
+    if (action === 'stage-rollback-confirm') {
+      vscode.postMessage({ type: 'rollbackStage', payload: { stageId: payload, confirmText: state.rollbackText || '' } });
+      state.rollbackArmedStageId = '';
+      state.rollbackText = '';
+      render();
+      return;
+    }
+    if (action === 'delivery-reimport') { state.reimportConfirm = true; render(); return; }
+    if (action === 'delivery-reimport-cancel') { state.reimportConfirm = false; render(); return; }
+    if (action === 'delivery-reimport-confirm') {
+      state.reimportConfirm = false;
+      vscode.postMessage({ type: 'reimportDelivery' });
+      render();
+      return;
+    }
     if (action === 'promote-plan') {
       vscode.postMessage({ type: 'requestPromotionPlan', payload: { pathId: payload, mode: 'execute' } });
       return;
@@ -434,6 +475,10 @@
     }
     if (target instanceof HTMLInputElement && target.id === 'promotion-confirm-text') {
       if (state.promotion) { state.promotion.confirmText = target.value; }
+      return;
+    }
+    if (target instanceof HTMLInputElement && target.id === 'rollback-confirm-text') {
+      state.rollbackText = target.value;
       return;
     }
   });
@@ -1935,11 +1980,15 @@
           </div>
           <div class="tag-row">
             ${state.editingStageId === 'new' ? '' : '<button type="button" class="action-link" data-action="stage-add" data-payload="">+ Add stage</button>'}
+            ${state.reimportConfirm
+              ? '<span class="reimport-confirm">Replace pipeline from repo signals? <button type="button" class="action-link danger" data-action="delivery-reimport-confirm" data-payload="">Yes, re-import</button> <button type="button" class="action-link" data-action="delivery-reimport-cancel" data-payload="">Cancel</button></span>'
+              : '<button type="button" class="action-link" data-action="delivery-reimport" data-payload="">↻ Re-import from repo</button>'}
             <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(summaryPath)}">📖 Open runbook (delivery.md)</button>
             <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(pipeline.configPath)}">Edit delivery.json</button>
           </div>
         </div>
         ${renderDeliveryReviewBanner(pipeline.review)}
+        ${renderPipelineFlow(pipeline.stages)}
         <div class="stage-row">
           ${pipeline.stages.map(renderStageCard).join('')}
         </div>
@@ -1952,6 +2001,9 @@
           ? `<div class="promotion-list">${pipeline.paths.map(p => renderPromotionCard(p, summaryPath)).join('')}</div>`
           : '<div class="dashboard-empty">No promotion paths yet. Use “+ Add push” to connect two stages.</div>'}
         ${pathEditor}
+        ${state.rollbackNotice ? `<p class="stage-seeded-note">${escapeHtml(state.rollbackNotice)}</p>` : ''}
+        ${state.healthNotice ? `<p class="stage-seeded-note">${escapeHtml(state.healthNotice)}</p>` : ''}
+        ${renderDeliveryHistory(pipeline.history)}
       </article>`;
   }
 
@@ -2006,9 +2058,52 @@
             ${stage.securityNotes.map(note => `<li class="${/blocked until you add one/i.test(note) ? 'warn' : ''}">${escapeHtml(note)}</li>`).join('')}
           </ul>` : ''}
         <div class="stage-card-foot">
+          ${stage.healthCheckUrl ? `<button type="button" class="action-link" data-action="test-health-url" data-payload="${escapeAttr(stage.healthCheckUrl)}">Test health</button>` : ''}
+          ${renderStageRollback(stage)}
           <button type="button" class="action-link" data-action="stage-edit" data-payload="${escapeAttr(stage.id)}">Edit</button>
         </div>
       </article>`;
+  }
+
+  function renderPipelineFlow(stages) {
+    if (!stages || stages.length === 0) { return ''; }
+    return `
+      <div class="pipeline-flow">
+        ${stages.map((s, i) => `
+          <div class="flow-node kind-${escapeAttr(s.kind)} ${s.isCurrentBranch ? 'current' : ''}">
+            <span class="flow-name">${escapeHtml(s.name)} ${s.isProtected ? '🔒' : ''}</span>
+            <span class="flow-branch mono">${escapeHtml(s.branchRef || 'working tree')}${s.branchRef && !s.branchExists ? ' ⚠' : ''}</span>
+            <span class="flow-ver mono">v${escapeHtml(s.deployedVersion)}</span>
+          </div>
+          ${i < stages.length - 1 ? '<div class="flow-arrow">→</div>' : ''}
+        `).join('')}
+      </div>`;
+  }
+
+  function renderStageRollback(stage) {
+    if (!stage.hasRollback) { return ''; }
+    if (state.rollbackArmedStageId !== stage.id) {
+      return `<button type="button" class="action-link danger" data-action="stage-rollback" data-payload="${escapeAttr(stage.id)}">↩ Roll back</button>`;
+    }
+    const typeToConfirm = stage.isProtected
+      ? `<input type="text" id="rollback-confirm-text" value="${escapeAttr(state.rollbackText)}" placeholder="type ${escapeAttr(stage.name)}" autocomplete="off" class="rollback-input" />`
+      : '';
+    return `<span class="reimport-confirm">Run ${escapeHtml(stage.name)} rollback command? ${typeToConfirm}
+      <button type="button" class="action-link danger" data-action="stage-rollback-confirm" data-payload="${escapeAttr(stage.id)}">Confirm</button>
+      <button type="button" class="action-link" data-action="stage-rollback-cancel" data-payload="">Cancel</button></span>`;
+  }
+
+  function renderDeliveryHistory(history) {
+    if (!history || history.length === 0) { return ''; }
+    return `
+      <p class="section-kicker" style="margin-top:6px">Recent promotions</p>
+      <div class="stack-list">
+        ${history.slice(0, 8).map(h => `
+          <div class="history-row ${h.succeeded ? 'good' : 'bad'}">
+            <span>${h.succeeded ? '✓' : '✗'} ${h.kind === 'rollback' ? '↩ Rollback of ' : ''}${escapeHtml((h.kind !== 'rollback' && h.fromName) ? `${h.fromName} → ` : '')}${escapeHtml(h.toName || '')}${h.version ? ` (v${escapeHtml(h.version)})` : ''}</span>
+            <span class="list-meta">${escapeHtml(relativeLabel(h.ranAt))}${h.actor ? ` · ${escapeHtml(h.actor)}` : ''}</span>
+          </div>`).join('')}
+      </div>`;
   }
 
   function renderPromotionCard(path, summaryPath) {
@@ -2021,13 +2116,14 @@
     return `
       <article class="promotion-card ${path.blocked ? 'blocked' : ''}">
         <div class="promotion-head">
-          <h4>${escapeHtml(path.fromName)} → ${escapeHtml(path.toName)}</h4>
+          <h4>${escapeHtml(path.fromName)} → ${escapeHtml(path.toName)} ${path.viaPullRequest ? '<span class="via-pr-badge">🔀 via PR</span>' : ''}</h4>
           ${path.versionDelta ? `<span class="version-delta">${escapeHtml(path.versionDelta)}</span>` : ''}
         </div>
         <ol class="guardrail-list">
           ${path.guardrails.map(step => `<li>${escapeHtml(step)}</li>`).join('')}
         </ol>
         <div class="gate-row"><span>Gates:</span> ${gates}</div>
+        ${(path.statusChecks || []).length > 0 ? `<div class="gate-row"><span>CI:</span> ${path.statusChecks.map(c => `<span class="tag mono">${escapeHtml(c)}</span>`).join('')}</div>` : ''}
         ${path.blocked ? `<p class="promotion-block-note">⚠ ${escapeHtml(path.blockReason)}</p>` : ''}
         <div class="promotion-actions">
           ${path.blocked
@@ -2135,11 +2231,13 @@
           ${edText('Type', 'data.kind', stage.data.kind, 'postgres / s3 / none')}
           ${edText('Label', 'data.label', stage.data.label, 'Staging database')}
           ${edText('Migrations path', 'data.migrationsPath', stage.data.migrationsPath, 'db/migrations')}
+          ${edText('Migrate command', 'data.migrateCommand', stage.data.migrateCommand, 'npm run db:migrate (runs during promote)')}
         </div>
         <p class="stage-edit-group">Backup &amp; recovery <small>runs before any push to this stage</small></p>
         ${edCheck('Backup required before any push to this stage', 'backupPolicy.required', stage.backupPolicy.required)}
         <div class="stage-edit-grid">
           ${edText('Backup command', 'backupPolicy.command', stage.backupPolicy.command, 'pg_dump … (taken before promote)')}
+          ${edText('Backup verify command', 'backupPolicy.verifyCommand', stage.backupPolicy.verifyCommand, 'confirms the snapshot is restorable')}
           ${edText('Backup runbook ref', 'backupPolicy.runbookRef', stage.backupPolicy.runbookRef, '')}
           ${edText('Retention', 'backupPolicy.retention', stage.backupPolicy.retention, '7 daily snapshots')}
         </div>
@@ -2147,7 +2245,9 @@
         ${edCheck('Require human approval before a push runs', 'promotionPolicy.requiresApproval', stage.promotionPolicy.requiresApproval)}
         ${edCheck('Require a version bump', 'promotionPolicy.requireVersionBump', stage.promotionPolicy.requireVersionBump)}
         ${edCheck('Require a changelog entry', 'promotionPolicy.requireChangelog', stage.promotionPolicy.requireChangelog)}
+        ${edCheck('Separation of duties — approver must differ from the change author', 'promotionPolicy.requireDistinctApprover', stage.promotionPolicy.requireDistinctApprover)}
         ${edArea('Required checks (one per line)', 'promotionPolicy.requiredChecks', checks, 'Working tree clean\nTests pass\nCI green')}
+        ${edText('Dispatch CD workflow (trigger CD instead of local deploy)', 'promotionPolicy.dispatchWorkflow', stage.promotionPolicy.dispatchWorkflow, 'release.yml')}
         <p class="stage-edit-group">Rollback</p>
         <div class="stage-edit-grid">
           ${edText('Rollback command', 'rollbackPolicy.command', stage.rollbackPolicy.command, '')}
@@ -2285,7 +2385,7 @@
     return `
       <div class="promo-overlay">
         <div class="promo-modal">
-          <h3>${runbook ? 'Runbook' : 'Promote'} — ${escapeHtml(plan.fromName)} → ${escapeHtml(plan.toName)} ${plan.isProtected ? '🔒' : ''}</h3>
+          <h3>${runbook ? 'Runbook' : 'Promote'} — ${escapeHtml(plan.fromName)} → ${escapeHtml(plan.toName)} ${plan.isProtected ? '🔒' : ''}${plan.viaPullRequest ? ' <span class="via-pr-badge">🔀 via PR</span>' : ''}</h3>
           ${blocked ? `<div class="promo-blockers">${plan.blockers.map(b => `<p class="promotion-block-note">⚠ ${escapeHtml(b)}</p>`).join('')}</div>` : ''}
           <div class="promo-section">
             <h4>Plan</h4>

@@ -6,6 +6,42 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.116.0 — Delivery hardening pt 2 (remaining gaps)
+
+- **Concurrency lock** — only one promotion/rollback runs at a time (auto-clears after 60 min if a run crashes).
+- **Trigger-CD** — a stage can promote by dispatching a CD workflow (`gh workflow run`) instead of deploying from your machine; auto-detected from a `workflow_dispatch` deploy/release workflow.
+- **Backup verification + migrations** — an optional verify-backup command must pass after the backup, and a migrate command runs inside the guarded sequence.
+- **Separation of duties** — optionally require the promoter to be a different person from the change's author (auto-checked via git identity).
+- _Deferred (need dedicated design): first-class progressive delivery (canary/blue-green) and ephemeral per-PR preview environments._
+
+---
+
+## v0.115.0 — Delivery hardening (gap-analysis follow-up)
+
+- **CI is actually enforced now.** Required CI checks are verified live via `gh` at promote time — a failing or still-running check blocks the gate (graceful fallback to manual when `gh` is unavailable). No more honor-system "CI green" checkbox.
+- **Audit log + rollback.** Every promotion/rollback is recorded (who/when/what/outcome) and shown as *Recent promotions*; stages with a rollback command get a confirm-gated **Roll back** button that executes it.
+- **Broader import.** Detects Python/Go/Rust/Java/.NET projects and PaaS/IaC targets (Fly.io, Vercel, Netlify, Render, GAE, Serverless, Kubernetes, Terraform, containers); derives a production URL where possible.
+- **Readability.** A pipeline **flow diagram** (stage → stage with branch, version, status) heads the page, and a **Test health** button pings a stage's health URL.
+
+---
+
+## v0.114.0 — Delivery imports your PR/CI promotion protocol
+
+- **PR-based promotion is now first-class.** The pipeline detects whether promoting into a branch goes through a **Pull Request** (from GitHub branch protection via `gh`, falling back to the bound routine's `gh pr create`) and the **exact required CI status checks** (branch-protection contexts like `quality (ubuntu-latest)`, else the gating workflow names from `.github/workflows`).
+- **Surfaced everywhere.** Stage and push cards show a **🔀 via PR** badge and the real check names; the promotion dialog lists each CI check as a preflight item; the runbook says "Promote via Pull Request into a protected branch."
+- **New guardrail.** A PR-required promotion with no routine bound to open the PR is blocked — a protected branch is never targeted by a direct push.
+- The `gh` probe runs only at seed / re-import (short timeout, full fallback to local signals).
+
+---
+
+## v0.113.0 — Delivery imports your real protocol (not a generic template)
+
+- **Accurate seeding.** The Delivery pipeline now imports the repository's actual signals — project archetype (VS Code extension / library / web service), database presence, publish target (Marketplace / npm / container), `.env` files, package scripts, CI, and existing routines — instead of assuming a web-app-with-database. No more phantom "production database" with a backup gate that blocked the production push on projects that have no database.
+- **Real routine binding + real checks.** The production push binds to your existing publish/release/ship/deploy (or default) routine, and required checks mirror the `compile`/`lint`/`test` scripts you actually have (plus "CI green" when workflows exist). Deploy-less projects get an **Integration** stage instead of a fictional staging server.
+- **Re-import from repo.** A new button re-detects signals and rebuilds the pipeline, so already-seeded projects can refresh to match reality.
+
+---
+
 ## v0.112.1 — Security: clear all Dependabot alerts
 
 - **All 6 open Dependabot alerts resolved** by pinning `undici` to `^7.28.0` (npm `overrides`). They all came from one transitive **dev-only** dependency in the packaging toolchain (`@vscode/vsce → cheerio → undici`), which is **not shipped in the extension** — installed users were never exposed. `npm audit` now reports 0 vulnerabilities.

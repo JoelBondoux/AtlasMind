@@ -14,9 +14,9 @@ import { getWebviewHtmlShell } from './webviewUtils.js';
 import { DataPrivacyManager, readDataPrivacyConfig, writeDataPrivacyConfig, defaultDataPrivacyConfig } from '../core/dataPrivacyManager.js';
 import { COMPLIANCE_PACKS } from '../core/compliancePacks.js';
 import { getProviderDataGovernance } from '../core/providerDataGovernance.js';
-import { DELIVERY_SSOT_PATH, DELIVERY_SUMMARY_SSOT_PATH, sanitizeDeliveryConfig } from '../core/deliveryManager.js';
-import { buildPromotionPlan, evaluatePromotionGate, runPromotion } from '../core/promotionRunner.js';
-import type { DataPrivacyActivityEvent, DataPrivacySensitivity, DeliveryConfig, DeploymentStage, PromotionPath } from '../types.js';
+import { DELIVERY_SSOT_PATH, DELIVERY_SUMMARY_SSOT_PATH, sanitizeDeliveryConfig, seedDeliveryConfig, appendPromotionHistory, readPromotionHistory, acquireDeliveryLock, releaseDeliveryLock, type DeliverySeedInput, type DeliveryArchetype } from '../core/deliveryManager.js';
+import { buildPromotionPlan, evaluatePromotionGate, runPromotion, runRollback, checkHealthUrl } from '../core/promotionRunner.js';
+import type { DataPrivacyActivityEvent, DataPrivacySensitivity, DeliveryConfig, DeploymentStage, PromotionPath, PromotionHistoryEntry } from '../types.js';
 
 const execFileAsync = promisify(execFile);
 const PROJECT_DASHBOARD_VIEW_TYPE = 'atlasmind.projectDashboard';
@@ -94,6 +94,9 @@ type ProjectDashboardMessage =
   | { type: 'requestPromotionPlan'; payload: { pathId: string; mode: 'execute' | 'runbook' } }
   | { type: 'runPromotion'; payload: { pathId: string; attestations: string[]; confirmText: string } }
   | { type: 'markDeliveryReviewed' }
+  | { type: 'reimportDelivery' }
+  | { type: 'rollbackStage'; payload: { stageId: string; confirmText: string } }
+  | { type: 'testHealthUrl'; payload: { url: string } }
   | { type: 'testDataPrivacy'; payload: { kind: 'text' | 'path'; value: string } }
   | { type: 'openExternalUrl'; payload: string };
 
@@ -111,7 +114,9 @@ type DashboardWebviewMessage =
   | { type: 'promotionPlan'; payload: { plan: import('../types.js').PromotionPlan; mode: 'execute' | 'runbook' } }
   | { type: 'promotionProgress'; payload: { stepId: string; label: string; index: number; total: number; status: string; output?: string } }
   | { type: 'promotionDone'; payload: import('../types.js').PromotionRunResult }
-  | { type: 'promotionError'; payload: string };
+  | { type: 'promotionError'; payload: string }
+  | { type: 'rollbackResult'; payload: { ok: boolean; summary: string } }
+  | { type: 'healthTestResult'; payload: { ok: boolean; summary: string } };
 
 type Tone = 'accent' | 'good' | 'warn' | 'critical' | 'neutral';
 
@@ -488,6 +493,8 @@ interface DashboardStageView {
   dataLabel: string;
   backupRequired: boolean;
   backupConfigured: boolean;
+  /** Whether a rollback command is configured (enables the Roll back action). */
+  hasRollback: boolean;
   /** Plain-English security/safety reasoning shown on the card for beginners. */
   securityNotes: string[];
 }
@@ -505,6 +512,10 @@ interface DashboardPromotionPathView {
   /** Named checks that must pass before the push runs. */
   gates: string[];
   requiresApproval: boolean;
+  /** Promotion into the target goes through a Pull Request to a protected branch. */
+  viaPullRequest: boolean;
+  /** CI status checks imported from the repo's workflows / branch protection. */
+  statusChecks: string[];
   backupRequired: boolean;
   backupConfigured: boolean;
   /** Deny-by-default: backup required for the target but no command set. */
@@ -556,6 +567,8 @@ interface DashboardStagePipeline {
    * mutate a copy and post it back. Null when no pipeline exists yet.
    */
   config: DeliveryConfig | null;
+  /** Recent promotion/rollback audit records (newest first). */
+  history: PromotionHistoryEntry[];
   /** True when this view seeded a default pipeline on first open. */
   seeded: boolean;
   /** True when no git repository is present, so stages cannot be modelled yet. */
@@ -1244,6 +1257,21 @@ export class ProjectDashboardPanel {
         await this.storeDeliveryReviewBaseline();
         await this.syncState();
         return;
+      case 'reimportDelivery':
+        await this.handleReimportDelivery();
+        return;
+      case 'rollbackStage':
+        await this.handleRollbackStage(message.payload);
+        return;
+      case 'testHealthUrl':
+        {
+          const result = await checkHealthUrl(message.payload.url);
+          const summary = result.ok
+            ? `Healthy — responded ${result.status}.`
+            : result.error ? `Unreachable — ${result.error}` : `Responded ${result.status} (not 2xx/3xx).`;
+          await this.postMessage({ type: 'healthTestResult', payload: { ok: result.ok, summary } });
+        }
+        return;
       case 'requestPromotionPlan':
         await this.handlePromotionPlanRequest(message.payload.pathId, message.payload.mode);
         return;
@@ -1643,6 +1671,49 @@ export class ProjectDashboardPanel {
     );
   }
 
+  /**
+   * Re-detect the repository's delivery signals and rebuild the pipeline from
+   * them, replacing the stored config. Used by the "Re-import from repo" action
+   * to refresh an already-seeded project after its real protocol has moved on.
+   */
+  private async handleReimportDelivery(): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot || !this.atlas.deliveryManager) {
+      return;
+    }
+    let currentBranch = 'Detached';
+    try {
+      currentBranch = (await runGit(workspaceRoot, ['rev-parse', '--abbrev-ref', 'HEAD'])).trim() || 'Detached';
+    } catch {
+      currentBranch = 'Not a git repository';
+    }
+    if (currentBranch === 'Not a git repository') {
+      return;
+    }
+    const signals = await detectDeliverySignals(this.atlas, workspaceRoot, currentBranch);
+    const config = seedDeliveryConfig(signals);
+    await this.atlas.deliveryManager.save(config);
+    // The re-import is itself an authored review of the current state.
+    await this.storeDeliveryReviewBaseline();
+    await this.syncState();
+  }
+
+  /** Resolve live CI status for the branch being promoted (best-effort, gh). */
+  private async resolveLiveCiStatus(
+    workspaceRoot: string,
+    from: DeploymentStage,
+  ): Promise<Record<string, 'pass' | 'fail' | 'pending'> | undefined> {
+    let sourceRef = from.branchRef;
+    if (!sourceRef) {
+      try {
+        sourceRef = (await runGit(workspaceRoot, ['rev-parse', '--abbrev-ref', 'HEAD'])).trim();
+      } catch {
+        sourceRef = undefined;
+      }
+    }
+    return sourceRef ? gatherLiveCiStatus(workspaceRoot, sourceRef) : undefined;
+  }
+
   private async handlePromotionPlanRequest(pathId: string, mode: 'execute' | 'runbook'): Promise<void> {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const config = this.atlas.deliveryManager.getConfig();
@@ -1660,7 +1731,8 @@ export class ProjectDashboardPanel {
     const facts = await gatherPromotionFacts(workspaceRoot, from, to);
     await this.atlas.routineRegistry.reload(workspaceRoot).catch(() => undefined);
     const routine = promo.routineId ? this.atlas.routineRegistry.get(promo.routineId) : undefined;
-    const plan = buildPromotionPlan({ config, pathId, ...facts, routine });
+    const liveStatusChecks = await this.resolveLiveCiStatus(workspaceRoot, from);
+    const plan = buildPromotionPlan({ config, pathId, ...facts, routine, liveStatusChecks });
     if (!plan) {
       await this.postMessage({ type: 'promotionError', payload: 'Could not build a promotion plan.' });
       return;
@@ -1687,7 +1759,10 @@ export class ProjectDashboardPanel {
     const facts = await gatherPromotionFacts(workspaceRoot, from, to);
     await this.atlas.routineRegistry.reload(workspaceRoot).catch(() => undefined);
     const routine = promo.routineId ? this.atlas.routineRegistry.get(promo.routineId) : undefined;
-    const plan = buildPromotionPlan({ config, pathId: payload.pathId, ...facts, routine });
+    const liveStatusChecks = await this.resolveLiveCiStatus(workspaceRoot, from);
+    const approver = await resolveGitActorEmail(workspaceRoot);
+    const lastCommitAuthor = await resolveLastCommitAuthor(workspaceRoot, from.branchRef);
+    const plan = buildPromotionPlan({ config, pathId: payload.pathId, ...facts, routine, liveStatusChecks, approver, lastCommitAuthor });
     if (!plan) {
       await this.postMessage({ type: 'promotionError', payload: 'Could not build a promotion plan.' });
       return;
@@ -1697,22 +1772,90 @@ export class ProjectDashboardPanel {
       await this.postMessage({ type: 'promotionError', payload: gate.reason ?? 'Promotion is not permitted.' });
       return;
     }
-    const result = await runPromotion({
-      workspaceRoot,
-      plan,
-      config,
-      routine,
-      onProgress: update => { void this.postMessage({ type: 'promotionProgress', payload: update }); },
-    });
-    // Record the outcome on the path and persist (updates delivery.json + delivery.md).
-    const updated: DeliveryConfig = {
-      ...config,
-      paths: config.paths.map(candidate => candidate.id === payload.pathId
-        ? { ...candidate, lastPromotion: { ranAt: result.startedAt, succeeded: result.succeeded, version: facts.fromVersion } }
-        : candidate),
-    };
-    await this.atlas.deliveryManager.save(updated);
-    await this.postMessage({ type: 'promotionDone', payload: result });
+    // Single-flight: refuse to start while another promotion/rollback is running.
+    if (!await acquireDeliveryLock(workspaceRoot, `promote ${from.name} → ${to.name}`)) {
+      await this.postMessage({ type: 'promotionError', payload: 'Another promotion or rollback is already in progress. Wait for it to finish (or it clears automatically after 60 min).' });
+      return;
+    }
+    try {
+      const result = await runPromotion({
+        workspaceRoot,
+        plan,
+        config,
+        routine,
+        onProgress: update => { void this.postMessage({ type: 'promotionProgress', payload: update }); },
+      });
+      // Record the outcome on the path and persist (updates delivery.json + delivery.md).
+      const updated: DeliveryConfig = {
+        ...config,
+        paths: config.paths.map(candidate => candidate.id === payload.pathId
+          ? { ...candidate, lastPromotion: { ranAt: result.startedAt, succeeded: result.succeeded, version: facts.fromVersion } }
+          : candidate),
+      };
+      await this.atlas.deliveryManager.save(updated);
+      // Append an immutable audit record (who/when/what/outcome).
+      await appendPromotionHistory(workspaceRoot, {
+        id: `promo-${Date.now()}`,
+        kind: 'promotion',
+        pathId: payload.pathId,
+        fromName: from.name,
+        toName: to.name,
+        version: facts.fromVersion,
+        succeeded: result.succeeded,
+        ranAt: result.startedAt,
+        durationMs: result.durationMs,
+        actor: await resolveGitActor(workspaceRoot),
+      }).catch(() => undefined);
+      await this.postMessage({ type: 'promotionDone', payload: result });
+    } finally {
+      await releaseDeliveryLock(workspaceRoot);
+    }
+    await this.syncState();
+  }
+
+  /**
+   * Execute a stage's user-authored rollback command after authorization
+   * (protected stages require the typed stage name). Records an audit entry.
+   */
+  private async handleRollbackStage(payload: { stageId: string; confirmText: string }): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const config = this.atlas.deliveryManager?.getConfig();
+    if (!workspaceRoot || !config) {
+      await this.postMessage({ type: 'rollbackResult', payload: { ok: false, summary: 'No delivery pipeline is available.' } });
+      return;
+    }
+    const stage = config.stages.find(candidate => candidate.id === payload.stageId);
+    if (!stage) {
+      await this.postMessage({ type: 'rollbackResult', payload: { ok: false, summary: 'That stage no longer exists.' } });
+      return;
+    }
+    const command = (stage.rollbackPolicy.command ?? '').trim();
+    if (!command) {
+      await this.postMessage({ type: 'rollbackResult', payload: { ok: false, summary: `No rollback command is configured for ${stage.name}.` } });
+      return;
+    }
+    if (stage.isProtected && payload.confirmText.trim().toLowerCase() !== stage.name.trim().toLowerCase()) {
+      await this.postMessage({ type: 'rollbackResult', payload: { ok: false, summary: `Type the stage name "${stage.name}" to confirm a protected rollback.` } });
+      return;
+    }
+    if (!await acquireDeliveryLock(workspaceRoot, `rollback ${stage.name}`)) {
+      await this.postMessage({ type: 'rollbackResult', payload: { ok: false, summary: 'Another promotion or rollback is already in progress. Wait for it to finish.' } });
+      return;
+    }
+    try {
+      const result = await runRollback(workspaceRoot, command);
+      await appendPromotionHistory(workspaceRoot, {
+        id: `rollback-${Date.now()}`,
+        kind: 'rollback',
+        toName: stage.name,
+        succeeded: result.ok,
+        ranAt: new Date().toISOString(),
+        actor: await resolveGitActor(workspaceRoot),
+      }).catch(() => undefined);
+      await this.postMessage({ type: 'rollbackResult', payload: { ok: result.ok, summary: `${stage.name} rollback ${result.ok ? 'succeeded' : 'failed'}: ${result.output}` } });
+    } finally {
+      await releaseDeliveryLock(workspaceRoot);
+    }
     await this.syncState();
   }
 
@@ -1772,7 +1915,7 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
   }
 
   const candidate = message as Record<string, unknown>;
-  if (candidate['type'] === 'ready' || candidate['type'] === 'refresh' || candidate['type'] === 'runGapAnalysis' || candidate['type'] === 'markDeliveryReviewed') {
+  if (candidate['type'] === 'ready' || candidate['type'] === 'refresh' || candidate['type'] === 'runGapAnalysis' || candidate['type'] === 'markDeliveryReviewed' || candidate['type'] === 'reimportDelivery') {
     return true;
   }
 
@@ -1820,6 +1963,17 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     const p = candidate['payload'] as Record<string, unknown> | undefined;
     return typeof p === 'object' && p !== null && typeof p['pathId'] === 'string' && p['pathId'].length > 0
       && Array.isArray(p['attestations']) && typeof p['confirmText'] === 'string';
+  }
+
+  if (candidate['type'] === 'rollbackStage') {
+    const p = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof p === 'object' && p !== null && typeof p['stageId'] === 'string' && p['stageId'].length > 0
+      && typeof p['confirmText'] === 'string';
+  }
+
+  if (candidate['type'] === 'testHealthUrl') {
+    const p = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof p === 'object' && p !== null && typeof p['url'] === 'string';
   }
 
   if (candidate['type'] === 'saveDataPrivacyConfig') {
@@ -2648,6 +2802,414 @@ async function gitRefExists(workspaceRoot: string, ref: string): Promise<boolean
   }
 }
 
+async function pathExists(absolutePath: string): Promise<boolean> {
+  try {
+    await fs.access(absolutePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Top-level file names in a directory (empty on error). */
+async function listDirFiles(dir: string): Promise<string[]> {
+  try {
+    return (await fs.readdir(dir, { withFileTypes: true })).filter(entry => entry.isFile()).map(entry => entry.name);
+  } catch {
+    return [];
+  }
+}
+
+/** Extract the branch filter for a workflow trigger (`pull_request` / `push`). */
+function extractTriggerBranches(content: string, trigger: string): string[] | 'all' | null {
+  // Inline form: `on: [push, pull_request]` → gates all branches.
+  const inline = content.match(/^on:\s*\[([^\]]*)\]/m);
+  if (inline) {
+    return inline[1].split(',').map(part => part.trim()).includes(trigger) ? 'all' : null;
+  }
+  if (new RegExp(`^on:\\s*${trigger}\\s*$`, 'm').test(content)) {
+    return 'all';
+  }
+  const lines = content.split(/\r?\n/);
+  const triggerIdx = lines.findIndex(line => new RegExp(`^\\s{1,6}${trigger}:\\s*$`).test(line));
+  if (triggerIdx < 0) {
+    return null;
+  }
+  const baseIndent = lines[triggerIdx].match(/^(\s*)/)?.[1].length ?? 0;
+  for (let j = triggerIdx + 1; j < lines.length; j++) {
+    if (lines[j].trim() === '') { continue; }
+    const indent = lines[j].match(/^(\s*)/)?.[1].length ?? 0;
+    if (indent <= baseIndent) { break; }
+    const branchesMatch = lines[j].match(/^\s*branches:\s*(.*)$/);
+    if (branchesMatch) {
+      const rest = branchesMatch[1].trim();
+      if (rest.startsWith('[')) {
+        return rest.replace(/[[\]]/g, '').split(',').map(part => part.trim().replace(/['"]/g, '')).filter(Boolean);
+      }
+      const branches: string[] = [];
+      for (let k = j + 1; k < lines.length; k++) {
+        const item = lines[k].match(/^\s*-\s*(.+)$/);
+        if (!item) { break; }
+        branches.push(item[1].trim().replace(/['"]/g, ''));
+      }
+      return branches.length > 0 ? branches : 'all';
+    }
+  }
+  return 'all';
+}
+
+/**
+ * Parse `.github/workflows/*.yml` to determine which workflows gate a branch and
+ * whether any do so on `pull_request` (implying PR-based promotion). Returns the
+ * gating workflow names and a viaPr flag.
+ */
+async function detectBranchCiGating(workspaceRoot: string, branch: string): Promise<{ viaPr: boolean; checks: string[] }> {
+  const dir = path.join(workspaceRoot, '.github', 'workflows');
+  let files: string[];
+  try {
+    files = (await fs.readdir(dir)).filter(name => /\.ya?ml$/i.test(name));
+  } catch {
+    return { viaPr: false, checks: [] };
+  }
+  const target = normalizeBranchRef(branch).toLowerCase();
+  const matches = (sel: string[] | 'all' | null): boolean =>
+    sel === 'all' || (Array.isArray(sel) && sel.map(b => normalizeBranchRef(b).toLowerCase()).includes(target));
+  const checks = new Set<string>();
+  let viaPr = false;
+  for (const file of files) {
+    let content = '';
+    try {
+      content = await fs.readFile(path.join(dir, file), 'utf-8');
+    } catch {
+      continue;
+    }
+    const name = (content.match(/^name:\s*(.+)$/m)?.[1] ?? file.replace(/\.ya?ml$/i, '')).trim();
+    const pr = extractTriggerBranches(content, 'pull_request');
+    const push = extractTriggerBranches(content, 'push');
+    if (matches(pr)) { viaPr = true; checks.add(name); }
+    else if (matches(push)) { checks.add(name); }
+  }
+  return { viaPr, checks: [...checks].sort() };
+}
+
+/** Find a `workflow_dispatch` deploy/release/promote workflow file, if any. */
+async function detectDispatchWorkflow(workspaceRoot: string): Promise<string | undefined> {
+  const dir = path.join(workspaceRoot, '.github', 'workflows');
+  let files: string[];
+  try {
+    files = (await fs.readdir(dir)).filter(name => /\.ya?ml$/i.test(name));
+  } catch {
+    return undefined;
+  }
+  for (const file of files) {
+    let content = '';
+    try {
+      content = await fs.readFile(path.join(dir, file), 'utf-8');
+    } catch {
+      continue;
+    }
+    if (!/workflow_dispatch/.test(content)) {
+      continue;
+    }
+    const name = (content.match(/^name:\s*(.+)$/m)?.[1] ?? '').toLowerCase();
+    if (/(deploy|release|promote|publish|ship)/.test(name) || /(deploy|release|promote|publish|ship)/i.test(file)) {
+      return file;
+    }
+  }
+  return undefined;
+}
+
+/** Run a `gh` command (best-effort; short timeout, never used on the render path). */
+async function runGh(workspaceRoot: string, args: string[]): Promise<string> {
+  const { stdout } = await execFileAsync('gh', args, { cwd: workspaceRoot, windowsHide: true, timeout: 8000, maxBuffer: 1024 * 1024 });
+  return stdout.trim();
+}
+
+/** Best-effort GitHub branch-protection import: exact required-check contexts + PR requirement. */
+async function fetchBranchProtection(
+  workspaceRoot: string,
+  slug: string,
+  branch: string,
+): Promise<{ requiresPr: boolean; contexts: string[] } | undefined> {
+  try {
+    const raw = await runGh(workspaceRoot, ['api', `repos/${slug}/branches/${normalizeBranchRef(branch)}/protection`]);
+    const parsed = JSON.parse(raw) as {
+      required_status_checks?: { contexts?: string[]; checks?: Array<{ context?: string }> };
+      required_pull_request_reviews?: unknown;
+    };
+    const contexts = parsed.required_status_checks?.contexts
+      ?? parsed.required_status_checks?.checks?.map(check => check.context ?? '').filter(Boolean)
+      ?? [];
+    return { requiresPr: Boolean(parsed.required_pull_request_reviews), contexts };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Resolve live CI status (per check-run name) for a branch's head commit via
+ * `gh`, so required status checks can be *verified* rather than self-attested.
+ * Best-effort: returns undefined when gh is unavailable or the repo is not on
+ * GitHub. Worst state per name wins (fail > pending > pass).
+ */
+async function gatherLiveCiStatus(workspaceRoot: string, sourceRef: string): Promise<Record<string, 'pass' | 'fail' | 'pending'> | undefined> {
+  const ref = normalizeBranchRef(sourceRef);
+  if (!ref || ref === 'Not a git repository' || ref === 'Detached') {
+    return undefined;
+  }
+  let slug: string | undefined;
+  try {
+    slug = (await runGh(workspaceRoot, ['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'])) || undefined;
+  } catch {
+    return undefined;
+  }
+  if (!slug) {
+    return undefined;
+  }
+  try {
+    const raw = await runGh(workspaceRoot, ['api', `repos/${slug}/commits/${ref}/check-runs`, '--jq', '.check_runs']);
+    const runs = JSON.parse(raw) as Array<{ name?: string; status?: string; conclusion?: string | null }>;
+    const rank = { pass: 0, pending: 1, fail: 2 } as const;
+    const map: Record<string, 'pass' | 'fail' | 'pending'> = {};
+    for (const run of runs) {
+      const name = (run.name ?? '').trim();
+      if (!name) { continue; }
+      const state: 'pass' | 'fail' | 'pending' = run.status !== 'completed'
+        ? 'pending'
+        : (run.conclusion === 'success' || run.conclusion === 'neutral' || run.conclusion === 'skipped') ? 'pass' : 'fail';
+      const prev = map[name];
+      if (!prev || rank[state] > rank[prev]) { map[name] = state; }
+    }
+    return map;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Import the repository's actual delivery signals so the seeded pipeline reflects
+ * the protocol already in place rather than a generic template: branch layout,
+ * project archetype, database presence, publish target, env files, package
+ * scripts, CI, the PR/CI promotion protocol, and any existing routine to bind to
+ * a promotion path.
+ */
+async function detectDeliverySignals(
+  atlas: AtlasMindContext,
+  workspaceRoot: string,
+  currentBranch: string,
+): Promise<DeliverySeedInput> {
+  const productionRef = await detectProductionBranchRef(workspaceRoot, currentBranch);
+  const developExists = await gitRefExists(workspaceRoot, 'develop');
+
+  let pkg: Record<string, unknown> = {};
+  try {
+    pkg = JSON.parse(await fs.readFile(path.join(workspaceRoot, 'package.json'), 'utf-8')) as Record<string, unknown>;
+  } catch {
+    pkg = {};
+  }
+  const deps = { ...(pkg['dependencies'] as Record<string, string> | undefined), ...(pkg['devDependencies'] as Record<string, string> | undefined) };
+  const depNames = Object.keys(deps);
+  const scriptsObj = (pkg['scripts'] as Record<string, string> | undefined) ?? {};
+  const engines = pkg['engines'] as Record<string, unknown> | undefined;
+
+  // ── Polyglot manifests + PaaS/IaC signals ───────────────────────
+  const hasFile = (rel: string): Promise<boolean> => pathExists(path.join(workspaceRoot, rel));
+  const readSafe = async (rel: string): Promise<string> => {
+    try { return await fs.readFile(path.join(workspaceRoot, rel), 'utf-8'); } catch { return ''; }
+  };
+  const topFiles = await listDirFiles(workspaceRoot);
+  const [hasPyproject, hasRequirements, hasGoMod, hasCargo, hasPom, hasGradle, hasDockerfile, hasCompose] = await Promise.all([
+    hasFile('pyproject.toml'), hasFile('requirements.txt'), hasFile('go.mod'), hasFile('Cargo.toml'),
+    hasFile('pom.xml'), hasFile('build.gradle'), hasFile('Dockerfile'), hasFile('docker-compose.yml'),
+  ]);
+  const hasCsproj = topFiles.some(name => /\.(csproj|sln)$/i.test(name));
+  const ecosystem: 'node' | 'python' | 'go' | 'rust' | 'java' | 'dotnet' | 'unknown' =
+    Object.keys(pkg).length > 0 ? 'node'
+      : (hasPyproject || hasRequirements) ? 'python'
+        : hasGoMod ? 'go'
+          : hasCargo ? 'rust'
+            : (hasPom || hasGradle) ? 'java'
+              : hasCsproj ? 'dotnet'
+                : 'unknown';
+  const manifestText = (await Promise.all([
+    readSafe('requirements.txt'), readSafe('pyproject.toml'), readSafe('go.mod'),
+    readSafe('Cargo.toml'), readSafe('pom.xml'), readSafe('build.gradle'),
+  ])).join('\n').toLowerCase();
+  const composeText = `${(await readSafe('docker-compose.yml'))}${await readSafe('docker-compose.yaml')}`.toLowerCase();
+
+  // PaaS / IaC hosting + a derivable production URL where possible.
+  const flyToml = await readSafe('fly.toml');
+  let productionUrl: string | undefined;
+  const flyApp = flyToml.match(/^\s*app\s*=\s*["']?([a-z0-9-]+)/mi)?.[1];
+  if (flyApp) { productionUrl = `https://${flyApp}.fly.dev`; }
+  const paas =
+    flyToml ? 'Fly.io'
+      : (await hasFile('vercel.json')) ? 'Vercel'
+        : (await hasFile('netlify.toml')) ? 'Netlify'
+          : (await hasFile('render.yaml')) ? 'Render'
+            : (await hasFile('app.yaml')) ? 'Google App Engine'
+              : (await hasFile('serverless.yml')) || (await hasFile('serverless.yaml')) ? 'Serverless'
+                : undefined;
+  const hasK8s = (await hasFile('kustomization.yaml')) || (await hasFile('k8s')) || (await hasFile('manifests'));
+  const hasTerraform = topFiles.some(name => /\.tf$/i.test(name));
+
+  // Archetype (Node signals + polyglot frameworks).
+  const isVscodeExt = Boolean(engines?.['vscode'] || pkg['contributes'] || depNames.includes('@vscode/vsce') || depNames.includes('@types/vscode'));
+  const nodeServerDeps = ['express', 'fastify', 'koa', '@nestjs/core', 'next', 'nuxt', '@hapi/hapi', 'hono', 'apollo-server'];
+  const webFrameworkRe = /(django|flask|fastapi|starlette|uvicorn|gunicorn|gin-gonic|labstack\/echo|gofiber|axum|actix-web|rocket|spring-boot|quarkus|micronaut|aspnetcore)/;
+  const hasServer = nodeServerDeps.some(dep => depNames.includes(dep)) || Boolean(scriptsObj['start'])
+    || hasDockerfile || hasCompose || Boolean(paas) || hasK8s || webFrameworkRe.test(manifestText);
+  let archetype: DeliveryArchetype = 'generic';
+  if (isVscodeExt) { archetype = 'vscode-extension'; }
+  else if (hasServer) { archetype = 'web-service'; }
+  else if (pkg['main'] || pkg['exports'] || pkg['module'] || hasPyproject || hasCargo || hasPom) { archetype = 'library'; }
+
+  // Database (Node deps + polyglot ORMs + compose services + migration dirs).
+  const dbRe = /^(pg|mysql2?|mongodb|mongoose|prisma|@prisma\/client|sqlite3|better-sqlite3|redis|ioredis|drizzle-orm|sequelize|typeorm|knex)$/;
+  const dbManifestRe = /(psycopg|sqlalchemy|asyncpg|pymongo|gorm|sqlx|diesel|hibernate|spring-data|entityframework|npgsql)/;
+  const dbComposeRe = /image:\s*["']?(postgres|mysql|mariadb|mongo|redis|cockroach)/;
+  const hasDatabase = depNames.some(dep => dbRe.test(dep))
+    || dbManifestRe.test(manifestText)
+    || dbComposeRe.test(composeText)
+    || await hasFile('migrations')
+    || await hasFile('prisma')
+    || await hasFile('alembic');
+
+  // Publish target.
+  const publishScripts = `${scriptsObj['publish:release'] ?? ''} ${scriptsObj['publish'] ?? ''} ${scriptsObj['deploy'] ?? ''}`;
+  let publishTarget: string | undefined;
+  if (isVscodeExt || depNames.includes('@vscode/vsce') || /vsce/.test(publishScripts)) { publishTarget = 'VS Code Marketplace'; }
+  else if (paas) { publishTarget = paas; }
+  else if (hasK8s) { publishTarget = 'Kubernetes'; }
+  else if (hasDockerfile || hasCompose) { publishTarget = 'Container registry'; }
+  else if (hasTerraform) { publishTarget = 'Terraform-managed infrastructure'; }
+  else if (scriptsObj['publish'] && pkg['private'] !== true) { publishTarget = 'npm registry'; }
+  else if (ecosystem === 'python' && /(hatchling|setuptools|poetry|twine|flit)/.test(manifestText)) { publishTarget = 'PyPI'; }
+  else if (ecosystem === 'rust') { publishTarget = 'crates.io'; }
+
+  // Env files.
+  const envFiles: { local?: string; staging?: string; production?: string } = {};
+  if (await pathExists(path.join(workspaceRoot, '.env.local'))) { envFiles.local = '.env.local'; }
+  else if (await pathExists(path.join(workspaceRoot, '.env.development'))) { envFiles.local = '.env.development'; }
+  if (await pathExists(path.join(workspaceRoot, '.env.staging'))) { envFiles.staging = '.env.staging'; }
+  if (await pathExists(path.join(workspaceRoot, '.env.production'))) { envFiles.production = '.env.production'; }
+
+  // Scripts: Node from package scripts; otherwise ecosystem conventions.
+  const scripts = ecosystem === 'node'
+    ? { build: Boolean(scriptsObj['compile'] || scriptsObj['build']), lint: Boolean(scriptsObj['lint']), test: Boolean(scriptsObj['test']) }
+    : ecosystem === 'python' ? { build: false, lint: /(ruff|flake8|pylint|black)/.test(manifestText), test: true }
+      : ecosystem === 'go' ? { build: true, lint: /golangci/.test(manifestText), test: true }
+        : ecosystem === 'rust' ? { build: true, lint: true, test: true }
+          : ecosystem === 'java' ? { build: true, lint: false, test: true }
+            : ecosystem === 'dotnet' ? { build: true, lint: false, test: true }
+              : { build: false, lint: false, test: false };
+  const hasCi = (await collectWorkflowSnapshot(workspaceRoot)).length > 0;
+
+  // Bind an existing routine to the production path (publish/release/ship/deploy
+  // or the default routine), and a staging/integration routine when present.
+  let productionRoutineId: string | undefined;
+  let stagingRoutineId: string | undefined;
+  try {
+    await atlas.routineRegistry.reload(workspaceRoot);
+    const routines = atlas.routineRegistry.list();
+    const prod = routines.find(routine => /publish|release|ship|deploy|promote.*prod/i.test(`${routine.id} ${routine.name}`))
+      ?? routines.find(routine => routine.default);
+    productionRoutineId = prod?.id;
+    stagingRoutineId = routines.find(routine => /stag|integrat/i.test(`${routine.id} ${routine.name}`))?.id;
+  } catch {
+    // No routines — leave promotion paths unbound (accurate).
+  }
+
+  // ── PR / CI promotion protocol ──────────────────────────────────
+  const prodShort = productionRef ? normalizeBranchRef(productionRef) : 'main';
+  const stagingShort = developExists ? 'develop' : normalizeBranchRef(currentBranch);
+
+  const prodGating = await detectBranchCiGating(workspaceRoot, prodShort);
+  const stagingGating = await detectBranchCiGating(workspaceRoot, stagingShort);
+
+  // Best-effort enrichment from GitHub branch protection (exact check contexts +
+  // PR requirement). Graceful fallback to local signals if gh is unavailable.
+  let repoSlug: string | undefined;
+  try {
+    repoSlug = (await runGh(workspaceRoot, ['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'])) || undefined;
+  } catch {
+    repoSlug = undefined;
+  }
+  const prodProtection = repoSlug ? await fetchBranchProtection(workspaceRoot, repoSlug, prodShort) : undefined;
+  const stagingProtection = repoSlug ? await fetchBranchProtection(workspaceRoot, repoSlug, stagingShort) : undefined;
+
+  // A bound production routine that opens a PR also signals PR-based promotion.
+  let routineOpensPr = false;
+  if (productionRoutineId) {
+    const routine = atlas.routineRegistry.get(productionRoutineId);
+    routineOpensPr = Boolean(routine?.steps.some(step =>
+      /gh\s+pr\s+create/i.test(step.run) && new RegExp(`--base\\s+(${prodShort}|master|main)`).test(step.run)));
+  }
+
+  // "Via PR" means PRs are *required* — sourced authoritatively from branch
+  // protection when gh is available, else from a routine that opens a PR. CI
+  // merely having a pull_request trigger is NOT treated as "PR required" (a
+  // branch can accept direct pushes yet still run CI on PRs, like `develop`).
+  const productionViaPr = prodProtection ? (prodProtection.requiresPr || routineOpensPr) : routineOpensPr;
+  const productionChecks = (prodProtection?.contexts.length ? prodProtection.contexts : prodGating.checks);
+  const stagingViaPr = stagingProtection ? stagingProtection.requiresPr : false;
+  const stagingChecks = (stagingProtection?.contexts.length ? stagingProtection.contexts : stagingGating.checks);
+
+  // Trigger-CD: when there's no bound production routine, a dispatchable
+  // deploy/release workflow becomes the promote mechanism (CD, not laptop).
+  const dispatchFile = productionRoutineId ? undefined : await detectDispatchWorkflow(workspaceRoot);
+
+  return {
+    currentBranch,
+    productionBranch: productionRef ?? undefined,
+    developBranch: developExists ? 'develop' : undefined,
+    archetype,
+    hasDatabase,
+    publishTarget,
+    productionUrl,
+    envFiles,
+    scripts,
+    hasCi,
+    productionRoutineId,
+    stagingRoutineId,
+    viaPullRequest: { staging: stagingViaPr, production: productionViaPr },
+    statusChecks: { staging: stagingChecks, production: productionChecks },
+    dispatchWorkflow: dispatchFile ? { production: dispatchFile } : undefined,
+  };
+}
+
+/** The git actor's email (for separation-of-duties comparison against authors). */
+async function resolveGitActorEmail(workspaceRoot: string): Promise<string | undefined> {
+  try {
+    return (await runGit(workspaceRoot, ['config', 'user.email'])).trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Email of the head-commit author for a branch (defaults to HEAD), for SoD. */
+async function resolveLastCommitAuthor(workspaceRoot: string, ref?: string): Promise<string | undefined> {
+  const target = ref ? normalizeBranchRef(ref) : 'HEAD';
+  try {
+    return (await runGit(workspaceRoot, ['log', '-1', '--format=%ae', target])).trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The git identity that ran an action (`Name <email>`), for the audit log. */
+async function resolveGitActor(workspaceRoot: string): Promise<string | undefined> {
+  try {
+    const name = (await runGit(workspaceRoot, ['config', 'user.name'])).trim();
+    let email = '';
+    try { email = (await runGit(workspaceRoot, ['config', 'user.email'])).trim(); } catch { email = ''; }
+    if (!name && !email) { return undefined; }
+    return email ? `${name} <${email}>`.trim() : name;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Gather the live facts a promotion plan's preflight checks depend on: the
  * source/target package versions, whether the working tree is clean, and
@@ -2717,6 +3279,7 @@ async function collectDeliveryStagePipeline(
     paths: [],
     review: noReview,
     config: null,
+    history: [],
     seeded: false,
     notInGitRepo: false,
   };
@@ -2732,15 +3295,8 @@ async function collectDeliveryStagePipeline(
     if (!isGit) {
       return { ...base, notInGitRepo: true };
     }
-    // Keep the detected ref unnormalised so a remote-only production branch
-    // (e.g. `origin/master` with no local `master`) still resolves its version.
-    const productionRef = await detectProductionBranchRef(workspaceRoot, currentBranch);
-    const developExists = await gitRefExists(workspaceRoot, 'develop');
-    config = await manager.ensureSeeded({
-      currentBranch,
-      productionBranch: productionRef ?? undefined,
-      developBranch: developExists ? 'develop' : undefined,
-    });
+    const signals = await detectDeliverySignals(atlas, workspaceRoot, currentBranch);
+    config = await manager.ensureSeeded(signals);
     seeded = true;
   }
 
@@ -2760,8 +3316,9 @@ async function collectDeliveryStagePipeline(
     storedReview = undefined;
   }
   const review = summarizeDeliveryReview(reviewParts, storedReview);
+  const history = readPromotionHistory(workspaceRoot).slice(0, 12);
 
-  return { ...base, stages: stageViews, paths: pathViews, review, config, seeded };
+  return { ...base, stages: stageViews, paths: pathViews, review, config, history, seeded };
 }
 
 const DELIVERY_REVIEW_STATE_KEY = 'atlasmind.deliveryReview';
@@ -2899,6 +3456,7 @@ async function buildStageView(
     dataLabel: stage.data.label ?? stage.data.kind ?? '',
     backupRequired: stage.backupPolicy.required,
     backupConfigured,
+    hasRollback: Boolean(stage.rollbackPolicy.command && stage.rollbackPolicy.command.trim().length > 0),
     securityNotes: buildStageSecurityNotes(stage, backupConfigured),
   };
 }
@@ -2915,6 +3473,15 @@ function buildStageSecurityNotes(stage: DeploymentStage, backupConfigured: boole
   }
   if (stage.promotionPolicy.requiresApproval) {
     notes.push('Pushes require explicit human approval before anything runs.');
+  }
+  if (stage.promotionPolicy.viaPullRequest) {
+    notes.push(`Pushes into this stage go through a Pull Request to the ${stage.branchRef ?? 'protected'} branch — never a direct push.`);
+  }
+  if (stage.promotionPolicy.dispatchWorkflow) {
+    notes.push(`Pushes run in CI/CD (dispatch ${stage.promotionPolicy.dispatchWorkflow}), not on a developer's machine.`);
+  }
+  if (stage.promotionPolicy.requireDistinctApprover) {
+    notes.push('Separation of duties — whoever promotes must not be the author of the change.');
   }
   if (stage.config.sourceLabel) {
     notes.push(`Secrets live in ${stage.config.sourceLabel} — only the location is recorded here, never the values.`);
@@ -2935,13 +3502,23 @@ function buildPromotionPathView(
   const fromView = stageViews.find(view => view.id === promo.fromStageId);
   const toView = stageViews.find(view => view.id === promo.toStageId);
   const backupConfigured = Boolean(to.backupPolicy.command && to.backupPolicy.command.trim().length > 0);
-  const blocked = to.backupPolicy.required && !backupConfigured;
+  const viaPullRequest = to.promotionPolicy.viaPullRequest === true;
+  const needsPrRoutine = viaPullRequest && !promo.routineId;
+  const backupBlocked = to.backupPolicy.required && !backupConfigured;
+  const blocked = backupBlocked || needsPrRoutine;
   const guardrails = [
     'Preflight gate — required checks must pass, or the push aborts',
     to.backupPolicy.required ? `Backup — snapshot ${to.name} before any change` : 'Backup — optional for this target',
-    'Promote — merge/tag forward (never force-push)',
+    viaPullRequest
+      ? `Promote — open a Pull Request into ${to.branchRef ?? 'the protected branch'} (never a direct push)`
+      : 'Promote — merge/tag forward (never force-push)',
     'Verify — health-check the target after deploy',
   ];
+  const blockReason = backupBlocked
+    ? `Define a backup command for ${to.name} before this push can run.`
+    : needsPrRoutine
+      ? `Bind a promotion routine that opens a Pull Request into ${to.branchRef ?? 'the protected branch'}.`
+      : '';
   const versionDelta = fromView && toView ? `v${fromView.deployedVersion} → v${toView.deployedVersion}` : '';
   return {
     id: promo.id,
@@ -2953,10 +3530,12 @@ function buildPromotionPathView(
     guardrails,
     gates: to.promotionPolicy.requiredChecks,
     requiresApproval: to.promotionPolicy.requiresApproval,
+    viaPullRequest,
+    statusChecks: to.promotionPolicy.requiredStatusChecks ?? [],
     backupRequired: to.backupPolicy.required,
     backupConfigured,
     blocked,
-    blockReason: blocked ? `Define a backup command for ${to.name} before this push can run.` : '',
+    blockReason,
     versionDelta,
     lastPromotion: promo.lastPromotion
       ? {
@@ -6037,6 +6616,16 @@ const DASHBOARD_CSS = `
   .delivery-review-body strong { font-size: 0.9em; }
   .delivery-review-body ul { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; }
   .delivery-review-body li { font-size: 0.83em; line-height: 1.4; }
+  .pipeline-flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; margin: 4px 0 16px; }
+  .flow-node { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.3)); background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); min-width: 130px; }
+  .flow-node.current { border-color: var(--vscode-focusBorder, #4daafc); box-shadow: 0 0 0 1px var(--vscode-focusBorder, #4daafc) inset; }
+  .flow-node.kind-production { border-left: 3px solid var(--vscode-charts-red, #f14c4c); }
+  .flow-node.kind-staging { border-left: 3px solid var(--vscode-charts-yellow, #cca700); }
+  .flow-node.kind-local { border-left: 3px solid var(--vscode-charts-blue, #4daafc); }
+  .flow-name { font-weight: 700; font-size: 0.86em; }
+  .flow-branch { font-size: 0.74em; color: var(--vscode-descriptionForeground); }
+  .flow-ver { font-size: 0.78em; }
+  .flow-arrow { display: flex; align-items: center; font-size: 1.2em; color: var(--vscode-descriptionForeground); }
   .stage-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; align-items: stretch; margin-bottom: 18px; }
   .stage-card { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 12px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.25)); background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); }
   .stage-card.is-current { border-color: var(--vscode-focusBorder, #4daafc); box-shadow: 0 0 0 1px var(--vscode-focusBorder, #4daafc) inset; }
@@ -6068,6 +6657,7 @@ const DASHBOARD_CSS = `
   .promotion-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
   .promotion-head h4 { margin: 0; font-size: 0.98em; }
   .promotion-head .version-delta { font-family: var(--vscode-editor-font-family, monospace); font-size: 0.8em; color: var(--vscode-descriptionForeground); }
+  .via-pr-badge { font-size: 0.68em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--vscode-charts-purple, #b180d7); color: var(--vscode-charts-purple, #b180d7); white-space: nowrap; }
   .guardrail-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
   .guardrail-list li { font-size: 0.82em; line-height: 1.4; }
   .gate-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 0.8em; color: var(--vscode-descriptionForeground); }
@@ -6099,6 +6689,13 @@ const DASHBOARD_CSS = `
   .stage-edit-group small { font-weight: 400; text-transform: none; letter-spacing: 0; margin-left: 6px; opacity: 0.85; }
   .stage-edit-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; }
   .stage-remove-confirm { font-size: 0.82em; color: var(--vscode-editorWarning-foreground, #cca700); display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .reimport-confirm { font-size: 0.82em; color: var(--vscode-editorWarning-foreground, #cca700); display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .rollback-input { padding: 3px 6px; border-radius: 5px; border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, rgba(127,127,127,0.4))); background: var(--vscode-input-background); color: var(--vscode-input-foreground); font-size: 0.95em; }
+  .stage-card-foot { gap: 10px; }
+  .history-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 0.82em; padding: 4px 0; border-bottom: 1px dashed var(--vscode-widget-border, rgba(127,127,127,0.18)); }
+  .history-row.good > span:first-child { color: var(--vscode-charts-green, #89d185); }
+  .history-row.bad > span:first-child { color: var(--vscode-errorForeground, #f14c4c); }
+  .history-row .list-meta { color: var(--vscode-descriptionForeground); }
 
   /* ── Delivery: promotion execution modal (Phase 3) ────────────── */
   .promo-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: flex; align-items: flex-start; justify-content: center; padding: 40px 16px; z-index: 1000; overflow-y: auto; }

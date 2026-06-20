@@ -24,25 +24,124 @@
 
 import * as path from 'node:path';
 import { readFileSync } from 'node:fs';
-import { writeFile, mkdir } from 'node:fs/promises';
+import { writeFile, mkdir, rm } from 'node:fs/promises';
 import type {
   DeliveryConfig,
   DeploymentStage,
   DeploymentStageKind,
+  PromotionHistoryEntry,
   PromotionPath,
 } from '../types.js';
 
 export const DELIVERY_SSOT_PATH = 'project_memory/operations/delivery.json';
 export const DELIVERY_SUMMARY_SSOT_PATH = 'project_memory/operations/delivery.md';
+export const DELIVERY_HISTORY_SSOT_PATH = 'project_memory/operations/delivery-history.json';
 
-/** Inputs used to seed a first-run pipeline from the repository's branches. */
+/** Most recent promotion/rollback records retained on disk. */
+const MAX_HISTORY = 200;
+
+export function readPromotionHistory(workspaceRoot: string): PromotionHistoryEntry[] {
+  try {
+    const raw = readFileSync(path.join(workspaceRoot, DELIVERY_HISTORY_SSOT_PATH), 'utf8');
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? (parsed as PromotionHistoryEntry[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Append an audit record (newest first), capped at {@link MAX_HISTORY}. */
+export async function appendPromotionHistory(workspaceRoot: string, entry: PromotionHistoryEntry): Promise<void> {
+  const file = path.join(workspaceRoot, DELIVERY_HISTORY_SSOT_PATH);
+  const history = readPromotionHistory(workspaceRoot);
+  history.unshift(entry);
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(file, JSON.stringify(history.slice(0, MAX_HISTORY), null, 2), 'utf-8');
+}
+
+// ── Concurrency lock ─────────────────────────────────────────────
+
+export const DELIVERY_LOCK_SSOT_PATH = 'project_memory/operations/.delivery-lock.json';
+/** A lock older than this is treated as stale (a crashed run) and ignored. */
+const LOCK_STALE_MS = 60 * 60 * 1000;
+
+export interface DeliveryLock {
+  label: string;
+  startedAt: string;
+}
+
+/** Return a live (non-stale) lock if one is held, else undefined. */
+export function readDeliveryLock(workspaceRoot: string): DeliveryLock | undefined {
+  try {
+    const parsed = JSON.parse(readFileSync(path.join(workspaceRoot, DELIVERY_LOCK_SSOT_PATH), 'utf8')) as DeliveryLock;
+    if (!parsed || typeof parsed.startedAt !== 'string') {
+      return undefined;
+    }
+    return (Date.now() - new Date(parsed.startedAt).getTime() > LOCK_STALE_MS) ? undefined : parsed;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Acquire the single-flight delivery lock; returns false if one is already held. */
+export async function acquireDeliveryLock(workspaceRoot: string, label: string): Promise<boolean> {
+  if (readDeliveryLock(workspaceRoot)) {
+    return false;
+  }
+  const file = path.join(workspaceRoot, DELIVERY_LOCK_SSOT_PATH);
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(file, JSON.stringify({ label, startedAt: new Date().toISOString() }, null, 2), 'utf-8');
+  return true;
+}
+
+export async function releaseDeliveryLock(workspaceRoot: string): Promise<void> {
+  try {
+    await rm(path.join(workspaceRoot, DELIVERY_LOCK_SSOT_PATH));
+  } catch {
+    // Already released.
+  }
+}
+
+/** Broad project shape used to tailor the seeded pipeline to reality. */
+export type DeliveryArchetype = 'vscode-extension' | 'library' | 'web-service' | 'generic';
+
+/**
+ * Signals imported from the repository to seed a pipeline that reflects the
+ * delivery protocol *already in place* — not a generic template. Everything is
+ * optional so callers can supply only what they can detect; sensible defaults
+ * fill the rest.
+ */
 export interface DeliverySeedInput {
   /** The branch currently checked out. */
   currentBranch: string;
-  /** Detected production branch (already normalised, e.g. "master" / "main"). */
+  /** Detected production branch (e.g. "master" / "main"). */
   productionBranch?: string;
   /** Detected integration branch, when one exists (e.g. "develop"). */
   developBranch?: string;
+  /** Project shape; drives stage naming and whether a database/backups apply. */
+  archetype?: DeliveryArchetype;
+  /** Whether the project has an application database (drives backup-required). */
+  hasDatabase?: boolean;
+  /** Where production ships (e.g. "VS Code Marketplace", "npm registry", "Fly.io"). */
+  publishTarget?: string;
+  /** Public production URL, when derivable (e.g. from fly.toml app name). */
+  productionUrl?: string;
+  /** Detected env/config files per stage role (workspace-relative names). */
+  envFiles?: { local?: string; staging?: string; production?: string };
+  /** Which standard npm scripts exist, used to derive required checks. */
+  scripts?: { build?: boolean; lint?: boolean; test?: boolean };
+  /** Whether CI workflows are present (adds a "CI green" gate). */
+  hasCi?: boolean;
+  /** Existing routine id to bind to the production promotion path. */
+  productionRoutineId?: string;
+  /** Existing routine id to bind to the staging/integration promotion path. */
+  stagingRoutineId?: string;
+  /** Whether promotion into the integration/production branch goes via a Pull Request. */
+  viaPullRequest?: { staging?: boolean; production?: boolean };
+  /** CI status-check names gating the integration/production branch. */
+  statusChecks?: { staging?: string[]; production?: string[] };
+  /** CD workflow file to dispatch for promotion (trigger CD instead of local deploy). */
+  dispatchWorkflow?: { staging?: string; production?: string };
 }
 
 export function defaultDeliveryConfig(): DeliveryConfig {
@@ -52,14 +151,35 @@ export function defaultDeliveryConfig(): DeliveryConfig {
 // ── Seeding ──────────────────────────────────────────────────────
 
 /**
- * Build a professional dev → staging → production pipeline from the detected
- * branch layout. Every field is filled with a sensible default and a plain
- * description so a first-time user sees a complete, well-reasoned setup rather
- * than an empty form. Everything seeded here is fully editable afterwards.
+ * Build a pipeline that reflects the repository's *actual* delivery protocol
+ * from imported {@link DeliverySeedInput} signals: branch layout, project
+ * archetype, database presence, publish target, env files, package scripts,
+ * CI, and existing routines. A project with no database gets no phantom
+ * backup gate; the publish target becomes production hosting; required checks
+ * mirror the scripts that exist; and promotion paths bind to routines that
+ * actually exist (or none). Everything is fully editable afterwards.
  */
 export function seedDeliveryConfig(input: DeliverySeedInput): DeliveryConfig {
+  const archetype = input.archetype ?? 'generic';
+  const deployless = archetype === 'vscode-extension' || archetype === 'library';
+  const hasDatabase = input.hasDatabase ?? false;
   const stagingBranch = input.developBranch ?? input.currentBranch;
   const productionBranch = input.productionBranch ?? 'main';
+
+  const baseChecks: string[] = ['Working tree clean'];
+  if (input.scripts?.build) { baseChecks.push('Compile/build passes'); }
+  if (input.scripts?.lint) { baseChecks.push('Lint passes'); }
+  if (input.scripts?.test) { baseChecks.push('Tests pass'); }
+  // CI is represented as first-class required *status checks* (below), not a
+  // generic "CI green" label.
+
+  const dataFor = (role: 'local' | 'staging' | 'production'): DeploymentStage['data'] => {
+    if (!hasDatabase) { return { kind: 'none', label: 'No application database' }; }
+    if (role === 'local') { return { kind: 'local', label: 'Local development database (disposable)' }; }
+    if (role === 'staging') { return { kind: 'TBD', label: 'Staging database (safe to reset)' }; }
+    return { kind: 'TBD', label: 'Production database (real user data)' };
+  };
+  const configFor = (file?: string): DeploymentStage['config'] => (file ? { sourceLabel: file, sourcePath: file } : {});
 
   const local: DeploymentStage = {
     id: 'stage-local',
@@ -69,44 +189,40 @@ export function seedDeliveryConfig(input: DeliverySeedInput): DeliveryConfig {
     description:
       'Your own machine. Where you write and run code day to day. Data here is disposable — nothing your users see lives at this stage.',
     branchRef: undefined,
-    config: { sourceLabel: '.env.local', sourcePath: '.env.local' },
+    config: configFor(input.envFiles?.local),
     hosting: { provider: 'localhost' },
-    data: { kind: 'local', label: 'Local development database (disposable)' },
+    data: dataFor('local'),
     backupPolicy: { required: false },
-    promotionPolicy: {
-      requiresApproval: false,
-      requireVersionBump: false,
-      requireChangelog: false,
-      requiredChecks: [],
-    },
+    promotionPolicy: { requiresApproval: false, requireVersionBump: false, requireChangelog: false, requiredChecks: [] },
     rollbackPolicy: {},
     isProtected: false,
   };
 
-  const staging: DeploymentStage = {
+  const middle: DeploymentStage = {
     id: 'stage-staging',
-    name: 'Staging',
+    name: deployless ? 'Integration' : 'Staging',
     kind: 'staging',
     rank: 1,
-    description:
-      'A production-like rehearsal environment. Changes land here first so they can be tested against realistic data and settings before any real users are affected.',
+    description: deployless
+      ? `Shared integration branch (\`${stagingBranch}\`). Work merges here and is built, linted, and tested together before a release is promoted to production.`
+      : 'A production-like rehearsal environment. Changes land here first so they can be tested against realistic data and settings before any real users are affected.',
     branchRef: stagingBranch,
-    config: { sourceLabel: '.env.staging', sourcePath: '.env.staging' },
-    hosting: { provider: 'TBD', url: '', healthCheckUrl: '' },
-    data: { kind: 'TBD', label: 'Staging database (safe to reset)' },
-    backupPolicy: {
-      required: false,
-      retention: 'Optional — staging data is generally reproducible.',
-    },
+    config: configFor(input.envFiles?.staging),
+    hosting: {},
+    data: dataFor('staging'),
+    backupPolicy: hasDatabase
+      ? { required: false, retention: 'Optional — staging data is generally reproducible.' }
+      : { required: false },
     promotionPolicy: {
       requiresApproval: false,
       requireVersionBump: true,
       requireChangelog: true,
-      requiredChecks: ['Working tree clean', 'Compile passes', 'Tests pass'],
+      requiredChecks: [...baseChecks],
+      viaPullRequest: input.viaPullRequest?.staging ?? false,
+      requiredStatusChecks: input.statusChecks?.staging ?? [],
+      dispatchWorkflow: input.dispatchWorkflow?.staging,
     },
-    rollbackPolicy: {
-      runbookRef: DELIVERY_SUMMARY_SSOT_PATH,
-    },
+    rollbackPolicy: { runbookRef: DELIVERY_SUMMARY_SSOT_PATH },
     isProtected: false,
   };
 
@@ -115,59 +231,42 @@ export function seedDeliveryConfig(input: DeliverySeedInput): DeliveryConfig {
     name: 'Production',
     kind: 'production',
     rank: 2,
-    description:
-      'The live environment your real users depend on. Every change here is treated as high-risk: it is backed up first, requires sign-off, and is never force-pushed.',
+    description: deployless
+      ? `The released product your users install or consume${input.publishTarget ? ` via ${input.publishTarget}` : ''}. Promotion is the release: version-gated, requires sign-off, and never force-pushed.`
+      : 'The live environment your real users depend on. Every change here is treated as high-risk: it is backed up first, requires sign-off, and is never force-pushed.',
     branchRef: productionBranch,
-    config: { sourceLabel: '.env.production', sourcePath: '.env.production' },
-    hosting: { provider: 'TBD', url: '', healthCheckUrl: '' },
-    data: { kind: 'TBD', label: 'Production database (real user data)' },
-    backupPolicy: {
-      required: true,
-      // Intentionally empty: deny-by-default keeps promotion to production
-      // blocked until the user supplies a real backup command.
-      command: '',
-      runbookRef: DELIVERY_SUMMARY_SSOT_PATH,
-      retention: 'Recommended: keep at least 7 daily snapshots.',
-    },
+    config: configFor(input.envFiles?.production),
+    hosting: { provider: input.publishTarget ?? 'TBD', url: input.productionUrl ?? '', healthCheckUrl: '' },
+    data: dataFor('production'),
+    backupPolicy: hasDatabase
+      ? {
+          required: true,
+          // Empty by design: deny-by-default keeps promotion blocked until the
+          // user supplies a real backup command for the production database.
+          command: '',
+          runbookRef: DELIVERY_SUMMARY_SSOT_PATH,
+          retention: 'Recommended: keep at least 7 daily snapshots.',
+        }
+      : { required: false, runbookRef: DELIVERY_SUMMARY_SSOT_PATH },
     promotionPolicy: {
       requiresApproval: true,
       requireVersionBump: true,
       requireChangelog: true,
-      requiredChecks: [
-        'Working tree clean',
-        'Compile passes',
-        'Tests pass',
-        'CI green',
-        'Staging verified',
-      ],
+      requiredChecks: [...baseChecks],
+      viaPullRequest: input.viaPullRequest?.production ?? false,
+      requiredStatusChecks: input.statusChecks?.production ?? [],
+      dispatchWorkflow: input.dispatchWorkflow?.production,
     },
-    rollbackPolicy: {
-      runbookRef: DELIVERY_SUMMARY_SSOT_PATH,
-    },
+    rollbackPolicy: { runbookRef: DELIVERY_SUMMARY_SSOT_PATH },
     isProtected: true,
   };
 
   const paths: PromotionPath[] = [
-    {
-      id: 'promote-local-staging',
-      fromStageId: local.id,
-      toStageId: staging.id,
-      routineId: 'promote-staging',
-    },
-    {
-      id: 'promote-staging-production',
-      fromStageId: staging.id,
-      toStageId: production.id,
-      routineId: 'promote-production',
-    },
+    { id: 'promote-local-staging', fromStageId: local.id, toStageId: middle.id, routineId: input.stagingRoutineId },
+    { id: 'promote-staging-production', fromStageId: middle.id, toStageId: production.id, routineId: input.productionRoutineId },
   ];
 
-  return {
-    version: 1,
-    stages: [local, staging, production],
-    paths,
-    updatedAt: new Date().toISOString(),
-  };
+  return { version: 1, stages: [local, middle, production], paths, updatedAt: new Date().toISOString() };
 }
 
 // ── Validation ───────────────────────────────────────────────────
@@ -275,10 +374,12 @@ export function sanitizeDeliveryConfig(input: unknown): DeliveryConfig | undefin
         kind: optStr(data['kind']),
         label: optStr(data['label']),
         migrationsPath: optStr(data['migrationsPath'], MAX_PATH),
+        migrateCommand: optStr(data['migrateCommand'], MAX_LONG),
       },
       backupPolicy: {
         required: asBool(backup['required']),
         command: optStr(backup['command'], MAX_LONG),
+        verifyCommand: optStr(backup['verifyCommand'], MAX_LONG),
         runbookRef: optStr(backup['runbookRef'], MAX_PATH),
         retention: optStr(backup['retention']),
       },
@@ -289,6 +390,12 @@ export function sanitizeDeliveryConfig(input: unknown): DeliveryConfig | undefin
         requiredChecks: Array.isArray(promo['requiredChecks'])
           ? (promo['requiredChecks'] as unknown[]).map(check => clampStr(check, 120)).filter(Boolean).slice(0, 30)
           : [],
+        viaPullRequest: asBool(promo['viaPullRequest']),
+        requiredStatusChecks: Array.isArray(promo['requiredStatusChecks'])
+          ? (promo['requiredStatusChecks'] as unknown[]).map(check => clampStr(check, 160)).filter(Boolean).slice(0, 30)
+          : [],
+        dispatchWorkflow: optStr(promo['dispatchWorkflow'], 200),
+        requireDistinctApprover: asBool(promo['requireDistinctApprover']),
       },
       rollbackPolicy: {
         command: optStr(rollback['command'], MAX_LONG),
@@ -422,15 +529,23 @@ export function renderDeliveryMarkdown(config: DeliveryConfig): string {
     }
     lines.push(`### ${from.name} → ${to.name}`);
     lines.push('');
+    const viaPr = to.promotionPolicy.viaPullRequest === true;
     lines.push('Every promotion runs the same guarded sequence:');
     lines.push('');
     lines.push('1. **Preflight gate** — the required checks below must all pass, or the promotion aborts.');
     lines.push(`2. **Backup** — ${to.backupPolicy.required ? `a snapshot of **${to.name}** is taken before any change, so it can be recovered` : 'optional for this target'}.`);
-    lines.push('3. **Promote** — the build is merged/tagged forward. AtlasMind never force-pushes.');
+    lines.push(viaPr
+      ? `3. **Promote via Pull Request** — open a PR into \`${to.branchRef ?? to.name}\` (a protected branch); the required status checks must be green and the PR merged. AtlasMind never force-pushes or pushes directly.`
+      : '3. **Promote** — the build is merged/tagged forward. AtlasMind never force-pushes.');
     lines.push('4. **Verify** — the target is health-checked after deploy.');
     lines.push('');
     const checks = to.promotionPolicy.requiredChecks;
     lines.push(`- **Required checks:** ${checks.length > 0 ? checks.map(c => `\`${c}\``).join(', ') : 'none configured'}`);
+    const statusChecks = to.promotionPolicy.requiredStatusChecks ?? [];
+    if (statusChecks.length > 0) {
+      lines.push(`- **Required CI status checks:** ${statusChecks.map(c => `\`${c}\``).join(', ')}`);
+    }
+    lines.push(`- **Promotion mechanism:** ${viaPr ? 'Pull Request into a protected branch' : 'direct merge/tag'}`);
     lines.push(`- **Approval:** ${to.promotionPolicy.requiresApproval ? 'a human must sign off before anything runs' : 'not required'}`);
     lines.push(`- **Version bump required:** ${to.promotionPolicy.requireVersionBump ? 'yes' : 'no'}`);
     lines.push(`- **Changelog entry required:** ${to.promotionPolicy.requireChangelog ? 'yes' : 'no'}`);
