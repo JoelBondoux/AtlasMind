@@ -1,0 +1,131 @@
+{
+  "version": 1,
+  "stages": [
+    {
+      "id": "stage-local",
+      "name": "Local",
+      "kind": "local",
+      "rank": 0,
+      "description": "Your own machine. Where you write and run code day to day. Data here is disposable — nothing your users see lives at this stage.",
+      "config": {
+        "sourceLabel": ".env.local",
+        "sourcePath": ".env.local"
+      },
+      "hosting": {
+        "provider": "localhost"
+      },
+      "data": {
+        "kind": "local",
+        "label": "Local development database (disposable)"
+      },
+      "backupPolicy": {
+        "required": false
+      },
+      "promotionPolicy": {
+        "requiresApproval": false,
+        "requireVersionBump": false,
+        "requireChangelog": false,
+        "requiredChecks": []
+      },
+      "rollbackPolicy": {},
+      "isProtected": false
+    },
+    {
+      "id": "stage-staging",
+      "name": "Staging",
+      "kind": "staging",
+      "rank": 1,
+      "description": "A production-like rehearsal environment. Changes land here first so they can be tested against realistic data and settings before any real users are affected.",
+      "branchRef": "develop",
+      "config": {
+        "sourceLabel": ".env.staging",
+        "sourcePath": ".env.staging"
+      },
+      "hosting": {
+        "provider": "TBD",
+        "url": "",
+        "healthCheckUrl": ""
+      },
+      "data": {
+        "kind": "TBD",
+        "label": "Staging database (safe to reset)"
+      },
+      "backupPolicy": {
+        "required": false,
+        "retention": "Optional — staging data is generally reproducible."
+      },
+      "promotionPolicy": {
+        "requiresApproval": false,
+        "requireVersionBump": true,
+        "requireChangelog": true,
+        "requiredChecks": [
+          "Working tree clean",
+          "Compile passes",
+          "Tests pass"
+        ]
+      },
+      "rollbackPolicy": {
+        "runbookRef": "project_memory/operations/delivery.md"
+      },
+      "isProtected": false
+    },
+    {
+      "id": "stage-production",
+      "name": "Production",
+      "kind": "production",
+      "rank": 2,
+      "description": "The live environment your real users depend on. Every change here is treated as high-risk: it is backed up first, requires sign-off, and is never force-pushed.",
+      "branchRef": "master",
+      "config": {
+        "sourceLabel": ".env.production",
+        "sourcePath": ".env.production"
+      },
+      "hosting": {
+        "provider": "TBD",
+        "url": "",
+        "healthCheckUrl": ""
+      },
+      "data": {
+        "kind": "TBD",
+        "label": "Production database (real user data)"
+      },
+      "backupPolicy": {
+        "required": true,
+        "command": "",
+        "runbookRef": "project_memory/operations/delivery.md",
+        "retention": "Recommended: keep at least 7 daily snapshots."
+      },
+      "promotionPolicy": {
+        "requiresApproval": true,
+        "requireVersionBump": true,
+        "requireChangelog": true,
+        "requiredChecks": [
+          "Working tree clean",
+          "Compile passes",
+          "Tests pass",
+          "CI green",
+          "Staging verified"
+        ]
+      },
+      "rollbackPolicy": {
+        "runbookRef": "project_memory/operations/delivery.md"
+      },
+      "isProtected": true
+    }
+  ],
+  "paths": [
+    {
+      "id": "promote-local-staging",
+      "fromStageId": "stage-local",
+      "toStageId": "stage-staging",
+      "routineId": "promote-staging"
+    },
+    {
+      "id": "promote-staging-production",
+      "fromStageId": "stage-staging",
+      "toStageId": "stage-production",
+      "routineId": "promote-production"
+    }
+  ],
+  "updatedAt": "2026-06-20T04:20:02.255Z"
+}

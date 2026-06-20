@@ -6,6 +6,14 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.112.0 — Delivery stays current + flags drift since last review
+
+- **Auto-refresh.** The Project Dashboard → Delivery page now updates automatically when `delivery.json` changes outside the dashboard (a hand edit, a teammate's change pulled via git, or a script) — a file watcher reloads the pipeline and re-renders, so it always shows the current protocol.
+- **"Review needed" banner.** When the delivery setup has changed since you last reviewed it — the config was edited externally, a new stage-candidate branch appeared (`release/*`, `staging`, `prod`…), a stage's branch went missing, or the CI/CD workflows changed — a banner lists exactly what changed.
+- **Mark reviewed.** One click snapshots the current state as your new baseline so the banner clears until something drifts again. Saving edits through the dashboard counts as a review automatically — the banner is only for drift you didn't make. Review state is per-workspace and never committed.
+
+---
+
 ## v0.111.1 — Automatic release tagging
 
 - **Every Marketplace release now gets a git tag.** `npm run publish:release` creates and pushes a `v<version>` tag after publishing (cross-platform, idempotent). Tagging had lapsed; it's now automated so releases stay traceable.

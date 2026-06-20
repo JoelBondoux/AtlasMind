@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.112.0] - 2026-06-20
+
+### Added
+- **Delivery pipeline stays current and flags drift since your last review.** The Project Dashboard → Delivery page now **auto-refreshes** when `project_memory/operations/delivery.json` changes outside the dashboard — a hand edit, a teammate's change pulled via git, or a script — via a file watcher that reloads the pipeline and re-renders (previously the config was read once at startup and could go stale). On top of that, a **"Review needed" banner** appears when the delivery setup has changed since you last reviewed it: the configuration was edited externally, a new stage-candidate branch appeared (e.g. `release/*`, `staging`, `prod`), a stage's branch went missing, or the CI/CD workflow files changed. A **Mark reviewed** button snapshots the current state as the new baseline so the banner clears until something drifts again; saving edits through the dashboard editor counts as a review automatically (the banner is for drift you did *not* make). Review state is workspace-scoped and never committed.
+
 ## [0.111.1] - 2026-06-20
 
 ### Changed
