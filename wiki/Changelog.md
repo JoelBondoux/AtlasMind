@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.116.1 — Fix garbled verification output in chat
+
+- **No more `[1m[7m[36m RUN …` noise.** Captured tool output (e.g. `vitest`) carries ANSI colour/cursor escape sequences that rendered as garbled fragments in the post-write **Verified:** chat summary. Verification output is now sanitised first — ANSI/CSI/OSC sequences stripped, carriage returns folded, stray control bytes removed — via the shared `src/utils/terminalOutput.ts` helper, which the managed-terminal stream also uses.
+
+---
+
 ## v0.116.0 — Delivery hardening pt 2 (remaining gaps)
 
 - **Concurrency lock** — only one promotion/rollback runs at a time (auto-clears after 60 min if a run crashes).

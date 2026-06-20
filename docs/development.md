@@ -86,7 +86,7 @@ AtlasMind/
 │   ├── types.ts          Shared type definitions
 │   ├── chat/             Chat participant
 │   ├── core/             Orchestrator, registries, router, skill drafting, task profiler, cost tracker, currency formatter, webhook dispatcher, testing config loader + scaffolder (`testingScaffolder.ts`), delivery/deployment-stage modelling (`deliveryManager.ts`) + guarded promotion engine (`promotionRunner.ts`), Mission Loop (`missionRunner.ts`, `goalEvaluator.ts`, `missionRegistry.ts`), routing intelligence (`executionQuality.ts`, `modelEvalHarness.ts`)
-│   ├── utils/            Shared helpers: `secretRedactor.ts`, `aiInstructionSync.ts` (inbound), `testingProtocolSync.ts` (outbound testing-protocol sync)
+│   ├── utils/            Shared helpers: `secretRedactor.ts`, `aiInstructionSync.ts` (inbound), `testingProtocolSync.ts` (outbound testing-protocol sync), `terminalOutput.ts` (ANSI/control-sequence sanitizer for captured tool output)
 │   ├── mcp/              MCP client + server registry
 │   ├── ard/              Agentic Resource Discovery: `ardClient.ts`, `ardRegistry.ts`, `ardInstaller.ts`, `ardCatalogExporter.ts`
 │   ├── memory/           SSOT memory manager

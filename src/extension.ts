@@ -7,6 +7,7 @@ import * as fs from 'fs/promises';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { pathToFileURL } from 'url';
+import { sanitizeTerminalOutput } from './utils/terminalOutput.js';
 import type { ProjectMemoryFreshnessStatus } from './bootstrap/bootstrapper.js';
 import type { SessionConversation, SessionPolicySnapshot } from './chat/sessionConversation.js';
 import type { VoiceManager } from './voice/voiceManager.js';
@@ -4264,7 +4265,13 @@ function formatVerificationOutcome(
     ? `${packageManager} ${script}`
     : `${packageManager} run ${script}`;
   const status = result.ok ? 'PASS' : 'FAIL';
-  const output = [result.stdout, result.stderr].filter(text => text.trim().length > 0).join('\n');
+  // Captured tool output (e.g. vitest) carries ANSI colour/cursor escape
+  // sequences. On a non-terminal surface the invisible ESC byte leaves garbled
+  // fragments like `[1m[7m[36m RUN`, so strip the sequences before display.
+  const output = [result.stdout, result.stderr]
+    .map(text => sanitizeTerminalOutput(text))
+    .filter(text => text.trim().length > 0)
+    .join('\n');
   return [
     `${status}: ${commandText} (exit ${result.exitCode})`,
     output.trim().length > 0 ? truncateForVerification(output, 4000) : 'No output.',
