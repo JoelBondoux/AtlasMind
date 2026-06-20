@@ -6,6 +6,19 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.116.3 — Don't downgrade corrections; recover from empty answers
+
+- **Corrections stay on a capable model.** When you tell Atlas it's wrong ("that's not correct", "no, that's wrong", "are you sure?"), the turn is treated as high-stakes and routed to a capable, reasoning-class model instead of being silently downgraded to the cheapest/local model.
+- **No more blank answers.** If a model returns nothing (zero output tokens), Atlas no longer re-prompts the same flaky model — it escalates to a stronger model and surfaces a real answer instead of an empty turn.
+
+---
+
+## v0.116.2 — Delivery no longer invents a `main` production branch
+
+- **Honest branch import.** When the production branch can't be detected, the Delivery seeder used to default the Production stage to `main` — wrong for repos that use `master`/`develop`. It now leaves the branch unset and the dashboard shows "not detected" rather than importing a fabricated target. Corrected the persisted pipeline's Production branch back to `master` and added regression tests.
+
+---
+
 ## v0.116.1 — Fix garbled verification output in chat
 
 - **No more `[1m[7m[36m RUN …` noise.** Captured tool output (e.g. `vitest`) carries ANSI colour/cursor escape sequences that rendered as garbled fragments in the post-write **Verified:** chat summary. Verification output is now sanitised first — ANSI/CSI/OSC sequences stripped, carriage returns folded, stray control bytes removed — via the shared `src/utils/terminalOutput.ts` helper, which the managed-terminal stream also uses.

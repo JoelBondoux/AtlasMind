@@ -22,7 +22,10 @@
         "requiresApproval": false,
         "requireVersionBump": false,
         "requireChangelog": false,
-        "requiredChecks": []
+        "requiredChecks": [],
+        "viaPullRequest": false,
+        "requiredStatusChecks": [],
+        "requireDistinctApprover": false
       },
       "rollbackPolicy": {},
       "isProtected": false
@@ -58,7 +61,8 @@
           "quality (ubuntu-latest)",
           "quality (windows-latest)",
           "quality (macos-latest)"
-        ]
+        ],
+        "requireDistinctApprover": false
       },
       "rollbackPolicy": {
         "runbookRef": "project_memory/operations/delivery.md"
@@ -74,9 +78,7 @@
       "branchRef": "master",
       "config": {},
       "hosting": {
-        "provider": "VS Code Marketplace",
-        "url": "",
-        "healthCheckUrl": ""
+        "provider": "VS Code Marketplace"
       },
       "data": {
         "kind": "none",
@@ -101,7 +103,8 @@
           "quality (ubuntu-latest)",
           "quality (windows-latest)",
           "quality (macos-latest)"
-        ]
+        ],
+        "requireDistinctApprover": false
       },
       "rollbackPolicy": {
         "runbookRef": "project_memory/operations/delivery.md"
@@ -122,5 +125,5 @@
       "routineId": "publishing-routine"
     }
   ],
-  "updatedAt": "2026-06-20T13:57:47.754Z"
+  "updatedAt": "2026-06-20T16:26:32.423Z"
 }
