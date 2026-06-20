@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.111.0",
+  "version": "0.111.1",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -1684,7 +1684,8 @@
     "package": "vsce package",
     "package:vsix": "npx @vscode/vsce package",
     "publish:pre-release": "npx @vscode/vsce publish --pre-release",
-    "publish:release": "npx @vscode/vsce publish"
+    "publish:release": "npx @vscode/vsce publish && npm run tag:release",
+    "tag:release": "node .github/scripts/tag-release.mjs"
   },
   "devDependencies": {
     "@types/node": "^25.9.3",

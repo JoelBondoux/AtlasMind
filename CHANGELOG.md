@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.111.1] - 2026-06-20
+
+### Changed
+- **Releases are now git-tagged automatically.** `npm run publish:release` now creates and pushes a `v<version>` annotated tag after a successful publish, via `.github/scripts/tag-release.mjs` (`npm run tag:release`). The tagger is cross-platform and idempotent (skips if the tag already exists), so every Marketplace release gets a matching tag without anyone having to remember. The publishing routine in `CLAUDE.md` documents the step. (v0.111.0 was tagged manually to backfill the current release.)
+
 ## [0.111.0] - 2026-06-20
 
 ### Changed

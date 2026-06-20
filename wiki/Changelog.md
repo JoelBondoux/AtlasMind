@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.111.1 — Automatic release tagging
+
+- **Every Marketplace release now gets a git tag.** `npm run publish:release` creates and pushes a `v<version>` tag after publishing (cross-platform, idempotent). Tagging had lapsed; it's now automated so releases stay traceable.
+
+---
+
 ## v0.111.0 — Mission Loop asks before stopping on a setting block
 
 - **No more silent cancels on recoverable settings.** When a Mission Loop can't verify progress because a relaxable setting is in the way — e.g. tests can't run because `atlasmind.allowTerminalWrite` is off — it now prompts you instead of ending: **Override for this run** (relax it just for this mission, auto-reverted when the run ends), **Open settings** (deep-link to the Safety page), or **Stop**. Deny-by-default — dismissing the prompt stops safely. Works from `/loop`, the chat panel's **New Loop**, and Mission Control.

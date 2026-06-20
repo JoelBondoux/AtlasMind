@@ -64,7 +64,7 @@ When asked to publish or ship a release, follow these steps in order:
 4. **Package**: `npm run package` — produces `atlasmind-<version>.vsix`. Fix any packaging errors before proceeding.
 5. **Open PR to `master`**: `gh pr create --base master --head develop` — master is protected and requires a PR; never force-push.
 6. **Wait for PR merge**: do NOT publish until the PR has been merged into `master` and CI checks pass. Confirm the merge before continuing.
-7. **Publish**: `NODE_OPTIONS="--use-system-ca" npm run publish:release` — publishes to the VS Code Marketplace via `vsce`. Only run this after step 6 is complete.
+7. **Publish**: `NODE_OPTIONS="--use-system-ca" npm run publish:release` — publishes to the VS Code Marketplace via `vsce`, then automatically creates and pushes the `v<version>` git release tag (`.github/scripts/tag-release.mjs`, idempotent). Only run this after step 6 is complete. If the tag push fails after a successful publish, re-run `npm run tag:release`.
 
 ## Architecture Quick Reference
 
