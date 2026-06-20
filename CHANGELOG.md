@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.112.1] - 2026-06-20
+
+### Security
+- **Resolved all 6 open Dependabot alerts (2 high, 2 moderate, 2 low) by forcing `undici` to `^7.28.0`** via an npm `overrides` entry. Every alert traced to a single transitive **dev-only** dependency (`@vscode/vsce` → `cheerio` → `undici@7.27.2`), used by the packaging/publishing toolchain — it is **not part of the shipped extension runtime**, so installed users were never exposed. The advisories (SOCKS5 proxy request routing / TLS validation bypass, Set-Cookie `SameSite` downgrade, HTTP response-queue poisoning, header injection, and shared-cache disclosure) are all patched in undici 7.28.0. `npm audit` now reports **0 vulnerabilities**.
+
 ## [0.112.0] - 2026-06-20
 
 ### Added

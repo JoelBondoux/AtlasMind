@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.112.1 — Security: clear all Dependabot alerts
+
+- **All 6 open Dependabot alerts resolved** by pinning `undici` to `^7.28.0` (npm `overrides`). They all came from one transitive **dev-only** dependency in the packaging toolchain (`@vscode/vsce → cheerio → undici`), which is **not shipped in the extension** — installed users were never exposed. `npm audit` now reports 0 vulnerabilities.
+
+---
+
 ## v0.112.0 — Delivery stays current + flags drift since last review
 
 - **Auto-refresh.** The Project Dashboard → Delivery page now updates automatically when `delivery.json` changes outside the dashboard (a hand edit, a teammate's change pulled via git, or a script) — a file watcher reloads the pipeline and re-renders, so it always shows the current protocol.
