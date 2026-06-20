@@ -103,6 +103,14 @@ const RECOMMENDED_MCP_SERVER_CATALOGUE: Array<Omit<RecommendedMcpServer, 'proven
 		installUrl: 'https://registry.modelcontextprotocol.io/',
 		docsUrl: 'https://registry.modelcontextprotocol.io/',
 	},
+	// Design & accessibility
+	{
+		id: 'mcp-server-contrast-checker',
+		name: 'WCAG Contrast Checker MCP Server',
+		description: 'Check colour contrast ratios against WCAG 2.1/2.2 AA and AAA thresholds, parse colours across formats (hex, rgb, hsl, named), and get accessible colour suggestions — useful for UI, theming, and frontend accessibility work.',
+		installUrl: 'https://www.npmjs.com/package/contrast-checker-mcp',
+		docsUrl: 'https://github.com/ogSINGH/contrast-checker-mcp#readme',
+	},
 	// Major cloud providers
 	{
 		id: 'mcp-server-aws',
@@ -493,6 +501,24 @@ export function getRecommendedMcpStarterDetails(serverId: string): RecommendedMc
 					linux: [{ packageManager: 'brew', packageId: 'gitkraken-cli', displayName: 'GitKraken CLI' }],
 				},
 			};
+		case 'mcp-server-contrast-checker':
+			return {
+				setupMode: 'prefill',
+				transport: 'stdio',
+				command: 'npx',
+				args: ['-y', 'contrast-checker-mcp'],
+				note: 'Verified npm launch command (npx -y contrast-checker-mcp). Requires Node.js. If your environment uses a custom corporate CA, add {"NODE_OPTIONS":"--use-system-ca"} in the Env vars (JSON) field before saving.',
+				runtimeInstalls: {
+					win32: [{ packageManager: 'winget', packageId: 'OpenJS.NodeJS.LTS', displayName: 'Node.js LTS' }],
+					darwin: [{ packageManager: 'brew', packageId: 'node', displayName: 'Node.js' }],
+					linux: [
+						{ packageManager: 'brew', packageId: 'node', displayName: 'Node.js' },
+						{ packageManager: 'apt-get', packageId: 'nodejs', extraPackages: ['npm'], displayName: 'Node.js and npm' },
+						{ packageManager: 'dnf', packageId: 'nodejs', extraPackages: ['npm'], displayName: 'Node.js and npm' },
+						{ packageManager: 'pacman', packageId: 'nodejs', extraPackages: ['npm'], displayName: 'Node.js and npm' },
+					],
+				},
+			};
 		case 'mcp-server-postgres':
 			return {
 				setupMode: 'manual',
@@ -592,6 +618,48 @@ export const MAX_SUBTASKS = 20;
 
 /** Maximum concurrent subtask executions per batch within the scheduler. */
 export const MAX_SCHEDULER_CONCURRENCY = 5;
+
+// ── Mission Loop ─────────────────────────────────────────────────
+// Defaults for the autonomous goal-seeking loop (MissionRunner). Each is a
+// HARD stop: the loop halts when any is exceeded. Safety-first — keep these
+// conservative so an unattended loop cannot run away with budget or time.
+
+/** Default maximum loop iterations before forcing a stop. */
+export const DEFAULT_MISSION_MAX_ITERATIONS = 8;
+
+/** Default hard ceiling on cumulative USD cost across a mission. */
+export const DEFAULT_MISSION_MAX_COST_USD = 5;
+
+/** Default hard ceiling on cumulative (input + output) tokens across a mission. */
+export const DEFAULT_MISSION_MAX_TOKENS = 2_000_000;
+
+/** Default hard ceiling on mission wall-clock duration in milliseconds (30 min). */
+export const DEFAULT_MISSION_MAX_DURATION_MS = 30 * 60 * 1000;
+
+/** Default number of consecutive no-progress iterations before the loop stops. */
+export const DEFAULT_MISSION_MAX_NO_PROGRESS = 2;
+
+/** Default checkpoint cadence — pause for approval every N iterations. */
+export const DEFAULT_MISSION_CHECKPOINT_EVERY_N = 3;
+
+/**
+ * Default budget fractions (0..1) at which the loop forces an approval
+ * checkpoint the first time cumulative spend crosses each threshold.
+ */
+export const DEFAULT_MISSION_CHECKPOINT_BUDGET_FRACTION = 0.75;
+
+/**
+ * Minimum goal-evaluator confidence required to accept an `achieved` verdict and
+ * stop the loop successfully. Below this the loop treats the goal as not yet met
+ * and keeps iterating — a low-confidence evaluator can never falsely "win".
+ */
+export const DEFAULT_MISSION_GOAL_CONFIDENCE = 0.7;
+
+/** Maximum number of mission runs persisted by MissionRegistry. */
+export const MAX_MISSION_RECORDS = 25;
+
+/** Maximum characters retained per persisted iteration synthesis/output (audit trim). */
+export const MAX_MISSION_TEXT_PERSIST = 4_000;
 
 // ── Memory ───────────────────────────────────────────────────────
 

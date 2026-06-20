@@ -63,6 +63,16 @@ The `atlasmind.toolApprovalMode` setting controls when AtlasMind asks for confir
 
 Autopilot can also be toggled explicitly with `AtlasMind: Toggle Autopilot`. When it is on, AtlasMind exposes a status bar item so the current session bypass state stays visible. Internally, listener failures are isolated so one broken UI subscriber cannot prevent the rest of the session-bypass state from updating.
 
+### Mission Loop checkpoints
+
+The autonomous **Mission Loop** (`/loop` and Mission Control — see [[Project Planner]]) runs across multiple iterations within a closed budget. On top of the per-tool approval modes above, it adds an **iteration-level approval checkpoint**:
+
+- A checkpoint fires at configured triggers — every N iterations, the first time cumulative spend crosses a budget fraction, or before any write/commit batch (`atlasmind.loop.*`).
+- Checkpoints (and recoverable-block prompts) are **deny-by-default** and render as in-surface buttons, never an OS modal where avoidable: in the **chat panel** as a decision card at the base of the bubble (resolved via a `resolveLoopDecision` message); in **Mission Control** as a unified in-panel decision card with dynamic buttons; and in the `@atlas` chat *view* (which can't host in-line blocking buttons) as a modal fallback. If the prompt is dismissed, the hook is absent, or it throws — or the run is stopped/disposed — it resolves as **denied/stop** and the loop halts safely rather than proceeding unattended.
+- Checkpoints are *in addition to* (never a replacement for) the per-tool approval gates: a write/terminal/git tool inside an approved iteration still hits its normal approval card.
+- The loop never bypasses guarded delivery — a goal implying a staging/production deployment is surfaced as a checkpoint/`blocked` and routed through the guarded promotion pipeline (see [[Delivery]]), never executed directly. AtlasMind never force-pushes.
+- **Recoverable setting blocks are queried, not silently cancelled.** If the loop can't make verifiable progress because a relaxable setting is in the way (e.g. tests can't run because `atlasmind.allowTerminalWrite` is off), it asks before stopping: **Override for this run** (relaxes the setting for this mission only, then reverts when the run ends), **Open settings** (deep-link), or **Stop**. Deny-by-default — dismissing the prompt stops the run. After one override the loop won't re-prompt for the same setting.
+
 ### Approvals over remote control
 
 When a session is driven by the AtlasMind web build (see [[Remote Control]]), the same approval cards and decision paths apply through the shared chat protocol — a remote peer can never auto-approve a `workspace-write`, `git-write`, `terminal-write`, or `network` tool without an explicit, authenticated decision. Remote approval decisions are audited. If the remote client disconnects, the bound chat surface is disposed and any in-flight execution is aborted, so **pending approvals default to denied** rather than proceeding unattended.

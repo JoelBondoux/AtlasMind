@@ -2,7 +2,8 @@ import * as vscode from 'vscode';
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
 import type { SessionConversation } from '../chat/sessionConversation.js';
 import type { CostTracker } from '../core/costTracker.js';
-import type { CostRecord } from '../types.js';
+import type { CostRecord, MissionRunRecord } from '../types.js';
+import type { MissionRegistry } from '../core/missionRegistry.js';
 import { formatCost, getDisplayCurrency, getExchangeRate } from '../core/currencyFormatter.js';
 import { getSavingsReferenceTiers } from '../providers/modelCatalog.js';
 
@@ -57,6 +58,7 @@ export class CostDashboardPanel {
   private readonly panel: vscode.WebviewPanel;
   private readonly costTracker: CostTracker;
   private readonly sessionConversation: Pick<SessionConversation, 'getTranscript' | 'getModelFeedbackSummary'>;
+  private readonly missionRegistry?: Pick<MissionRegistry, 'listActive' | 'onChange'>;
   private readonly disposables: vscode.Disposable[] = [];
   private timescale: CostDashboardTimescale = '14d';
   private excludeSubscriptionIncluded = false;
@@ -65,6 +67,7 @@ export class CostDashboardPanel {
     context: vscode.ExtensionContext,
     costTracker: CostTracker,
     sessionConversation: Pick<SessionConversation, 'getTranscript' | 'getModelFeedbackSummary'>,
+    missionRegistry?: Pick<MissionRegistry, 'listActive' | 'onChange'>,
   ): void {
     const column = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
 
@@ -85,19 +88,28 @@ export class CostDashboardPanel {
       },
     );
 
-    CostDashboardPanel.currentPanel = new CostDashboardPanel(panel, costTracker, sessionConversation);
+    CostDashboardPanel.currentPanel = new CostDashboardPanel(panel, costTracker, sessionConversation, missionRegistry);
   }
 
   private constructor(
     panel: vscode.WebviewPanel,
     costTracker: CostTracker,
     sessionConversation: Pick<SessionConversation, 'getTranscript' | 'getModelFeedbackSummary'>,
+    missionRegistry?: Pick<MissionRegistry, 'listActive' | 'onChange'>,
   ) {
     this.panel = panel;
     this.costTracker = costTracker;
     this.sessionConversation = sessionConversation;
+    this.missionRegistry = missionRegistry;
 
     this.panel.webview.html = this.buildHtml(costTracker);
+
+    // Live "Current Loops" updates: re-render when a mission iteration is saved.
+    if (this.missionRegistry) {
+      this.disposables.push(this.missionRegistry.onChange(() => {
+        this.panel.webview.html = this.buildHtml(this.costTracker);
+      }));
+    }
 
     this.panel.webview.onDidReceiveMessage(
       (raw: unknown) => {
@@ -205,6 +217,8 @@ export class CostDashboardPanel {
         <section class="summary-ribbon" style="--summary-columns: ${summaryCardCount};">
           ${summaryCards}
         </section>
+
+        ${this.buildCurrentLoops()}
 
         <section class="cost-spotlight-grid">
           <article class="panel-card panel-card-hero">
@@ -500,6 +514,18 @@ export class CostDashboardPanel {
         .meta-pill-row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
         .meta-pill { display: inline-flex; align-items: center; border-radius: 999px; padding: 6px 10px; font-size: 0.78rem; background: color-mix(in srgb, var(--vscode-badge-background, #444) 74%, transparent); color: var(--vscode-badge-foreground, var(--vscode-foreground)); }
         .meta-pill-danger { background: color-mix(in srgb, var(--vscode-inputValidation-errorBackground, #7a2f31) 62%, transparent); }
+        .loop-list { display: flex; flex-direction: column; gap: 12px; }
+        .loop-row { padding: 12px 14px; border-radius: 16px; border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 72%, transparent); background: color-mix(in srgb, var(--vscode-editor-background) 60%, transparent); }
+        .loop-row-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+        .loop-row-head strong { font-size: 0.96rem; overflow-wrap: anywhere; }
+        .loop-status { flex-shrink: 0; display: inline-flex; align-items: center; border-radius: 999px; padding: 4px 10px; font-size: 0.74rem; background: color-mix(in srgb, var(--vscode-notificationsInfoIcon-foreground, #4ec9b0) 26%, transparent); color: var(--vscode-foreground); }
+        .loop-status-warn { background: color-mix(in srgb, var(--vscode-notificationsWarningIcon-foreground, #ffb347) 30%, transparent); }
+        .loop-row-meta { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 8px 0 10px; font-size: 0.82rem; color: var(--vscode-descriptionForeground); font-variant-numeric: tabular-nums; }
+        .loop-track { position: relative; height: 8px; border-radius: 999px; overflow: hidden; background: color-mix(in srgb, var(--vscode-widget-border, #444) 64%, transparent); }
+        .loop-track-fill { height: 100%; border-radius: inherit; transition: width 320ms cubic-bezier(0.22, 1, 0.36, 1); }
+        .loop-track-fill.safe { background: linear-gradient(90deg, #36cfc9, #4ec9b0); }
+        .loop-track-fill.warn { background: linear-gradient(90deg, #f5a623, #ffcb6b); }
+        .loop-track-fill.over { background: linear-gradient(90deg, #f36b6b, #f44747); }
         .budget-hud { margin-bottom: 16px; padding: 14px; border-radius: 18px; background: color-mix(in srgb, var(--vscode-editor-background) 64%, transparent); border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 72%, transparent); }
         .budget-hud-top { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
         .budget-label-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
@@ -610,6 +636,66 @@ export class CostDashboardPanel {
         }
       `,
     });
+  }
+
+  /**
+   * Live "Current Loops" section: every in-flight Mission Loop with its
+   * accumulated cost against the cost cap. Re-rendered whenever the mission
+   * registry changes (after each iteration is saved). Returns an empty string
+   * when no missions are active so the section disappears cleanly.
+   */
+  private buildCurrentLoops(): string {
+    const active = this.missionRegistry?.listActive() ?? [];
+    if (active.length === 0) {
+      return '';
+    }
+
+    const rows = active.map((mission: MissionRunRecord) => {
+      const cap = mission.config.budget.maxCostUsd;
+      const pct = cap > 0 ? Math.min(100, Math.round((mission.totalCostUsd / cap) * 100)) : 0;
+      const fillClass = pct >= 100 ? 'over' : pct >= 80 ? 'warn' : 'safe';
+      const tokens = mission.totalInputTokens + mission.totalOutputTokens;
+      const awaiting = mission.status === 'awaiting-checkpoint';
+      const statusLabel = awaiting ? 'Awaiting approval' : 'Running';
+      const lastVerdict = mission.iterations.length > 0
+        ? mission.iterations[mission.iterations.length - 1]?.verdict?.verdict
+        : undefined;
+      const goal = mission.goal.replace(/\s+/g, ' ').trim().slice(0, 140) || 'Untitled mission';
+
+      return `
+        <div class="loop-row">
+          <div class="loop-row-head">
+            <strong>${escapeHtml(goal)}</strong>
+            <span class="loop-status ${awaiting ? 'loop-status-warn' : ''}">${escapeHtml(statusLabel)}</span>
+          </div>
+          <div class="loop-row-meta">
+            <span>Iteration ${mission.iterations.length}/${mission.config.budget.maxIterations}</span>
+            <span>${escapeHtml(formatCost(mission.totalCostUsd, 4))} of ${escapeHtml(formatCost(cap, 2))}</span>
+            <span>${tokens.toLocaleString('en-US')} tokens</span>
+            ${lastVerdict ? `<span>last: ${escapeHtml(lastVerdict)}</span>` : ''}
+          </div>
+          <div class="loop-track" role="img" aria-label="${pct}% of cost budget used">
+            <div class="loop-track-fill ${fillClass}" style="width: ${pct}%;"></div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <section class="panel-card">
+        <div class="panel-header-row">
+          <div>
+            <p class="section-kicker">Live autonomous spend</p>
+            <h2>Current Loops</h2>
+            <p class="section-copy">Mission Loop runs in progress, updated as each iteration completes.</p>
+          </div>
+          <div class="meta-pill-row">
+            <span class="meta-pill">${active.length} active</span>
+          </div>
+        </div>
+        <div class="loop-list">${rows}</div>
+      </section>
+    `;
   }
 
   private buildSummaryCards(

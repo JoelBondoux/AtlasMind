@@ -16,6 +16,7 @@ Short continuation prompts such as `Proceed`, `Continue`, or `Proceed autonomous
 | `/bootstrap` | Initialize SSOT memory structure and optionally scaffold governance files |
 | `/import` | Scan an existing project and populate memory with metadata |
 | `/project` | Decompose a goal into subtasks, preview impact, and execute autonomously |
+| `/loop` | Run an autonomous goal-seeking **Mission Loop** within a closed budget envelope; pauses for approval at configurable checkpoints |
 | `/runs` | Open the Project Run Center to review recent autonomous runs |
 | `/ship` | Run the project's default publish/release routine. `/ship <id>` runs a named routine |
 | `/agents` | List and manage registered agents |
@@ -90,6 +91,28 @@ Decomposes a goal into subtasks and executes them autonomously.
 If AtlasMind has already discussed a concrete implementation request, a short follow-up such as `Proceed autonomously` can be used instead of repeating the full `/project <goal>` prompt.
 
 See [[Project Planner]] for full details.
+
+---
+
+## `/loop`
+
+Runs an autonomous, goal-seeking **Mission Loop**. Where `/project` is a single pass (plan → execute → synthesize), `/loop` adds an outer loop: it plans the next increment, executes it, re-evaluates progress against the goal, and keeps going until the goal is met **or** a guardrail confines progress.
+
+```
+@atlas /loop Get the test suite to 90% coverage
+@atlas /loop Migrate the settings panel to the new design system
+```
+
+**Flow:**
+1. Preview shows the goal and the **closed parameter envelope** (max iterations, cost cap, token cap, time cap, no-progress stop) plus the checkpoint policy and an estimated cost range.
+2. Re-run with `--approve` to start (an autonomous loop always requires approval to begin).
+3. Each iteration: plan increment (grounded in SSOT memory + guardrails + the latest progress evaluation) → execute → a validated **goal evaluator** verdict (`achieved` / `progressing` / `stalled` / `blocked`) is streamed.
+4. **Checkpoints** pause for a modal approval at the configured triggers (every N iterations, a budget-fraction crossing, or before write batches); declining stops the loop (deny-by-default).
+5. The loop stops at the goal (verified, confident) or with a typed reason (`budget-exhausted`, `max-iterations`, `no-progress`, `time-exhausted`, `token-exhausted`, `blocked`, `cancelled`). A final report is streamed and the full run is saved to `project_memory/operations/missions.md`.
+
+Discovery is prefer-existing and gated; deployments route through the guarded delivery pipeline, never run directly. Configure defaults under `atlasmind.loop.*` (see [[Configuration]]) or fine-tune per run in **Mission Control** (`AtlasMind: Open Mission Control`). See [[Project Planner]] for how the loop relates to the planner and scheduler.
+
+In the **chat panel** you can also pick **New Loop** from the composer's send-mode dropdown (after *New Session*): it starts a **fresh session** (like *New Session*) and runs whatever you've typed as the mission goal — auto-approved on send — streaming the loop's iterations and verdicts into that new thread, isolated from your current conversation.
 
 ---
 
@@ -250,6 +273,7 @@ These are also available from the Command Palette (`Ctrl+Shift+P`):
 | `AtlasMind: Compare Models on a Prompt` | Run one prompt across your configured models (grouped by provider, with Select All and ready-made sample prompts) and view a sortable comparison. An optional LLM **judge** scores each answer 0–100; click any column header to sort. Graded outcomes calibrate outcome-driven routing. Open it from the Models view titlebar (beaker icon) or the Settings overview. |
 | `AtlasMind: Open Project Dashboard` | Opens the interactive command center for repo health, runtime state, SSOT coverage, security posture, and delivery or PR-readiness signals |
 | `AtlasMind: Open Project Run Center` | Review, approve, pause, resume autonomous runs |
+| `AtlasMind: Open Mission Control` | Define, launch, watch, checkpoint, and audit autonomous Mission Loop (`/loop`) runs |
 | `AtlasMind: Manage MCP Servers` | Connect external tool servers |
 | `AtlasMind: Update Project Memory` | Re-runs the workspace import pipeline to refresh stale imported SSOT entries from the latest codebase state |
 | `AtlasMind: Open Voice Panel` | TTS and STT |

@@ -108,6 +108,15 @@ Three items are existential leverage rather than nice-to-haves:
 2. **Reasoning-budget routing** — extends multi-axis routing (an existing strength) and rides the biggest model-capability trend.
 3. **Sandboxed execution + worktree isolation** — the unlock that lets every other autonomy feature ship safely.
 
+### Competitive watch: SUPACODE
+
+> A shipping, open-source competitor ([SUPACODE](https://supacode.sh/)) — a native-macOS "command center" that runs 50+ CLI coding agents in parallel, each in its own `git worktree` — validates the *timing* of items already on this roadmap. It is mainly a **prioritization signal**, not a source of new ideas. Full analysis: `project_memory/ideas/supacode-competitive-analysis.md`.
+
+- **Promote worktree isolation toward near-term.** AtlasMind already runs parallel subtask batches (`taskScheduler.ts`, `Promise.all`, cap 5) but on a **single shared working tree** — a latent write-race that is a correctness bug under the safety-first rule. Worktree-per-batch isolation (concentration bet #3) is the fix and is buildable now, not a 0–12-month bet.
+- **PR-native GitHub automation.** Reinforces the "PR-native review loop" item (above) — real `gh`-backed PR creation, CI-check review, and conflict triage, beyond today's git primitives.
+- **Parallel "command center" UX (net-new framing).** A multi-lane view of N concurrent runs/worktrees with per-lane status and diff/approve, making parallel fan-out legible — complements the single-run Mission Control / Project Run Center.
+- **Not pursuing:** becoming a generic BYO-CLI-agent multiplexer — that is SUPACODE's category and undercuts AtlasMind's integrated routing / memory / cost / privacy differentiators.
+
 ---
 
 For more details or to contribute, see the full developer backlog in `project_memory/roadmap/improvement-plan.md`.

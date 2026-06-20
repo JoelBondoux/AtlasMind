@@ -21,6 +21,17 @@ AtlasMind's broader Project workspace now also includes a pre-planning ideation 
 
 ---
 
+## Mission Loop (`/loop`) vs the single-pass planner
+
+`/project` is a **single pass**: plan → execute the DAG → synthesize → stop. The **Mission Loop** (`/loop` and the Mission Control panel, backed by `src/core/missionRunner.ts`) wraps that same machinery in an **outer loop**:
+
+1. **Plan increment** — the `Planner` decomposes only the *next slice* of work, grounded in SSOT memory, the mission's guardrails and success criteria, the latest progress evaluation's next-focus, and a carry-forward summary of prior iterations.
+2. **Execute** — the increment runs through the same `Orchestrator.processProject` path (with the planned increment as a `planOverride`), so the `TaskScheduler`, ephemeral agents, tests-first guidance, and the Testing Methodology Matrix all apply unchanged.
+3. **Evaluate** — a validated **`GoalEvaluator`** verdict (`achieved` / `progressing` / `stalled` / `blocked`) decides whether to continue. A goal is only `achieved` when behaviour-changing work has passing verification.
+4. **Repeat** — until the goal is met (verified + confident) or the **closed parameter envelope** (cost / iterations / tokens / wall-clock / no-progress) confines progress.
+
+The loop runs autonomously but pauses at **deny-by-default approval checkpoints** (every N iterations, a budget-fraction crossing, or before write batches). Discovery is prefer-existing and gated; deployments route through the guarded [[Delivery|delivery pipeline]], never run directly. Every run is persisted to `project_memory/operations/missions.json` (+ `missions.md` mirror) for audit. Configure defaults under `atlasmind.loop.*` (see [[Configuration]]).
+
 ## Planning Phase
 
 The `Planner` sends the goal + workspace context to the LLM, which returns a `ProjectPlan`.

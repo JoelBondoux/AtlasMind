@@ -21,6 +21,9 @@ AtlasMind is a VS Code extension built in TypeScript, and it now also ships a sm
 | **ProviderDataGovernance** | `src/core/providerDataGovernance.ts` | Static per-provider data-governance reference (GDPR/data-subject request portal, privacy policy, DPA, retention, training stance) surfaced on the Privacy page for trusted providers |
 | **DeliveryManager** | `src/core/deliveryManager.ts` | Models deployment stages (Local → Staging → Production) and promotion ("push") edges; seeds a pipeline from the repo's branches, persists `project_memory/operations/delivery.json` + a `delivery.md` runbook mirror, and sanitises dashboard edits. Safety-first: production protected + deny-by-default backup gate. Surfaced on the Project Dashboard → Delivery page |
 | **PromotionRunner** | `src/core/promotionRunner.ts` | Guarded promotion engine: builds an inspectable plan (preflight → backup → deploy → verify → record), evaluates the authorization gate (auto/manual checks, approval, protected type-to-confirm), and executes user-authored commands with live progress + rollback hint. Never force-pushes; commands sourced server-side only |
+| **MissionRunner** | `src/core/missionRunner.ts` | Autonomous goal-seeking **Mission Loop**: wraps plan→execute→synthesize in an outer loop that re-evaluates progress each iteration and continues until the goal is met or the closed parameter envelope (cost/iterations/tokens/time/no-progress) confines progress. Hybrid autonomy with deny-by-default approval checkpoints; when a stop would be caused by a recoverable setting (`detectSettingBlocker`) the `blockedGate` hook asks the user to override/open-settings/stop instead of cancelling. `vscode`-free via narrow structural deps |
+| **GoalEvaluator** | `src/core/goalEvaluator.ts` | LLM progress judge returning a validated `GoalVerdict`; untrusted output (safe fallback to `stalled`/zero-confidence) with a verification guard that downgrades unverified "achieved" claims |
+| **MissionRegistry** | `src/core/missionRegistry.ts` | Audit-trail persistence for mission runs to `project_memory/operations/missions.json` + a `missions.md` runbook mirror; `fs`-only, trims large text, caps history. No secret values. Exposes `listActive()` + an `onChange` subscription powering the Cost Dashboard's live "Current Loops" section |
 | **TaskProfiler** | `src/core/taskProfiler.ts` | Infers task phase, modality, and reasoning intensity |
 | **Planner** | `src/core/planner.ts` | Decomposes goals into DAGs of subtasks via LLM |
 | **TaskScheduler** | `src/core/taskScheduler.ts` | Topologically sorts DAGs into batches and runs them in parallel |
@@ -282,6 +285,7 @@ src/
 |  |- skillScannerPanel.ts  Scanner rules webview
 |  |- costDashboardPanel.ts  Cost Dashboard webview (daily chart, model breakdown, budget bar)
 |  |- modelComparisonPanel.ts  Model Comparison webview (run a prompt across models, ranked results)
+|  |- missionControlPanel.ts  Mission Control webview (define/launch/watch/checkpoint/audit Mission Loop runs)
 |  `- webviewUtils.ts    Shared webview helpers (escapeHtml, CSP, nonce)
 |- utils/
 |  `- workspacePicker.ts Multi-workspace folder selection

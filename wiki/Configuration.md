@@ -216,12 +216,30 @@ AtlasMind does not yet ship an OS-native host speech backend. The current voice 
 | `atlasmind.remote.enabled` | boolean | `false` | Allow the AtlasMind web build to remote-control this desktop instance over a localhost WebSocket. Off by default; the server only listens after **AtlasMind: Enable Remote Control**, workspace approval, and a pairing token. Binds to `127.0.0.1` only. See [[Remote Control]]. |
 | `atlasmind.remote.port` | number | `0` | Localhost port for the remote-control server. `0` picks a free port automatically; pin a value to keep the `ws://localhost:PORT` URL stable. |
 
+## Mission Loop
+
+The autonomous goal-seeking loop (`/loop` and [[Project Planner|Mission Control]]). Every budget value is a **hard stop**, checked before each iteration. Safety-first: deny-by-default checkpoints, validated evaluator output, gated discovery. These defaults are also editable from a dedicated **Mission Loop** page in the AtlasMind Settings dashboard.
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `atlasmind.loop.enabled` | boolean | `true` | Enable the Mission Loop. When off, `/loop` and Mission Control will not start a run. |
+| `atlasmind.loop.defaultMaxIterations` | number | `8` | Default hard cap on loop iterations (1–50). |
+| `atlasmind.loop.defaultMaxCostUsd` | number | `5` | Default hard ceiling on cumulative USD cost for a run; enforced on top of `dailyCostLimitUsd`. |
+| `atlasmind.loop.defaultMaxTokens` | number | `2000000` | Default hard ceiling on cumulative (input + output) tokens for a run. |
+| `atlasmind.loop.defaultMaxDurationMinutes` | number | `30` | Default hard wall-clock cap (minutes) for a run. |
+| `atlasmind.loop.maxConsecutiveNoProgress` | number | `2` | Stop after this many consecutive no-progress iterations (1–10). |
+| `atlasmind.loop.checkpointEveryNIterations` | number | `3` | Pause for a deny-by-default approval checkpoint every N iterations (`0` disables). |
+| `atlasmind.loop.checkpointAtBudgetFraction` | number | `0.75` | Pause the first time spend crosses this fraction (0.01–1) of the cost budget. |
+| `atlasmind.loop.requireApprovalBeforeWriteBatches` | boolean | `false` | Require an approval checkpoint before any iteration that may write/commit. |
+| `atlasmind.loop.allowDiscovery` | boolean | `true` | Allow synthesizing/discovering capabilities (gated by existing approval gates; prefers registered ones first). |
+| `atlasmind.loop.goalAchievedConfidenceThreshold` | number | `0.7` | Min evaluator confidence (0–1) to accept an `achieved` verdict and stop successfully. |
+
 ## Budget
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `atlasmind.dailyCostLimitUsd` | number | `0` | Maximum daily spend in USD. Set to `0` for unlimited. Warns at 80%, then blocks new requests once the limit is reached. |
-| `atlasmind.displayCurrency` | string | `"auto"` | Currency used for all cost displays. `"auto"` detects from OS locale. Supported: `USD`, `EUR`, `GBP`, `JPY`, `CAD`, `AUD`, `CHF`, `CNY`, `INR`, `BRL`, `MXN`, `KRW`, `SEK`, `NOK`, `DKK`, `NZD`, `SGD`, `HKD`, `ZAR`. Exchange rates are fetched from open.er-api.com on activation (24h cache). |
+| `atlasmind.displayCurrency` | string | `"USD"` | Currency used for **all** cost displays app-wide (dashboards, chat, Mission Loop). Defaults to `USD`; pick a specific currency and it applies everywhere, or use `"auto"` to detect from OS locale. Supported: `USD`, `EUR`, `GBP`, `JPY`, `CAD`, `AUD`, `CHF`, `CNY`, `INR`, `BRL`, `MXN`, `KRW`, `SEK`, `NOK`, `DKK`, `NZD`, `SGD`, `HKD`, `ZAR`. Underlying costs are stored in USD; exchange rates are fetched from open.er-api.com on activation (24h cache). |
 
 ## Experimental
 

@@ -28,7 +28,9 @@ import {
   reconcileAssistantResponse,
   resolveAtlasChatIntent,
   runProjectCommand,
+  runLoopCommand,
   toApprovedProjectPrompt,
+  toApprovedLoopPrompt,
 } from '../chat/participant.js';
 import { classifyToolInvocation, getToolApprovalMode, requiresToolApproval } from '../core/toolPolicy.js';
 import { extractSessionCarryForwardImages, resolvePickedImageAttachments } from '../chat/imageAttachments.js';
@@ -38,10 +40,13 @@ import { hasAiInstructionSyncFile, scanAiInstructionFiles, syncAiInstructionFile
 import {
   type ComposerSendMode,
   type ChatPanelImportedItem,
+  type LoopDecisionRequest,
   getStatusDrivenComposerMode,
   isOneShotComposerMode,
   isChatPanelMessage,
 } from './chatProtocol.js';
+import type { MissionCheckpointRequest, MissionBlockedRequest, MissionBlockResolution } from '../core/missionRunner.js';
+import { formatCost } from '../core/currencyFormatter.js';
 
 // Re-exported for existing importers/tests that resolve these from chatPanel.
 export { getStatusDrivenComposerMode, isOneShotComposerMode, isChatPanelMessage };
@@ -129,6 +134,7 @@ interface ChatPanelRunSummary {
 interface PreparedPromptRequest {
   userMessage: string;
   projectGoal?: string;
+  loopGoal?: string;
   directResponse?: { markdown: string; modelUsed: string };
   commandIntent?: { commandId: string; args?: unknown[]; summary: string };
   terminalDirective?: ManagedTerminalDirective;
@@ -170,6 +176,8 @@ interface ChatPanelState {
   sessions: SessionConversationSummary[];
   transcript: SessionTranscriptEntry[];
   pendingToolApprovals: PendingToolApprovalRequest[];
+  /** An in-chat decision a running Mission Loop is waiting on (checkpoint / block recovery). */
+  pendingLoopDecision?: LoopDecisionRequest;
   attachments: Array<{ id: string; label: string; kind: string; source: string; previewUri?: string }>;
   openFiles: ChatPanelOpenFileLink[];
   projectRuns: Array<{
@@ -297,6 +305,9 @@ export class ChatPanel {
   private pendingPromptSubmission: PendingPromptSubmission | undefined;
   private activePromptExecution: ActivePromptExecution | undefined;
   private recoveryNotice: ChatPanelRecoveryNotice | undefined;
+  /** In-chat Mission Loop decision the panel is currently awaiting (checkpoint / block recovery). */
+  private pendingLoopDecision: LoopDecisionRequest | undefined;
+  private pendingLoopDecisionResolve: ((choice: string) => void) | undefined;
   /** Cached project display name: the connected Git repo name when available, else the workspace folder name. */
   private cachedProjectName: string | undefined;
   private gitWatchersRegistered = false;
@@ -410,6 +421,7 @@ export class ChatPanel {
 
   public dispose(): void {
     this._isDisposed = true;
+    this.settleLoopDecision('stop');
     this.activePromptExecution?.abortController.abort();
     this.activePromptExecution?.cancellationSource.dispose();
     this.activePromptExecution = undefined;
@@ -509,6 +521,12 @@ export class ChatPanel {
             }
       case 'submitPrompt':
         await this.runPrompt(message.payload.prompt, message.payload.mode);
+        return;
+      case 'resolveLoopDecision':
+        if (this.pendingLoopDecision && this.pendingLoopDecision.id === message.payload.id) {
+          this.settleLoopDecision(message.payload.choice);
+          await this.syncState();
+        }
         return;
       case 'stopPrompt':
         await this.stopActivePrompt();
@@ -859,7 +877,9 @@ export class ChatPanel {
     // so their transcripts stay isolated and neither sees the other's streaming responses.
     const sessionConflict = mode === 'send' && ChatPanel.collectActiveExecutions()
       .some(exec => exec.sessionId === this.selectedSessionId);
-    const activeSessionId = (mode === 'new-session' || sessionConflict)
+    // "New Loop" also starts in its own fresh session (like "New Session") so the
+    // autonomous run's transcript stays isolated from the current conversation.
+    const activeSessionId = (mode === 'new-session' || mode === 'new-loop' || sessionConflict)
       ? this.atlas.sessionConversation.spawnSession()
       : this.selectedSessionId;
     if (mode === 'new-chat') {
@@ -937,6 +957,18 @@ export class ChatPanel {
       }
     };
     try {
+      if (preparedRequest.loopGoal) {
+        await this.runLoopPrompt(
+          preparedRequest.loopGoal,
+          assistantMessageId,
+          activeSessionId,
+          cancellationSource.token,
+          sessionContext || undefined,
+        );
+        await this.host.webview.postMessage({ type: 'status', payload: 'Mission loop finished.' });
+        return;
+      }
+
       if (preparedRequest.projectGoal) {
         await this.runProjectPrompt(
           preparedRequest.projectGoal,
@@ -1169,6 +1201,8 @@ export class ChatPanel {
     }
 
     this.atlas.toolApprovalManager?.clearTask?.(targetExecution.taskId);
+    // Resolve any in-chat loop decision so a paused mission halts cleanly.
+    this.settleLoopDecision('stop');
     targetExecution.interrupt?.();
     targetExecution.abortController.abort();
     await this.host.webview.postMessage({ type: 'busy', payload: false });
@@ -1559,6 +1593,121 @@ export class ChatPanel {
     );
   }
 
+  /**
+   * Run an autonomous Mission Loop from the composer's "New Loop" mode, streaming
+   * iteration progress into the assistant message via a synthetic chat stream
+   * (mirrors {@link runProjectPrompt}). The prompt becomes the mission goal and is
+   * auto-approved — selecting "New Loop" and sending is the operator's go-ahead;
+   * per-iteration checkpoints and budget caps still apply.
+   */
+  private async runLoopPrompt(
+    loopGoal: string,
+    assistantMessageId: string,
+    activeSessionId: string,
+    token: vscode.CancellationToken,
+    sessionContext?: string,
+  ): Promise<void> {
+    await this.appendAssistantMessage(
+      assistantMessageId,
+      activeSessionId,
+      '### Mission Loop\n\nStarting an autonomous goal-seeking loop for this prompt.',
+    );
+
+    const sink = {
+      markdown: async (value: string) => {
+        await this.appendAssistantMessage(assistantMessageId, activeSessionId, value);
+      },
+      progress: async (value: string) => {
+        await this.appendAssistantMessage(assistantMessageId, activeSessionId, `Status: ${value}`);
+      },
+      button: async (button: { title: string }) => {
+        await this.appendAssistantMessage(assistantMessageId, activeSessionId, `[Action available: ${button.title}]`);
+      },
+      reference: async (uri: vscode.Uri) => {
+        await this.appendAssistantMessage(
+          assistantMessageId,
+          activeSessionId,
+          `[Reference: ${vscode.workspace.asRelativePath(uri, false)}]`,
+        );
+      },
+    } as unknown as vscode.ChatResponseStream;
+
+    // In-chat decision gates: checkpoints and recoverable-block prompts render as
+    // buttons at the base of the chat surface (never an OS modal).
+    const checkpointGate = async (req: MissionCheckpointRequest): Promise<boolean> => {
+      if (token.isCancellationRequested) {
+        return false;
+      }
+      const choice = await this.requestLoopDecision({
+        title: `Checkpoint — iteration ${req.iterationIndex}`,
+        detail:
+          `${req.reason} Spent ${formatCost(req.spentUsd, 4)} of ${formatCost(req.budgetUsd, 2)} · ` +
+          `${req.spentTokens.toLocaleString()} tokens · ${req.iterationsRun} iteration(s) done.`,
+        options: [
+          { id: 'continue', label: 'Approve & continue', kind: 'primary' },
+          { id: 'stop', label: 'Stop', kind: 'danger' },
+        ],
+      });
+      return choice === 'continue';
+    };
+
+    const blockAsk = async (req: MissionBlockedRequest): Promise<MissionBlockResolution> => {
+      const choice = await this.requestLoopDecision({
+        title: `Blocked — ${req.blocker.title}`,
+        detail: `${req.blocker.detail} (setting: ${req.blocker.settingKey})`,
+        options: [
+          { id: 'override', label: 'Override for this run', kind: 'primary' },
+          { id: 'settings', label: 'Open settings' },
+          { id: 'stop', label: 'Stop', kind: 'danger' },
+        ],
+      });
+      if (choice === 'override') {
+        return 'override-once';
+      }
+      if (choice === 'settings') {
+        await vscode.commands.executeCommand(req.blocker.settingsCommand);
+        return 'open-settings';
+      }
+      return 'stop';
+    };
+
+    // sessionId is passed undefined so runLoopCommand does not double-record the
+    // turn — the panel already manages this session's transcript via the sink.
+    await runLoopCommand(
+      toApprovedLoopPrompt(loopGoal),
+      sink,
+      token,
+      this.atlas,
+      undefined,
+      sessionContext,
+      { checkpointGate, blockAsk },
+    );
+  }
+
+  /**
+   * Surface an in-chat decision (rendered as buttons below the transcript) and
+   * resolve with the option id the user clicks. Deny-safe: a prior unresolved
+   * decision, a stop, or disposal resolves to 'stop'.
+   */
+  private requestLoopDecision(request: Omit<LoopDecisionRequest, 'id'>): Promise<string> {
+    this.settleLoopDecision('stop');
+    const id = `loop-decision-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    this.pendingLoopDecision = { id, ...request };
+    void this.syncState();
+    return new Promise<string>(resolve => {
+      this.pendingLoopDecisionResolve = resolve;
+    });
+  }
+
+  private settleLoopDecision(choice: string): void {
+    const resolve = this.pendingLoopDecisionResolve;
+    this.pendingLoopDecision = undefined;
+    this.pendingLoopDecisionResolve = undefined;
+    if (resolve) {
+      resolve(choice);
+    }
+  }
+
   private async appendAssistantMessage(assistantMessageId: string, sessionId: string, fragment: string): Promise<void> {
     const current = this.atlas.sessionConversation
       .getTranscript(sessionId)
@@ -1612,6 +1761,7 @@ export class ChatPanel {
       sessions,
       transcript: transcriptPayload,
       pendingToolApprovals: this.atlas.toolApprovalManager?.listPendingRequests?.() ?? [],
+      ...(this.pendingLoopDecision ? { pendingLoopDecision: this.pendingLoopDecision } : {}),
       attachments: this.composerAttachments.map(item => toComposerAttachmentView(item, this.host.webview)),
       openFiles: getOpenWorkspaceFiles(),
       projectRuns: projectRuns.map(run => {
@@ -1703,7 +1853,10 @@ export class ChatPanel {
     sessionContextBundle?: import('../types.js').SessionContextBundle,
   ): Promise<PreparedPromptRequest> {
     const forceSteer = mode === 'steer';
-    const terminalDirectiveResolution = forceSteer ? undefined : resolveManagedTerminalDirective(prompt);
+    // "New Loop" treats the whole prompt as a mission goal: skip steer, terminal
+    // directive parsing, and intent routing so the goal runs as a loop verbatim.
+    const isNewLoop = mode === 'new-loop';
+    const terminalDirectiveResolution = forceSteer || isNewLoop ? undefined : resolveManagedTerminalDirective(prompt);
     if (terminalDirectiveResolution?.errorMarkdown) {
       return {
         userMessage: prompt,
@@ -1716,7 +1869,10 @@ export class ChatPanel {
       };
     }
 
-    const routedIntent = forceSteer
+    // "New Loop" composer mode: the whole prompt is the mission goal, bypassing
+    // intent routing and the project path.
+    const loopGoal = isNewLoop ? prompt : undefined;
+    const routedIntent = forceSteer || isNewLoop
       ? undefined
       : resolveAtlasChatIntent(prompt, this.atlas.sessionConversation.getTranscript(activeSessionId));
     const projectGoal = routedIntent?.kind === 'project' ? routedIntent.goal : undefined;
@@ -1780,6 +1936,7 @@ export class ChatPanel {
     return {
       userMessage,
       projectGoal,
+      ...(loopGoal ? { loopGoal } : {}),
       ...(roadmapStatusMarkdown ? { directResponse: { markdown: roadmapStatusMarkdown, modelUsed: 'atlasmind/roadmap-status' } } : {}),
       commandIntent,
       ...(terminalDirectiveResolution?.directive ? { terminalDirective: terminalDirectiveResolution.directive } : {}),
@@ -2167,7 +2324,7 @@ function normalizeChatPanelTarget(target?: string | ChatPanelTarget): ChatPanelT
     ...(typeof target.sessionId === 'string' && target.sessionId.trim().length > 0 ? { sessionId: target.sessionId.trim() } : {}),
     ...(typeof target.messageId === 'string' && target.messageId.trim().length > 0 ? { messageId: target.messageId.trim() } : {}),
     ...(typeof target.draftPrompt === 'string' && target.draftPrompt.trim().length > 0 ? { draftPrompt: target.draftPrompt.trim() } : {}),
-    ...(target.sendMode === 'send' || target.sendMode === 'steer' || target.sendMode === 'new-chat' || target.sendMode === 'new-session' ? { sendMode: target.sendMode } : {}),
+    ...(target.sendMode === 'send' || target.sendMode === 'steer' || target.sendMode === 'new-chat' || target.sendMode === 'new-session' || target.sendMode === 'new-loop' ? { sendMode: target.sendMode } : {}),
     ...(target.autoSubmit === true ? { autoSubmit: true } : {}),
     ...(isJsonRecord(target.contextPatch) ? { contextPatch: target.contextPatch } : {}),
     ...(target.preserveFocus === true ? { preserveFocus: true } : {}),

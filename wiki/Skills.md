@@ -198,6 +198,10 @@ When `atlasmind.experimentalSkillLearningEnabled` is `true`:
 2. The LLM generates a skill definition with code
 3. The draft is saved to `.atlasmind/skills/` and must pass the security scanner before use
 
+### Capability discovery in the Mission Loop
+
+The autonomous **Mission Loop** (`/loop` and Mission Control — see [[Project Planner]]) can "go learn what it needs" across iterations, but it does so **prefer-existing and gated**: each increment first uses already-registered skills, agents, and MCP tools, and only when `atlasmind.loop.allowDiscovery` is on may it fill a real gap by **synthesizing** a new skill/agent (the same drafting + security-scan path above) or by using [[Resource Discovery]] (ARD). New capabilities pass the existing approval gates before use — nothing is silently auto-trusted.
+
 ### Skill Security Scanner
 
 Custom skills are scanned before enablement. The scanner has **12 built-in rules**:

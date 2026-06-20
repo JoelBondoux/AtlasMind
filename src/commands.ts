@@ -1300,7 +1300,23 @@ export function registerCommands(
         atlas.extensionContext,
         atlas.costTracker as import('./core/costTracker.js').CostTracker,
         atlas.sessionConversation,
+        atlas.missionRegistry,
       );
+    }),
+
+    vscode.commands.registerCommand('atlasmind.openMissionControl', async () => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const { MissionControlPanel } = await import('./views/missionControlPanel.js');
+      MissionControlPanel.createOrShow(atlas.extensionContext, {
+        orchestrator: atlas.orchestrator as import('./core/orchestrator.js').Orchestrator,
+        modelRouter: atlas.modelRouter,
+        providerRegistry: atlas.providerRegistry,
+        memoryManager: atlas.memoryManager as import('./memory/memoryManager.js').MemoryManager,
+        skillsRegistry: atlas.skillsRegistry,
+        costTracker: atlas.costTracker as import('./core/costTracker.js').CostTracker,
+        missionRegistry: atlas.missionRegistry,
+      });
     }),
 
     vscode.commands.registerCommand('atlasmind.openProjectDashboard', async () => {

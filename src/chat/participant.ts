@@ -11,6 +11,8 @@ import type {
 } from './sessionConversation.js';
 import type {
   ChangedWorkspaceFile,
+  MissionConfig,
+  MissionProgressUpdate,
   ProjectProgressUpdate,
   ProjectResult,
   ProjectRunSubTaskArtifact,
@@ -21,8 +23,19 @@ import type {
 } from '../types.js';
 import { Planner } from '../core/planner.js';
 import { TaskProfiler } from '../core/taskProfiler.js';
+import { MissionRunner } from '../core/missionRunner.js';
+import type { MissionCheckpointRequest, MissionBlockedRequest, MissionBlockResolution } from '../core/missionRunner.js';
 import { shouldBiasTowardWorkspaceInvestigation } from '../core/orchestrator.js';
 import { formatCost, formatCostAdaptive } from '../core/currencyFormatter.js';
+import {
+  DEFAULT_MISSION_MAX_ITERATIONS,
+  DEFAULT_MISSION_MAX_COST_USD,
+  DEFAULT_MISSION_MAX_TOKENS,
+  DEFAULT_MISSION_MAX_NO_PROGRESS,
+  DEFAULT_MISSION_CHECKPOINT_EVERY_N,
+  DEFAULT_MISSION_CHECKPOINT_BUDGET_FRACTION,
+  DEFAULT_MISSION_GOAL_CONFIDENCE,
+} from '../constants.js';
 import { mergeImageAttachments, resolveInlineImageAttachments, resolvePickedImageAttachments } from './imageAttachments.js';
 
 export { extractImagePathCandidates, mergeImageAttachments, resolveInlineImageAttachments } from './imageAttachments.js';
@@ -85,6 +98,7 @@ export function resolveThreadSessionId(
 }
 
 const PROJECT_APPROVAL_TOKEN = '--approve';
+const LOOP_APPROVAL_TOKEN = '--approve';
 const PROJECT_PERSONALITY_PROFILE_STORAGE_KEY = 'atlasmind.personalityProfile';
 const DEFAULT_SSOT_PATH = 'project_memory';
 const OPERATOR_FEEDBACK_FILE = 'operations/operator-feedback.md';
@@ -655,6 +669,12 @@ async function handleChatRequest(
       break;
     }
 
+    case 'loop': {
+      const { sessionContext } = await prepareProjectRunContext(atlas, sessionId);
+      await runLoopCommand(request.prompt, stream, token, atlas, sessionId, sessionContext);
+      break;
+    }
+
     case 'runs':
       await handleRunsCommand(stream);
       break;
@@ -1083,6 +1103,239 @@ export async function runProjectCommand(
       stream.markdown(`\u274c **Project execution failed:** ${errMsg}`);
     }
     return { hasFailures: true, hasChangedFiles: false, failedSubtaskTitles: ['Project execution failed'] };
+  }
+}
+
+/**
+ * Build a {@link MissionConfig} from a goal and the user's `atlasmind.loop.*`
+ * settings. The chat command surfaces no structured guardrails (the Mission
+ * Control panel does); a single always-on safety instruction is injected.
+ */
+export function buildMissionConfigFromSettings(
+  goal: string,
+  configuration: Pick<vscode.WorkspaceConfiguration, 'get'>,
+  constraints: MissionConfig['constraints'],
+): MissionConfig {
+  const minutes = Math.max(1, configuration.get<number>('loop.defaultMaxDurationMinutes', 30));
+  return {
+    id: `mission-${Date.now()}`,
+    goal,
+    guardrails: {
+      instructions: [
+        'Make the smallest safe, verifiable change each iteration; prefer existing skills and agents before creating new ones.',
+      ],
+    },
+    budget: {
+      maxIterations: Math.max(1, configuration.get<number>('loop.defaultMaxIterations', DEFAULT_MISSION_MAX_ITERATIONS)),
+      maxCostUsd: Math.max(0.01, configuration.get<number>('loop.defaultMaxCostUsd', DEFAULT_MISSION_MAX_COST_USD)),
+      maxTokens: Math.max(1000, configuration.get<number>('loop.defaultMaxTokens', DEFAULT_MISSION_MAX_TOKENS)),
+      maxDurationMs: minutes * 60_000,
+      maxConsecutiveNoProgress: Math.max(1, configuration.get<number>('loop.maxConsecutiveNoProgress', DEFAULT_MISSION_MAX_NO_PROGRESS)),
+    },
+    checkpointPolicy: {
+      everyNIterations: Math.max(0, configuration.get<number>('loop.checkpointEveryNIterations', DEFAULT_MISSION_CHECKPOINT_EVERY_N)),
+      atBudgetFractions: [clampFraction(configuration.get<number>('loop.checkpointAtBudgetFraction', DEFAULT_MISSION_CHECKPOINT_BUDGET_FRACTION))],
+      beforeWriteBatches: configuration.get<boolean>('loop.requireApprovalBeforeWriteBatches', false),
+    },
+    constraints,
+    allowDiscovery: configuration.get<boolean>('loop.allowDiscovery', true),
+  };
+}
+
+function clampFraction(value: number): number {
+  if (!Number.isFinite(value)) {
+    return DEFAULT_MISSION_CHECKPOINT_BUDGET_FRACTION;
+  }
+  return Math.max(0.01, Math.min(1, value));
+}
+
+/**
+ * `/loop <goal>` — runs the autonomous goal-seeking Mission Loop. Previews the
+ * goal + closed parameter envelope + checkpoint policy, gates the whole run
+ * behind an approval token (like `/project`), then streams live iterations.
+ * Checkpoints pause for a modal approval mid-run (deny-by-default).
+ */
+export async function runLoopCommand(
+  prompt: string,
+  stream: vscode.ChatResponseStream,
+  token: vscode.CancellationToken,
+  atlas: AtlasMindContext,
+  sessionId?: string,
+  sessionContext?: string,
+  interaction?: MissionLoopInteraction,
+): Promise<void> {
+  const configuration = vscode.workspace.getConfiguration('atlasmind');
+  if (!configuration.get<boolean>('loop.enabled', true)) {
+    stream.markdown('The Mission Loop is disabled. Enable **`atlasmind.loop.enabled`** in Settings to use `/loop`.');
+    return;
+  }
+
+  const approved = prompt.includes(LOOP_APPROVAL_TOKEN);
+  const goal = prompt.replace(LOOP_APPROVAL_TOKEN, '').trim();
+  if (!goal) {
+    stream.markdown('Usage: `/loop <goal>` — describe the objective. AtlasMind will loop autonomously toward it within a closed budget, stopping at the goal or when a guardrail confines progress.');
+    return;
+  }
+
+  const constraints = {
+    budget: toBudgetMode(configuration.get<string>('budgetMode')),
+    speed: toSpeedMode(configuration.get<string>('speedMode')),
+  };
+  const missionConfig = buildMissionConfigFromSettings(goal, configuration, constraints);
+  const { budget, checkpointPolicy } = missionConfig;
+
+  // Rough cost envelope: a small increment (≈3 subtasks) per iteration, capped by the hard budget.
+  const perIteration = atlas.orchestrator.estimateProjectCost(3, constraints);
+  const projectedHigh = Math.min(budget.maxCostUsd, perIteration.highUsd * budget.maxIterations);
+
+  stream.markdown(
+    `### Mission Loop preview\n\n` +
+    `**Goal:** ${goal}\n\n` +
+    `**Closed parameter envelope (hard stops):**\n` +
+    `- Max iterations: **${budget.maxIterations}**\n` +
+    `- Cost cap: **${formatCost(budget.maxCostUsd, 2)}** (projected up to ~${formatCost(projectedHigh, 4)})\n` +
+    `- Token cap: **${budget.maxTokens.toLocaleString()}**\n` +
+    `- Time cap: **${Math.round(budget.maxDurationMs / 60000)} min**\n` +
+    `- Stop after **${budget.maxConsecutiveNoProgress}** no-progress iteration(s)\n\n` +
+    `**Checkpoints (you approve to continue):** ` +
+    `${checkpointPolicy.everyNIterations ? `every ${checkpointPolicy.everyNIterations} iteration(s)` : 'none'}` +
+    `${checkpointPolicy.atBudgetFractions?.length ? `, at ${(checkpointPolicy.atBudgetFractions[0] * 100).toFixed(0)}% of budget` : ''}.\n\n` +
+    `**Discovery:** ${missionConfig.allowDiscovery ? 'may synthesize/discover capabilities (gated by approval)' : 'restricted to existing capabilities'}. ` +
+    `Deployments are never run directly — they route through the guarded delivery pipeline.\n`,
+  );
+
+  if (!approved) {
+    stream.markdown(
+      `\n⚠️ **Approval required** to start an autonomous loop. ` +
+      `Re-run with \`${LOOP_APPROVAL_TOKEN}\` to begin, or open Mission Control to fine-tune the goal, guardrails, and budgets first.`,
+    );
+    stream.button({
+      command: 'atlasmind.openMissionControl',
+      title: 'Open Mission Control',
+      tooltip: 'Define guardrails, success criteria, and budgets, then launch the mission.',
+    });
+    return;
+  }
+
+  const planner = new Planner(
+    atlas.modelRouter,
+    atlas.providerRegistry,
+    new TaskProfiler(),
+    atlas.memoryManager,
+    atlas.skillsRegistry,
+  );
+  const runner = new MissionRunner(atlas.orchestrator, planner, atlas.costTracker, atlas.missionRegistry);
+
+  const abortController = new AbortController();
+  const cancelDisposable = token.onCancellationRequested(() => abortController.abort());
+
+  let baseline = await createWorkspaceSnapshot();
+  const captureChangedFiles = async (): Promise<ChangedWorkspaceFile[]> => {
+    const impact = await collectWorkspaceChangesSince(baseline);
+    baseline = impact.snapshot;
+    return impact.changedFiles;
+  };
+
+  const modalCheckpointGate = async (req: MissionCheckpointRequest): Promise<boolean> => {
+    if (token.isCancellationRequested) {
+      return false;
+    }
+    const choice = await vscode.window.showWarningMessage(
+      `Mission checkpoint at iteration ${req.iterationIndex}`,
+      {
+        modal: true,
+        detail:
+          `${req.reason}\n\n` +
+          `Spent ${formatCost(req.spentUsd, 4)} of ${formatCost(req.budgetUsd, 2)} · ` +
+          `${req.spentTokens.toLocaleString()} tokens · ${req.iterationsRun} iteration(s) done.\n\n` +
+          `Approve to let the loop continue, or stop here.`,
+      },
+      'Approve & Continue',
+    );
+    return choice === 'Approve & Continue';
+  };
+
+  // The surface decides how gates are presented: the `@atlas` chat view falls back
+  // to OS modals; the chat panel injects in-chat buttons via `interaction`.
+  const checkpointGate = interaction?.checkpointGate ?? modalCheckpointGate;
+  const { blockedGate, restoreOverrides } = createMissionSettingBlockGate(interaction?.blockAsk ?? modalMissionBlockAsk);
+
+  const onProgress = (update: MissionProgressUpdate): void => {
+    if (token.isCancellationRequested) {
+      return;
+    }
+    switch (update.type) {
+      case 'iteration-start':
+        stream.markdown(`\n\n### Iteration ${update.index} / ${update.maxIterations}${update.focus ? `\n\n*Focus: ${update.focus}*` : ''}\n`);
+        break;
+      case 'planned-increment':
+        stream.progress(`Planned ${update.plan.subTasks.length} subtask(s) for iteration ${update.index}`);
+        break;
+      case 'executing':
+        stream.progress(`Executing iteration ${update.index}…`);
+        break;
+      case 'evaluated': {
+        const v = update.verdict;
+        const icon = v.verdict === 'achieved' ? '✅' : v.verdict === 'progressing' ? '↗️' : v.verdict === 'blocked' ? '⛔' : '⏸️';
+        stream.markdown(
+          `${icon} **${v.verdict}** (${(v.confidence * 100).toFixed(0)}% confidence) — ${v.rationale || 'no rationale'}` +
+          `${v.nextFocus ? `\n\n*Next: ${v.nextFocus}*` : ''}\n`,
+        );
+        break;
+      }
+      case 'checkpoint-required':
+        stream.progress(`Checkpoint at iteration ${update.index}: awaiting approval…`);
+        break;
+      case 'checkpoint-resolved':
+        stream.markdown(update.approved ? `_Checkpoint approved — continuing._\n` : `_Checkpoint declined — stopping the mission._\n`);
+        break;
+      case 'blocked':
+        stream.markdown(`\n⛔ **Blocked — ${update.blocker.title}.** ${update.blocker.detail}\n\n_Awaiting your decision (override for this run, open settings, or stop)…_\n`);
+        break;
+      case 'error':
+        stream.markdown(`❌ **Mission error:** ${update.message}`);
+        break;
+      default:
+        break;
+    }
+  };
+
+  try {
+    const result = await runner.run(missionConfig, {
+      hooks: { checkpointGate, blockedGate },
+      onProgress,
+      signal: abortController.signal,
+      goalConfidenceThreshold: configuration.get<number>('loop.goalAchievedConfidenceThreshold', DEFAULT_MISSION_GOAL_CONFIDENCE),
+      captureChangedFiles,
+      sessionContext,
+      chatSessionId: sessionId,
+    });
+
+    const outcomeIcon = result.achieved ? '✅' : '⏹️';
+    stream.markdown(
+      `\n\n## ${outcomeIcon} Mission ${result.achieved ? 'complete' : 'stopped'} — \`${result.stopReason}\`\n\n${result.finalSynthesis}`,
+    );
+    stream.markdown(
+      `\n\n---\n*${result.iterations.length} iteration(s) · ` +
+      `${(result.totalDurationMs / 1000).toFixed(1)}s · ` +
+      `${formatCostAdaptive(result.totalCostUsd)} · ` +
+      `${result.totalInputTokens.toLocaleString()} in / ${result.totalOutputTokens.toLocaleString()} out*`,
+    );
+    stream.markdown(`\n\nFull audit trail saved to **project_memory/operations/missions.md**.`);
+    stream.button({
+      command: 'atlasmind.openMissionControl',
+      title: 'Open Mission Control',
+      tooltip: 'Review this mission and its iteration history.',
+    });
+    if (!token.isCancellationRequested) {
+      atlas.sessionConversation.recordTurn(goal, result.finalSynthesis, sessionId);
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    stream.markdown(`❌ **Mission failed:** ${message}`);
+  } finally {
+    cancelDisposable.dispose();
+    await restoreOverrides();
   }
 }
 
@@ -2758,6 +3011,97 @@ function normalizeAutonomousSourcePrompt(prompt: string): string {
 export function toApprovedProjectPrompt(goal: string): string {
   const normalized = goal.replace(PROJECT_APPROVAL_TOKEN, '').trim();
   return normalized.length > 0 ? `${normalized} ${PROJECT_APPROVAL_TOKEN}` : PROJECT_APPROVAL_TOKEN;
+}
+
+/** Append the loop approval token so `runLoopCommand` starts the mission immediately (used by the chat panel's "New Loop"). */
+export function toApprovedLoopPrompt(goal: string): string {
+  const normalized = goal.replace(LOOP_APPROVAL_TOKEN, '').trim();
+  return normalized.length > 0 ? `${normalized} ${LOOP_APPROVAL_TOKEN}` : LOOP_APPROVAL_TOKEN;
+}
+
+/** How a Mission Loop surface renders its interactive gates (checkpoint + block). */
+export interface MissionLoopInteraction {
+  checkpointGate: (request: MissionCheckpointRequest) => Promise<boolean>;
+  /** Ask the user how to resolve a recoverable setting block (UI only — the override is applied by the gate). */
+  blockAsk: (request: MissionBlockedRequest) => Promise<MissionBlockResolution>;
+}
+
+/**
+ * Default block-resolution prompt: an OS modal offering Override (relax the
+ * setting for this run), Open settings (deep-link), or Stop. Used by the `@atlas`
+ * chat view, which cannot host in-line blocking buttons. The chat panel and
+ * Mission Control inject their own in-surface ask instead.
+ */
+export async function modalMissionBlockAsk(request: MissionBlockedRequest): Promise<MissionBlockResolution> {
+  const choice = await vscode.window.showWarningMessage(
+    `Mission blocked: ${request.blocker.title}`,
+    {
+      modal: true,
+      detail:
+        `${request.blocker.detail}\n\n` +
+        `Setting: ${request.blocker.settingKey}\n\n` +
+        'Override it just for this run, open settings to change it, or stop the mission.',
+    },
+    'Override for this run',
+    'Open settings',
+    'Stop',
+  );
+  if (choice === 'Override for this run') {
+    return 'override-once';
+  }
+  if (choice === 'Open settings') {
+    await vscode.commands.executeCommand(request.blocker.settingsCommand);
+    return 'open-settings';
+  }
+  return 'stop';
+}
+
+/**
+ * Build a Mission Loop `blockedGate` from a UI `ask` function. The `ask` only
+ * decides the resolution; this gate applies the in-run setting override when the
+ * user chooses "override" and reverts it via `restoreOverrides()` (which the
+ * caller must invoke when the run ends). Keeps the override side-effect in one
+ * place regardless of whether the surface uses a modal or in-chat buttons.
+ */
+export function createMissionSettingBlockGate(
+  ask: (request: MissionBlockedRequest) => Promise<MissionBlockResolution>,
+): {
+  blockedGate: (request: MissionBlockedRequest) => Promise<MissionBlockResolution>;
+  restoreOverrides: () => Promise<void>;
+} {
+  const applied: Array<{ configKey: string; original: unknown }> = [];
+
+  const blockedGate = async (request: MissionBlockedRequest): Promise<MissionBlockResolution> => {
+    const choice = await ask(request);
+    if (choice === 'override-once') {
+      const configuration = vscode.workspace.getConfiguration('atlasmind');
+      applied.push({ configKey: request.blocker.configKey, original: configuration.inspect(request.blocker.configKey)?.workspaceValue });
+      try {
+        await configuration.update(request.blocker.configKey, request.blocker.overrideValue, vscode.ConfigurationTarget.Workspace);
+        return 'override-once';
+      } catch {
+        applied.pop();
+        return 'stop';
+      }
+    }
+    return choice;
+  };
+
+  const restoreOverrides = async (): Promise<void> => {
+    if (applied.length === 0) {
+      return;
+    }
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    for (const entry of applied.splice(0)) {
+      try {
+        await configuration.update(entry.configKey, entry.original, vscode.ConfigurationTarget.Workspace);
+      } catch {
+        // Best-effort restore — leave the user's setting as-is on failure.
+      }
+    }
+  };
+
+  return { blockedGate, restoreOverrides };
 }
 
 export function getProjectUiConfig(

@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.108.0",
+  "version": "0.111.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -84,6 +84,10 @@
           {
             "name": "project",
             "description": "Decompose a goal into tests-first subtasks and execute autonomously"
+          },
+          {
+            "name": "loop",
+            "description": "Run an autonomous goal-seeking Mission Loop within a closed budget envelope"
           },
           {
             "name": "voice",
@@ -338,6 +342,11 @@
         "icon": "$(run-all)"
       },
       {
+        "command": "atlasmind.openMissionControl",
+        "title": "AtlasMind: Open Mission Control",
+        "icon": "$(target)"
+      },
+      {
         "command": "atlasmind.openProjectDashboard",
         "title": "AtlasMind: Open Project Dashboard",
         "icon": "$(dashboard)"
@@ -512,9 +521,14 @@
           "group": "navigation@5"
         },
         {
-          "command": "atlasmind.openModelProviders",
+          "command": "atlasmind.openMissionControl",
           "when": "view == atlasmind.chatView",
           "group": "navigation@6"
+        },
+        {
+          "command": "atlasmind.openModelProviders",
+          "when": "view == atlasmind.chatView",
+          "group": "navigation@7"
         },
         {
           "command": "atlasmind.openPersonalityProfile",
@@ -1336,6 +1350,85 @@
           "description": "Add a dependency review issue template when AtlasMind scaffolds project governance files.",
           "markdownDescription": "Add a dependency review issue template when AtlasMind scaffolds project governance files. The template helps teams record approval decisions, exceptions, and follow-up work after automation detects dependency drift.\n\nExamples:\n- Review-heavy engineering org that tracks every deferred or major update: `true`\n- Lightweight personal repo with no formal review tickets: `false`\n\nKeep this on when updates must be reviewed by multiple people or linked to compliance evidence."
         },
+        "atlasmind.loop.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable the autonomous goal-seeking Mission Loop (the /loop chat command and Mission Control panel).",
+          "markdownDescription": "Enable the autonomous goal-seeking **Mission Loop** — the `/loop` chat command and the Mission Control panel. When disabled, AtlasMind will not start any looping run.\n\nThe loop plans, executes, and re-evaluates progress toward a goal across multiple iterations, stopping when the goal is met or a guardrail confines progress. It is safety-first: every run is bounded by a closed parameter envelope and pauses for approval at configured checkpoints.\n\nExamples:\n- Allow autonomous loops: `true`\n- Lock the feature off in a restricted workspace: `false`"
+        },
+        "atlasmind.loop.defaultMaxIterations": {
+          "type": "number",
+          "default": 8,
+          "minimum": 1,
+          "maximum": 50,
+          "description": "Default hard cap on Mission Loop iterations before the loop stops.",
+          "markdownDescription": "Default hard cap on Mission Loop iterations before the loop stops, regardless of progress. This is one of the closed-envelope guardrails.\n\nExamples:\n- Quick scoped task: `3`\n- Default balance: `8`\n- Larger multi-step effort: `15`\n\nLower this in unattended or cost-sensitive environments."
+        },
+        "atlasmind.loop.defaultMaxCostUsd": {
+          "type": "number",
+          "default": 5,
+          "minimum": 0.01,
+          "description": "Default hard ceiling (USD) on cumulative Mission Loop cost.",
+          "markdownDescription": "Default hard ceiling, in USD, on the cumulative cost of a single Mission Loop run. Enforced before every iteration on top of `atlasmind.dailyCostLimitUsd`.\n\nExamples:\n- Tight personal cap: `1`\n- Default balance: `5`\n- Larger sanctioned run: `20`"
+        },
+        "atlasmind.loop.defaultMaxTokens": {
+          "type": "number",
+          "default": 2000000,
+          "minimum": 1000,
+          "description": "Default hard ceiling on cumulative (input + output) tokens for a Mission Loop run.",
+          "markdownDescription": "Default hard ceiling on cumulative (input + output) tokens across a Mission Loop run. A backstop alongside the cost and iteration caps.\n\nExamples:\n- Small task: `300000`\n- Default balance: `2000000`\n- Large effort: `5000000`"
+        },
+        "atlasmind.loop.defaultMaxDurationMinutes": {
+          "type": "number",
+          "default": 30,
+          "minimum": 1,
+          "description": "Default hard wall-clock cap (minutes) for a Mission Loop run.",
+          "markdownDescription": "Default hard wall-clock cap, in minutes, for a Mission Loop run. The loop stops at the next iteration boundary once this is exceeded.\n\nExamples:\n- Short supervised run: `10`\n- Default balance: `30`\n- Long unattended run: `120`"
+        },
+        "atlasmind.loop.maxConsecutiveNoProgress": {
+          "type": "number",
+          "default": 2,
+          "minimum": 1,
+          "maximum": 10,
+          "description": "Stop the Mission Loop after this many consecutive no-progress iterations.",
+          "markdownDescription": "Stop the Mission Loop after this many consecutive iterations in which the goal evaluator reports no measurable progress. Prevents the loop from burning budget while spinning on a problem it cannot move forward.\n\nExamples:\n- Fail fast: `1`\n- Default balance: `2`\n- Give the loop more room to recover: `3`"
+        },
+        "atlasmind.loop.checkpointEveryNIterations": {
+          "type": "number",
+          "default": 3,
+          "minimum": 0,
+          "maximum": 50,
+          "description": "Pause the Mission Loop for approval every N iterations (0 disables cadence checkpoints).",
+          "markdownDescription": "Pause the Mission Loop for a human approval checkpoint every N iterations. Set to `0` to disable iteration-cadence checkpoints (budget-fraction checkpoints still apply).\n\nExamples:\n- Approve every iteration: `1`\n- Default balance: `3`\n- Fewer interruptions: `5`\n\nCheckpoints are deny-by-default: if no one approves, the loop stops safely."
+        },
+        "atlasmind.loop.checkpointAtBudgetFraction": {
+          "type": "number",
+          "default": 0.75,
+          "minimum": 0.01,
+          "maximum": 1,
+          "description": "Pause for approval the first time cumulative spend crosses this fraction (0..1) of the cost budget.",
+          "markdownDescription": "Pause the Mission Loop for an approval checkpoint the first time cumulative spend crosses this fraction (0..1) of the cost budget.\n\nExamples:\n- Check in early: `0.5`\n- Default balance: `0.75`\n- Only near the cap: `0.9`"
+        },
+        "atlasmind.loop.requireApprovalBeforeWriteBatches": {
+          "type": "boolean",
+          "default": false,
+          "description": "Require an approval checkpoint before any Mission Loop iteration that may write files or commit.",
+          "markdownDescription": "Require an approval checkpoint before any Mission Loop iteration expected to write files or commit. Strongest safety posture; most interruptive.\n\nExamples:\n- Trust the loop within its other guardrails: `false`\n- Review every write batch: `true`"
+        },
+        "atlasmind.loop.allowDiscovery": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow the Mission Loop to synthesize new agents/skills and use Agentic Resource Discovery to fill capability gaps (always behind existing approval gates).",
+          "markdownDescription": "Allow the Mission Loop to fill capability gaps by synthesizing new agents/skills and using Agentic Resource Discovery (ARD). New capabilities always pass the existing approval gates before use; the loop prefers already-registered capabilities first.\n\nExamples:\n- Let the loop learn what it needs: `true`\n- Restrict to existing capabilities only: `false`"
+        },
+        "atlasmind.loop.goalAchievedConfidenceThreshold": {
+          "type": "number",
+          "default": 0.7,
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Minimum goal-evaluator confidence (0..1) required to accept an 'achieved' verdict and stop the loop successfully.",
+          "markdownDescription": "Minimum confidence (0..1) the goal evaluator must report before an `achieved` verdict is accepted and the loop stops successfully. Below this, the loop keeps iterating — a low-confidence evaluator can never falsely declare success.\n\nExamples:\n- Stop more readily: `0.6`\n- Default balance: `0.7`\n- Demand high certainty: `0.85`"
+        },
         "atlasmind.toolWebhookEnabled": {
           "type": "boolean",
           "default": false,
@@ -1389,7 +1482,7 @@
         },
         "atlasmind.displayCurrency": {
           "type": "string",
-          "default": "auto",
+          "default": "USD",
           "enum": [
             "auto",
             "USD",
@@ -1434,8 +1527,8 @@
             "Hong Kong Dollar (HK$)",
             "South African Rand (R)"
           ],
-          "description": "Currency used for all cost displays. Auto detects from OS locale. Underlying costs are stored in USD; exchange rates are fetched at startup with a 24-hour cache.",
-          "markdownDescription": "Currency used for all cost displays. `auto` detects from your OS locale. Underlying costs are always stored in USD; exchange rates are fetched at startup with a 24-hour cache.\n\nExamples:\n- UK developer: `GBP`\n- European team: `EUR`\n- Japanese users: `JPY`\n- Let AtlasMind decide: `auto`"
+          "description": "Currency used for all cost displays across AtlasMind. Defaults to USD; set a specific currency and it applies app-wide, or use 'auto' to detect from your OS locale. Underlying costs are stored in USD; exchange rates are fetched at startup with a 24-hour cache.",
+          "markdownDescription": "Currency used for **all** cost displays across AtlasMind. Defaults to `USD`. Pick a specific currency and it is applied app-wide (dashboards, chat, Mission Loop, etc.), or choose `auto` to detect from your OS locale. Underlying costs are always stored in USD; exchange rates are fetched at startup with a 24-hour cache.\n\nExamples:\n- Default: `USD`\n- UK developer: `GBP`\n- European team: `EUR`\n- Japanese users: `JPY`\n- Detect from OS locale: `auto`"
         },
         "atlasmind.voice.ttsEnabled": {
           "type": "boolean",
