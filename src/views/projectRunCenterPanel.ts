@@ -52,6 +52,7 @@ type ProjectRunCenterMessage =
   | { type: 'discussDraft'; payload: ProjectRunDiscussionPayload }
   | { type: 'deleteRun'; payload: string }
   | { type: 'openIdeation' }
+  | { type: 'openMissionControl' }
   | { type: 'openRunReport'; payload: string }
   | { type: 'openFileReference'; payload: string }
   | { type: 'openSourceControl' }
@@ -194,6 +195,9 @@ export class ProjectRunCenterPanel {
         return;
       case 'openIdeation':
         await vscode.commands.executeCommand('atlasmind.openProjectIdeation');
+        return;
+      case 'openMissionControl':
+        await vscode.commands.executeCommand('atlasmind.openMissionControl');
         return;
       case 'openRunReport':
         await this.openWorkspaceRelativePath(message.payload);
@@ -1163,6 +1167,7 @@ export class ProjectRunCenterPanel {
             </div>
             <div class="dashboard-actions" role="group" aria-label="Project run center actions">
               <button id="openIdeation" class="dashboard-button dashboard-button-ghost" type="button">Open Ideation Board</button>
+              <button id="openMissionControl" class="dashboard-button dashboard-button-ghost" type="button">🛰 Mission Control</button>
               <button id="refreshRuns" class="dashboard-button dashboard-button-ghost" type="button">Refresh Runs</button>
             </div>
           </div>
@@ -1193,19 +1198,19 @@ export class ProjectRunCenterPanel {
               <p class="dashboard-kicker">Current posture</p>
               <div class="posture-grid">
                 <div class="metric-pill">
-                  <span class="metric-label">Selected run</span>
+                  <span class="metric-label"><span class="posture-dot tone-neutral" id="metricSelectedStatusDot"></span>Selected run</span>
                   <strong id="metricSelectedStatus">No run selected</strong>
                 </div>
                 <div class="metric-pill">
-                  <span class="metric-label">Run progress</span>
+                  <span class="metric-label"><span class="posture-dot tone-neutral" id="metricSelectedProgressDot"></span>Run progress</span>
                   <strong id="metricSelectedProgress">0/0 subtasks</strong>
                 </div>
                 <div class="metric-pill">
-                  <span class="metric-label">Change scope</span>
+                  <span class="metric-label"><span class="posture-dot tone-neutral" id="metricSelectedImpactDot"></span>Change scope</span>
                   <strong id="metricSelectedImpact">No recorded changes</strong>
                 </div>
                 <div class="metric-pill">
-                  <span class="metric-label">Preview</span>
+                  <span class="metric-label"><span class="posture-dot tone-neutral" id="metricPreviewStatusDot"></span>Preview</span>
                   <strong id="metricPreviewStatus">No preview loaded</strong>
                 </div>
               </div>
@@ -1891,6 +1896,26 @@ export class ProjectRunCenterPanel {
           color: color-mix(in srgb, var(--run-accent) 76%, white 24%);
         }
 
+        .posture-grid .metric-label {
+          display: inline-flex;
+          align-items: center;
+          gap: 7px;
+        }
+
+        .posture-dot {
+          width: 9px;
+          height: 9px;
+          border-radius: 999px;
+          flex: 0 0 auto;
+          background: color-mix(in srgb, var(--run-accent) 60%, transparent);
+        }
+
+        .posture-dot.tone-good { background: var(--run-good); box-shadow: 0 0 0 3px color-mix(in srgb, var(--run-good) 24%, transparent); }
+        .posture-dot.tone-warn { background: var(--run-warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--run-warn) 24%, transparent); }
+        .posture-dot.tone-critical { background: var(--run-critical); box-shadow: 0 0 0 3px color-mix(in srgb, var(--run-critical) 24%, transparent); }
+        .posture-dot.tone-accent { background: var(--run-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--run-accent) 24%, transparent); }
+        .posture-dot.tone-neutral { background: color-mix(in srgb, var(--vscode-descriptionForeground) 70%, transparent); box-shadow: none; }
+
         .run-list,
         .artifact-list {
           display: grid;
@@ -2480,6 +2505,7 @@ export function isProjectRunCenterMessage(value: unknown): value is ProjectRunCe
     || message.type === 'refreshRuns'
     || message.type === 'deleteRun'
     || message.type === 'openIdeation'
+    || message.type === 'openMissionControl'
     || message.type === 'openSourceControl'
     || message.type === 'rollbackLastCheckpoint'
     || message.type === 'approveNextBatch'
@@ -2872,6 +2898,13 @@ function buildScript(): string {
     }
   }
 
+  function setDotTone(id, tone) {
+    const dot = document.getElementById(id);
+    if (dot) {
+      dot.className = 'posture-dot tone-' + tone;
+    }
+  }
+
   function renderOverview(payload) {
     const runs = Array.isArray(payload.runs) ? payload.runs : [];
     const preview = payload.preview || null;
@@ -2901,6 +2934,14 @@ function buildScript(): string {
     setText(metricPreviewStatus, preview
       ? String(preview.plan && Array.isArray(preview.plan.subTasks) ? preview.plan.subTasks.length : 0) + ' subtasks ready'
       : 'No preview loaded');
+
+    // At-a-glance tone dots for the posture pills.
+    setDotTone('metricSelectedStatusDot', run ? getStatusTone(run.status) : 'neutral');
+    const totalSubtasks = run ? Number(run.totalSubtaskCount) || 0 : 0;
+    const doneSubtasks = run ? Number(run.completedSubtaskCount) || 0 : 0;
+    setDotTone('metricSelectedProgressDot', !run ? 'neutral' : (totalSubtasks > 0 && doneSubtasks >= totalSubtasks ? 'good' : doneSubtasks > 0 ? 'accent' : 'neutral'));
+    setDotTone('metricSelectedImpactDot', run && run.changeSummary && String(run.changeSummary) !== 'No recorded changes' ? 'accent' : 'neutral');
+    setDotTone('metricPreviewStatusDot', preview ? 'good' : 'neutral');
 
     if (liveStatus) {
       liveStatus.innerHTML =
@@ -3187,7 +3228,7 @@ function buildScript(): string {
       selectedRunActions.innerHTML += '<button type="button" data-action="delete-run" data-run-id="' + escapeHtml(run.id) + '">Delete Run<' + '/button>';
     }
     selectedRunOutput.innerHTML = run.synthesis
-      ? '<div class="result-output-shell"><div class="result-output">' + escapeHtml(run.synthesis).replace(/\n/g, '<br />') + '<' + '/div><' + '/div>'
+      ? '<div class="result-output-shell"><div class="result-output">' + escapeHtml(run.synthesis).replace(/\\n/g, '<br />') + '<' + '/div><' + '/div>'
       : renderEmptyCard('No synthesized output recorded yet', 'The final project response will appear here once Atlas finishes the run.');
     selectedRunFiles.innerHTML = '';
     if (!Array.isArray(run.changedFiles) || run.changedFiles.length === 0) {
@@ -3289,6 +3330,10 @@ function buildScript(): string {
   }
   if (openScmButton) {
     openScmButton.addEventListener('click', () => vscode.postMessage({ type: 'openSourceControl' }));
+  }
+  const openMissionControlButton = document.getElementById('openMissionControl');
+  if (openMissionControlButton) {
+    openMissionControlButton.addEventListener('click', () => vscode.postMessage({ type: 'openMissionControl' }));
   }
   if (openIdeationButton) {
     openIdeationButton.addEventListener('click', () => vscode.postMessage({ type: 'openIdeation' }));

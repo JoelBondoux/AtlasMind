@@ -8,6 +8,70 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.120.3] - 2026-06-21
+
+### Changed
+- **Comparison matrix re-verified against each competitor's official docs (June 2026) and a Mission Control row added.** Every cell for all seven competitors was checked against current sources; stale entries were corrected:
+  - **Multi-provider routing counts** updated to current figures — Cline **8+ → 30+ providers**, Aider **8+ → 100+ providers**, Cursor **4+ → 5+ providers + custom API**.
+  - **Custom agent definitions** corrected: Claude Code's artifact is **subagent `.md` files** (not CLAUDE.md, which is memory); GitHub Copilot now ships **`.agent.md` custom agents** (⚠️), and Cursor (custom modes), Windsurf (workflows + rules), and Continue (model+rules+tools agents) moved ❌ → ⚠️.
+  - **Windsurf**: image input ⚠️ → ✅, MCP "via Cascade" → fully Cascade-integrated, checkpoints "limited" → **named checkpoints + revert**, and **voice input** (Cascade) noted (⚠️).
+  - **Aider**: **voice-to-code** input noted (⚠️).
+  - **CLI companions**: Cline (preview CLI), Cursor (Cursor CLI), Continue (CLI), and GitHub Copilot (Copilot CLI) now ship CLIs — all ❌ → ⚠️.
+  - **Cost tracking**: Cursor ❌ → ⚠️ (usage dashboard + spend caps) and Claude Code ❌ → ⚠️ (`/cost`) in the README "What Makes AtlasMind Different?" table.
+  - **New row — "Goal-seeking autonomous loop runs (Mission Control)"** added to the wiki Comparison matrix and the README table, distinguishing AtlasMind's budget-bounded, self-evaluated, checkpoint-gated loop from Claude Code's `/loop`, Copilot's agentic/cloud loops, Cline's auto-approve mode, Cursor's iterating agents, and Aider's scriptable test-fix loop.
+  - Comparison freshness caveat reworded to "verified against official documentation in June 2026".
+
+### Fixed
+- **Project Run Center webview script no longer fails to parse.** The client IIFE used `.replace(/\n/g, …)` inside a template-literal-generated script, so the `\n` was emitted as a real newline and produced an unterminated regex (`Invalid regular expression: missing /`) — a syntax error that broke the *entire* Run Center client script, including every topbar button and the Mission Control cross-link, while the static HTML still rendered. Escaped it to `/\\n/g` so the emitted regex is valid.
+
+## [0.120.2] - 2026-06-21
+
+### Fixed
+- **README and Comparison matrix accuracy.** Corrected stale/inconsistent figures verified against source:
+  - **Built-in skill count** was stated three different (wrong) ways — README "35 pre-built skills" and "36 built-in skills", and the Comparison matrix "32". The actual count is **43** (`createBuiltinSkills()` returns 42 plus the default-on `discover-resources` skill). Updated all three, rebuilt the README skills table to list the 7 previously-missing skills (`npm-scripts`, `git-blame`, `framework-detect`, `simple-browser`, `log-file-tail`, `debug-launch`, `debug-breakpoint`) under their real categories (adding the missing **Debugging** category), and synced the stale "32 built-in skills" figure in the wiki Home, Getting-Started, FAQ, and Architecture pages to 43.
+  - Comparison "10-rule scanner" → **12-rule** memory write-gate scanner (matches `memoryScanner.ts`).
+  - Comparison "12+ providers" → **20+ providers** (`ProviderId` enumerates 24 named providers).
+  - Comparison freshness caveat updated from "mid-2025" to "mid-2026".
+  - (Verified accurate and left unchanged: 15 built-in agents, 23 testing methodologies, 7 secret-redaction patterns, 12-rule skill-import scan.)
+
+## [0.120.1] - 2026-06-21
+
+### Changed
+- **Mission Control now uses the Project Dashboard design system.** The previous refresh restyled Mission Control with `--vscode-*` tokens, so it still didn't match the dashboard pages. It now adopts the dashboard's shared `--dash-*` design tokens directly — the same gradient page background, 20px-radius gradient **panel-cards** with soft shadows, display-font headings, `page-intro`-style topbar, accent buttons, intro chips, and tone status dots — so Mission Control is visually consistent with the Project Dashboard (and the Delivery page) rather than just approximating it.
+
+## [0.120.0] - 2026-06-21
+
+### Changed
+- **Mission Control design refresh + Run Center ↔ Mission Control cross-links.** The autonomous-loop console — previously the least-styled operational panel — now matches the rest of the suite, and the two autonomous-delivery surfaces link to each other:
+  - **Mission Control** gains a plain-English **intro topbar** (kicker + title + summary) with a live status chip, its form sections are now **cards**, the launch/stop/decision controls are restyled, and the **Recent missions** list carries **tone status dots** (achieved → good, stopped → warn) on each row. No hover-capable control is inert.
+  - **Cross-navigation**: the Project Run Center header gains a **"🛰 Mission Control"** button and Mission Control gains a **"▶ Project Run Center"** button, so you can move between manual run review and autonomous missions in one click. Both use the existing validated webview → command bridge (`atlasmind.openMissionControl` / `atlasmind.openProjectRunCenter`).
+
+## [0.119.0] - 2026-06-21
+
+### Changed
+- **Design refresh extended to the Cost Dashboard, Project Run Center, and Project Ideation panels.** Following the Project Dashboard refresh, the same visual-indicator and no-dead-hover language now reaches the other operational webviews:
+  - **Cost Dashboard** — every summary card (and the feedback summary cards) gains a tone **status dot** (good/warn/critical/accent), and the budgeted **Today's Spend** card shows a budget-pressure **meter**; the approval-rate card is toned by its actual rate. No interactive element is inert — all hover-capable controls (cards, rows, toggles) already resolve.
+  - **Project Run Center** — the "Current posture" pills (Selected run / Run progress / Change scope / Preview) now carry **live tone dots** driven by the existing run/preview state (`setDotTone` + `getStatusTone`), so run state reads at a glance alongside the existing workflow stepper. Dead-hover audit confirmed every card/chip/summary control resolves.
+  - **Project Ideation** — the hero stat cards (Active cards / Runs / Queued media) gain tone status dots consistent with the rest of the suite; the already-interactive canvas, inspector, and composer were audited and left intact.
+
+## [0.118.0] - 2026-06-21
+
+### Changed
+- **Project Dashboard design refresh — every page brought up to the Delivery standard.** The Delivery page's modern feel (visual indicators, plain-English guidance, and fully clickable cards) is now applied across the whole dashboard:
+  - **No more dead hover.** Cards that *looked* clickable (hover-lift, focus ring) but did nothing now always resolve to an action — opening a file, jumping to another page, running a command, or starting an Atlas chat — and anything with no sensible action renders as a genuinely static element with no misleading affordance. Signal cards, repo branch cards, and the stat/action/recommendation/score-component cards were the main offenders; the shared `renderSignalCard`, `renderMetricPill`, `renderStatCard`, `renderActionCard`, `renderRecommendationItem`, and `renderScoreComponent` helpers were reworked to a resolve-or-static rule via a new `resolveActionAttrs`.
+  - **Visual indicators everywhere.** Metric pills gained tone status dots and inline meter bars; pages gained a generalised `renderFlowStrip` (the Delivery pipeline-flow idiom) for at-a-glance status — e.g. the Operational Score now shows its component composition as a coloured strip.
+  - **Natural-language orientation.** Every page (Score, Repo, Runtime, Testing, SSOT, Security, Gap Analysis, Privacy) now opens with a `renderPageIntro` band: a one-line plain-English summary of "what this page is and what to do", tone chips, and a primary action.
+  - **Standout fix — Security.** The governance signals (SECURITY.md, CODEOWNERS, PR template, issue templates, dependency governance) now open the file when present, or hand Atlas a focused prompt to create it when missing — previously they were inert.
+  - Cost-related Runtime tiles now open the Cost Dashboard (`atlasmind.openCostDashboard` added to the dashboard command allowlist). Also fixes a malformed `</p>` tag in the Privacy page's "no trusted model" warning.
+
+## [0.117.0] - 2026-06-21
+
+### Added
+- **Road to MVP on the Roadmap dashboard.** The Project Dashboard's Roadmap page now opens with a dedicated **Minimum Viable Product** section that turns the flat backlog into a guided path to a first shippable product:
+  - **MVP path (hybrid tagging).** Mark any backlog item as part of the MVP with a per-item **Mark MVP** toggle; membership is stored non-destructively as a `#mvp` tag inside the existing managed block of `project_memory/roadmap/improvement-plan.md` and round-trips cleanly (the tag is metadata, never shown in the item text). When nothing is tagged yet, the dashboard falls back to **heuristic suggestions** (security, architecture, and other foundational items) so the section is useful out of the box, and offers **Add to MVP** on each suggested candidate.
+  - **Visual guide.** A progress bar and a numbered **milestone track** show how far along the road to MVP the project is — each node rendered done / active (next) / pending, with the count of completed vs. remaining milestones and a percent-to-MVP readout.
+  - **AI-assisted route.** A deterministic **best-route** ordering front-loads foundational, security, and architectural work and explains the reasoning for each step, with a highlighted **Next step** callout. A **Plan the MVP route with Atlas** button hands a focused prompt to a live Atlas chat session for a deeper, dependency-aware plan — reusing the existing Gap-Analysis handoff pattern (no model calls are added to dashboard refresh, preserving its non-blocking, redaction-safe behavior).
+
 ## [0.116.5] - 2026-06-21
 
 ### Fixed

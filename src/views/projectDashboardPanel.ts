@@ -39,6 +39,7 @@ const ALLOWED_DASHBOARD_COMMANDS = new Set([
   'atlasmind.openChatView',
   'atlasmind.openChatPanel',
   'atlasmind.openModelProviders',
+  'atlasmind.openCostDashboard',
   'atlasmind.openProjectRunCenter',
   'atlasmind.openSettingsProject',
   'atlasmind.openSettingsSafety',
@@ -425,7 +426,7 @@ interface DashboardOutcomeCompleteness {
 }
 
 interface DashboardRoadmapSavePayload {
-  items: Array<{ id?: string; text: string; completed?: boolean }>;
+  items: Array<{ id?: string; text: string; completed?: boolean; isMvp?: boolean }>;
 }
 
 interface DashboardRoadmapItem {
@@ -435,6 +436,30 @@ interface DashboardRoadmapItem {
   focus: 'security' | 'architecture' | 'delivery' | 'feature' | 'documentation';
   priorityScore: number;
   priorityReason: string;
+  isMvp: boolean;
+  mvpCandidate: boolean;
+}
+
+interface DashboardMvpStep {
+  id: string;
+  text: string;
+  focus: DashboardRoadmapItem['focus'];
+  completed: boolean;
+  order: number;
+  rationale: string;
+  tagged: boolean;
+}
+
+interface DashboardMvpSnapshot {
+  hasTaggedItems: boolean;
+  totalCount: number;
+  completedCount: number;
+  progressPercent: number;
+  route: DashboardMvpStep[];
+  nextStep?: DashboardMvpStep;
+  candidates: DashboardMvpStep[];
+  summary: string;
+  planPrompt: string;
 }
 
 interface DashboardRoadmapSnapshot {
@@ -443,6 +468,7 @@ interface DashboardRoadmapSnapshot {
   completedCount: number;
   outstandingCount: number;
   nextSuggestedWork: DashboardRoadmapItem[];
+  mvp: DashboardMvpSnapshot;
 }
 
 interface DashboardScoreRecommendation {
@@ -1524,11 +1550,18 @@ export class ProjectDashboardPanel {
       ?? vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
     const filePath = path.join(workspaceRoot, ssotPath, 'roadmap', 'improvement-plan.md');
     const sanitizedItems = (payload.items ?? [])
-      .map((item, index) => ({
-        id: typeof item.id === 'string' && item.id.trim().length > 0 ? item.id.trim() : `roadmap-${index + 1}`,
-        text: typeof item.text === 'string' ? item.text.trim() : '',
-        completed: item.completed === true,
-      }))
+      .map((item, index) => {
+        // The #mvp tag is metadata: keep it out of the text and re-derive it from
+        // the flag so the round-trip stays idempotent even if the tag leaks in.
+        const rawText = typeof item.text === 'string' ? item.text : '';
+        const isMvp = item.isMvp === true || /#mvp\b/i.test(rawText);
+        return {
+          id: typeof item.id === 'string' && item.id.trim().length > 0 ? item.id.trim() : `roadmap-${index + 1}`,
+          text: rawText.replace(/\s*#mvp\b/ig, '').trim(),
+          completed: item.completed === true,
+          isMvp,
+        };
+      })
       .filter(item => item.text.length > 0);
 
     await fs.mkdir(path.dirname(filePath), { recursive: true });
@@ -4160,6 +4193,7 @@ async function collectRoadmapSnapshot(workspaceRoot: string | undefined, ssotPat
       completedCount: 0,
       outstandingCount: 0,
       nextSuggestedWork: [],
+      mvp: buildMvpSnapshot([]),
     };
   }
 
@@ -4173,25 +4207,29 @@ async function collectRoadmapSnapshot(workspaceRoot: string | undefined, ssotPat
     completedCount: items.filter(item => item.completed).length,
     outstandingCount: items.filter(item => !item.completed).length,
     nextSuggestedWork: items.filter(item => !item.completed).slice(0, 5),
+    mvp: buildMvpSnapshot(items),
   };
 }
 
-function parseDashboardRoadmapItems(content: string): Array<{ id: string; text: string; completed: boolean }> {
+function parseDashboardRoadmapItems(content: string): Array<{ id: string; text: string; completed: boolean; isMvp: boolean }> {
   return [...content.matchAll(/^\s*(?:[-*]|\d+\.)\s+(.+?)\s*$/gm)]
     .map((match, index) => {
       const raw = match[1]?.trim() ?? '';
       const completed = /^(?:✅|\[x\])/i.test(raw);
-      const text = raw.replace(/^(?:✅|\[(?:x| )\])\s*/i, '').trim();
+      const withoutCheckbox = raw.replace(/^(?:✅|\[(?:x| )\])\s*/i, '').trim();
+      const isMvp = /#mvp\b/i.test(withoutCheckbox);
+      const text = withoutCheckbox.replace(/\s*#mvp\b/ig, '').trim();
       return {
         id: `roadmap-${index + 1}`,
         text,
         completed,
+        isMvp,
       };
     })
     .filter(item => item.text.length > 0);
 }
 
-function prioritizeDashboardRoadmapItems(items: Array<{ id: string; text: string; completed: boolean }>): DashboardRoadmapItem[] {
+function prioritizeDashboardRoadmapItems(items: Array<{ id: string; text: string; completed: boolean; isMvp?: boolean }>): DashboardRoadmapItem[] {
   return items
     .map((item, index, allItems) => {
       const normalized = item.text.toLowerCase();
@@ -4226,8 +4264,14 @@ function prioritizeDashboardRoadmapItems(items: Array<{ id: string; text: string
         reasons.push('critical/blocking wording');
       }
 
+      const foundational = focus === 'security'
+        || focus === 'architecture'
+        || /\b(core|auth|foundation|foundational|baseline|essential|launch|ship|release|minimum viable|mvp|must|critical|first)\b/i.test(normalized);
+
       return {
         ...item,
+        isMvp: item.isMvp === true,
+        mvpCandidate: !item.completed && foundational,
         focus,
         priorityScore: orderBoost + focusBoost,
         priorityReason: reasons.join(', '),
@@ -4241,10 +4285,128 @@ function prioritizeDashboardRoadmapItems(items: Array<{ id: string; text: string
     });
 }
 
-function serializeDashboardRoadmapDocument(existing: string, items: Array<{ text: string; completed: boolean }>): string {
+const MVP_PHASE_WEIGHT: Record<DashboardRoadmapItem['focus'], number> = {
+  security: 0,
+  architecture: 1,
+  delivery: 2,
+  feature: 3,
+  documentation: 4,
+};
+
+function describeMvpRationale(focus: DashboardRoadmapItem['focus'], completed: boolean): string {
+  if (completed) {
+    return 'Milestone already delivered.';
+  }
+  switch (focus) {
+    case 'security':
+      return 'Foundation — clear the trust boundary before building on top of it.';
+    case 'architecture':
+      return 'Architectural leverage that unblocks the later MVP work.';
+    case 'delivery':
+      return 'Delivery hardening so the MVP can ship with confidence.';
+    case 'documentation':
+      return 'Documentation follow-through to make the MVP usable.';
+    default:
+      return 'User-facing value that the MVP needs to demonstrate.';
+  }
+}
+
+function toMvpStep(item: DashboardRoadmapItem, order: number): DashboardMvpStep {
+  return {
+    id: item.id,
+    text: item.text,
+    focus: item.focus,
+    completed: item.completed,
+    order,
+    rationale: describeMvpRationale(item.focus, item.completed),
+    tagged: item.isMvp,
+  };
+}
+
+function orderMvpItems(items: DashboardRoadmapItem[]): DashboardRoadmapItem[] {
+  return [...items].sort((left, right) => {
+    if (left.completed !== right.completed) {
+      return left.completed ? 1 : -1;
+    }
+    const phaseDelta = MVP_PHASE_WEIGHT[left.focus] - MVP_PHASE_WEIGHT[right.focus];
+    if (phaseDelta !== 0) {
+      return phaseDelta;
+    }
+    return right.priorityScore - left.priorityScore || left.id.localeCompare(right.id);
+  });
+}
+
+function buildMvpSnapshot(items: DashboardRoadmapItem[]): DashboardMvpSnapshot {
+  const tagged = items.filter(item => item.isMvp);
+  const hasTaggedItems = tagged.length > 0;
+
+  // Hybrid: explicit #mvp tags define the path; otherwise fall back to the
+  // strongest heuristic candidates so the section is still useful unconfigured.
+  const pathItems = hasTaggedItems
+    ? tagged
+    : orderMvpItems(items.filter(item => item.mvpCandidate)).slice(0, 5);
+
+  const route = orderMvpItems(pathItems).map((item, index) => toMvpStep(item, index + 1));
+  const completedCount = route.filter(step => step.completed).length;
+  const totalCount = route.length;
+  const progressPercent = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+  const nextStep = route.find(step => !step.completed);
+
+  // Heuristic candidates not already on the path, offered as "add to MVP".
+  const pathIds = new Set(pathItems.map(item => item.id));
+  const candidates = hasTaggedItems
+    ? orderMvpItems(items.filter(item => item.mvpCandidate && !pathIds.has(item.id)))
+        .slice(0, 5)
+        .map((item, index) => toMvpStep(item, index + 1))
+    : [];
+
+  const outstanding = route.filter(step => !step.completed);
+  let summary: string;
+  if (totalCount === 0) {
+    summary = 'No MVP path yet. Tag the roadmap items that define your minimum viable product with “Mark MVP”.';
+  } else if (!hasTaggedItems) {
+    summary = `No items tagged for MVP yet — showing ${totalCount} suggested foundation${totalCount === 1 ? '' : 's'}. ${nextStep ? `Start with: ${nextStep.text}.` : ''}`.trim();
+  } else if (outstanding.length === 0) {
+    summary = `All ${totalCount} MVP milestone${totalCount === 1 ? '' : 's'} complete — the minimum viable product is in reach.`;
+  } else {
+    summary = `${completedCount} of ${totalCount} MVP milestone${totalCount === 1 ? '' : 's'} complete${nextStep ? ` — next: ${nextStep.text}.` : '.'}`;
+  }
+
+  const planPrompt = buildMvpPlanPrompt(outstanding, hasTaggedItems);
+
+  return {
+    hasTaggedItems,
+    totalCount,
+    completedCount,
+    progressPercent,
+    route,
+    nextStep,
+    candidates,
+    summary,
+    planPrompt,
+  };
+}
+
+function buildMvpPlanPrompt(outstanding: DashboardMvpStep[], hasTaggedItems: boolean): string {
+  if (outstanding.length === 0) {
+    return 'Review the roadmap in project_memory/roadmap/improvement-plan.md and recommend what the next minimum-viable-product milestone should be, given that the currently tracked MVP items are all complete. Keep it concise and call out the single best next step.';
+  }
+  const list = outstanding.map((step, index) => `${index + 1}. ${step.text}`).join('\n');
+  const tagNote = hasTaggedItems
+    ? 'These are the roadmap items currently tagged for the MVP path:'
+    : 'No items are tagged for MVP yet; these are the foundational roadmap items the dashboard suggests for the MVP path:';
+  return [
+    'Plan the fastest safe route to a minimum viable product for this project.',
+    tagNote,
+    list,
+    'Recommend an ordered sequence that front-loads foundational, security, and architectural work, calls out dependencies between the items, and identifies the single best next step to take now. Keep the response concise.',
+  ].join('\n\n');
+}
+
+function serializeDashboardRoadmapDocument(existing: string, items: Array<{ text: string; completed: boolean; isMvp?: boolean }>): string {
   const normalizedItems = items.filter(item => item.text.trim().length > 0);
   const itemLines = normalizedItems.length > 0
-    ? normalizedItems.map(item => `- [${item.completed ? 'x' : ' '}] ${item.text.trim()}`)
+    ? normalizedItems.map(item => `- [${item.completed ? 'x' : ' '}] ${item.text.trim()}${item.isMvp ? ' #mvp' : ''}`)
     : ['- [ ] Add the first prioritized roadmap item here.'];
 
   const section = [
@@ -5747,16 +5909,29 @@ const DASHBOARD_CSS = `
     min-height: 150px;
     display: grid;
     gap: 12px;
-    cursor: pointer;
     transition: transform 160ms ease, border-color 160ms ease;
   }
 
-  .stat-card:hover,
-  .stat-card:focus-visible,
-  .action-card:hover,
-  .action-card:focus-visible,
-  .recent-item:hover,
-  .recent-item:focus-visible,
+  /* Only elements that actually resolve to an action get the interactive
+     affordance (cursor + hover lift); static variants stay inert. */
+  button.stat-card, .stat-card.is-actionable,
+  button.action-card, .action-card.is-actionable,
+  button.recent-item, .recent-item.is-actionable,
+  button.branch-card, .branch-card,
+  button.score-component-row, .score-component-row.is-actionable,
+  button.signal-card, .signal-card.is-actionable,
+  button.metric-pill, .metric-pill.is-actionable {
+    cursor: pointer;
+  }
+
+  .stat-card.is-actionable:hover,
+  .stat-card.is-actionable:focus-visible,
+  .action-card.is-actionable:hover,
+  .action-card.is-actionable:focus-visible,
+  button.recent-item:hover,
+  button.recent-item:focus-visible,
+  .recent-item.is-actionable:hover,
+  .recent-item.is-actionable:focus-visible,
   .branch-card:hover,
   .branch-card:focus-visible,
   .workflow-card:hover,
@@ -5991,6 +6166,270 @@ const DASHBOARD_CSS = `
     color: color-mix(in srgb, var(--dash-critical) 86%, white 14%);
     background: color-mix(in srgb, var(--dash-critical) 14%, transparent);
   }
+
+  .tag-group {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .tag-mvp {
+    border-color: color-mix(in srgb, var(--dash-accent-strong) 70%, var(--dash-border));
+    color: color-mix(in srgb, var(--dash-accent-strong) 88%, white 12%);
+    background: color-mix(in srgb, var(--dash-accent-strong) 18%, transparent);
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+
+  .roadmap-item.is-mvp {
+    border-left: 3px solid color-mix(in srgb, var(--dash-accent-strong) 70%, var(--dash-border));
+  }
+
+  .mvp-progress {
+    height: 10px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--dash-border) 70%, transparent);
+    overflow: hidden;
+    margin: 4px 0 2px;
+  }
+
+  .mvp-progress-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: var(--dash-accent-strong);
+    transition: width 420ms ease;
+  }
+
+  .mvp-track {
+    display: flex;
+    align-items: flex-start;
+    gap: 0;
+    flex-wrap: wrap;
+    margin: 6px 0 2px;
+  }
+
+  .mvp-node {
+    position: relative;
+    flex: 1 1 96px;
+    min-width: 96px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 6px;
+    padding-top: 4px;
+  }
+
+  .mvp-node:not(:last-child)::after {
+    content: "";
+    position: absolute;
+    top: 17px;
+    left: calc(50% + 16px);
+    right: calc(-50% + 16px);
+    height: 2px;
+    background: color-mix(in srgb, var(--dash-border) 80%, transparent);
+  }
+
+  .mvp-node.done:not(:last-child)::after {
+    background: color-mix(in srgb, var(--dash-good) 60%, var(--dash-border));
+  }
+
+  .mvp-node-dot {
+    position: relative;
+    z-index: 1;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 600;
+    border: 2px solid var(--dash-border);
+    background: var(--dash-surface, transparent);
+    color: var(--dash-muted);
+  }
+
+  .mvp-node.done .mvp-node-dot {
+    border-color: color-mix(in srgb, var(--dash-good) 70%, var(--dash-border));
+    background: color-mix(in srgb, var(--dash-good) 22%, transparent);
+    color: color-mix(in srgb, var(--dash-good) 90%, white 10%);
+  }
+
+  .mvp-node.active .mvp-node-dot {
+    border-color: var(--dash-accent-strong);
+    background: color-mix(in srgb, var(--dash-accent-strong) 22%, transparent);
+    color: color-mix(in srgb, var(--dash-accent-strong) 92%, white 8%);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--dash-accent-strong) 18%, transparent);
+  }
+
+  .mvp-node-label {
+    font-size: 11px;
+    line-height: 1.3;
+    color: var(--dash-muted);
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    max-width: 120px;
+  }
+
+  .mvp-node.active .mvp-node-label {
+    color: var(--vscode-foreground);
+  }
+
+  .mvp-next-callout {
+    display: grid;
+    gap: 4px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    border: 1px solid color-mix(in srgb, var(--dash-accent-strong) 45%, var(--dash-border));
+    background: color-mix(in srgb, var(--dash-accent-strong) 10%, transparent);
+  }
+
+  .mvp-next-kicker {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: color-mix(in srgb, var(--dash-accent-strong) 86%, white 14%);
+  }
+
+  /* ── Shared design-refresh primitives ─────────────────────────────── */
+
+  /* Metric pill: status dot, optional meter, actionable button variant */
+  .metric-pill {
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  button.metric-pill {
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    width: 100%;
+  }
+
+  .metric-head {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .metric-meter {
+    flex-basis: 100%;
+    height: 6px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--dash-border) 70%, transparent);
+    overflow: hidden;
+    margin-top: 2px;
+  }
+
+  .metric-meter > span {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+    background: var(--dash-accent-strong);
+    transition: width 420ms ease;
+  }
+
+  button.metric-pill:hover,
+  button.metric-pill:focus-visible {
+    border-color: color-mix(in srgb, var(--dash-accent) 50%, var(--dash-border));
+  }
+
+  /* Tone status dots shared by pills, intro chips, governance pills */
+  .pill-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 999px;
+    flex: 0 0 auto;
+    background: var(--dash-muted);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--dash-muted) 22%, transparent);
+  }
+
+  .pill-tone-good .pill-dot { background: var(--dash-good); box-shadow: 0 0 0 3px color-mix(in srgb, var(--dash-good) 24%, transparent); }
+  .pill-tone-warn .pill-dot { background: var(--dash-warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--dash-warn) 24%, transparent); }
+  .pill-tone-critical .pill-dot { background: var(--dash-critical); box-shadow: 0 0 0 3px color-mix(in srgb, var(--dash-critical) 24%, transparent); }
+  .pill-tone-accent .pill-dot { background: var(--dash-accent-strong); box-shadow: 0 0 0 3px color-mix(in srgb, var(--dash-accent-strong) 24%, transparent); }
+  .pill-tone-good { border-color: color-mix(in srgb, var(--dash-good) 40%, var(--dash-border)); }
+  .pill-tone-warn { border-color: color-mix(in srgb, var(--dash-warn) 40%, var(--dash-border)); }
+  .pill-tone-critical { border-color: color-mix(in srgb, var(--dash-critical) 45%, var(--dash-border)); }
+
+  /* Signal card: actionable CTA chip + inert static variant */
+  .signal-card.static { cursor: default; }
+
+  .signal-cta {
+    display: inline-flex;
+    align-self: flex-start;
+    margin-top: 8px;
+    font-size: 11px;
+    font-weight: 600;
+    color: color-mix(in srgb, var(--dash-accent-strong) 86%, white 14%);
+  }
+
+  /* Page intro band — plain-English orientation at the top of each page */
+  .page-intro {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    flex-wrap: wrap;
+    padding: 16px 18px;
+    border: 1px solid var(--dash-border);
+    border-radius: var(--dash-radius);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--dash-accent) 10%, var(--dash-panel)), var(--dash-panel));
+    box-shadow: var(--dash-shadow);
+  }
+
+  .page-intro-body { min-width: 0; flex: 1 1 320px; }
+  .page-intro-summary { color: var(--dash-muted); margin: 6px 0 0; max-width: 74ch; }
+  .page-intro-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .page-intro-action { flex: 0 0 auto; }
+
+  .intro-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 11px;
+    border-radius: 999px;
+    border: 1px solid var(--dash-border);
+    background: color-mix(in srgb, var(--dash-panel) 80%, transparent);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  /* Flow strip — at-a-glance node sequence (generalised pipeline-flow) */
+  .flow-strip {
+    display: flex;
+    align-items: stretch;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 4px;
+  }
+
+  .flow-chip {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 8px 12px;
+    border-radius: 12px;
+    border: 1px solid var(--dash-border);
+    background: color-mix(in srgb, var(--dash-panel) 82%, transparent);
+    min-width: 0;
+  }
+
+  .flow-chip-dot { font-weight: 700; font-size: 12px; color: var(--dash-muted); }
+  .flow-chip-label { font-weight: 600; font-size: 12px; overflow-wrap: anywhere; }
+  .flow-chip-sub { font-size: 11px; color: var(--dash-muted); }
+  .flow-chip.status-good { border-color: color-mix(in srgb, var(--dash-good) 50%, var(--dash-border)); }
+  .flow-chip.status-good .flow-chip-dot { color: var(--dash-good); }
+  .flow-chip.status-warn { border-color: color-mix(in srgb, var(--dash-warn) 50%, var(--dash-border)); }
+  .flow-chip.status-warn .flow-chip-dot { color: var(--dash-warn); }
+  .flow-chip.status-critical { border-color: color-mix(in srgb, var(--dash-critical) 55%, var(--dash-border)); }
+  .flow-chip.status-critical .flow-chip-dot { color: var(--dash-critical); }
+  .flow-chip.status-active { border-color: color-mix(in srgb, var(--dash-accent-strong) 55%, var(--dash-border)); }
+  .flow-chip.status-active .flow-chip-dot { color: var(--dash-accent-strong); }
+  .flow-strip-arrow { align-self: center; color: var(--dash-muted); }
 
   .coverage-list {
     display: grid;
@@ -6257,10 +6696,10 @@ const DASHBOARD_CSS = `
   .signal-card.good { border-color: color-mix(in srgb, var(--dash-good) 46%, var(--dash-border)); }
   .signal-card.warn { border-color: color-mix(in srgb, var(--dash-warn) 46%, var(--dash-border)); }
 
-  .signal-card:hover,
-  .signal-card:focus-visible,
-  .score-recommendation-item:hover,
-  .score-recommendation-item:focus-visible {
+  .signal-card.is-actionable:hover,
+  .signal-card.is-actionable:focus-visible,
+  .action-card.score-recommendation-item.is-actionable:hover,
+  .action-card.score-recommendation-item.is-actionable:focus-visible {
     border-color: color-mix(in srgb, var(--dash-accent) 45%, var(--dash-border));
     transform: translateY(-1px);
   }
@@ -6329,8 +6768,8 @@ const DASHBOARD_CSS = `
     padding: 14px;
   }
 
-  .score-component-row:hover,
-  .score-component-row:focus-visible {
+  .score-component-row.is-actionable:hover,
+  .score-component-row.is-actionable:focus-visible {
     border-color: color-mix(in srgb, var(--dash-accent) 45%, var(--dash-border));
     transform: translateY(-1px);
   }

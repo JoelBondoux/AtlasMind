@@ -582,9 +582,9 @@
               '<p class="section-copy">Use the composer for the next Atlas pass, then drop or paste supporting media straight onto the board to keep the idea grounded in artifacts.</p>' +
             '</article>' +
             '<div class="ideation-stat-grid">' +
-              renderStat('Active cards', String(snapshot.cards.filter(card => !card.archivedAt).length), 'Active cards on the board. Archived cards are hidden but preserved.') +
-              renderStat('Runs', String(snapshot.runs.length), 'Auditable ideation evolutions captured so far.') +
-              renderStat('Queued media', String(snapshot.promptAttachments.length), 'Files, images, and links waiting for the next Atlas pass.') +
+              renderStat('Active cards', String(snapshot.cards.filter(card => !card.archivedAt).length), 'Active cards on the board. Archived cards are hidden but preserved.', snapshot.cards.filter(card => !card.archivedAt).length > 0 ? 'good' : 'accent') +
+              renderStat('Runs', String(snapshot.runs.length), 'Auditable ideation evolutions captured so far.', 'accent') +
+              renderStat('Queued media', String(snapshot.promptAttachments.length), 'Files, images, and links waiting for the next Atlas pass.', snapshot.promptAttachments.length > 0 ? 'good' : 'accent') +
             '</div>' +
           '</section>' +
           '<section class="ideation-process-section">' + renderProcessGuide(snapshot) + '</section>' +
@@ -982,8 +982,9 @@
       '</article>';
   }
 
-  function renderStat(label, value, detail) {
-    return '<article class="ideation-stat"><p class="card-kicker">' + escapeHtml(label) + '</p><strong>' + escapeHtml(value) + '</strong><div class="stat-detail">' + escapeHtml(detail) + '</div></article>';
+  function renderStat(label, value, detail, tone) {
+    var dot = tone ? '<span class="pill-dot tone-' + escapeAttr(tone) + '"></span>' : '';
+    return '<article class="ideation-stat"><p class="card-kicker">' + dot + escapeHtml(label) + '</p><strong>' + escapeHtml(value) + '</strong><div class="stat-detail">' + escapeHtml(detail) + '</div></article>';
   }
 
   function renderAnalytics(snapshot) {

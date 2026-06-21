@@ -4196,6 +4196,22 @@ const IDEATION_CSS = `
     font-size: 11px;
     color: var(--vscode-descriptionForeground);
   }
+  .ideation-stat .card-kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .pill-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 999px;
+    flex: 0 0 auto;
+    background: var(--vscode-descriptionForeground);
+  }
+  .pill-dot.tone-good { background: #3a9a5b; box-shadow: 0 0 0 3px color-mix(in srgb, #3a9a5b 24%, transparent); }
+  .pill-dot.tone-warn { background: #d29a2a; box-shadow: 0 0 0 3px color-mix(in srgb, #d29a2a 24%, transparent); }
+  .pill-dot.tone-critical { background: #d05f5f; box-shadow: 0 0 0 3px color-mix(in srgb, #d05f5f 24%, transparent); }
+  .pill-dot.tone-accent { background: var(--vscode-focusBorder, #4ea8de); box-shadow: 0 0 0 3px color-mix(in srgb, var(--vscode-focusBorder, #4ea8de) 24%, transparent); }
   h1,
   h2,
   h3,

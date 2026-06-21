@@ -247,6 +247,14 @@
       persistRoadmapItems(getRoadmapItems().map(item => item.id === payload ? { ...item, completed: !item.completed } : item));
       return;
     }
+    if (action === 'roadmap-mvp-toggle') {
+      persistRoadmapItems(getRoadmapItems().map(item => item.id === payload ? { ...item, isMvp: !item.isMvp } : item));
+      return;
+    }
+    if (action === 'roadmap-mvp-add') {
+      persistRoadmapItems(getRoadmapItems().map(item => item.id === payload ? { ...item, isMvp: true } : item));
+      return;
+    }
     if (action === 'gap-run') {
       state.activePage = 'gapAnalysis';
       state.gapBusy = true;
@@ -881,6 +889,16 @@
 
     return `
       <section class="page-section ${state.activePage === 'gapAnalysis' ? 'active' : ''}">
+        ${renderPageIntro({
+          kicker: 'Gap analysis',
+          title: 'What still needs attention',
+          summary: `${gap.completed ? `Last full run ${escapeHtml(gap.lastRun || 'recorded')}.` : 'Showing preliminary signal-based findings — run the full analysis for a richer report.'} ${openItems.length} open item${openItems.length === 1 ? '' : 's'} across P1–P3${praiseItems.length ? ` and ${praiseItems.length} recorded strength${praiseItems.length === 1 ? '' : 's'}` : ''}. Resolve any item in a chat, open its files, or mark it done.`,
+          chips: [
+            { label: openItems.length ? `${openItems.length} open` : 'No open gaps', tone: openItems.length ? 'warn' : 'good' },
+            { label: `${grouped.find(g => g.priority === 'P1')?.items.length || 0} P1`, tone: (grouped.find(g => g.priority === 'P1')?.items.length || 0) > 0 ? 'critical' : 'good' },
+            { label: `${praiseItems.length} strengths`, tone: 'accent' },
+          ],
+        })}
         <div class="panel-grid">
           <article class="panel-card">
             <p class="section-kicker">Gap Analysis</p>
@@ -951,8 +969,27 @@
       long: snapshot.score.recommendations.filter(item => item.horizon === 'long'),
     };
 
+    const outcome = snapshot.score.outcome;
+    const roadmapPercent = outcome.roadmapTotal > 0 ? Math.round((outcome.roadmapCompleted / outcome.roadmapTotal) * 100) : 0;
+    const componentNodes = snapshot.score.components.map(component => ({
+      label: component.label,
+      sub: `${component.score}/${component.maxScore}`,
+      status: component.tone === 'good' ? 'good' : component.tone === 'critical' ? 'critical' : component.tone === 'accent' ? 'active' : 'warn',
+      icon: component.tone === 'good' ? '✓' : component.tone === 'critical' ? '✕' : '•',
+      title: component.detail,
+    }));
     return `
       <section class="page-section ${state.activePage === 'score' ? 'active' : ''}">
+        ${renderPageIntro({
+          kicker: 'Operational score',
+          title: `${snapshot.healthScore}/100 — where the project stands`,
+          summary: `${snapshot.healthSummary} Outcome completeness is at ${outcome.score}%. Every component and signal below clicks through to the page that can move it.`,
+          chips: [
+            { label: `Operational ${snapshot.healthScore}`, tone: snapshot.healthScore >= 85 ? 'good' : snapshot.healthScore >= 65 ? 'accent' : 'warn' },
+            { label: `Outcome ${outcome.score}%`, tone: outcome.score >= 75 ? 'good' : outcome.score >= 55 ? 'accent' : 'warn' },
+          ],
+        })}
+        ${componentNodes.length > 0 ? `<article class="panel-card"><p class="section-kicker">Composition</p><h3>How the score breaks down</h3>${renderFlowStrip(componentNodes)}</article>` : ''}
         <div class="panel-grid score-summary-grid">
           <article class="panel-card score-overview-card">
             <p class="section-kicker">Operational score</p>
@@ -960,17 +997,17 @@
             <div class="stat-detail">${escapeHtml(snapshot.healthSummary)}</div>
             <div class="tag-row">
               <span class="tag ${snapshot.healthScore >= 85 ? 'tag-good' : snapshot.healthScore >= 65 ? '' : 'tag-warn'}">Operational ${escapeHtml(String(snapshot.healthScore))}</span>
-              <span class="tag ${snapshot.score.outcome.score >= 75 ? 'tag-good' : snapshot.score.outcome.score >= 55 ? '' : 'tag-warn'}">Outcome completeness ${escapeHtml(String(snapshot.score.outcome.score))}%</span>
+              <span class="tag ${outcome.score >= 75 ? 'tag-good' : outcome.score >= 55 ? '' : 'tag-warn'}">Outcome completeness ${escapeHtml(String(outcome.score))}%</span>
             </div>
           </article>
           <article class="panel-card score-outcome-card">
             <p class="section-kicker">Desired outcome</p>
             <h3>What the project says it is trying to become</h3>
-            <div class="stat-detail">${escapeHtml(snapshot.score.outcome.desiredOutcome)}</div>
+            <div class="stat-detail">${escapeHtml(outcome.desiredOutcome)}</div>
             <div class="mini-grid">
-              ${renderMetricPill('References resolved', `${snapshot.score.outcome.referenceCoveragePercent}%`)}
-              ${renderMetricPill('Roadmap progress', snapshot.score.outcome.roadmapTotal > 0 ? `${snapshot.score.outcome.roadmapCompleted}/${snapshot.score.outcome.roadmapTotal}` : 'No tracked items')}
-              ${renderMetricPill('Run completion', `${snapshot.score.outcome.runCompletionPercent}%`)}
+              ${renderMetricPill('References resolved', `${outcome.referenceCoveragePercent}%`, { tone: outcome.referenceCoveragePercent >= 100 ? 'good' : outcome.referenceCoveragePercent >= 60 ? 'accent' : 'warn', meter: outcome.referenceCoveragePercent, action: { page: 'ssot', hint: 'Go to SSOT' } })}
+              ${renderMetricPill('Roadmap progress', outcome.roadmapTotal > 0 ? `${outcome.roadmapCompleted}/${outcome.roadmapTotal}` : 'No tracked items', { tone: outcome.roadmapTotal === 0 ? 'warn' : roadmapPercent >= 50 ? 'good' : 'accent', meter: roadmapPercent, action: { page: 'roadmap', hint: 'Go to Roadmap' } })}
+              ${renderMetricPill('Run completion', `${outcome.runCompletionPercent}%`, { tone: outcome.runCompletionPercent >= 75 ? 'good' : outcome.runCompletionPercent >= 40 ? 'accent' : 'warn', meter: outcome.runCompletionPercent, action: { page: 'runtime', hint: 'Go to Runtime' } })}
             </div>
           </article>
         </div>
@@ -1001,29 +1038,44 @@
   }
 
   function renderRepo(snapshot) {
+    const r = snapshot.repo;
+    const changed = r.modified + r.staged + r.untracked;
+    const scm = { command: 'workbench.view.scm', hint: 'Open Source Control' };
     return `
       <section class="page-section ${state.activePage === 'repo' ? 'active' : ''}">
+        ${renderPageIntro({
+          kicker: 'Repository',
+          title: 'Working tree at a glance',
+          summary: `On ${escapeHtml(snapshot.currentBranch)} — ${r.dirty ? `${changed} file${changed === 1 ? '' : 's'} differ from HEAD` : 'the working tree is clean'}${r.behind ? `, ${r.behind} commit${r.behind === 1 ? '' : 's'} behind upstream` : ''}${r.ahead ? `, ${r.ahead} ahead` : ''}. ${r.branchCount} local branch${r.branchCount === 1 ? '' : 'es'}. Click any card to open it in Source Control.`,
+          chips: [
+            { label: r.dirty ? `${changed} uncommitted` : 'Clean tree', tone: r.dirty ? 'warn' : 'good' },
+            { label: r.behind ? `${r.behind} behind` : 'Up to date', tone: r.behind ? 'warn' : 'good' },
+            { label: `${r.ahead} ahead`, tone: r.ahead ? 'accent' : undefined },
+          ],
+          action: scm,
+          actionLabel: 'Open Source Control',
+        })}
         <div class="panel-grid">
           <article class="panel-card">
             <p class="section-kicker">Repo state</p>
             <h3>Working tree</h3>
             <div class="mini-grid">
-              ${renderMetricPill('Ahead', String(snapshot.repo.ahead))}
-              ${renderMetricPill('Behind', String(snapshot.repo.behind))}
-              ${renderMetricPill('Staged files', String(snapshot.repo.staged))}
-              ${renderMetricPill('Modified files', String(snapshot.repo.modified))}
-              ${renderMetricPill('Untracked files', String(snapshot.repo.untracked))}
-              ${renderMetricPill('Local branches', String(snapshot.repo.branchCount))}
+              ${renderMetricPill('Ahead', String(r.ahead), { tone: r.ahead ? 'accent' : undefined, action: scm })}
+              ${renderMetricPill('Behind', String(r.behind), { tone: r.behind ? 'warn' : 'good', action: scm })}
+              ${renderMetricPill('Staged files', String(r.staged), { tone: r.staged ? 'accent' : undefined, action: scm })}
+              ${renderMetricPill('Modified files', String(r.modified), { tone: r.modified ? 'warn' : 'good', action: scm })}
+              ${renderMetricPill('Untracked files', String(r.untracked), { tone: r.untracked ? 'warn' : undefined, action: scm })}
+              ${renderMetricPill('Local branches', String(r.branchCount), { tone: 'accent' })}
             </div>
             <div class="tag-row">
-              <button type="button" class="action-link" data-action="command" data-payload="workbench.view.scm">Open Source Control</button>
+              <button type="button" class="action-link" data-action="command" data-payload="workbench.view.scm">⎇ Open Source Control</button>
             </div>
           </article>
           <article class="panel-card">
             <p class="section-kicker">Recent commits</p>
             <h3>Latest changes</h3>
             <div class="stack-list">
-              ${snapshot.repo.commits.length > 0 ? snapshot.repo.commits.map(commit => `
+              ${r.commits.length > 0 ? r.commits.map(commit => `
                 <div class="recent-item">
                   <div class="row-head">
                     <strong>${escapeHtml(commit.subject)}</strong>
@@ -1039,14 +1091,14 @@
             <p class="section-kicker">Branches</p>
             <h3>Most recently touched</h3>
             <div class="stack-list">
-              ${snapshot.repo.branches.length > 0 ? snapshot.repo.branches.map(branch => `
-                <button type="button" class="branch-card">
+              ${r.branches.length > 0 ? r.branches.map(branch => `
+                <button type="button" class="branch-card" data-action="command" data-payload="workbench.view.scm" title="Open Source Control">
                   <div class="row-head">
-                    <h4>${escapeHtml(branch.name)}${branch.current ? ' <span class="tag">current</span>' : ''}</h4>
+                    <h4>${escapeHtml(branch.name)}${branch.current ? ' <span class="tag tag-good">● current</span>' : ''}</h4>
                     <span class="list-meta">${escapeHtml(branch.lastCommitRelative)}</span>
                   </div>
                   <div class="list-meta">${escapeHtml(branch.subject || 'No commit message available.')}</div>
-                  <div class="tag-row">${branch.upstream ? `<span class="tag mono">${escapeHtml(branch.upstream)}</span>` : '<span class="tag">No upstream</span>'}</div>
+                  <div class="tag-row">${branch.upstream ? `<span class="tag mono">${escapeHtml(branch.upstream)}</span>` : '<span class="tag tag-warn">No upstream</span>'}</div>
                 </button>`).join('') : '<div class="dashboard-empty">No branches available.</div>'}
             </div>
           </article>
@@ -1054,10 +1106,10 @@
             <p class="section-kicker">Signals</p>
             <h3>Review focus</h3>
             <div class="signal-grid">
-              ${renderSignalCard('Repo cleanliness', !snapshot.repo.dirty, snapshot.repo.dirty ? 'Local changes are still pending review or commit.' : 'Working tree is clean right now.')}
-              ${renderSignalCard('Branch drift', snapshot.repo.behind === 0, snapshot.repo.behind === 0 ? 'Current branch is not behind its upstream.' : `${snapshot.repo.behind} upstream commit(s) are still missing locally.`)}
-              ${renderSignalCard('Change size', snapshot.repo.modified + snapshot.repo.staged + snapshot.repo.untracked <= 12, `${snapshot.repo.modified + snapshot.repo.staged + snapshot.repo.untracked} file(s) currently differ from HEAD.`)}
-              ${renderSignalCard('Commit cadence', snapshot.charts.commits.some(point => point.value > 0), 'Chart activity reflects recent local commit history.')}
+              ${renderSignalCard('Repo cleanliness', !r.dirty, r.dirty ? 'Local changes are still pending review or commit.' : 'Working tree is clean right now.', { command: 'workbench.view.scm', hint: 'Open Source Control' })}
+              ${renderSignalCard('Branch drift', r.behind === 0, r.behind === 0 ? 'Current branch is not behind its upstream.' : `${r.behind} upstream commit(s) are still missing locally.`, { command: 'workbench.view.scm', hint: 'Open Source Control' })}
+              ${renderSignalCard('Change size', changed <= 12, `${changed} file(s) currently differ from HEAD.`, { command: 'workbench.view.scm', hint: 'Review changes' })}
+              ${renderSignalCard('Commit cadence', snapshot.charts.commits.some(point => point.value > 0), 'Chart activity reflects recent local commit history.', { page: 'overview', hint: 'View activity charts' })}
             </div>
           </article>
         </div>
@@ -1066,54 +1118,69 @@
   }
 
   function renderRuntime(snapshot) {
+    const rt = snapshot.runtime;
+    const providersHealthy = rt.healthyProviders === rt.totalProviders && rt.totalProviders > 0;
     return `
       <section class="page-section ${state.activePage === 'runtime' ? 'active' : ''}">
+        ${renderPageIntro({
+          kicker: 'Atlas runtime',
+          title: 'What Atlas can do right now',
+          summary: `${rt.enabledAgents}/${rt.totalAgents} agents and ${rt.enabledModels}/${rt.totalModels} models enabled, ${rt.healthyProviders}/${rt.totalProviders} providers healthy. ${rt.projectRunCount} project run${rt.projectRunCount === 1 ? '' : 's'} and ${rt.sessionCount} chat session${rt.sessionCount === 1 ? '' : 's'} tracked. Autopilot is ${rt.autopilot ? 'on' : 'off'}. Click any card to jump to the matching surface.`,
+          chips: [
+            { label: providersHealthy ? 'Providers healthy' : `${rt.healthyProviders}/${rt.totalProviders} providers`, tone: providersHealthy ? 'good' : 'warn' },
+            { label: `${rt.enabledModels} models`, tone: rt.enabledModels >= 3 ? 'good' : 'warn' },
+            { label: rt.autopilot ? 'Autopilot on' : 'Autopilot off', tone: rt.autopilot ? 'warn' : 'good' },
+            { label: `TDD ${rt.tdd.tone === 'good' ? 'healthy' : 'needs attention'}`, tone: rt.tdd.tone === 'good' ? 'good' : rt.tdd.tone === 'critical' ? 'critical' : 'warn' },
+          ],
+          action: { command: 'atlasmind.openProjectRunCenter' },
+          actionLabel: 'Open Project Run Center',
+        })}
         <div class="runtime-grid">
           <article class="panel-card">
             <p class="section-kicker">Atlas runtime</p>
             <h3>Capability coverage</h3>
             <div class="mini-grid">
-              ${renderMetricPill('Enabled agents', `${snapshot.runtime.enabledAgents}/${snapshot.runtime.totalAgents}`)}
-              ${renderMetricPill('Enabled skills', `${snapshot.runtime.enabledSkills}/${snapshot.runtime.totalSkills}`)}
-              ${renderMetricPill('Healthy providers', `${snapshot.runtime.healthyProviders}/${snapshot.runtime.totalProviders}`)}
-              ${renderMetricPill('Enabled models', `${snapshot.runtime.enabledModels}/${snapshot.runtime.totalModels}`)}
-              ${renderMetricPill('Sessions', String(snapshot.runtime.sessionCount))}
-              ${renderMetricPill('Project runs', String(snapshot.runtime.projectRunCount))}
+              ${renderMetricPill('Enabled agents', `${rt.enabledAgents}/${rt.totalAgents}`, { tone: rt.enabledAgents > 0 ? 'good' : 'warn', meter: rt.totalAgents ? Math.round((rt.enabledAgents / rt.totalAgents) * 100) : 0, action: { command: 'atlasmind.openAgentPanel', hint: 'Manage agents' } })}
+              ${renderMetricPill('Enabled skills', `${rt.enabledSkills}/${rt.totalSkills}`, { tone: rt.enabledSkills > 0 ? 'good' : 'warn', meter: rt.totalSkills ? Math.round((rt.enabledSkills / rt.totalSkills) * 100) : 0 })}
+              ${renderMetricPill('Healthy providers', `${rt.healthyProviders}/${rt.totalProviders}`, { tone: providersHealthy ? 'good' : 'warn', meter: rt.totalProviders ? Math.round((rt.healthyProviders / rt.totalProviders) * 100) : 0, action: { command: 'atlasmind.openModelProviders', hint: 'Model providers' } })}
+              ${renderMetricPill('Enabled models', `${rt.enabledModels}/${rt.totalModels}`, { tone: rt.enabledModels >= 3 ? 'good' : 'warn', meter: rt.totalModels ? Math.round((rt.enabledModels / rt.totalModels) * 100) : 0, action: { command: 'atlasmind.openModelProviders', hint: 'Model providers' } })}
+              ${renderMetricPill('Sessions', String(rt.sessionCount), { tone: 'accent', action: { command: 'atlasmind.openChatView', hint: 'Open chat' } })}
+              ${renderMetricPill('Project runs', String(rt.projectRunCount), { tone: 'accent', action: { command: 'atlasmind.openProjectRunCenter', hint: 'Run Center' } })}
             </div>
             <div class="tag-row">
-              <button type="button" class="action-link" data-action="command" data-payload="atlasmind.openAgentPanel">Manage agents</button>
-              <button type="button" class="action-link" data-action="command" data-payload="atlasmind.openModelProviders">Model providers</button>
+              <button type="button" class="action-link" data-action="command" data-payload="atlasmind.openAgentPanel">🤖 Manage agents</button>
+              <button type="button" class="action-link" data-action="command" data-payload="atlasmind.openModelProviders">🔌 Model providers</button>
             </div>
           </article>
           <article class="panel-card">
             <p class="section-kicker">Session economics</p>
             <h3>Cost and usage</h3>
             <div class="mini-grid">
-              ${renderMetricPill('Total cost', formatCurrency(snapshot.runtime.totalCostUsd))}
-              ${renderMetricPill('Requests', String(snapshot.runtime.totalRequests))}
-              ${renderMetricPill('Input tokens', formatNumber(snapshot.runtime.totalInputTokens))}
-              ${renderMetricPill('Output tokens', formatNumber(snapshot.runtime.totalOutputTokens))}
-              ${renderMetricPill('Autopilot', snapshot.runtime.autopilot ? 'Enabled' : 'Disabled')}
+              ${renderMetricPill('Total cost', formatCurrency(rt.totalCostUsd), { tone: 'accent', action: { command: 'atlasmind.openCostDashboard', hint: 'Cost dashboard' } })}
+              ${renderMetricPill('Requests', String(rt.totalRequests), { action: { command: 'atlasmind.openCostDashboard', hint: 'Cost dashboard' } })}
+              ${renderMetricPill('Input tokens', formatNumber(rt.totalInputTokens))}
+              ${renderMetricPill('Output tokens', formatNumber(rt.totalOutputTokens))}
+              ${renderMetricPill('Autopilot', rt.autopilot ? 'Enabled' : 'Disabled', { tone: rt.autopilot ? 'warn' : 'good', action: { command: 'atlasmind.toggleAutopilot', hint: 'Toggle Autopilot' } })}
             </div>
             <div class="tag-row">
-              <button type="button" class="action-link" data-action="command" data-payload="atlasmind.toggleAutopilot">Toggle Autopilot</button>
-              <button type="button" class="action-link" data-action="command" data-payload="atlasmind.openChatView">Open chat</button>
+              <button type="button" class="action-link" data-action="command" data-payload="atlasmind.toggleAutopilot">⚡ Toggle Autopilot</button>
+              <button type="button" class="action-link" data-action="command" data-payload="atlasmind.openChatView">💬 Open chat</button>
             </div>
           </article>
           <article class="panel-card">
             <p class="section-kicker">TDD compliance</p>
             <h3>Recent project-run posture</h3>
             <div class="signal-grid">
-              ${renderSignalCard('TDD summary', snapshot.runtime.tdd.tone === 'good', snapshot.runtime.tdd.summary)}
-              ${renderSignalCard('Verified subtasks', snapshot.runtime.tdd.verified > 0, `${snapshot.runtime.tdd.verified} verified subtask(s) recorded.`)}
-              ${renderSignalCard('Blocked subtasks', snapshot.runtime.tdd.blocked === 0, `${snapshot.runtime.tdd.blocked} blocked subtask(s) recorded.`)}
-              ${renderSignalCard('Missing evidence', snapshot.runtime.tdd.missing === 0, `${snapshot.runtime.tdd.missing} subtask(s) are missing TDD evidence.`)}
+              ${renderSignalCard('TDD summary', rt.tdd.tone === 'good', rt.tdd.summary, { command: 'atlasmind.openProjectRunCenter', hint: 'Open Run Center' })}
+              ${renderSignalCard('Verified subtasks', rt.tdd.verified > 0, `${rt.tdd.verified} verified subtask(s) recorded.`, { command: 'atlasmind.openProjectRunCenter', hint: 'Open Run Center' })}
+              ${renderSignalCard('Blocked subtasks', rt.tdd.blocked === 0, `${rt.tdd.blocked} blocked subtask(s) recorded.`, rt.tdd.blocked > 0 ? { prompt: buildTddChatPrompt(rt.tdd), hint: 'Ask Atlas to fix' } : { command: 'atlasmind.openProjectRunCenter', hint: 'Open Run Center' })}
+              ${renderSignalCard('Missing evidence', rt.tdd.missing === 0, `${rt.tdd.missing} subtask(s) are missing TDD evidence.`, rt.tdd.missing > 0 ? { prompt: buildTddChatPrompt(rt.tdd), hint: 'Ask Atlas to fix' } : { command: 'atlasmind.openProjectRunCenter', hint: 'Open Run Center' })}
             </div>
-            <div class="stat-detail">${escapeHtml(snapshot.runtime.tdd.detail)}</div>
+            <div class="stat-detail">${escapeHtml(rt.tdd.detail)}</div>
             <div class="tag-row">
-              ${snapshot.runtime.tdd.missing > 0 || snapshot.runtime.tdd.blocked > 0 ? `
-              <button type="button" class="action-link" data-action="prompt" data-payload="${escapeAttr(buildTddChatPrompt(snapshot.runtime.tdd))}">Ask Atlas to fix TDD gaps</button>
-              <button type="button" class="action-link" data-action="run-with-goal" data-payload="${escapeAttr(buildTddRunGoal(snapshot.runtime.tdd))}">Plan a TDD fix run</button>
+              ${rt.tdd.missing > 0 || rt.tdd.blocked > 0 ? `
+              <button type="button" class="action-link" data-action="prompt" data-payload="${escapeAttr(buildTddChatPrompt(rt.tdd))}">🔧 Ask Atlas to fix TDD gaps</button>
+              <button type="button" class="action-link" data-action="run-with-goal" data-payload="${escapeAttr(buildTddRunGoal(rt.tdd))}">▶ Plan a TDD fix run</button>
               ` : ''}
               <button type="button" class="action-link" data-action="command" data-payload="atlasmind.openProjectRunCenter">Open Project Run Center</button>
             </div>
@@ -1201,39 +1268,31 @@
       items: filteredTests.filter(test => test.category === key),
     })).filter(group => group.items.length > 0);
 
+    const testCount = testing.tests.length || testing.totalCases;
+    const testingStats = [
+      { id: 'fw', label: 'Framework', value: testing.frameworkLabel, detail: 'Detected from scripts and dependencies.', tone: 'accent', command: 'atlasmind.openSettingsTesting' },
+      { id: 'policy', label: 'Testing policy', value: testing.testingPolicyLabel || 'Red-Green TDD', detail: testing.testingPolicyDetail || 'Default Atlas tests-first policy.', tone: 'accent', command: 'atlasmind.openSettingsTesting' },
+      { id: 'files', label: 'Discovered files', value: String(testing.totalFiles), detail: `${testing.unitFiles} unit • ${testing.integrationFiles} integration • ${testing.e2eFiles} e2e`, tone: testing.totalFiles > 0 ? 'good' : 'warn', command: 'atlasmind.openSettingsTesting' },
+      { id: 'tests', label: 'Individual tests', value: String(testCount), detail: `${testing.totalSuites} suites, ${testing.averageCasesPerFile} avg cases/file`, tone: testCount > 0 ? 'good' : 'warn' },
+      { id: 'cov', label: 'Coverage', value: testing.coveragePercent || '—', detail: testing.coverageDetail, tone: testing.coveragePercent ? 'good' : 'accent', command: 'atlasmind.openSettingsTesting' },
+      { id: 'verify', label: 'Verification', value: testing.verificationEnabled ? 'On' : 'Off', detail: (testing.verificationScripts || []).join(', ') || 'No scripts configured', tone: testing.verificationEnabled ? 'good' : 'warn', command: 'atlasmind.openSettingsSafety' },
+    ];
     return `
       <section class="page-section ${state.activePage === 'testing' ? 'active' : ''}">
+        ${renderPageIntro({
+          kicker: 'Testing intelligence',
+          title: 'How this project proves itself',
+          summary: `${testing.frameworkLabel} with ${testing.totalFiles} test file${testing.totalFiles === 1 ? '' : 's'} and ${testCount} individual test${testCount === 1 ? '' : 's'}. Policy: ${testing.testingPolicyLabel || 'Red-Green TDD'}. Verification is ${testing.verificationEnabled ? 'on' : 'off'}. Tap a card to open the matching settings, or browse every test below.`,
+          chips: [
+            { label: `${testing.totalFiles} files`, tone: testing.totalFiles > 0 ? 'good' : 'warn' },
+            { label: testing.verificationEnabled ? 'Verification on' : 'Verification off', tone: testing.verificationEnabled ? 'good' : 'warn' },
+            { label: testing.coveragePercent ? `Coverage ${testing.coveragePercent}` : 'No coverage report', tone: testing.coveragePercent ? 'good' : 'accent' },
+          ],
+          action: { command: 'atlasmind.openSettingsTesting' },
+          actionLabel: 'Testing settings',
+        })}
         <div class="stats-grid">
-          <article class="stat-card">
-            <span class="stat-label">Framework</span>
-            <span class="stat-value">${escapeHtml(testing.frameworkLabel)}</span>
-            <div class="stat-meta">Detected from scripts and dependencies.</div>
-          </article>
-          <article class="stat-card">
-            <span class="stat-label">Testing policy</span>
-            <span class="stat-value">${escapeHtml(testing.testingPolicyLabel || 'Red-Green TDD')}</span>
-            <div class="stat-meta">${escapeHtml(testing.testingPolicyDetail || 'Default Atlas tests-first policy.')}</div>
-          </article>
-          <article class="stat-card">
-            <span class="stat-label">Discovered files</span>
-            <span class="stat-value">${escapeHtml(String(testing.totalFiles))}</span>
-            <div class="stat-meta">${escapeHtml(`${testing.unitFiles} unit • ${testing.integrationFiles} integration • ${testing.e2eFiles} e2e`)}</div>
-          </article>
-          <article class="stat-card">
-            <span class="stat-label">Individual tests</span>
-            <span class="stat-value">${escapeHtml(String(testing.tests.length || testing.totalCases))}</span>
-            <div class="stat-meta">${escapeHtml(`${testing.totalSuites} suites, ${testing.averageCasesPerFile} avg cases/file`)}</div>
-          </article>
-          <article class="stat-card">
-            <span class="stat-label">Coverage</span>
-            <span class="stat-value">${escapeHtml(testing.coveragePercent || '—')}</span>
-            <div class="stat-meta">${escapeHtml(testing.coverageDetail)}</div>
-          </article>
-          <article class="stat-card">
-            <span class="stat-label">Verification</span>
-            <span class="stat-value">${escapeHtml(testing.verificationEnabled ? 'On' : 'Off')}</span>
-            <div class="stat-meta">${escapeHtml((testing.verificationScripts || []).join(', ') || 'No scripts configured')}</div>
-          </article>
+          ${testingStats.map(stat => renderStatCard(stat)).join('')}
         </div>
 
         <div class="panel-grid">
@@ -1472,21 +1531,35 @@
     const totalDelta = delta ? delta.totalDelta : 0;
     const deltaStatusLabel = totalDelta === 0 ? 'In sync' : `${totalDelta} item${totalDelta === 1 ? '' : 's'} need attention`;
     const deltaCardClass = totalDelta === 0 ? 'good' : 'warn';
+    const ssot = snapshot.ssot;
+    const recentFileTarget = ssot.recentFiles[0] ? ssot.recentFiles[0].path : `${ssot.path}/project_soul.md`;
     return `
       <section class="page-section ${state.activePage === 'ssot' ? 'active' : ''}">
+        ${renderPageIntro({
+          kicker: 'Single source of truth',
+          title: 'Project memory health',
+          summary: `${ssot.totalEntries} indexed entr${ssot.totalEntries === 1 ? 'y' : 'ies'} across ${ssot.coveragePercent}% of the SSOT directories${ssot.blockedEntries > 0 ? `, with ${ssot.blockedEntries} blocked entr${ssot.blockedEntries === 1 ? 'y' : 'ies'} Atlas is excluding` : ''}${ssot.warnedEntries > 0 ? ` and ${ssot.warnedEntries} warned` : ''}. ${totalDelta === 0 ? 'Documentation is in sync.' : `${totalDelta} area${totalDelta === 1 ? '' : 's'} need a memory refresh.`}`,
+          chips: [
+            { label: `${ssot.coveragePercent}% coverage`, tone: ssot.coveragePercent >= 80 ? 'good' : 'warn' },
+            { label: ssot.blockedEntries > 0 ? `${ssot.blockedEntries} blocked` : 'No blocked entries', tone: ssot.blockedEntries > 0 ? 'critical' : 'good' },
+            { label: totalDelta === 0 ? 'In sync' : `${totalDelta} to sync`, tone: totalDelta === 0 ? 'good' : 'warn' },
+          ],
+          action: { command: 'atlasmind.updateProjectMemory' },
+          actionLabel: 'Sync SSOT now',
+        })}
         <div class="panel-grid">
           <article class="panel-card">
             <p class="section-kicker">SSOT shape</p>
-            <h3>${escapeHtml(snapshot.ssot.path)}</h3>
+            <h3>${escapeHtml(ssot.path)}</h3>
             <div class="mini-grid">
-              ${renderMetricPill('Indexed entries', String(snapshot.ssot.totalEntries))}
-              ${renderMetricPill('Disk files', String(snapshot.ssot.totalFilesOnDisk))}
-              ${renderMetricPill('Coverage', `${snapshot.ssot.coveragePercent}%`)}
-              ${renderMetricPill('Warned entries', String(snapshot.ssot.warnedEntries))}
-              ${renderMetricPill('Blocked entries', String(snapshot.ssot.blockedEntries))}
+              ${renderMetricPill('Indexed entries', String(ssot.totalEntries), { tone: ssot.totalEntries > 0 ? 'good' : 'warn', action: { file: recentFileTarget, hint: 'Open recent SSOT file' } })}
+              ${renderMetricPill('Disk files', String(ssot.totalFilesOnDisk), { tone: 'accent' })}
+              ${renderMetricPill('Coverage', `${ssot.coveragePercent}%`, { tone: ssot.coveragePercent >= 80 ? 'good' : 'warn', meter: ssot.coveragePercent })}
+              ${renderMetricPill('Warned entries', String(ssot.warnedEntries), { tone: ssot.warnedEntries > 0 ? 'warn' : 'good', action: ssot.warnedEntries > 0 ? { prompt: 'Review the warned SSOT memory entries flagged by the dashboard and tighten or sanitize the first one, then summarize what remains.', hint: 'Review with Atlas' } : undefined })}
+              ${renderMetricPill('Blocked entries', String(ssot.blockedEntries), { tone: ssot.blockedEntries > 0 ? 'critical' : 'good', action: ssot.blockedEntries > 0 ? { prompt: 'Resolve the blocked SSOT memory entries the dashboard is excluding: inspect the blocked material, make the smallest safe change that clears at least the first one, and summarize any that remain.', hint: 'Resolve with Atlas' } : undefined })}
             </div>
             <div class="tag-row">
-              <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(snapshot.ssot.recentFiles[0] ? snapshot.ssot.recentFiles[0].path : `${snapshot.ssot.path}/project_soul.md`)}">Open recent SSOT file</button>
+              <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(recentFileTarget)}">📄 Open recent SSOT file</button>
             </div>
           </article>
           <article class="panel-card">
@@ -1531,6 +1604,7 @@
     const roadmap = snapshot.roadmap || { items: [], nextSuggestedWork: [], completedCount: 0, outstandingCount: 0, filePath: 'project_memory/roadmap/improvement-plan.md' };
     return `
       <section class="page-section ${state.activePage === 'roadmap' ? 'active' : ''}">
+        ${renderMvpSection(roadmap)}
         <div class="panel-grid">
           <article class="panel-card">
             <p class="section-kicker">Developer roadmap</p>
@@ -1578,17 +1652,114 @@
       return renderRoadmapEditor(item.id);
     }
     return `
-      <div class="recent-item roadmap-item" draggable="true" data-roadmap-id="${escapeAttr(item.id)}">
+      <div class="recent-item roadmap-item ${item.isMvp ? 'is-mvp' : ''}" draggable="true" data-roadmap-id="${escapeAttr(item.id)}">
         <div class="row-head">
           <strong>${escapeHtml(item.text)}</strong>
-          <span class="tag ${item.completed ? 'tag-good' : item.focus === 'security' ? 'tag-critical' : item.focus === 'architecture' ? 'tag-warn' : ''}">${escapeHtml(item.completed ? 'done' : item.focus)}</span>
+          <span class="tag-group">
+            ${item.isMvp ? '<span class="tag tag-mvp">MVP</span>' : ''}
+            <span class="tag ${item.completed ? 'tag-good' : item.focus === 'security' ? 'tag-critical' : item.focus === 'architecture' ? 'tag-warn' : ''}">${escapeHtml(item.completed ? 'done' : item.focus)}</span>
+          </span>
         </div>
         <div class="list-meta">${escapeHtml(item.priorityReason)}</div>
         <div class="tag-row">
+          <button type="button" class="action-link" data-action="roadmap-mvp-toggle" data-payload="${escapeAttr(item.id)}">${item.isMvp ? 'Unmark MVP' : 'Mark MVP'}</button>
           <button type="button" class="action-link" data-action="roadmap-toggle" data-payload="${escapeAttr(item.id)}">${item.completed ? 'Mark active' : 'Mark done'}</button>
           <button type="button" class="action-link" data-action="roadmap-edit" data-payload="${escapeAttr(item.id)}">Edit</button>
           <button type="button" class="action-link" data-action="roadmap-delete" data-payload="${escapeAttr(item.id)}">Delete</button>
         </div>
+      </div>
+    `;
+  }
+
+  function renderMvpSection(roadmap) {
+    const mvp = roadmap.mvp || { route: [], candidates: [], totalCount: 0, completedCount: 0, progressPercent: 0, hasTaggedItems: false, summary: '', planPrompt: '' };
+    const route = Array.isArray(mvp.route) ? mvp.route : [];
+    const candidates = Array.isArray(mvp.candidates) ? mvp.candidates : [];
+    const outstanding = route.filter(step => !step.completed);
+    const remaining = Math.max(0, mvp.totalCount - mvp.completedCount);
+    const nextStep = mvp.nextStep;
+    const hasPath = mvp.totalCount > 0;
+    return `
+      <div class="panel-grid mvp-grid">
+        <article class="panel-card mvp-card">
+          <p class="section-kicker">Road to MVP</p>
+          <h3>Minimum viable product</h3>
+          <div class="stat-detail">${escapeHtml(mvp.summary || '')}</div>
+          ${hasPath ? `
+            <div class="mini-grid">
+              ${renderMetricPill('On path', String(mvp.totalCount))}
+              ${renderMetricPill('Completed', String(mvp.completedCount))}
+              ${renderMetricPill('Remaining', String(remaining))}
+              ${renderMetricPill('To MVP', `${mvp.progressPercent}%`)}
+            </div>
+            <div class="mvp-progress" role="progressbar" aria-valuenow="${mvp.progressPercent}" aria-valuemin="0" aria-valuemax="100" aria-label="Progress to MVP">
+              <div class="mvp-progress-fill" style="width:${Math.max(0, Math.min(100, mvp.progressPercent))}%"></div>
+            </div>
+            ${renderMvpTrack(route)}
+            ${!mvp.hasTaggedItems ? '<div class="list-meta">These are suggested foundations. Use “Mark MVP” on a backlog item below to define your own MVP path.</div>' : ''}
+          ` : `
+            <div class="dashboard-empty">No MVP path defined yet. Tag the backlog items that make up your minimum viable product with “Mark MVP”, or let Atlas suggest a route.</div>
+          `}
+          <div class="tag-row">
+            <button type="button" class="action-link" data-action="prompt" data-payload="${escapeAttr(mvp.planPrompt || '')}">Plan the MVP route with Atlas</button>
+            <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(roadmap.filePath)}">Open roadmap file</button>
+          </div>
+        </article>
+        <article class="panel-card mvp-card">
+          <p class="section-kicker">AI-assisted route</p>
+          <h3>Best route to get there</h3>
+          ${nextStep ? `
+            <div class="mvp-next-callout">
+              <span class="mvp-next-kicker">Next step</span>
+              <strong>${escapeHtml(nextStep.text)}</strong>
+              <span class="list-meta">${escapeHtml(nextStep.rationale)}</span>
+            </div>` : (hasPath ? '<div class="list-meta">Every MVP milestone is complete — choose the next outcome to pursue.</div>' : '')}
+          <div class="stack-list">
+            ${outstanding.length > 0
+              ? outstanding.map(step => `
+                <div class="recent-item">
+                  <div class="row-head">
+                    <strong>${escapeHtml(`${step.order}. ${step.text}`)}</strong>
+                    <span class="tag">${escapeHtml(step.focus)}</span>
+                  </div>
+                  <div class="list-meta">${escapeHtml(step.rationale)}</div>
+                </div>`).join('')
+              : (hasPath ? '' : '<div class="dashboard-empty">Once items are on the MVP path, the recommended route appears here.</div>')}
+          </div>
+          ${candidates.length > 0 ? `
+            <p class="section-kicker">Suggested for MVP</p>
+            <div class="stack-list">
+              ${candidates.map(step => `
+                <div class="recent-item">
+                  <div class="row-head">
+                    <strong>${escapeHtml(step.text)}</strong>
+                    <button type="button" class="action-link" data-action="roadmap-mvp-add" data-payload="${escapeAttr(step.id)}">Add to MVP</button>
+                  </div>
+                  <div class="list-meta">${escapeHtml(step.rationale)}</div>
+                </div>`).join('')}
+            </div>` : ''}
+        </article>
+      </div>
+    `;
+  }
+
+  function renderMvpTrack(route) {
+    if (!Array.isArray(route) || route.length === 0) {
+      return '';
+    }
+    const firstOutstanding = route.find(step => !step.completed);
+    const activeId = firstOutstanding ? firstOutstanding.id : '';
+    return `
+      <div class="mvp-track" role="list" aria-label="MVP milestones">
+        ${route.map(step => {
+          const stateClass = step.completed ? 'done' : (step.id === activeId ? 'active' : 'pending');
+          const marker = step.completed ? '✓' : String(step.order);
+          return `
+            <div class="mvp-node ${stateClass}" role="listitem" title="${escapeAttr(step.text)}">
+              <span class="mvp-node-dot">${escapeHtml(marker)}</span>
+              <span class="mvp-node-label">${escapeHtml(step.text)}</span>
+            </div>`;
+        }).join('')}
       </div>
     `;
   }
@@ -1619,9 +1790,9 @@
       return;
     }
 
-    const items = getRoadmapItems().map(item => ({ id: item.id, text: item.text, completed: !!item.completed }));
+    const items = getRoadmapItems().map(item => ({ id: item.id, text: item.text, completed: !!item.completed, isMvp: !!item.isMvp }));
     if (state.editingRoadmapId === 'new') {
-      items.unshift({ id: createRoadmapItemId(text), text, completed: false });
+      items.unshift({ id: createRoadmapItemId(text), text, completed: false, isMvp: false });
     } else {
       const target = items.find(item => item.id === state.editingRoadmapId);
       if (target) {
@@ -1642,6 +1813,7 @@
           id: item.id || `roadmap-${index + 1}`,
           text: item.text,
           completed: !!item.completed,
+          isMvp: !!item.isMvp,
         })),
       },
     });
@@ -1651,7 +1823,7 @@
     if (!sourceId || !targetId || sourceId === targetId) {
       return;
     }
-    const items = getRoadmapItems().map(item => ({ id: item.id, text: item.text, completed: !!item.completed }));
+    const items = getRoadmapItems().map(item => ({ id: item.id, text: item.text, completed: !!item.completed, isMvp: !!item.isMvp }));
     const fromIndex = items.findIndex(item => item.id === sourceId);
     const toIndex = items.findIndex(item => item.id === targetId);
     if (fromIndex < 0 || toIndex < 0) {
@@ -1668,43 +1840,60 @@
   }
 
   function renderSecurity(snapshot) {
+    const sec = snapshot.security;
+    const assetsPresent = [sec.securityPolicyPresent, sec.codeownersPresent, sec.prTemplatePresent, sec.issueTemplateCount > 0].filter(Boolean).length;
+    const fileSignal = (label, present, presentDetail, missingDetail, filePath, createPrompt) => renderSignalCard(
+      label,
+      present,
+      present ? presentDetail : missingDetail,
+      present ? { file: filePath, hint: `Open ${label}` } : { prompt: createPrompt, hint: 'Create with Atlas' },
+    );
     return `
       <section class="page-section ${state.activePage === 'security' ? 'active' : ''}">
+        ${renderPageIntro({
+          kicker: 'Security posture',
+          title: 'Guardrails, governance, and review controls',
+          summary: `Write approval is “${sec.toolApprovalMode}” and terminal writes are ${sec.allowTerminalWrite ? 'allowed' : 'blocked'}. ${assetsPresent}/4 governance assets are in place and ${sec.governanceProviders.length} dependency monitor${sec.governanceProviders.length === 1 ? '' : 's'} detected. Click any card to open or create the item it describes.`,
+          chips: [
+            { label: `Approval: ${sec.toolApprovalMode}`, tone: 'accent' },
+            { label: sec.allowTerminalWrite ? 'Terminal writes allowed' : 'Terminal writes blocked', tone: sec.allowTerminalWrite ? 'warn' : 'good' },
+            { label: `${assetsPresent}/4 governance assets`, tone: assetsPresent >= 3 ? 'good' : 'warn' },
+          ],
+          action: { command: 'atlasmind.openSettingsSafety' },
+          actionLabel: 'Open safety settings',
+        })}
         <div class="security-grid">
           <article class="panel-card">
             <p class="section-kicker">Execution policy</p>
             <h3>Write guardrails</h3>
             <div class="mini-grid">
-              ${renderMetricPill('Approval mode', snapshot.security.toolApprovalMode)}
-              ${renderMetricPill('Terminal writes', snapshot.security.allowTerminalWrite ? 'Allowed' : 'Blocked')}
-              ${renderMetricPill('Auto verify', snapshot.security.autoVerifyAfterWrite ? 'Enabled' : 'Disabled')}
-              ${renderMetricPill('Verification commands', snapshot.security.autoVerifyScripts)}
+              ${renderMetricPill('Approval mode', sec.toolApprovalMode, { tone: 'accent', action: { command: 'atlasmind.openSettingsSafety', hint: 'Change in safety settings' } })}
+              ${renderMetricPill('Terminal writes', sec.allowTerminalWrite ? 'Allowed' : 'Blocked', { tone: sec.allowTerminalWrite ? 'warn' : 'good', action: { command: 'atlasmind.openSettingsSafety' } })}
+              ${renderMetricPill('Auto verify', sec.autoVerifyAfterWrite ? 'Enabled' : 'Disabled', { tone: sec.autoVerifyAfterWrite ? 'good' : 'warn', action: { command: 'atlasmind.openSettingsSafety' } })}
+              ${renderMetricPill('Verification commands', sec.autoVerifyScripts, { tone: 'accent' })}
             </div>
             <div class="tag-row">
-              <button type="button" class="action-link" data-action="command" data-payload="atlasmind.openSettingsSafety">Safety settings</button>
-              <button type="button" class="action-link" data-action="command" data-payload="atlasmind.openToolWebhooks">Tool webhooks</button>
+              <button type="button" class="action-link" data-action="command" data-payload="atlasmind.openSettingsSafety">⚙ Safety settings</button>
+              <button type="button" class="action-link" data-action="command" data-payload="atlasmind.openToolWebhooks">🪝 Tool webhooks</button>
             </div>
           </article>
           <article class="panel-card">
             <p class="section-kicker">Repository controls</p>
             <h3>Governance assets</h3>
             <div class="signal-grid">
-              ${renderSignalCard('SECURITY.md', snapshot.security.securityPolicyPresent, snapshot.security.securityPolicyPresent ? 'Security policy present.' : 'Repository security policy missing.')}
-              ${renderSignalCard('CODEOWNERS', snapshot.security.codeownersPresent, snapshot.security.codeownersPresent ? 'Ownership rules configured.' : 'CODEOWNERS missing.')}
-              ${renderSignalCard('PR template', snapshot.security.prTemplatePresent, snapshot.security.prTemplatePresent ? 'Pull request checklist detected.' : 'No PR template found.')}
-              ${renderSignalCard('Issue templates', snapshot.security.issueTemplateCount > 0, `${snapshot.security.issueTemplateCount} issue template file(s) detected.`)}
+              ${fileSignal('SECURITY.md', sec.securityPolicyPresent, 'Security policy present — open to review.', 'No repository security policy. Atlas can draft one.', 'SECURITY.md', 'Create a SECURITY.md security policy for this repository that documents supported versions and how to report a vulnerability. Make the smallest useful first version and summarize what to refine next.')}
+              ${fileSignal('CODEOWNERS', sec.codeownersPresent, 'Ownership rules configured.', 'No CODEOWNERS file. Atlas can scaffold one.', '.github/CODEOWNERS', 'Create a .github/CODEOWNERS file mapping the main areas of this repository to sensible owners based on the project structure, then summarize which globs may need adjusting.')}
+              ${fileSignal('PR template', sec.prTemplatePresent, 'Pull request checklist detected.', 'No PR template. Atlas can add a review checklist.', '.github/pull_request_template.md', 'Create a .github/pull_request_template.md with a concise pull-request checklist covering tests, docs, security, and version/changelog for this project.')}
+              ${renderSignalCard('Issue templates', sec.issueTemplateCount > 0, `${sec.issueTemplateCount} issue template file(s) detected.`, sec.issueTemplateCount > 0 ? { prompt: 'Review the GitHub issue templates in .github/ISSUE_TEMPLATE and suggest improvements for clarity and triage.', hint: 'Review with Atlas' } : { prompt: 'Scaffold GitHub issue templates (bug report and feature request) under .github/ISSUE_TEMPLATE for this project.', hint: 'Create with Atlas' })}
             </div>
           </article>
           <article class="panel-card">
             <p class="section-kicker">Governance providers</p>
             <h3>Dependency monitoring</h3>
             <div class="tag-row">
-              ${snapshot.security.governanceProviders.length > 0 ? snapshot.security.governanceProviders.map(provider => `<span class="governance-pill">${escapeHtml(provider)}</span>`).join('') : '<span class="governance-pill">None detected</span>'}
+              ${sec.governanceProviders.length > 0 ? sec.governanceProviders.map(provider => `<span class="governance-pill"><span class="pill-dot"></span>${escapeHtml(provider)}</span>`).join('') : '<span class="governance-pill">None detected</span>'}
             </div>
-            <div class="tag-row">
-              <button type="button" class="action-link" data-action="file" data-payload="SECURITY.md">Open security policy</button>
-              <button type="button" class="action-link" data-action="file" data-payload=".github/CODEOWNERS">Open CODEOWNERS</button>
-            </div>
+            ${renderSignalCard('Automated dependency governance', sec.governanceProviders.length > 0, sec.governanceProviders.length > 0 ? `${sec.governanceProviders.join(', ')} keeping dependencies monitored.` : 'No Dependabot/Renovate-style automation detected.', sec.governanceProviders.length > 0 ? { prompt: `Review this repository's automated dependency governance (${sec.governanceProviders.join(', ')}) and suggest improvements to its update cadence, grouping, and security coverage.`, hint: 'Review with Atlas' } : { prompt: 'Add automated dependency governance (Dependabot or Renovate) to this repository with a minimal, sensible configuration, then summarize what to tune next.', hint: 'Add with Atlas' })}
           </article>
         </div>
       </section>
@@ -1848,6 +2037,15 @@
     const sensitivityOptions = ['confidential', 'proprietary', 'secret'];
     return `
       <section class="page-section ${state.activePage === 'privacy' ? 'active' : ''}">
+        ${renderPageIntro({
+          kicker: 'Data privacy',
+          title: 'Keep confidential data on trusted models',
+          summary: `Enforcement is ${privacy.enabled ? 'on' : 'off'} with ${(privacy.rules || []).length} custom rule${(privacy.rules || []).length === 1 ? '' : 's'}, ${(privacy.compliancePacks || []).length} compliance pack${(privacy.compliancePacks || []).length === 1 ? '' : 's'}, and ${trusted.length} trusted model${trusted.length === 1 ? '' : 's'}. ${privacy.activity ? `${privacy.activity.redactedCount || 0} redaction${(privacy.activity.redactedCount || 0) === 1 ? '' : 's'} recorded.` : ''} Classified content is redacted for every model except the ones you trust below.`.trim(),
+          chips: [
+            { label: privacy.enabled ? 'Enforcement on' : 'Enforcement off', tone: privacy.enabled ? 'good' : 'warn' },
+            { label: `${trusted.length} trusted model${trusted.length === 1 ? '' : 's'}`, tone: trusted.length > 0 ? 'good' : privacy.enabled ? 'warn' : 'accent' },
+          ],
+        })}
         <div class="security-grid">
           <article class="panel-card">
             <p class="section-kicker">Data Privacy policy</p>
@@ -2487,15 +2685,16 @@
       : stat.pageTarget
         ? `data-action="page" data-payload="${escapeAttr(stat.pageTarget)}"`
         : '';
-    return `
-      <button type="button" class="stat-card tone-${escapeAttr(stat.tone || 'neutral')}" ${actionAttr}>
+    const inner = `
         <div>
           <p class="card-kicker">${escapeHtml(stat.label)}</p>
           <div class="stat-value">${escapeHtml(stat.value)}</div>
         </div>
-        <div class="stat-detail">${escapeHtml(stat.detail)}</div>
-      </button>
-    `;
+        <div class="stat-detail">${escapeHtml(stat.detail)}</div>`;
+    const cls = `stat-card tone-${escapeAttr(stat.tone || 'neutral')}`;
+    return actionAttr
+      ? `<button type="button" class="${cls} is-actionable" ${actionAttr}>${inner}</button>`
+      : `<div class="${cls} static">${inner}</div>`;
   }
 
   function renderActionCard(action) {
@@ -2506,13 +2705,13 @@
         : action.pageTarget
           ? `data-action="page" data-payload="${escapeAttr(action.pageTarget)}"`
           : '';
-    return `
-      <button type="button" class="action-card" ${attrs}>
+    const inner = `
         <p class="card-kicker">${escapeHtml(action.pageTarget || 'action')}</p>
         <strong>${escapeHtml(action.label)}</strong>
-        <div class="stat-detail">${escapeHtml(action.description)}</div>
-      </button>
-    `;
+        <div class="stat-detail">${escapeHtml(action.description)}</div>`;
+    return attrs
+      ? `<button type="button" class="action-card is-actionable" ${attrs}>${inner}</button>`
+      : `<div class="action-card static">${inner}</div>`;
   }
 
   function renderScoreComponent(component) {
@@ -2520,16 +2719,16 @@
       ? `data-action="page" data-payload="${escapeAttr(component.pageTarget)}"`
       : '';
     const width = Math.max(6, Math.round((component.score / Math.max(component.maxScore, 1)) * 100));
-    return `
-      <button type="button" class="score-component-row" ${attrs}>
+    const inner = `
         <div class="row-head">
           <strong>${escapeHtml(component.label)}</strong>
           <span class="tag ${component.tone === 'good' ? 'tag-good' : component.tone === 'warn' ? 'tag-warn' : component.tone === 'critical' ? 'tag-critical' : ''}">${escapeHtml(`${component.score}/${component.maxScore}`)}</span>
         </div>
         <div class="coverage-bar score-component-bar"><span style="width: ${width}%"></span></div>
-        <div class="stat-detail">${escapeHtml(component.detail)}</div>
-      </button>
-    `;
+        <div class="stat-detail">${escapeHtml(component.detail)}</div>`;
+    return attrs
+      ? `<button type="button" class="score-component-row is-actionable" ${attrs}>${inner}</button>`
+      : `<div class="score-component-row static">${inner}</div>`;
   }
 
   function renderRecommendationColumn(title, description, items) {
@@ -2554,13 +2753,13 @@
         : item.pageTarget
           ? `data-action="page" data-payload="${escapeAttr(item.pageTarget)}"`
           : '';
-    return `
-      <button type="button" class="action-card score-recommendation-item" ${attrs}>
+    const inner = `
         <p class="card-kicker">${escapeHtml(item.impactLabel)}</p>
         <strong>${escapeHtml(item.title)}</strong>
-        <div class="stat-detail">${escapeHtml(item.detail)}</div>
-      </button>
-    `;
+        <div class="stat-detail">${escapeHtml(item.detail)}</div>`;
+    return attrs
+      ? `<button type="button" class="action-card score-recommendation-item is-actionable" ${attrs}>${inner}</button>`
+      : `<div class="action-card score-recommendation-item static">${inner}</div>`;
   }
 
   function renderChartCard(id, title, description, series) {
@@ -2594,19 +2793,114 @@
     `;
   }
 
-  function renderMetricPill(label, value) {
-    return `<div class="metric-pill"><span class="metric-label">${escapeHtml(label)}</span><span class="metric-value">${escapeHtml(value)}</span></div>`;
+  // Normalize a "resolution" into a data-action/data-payload + a plain-English hint.
+  // Accepts a bare string (treated as an Atlas chat prompt, for back-compat) or an
+  // object { prompt | command | file | page | url | run | runWithGoal, hint }.
+  function resolveActionAttrs(resolution) {
+    if (!resolution) { return null; }
+    if (typeof resolution === 'string') {
+      const trimmed = resolution.trim();
+      return trimmed ? { action: 'prompt', payload: trimmed, hint: 'Ask Atlas' } : null;
+    }
+    if (typeof resolution !== 'object') { return null; }
+    const hint = typeof resolution.hint === 'string' && resolution.hint ? resolution.hint : '';
+    const map = [
+      ['prompt', 'prompt', 'Ask Atlas'],
+      ['command', 'command', 'Open'],
+      ['file', 'file', 'Open file'],
+      ['page', 'page', 'Go to page'],
+      ['url', 'external-url', 'Open ↗'],
+      ['run', 'run', 'Open run'],
+      ['runWithGoal', 'run-with-goal', 'Plan a run'],
+    ];
+    for (let i = 0; i < map.length; i += 1) {
+      const key = map[i][0];
+      if (resolution[key]) {
+        return { action: map[i][1], payload: String(resolution[key]), hint: hint || map[i][2] };
+      }
+    }
+    return null;
   }
 
-  function renderSignalCard(label, ok, detail, actionPrompt) {
-    const attrs = actionPrompt
-      ? `data-action="prompt" data-payload="${escapeAttr(actionPrompt)}"`
+  function renderMetricPill(label, value, opts) {
+    const options = opts || {};
+    const toneClass = options.tone ? ` pill-tone-${escapeAttr(options.tone)}` : '';
+    const dot = options.tone ? '<span class="pill-dot"></span>' : '';
+    const meter = typeof options.meter === 'number'
+      ? `<span class="metric-meter"><span style="width:${Math.max(0, Math.min(100, options.meter))}%"></span></span>`
+      : '';
+    const inner = `<span class="metric-head">${dot}<span class="metric-label">${escapeHtml(label)}</span></span><span class="metric-value">${escapeHtml(value)}</span>${meter}`;
+    const resolved = resolveActionAttrs(options.action);
+    if (resolved) {
+      return `<button type="button" class="metric-pill is-actionable${toneClass}" data-action="${resolved.action}" data-payload="${escapeAttr(resolved.payload)}" title="${escapeAttr(resolved.hint)}">${inner}</button>`;
+    }
+    return `<div class="metric-pill${toneClass}">${inner}</div>`;
+  }
+
+  function renderSignalCard(label, ok, detail, resolution) {
+    const resolved = resolveActionAttrs(resolution);
+    const body = `
+      <div class="checkline">${escapeHtml(label)}</div>
+      <div class="signal-detail">${escapeHtml(detail)}</div>
+    `;
+    if (resolved) {
+      return `
+        <button type="button" class="signal-card ${ok ? 'good' : 'warn'} is-actionable" data-action="${resolved.action}" data-payload="${escapeAttr(resolved.payload)}" title="${escapeAttr(resolved.hint)}">
+          ${body}
+          <span class="signal-cta">${escapeHtml(resolved.hint)} ›</span>
+        </button>
+      `;
+    }
+    return `
+      <div class="signal-card ${ok ? 'good' : 'warn'} static">
+        ${body}
+      </div>
+    `;
+  }
+
+  // A plain-English orientation band placed at the top of each page: kicker +
+  // title + one-line "what this is / what to do", optional tone chips and a
+  // primary action. Mirrors the Delivery page header treatment.
+  function renderPageIntro(opts) {
+    const o = opts || {};
+    const chips = Array.isArray(o.chips) && o.chips.length > 0
+      ? `<div class="page-intro-chips">${o.chips.map(chip => {
+          const tone = chip.tone ? ` pill-tone-${escapeAttr(chip.tone)}` : '';
+          return `<span class="intro-chip${tone}">${chip.tone ? '<span class="pill-dot"></span>' : ''}${escapeHtml(chip.label)}</span>`;
+        }).join('')}</div>`
+      : '';
+    const resolved = resolveActionAttrs(o.action);
+    const actionBtn = resolved
+      ? `<button type="button" class="action-link primary" data-action="${resolved.action}" data-payload="${escapeAttr(resolved.payload)}">${escapeHtml(o.actionLabel || resolved.hint)}</button>`
       : '';
     return `
-      <button type="button" class="signal-card ${ok ? 'good' : 'warn'}" ${attrs}>
-        <div class="checkline">${escapeHtml(label)}</div>
-        <div class="signal-detail">${escapeHtml(detail)}</div>
-      </button>
+      <div class="page-intro">
+        <div class="page-intro-body">
+          <p class="section-kicker">${escapeHtml(o.kicker || '')}</p>
+          <h3>${escapeHtml(o.title || '')}</h3>
+          <p class="page-intro-summary">${escapeHtml(o.summary || '')}</p>
+          ${chips}
+        </div>
+        ${actionBtn ? `<div class="page-intro-action">${actionBtn}</div>` : ''}
+      </div>
+    `;
+  }
+
+  // At-a-glance horizontal status strip (nodes joined by arrows), generalising
+  // the Delivery pipeline-flow / MVP track for any sequence or status set.
+  function renderFlowStrip(nodes) {
+    if (!Array.isArray(nodes) || nodes.length === 0) { return ''; }
+    return `
+      <div class="flow-strip" role="list">
+        ${nodes.map((node, i) => `
+          <div class="flow-chip status-${escapeAttr(node.status || 'pending')}" role="listitem" title="${escapeAttr(node.title || node.label || '')}">
+            <span class="flow-chip-dot">${escapeHtml(node.icon || '')}</span>
+            <span class="flow-chip-label">${escapeHtml(node.label || '')}</span>
+            ${node.sub ? `<span class="flow-chip-sub">${escapeHtml(node.sub)}</span>` : ''}
+          </div>
+          ${i < nodes.length - 1 ? '<span class="flow-strip-arrow" aria-hidden="true">→</span>' : ''}
+        `).join('')}
+      </div>
     `;
   }
 
