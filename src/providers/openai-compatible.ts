@@ -119,7 +119,7 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
     });
 
     const choice = result.choices[0];
-    const content = choice?.message?.content ?? '';
+    const content = coerceOpenAiContentText(choice?.message?.content);
     const rawToolCalls = choice?.message?.tool_calls ?? [];
 
     const toolCalls: ToolCall[] = rawToolCalls.map(tc => ({
@@ -226,10 +226,10 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
             finishReason = choice['finish_reason'] as string;
           }
 
-          if (delta?.['content']) {
-            const text = delta['content'] as string;
-            contentText += text;
-            onTextChunk(text);
+          const deltaText = coerceOpenAiContentText(delta?.['content']);
+          if (deltaText) {
+            contentText += deltaText;
+            onTextChunk(deltaText);
           }
 
           // Accumulate streamed tool calls
@@ -657,4 +657,35 @@ function parseArguments(args: string): Record<string, unknown> {
   } catch {
     return {};
   }
+}
+
+/**
+ * Coerce an OpenAI-compatible message/delta `content` field to plain text.
+ *
+ * The spec types `content` as a string, but real endpoints (proxies, local
+ * servers such as LM Studio/Ollama, vision/reasoning formats) also send an
+ * ARRAY of content parts (`[{ type: 'text', text: '…' }]`) or a single part
+ * object. A naive `content as string` then either string-coerces to the literal
+ * `"[object Object]"` — which, concatenated over many streamed deltas, floods
+ * the reply — or throws on `.trim()` in the non-streaming path. This normalizes
+ * every shape to text, and contributes nothing for unknown shapes rather than
+ * leaking `"[object Object]"`.
+ */
+export function coerceOpenAiContentText(content: unknown): string {
+  if (typeof content === 'string') {
+    return content;
+  }
+  if (Array.isArray(content)) {
+    return content.map(coerceOpenAiContentText).join('');
+  }
+  if (content && typeof content === 'object') {
+    const part = content as Record<string, unknown>;
+    if (typeof part['text'] === 'string') {
+      return part['text'];
+    }
+    if (typeof part['content'] === 'string') {
+      return part['content'];
+    }
+  }
+  return '';
 }

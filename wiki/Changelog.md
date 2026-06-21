@@ -6,6 +6,13 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.116.4 — Fix `[object Object]` floods; surface blocked TDD fixes honestly
+
+- **No more `[object Object]` in replies.** When a model endpoint returns message content as an array of parts (not a plain string), the OpenAI-compatible adapter used to emit a run of `[object Object]`. Content is now normalized to text in every path.
+- **A described-but-blocked fix is no longer reported as done.** When the TDD policy blocks a write and the model only *describes* the fix, Atlas re-prompts once to actually complete the red→green cycle, and otherwise appends a clear "Change not applied" note so nothing reads as applied when it wasn't.
+
+---
+
 ## v0.116.3 — Don't downgrade corrections; recover from empty answers
 
 - **Corrections stay on a capable model.** When you tell Atlas it's wrong ("that's not correct", "no, that's wrong", "are you sure?"), the turn is treated as high-stakes and routed to a capable, reasoning-class model instead of being silently downgraded to the cheapest/local model.

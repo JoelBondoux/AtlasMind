@@ -2006,6 +2006,8 @@ export class Orchestrator {
     let workspaceRepromptCount = 0;
     let completionIntegrityRepromptDone = false;
     let verificationContradictionRepromptDone = false;
+    let tddCompletionRepromptDone = false;
+    let tddBlockedCaveatApplied = false;
     let readonlyExplorationTurns = 0;
     let readonlyExplorationNudged = false;
     let lastToolResults: Array<{ toolCall: ToolCall; result: string; isFailure?: boolean }> = [];
@@ -2096,6 +2098,35 @@ export class Orchestrator {
             content: selectWorkspaceToolUseReprompt(workspaceToolBias, workspaceRepromptCount, readonlyExplorationTurns > 0 || lastToolResults.length > 0),
           });
           continue;
+        }
+        // TDD-completion gate: the TDD policy blocked one or more implementation
+        // writes because no failing test signal was established yet, and the
+        // model is now settling with a summary instead of completing the
+        // red→green cycle — the "describes the fix but never applies it"
+        // failure. Give it one targeted reprompt to write the smallest failing
+        // test, observe red, then apply the change; if it still settles without
+        // doing so, append a deterministic caveat so the reply cannot imply the
+        // change landed when nothing was written.
+        if (
+          projectTddState
+          && projectTddState.mode === 'implementation'
+          && !projectTddState.observedFailingSignal
+          && projectTddState.blockedWriteAttempts > 0
+        ) {
+          if (!tddCompletionRepromptDone) {
+            tddCompletionRepromptDone = true;
+            onProgress?.('AtlasMind detected a TDD-blocked change that was described but not applied — re-prompting to write the failing test and apply the fix.');
+            messages.push({ role: 'assistant', content: completion.content });
+            messages.push({ role: 'user', content: buildTddCompletionReprompt() });
+            continue;
+          }
+          if (!tddBlockedCaveatApplied) {
+            tddBlockedCaveatApplied = true;
+            completion = {
+              ...completion,
+              content: appendTddBlockedCaveat(completion.content),
+            };
+          }
         }
         // Completion-integrity gate: if the response acknowledges work that was
         // not finished (e.g. "not yet wired", "important follow-up"), inject one
@@ -4101,6 +4132,26 @@ export function appendVerificationCaveat(content: string, verificationSummary?: 
   const detail = verificationSummary ? extractVerificationFailureLine(verificationSummary) : 'the latest verification run did not pass';
   const rendered = /\bFAIL:|exit\s+(?:code\s+)?[1-9]/i.test(detail) ? `\`${detail}\`` : detail;
   return `${content.replace(/\s+$/, '')}\n\n---\n⚠️ **Verification did not pass** — ${rendered}. The claim of success above is not supported by the latest verification run; treat this task as **not complete** until verification passes.`;
+}
+
+/**
+ * Deterministic caveat appended when the TDD policy blocked an implementation
+ * write and the model settled without establishing a failing test — so the
+ * reply (which often *describes* the fix) cannot imply the change was applied.
+ */
+export function appendTddBlockedCaveat(content: string): string {
+  return `${content.replace(/\s+$/, '')}\n\n---\n⚠️ **Change not applied** — the project's TDD policy blocked the implementation write because no failing test was established first. The fix described above was **not written to any file**. To proceed, let Atlas add the smallest failing test (red → green) and then apply the change, or relax the TDD policy in Settings → Testing.`;
+}
+
+function buildTddCompletionReprompt(): string {
+  return [
+    'You described a fix but did not apply it: the project TDD policy blocked your implementation write because no failing test has been established yet.',
+    'Do this now — no exceptions:',
+    '1. Add or update the smallest relevant test that fails because of the bug or missing behavior.',
+    '2. Run the tests (test-run or terminal-run) to observe the failing (red) signal.',
+    '3. Then apply the implementation change and re-run the tests to confirm they pass.',
+    'If a failing automated test is genuinely not applicable (documentation-only or not testable), say so explicitly and then apply the change. Do not end by only describing the fix.',
+  ].join('\n');
 }
 
 function buildVerificationContradictionReprompt(verificationSummary?: string): string {

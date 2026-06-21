@@ -1,6 +1,7 @@
 import type { CompletionRequest, CompletionResponse, ProviderAdapter } from './adapter.js';
 import type { DiscoveredModel, ToolCall } from './adapter.js';
 import { lookupCatalog } from './modelCatalog.js';
+import { coerceOpenAiContentText } from './openai-compatible.js';
 import type { SecretStore } from '../runtime/secrets.js';
 
 const LOCAL_OPENAI_DEFAULT_BASE_URL = 'http://127.0.0.1:11434/v1';
@@ -159,7 +160,7 @@ export class LocalEchoAdapter implements ProviderAdapter {
 
     const payload = await response.json() as OpenAiChatResponse;
     const choice = payload.choices[0];
-    const content = choice?.message?.content ?? '';
+    const content = coerceOpenAiContentText(choice?.message?.content);
     const toolCalls: ToolCall[] = (choice?.message?.tool_calls ?? []).map(tc => ({
       id: tc.id,
       name: tc.function.name,

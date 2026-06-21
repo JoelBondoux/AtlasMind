@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AnthropicAdapter, ClaudeCliAdapter, LocalEchoAdapter, OpenAiCompatibleAdapter, ProviderRegistry, encodeLocalEndpointModelId } from '../../src/providers/index.ts';
+import { coerceOpenAiContentText } from '../../src/providers/openai-compatible.ts';
 import type { CompletionRequest } from '../../src/providers/adapter.ts';
 
 function makeRequest(overrides: Partial<CompletionRequest> = {}): CompletionRequest {
@@ -424,6 +425,40 @@ describe('multimodal provider payloads', () => {
     expect(payload.max_tokens).toBe(1024);
     expect(payload).not.toHaveProperty('max_completion_tokens');
     expect(payload.tools[0].function.name).toBe('get_weather');
+  });
+
+  it('coerces array-shaped message content to text instead of "[object Object]"', async () => {
+    const fetchMock = vi.fn(async (input: string) => {
+      if (String(input).endsWith('/chat/completions')) {
+        return {
+          ok: true,
+          json: async () => ({
+            model: 'deepseek/deepseek-chat',
+            choices: [{
+              finish_reason: 'stop',
+              // Some OpenAI-compatible endpoints deliver content as an array of
+              // parts; a naive `content as string` would crash on .trim() or
+              // surface "[object Object]".
+              message: { role: 'assistant', content: [{ type: 'text', text: 'The branch is ' }, { type: 'text', text: 'master.' }] },
+            }],
+            usage: { prompt_tokens: 10, completion_tokens: 5 },
+          }),
+          text: async () => '',
+          headers: { get: () => null },
+        };
+      }
+      throw new Error(`Unexpected fetch: ${input}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const adapter = new OpenAiCompatibleAdapter(
+      { providerId: 'deepseek', baseUrl: 'https://api.deepseek.com/v1', secretKey: 'test', displayName: 'DeepSeek' },
+      { get: vi.fn().mockResolvedValue('secret') } as never,
+    );
+
+    const result = await adapter.complete(makeRequest({ model: 'deepseek/deepseek-chat' }));
+    expect(result.content).toBe('The branch is master.');
+    expect(result.content).not.toContain('[object Object]');
   });
 
   it('serializes user images for OpenAI-compatible providers', async () => {
@@ -858,5 +893,33 @@ describe('multimodal provider payloads', () => {
     const result = await adapter.complete(makeRequest({ model: 'google/gemini-2.5-pro' }));
     expect(result.inputTokens).toBe(111);
     expect(result.outputTokens).toBe(30);
+  });
+});
+
+describe('coerceOpenAiContentText', () => {
+  it('returns a string content unchanged', () => {
+    expect(coerceOpenAiContentText('hello world')).toBe('hello world');
+    expect(coerceOpenAiContentText('')).toBe('');
+  });
+
+  it('joins an array of content parts into text (never "[object Object]")', () => {
+    const parts = [{ type: 'text', text: 'Hello ' }, { type: 'text', text: 'world' }];
+    expect(coerceOpenAiContentText(parts)).toBe('Hello world');
+    expect(coerceOpenAiContentText(parts)).not.toContain('[object Object]');
+  });
+
+  it('extracts text from a single content-part object', () => {
+    expect(coerceOpenAiContentText({ type: 'text', text: 'hi' })).toBe('hi');
+    expect(coerceOpenAiContentText({ content: 'fallback' })).toBe('fallback');
+  });
+
+  it('contributes nothing for unknown shapes instead of leaking "[object Object]"', () => {
+    expect(coerceOpenAiContentText({ foo: 'bar' })).toBe('');
+    expect(coerceOpenAiContentText(null)).toBe('');
+    expect(coerceOpenAiContentText(undefined)).toBe('');
+    expect(coerceOpenAiContentText(42)).toBe('');
+    // The exact failure from the field: an array of unknown objects must never
+    // accumulate into a run of "[object Object]".
+    expect(coerceOpenAiContentText([{ a: 1 }, { b: 2 }])).toBe('');
   });
 });

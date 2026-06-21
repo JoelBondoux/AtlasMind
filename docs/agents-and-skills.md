@@ -234,6 +234,7 @@ For code-changing `/project` work, AtlasMind now gives these ephemeral agents an
 - Block non-test implementation writes until a failing relevant test signal has been observed, either in dependency context or in the current subtask.
 - Aim for a red-green-refactor flow, then report which tests changed, what verification ran, and any remaining coverage gaps.
 - Fall back to direct verification with an explicit explanation when a subtask is documentation-only, infrastructure-only, or otherwise not realistically testable.
+- When a write is blocked and the model settles by only describing the fix, AtlasMind re-prompts once to complete the red→green cycle; if it still does not, a deterministic "Change not applied" caveat is appended so a blocked fix is never reported as if it had landed.
 
 Project execution now runs a preflight preview in chat before orchestration starts:
 - Atlas shows the decomposed task table and an estimated file-touch impact.
