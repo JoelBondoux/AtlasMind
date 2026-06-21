@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { describe, expect, it, vi } from 'vitest';
-import { Orchestrator, appendVerificationCaveat, budgetForCorrection, buildProjectSessionContextBundle, classifySubTaskFailure, collapseDuplicatedTrailingBlock, detectVerificationContradiction, isUserCorrectionTurn, resolveProviderIdForModel, responseClaimsSuccessWithoutCaveat, shouldBiasTowardWorkspaceInvestigation, TOOL_EXECUTION_FAILURE_PREFIX, verificationIndicatesFailure } from '../../src/core/orchestrator.ts';
+import { Orchestrator, appendTddBlockedCaveat, appendVerificationCaveat, budgetForCorrection, buildProjectSessionContextBundle, classifySubTaskFailure, collapseDuplicatedTrailingBlock, detectVerificationContradiction, isUserCorrectionTurn, resolveProviderIdForModel, responseClaimsSuccessWithoutCaveat, shouldBiasTowardWorkspaceInvestigation, TOOL_EXECUTION_FAILURE_PREFIX, verificationIndicatesFailure } from '../../src/core/orchestrator.ts';
 import { MAX_TOOL_ITERATIONS } from '../../src/constants.ts';
 import { AgentRegistry } from '../../src/core/agentRegistry.ts';
 import { SkillsRegistry } from '../../src/core/skillsRegistry.ts';
@@ -806,8 +806,12 @@ describe('Orchestrator agentic loop', () => {
     expect(fileWriteHandler).not.toHaveBeenCalled();
     expect(result.artifacts?.tddStatus).toBe('blocked');
     expect(result.artifacts?.tddSummary).toContain('Blocked non-test implementation writes');
-    expect(providerCalls[1]?.messages.at(-1)?.content).toContain('TDD gate: establish a failing relevant test signal before editing non-test implementation files or invoking risky external execution for implementation work.');
-    expect(providerCalls[1]?.messages.at(-1)?.content).toContain('Add, update, or create the smallest relevant test or spec first if none exists yet');
+    // The gate message is still delivered to the model.
+    const conversation = providerCalls.flatMap(call => call.messages.map(message => message.content)).join('\n');
+    expect(conversation).toContain('TDD gate: establish a failing relevant test signal before editing non-test implementation files or invoking risky external execution for implementation work.');
+    expect(conversation).toContain('Add, update, or create the smallest relevant test or spec first if none exists yet');
+    // A described-but-blocked fix is surfaced honestly rather than reading as applied.
+    expect(result.response).toContain('Change not applied');
   });
 
   it('tells /project subtasks to create the smallest missing spec when no regression test exists', async () => {
@@ -3442,7 +3446,11 @@ describe('Orchestrator agentic loop', () => {
 
     expect(terminalRunHandler).not.toHaveBeenCalled();
     expect(result.artifacts?.tddStatus).toBe('blocked');
-    expect(providerCalls[1]?.messages.at(-1)?.content).toContain('risky external execution for implementation work');
+    // The gate message is still delivered to the model, and the blocked change
+    // is now surfaced honestly rather than left reading as applied.
+    const conversation = providerCalls.flatMap(call => call.messages.map(message => message.content)).join('\n');
+    expect(conversation).toContain('risky external execution for implementation work');
+    expect(result.response).toContain('Change not applied');
   });
 
   it('does not block ambiguous follow-up repo maintenance requests behind the TDD gate', async () => {
@@ -3534,6 +3542,22 @@ describe('isUserCorrectionTurn', () => {
     expect(isUserCorrectionTurn('verify the deployment succeeded')).toBe(false);
     expect(isUserCorrectionTurn('no changes needed, ship it')).toBe(false);
     expect(isUserCorrectionTurn('')).toBe(false);
+  });
+});
+
+describe('appendTddBlockedCaveat', () => {
+  it('marks the change as not applied so a described fix cannot read as done', () => {
+    const caveated = appendTddBlockedCaveat('Here is the fix you should make to detectProductionBranchRef.');
+    expect(caveated).toContain('Here is the fix');
+    expect(caveated).toContain('Change not applied');
+    expect(caveated).toMatch(/not written to any file/i);
+    expect(caveated).toMatch(/TDD policy/i);
+  });
+
+  it('trims trailing whitespace before appending the caveat block', () => {
+    const caveated = appendTddBlockedCaveat('Done.\n\n   ');
+    expect(caveated).toContain('Done.\n\n---\n');
+    expect(caveated).not.toMatch(/ {3}\n---/);
   });
 });
 

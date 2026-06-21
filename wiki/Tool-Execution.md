@@ -93,6 +93,8 @@ For implementation-mode work, AtlasMind now applies the same red-green disciplin
 
 This keeps an injected or over-permissive model reply from jumping straight to third-party software or external side effects before there is a concrete regression signal to anchor the change.
 
+When the gate blocks a write and the model then settles by only *describing* the fix instead of completing the red→green cycle, AtlasMind issues one targeted re-prompt to write the smallest failing test, observe the red signal, and apply the change. If the model still settles without doing so, a deterministic **"Change not applied"** caveat is appended to the reply so a described-but-blocked fix can never read as if it landed — the "reports the fix but never applies it" failure mode is surfaced honestly rather than hidden.
+
 For URL-bearing tasks, AtlasMind also injects a default safety rule into routed prompts: URLs and endpoints are treated as untrusted input, should be validated for scheme and host safety, and should be checked for live health or reachability with the bounded network tools before Atlas presents them as working.
 
 ---

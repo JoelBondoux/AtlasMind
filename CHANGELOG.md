@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.116.4] - 2026-06-21
+
+### Fixed
+- **No more `[object Object]` flooding a reply.** The OpenAI-compatible adapter cast a streamed/returned `content` field to `string` unconditionally (`delta['content'] as string`). When an endpoint (proxy, local server, or a vision/reasoning format) delivers `content` as an **array of content parts** (`[{ type: 'text', text: '…' }]`) or a part object, the streaming path concatenated `[object Object]` for every delta — flooding the answer — while the non-streaming path would crash on `.trim()`. Added `coerceOpenAiContentText`, which normalizes string / array-of-parts / part-object shapes to text and contributes nothing for unknown shapes (never `[object Object]`). Applied in the streaming and non-streaming OpenAI-compatible paths and the local-endpoint path in `ProviderRegistry`.
+- **"Describes the fix but never applies it" is no longer silent.** When the red-to-green TDD gate blocks an implementation write and the model then settles by only *describing* the change, AtlasMind now re-prompts once to complete the cycle (write the smallest failing test, observe red, apply the fix). If it still settles without doing so, a deterministic **"Change not applied"** caveat (`appendTddBlockedCaveat`) is appended so a blocked fix can never read as if it landed. Added orchestrator and provider-adapter tests for both fixes.
+
 ## [0.116.3] - 2026-06-20
 
 ### Fixed
