@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.116.5 — Delivery Dashboard shows the real Production version
+
+- **No more stale deployed version.** The Production stage read its version from the local release branch, which a developer working on `develop` never pulls — so it showed a long-outdated number. The dashboard now reads the deployed version from the remote-tracking ref (`origin/<branch>`) when present, falling back to the local ref offline.
+
+---
+
 ## v0.116.4 — Fix `[object Object]` floods; surface blocked TDD fixes honestly
 
 - **No more `[object Object]` in replies.** When a model endpoint returns message content as an array of parts (not a plain string), the OpenAI-compatible adapter used to emit a run of `[object Object]`. Content is now normalized to text in every path.

@@ -9,7 +9,7 @@ import { isAgentPanelMessage } from '../../src/views/agentManagerPanel.ts';
 import { isSpecialistIntegrationsMessage } from '../../src/views/specialistIntegrationsPanel.ts';
 import { isChatPanelMessage } from '../../src/views/chatPanel.ts';
 import { isCostDashboardMessage } from '../../src/views/costDashboardPanel.ts';
-import { isProjectDashboardMessage } from '../../src/views/projectDashboardPanel.ts';
+import { isProjectDashboardMessage, chooseDeployedVersionRef } from '../../src/views/projectDashboardPanel.ts';
 import { isProjectIdeationMessage } from '../../src/views/projectIdeationPanel.ts';
 
 describe('validatePanelMessage', () => {
@@ -799,5 +799,32 @@ describe('isAgentPanelMessage', () => {
 
   it('rejects unknown types', () => {
     expect(isAgentPanelMessage({ type: 'deleteAll' })).toBe(false);
+  });
+});
+
+describe('chooseDeployedVersionRef', () => {
+  const refSet = (...refs: string[]) => (ref: string) => refs.includes(ref);
+
+  it('prefers the remote-tracking ref so a stale local release branch is not read', () => {
+    // Both exist: the deployed version lives on the remote, so origin/master wins.
+    expect(chooseDeployedVersionRef('master', refSet('master', 'origin/master'))).toBe('origin/master');
+  });
+
+  it('falls back to the local ref when there is no remote (offline/local-only repo)', () => {
+    expect(chooseDeployedVersionRef('master', refSet('master'))).toBe('master');
+  });
+
+  it('uses the remote ref when only it exists (local branch never checked out)', () => {
+    expect(chooseDeployedVersionRef('master', refSet('origin/master'))).toBe('origin/master');
+  });
+
+  it('returns undefined when neither the local nor remote ref exists', () => {
+    expect(chooseDeployedVersionRef('master', refSet('develop', 'origin/develop'))).toBeUndefined();
+    expect(chooseDeployedVersionRef('', refSet('master'))).toBeUndefined();
+  });
+
+  it('handles an explicit origin/ ref, falling back to its local short name', () => {
+    expect(chooseDeployedVersionRef('origin/master', refSet('origin/master'))).toBe('origin/master');
+    expect(chooseDeployedVersionRef('origin/master', refSet('master'))).toBe('master');
   });
 });
