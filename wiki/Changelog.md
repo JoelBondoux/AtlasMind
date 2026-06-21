@@ -6,6 +6,60 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.120.3 — Comparison matrix re-verified + Mission Control row
+
+- **Every competitor cell re-checked against official docs (June 2026).** Corrected stale figures: Cline **30+ providers**, Aider **100+ providers**, Cursor **5+ providers + custom API**; Claude Code custom-agent artifact fixed to **subagent `.md` files**; Copilot/Cursor/Windsurf/Continue custom-agent support moved ❌ → ⚠️; Windsurf image input, MCP, and named checkpoints upgraded; Aider/Windsurf voice input noted; Cline/Cursor/Continue/Copilot CLIs noted; Cursor & Claude Code cost visibility noted.
+- **New row: "Goal-seeking autonomous loop runs (Mission Control)"** — AtlasMind's budget-bounded, self-evaluated, checkpoint-gated loop set against Claude Code `/loop`, Copilot agentic/cloud loops, Cline auto-approve, Cursor iterating agents, and Aider's scriptable test-fix loop.
+
+---
+
+## v0.120.2 — README & Comparison accuracy fixes
+
+- **Built-in skill count corrected to 43** across the README (two spots) and the Comparison matrix (was stated as 35 / 36 / 32); rebuilt the README skills table to include the 7 missing skills and a new **Debugging** category.
+- Comparison matrix: memory write-gate scanner **10 → 12 rules**, provider count **12+ → 20+**, and the freshness caveat updated to mid-2026.
+
+---
+
+## v0.120.1 — Mission Control adopts the dashboard design system
+
+- **Visual consistency.** Mission Control now uses the Project Dashboard's shared `--dash-*` design tokens directly — gradient page background, 20px-radius gradient panel-cards with soft shadows, display-font headings, a `page-intro`-style topbar, accent buttons, and tone dots — so it matches the dashboard pages instead of approximating them.
+
+---
+
+## v0.120.0 — Mission Control refresh + Run Center cross-links
+
+- **Mission Control modernised.** The autonomous-loop console gains an intro topbar with a live status chip, card-style form sections, restyled controls, and tone status dots on the Recent missions list.
+- **One-click navigation between the two delivery surfaces.** Project Run Center now has a "🛰 Mission Control" button, and Mission Control has a "▶ Project Run Center" button.
+
+---
+
+## v0.119.0 — Design refresh reaches Cost, Run Center, and Ideation
+
+- **Consistent visual language across the operational panels.** The Cost Dashboard, Project Run Center, and Project Ideation panels now share the same tone status dots / meters and no-dead-hover discipline introduced on the Project Dashboard.
+- **Cost Dashboard.** Summary and feedback cards carry tone dots; the budgeted "Today's Spend" card shows a budget-pressure meter; the approval-rate card is toned by its actual rate.
+- **Project Run Center.** The "Current posture" pills gain live tone dots reflecting the selected run's state.
+- **Project Ideation.** The hero stat cards gain tone dots; the interactive canvas was audited and left intact.
+
+---
+
+## v0.118.0 — Project Dashboard design refresh
+
+- **Every page now matches the Delivery standard.** Visual indicators, plain-English orientation, and fully clickable cards across Overview, Score, Repo, Runtime, Testing, SSOT, Security, Gap Analysis, and Privacy.
+- **No dead hover.** Cards that looked clickable but did nothing now always resolve — open a file, jump to a page, run a command, or start an Atlas chat — and truly non-interactive elements no longer pretend to be clickable.
+- **Visual indicators.** Metric pills gained tone status dots and meter bars; pages gained at-a-glance status strips; the Operational Score shows its composition as a coloured flow strip.
+- **Plain-English page intros.** Each page opens with a one-line "what this is / what to do" band plus tone chips and a primary action.
+- **Security standout.** Governance signals (SECURITY.md, CODEOWNERS, PR template, dependency governance) now open the file when present or ask Atlas to create it when missing.
+
+---
+
+## v0.117.0 — Road to MVP on the Roadmap dashboard
+
+- **A guided path to your first shippable product.** The Project Dashboard's Roadmap page now opens with a **Minimum Viable Product** section. Tag backlog items for the MVP path with a per-item **Mark MVP** toggle (stored non-destructively as a `#mvp` tag in `project_memory/roadmap/improvement-plan.md`), or let the dashboard suggest foundational candidates when nothing is tagged yet.
+- **See how far away MVP is.** A progress bar and a numbered milestone track visualise completed vs. remaining MVP milestones and percent-to-MVP.
+- **Best route, AI-assisted.** A deterministic recommended sequence front-loads foundational, security, and architectural work with per-step reasoning and a highlighted next step — and a **Plan the MVP route with Atlas** button hands a focused prompt to a live chat for a deeper, dependency-aware plan.
+
+---
+
 ## v0.116.5 — Delivery Dashboard shows the real Production version
 
 - **No more stale deployed version.** The Production stage read its version from the local release branch, which a developer working on `develop` never pulls — so it showed a long-outdated number. The dashboard now reads the deployed version from the remote-tracking ref (`origin/<branch>`) when present, falling back to the local ref offline.

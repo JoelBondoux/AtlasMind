@@ -69,7 +69,8 @@ type MissionControlMessage =
   | LaunchMessage
   | { type: 'stop' }
   | { type: 'decisionResponse'; id: string; choice: string }
-  | { type: 'refresh' };
+  | { type: 'refresh' }
+  | { type: 'openRunCenter' };
 
 function toNumber(value: unknown, fallback: number): number {
   const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
@@ -96,6 +97,7 @@ export function parseMissionControlMessage(raw: unknown): MissionControlMessage 
   switch (m['type']) {
     case 'stop':
     case 'refresh':
+    case 'openRunCenter':
       return { type: m['type'] };
     case 'decisionResponse':
       return typeof m['id'] === 'string' && typeof m['choice'] === 'string'
@@ -196,6 +198,9 @@ export class MissionControlPanel {
             break;
           case 'refresh':
             this.postMissions();
+            break;
+          case 'openRunCenter':
+            void vscode.commands.executeCommand('atlasmind.openProjectRunCenter');
             break;
         }
       },
@@ -459,8 +464,18 @@ export class MissionControlPanel {
     const tokensDisplay = Math.round(d.maxTokens).toLocaleString('en-US');
 
     const body = /* html */ `
-      <h1>Mission Control</h1>
-      <p class="muted">Define a goal and a closed parameter envelope, then let AtlasMind loop autonomously toward it — planning, executing, and re-evaluating progress each iteration until the goal is met or a guardrail confines progress.</p>
+      <div class="mc-shell">
+      <div class="mc-topbar">
+        <div class="mc-topbar-head">
+          <p class="mc-kicker">Autonomous goal-seeking</p>
+          <h1>Mission Control</h1>
+          <p class="mc-copy">Define a goal and a closed parameter envelope, then let AtlasMind loop autonomously toward it — planning, executing, and re-evaluating progress each iteration until the goal is met or a guardrail confines progress.</p>
+        </div>
+        <div class="mc-actions">
+          <span id="statusChip" class="mc-chip"><span class="pill-dot tone-neutral"></span>Idle</span>
+          <button id="openRunCenter" type="button" class="mc-link-btn">▶ Project Run Center</button>
+        </div>
+      </div>
 
       <section>
         <h2>Goal</h2>
@@ -519,6 +534,7 @@ export class MissionControlPanel {
         <h2>Recent missions</h2>
         <div id="missions"></div>
       </section>
+      </div>
     `;
 
     const script = /* js */ `
@@ -562,6 +578,10 @@ export class MissionControlPanel {
         });
       });
       $('stop').addEventListener('click', () => vscode.postMessage({ type: 'stop' }));
+      const openRunCenterBtn = $('openRunCenter');
+      if (openRunCenterBtn) {
+        openRunCenterBtn.addEventListener('click', () => vscode.postMessage({ type: 'openRunCenter' }));
+      }
 
       function clearDecision() {
         $('decisionActions').textContent = '';
@@ -610,12 +630,18 @@ export class MissionControlPanel {
         for (const m of items) {
           const row = document.createElement('div');
           row.className = 'mission-row';
+          const head = document.createElement('div');
+          head.className = 'mission-row-head';
+          const dot = document.createElement('span');
+          dot.className = 'pill-dot tone-' + (m.achieved ? 'good' : 'warn');
           const title = document.createElement('strong');
-          title.textContent = (m.achieved ? '✅ ' : '⏹️ ') + m.goal;
+          title.textContent = m.goal;
+          head.appendChild(dot);
+          head.appendChild(title);
           const meta = document.createElement('div');
-          meta.className = 'muted';
-          meta.textContent = m.status + (m.stopReason ? ' · ' + m.stopReason : '') + ' · ' + m.iterations + '/' + m.maxIterations + ' iters · $' + (m.costUsd || 0).toFixed(4);
-          row.appendChild(title);
+          meta.className = 'muted mission-meta';
+          meta.textContent = (m.achieved ? 'Achieved' : 'Stopped') + ' · ' + m.status + (m.stopReason ? ' · ' + m.stopReason : '') + ' · ' + m.iterations + '/' + m.maxIterations + ' iters · $' + (m.costUsd || 0).toFixed(4);
+          row.appendChild(head);
           row.appendChild(meta);
           root.appendChild(row);
         }
@@ -625,10 +651,15 @@ export class MissionControlPanel {
         const msg = event.data;
         if (!msg || typeof msg.type !== 'string') { return; }
         switch (msg.type) {
-          case 'state':
+          case 'state': {
             $('launch').disabled = msg.running;
             $('stop').disabled = !msg.running;
+            const chip = $('statusChip');
+            if (chip) {
+              chip.innerHTML = '<span class="pill-dot tone-' + (msg.running ? 'accent' : 'neutral') + '"></span>' + (msg.running ? 'Mission running' : 'Idle');
+            }
             break;
+          }
           case 'log':
             appendLog(msg.level || 'info', msg.text || '');
             break;
@@ -658,23 +689,84 @@ export class MissionControlPanel {
     `;
 
     const extraCss = `
-      textarea, input[type="number"] { width: 100%; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, #555); border-radius: 3px; padding: 6px; font-family: inherit; margin: 4px 0 10px; }
+      /* Shared Project Dashboard design system (--dash-* tokens) so Mission
+         Control matches the dashboard pages exactly. */
+      :root {
+        --dash-bg: radial-gradient(circle at top left, color-mix(in srgb, var(--vscode-button-background) 18%, transparent), transparent 40%), linear-gradient(180deg, color-mix(in srgb, var(--vscode-editor-background) 86%, black 14%), var(--vscode-editor-background));
+        --dash-panel: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-editor-background)) 78%, transparent);
+        --dash-panel-strong: color-mix(in srgb, var(--vscode-sideBar-background, var(--vscode-editor-background)) 88%, black 12%);
+        --dash-border: color-mix(in srgb, var(--vscode-widget-border, var(--vscode-panel-border)) 70%, transparent);
+        --dash-accent: var(--vscode-button-background);
+        --dash-accent-strong: color-mix(in srgb, var(--vscode-button-background) 78%, white 22%);
+        --dash-good: var(--vscode-testing-iconPassed, #4bb878);
+        --dash-warn: var(--vscode-testing-iconQueued, #d7a34b);
+        --dash-critical: var(--vscode-testing-iconFailed, #d05f5f);
+        --dash-muted: var(--vscode-descriptionForeground);
+        --dash-heading: "Segoe UI Variable Display", "Aptos Display", "Trebuchet MS", sans-serif;
+        --dash-body: "Segoe UI Variable Text", "Aptos", "Segoe UI", sans-serif;
+        --dash-radius: 20px;
+        --dash-shadow: 0 18px 48px rgba(0, 0, 0, 0.18);
+      }
+
+      body { padding: 0; background: var(--dash-bg); font-family: var(--dash-body); }
+      .mc-shell { min-height: 100vh; box-sizing: border-box; padding: 24px; display: flex; flex-direction: column; gap: 16px; }
+      h1, h2 { font-family: var(--dash-heading); letter-spacing: -0.02em; }
+
+      textarea, input[type="number"], input[type="text"] { width: 100%; background: color-mix(in srgb, var(--vscode-input-background) 80%, transparent); color: var(--vscode-input-foreground); border: 1px solid var(--dash-border); border-radius: 10px; padding: 8px 10px; font-family: inherit; margin: 4px 0 10px; }
+      textarea:focus, input:focus { outline: none; border-color: color-mix(in srgb, var(--dash-accent) 60%, var(--dash-border)); }
       label { display: block; font-size: 0.9em; margin-top: 6px; }
       label.check { display: flex; align-items: center; gap: 6px; }
       label.check input { width: auto; margin: 0; }
       .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0 16px; }
       .grid label input { margin-top: 2px; }
-      .muted { color: var(--vscode-descriptionForeground); }
-      .log { max-height: 320px; overflow-y: auto; font-family: var(--vscode-editor-font-family, monospace); font-size: 0.85em; background: var(--vscode-textCodeBlock-background, rgba(127,127,127,0.1)); border-radius: 4px; padding: 8px; }
+      .muted { color: var(--dash-muted); }
+
+      /* Intro band — matches the dashboard .page-intro treatment */
+      .mc-topbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; padding: 18px 20px; border: 1px solid var(--dash-border); border-radius: var(--dash-radius); background: linear-gradient(180deg, color-mix(in srgb, var(--dash-accent) 10%, var(--dash-panel)), var(--dash-panel)); box-shadow: var(--dash-shadow); }
+      .mc-topbar-head { min-width: 0; flex: 1 1 320px; }
+      .mc-kicker { margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.18em; font-size: 11px; color: var(--dash-muted); }
+      .mc-topbar h1 { margin: 0; font-size: clamp(30px, 4vw, 44px); line-height: 1.04; }
+      .mc-copy { margin: 8px 0 0; max-width: 74ch; color: var(--dash-muted); line-height: 1.5; }
+      .mc-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+      .mc-chip { display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--dash-border); background: color-mix(in srgb, var(--dash-panel) 80%, transparent); font-size: 12px; font-weight: 600; }
+      .mc-link-btn { border-radius: 999px; padding: 8px 14px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1px solid var(--dash-border); background: color-mix(in srgb, var(--dash-panel) 82%, transparent); color: var(--vscode-foreground); transition: transform 140ms ease, border-color 140ms ease, background 140ms ease; }
+      .mc-link-btn:hover { transform: translateY(-1px); border-color: color-mix(in srgb, var(--dash-accent) 80%, white 20%); background: color-mix(in srgb, var(--dash-accent) 84%, transparent); }
+
+      /* Tone status dots */
+      .pill-dot { width: 9px; height: 9px; border-radius: 999px; flex: 0 0 auto; display: inline-block; background: var(--dash-muted); }
+      .pill-dot.tone-good { background: var(--dash-good); box-shadow: 0 0 0 3px color-mix(in srgb, var(--dash-good) 24%, transparent); }
+      .pill-dot.tone-warn { background: var(--dash-warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--dash-warn) 24%, transparent); }
+      .pill-dot.tone-critical { background: var(--dash-critical); box-shadow: 0 0 0 3px color-mix(in srgb, var(--dash-critical) 24%, transparent); }
+      .pill-dot.tone-accent { background: var(--dash-accent-strong); box-shadow: 0 0 0 3px color-mix(in srgb, var(--dash-accent-strong) 24%, transparent); }
+      .pill-dot.tone-neutral { background: var(--dash-muted); box-shadow: none; }
+
+      /* Form sections styled as dashboard panel-cards */
+      section { margin: 0; border: 1px solid var(--dash-border); border-radius: var(--dash-radius); padding: 20px; background: linear-gradient(180deg, color-mix(in srgb, var(--dash-panel-strong) 92%, white 8%), var(--dash-panel)); box-shadow: var(--dash-shadow); }
+      section h2 { margin: 0 0 10px; font-size: 17px; }
+
+      .badge { border-radius: 999px; padding: 5px 12px; border: 1px solid var(--dash-border); background: color-mix(in srgb, var(--dash-accent) 18%, transparent); color: var(--vscode-foreground); font-size: 12px; }
+
+      #launch { border-radius: 999px; padding: 9px 18px; font: inherit; font-weight: 600; cursor: pointer; border: 1px solid var(--dash-accent-strong); background: var(--dash-accent); color: var(--vscode-button-foreground); }
+      #launch:hover { background: var(--vscode-button-hoverBackground, var(--dash-accent-strong)); }
+      #launch:disabled { opacity: 0.5; cursor: default; }
+      #stop { border-radius: 999px; padding: 9px 16px; font: inherit; font-weight: 600; cursor: pointer; border: 1px solid var(--dash-border); background: color-mix(in srgb, var(--dash-panel) 82%, transparent); color: var(--vscode-foreground); }
+      #stop:hover:not(:disabled) { border-color: color-mix(in srgb, var(--dash-accent) 70%, var(--dash-border)); }
+      #stop:disabled { opacity: 0.5; cursor: default; }
+
+      .log { max-height: 320px; overflow-y: auto; font-family: var(--vscode-editor-font-family, monospace); font-size: 0.85em; background: color-mix(in srgb, var(--vscode-editor-background) 60%, transparent); border: 1px solid var(--dash-border); border-radius: 12px; padding: 10px 12px; }
       .log-line { white-space: pre-wrap; padding: 1px 0; }
-      .log-error { color: var(--vscode-errorForeground, #f14c4c); }
-      .log-warn { color: var(--vscode-editorWarning-foreground, #cca700); }
-      .log-success { color: var(--vscode-testing-iconPassed, #4caf50); }
-      .log-muted { color: var(--vscode-descriptionForeground); }
-      .mission-row { padding: 6px 0; border-bottom: 1px solid var(--vscode-widget-border, #444); }
-      #decisionBox { border: 1px solid var(--vscode-editorWarning-foreground, #cca700); border-radius: 4px; padding: 10px; }
+      .log-error { color: var(--dash-critical); }
+      .log-warn { color: var(--dash-warn); }
+      .log-success { color: var(--dash-good); }
+      .log-muted { color: var(--dash-muted); }
+      .mission-row { padding: 12px 0; border-bottom: 1px solid var(--dash-border); }
+      .mission-row:last-child { border-bottom: none; }
+      .mission-row-head { display: flex; align-items: center; gap: 8px; }
+      .mission-meta { margin-top: 4px; font-size: 0.84em; color: var(--dash-muted); }
+      #decisionBox { border: 1px solid color-mix(in srgb, var(--dash-warn) 55%, var(--dash-border)); border-radius: var(--dash-radius); padding: 16px 18px; background: linear-gradient(180deg, color-mix(in srgb, var(--dash-warn) 10%, var(--dash-panel)), var(--dash-panel)); box-shadow: var(--dash-shadow); }
       .decision-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
-      .decision-actions button.danger { background: var(--vscode-inputValidation-errorBackground, #5a1d1d); color: var(--vscode-inputValidation-errorForeground, #fff); }
+      .decision-actions button { border-radius: 999px; padding: 7px 14px; font: inherit; font-weight: 600; cursor: pointer; border: 1px solid var(--dash-border); background: color-mix(in srgb, var(--dash-panel) 82%, transparent); color: var(--vscode-foreground); }
+      .decision-actions button.danger { border-color: color-mix(in srgb, var(--dash-critical) 60%, var(--dash-border)); background: color-mix(in srgb, var(--dash-critical) 20%, transparent); color: var(--vscode-foreground); }
     `;
 
     return getWebviewHtmlShell({

@@ -16,6 +16,20 @@ type CostDashboardMessage =
 
 type CostDashboardTimescale = '1d' | '7d' | '14d' | '30d' | 'mtd' | 'qtd' | 'ytd' | 'all';
 
+type SummaryTone = 'good' | 'warn' | 'critical' | 'accent';
+
+interface SummaryCard {
+  label: string;
+  value: string;
+  detail: string;
+  countTo: number;
+  countFormat: string;
+  tone: SummaryTone;
+  cls?: string;
+  meter?: number;
+  meterClass?: string;
+}
+
 export function isCostDashboardMessage(value: unknown): value is CostDashboardMessage {
   if (typeof value !== 'object' || value === null || !('type' in value)) { return false; }
   const m = value as Record<string, unknown>;
@@ -499,6 +513,17 @@ export class CostDashboardPanel {
         .summary-ribbon { display: grid; grid-template-columns: repeat(var(--summary-columns), minmax(144px, 1fr)); gap: 12px; overflow-x: auto; padding-bottom: 2px; }
         .summary-card { min-width: 0; padding: 14px 16px; border-radius: 18px; border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 80%, transparent); background: linear-gradient(180deg, color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 92%, white 3%), color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 96%, black 4%)); box-shadow: 0 18px 30px rgba(0, 0, 0, 0.12); }
         .summary-label { margin: 0; font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--vscode-descriptionForeground); }
+        .summary-card-head { display: flex; align-items: center; gap: 8px; }
+        .pill-dot { width: 9px; height: 9px; border-radius: 999px; flex: 0 0 auto; background: var(--vscode-descriptionForeground); }
+        .pill-dot.tone-good { background: var(--vscode-notificationsInfoIcon-foreground, #4ec9b0); box-shadow: 0 0 0 3px color-mix(in srgb, var(--vscode-notificationsInfoIcon-foreground, #4ec9b0) 22%, transparent); }
+        .pill-dot.tone-warn { background: var(--vscode-notificationsWarningIcon-foreground, #ffb347); box-shadow: 0 0 0 3px color-mix(in srgb, var(--vscode-notificationsWarningIcon-foreground, #ffb347) 22%, transparent); }
+        .pill-dot.tone-critical { background: var(--vscode-errorForeground, #f44747); box-shadow: 0 0 0 3px color-mix(in srgb, var(--vscode-errorForeground, #f44747) 22%, transparent); }
+        .pill-dot.tone-accent { background: var(--vscode-focusBorder, #0e639c); box-shadow: 0 0 0 3px color-mix(in srgb, var(--vscode-focusBorder, #0e639c) 22%, transparent); }
+        .summary-meter { margin-top: 8px; height: 6px; border-radius: 999px; overflow: hidden; background: color-mix(in srgb, var(--vscode-widget-border, #444) 64%, transparent); }
+        .summary-meter > span { display: block; height: 100%; border-radius: 999px; }
+        .summary-meter > span.safe { background: linear-gradient(90deg, #36cfc9, #4ec9b0); }
+        .summary-meter > span.warn { background: linear-gradient(90deg, #f5a623, #ffcb6b); }
+        .summary-meter > span.over { background: linear-gradient(90deg, #f36b6b, #f44747); }
         .summary-value { margin-top: 8px; font-size: clamp(1.15rem, 2vw, 1.75rem); font-weight: 700; font-variant-numeric: tabular-nums; }
         .summary-value.warning { color: var(--vscode-notificationsWarningIcon-foreground, #ffb347); }
         .summary-value.ok { color: var(--vscode-notificationsInfoIcon-foreground, #4ec9b0); }
@@ -705,27 +730,31 @@ export class CostDashboardPanel {
     const todayCostUsd = budget?.todayCostUsd ?? 0;
     const pct = budget ? Math.min(100, (budget.todayCostUsd / budget.limitUsd) * 100) : 0;
     const budgetClass = budget ? (pct >= 100 ? 'warning' : pct >= 80 ? 'warning' : 'ok') : '';
+    const budgetTone = budget ? (pct >= 100 ? 'critical' : pct >= 80 ? 'warn' : 'good') : 'accent';
+    const budgetMeterClass = pct >= 100 ? 'over' : pct >= 80 ? 'warn' : 'safe';
+    const savingsTone = (value: number): SummaryTone => (value > 0 ? 'good' : 'accent');
 
-    const cards = [
-      { label: 'Total Spend', value: formatCurrency(summary.totalCostUsd, 4), detail: 'All filtered request spend', countTo: summary.totalCostUsd, countFormat: 'currency-4' },
-      { label: 'Budgeted Spend', value: formatCurrency(summary.totalBudgetCostUsd, 4), detail: 'Counts against daily budget', countTo: summary.totalBudgetCostUsd, countFormat: 'currency-4' },
-      { label: 'Included Subscriptions', value: formatCurrency(summary.totalSubscriptionIncludedUsd, 4), detail: 'Visible even when not budgeted', countTo: summary.totalSubscriptionIncludedUsd, countFormat: 'currency-4' },
-      { label: 'Compression Savings', value: formatCurrency(summary.totalCompressionSavingsUsd ?? 0, 4), detail: 'Estimated spend avoided with prompt compaction', countTo: summary.totalCompressionSavingsUsd ?? 0, countFormat: 'currency-4' },
-      { label: 'Cache Savings', value: formatCurrency(summary.totalCacheSavingsUsd ?? 0, 4), detail: `Spend avoided via prompt caching (${formatTokens(summary.totalCachedInputTokens ?? 0)} cached input tokens)`, countTo: summary.totalCacheSavingsUsd ?? 0, countFormat: 'currency-4' },
-      { label: 'Total Requests', value: String(summary.totalRequests), detail: 'Requests in current window', countTo: summary.totalRequests, countFormat: 'integer' },
-      { label: 'Input Tokens', value: formatTokens(summary.totalInputTokens), detail: 'Prompt-side token volume', countTo: summary.totalInputTokens, countFormat: 'tokens' },
-      { label: 'Output Tokens', value: formatTokens(summary.totalOutputTokens), detail: 'Response-side token volume', countTo: summary.totalOutputTokens, countFormat: 'tokens' },
-      { label: "Today's Spend", value: formatCurrency(todayCostUsd, 4), detail: 'Current day budget pressure', cls: budgetClass, countTo: todayCostUsd, countFormat: 'currency-4' },
+    const cards: SummaryCard[] = [
+      { label: 'Total Spend', value: formatCurrency(summary.totalCostUsd, 4), detail: 'All filtered request spend', countTo: summary.totalCostUsd, countFormat: 'currency-4', tone: 'accent' },
+      { label: 'Budgeted Spend', value: formatCurrency(summary.totalBudgetCostUsd, 4), detail: 'Counts against daily budget', countTo: summary.totalBudgetCostUsd, countFormat: 'currency-4', tone: 'accent' },
+      { label: 'Included Subscriptions', value: formatCurrency(summary.totalSubscriptionIncludedUsd, 4), detail: 'Visible even when not budgeted', countTo: summary.totalSubscriptionIncludedUsd, countFormat: 'currency-4', tone: 'accent' },
+      { label: 'Compression Savings', value: formatCurrency(summary.totalCompressionSavingsUsd ?? 0, 4), detail: 'Estimated spend avoided with prompt compaction', countTo: summary.totalCompressionSavingsUsd ?? 0, countFormat: 'currency-4', tone: savingsTone(summary.totalCompressionSavingsUsd ?? 0) },
+      { label: 'Cache Savings', value: formatCurrency(summary.totalCacheSavingsUsd ?? 0, 4), detail: `Spend avoided via prompt caching (${formatTokens(summary.totalCachedInputTokens ?? 0)} cached input tokens)`, countTo: summary.totalCacheSavingsUsd ?? 0, countFormat: 'currency-4', tone: savingsTone(summary.totalCacheSavingsUsd ?? 0) },
+      { label: 'Total Requests', value: String(summary.totalRequests), detail: 'Requests in current window', countTo: summary.totalRequests, countFormat: 'integer', tone: 'accent' },
+      { label: 'Input Tokens', value: formatTokens(summary.totalInputTokens), detail: 'Prompt-side token volume', countTo: summary.totalInputTokens, countFormat: 'tokens', tone: 'accent' },
+      { label: 'Output Tokens', value: formatTokens(summary.totalOutputTokens), detail: 'Response-side token volume', countTo: summary.totalOutputTokens, countFormat: 'tokens', tone: 'accent' },
+      { label: "Today's Spend", value: formatCurrency(todayCostUsd, 4), detail: budget ? `${pct.toFixed(0)}% of the daily limit` : 'Current day budget pressure', cls: budgetClass, countTo: todayCostUsd, countFormat: 'currency-4', tone: budgetTone, ...(budget ? { meter: pct, meterClass: budgetMeterClass } : {}) },
     ];
 
     if (budget) {
-      cards.push({ label: 'Daily Limit', value: formatCurrency(budget.limitUsd, 2), detail: 'Configured spending ceiling', countTo: budget.limitUsd, countFormat: 'currency-2' });
+      cards.push({ label: 'Daily Limit', value: formatCurrency(budget.limitUsd, 2), detail: 'Configured spending ceiling', countTo: budget.limitUsd, countFormat: 'currency-2', tone: 'accent' });
     }
 
     return cards.map(card => `
       <article class="summary-card">
-        <p class="summary-label">${escapeHtml(card.label)}</p>
+        <div class="summary-card-head"><span class="pill-dot tone-${escapeHtml(card.tone)}"></span><p class="summary-label">${escapeHtml(card.label)}</p></div>
         <div class="summary-value ${escapeHtml(card.cls ?? '')}" data-count-to="${escapeHtml(String(card.countTo))}" data-count-format="${escapeHtml(card.countFormat)}">${escapeHtml(card.value)}</div>
+        ${typeof card.meter === 'number' ? `<div class="summary-meter"><span class="${escapeHtml(card.meterClass ?? 'safe')}" style="width:${Math.max(0, Math.min(100, card.meter)).toFixed(0)}%"></span></div>` : ''}
         <p class="summary-detail">${escapeHtml(card.detail)}</p>
       </article>
     `).join('');
@@ -1015,14 +1044,16 @@ export class CostDashboardPanel {
     const totalDownVotes = feedbackRows.reduce((total, row) => total + row.downVotes, 0);
     const totalVotes = totalUpVotes + totalDownVotes;
     const ratedSpend = feedbackRows.reduce((total, row) => total + row.spend, 0);
+    const approvalRate = getApprovalRate(totalUpVotes, totalDownVotes);
+    const approvalTone: SummaryTone = totalVotes === 0 ? 'accent' : approvalRate >= 0.6 ? 'good' : approvalRate >= 0.4 ? 'warn' : 'critical';
     const summaryCards = [
-      { label: 'Rated Responses', value: String(totalVotes) },
-      { label: 'Approval Rate', value: formatApprovalRate(getApprovalRate(totalUpVotes, totalDownVotes)) },
-      { label: 'Thumbs Up', value: String(totalUpVotes) },
-      { label: 'Filtered Spend On Rated Models', value: formatCost(ratedSpend, 4) },
+      { label: 'Rated Responses', value: String(totalVotes), tone: totalVotes > 0 ? 'good' : 'accent' as SummaryTone },
+      { label: 'Approval Rate', value: formatApprovalRate(approvalRate), tone: approvalTone },
+      { label: 'Thumbs Up', value: String(totalUpVotes), tone: 'accent' as SummaryTone },
+      { label: 'Filtered Spend On Rated Models', value: formatCost(ratedSpend, 4), tone: 'accent' as SummaryTone },
     ].map(card => `
       <div class="feedback-card">
-        <div class="card-label">${escapeHtml(card.label)}</div>
+        <div class="summary-card-head"><span class="pill-dot tone-${escapeHtml(card.tone)}"></span><div class="card-label">${escapeHtml(card.label)}</div></div>
         <div class="card-value">${escapeHtml(card.value)}</div>
       </div>
     `).join('');

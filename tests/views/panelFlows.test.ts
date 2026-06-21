@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const mocks = vi.hoisted(() => {
   const state: {
@@ -139,6 +140,7 @@ import { AgentManagerPanel } from '../../src/views/agentManagerPanel.ts';
 import { ChatPanel, getStatusDrivenComposerMode, isOneShotComposerMode } from '../../src/views/chatPanel.ts';
 import { CostDashboardPanel } from '../../src/views/costDashboardPanel.ts';
 import { ProjectDashboardPanel } from '../../src/views/projectDashboardPanel.ts';
+import { MissionControlPanel, parseMissionControlMessage } from '../../src/views/missionControlPanel.ts';
 import { ProjectIdeationPanel } from '../../src/views/projectIdeationPanel.ts';
 import { SettingsPanel } from '../../src/views/settingsPanel.ts';
 import { McpPanel } from '../../src/views/mcpPanel.ts';
@@ -199,6 +201,7 @@ describe('panel refresh flows', () => {
     ChatPanel.currentPanel = undefined;
     CostDashboardPanel.currentPanel = undefined;
     ProjectDashboardPanel.currentPanel = undefined;
+    MissionControlPanel.currentPanel = undefined;
     ProjectIdeationPanel.currentPanel = undefined;
     SettingsPanel.currentPanel = undefined;
     McpPanel.currentPanel = undefined;
@@ -1594,6 +1597,11 @@ describe('panel refresh flows', () => {
     expect(html).toContain('Approval Rate');
     expect(html).toContain('Message Cost');
     expect(html).toContain('data-sort-key="model"');
+    // Design refresh: summary cards carry tone status dots, and the budgeted
+    // "Today's Spend" card shows a pressure meter.
+    expect(html).toContain('summary-card-head');
+    expect(html).toMatch(/pill-dot tone-(good|accent|warn|critical)/);
+    expect(html).toContain('summary-meter');
     expect(html).not.toContain('onclick=');
   });
 
@@ -1922,7 +1930,20 @@ describe('panel refresh flows', () => {
     expect(html).toContain('runSearch');
     expect(html).toContain('artifactList');
     expect(html).toContain('selectedRunOutput');
+    // Design refresh: the "Current posture" pills carry live tone dots updated by setDotTone.
+    expect(html).toContain('posture-dot');
+    expect(html).toContain('metricSelectedStatusDot');
+    expect(html).toContain('function setDotTone');
+    // Cross-link to Mission Control.
+    expect(html).toContain('id="openMissionControl"');
+    expect(html).toContain('Mission Control');
     expect(html).not.toContain('onclick=');
+    // The whole client IIFE must parse — a syntax error anywhere would silently
+    // break every topbar button (including the Mission Control cross-link), while
+    // the static HTML still renders.
+    const rcScriptMatch = html.match(/<script[^>]*nonce="[^"]*"[^>]*>([\s\S]*?)<\/script>/);
+    expect(rcScriptMatch).toBeTruthy();
+    expect(() => new Function(rcScriptMatch![1])).not.toThrow();
 
     await (ProjectRunCenterPanel.currentPanel as unknown as { syncState(): Promise<void> }).syncState();
 
@@ -1933,6 +1954,12 @@ describe('panel refresh flows', () => {
       type: 'refreshRuns',
     });
     expect(listRunsAsync).toHaveBeenCalledTimes(3);
+
+    mocks.executeCommand.mockClear();
+    await (ProjectRunCenterPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> }).handleMessage({
+      type: 'openMissionControl',
+    });
+    expect(mocks.executeCommand).toHaveBeenCalledWith('atlasmind.openMissionControl');
 
     await mocks.state.projectRunsRefreshHandler?.();
     expect(listRunsAsync).toHaveBeenCalledTimes(4);
@@ -2412,6 +2439,171 @@ describe('panel refresh flows', () => {
     expect(mocks.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'error' }));
   });
 
+  it('builds an MVP route snapshot from #mvp-tagged roadmap items', async () => {
+    const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'atlasmind-mvp-snapshot-'));
+    const roadmapDir = path.join(tempRoot, 'project_memory', 'roadmap');
+    mkdirSync(roadmapDir, { recursive: true });
+    writeFileSync(
+      path.join(roadmapDir, 'improvement-plan.md'),
+      [
+        '## Prioritized Backlog',
+        '- [ ] Ship onboarding flow #mvp',
+        '- [x] Harden the authentication boundary #mvp',
+        '- [ ] Add a settings dark mode toggle',
+      ].join('\n'),
+    );
+    mocks.state.workspaceFolders = [{ name: 'Temp', uri: { fsPath: tempRoot, path: tempRoot } }];
+
+    ProjectDashboardPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        agentsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        skillsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        modelsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        memoryRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        toolApprovalManager: { isAutopilot: vi.fn().mockReturnValue(false), onAutopilotChange: vi.fn(() => () => undefined) },
+        modelRouter: { listProviders: vi.fn().mockReturnValue([]), isProviderHealthy: vi.fn().mockReturnValue(true) },
+        agentRegistry: { listAgents: vi.fn().mockReturnValue([]), isEnabled: vi.fn().mockReturnValue(true) },
+        skillsRegistry: { listSkills: vi.fn().mockReturnValue([]), isEnabled: vi.fn().mockReturnValue(true) },
+        sessionConversation: {
+          listSessions: vi.fn().mockReturnValue([]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        costTracker: {
+          getSummary: vi.fn().mockReturnValue({ totalCostUsd: 0, totalRequests: 0, totalInputTokens: 0, totalOutputTokens: 0 }),
+          getRecords: vi.fn().mockReturnValue([]),
+        },
+        memoryManager: { listEntries: vi.fn().mockReturnValue([]), getScanResults: vi.fn().mockReturnValue(new Map()) },
+      } as never,
+    );
+
+    await (ProjectDashboardPanel.currentPanel as unknown as { syncState(): Promise<void> }).syncState();
+
+    const stateMessage = mocks.postMessage.mock.calls
+      .map(call => call[0] as { type?: string; payload?: { roadmap?: { mvp?: Record<string, unknown> } } })
+      .reverse()
+      .find(message => message && message.type === 'state');
+    expect(stateMessage).toBeDefined();
+    const mvp = stateMessage?.payload?.roadmap?.mvp as {
+      hasTaggedItems: boolean;
+      totalCount: number;
+      completedCount: number;
+      progressPercent: number;
+      route: Array<{ text: string; order: number; completed: boolean }>;
+      nextStep?: { text: string };
+      planPrompt: string;
+    };
+    expect(mvp.hasTaggedItems).toBe(true);
+    expect(mvp.totalCount).toBe(2);
+    expect(mvp.completedCount).toBe(1);
+    expect(mvp.progressPercent).toBe(50);
+    expect(mvp.route).toHaveLength(2);
+    expect(mvp.nextStep?.text).toContain('onboarding');
+    expect(mvp.planPrompt).toContain('onboarding');
+    // The #mvp tag is metadata and must never appear in the displayed step text.
+    expect(mvp.route.every(step => !/#mvp/i.test(step.text))).toBe(true);
+
+    rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  it('persists the #mvp tag when an item is marked for the MVP path', async () => {
+    const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'atlasmind-mvp-save-'));
+    const roadmapDir = path.join(tempRoot, 'project_memory', 'roadmap');
+    mkdirSync(roadmapDir, { recursive: true });
+    const roadmapFile = path.join(roadmapDir, 'improvement-plan.md');
+    writeFileSync(roadmapFile, ['## Prioritized Backlog', '- [ ] Ship onboarding flow'].join('\n'));
+    mocks.state.workspaceFolders = [{ name: 'Temp', uri: { fsPath: tempRoot, path: tempRoot } }];
+
+    ProjectDashboardPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        agentsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        skillsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        modelsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        memoryRefresh: { event: vi.fn(() => ({ dispose: () => undefined })), fire: vi.fn() },
+        toolApprovalManager: { isAutopilot: vi.fn().mockReturnValue(false), onAutopilotChange: vi.fn(() => () => undefined) },
+        modelRouter: { listProviders: vi.fn().mockReturnValue([]), isProviderHealthy: vi.fn().mockReturnValue(true) },
+        agentRegistry: { listAgents: vi.fn().mockReturnValue([]), isEnabled: vi.fn().mockReturnValue(true) },
+        skillsRegistry: { listSkills: vi.fn().mockReturnValue([]), isEnabled: vi.fn().mockReturnValue(true) },
+        sessionConversation: {
+          listSessions: vi.fn().mockReturnValue([]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        costTracker: {
+          getSummary: vi.fn().mockReturnValue({ totalCostUsd: 0, totalRequests: 0, totalInputTokens: 0, totalOutputTokens: 0 }),
+          getRecords: vi.fn().mockReturnValue([]),
+        },
+        memoryManager: {
+          listEntries: vi.fn().mockReturnValue([]),
+          getScanResults: vi.fn().mockReturnValue(new Map()),
+          loadFromDisk: vi.fn().mockResolvedValue(undefined),
+        },
+      } as never,
+    );
+
+    const panel = ProjectDashboardPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> };
+    await panel.handleMessage({
+      type: 'saveRoadmap',
+      payload: { items: [{ id: 'roadmap-1', text: 'Ship onboarding flow', completed: false, isMvp: true }] },
+    });
+
+    const written = readFileSync(roadmapFile, 'utf-8');
+    expect(written).toContain('- [ ] Ship onboarding flow #mvp');
+
+    rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  it('runs the allowlisted Cost Dashboard command but ignores non-allowlisted commands', async () => {
+    ProjectDashboardPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        agentsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        skillsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        modelsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        memoryRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        toolApprovalManager: { isAutopilot: vi.fn().mockReturnValue(false), onAutopilotChange: vi.fn(() => () => undefined) },
+        modelRouter: { listProviders: vi.fn().mockReturnValue([]), isProviderHealthy: vi.fn().mockReturnValue(true) },
+        agentRegistry: { listAgents: vi.fn().mockReturnValue([]), isEnabled: vi.fn().mockReturnValue(true) },
+        skillsRegistry: { listSkills: vi.fn().mockReturnValue([]), isEnabled: vi.fn().mockReturnValue(true) },
+        sessionConversation: {
+          listSessions: vi.fn().mockReturnValue([]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        costTracker: {
+          getSummary: vi.fn().mockReturnValue({ totalCostUsd: 0, totalRequests: 0, totalInputTokens: 0, totalOutputTokens: 0 }),
+          getRecords: vi.fn().mockReturnValue([]),
+        },
+        memoryManager: { listEntries: vi.fn().mockReturnValue([]), getScanResults: vi.fn().mockReturnValue(new Map()) },
+      } as never,
+    );
+
+    await flushMicrotasks();
+    mocks.executeCommand.mockClear();
+
+    const panel = ProjectDashboardPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> };
+    await panel.handleMessage({ type: 'openCommand', payload: 'atlasmind.openCostDashboard' });
+    expect(mocks.executeCommand).toHaveBeenCalledWith('atlasmind.openCostDashboard');
+
+    mocks.executeCommand.mockClear();
+    await panel.handleMessage({ type: 'openCommand', payload: 'workbench.action.terminal.kill' });
+    expect(mocks.executeCommand).not.toHaveBeenCalled();
+  });
+
   it('launches gap analysis in a new live chat session from the dashboard', async () => {
     const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'atlasmind-gap-analysis-'));
     mocks.state.workspaceFolders = [{ name: 'Temp', uri: { fsPath: tempRoot, path: tempRoot } }];
@@ -2830,5 +3022,92 @@ describe('panel refresh flows', () => {
         ideationPromptSource: 'dashboard-next-prompt',
       }),
     }));
+  });
+});
+
+describe('project dashboard render invariants', () => {
+  const dashboardJs = readFileSync(fileURLToPath(new URL('../../media/projectDashboard.js', import.meta.url)), 'utf-8');
+
+  it('defines the shared design-refresh helpers', () => {
+    expect(dashboardJs).toContain('function resolveActionAttrs(');
+    expect(dashboardJs).toContain('function renderPageIntro(');
+    expect(dashboardJs).toContain('function renderFlowStrip(');
+    expect(dashboardJs).toContain('function renderMetricPill(label, value, opts)');
+  });
+
+  it('gives signal cards a static (non-button) fallback so none are inert', () => {
+    // Actionable signals are buttons; signals with no resolution fall back to a static div.
+    expect(dashboardJs).toMatch(/signal-card [^"`]*\bis-actionable\b/);
+    expect(dashboardJs).toMatch(/signal-card [^"`]*\bstatic\b/);
+  });
+
+  it('gives stat / action / recommendation / score-component cards a static fallback', () => {
+    expect(dashboardJs).toContain('${cls} static');
+    expect(dashboardJs).toContain('action-card static');
+    expect(dashboardJs).toContain('score-recommendation-item static');
+    expect(dashboardJs).toContain('score-component-row static');
+  });
+
+  it('resolves the Security governance signals to their concrete files', () => {
+    expect(dashboardJs).toContain("'SECURITY.md'");
+    expect(dashboardJs).toContain("'.github/CODEOWNERS'");
+    expect(dashboardJs).toContain("'.github/pull_request_template.md'");
+  });
+
+  it('adds a plain-English page intro to every dashboard page', () => {
+    // One renderPageIntro call per page that gained an orientation band.
+    const introCalls = (dashboardJs.match(/renderPageIntro\(\{/g) || []).length;
+    expect(introCalls).toBeGreaterThanOrEqual(7);
+  });
+});
+
+describe('ideation panel render invariants', () => {
+  const ideationJs = readFileSync(fileURLToPath(new URL('../../media/projectIdeation.js', import.meta.url)), 'utf-8');
+
+  it('gives the hero stat cards tone status dots', () => {
+    expect(ideationJs).toContain('function renderStat(label, value, detail, tone)');
+    expect(ideationJs).toContain("'<span class=\"pill-dot tone-' + escapeAttr(tone) + '\"></span>'");
+  });
+});
+
+describe('mission control panel', () => {
+  it('accepts the openRunCenter cross-link message and rejects unknown types', () => {
+    expect(parseMissionControlMessage({ type: 'openRunCenter' })).toEqual({ type: 'openRunCenter' });
+    expect(parseMissionControlMessage({ type: 'definitely-not-a-message' })).toBeUndefined();
+  });
+
+  it('renders the refreshed topbar with a Run Center cross-link and tone dots, and opens the Run Center', () => {
+    MissionControlPanel.createOrShow(
+      { extensionUri: { fsPath: '/ext', path: '/ext' }, subscriptions: [] } as never,
+      {
+        orchestrator: {},
+        modelRouter: {},
+        providerRegistry: {},
+        memoryManager: {},
+        skillsRegistry: {},
+        costTracker: {},
+        missionRegistry: { list: vi.fn().mockReturnValue([]) },
+      } as never,
+    );
+
+    const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
+    expect(html).toContain('mc-topbar');
+    expect(html).toContain('mc-kicker');
+    expect(html).toContain('id="openRunCenter"');
+    expect(html).toContain('Project Run Center');
+    expect(html).toContain('pill-dot');
+    // Adopts the Project Dashboard design system so it matches the dashboard pages.
+    expect(html).toContain('mc-shell');
+    expect(html).toContain('--dash-radius');
+    expect(html).toContain('--dash-bg');
+    expect(html).not.toContain('onclick=');
+    // The client IIFE must parse so the Project Run Center cross-link button works.
+    const mcScriptMatch = html.match(/<script[^>]*nonce="[^"]*"[^>]*>([\s\S]*?)<\/script>/);
+    expect(mcScriptMatch).toBeTruthy();
+    expect(() => new Function(mcScriptMatch![1])).not.toThrow();
+
+    mocks.executeCommand.mockClear();
+    mocks.state.webviewMessageHandler?.({ type: 'openRunCenter' });
+    expect(mocks.executeCommand).toHaveBeenCalledWith('atlasmind.openProjectRunCenter');
   });
 });

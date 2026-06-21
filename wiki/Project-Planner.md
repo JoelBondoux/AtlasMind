@@ -38,6 +38,14 @@ The `Planner` sends the goal + workspace context to the LLM, which returns a `Pr
 
 AtlasMind now also treats `project_memory/roadmap/improvement-plan.md` as a weighted developer backlog during planning and “what next?” guidance. The manual order of items matters, but it is not absolute: critical, security, architectural, and delivery-risk signals can still override a lower-risk item that simply happens to be near the top.
 
+### Road to MVP
+
+The Roadmap page of the Project Dashboard opens with a **Minimum Viable Product** section that turns the backlog into a guided path to a first shippable product:
+
+- **MVP path (hybrid).** Flag a backlog item as part of the MVP with the per-item **Mark MVP** toggle. Membership is stored non-destructively as a `#mvp` tag appended inside the existing managed block of `improvement-plan.md`; the tag is metadata and never appears in the displayed item text, and it round-trips cleanly through every save. When nothing is tagged yet, the dashboard falls back to **heuristic suggestions** (security, architecture, and other foundational items) so the section is useful immediately, and each suggestion offers **Add to MVP**.
+- **Visual guide.** A progress bar plus a numbered **milestone track** (each node rendered done / active-next / pending) show how far along the road to MVP the project is, alongside on-path / completed / remaining counts and a percent-to-MVP readout.
+- **AI-assisted route.** A deterministic **best route** orders the remaining MVP objectives — front-loading foundational, security, and architectural work — and explains the reasoning for each step, with a highlighted **Next step** callout. The **Plan the MVP route with Atlas** button hands a focused, dependency-aware prompt to a live Atlas chat session (the same handoff pattern used by Gap Analysis), so no model calls are added to ordinary dashboard refreshes.
+
 ```typescript
 interface ProjectPlan {
   goal: string;

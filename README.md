@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.116.5</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.120.3</strong> · </sub></p>
 
 
 <p align="center">
@@ -41,10 +41,11 @@ AtlasMind is built for indie developers, freelancers, and small teams who want t
 | Feature | AtlasMind | Copilot | Claude Code | Cline | Cursor |
 |---|:---:|:---:|:---:|:---:|:---:|
 | Multi-agent workflow | ✅ | <span title="Copilot supports some agent-like flows but not true multi-agent orchestration.">⚠️</span> | ✅ | <span title="Cline is a single agent with a plan/act loop, not multi-agent orchestration.">⚠️</span> | <span title="Cursor supports some agent-like flows but not true multi-agent orchestration.">⚠️</span> |
+| Goal-seeking autonomous loops (Mission Control) | ✅ | <span title="Copilot agent mode and the cloud coding agent run agentic loops, but without a goal-bounded budget/iteration/time envelope.">⚠️</span> | <span title="Claude Code's /loop runs on an interval or self-paces, but without AtlasMind's cost/iteration envelope, per-iteration goal self-evaluation, and persisted audit trail.">⚠️</span> | <span title="Cline's auto-approve/YOLO mode keeps acting on a task, but without goal self-evaluation or a budget/iteration envelope.">⚠️</span> | <span title="Cursor's agent and background agents iterate autonomously, but without a goal-bounded budget/iteration envelope.">⚠️</span> |
 | Model provider choice | ✅ | <span title="Copilot supports only GitHub-hosted models, not bring-your-own.">⚠️</span> | <span title="Claude Code supports only Anthropic models.">⚠️</span> | <span title="Cline supports OpenAI-compatible providers and configurable endpoints.">✅</span> | ✅ |
 | Project memory (SSOT) | ✅ | <span title="Copilot has session memory but not persistent project SSOT.">⚠️</span> | <span title="Claude Code has session memory but not persistent project SSOT.">⚠️</span> | <span title="Cline can use rules and context, but not AtlasMind-style persistent project SSOT.">⚠️</span> | <span title="Cursor has session memory but not persistent project SSOT.">⚠️</span> |
 | Approval/safety gates | ✅ | <span title="Copilot has some safety checks but not approval gating.">⚠️</span> | ✅ | ✅ | <span title="Cursor has some safety checks but not approval gating.">⚠️</span> |
-| Cost tracking | ✅ | ❌ | ❌ | <span title="Cline shows usage and token costs, but not AtlasMind-style cost dashboards.">⚠️</span> | ❌ |
+| Cost tracking | ✅ | ❌ | <span title="Claude Code shows session token cost via /cost, but not AtlasMind-style per-model cost dashboards.">⚠️</span> | <span title="Cline shows usage and token costs, but not AtlasMind-style cost dashboards.">⚠️</span> | <span title="Cursor has a usage dashboard and spend caps, but not AtlasMind-style per-request/per-model cost dashboards.">⚠️</span> |
 | VS Code native | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Built-in dashboards | ✅ | <span title="Copilot has some usage stats but not full dashboards.">⚠️</span> | <span title="Claude Code has some usage stats but not full dashboards.">⚠️</span> | <span title="Cline surfaces usage and settings views, but not AtlasMind-style project/run/cost dashboards.">⚠️</span> | <span title="Cursor has some usage stats but not full dashboards.">⚠️</span> |
 | Extensible with MCP servers | ✅ | ✅ | ✅ | ✅ | ✅ |
@@ -53,7 +54,7 @@ AtlasMind is built for indie developers, freelancers, and small teams who want t
 
 - **Multi-agent orchestration**: 15 built-in specialized agents — debugger, frontend/backend engineers, reviewer, security, SEO, UX, DevOps, and more — plus instant AI-drafted custom agents on demand.
 - **Multi-provider model routing**: Supports GitHub Copilot, Claude, GPT, Gemini, Azure OpenAI, Bedrock, Mistral, and more. Budget and speed preferences steer selection automatically.
-- **Built-in skills**: 35 pre-built skills including file editing, git, diagnostics, code navigation, test running, HTTP requests, Docker, web fetch, and more. Skills are grouped by category and support custom folders. Agents use AI-driven auto skill assignment by default.
+- **Built-in skills**: 43 pre-built skills including file editing, git, diagnostics, code navigation, test running, debugging, HTTP requests, Docker, web fetch, and more. Skills are grouped by category and support custom folders. Agents use AI-driven auto skill assignment by default.
 - **Long-term project memory (SSOT)**: Decisions, architecture notes, and lessons learned persist in a structured memory folder. A dedicated Memory Agent maintains session context and keeps SSOT snippets fresh as source files evolve.
 - **Project planner**: Decompose goals into subtasks, preview impact, gate execution, and review results.
 - **Cost tracking**: Real-time per-session spend with budget guardrails and a daily cost limit.
@@ -125,7 +126,7 @@ Access these from the VS Code Command Palette (`Ctrl+Shift+P`).
 | `AtlasMind: Import Existing Project` | Populate memory from an existing project |
 | `AtlasMind: Update Project Memory` | Re-scan and refresh the SSOT memory |
 | `AtlasMind: Open Cost Dashboard` | Per-session and per-model cost breakdown, plus a live "Current Loops" section for in-flight Mission Loop spend |
-| `AtlasMind: Open Project Dashboard` | Project health, gap analysis, and roadmap |
+| `AtlasMind: Open Project Dashboard` | Project health, gap analysis, and roadmap — including a **Road to MVP** section that tags backlog items (`#mvp`), visualises a milestone track to a first shippable product, and recommends the best route with an "ask Atlas" handoff |
 | `AtlasMind: Open Project Ideation` | Ideation whiteboard before launching a project run |
 | `AtlasMind: Open Project Run Center` | Task run history and checkpoint browser |
 | `AtlasMind: Open Mission Control` | Define, launch, watch, checkpoint, and audit autonomous Mission Loop runs |
@@ -203,17 +204,18 @@ Agents can be **auto-updated on a configurable cadence** (never/daily/weekly/mon
 
 ## Built-in Skills
 
-36 built-in skills organized by category. All skills are enable/disable toggleable and undergo security scanning before use.
+43 built-in skills organized by category. All skills are enable/disable toggleable and undergo security scanning before use.
 
 | Category | Skills |
 |---|---|
 | **Workspace Files** | file-read, file-write, file-edit, file-search, file-delete, file-move, directory-list |
-| **Git & Review** | git-status, git-diff, git-commit, git-push, git-log, git-branch, git-apply-patch, rollback-checkpoint, diff-preview |
-| **Execution & Testing** | terminal-run, terminal-read, test-run, debug-session, docker-cli, workspace-observability |
-| **Code Intelligence** | diagnostics, code-symbols, rename-symbol, code-action, code-format |
+| **Git & Review** | git-status, git-diff, git-commit, git-push, git-log, git-branch, git-apply-patch, git-blame, rollback-checkpoint, diff-preview |
+| **Execution & Testing** | terminal-run, terminal-read, test-run, debug-session, docker-cli, npm-scripts, workspace-observability |
+| **Code Intelligence** | diagnostics, code-symbols, rename-symbol, code-action, code-format, framework-detect |
+| **Debugging** | debug-launch, debug-breakpoint, log-file-tail |
 | **Search & Fetch** | text-search, web-fetch, http-request, exa-search, discover-resources |
 | **Memory** | memory-query, memory-write, memory-delete |
-| **VS Code** | vscode-extensions |
+| **VS Code** | vscode-extensions, simple-browser |
 
 Custom skills can be authored and loaded from any workspace folder. The Skills view supports folder organization and per-skill security scanning.
 
