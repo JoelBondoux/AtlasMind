@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.116.5] - 2026-06-21
+
+### Fixed
+- **Delivery Dashboard now shows the real Production version.** A stage's deployed version was read straight from its local branch (`git show master:package.json`). In the normal workflow a developer lives on `develop` and never checks out or pulls `master` — releases land via PR merges on the remote — so the local `master` ref is badly stale (in this repo it sat at `0.79.2` while `origin/master` was `0.116.4`), and the Production stage reported that stale version. The dashboard now reads the deployed version from the **remote-tracking ref** (`origin/<branch>`) when it exists, falling back to the local ref for offline/local-only repos. Added `chooseDeployedVersionRef` (pure, unit-tested) and applied it to the stage views, the promotion version facts, and the version strip's production card. (The branch name shown for the stage is unchanged — only the version source moved to the remote.)
+
 ## [0.116.4] - 2026-06-21
 
 ### Fixed

@@ -2737,7 +2737,9 @@ async function collectVersionSnapshot(
     return { current };
   }
 
-  const productionVersion = await readPackageVersionFromGitRef(workspaceRoot, productionRef);
+  // Read from the freshest ref (prefers `origin/<branch>`) so the production
+  // card reflects the released version, not a stale local release branch.
+  const productionVersion = await readDeployedVersionForBranch(workspaceRoot, productionRef);
   if (!productionVersion || productionVersion === 'N/A') {
     return { current };
   }
@@ -2800,6 +2802,60 @@ async function gitRefExists(workspaceRoot: string, ref: string): Promise<boolean
   } catch {
     return false;
   }
+}
+
+/**
+ * Choose which git ref to read a stage's *deployed* package version from, given
+ * a probe for which refs exist.
+ *
+ * A stage branch like `master` models the released product, which lives on the
+ * remote. A developer typically works on `develop` and never checks out or
+ * pulls `master` locally (releases land via PR merges they never fetch into the
+ * local branch), so the local `master` ref is frequently stale and reading
+ * `git show master:package.json` reports an old version. Prefer the
+ * remote-tracking ref `origin/<branch>` when it exists — that is the deployed
+ * truth — and fall back to the local ref (e.g. an offline/local-only repo with
+ * no remote). Pure so the preference order is unit-testable without git.
+ */
+export function chooseDeployedVersionRef(branchRef: string, refExists: (ref: string) => boolean): string | undefined {
+  const trimmed = branchRef.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  // An explicit remote ref: use it, else its local short name.
+  if (trimmed.startsWith('origin/')) {
+    if (refExists(trimmed)) {
+      return trimmed;
+    }
+    const local = normalizeBranchRef(trimmed);
+    return refExists(local) ? local : undefined;
+  }
+  const remoteRef = `origin/${normalizeBranchRef(trimmed)}`;
+  if (refExists(remoteRef)) {
+    return remoteRef;
+  }
+  return refExists(trimmed) ? trimmed : undefined;
+}
+
+/** Resolve the freshest existing ref for a stage branch (prefers `origin/<branch>`). */
+async function resolveDeployedVersionRef(workspaceRoot: string, branchRef: string): Promise<string | undefined> {
+  const normalized = normalizeBranchRef(branchRef.trim());
+  const candidates = branchRef.trim().startsWith('origin/')
+    ? [branchRef.trim(), normalized]
+    : [`origin/${normalized}`, branchRef.trim()];
+  const existing = new Set<string>();
+  await Promise.all(candidates.map(async ref => {
+    if (ref && await gitRefExists(workspaceRoot, ref)) {
+      existing.add(ref);
+    }
+  }));
+  return chooseDeployedVersionRef(branchRef, ref => existing.has(ref));
+}
+
+/** Read the deployed package version for a stage branch from its freshest ref. */
+async function readDeployedVersionForBranch(workspaceRoot: string, branchRef: string): Promise<string | undefined> {
+  const ref = await resolveDeployedVersionRef(workspaceRoot, branchRef);
+  return ref ? readPackageVersionFromGitRef(workspaceRoot, ref) : undefined;
 }
 
 async function pathExists(absolutePath: string): Promise<boolean> {
@@ -3245,10 +3301,7 @@ async function gatherPromotionFacts(
  */
 async function resolveStageVersion(workspaceRoot: string, stage: DeploymentStage): Promise<string | undefined> {
   if (stage.branchRef) {
-    if (await gitRefExists(workspaceRoot, stage.branchRef)) {
-      return readPackageVersionFromGitRef(workspaceRoot, stage.branchRef);
-    }
-    return undefined;
+    return readDeployedVersionForBranch(workspaceRoot, stage.branchRef);
   }
   try {
     const raw = await fs.readFile(path.join(workspaceRoot, 'package.json'), 'utf-8');
@@ -3430,9 +3483,13 @@ async function buildStageView(
   let deployedVersion = '—';
   let branchExists = false;
   if (stage.branchRef) {
-    branchExists = await gitRefExists(workspaceRoot, stage.branchRef);
-    if (branchExists) {
-      deployedVersion = (await readPackageVersionFromGitRef(workspaceRoot, stage.branchRef)) ?? '—';
+    // Read the version from the freshest ref (prefers `origin/<branch>`): a
+    // developer's local release branch is usually stale, so reading it directly
+    // reports an outdated deployed version.
+    const ref = await resolveDeployedVersionRef(workspaceRoot, stage.branchRef);
+    branchExists = ref !== undefined;
+    if (ref) {
+      deployedVersion = (await readPackageVersionFromGitRef(workspaceRoot, ref)) ?? '—';
     }
   }
   const backupConfigured = Boolean(stage.backupPolicy.command && stage.backupPolicy.command.trim().length > 0);
