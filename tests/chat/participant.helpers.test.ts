@@ -51,6 +51,9 @@ import {
   toApprovedProjectPrompt,
   toSerializableAttribution,
   detectResponseQuickReplies,
+  detectProjectRunProposal,
+  buildProjectRunAutoFlowNotice,
+  resolveProjectRunAutoFlow,
   type ProjectRunOutcome,
 } from '../../src/chat/participant.ts';
 import type { TaskImageAttachment } from '../../src/types.ts';
@@ -1222,5 +1225,104 @@ describe('participant helper logic', () => {
 
   it('falls back to follow-up detail when no prior substantive user prompt exists', () => {
     expect(resolveAutonomousContinuationGoal('Continue on tests', [])).toBe('tests');
+  });
+});
+
+describe('detectProjectRunProposal', () => {
+  it('detects a first-person offer to start a project run posed as a question', () => {
+    expect(
+      detectProjectRunProposal(
+        'I have mapped out the work. Want me to kick off a project run to build this out?',
+      ),
+    ).toBe(true);
+    expect(
+      detectProjectRunProposal('Plan ready. Shall I start an autonomous project run to implement it?'),
+    ).toBe(true);
+  });
+
+  it('detects a first-person readiness statement that offers to run autonomously', () => {
+    expect(
+      detectProjectRunProposal("The plan is set. I'm ready to switch into project execution mode and run this."),
+    ).toBe(true);
+  });
+
+  it('does not fire when the reply ends with an information-seeking question', () => {
+    // Mentions a project run, but the trailing question is gathering requirements.
+    expect(
+      detectProjectRunProposal(
+        'I can run this as a project run. What database and auth provider should the build target?',
+      ),
+    ).toBe(false);
+  });
+
+  it('does not fire on a plain answer with no run offer', () => {
+    expect(detectProjectRunProposal('The checkout flow lives in src/checkout.ts and looks correct.')).toBe(false);
+  });
+
+  it('does not fire on a generic build statement without project-run vocabulary', () => {
+    // "build this out" alone must never escalate an ordinary edit into a multi-step run.
+    expect(detectProjectRunProposal('Sure, I can build this out for you. Want me to start?')).toBe(false);
+  });
+
+  it('vetoes a proposal that is being declined or deferred', () => {
+    expect(
+      detectProjectRunProposal("I won't start a project run until you confirm the target stack."),
+    ).toBe(false);
+  });
+});
+
+describe('buildProjectRunAutoFlowNotice', () => {
+  it('uses an immediate notice under Autopilot', () => {
+    expect(buildProjectRunAutoFlowNotice('Build the export feature', true)).toBe(
+      '**Autopilot** — auto-continuing into a project run.\n\nGoal: `Build the export feature`',
+    );
+  });
+
+  it('uses a cancellable notice when Autopilot is off', () => {
+    expect(buildProjectRunAutoFlowNotice('Build the export feature', false)).toBe(
+      'Starting a project run to: **Build the export feature**\n\n_Use Stop to cancel._',
+    );
+  });
+});
+
+describe('resolveProjectRunAutoFlow', () => {
+  const transcript: SessionTranscriptEntry[] = [
+    {
+      id: '1',
+      role: 'user',
+      content: 'Add a CSV export to the reports page.',
+      timestamp: '2026-06-22T10:00:00.000Z',
+    },
+    {
+      id: '2',
+      role: 'assistant',
+      content: 'Here is the plan. Want me to kick off a project run to build this out?',
+      timestamp: '2026-06-22T10:00:05.000Z',
+    },
+  ];
+
+  it('returns the goal "Proceed" would resolve plus a notice when a run was proposed', () => {
+    const result = resolveProjectRunAutoFlow(transcript[1].content, transcript, {
+      enabled: true,
+      autopilot: false,
+    });
+    // Mirrors resolveAutonomousContinuationGoal('proceed', …): the assistant's proposed action.
+    expect(result?.goal).toBe('kick off a project run to build this out');
+    expect(result?.notice).toContain('Use Stop to cancel');
+  });
+
+  it('returns undefined when auto-flow is disabled', () => {
+    expect(
+      resolveProjectRunAutoFlow(transcript[1].content, transcript, { enabled: false, autopilot: false }),
+    ).toBeUndefined();
+  });
+
+  it('returns undefined when the reply did not propose a run', () => {
+    expect(
+      resolveProjectRunAutoFlow('The reports page renders fine; nothing to change.', transcript, {
+        enabled: true,
+        autopilot: true,
+      }),
+    ).toBeUndefined();
   });
 });

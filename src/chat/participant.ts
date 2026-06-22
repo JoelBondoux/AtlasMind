@@ -127,6 +127,18 @@ const ASSISTANT_OFFER_LEAD_IN_PATTERN = /^\s*(?:so\s+|then\s+|now\s+|ok(?:ay)?,?
 /** Matches a bare informational question ("what/why/how/… ?"), which is not an executable goal. */
 const INFORMATIONAL_QUESTION_PATTERN = /^\s*(?:what|why|how|which|where|when|who|whose|whom)\b[\s\S]*\?\s*$/i;
 const PROJECT_RUN_REQUEST_PATTERN = /^\s*(?:please\s+)?(?:(?:start|begin|run|launch|kick off|continue|switch to)\s+(?:an?\s+)?)?(?:atlasmind\s+)?(?:autonomous\s+)?project(?:\s+run|\s+execution|\s+task)?\b(?:\s+(?:to|for|on|about|that|which))?\s*(.+)?$/i;
+/**
+ * Detects when the assistant's *own* reply is offering to start an autonomous
+ * project run (e.g. "…want me to kick off a project run to build this out?").
+ * Requires explicit project/autonomous-run vocabulary — generic "I'll build this"
+ * is deliberately excluded so auto-flow never escalates an ordinary edit into a
+ * multi-step run. Used by {@link resolveProjectRunAutoFlow}.
+ */
+const PROJECT_RUN_PROPOSAL_INTENT_PATTERN = /\b(?:(?:autonomous|atlasmind)\s+project\s+run|project\s+run|autonomous\s+run|autonomous\s+project|project\s+execution\s+mode|kick\s+off\s+(?:an?\s+|the\s+)?(?:autonomous\s+)?(?:project\s+)?run|start\s+(?:an?\s+|the\s+)?(?:autonomous\s+)?project\s+run|launch\s+(?:an?\s+|the\s+)?(?:autonomous\s+)?(?:project\s+)?run|run\s+(?:this|it|that)\s+autonomously|run\s+(?:this|it|that)\s+as\s+(?:an?\s+)?(?:autonomous\s+)?(?:project\s+)?run|switch\s+(?:in)?to\s+project\s+(?:execution\s+)?mode)\b/i;
+/** First-person offer/readiness lead-ins that mark a proposal as an actual go-ahead the user can accept. */
+const PROJECT_RUN_OFFER_PATTERN = /\b(?:want\s+me\s+to|would\s+you\s+like\s+me\s+to|do\s+you\s+want\s+me\s+to|shall\s+i|should\s+i|can\s+i|may\s+i|i\s+can|i'?ll|i\s+will|let\s+me|i'?m\s+ready\s+to|i\s+am\s+ready\s+to|ready\s+to)\b/i;
+/** Negation/deferral cues that veto a proposal match — the model is declining or still waiting on the user. */
+const PROJECT_RUN_PROPOSAL_NEGATION_PATTERN = /\b(?:won'?t|will\s+not|cannot|can'?t|do\s+not|don'?t|shouldn'?t|not\s+ready|hold\s+off|before\s+(?:i|we)\s+(?:start|begin|run|proceed)|once\s+you|after\s+you)\b/i;
 const EXPLICIT_FIX_PROMPT_PATTERN = /\b(?:fix|patch|repair|resolve|implement|update|change|modify|correct|adjust|rewrite|refactor)\b/i;
 const EXPLICIT_NO_FIX_PATTERN = /\b(?:do not fix|don't fix|without changing|no code changes|read only|explain only|question only)\b/i;
 const CONCRETE_ISSUE_PROMPT_PATTERN = /\b(?:bug|issue|problem|broken|regression|failing|fails|error|incorrect|wrong|missing|stuck|overflow|scroll|layout|sidebar|dropdown|panel|webview|tooltip|session rail|hides|hidden|crash|hang|stops|stopped|too tall|too wide|not working|doesn't|does not|won't|will not|can't|cannot)\b/i;
@@ -761,7 +773,7 @@ async function handleChatRequest(
         break;
       }
 
-      await handleFreeformMessage(request, stream, atlas, sessionId);
+      projectOutcome = await handleFreeformMessage(request, stream, token, atlas, sessionId);
       break;
     }
   }
@@ -1663,20 +1675,42 @@ async function handleCostCommand(
 async function handleFreeformMessage(
   request: vscode.ChatRequest,
   stream: vscode.ChatResponseStream,
+  token: vscode.CancellationToken,
   atlas: AtlasMindContext,
   sessionId: string,
-): Promise<void> {
+): Promise<ProjectRunOutcome | undefined> {
   const prompt = request.prompt;
   const roadmapStatusMarkdown = await buildRoadmapStatusMarkdown(prompt);
   if (roadmapStatusMarkdown) {
     stream.markdown(roadmapStatusMarkdown);
-    return;
+    return undefined;
   }
   if (await handleRoutineEditIntent(prompt, stream, atlas)) {
-    return;
+    return undefined;
   }
   const imageAttachments = await resolveInlineImageAttachments(prompt);
-  await runChatTask(prompt, stream, atlas, imageAttachments, sessionId);
+  const responseText = await runChatTask(prompt, stream, atlas, imageAttachments, sessionId);
+
+  // If the reply offered an autonomous project run, flow straight into it rather
+  // than stopping for the operator to type "Proceed" — they already asked for the
+  // job. Calls the run with a bare goal (not pre-approved) so the file-count safety
+  // gate in runProjectCommand stays active for unusually large runs.
+  const configuration = vscode.workspace.getConfiguration('atlasmind');
+  const autoFlow = resolveProjectRunAutoFlow(
+    responseText,
+    atlas.sessionConversation.getTranscript(sessionId),
+    {
+      enabled: configuration.get<boolean>('autoStartProposedProjectRuns', true),
+      autopilot: atlas.toolApprovalManager?.isAutopilot?.() ?? false,
+    },
+  );
+  if (!autoFlow || token.isCancellationRequested) {
+    return undefined;
+  }
+
+  stream.markdown(`\n\n---\n\n${autoFlow.notice}\n\n`);
+  const { sessionContextBundle, sessionContext } = await prepareProjectRunContext(atlas, sessionId);
+  return runProjectCommand(autoFlow.goal, stream, token, atlas, sessionId, sessionContextBundle, sessionContext);
 }
 
 /**
@@ -1764,7 +1798,7 @@ async function runChatTask(
   atlas: AtlasMindContext,
   explicitAttachments: TaskImageAttachment[] = [],
   sessionId?: string,
-): Promise<void> {
+): Promise<string> {
   const configuration = vscode.workspace.getConfiguration('atlasmind');
   const sessionContext = atlas.sessionConversation.buildContext({
     maxTurns: configuration.get<number>('chatSessionTurnLimit', 6),
@@ -1824,6 +1858,8 @@ async function runChatTask(
   if (configuration.get<boolean>('voice.ttsEnabled', false)) {
     atlas.voiceManager.speak(reconciled.transcriptText);
   }
+
+  return reconciled.transcriptText;
 }
 
 export function reconcileAssistantResponse(
@@ -3209,6 +3245,86 @@ export function extractAssistantProposedAction(
     .replace(/\?+\s*$/, '')
     .trim();
   return action.length >= 3 ? action : undefined;
+}
+
+/** Result of {@link resolveProjectRunAutoFlow}: the goal to run plus the notice to surface first. */
+export interface ProjectRunAutoFlow {
+  /** The goal to execute — identical to what typing "Proceed" would resolve. */
+  goal: string;
+  /** Markdown notice shown before the run starts (cancellable, or Autopilot variant). */
+  notice: string;
+}
+
+/**
+ * True when the assistant's reply ends by offering to start an autonomous project
+ * run. Conservative by construction: it requires explicit project/autonomous-run
+ * vocabulary {@link PROJECT_RUN_PROPOSAL_INTENT_PATTERN} **and** a first-person
+ * go-ahead offer, vetoes negation/deferral, and — when the reply closes with a
+ * question — only matches if that question is itself an offer (so requirement-
+ * gathering questions never trigger an auto-run).
+ */
+export function detectProjectRunProposal(responseText: string): boolean {
+  const trimmed = responseText.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  // The offer/readiness line lives at the tail of the reply; bound the scan so an
+  // unrelated mid-reply mention of "project run" can't trip detection.
+  const window = trimmed.slice(-400);
+  if (!PROJECT_RUN_PROPOSAL_INTENT_PATTERN.test(window)) {
+    return false;
+  }
+  if (PROJECT_RUN_PROPOSAL_NEGATION_PATTERN.test(window)) {
+    return false;
+  }
+
+  // If the reply closes with a question, it must be an *offer* ("Want me to …?"),
+  // not an information-seeking one ("What stack are you using?"). An info question
+  // means the model is still gathering requirements — don't auto-start.
+  const trailingQuestion = RESPONSE_TRAILING_QUESTION_PATTERN.exec(trimmed)?.[1]?.trim();
+  if (trailingQuestion) {
+    return ASSISTANT_OFFER_LEAD_IN_PATTERN.test(trailingQuestion)
+      || PROJECT_RUN_OFFER_PATTERN.test(trailingQuestion);
+  }
+
+  // No closing question: accept a first-person readiness statement that offers to run.
+  return PROJECT_RUN_OFFER_PATTERN.test(window);
+}
+
+/** The notice rendered before an auto-flowed run — Autopilot is immediate; otherwise it's cancellable. */
+export function buildProjectRunAutoFlowNotice(goal: string, autopilot: boolean): string {
+  const display = truncateForSummary(goal, 160);
+  if (autopilot) {
+    return `**Autopilot** — auto-continuing into a project run.\n\nGoal: \`${display}\``;
+  }
+  return `Starting a project run to: **${display}**\n\n_Use Stop to cancel._`;
+}
+
+/**
+ * Single entry point both chat surfaces use to decide whether a freeform reply that
+ * proposed a project run should flow straight into one. Reuses the exact goal that
+ * typing "Proceed" resolves ({@link resolveAutonomousContinuationGoal}), so auto-flow
+ * changes nothing about execution — it only removes the manual confirmation keystroke.
+ * Returns undefined (no auto-flow) when disabled, when no run was proposed, or when no
+ * actionable goal resolves.
+ */
+export function resolveProjectRunAutoFlow(
+  responseText: string,
+  transcript: SessionTranscriptEntry[],
+  options: { enabled: boolean; autopilot: boolean },
+): ProjectRunAutoFlow | undefined {
+  if (!options.enabled) {
+    return undefined;
+  }
+  if (!detectProjectRunProposal(responseText)) {
+    return undefined;
+  }
+  const goal = resolveAutonomousContinuationGoal('proceed', transcript)?.trim();
+  if (!goal) {
+    return undefined;
+  }
+  return { goal, notice: buildProjectRunAutoFlowNotice(goal, options.autopilot) };
 }
 
 function normalizeAutonomousSourcePrompt(prompt: string): string {

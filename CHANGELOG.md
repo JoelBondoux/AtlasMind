@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.122.0] - 2026-06-22
+
+### Added
+- **Proposed project runs flow straight through — no more dead-end "Proceed".** When an AtlasMind chat reply ends by offering to start an autonomous project run (e.g. *"…want me to kick off a project run to build this out?"*), the turn no longer stops and waits for you to type **Proceed**. You already asked for the job, so AtlasMind now continues into the run on the same turn: **immediately** under Autopilot (with a brief *"Autopilot — auto-continuing into a project run"* notice), or after a cancellable *"Starting a project run to: … — use Stop to cancel"* notice otherwise. The run reuses the exact goal that typing "Proceed" would have resolved, so nothing about execution changes — only the redundant keystroke is gone. Auto-flowed runs pass the **bare goal** (not pre-approved), so `runProjectCommand`'s `approvalFileThreshold` safety gate still pauses unusually large runs to show the plan before any files change. New `detectProjectRunProposal`, `buildProjectRunAutoFlowNotice`, and `resolveProjectRunAutoFlow` helpers in `participant.ts` drive the detection for both the `@atlas` chat participant and the chat panel. Detection is conservative — it requires explicit project/autonomous-run vocabulary plus a first-person go-ahead, vetoes negation/deferral, and never fires when the reply is still gathering requirements. Controlled by the new `atlasmind.autoStartProposedProjectRuns` setting (default **on**); set it to `false` to keep the previous Yes/No-pill confirmation.
+
 ## [0.121.2] - 2026-06-22
 
 ### Fixed

@@ -135,6 +135,7 @@ See [[Memory System]] for folder structure and retrieval details.
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
+| `atlasmind.autoStartProposedProjectRuns` | boolean | `true` | When a reply offers an autonomous project run, flow straight into it (immediate under Autopilot; cancellable notice otherwise) instead of waiting for "Proceed". Auto-flowed runs aren't pre-approved, so `projectApprovalFileThreshold` still gates large runs. Set `false` for Yes/No-pill confirmation |
 | `atlasmind.projectApprovalFileThreshold` | number | `12` | Estimated changed-file count that triggers approval gating. Minimum: 1 |
 | `atlasmind.projectEstimatedFilesPerSubtask` | number | `2` | Heuristic multiplier for file impact estimation. Minimum: 1 |
 | `atlasmind.projectChangedFileReferenceLimit` | number | `5` | Max clickable file references shown after `/project` runs. Minimum: 1 |

@@ -28,6 +28,7 @@ import {
   ensureAssistantVisibleResponse,
   reconcileAssistantResponse,
   resolveAtlasChatIntent,
+  resolveProjectRunAutoFlow,
   runProjectCommand,
   runLoopCommand,
   toApprovedProjectPrompt,
@@ -1127,6 +1128,41 @@ export class ChatPanel {
         this.atlas.voiceManager.speak(visibleTranscriptText);
       }
       await this.host.webview.postMessage({ type: 'status', payload: `Response ready via ${result.modelUsed}.` });
+
+      // If the reply offered an autonomous project run, flow straight into it instead
+      // of stopping for the operator to type "Proceed" — they already asked for the
+      // job. Immediate under Autopilot; otherwise after a cancellable notice. The run
+      // uses a bare goal (not pre-approved) so runProjectCommand's file-count safety
+      // gate still applies to unusually large runs.
+      const autoFlow = resolveProjectRunAutoFlow(
+        visibleTranscriptText,
+        this.atlas.sessionConversation.getTranscript(activeSessionId),
+        {
+          enabled: configuration.get<boolean>('autoStartProposedProjectRuns', true),
+          autopilot: this.atlas.toolApprovalManager?.isAutopilot?.() ?? false,
+        },
+      );
+      if (autoFlow && !abortController.signal.aborted) {
+        // Drop the now-redundant Yes/No pills so the operator can't double-trigger the run.
+        this.atlas.sessionConversation.updateMessage(
+          assistantMessageId,
+          visibleTranscriptText,
+          activeSessionId,
+          { ...assistantMeta, followupQuestion: undefined, quickReplies: undefined, suggestedFollowups: undefined },
+        );
+        await this.appendAssistantMessage(assistantMessageId, activeSessionId, `\n\n---\n\n${autoFlow.notice}`);
+        await this.runProjectPrompt(
+          autoFlow.goal,
+          assistantMessageId,
+          activeSessionId,
+          [],
+          cancellationSource.token,
+          sessionContextBundle ?? undefined,
+          sessionContext || undefined,
+          false,
+        );
+        await this.host.webview.postMessage({ type: 'status', payload: 'Autonomous project run completed.' });
+      }
     } catch (error) {
       this.streamingThought = undefined;
       this.streamingModels = [];
@@ -1554,6 +1590,7 @@ export class ChatPanel {
     token: vscode.CancellationToken,
     sessionContextBundle?: import('../types.js').SessionContextBundle,
     sessionContext?: string,
+    preApproved = true,
   ): Promise<void> {
     await this.appendAssistantMessage(
       assistantMessageId,
@@ -1588,7 +1625,9 @@ export class ChatPanel {
     } as unknown as vscode.ChatResponseStream;
 
     await runProjectCommand(
-      toApprovedProjectPrompt(projectGoal),
+      // Explicit project requests are pre-approved (the operator typed the run);
+      // auto-flowed proposals pass the bare goal so the file-count safety gate holds.
+      preApproved ? toApprovedProjectPrompt(projectGoal) : projectGoal,
       sink,
       token,
       this.atlas,

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.121.2</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.122.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -249,6 +249,7 @@ Key settings under `atlasmind.*` in VS Code settings:
 | `loop.goalAchievedConfidenceThreshold` | `0.7` | Min evaluator confidence to accept an `achieved` verdict |
 | `allowTerminalWrite` | `false` | Allow terminal subprocesses (installs, commits) after explicit approval |
 | `autoVerifyAfterWrite` | `true` | Run verification scripts after workspace writes |
+| `autoStartProposedProjectRuns` | `true` | When a reply offers an autonomous project run, flow straight into it (immediate under Autopilot; cancellable notice otherwise) instead of waiting for "Proceed"; the file-count gate still applies |
 | `ssotPath` | `project_memory` | Relative path to the SSOT memory folder |
 | `localOpenAiEndpoints` | `[]` | Labeled local OpenAI-compatible endpoints (`id`/`label`/`baseUrl`) aggregated under the Local provider; managed from Settings → Models & Integrations |
 | `localOpenAiBaseUrl` | `http://127.0.0.1:11434/v1` | Legacy single-endpoint fallback for Ollama or LM Studio (auto-migrated into `localOpenAiEndpoints`) |

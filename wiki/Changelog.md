@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.122.0 — Proposed project runs flow straight through
+
+- **No more dead-end "Proceed".** When a chat reply ends by offering to start an autonomous project run (e.g. *"…want me to kick off a project run to build this out?"*), AtlasMind now continues into the run on the same turn instead of stopping and waiting. It runs **immediately** under Autopilot (with a brief notice), or after a cancellable *"Starting a project run to: … — use Stop to cancel"* notice otherwise. The run reuses the exact goal that typing "Proceed" would have resolved, and unusually large runs still hit the file-count approval gate (auto-flowed runs aren't pre-approved). Detection is conservative — explicit project/autonomous-run vocabulary plus a first-person go-ahead, with declines and requirement-gathering questions ignored. Controlled by the new `atlasmind.autoStartProposedProjectRuns` setting (default **on**); set it to `false` to keep the previous Yes/No-pill confirmation.
+
+---
+
 ## v0.121.2 — Local endpoints save again
 
 - **Adding a local endpoint now persists.** OpenAI-compatible local endpoints (Ollama, LM Studio, …) added in **Settings → Models & Integrations** were silently dropped on refresh and never showed up in the Model Providers sidebar. The `atlasmind.localOpenAiEndpoints` setting was documented but never registered in `package.json`, so VS Code rejected the save and the fire-and-forget Settings handler swallowed the error. The setting is now a registered typed array of `{ id, label, baseUrl }`, edits persist, and any remaining save failure surfaces as a notification instead of failing silently.
