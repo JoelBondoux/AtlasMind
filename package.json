@@ -1715,7 +1715,7 @@
     "tag:release": "node .github/scripts/tag-release.mjs"
   },
   "devDependencies": {
-    "@types/node": "^25.9.3",
+    "@types/node": "^26.0.0",
     "@types/vscode": "^1.120.0",
     "@types/ws": "^8.18.1",
     "@typescript-eslint/eslint-plugin": "^8.61.1",
