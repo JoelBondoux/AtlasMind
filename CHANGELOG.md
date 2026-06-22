@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.121.2] - 2026-06-22
+
+### Fixed
+- **Local endpoints now save and persist.** Adding an OpenAI-compatible local endpoint (Ollama, LM Studio, etc.) in **Settings → Models & Integrations** silently failed: the endpoint vanished on refresh and never appeared in the Model Providers sidebar. The cause was that `atlasmind.localOpenAiEndpoints` was documented but never registered in `package.json`'s `contributes.configuration`, so VS Code's `configuration.update()` rejected the write for an unregistered key — and because the Settings webview message handler is fire-and-forget (`void handleMessage(...)`), the rejection was swallowed with no error shown. The setting is now registered (typed array of `{ id, label, baseUrl }`), so edits persist to workspace settings and survive a refresh. The `setLocalOpenAiEndpoints` handler also now surfaces any remaining persistence failure (e.g. no workspace folder open) as an error notification instead of failing silently.
+
 ## [0.121.1] - 2026-06-21
 
 ### Fixed
