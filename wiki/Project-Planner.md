@@ -38,6 +38,18 @@ The `Planner` sends the goal + workspace context to the LLM, which returns a `Pr
 
 AtlasMind now also treats `project_memory/roadmap/improvement-plan.md` as a weighted developer backlog during planning and “what next?” guidance. The manual order of items matters, but it is not absolute: critical, security, architectural, and delivery-risk signals can still override a lower-risk item that simply happens to be near the top.
 
+### Roadmap replies ask before they plan
+
+When a roadmap-context prompt reaches chat, AtlasMind reads the SSOT roadmap files live and responds in one of two ways depending on intent:
+
+- **Plan / build requests** ("plan the fastest safe route to MVP", "build the roadmap to MVP") want an actual plan, not a status dump. If unanswered project basics block that, the reply is a focused **"Plan your MVP"** ask that lists *only* those gaps (`Project type`, `Target audience`, `Timeline`, `Tech stack`, …) as direct questions — no backlog dump. With no gaps left, AtlasMind defers to real planning (the model) instead of returning a summary.
+- **Status / progress requests** ("what are the outstanding roadmap items?", "roadmap progress") still get a deterministic **Roadmap Status** summary: the `X/Y` progress count, the answerable questions, and the outstanding list rendered in a collapsed disclosure so it never dominates the view.
+
+Both shapes share the same answering model:
+
+- **Answer everything in one message.** A single **Answer all** chip beneath the reply pre-fills the composer with a fill-in-the-blank block covering every gap (cursor positioned on the first field). Finish the lines and send — chips pre-fill rather than auto-submit, so you stay in control of the wording. AtlasMind records the answers and, for a plan request, proceeds to order the backlog.
+- **Counts only real work.** Shipped `release-history.md` notes, already-resolved metadata (e.g. `Tech stack: C#`), and scaffold/legend prose are excluded from the tally. In `improvement-plan.md`, only checklist lines inside the managed `<!-- atlasmind:roadmap-items:start/end -->` block are treated as outstanding; the Project Context and Prioritisation Notes sections are not.
+
 ### Road to MVP
 
 The Roadmap page of the Project Dashboard opens with a **Minimum Viable Product** section that turns the backlog into a guided path to a first shippable product:

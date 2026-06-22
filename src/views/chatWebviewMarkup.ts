@@ -12,69 +12,68 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
     cspSource: opts.cspSource,
     bodyContent: `
         <div class="chat-shell" data-mode="chat">
-          <aside class="session-rail">
-            <div class="session-rail-header">
-              <button id="sessionToggle" class="session-toggle" aria-expanded="false" title="Toggle sessions panel">
-                <svg class="toggle-chevron" width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M6 4l4 4-4 4z"/></svg>
-                <span class="toggle-label">Sessions</span>
-                <span id="sessionCount" class="session-count-badge">0</span>
-              </button>
-              <button id="createSession" class="icon-btn compact-icon-btn create-session-btn" type="button" title="New chat session" aria-label="New chat session">+</button>
-            </div>
-            <div id="sessionDrawer" class="session-drawer" aria-hidden="true">
-              <div class="rail-section-label">Chat Threads</div>
-              <div id="sessionList" class="session-list"></div>
-              <button id="runToggle" class="session-toggle run-toggle hidden" aria-expanded="false" title="Toggle standalone runs">
-                <svg class="toggle-chevron" width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M6 4l4 4-4 4z"/></svg>
-                <span class="toggle-label">Standalone Runs</span>
-                <span id="runCount" class="session-count-badge hidden"></span>
-              </button>
-              <div id="runListContainer" class="run-list-container" aria-hidden="true">
-                <div id="runList" class="session-list"></div>
-              </div>
-            </div>
-          </aside>
           <div class="chat-column">
             <header class="atlas-brand" role="banner">
               <button id="brandTitle" class="atlas-brand-title" type="button" title="Open AtlasMind Settings" aria-label="Open AtlasMind Settings">AtlasMind</button>
               <span id="brandSeparator" class="atlas-brand-separator hidden" aria-hidden="true">/</span>
               <button id="brandProject" class="atlas-brand-project hidden" type="button" title="Open the Project Dashboard" aria-label="Open the Project Dashboard"></button>
             </header>
+            <div class="chat-toolbar">
+              <div class="chat-toolbar-nav">
+                <button id="runToggle" class="icon-btn compact-icon-btn nav-toggle run-toggle" type="button" aria-expanded="false" title="Show standalone runs" aria-label="Show standalone runs">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><polygon points="5,3 5,13 13,8"/></svg>
+                  <span id="runCount" class="nav-count-badge hidden"></span>
+                </button>
+                <button id="sessionToggle" class="icon-btn compact-icon-btn nav-toggle" type="button" aria-expanded="false" title="Show chat threads" aria-label="Show chat threads">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="4.5" x2="13" y2="4.5"/><line x1="3" y1="8" x2="13" y2="8"/><line x1="3" y1="11.5" x2="13" y2="11.5"/></svg>
+                </button>
+                <span id="sessionCount" class="nav-count-badge nav-count-pill">0</span>
+                <button id="createSession" class="icon-btn compact-icon-btn" type="button" title="New chat session" aria-label="New chat session">+</button>
+              </div>
+              <div class="chat-toolbar-actions">
+                <div class="font-size-controls" aria-label="Adjust chat font size">
+                  <button id="decreaseFontSize" class="icon-btn compact-icon-btn" type="button" title="Smaller chat text" aria-label="Smaller chat text">A-</button>
+                  <button id="increaseFontSize" class="icon-btn compact-icon-btn" type="button" title="Larger chat text" aria-label="Larger chat text">A+</button>
+                </div>
+                <button id="clearConversation" class="icon-btn compact-icon-btn" type="button" title="Clear conversation" aria-label="Clear conversation">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <polyline points="3,4 13,4"/>
+                    <path d="M6 4V3a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1"/>
+                    <path d="M5 4l.75 8.5a1 1 0 0 0 1 .9h2.5a1 1 0 0 0 1-.9L11 4"/>
+                  </svg>
+                </button>
+                <button id="copyTranscript" class="icon-btn compact-icon-btn" type="button" title="Copy transcript" aria-label="Copy transcript">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <rect x="5" y="1.5" width="8" height="10" rx="1"/>
+                    <rect x="2" y="4.5" width="8" height="10" rx="1" fill="var(--vscode-editor-background,#1e1e1e)"/>
+                  </svg>
+                </button>
+                <button id="saveTranscript" class="icon-btn compact-icon-btn" type="button" title="Open as Markdown" aria-label="Open as Markdown">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <rect x="2" y="1.5" width="9" height="12" rx="1"/>
+                    <line x1="4.5" y1="5" x2="8.5" y2="5"/>
+                    <line x1="4.5" y1="7.5" x2="8.5" y2="7.5"/>
+                    <line x1="4.5" y1="10" x2="6.5" y2="10"/>
+                    <polyline points="10,9.5 13,12.5 10,15.5" stroke-width="1.3"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div id="sessionDrawer" class="session-drawer" aria-hidden="true">
+              <div class="rail-section-label">Chat Threads</div>
+              <div id="sessionList" class="session-list"></div>
+            </div>
+            <div id="runListContainer" class="run-list-container" aria-hidden="true">
+              <div class="nav-drawer-inner">
+                <div class="rail-section-label">Standalone Runs</div>
+                <div id="runList" class="session-list"></div>
+              </div>
+            </div>
             <main class="main-panel">
-              <section class="panel-header">
-                <div>
-                  <div class="eyebrow">Dedicated Workspace</div>
-                  <h2 id="panelTitle">AtlasMind Chat</h2>
-                  <p id="panelSubtitle" class="panel-subtitle">Persistent workspace chat threads with direct access to recent autonomous runs.</p>
-                </div>
-                <div class="row toolbar-row">
-                  <div class="font-size-controls" aria-label="Adjust chat font size">
-                    <button id="decreaseFontSize" class="icon-btn compact-icon-btn" type="button" title="Smaller chat text" aria-label="Smaller chat text">A-</button>
-                    <button id="increaseFontSize" class="icon-btn compact-icon-btn" type="button" title="Larger chat text" aria-label="Larger chat text">A+</button>
-                  </div>
-                  <button id="clearConversation" class="icon-btn compact-icon-btn" type="button" title="Clear conversation" aria-label="Clear conversation">
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <polyline points="3,4 13,4"/>
-                      <path d="M6 4V3a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1"/>
-                      <path d="M5 4l.75 8.5a1 1 0 0 0 1 .9h2.5a1 1 0 0 0 1-.9L11 4"/>
-                    </svg>
-                  </button>
-                  <button id="copyTranscript" class="icon-btn compact-icon-btn" type="button" title="Copy transcript" aria-label="Copy transcript">
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <rect x="5" y="1.5" width="8" height="10" rx="1"/>
-                      <rect x="2" y="4.5" width="8" height="10" rx="1" fill="var(--vscode-editor-background,#1e1e1e)"/>
-                    </svg>
-                  </button>
-                  <button id="saveTranscript" class="icon-btn compact-icon-btn" type="button" title="Open as Markdown" aria-label="Open as Markdown">
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <rect x="2" y="1.5" width="9" height="12" rx="1"/>
-                      <line x1="4.5" y1="5" x2="8.5" y2="5"/>
-                      <line x1="4.5" y1="7.5" x2="8.5" y2="7.5"/>
-                      <line x1="4.5" y1="10" x2="6.5" y2="10"/>
-                      <polyline points="10,9.5 13,12.5 10,15.5" stroke-width="1.3"/>
-                    </svg>
-                  </button>
-                </div>
+              <section id="runContextBanner" class="run-context-banner hidden">
+                <div class="eyebrow">Autonomous Run</div>
+                <h2 id="panelTitle">AtlasMind Chat</h2>
+                <p id="panelSubtitle" class="panel-subtitle">Persistent workspace chat threads with direct access to recent autonomous runs.</p>
               </section>
               <div id="status" class="status-label">Ready.</div>
               <section id="aiInstructionNudge" class="ai-instruction-nudge hidden" aria-live="polite">
@@ -239,8 +238,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           align-items: baseline;
           gap: 1px;
           min-width: 0;
-          padding: 6px 12px;
-          border-bottom: 1px solid var(--vscode-sideBar-border, var(--vscode-widget-border, #444));
+          padding: 8px 12px 2px;
         }
         .atlas-brand-title {
           flex: 0 0 auto;
@@ -288,58 +286,36 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           text-decoration: underline;
         }
 
-        /* ---- Sessions collapsible panel ---- */
-        .session-rail {
+        /* ---- Compact chat toolbar (session/run nav + chat actions) ---- */
+        .chat-toolbar {
           flex: 0 0 auto;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          flex-wrap: wrap;
+          padding: 4px 10px 6px;
           border-bottom: 1px solid var(--vscode-sideBar-border, var(--vscode-widget-border, #444));
-          min-width: 0;
         }
-        .session-rail-header {
+        .chat-toolbar-nav,
+        .chat-toolbar-actions {
           display: flex;
           align-items: center;
-          gap: 6px;
-          padding: 2px 10px;
+          gap: 4px;
+          flex-wrap: wrap;
         }
-        .session-toggle {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          flex: 1 1 auto;
-          min-width: 0;
-          padding: 4px 0;
-          border: 0;
-          background: transparent;
-          color: var(--vscode-foreground);
-          cursor: pointer;
-          font-size: 0.82rem;
-          font-weight: 600;
-          text-transform: uppercase;
-          letter-spacing: 0.08em;
+        .chat-toolbar-actions {
+          justify-content: flex-end;
+          margin-left: auto;
         }
-        .session-toggle:hover {
-          background: color-mix(in srgb, var(--vscode-list-hoverBackground, var(--vscode-editor-background)) 60%, transparent);
+        .nav-toggle {
+          position: relative;
         }
-        .toggle-chevron {
-          transition: transform 150ms ease;
-          flex: 0 0 14px;
+        .nav-toggle[aria-expanded="true"] {
+          border: 1px solid color-mix(in srgb, var(--vscode-focusBorder, var(--vscode-button-background)) 65%, var(--vscode-widget-border, #444));
+          background: color-mix(in srgb, var(--vscode-button-background) 26%, transparent);
         }
-        .session-toggle[aria-expanded="true"] .toggle-chevron {
-          transform: rotate(90deg);
-        }
-        .run-toggle {
-          margin-top: 8px;
-          width: 100%;
-        }
-        .run-list-container {
-          overflow: hidden;
-          max-height: 0;
-          transition: max-height 180ms ease;
-        }
-        .run-list-container.open {
-          max-height: 600px;
-        }
-        .toggle-label { flex: 1; text-align: left; }
-        .session-count-badge {
+        .nav-count-badge {
           display: inline-flex;
           align-items: center;
           justify-content: center;
@@ -353,76 +329,53 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           font-weight: 700;
           line-height: 1;
         }
-        .create-session-btn {
-          flex: 0 0 auto;
-          min-width: 22px;
-          min-height: 22px;
-          width: 22px;
-          height: 22px;
-          padding: 0;
-          font-size: 0.95rem;
-          line-height: 1;
+        .nav-count-pill {
+          margin-right: 2px;
         }
+        .run-toggle .nav-count-badge {
+          position: absolute;
+          top: -4px;
+          right: -4px;
+          min-width: 14px;
+          height: 14px;
+          padding: 0 3px;
+          font-size: 0.6rem;
+          border: 1px solid var(--vscode-editor-background, #1e1e1e);
+        }
+
+        /* ---- Session / run dropdowns ---- */
         .session-drawer {
+          flex: 0 0 auto;
           display: none;
-          max-height: 50vh;
+          max-height: 38vh;
           overflow-y: auto;
-          padding: 4px 10px 10px;
+          padding: 6px 10px 10px;
+          border-bottom: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 55%, transparent);
         }
         .session-drawer.open {
           display: block;
         }
+        .run-list-container {
+          flex: 0 0 auto;
+          overflow: hidden;
+          max-height: 0;
+          transition: max-height 180ms ease;
+        }
+        .run-list-container.open {
+          max-height: 50vh;
+          overflow-y: auto;
+        }
+        .nav-drawer-inner {
+          padding: 6px 10px 10px;
+          border-bottom: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 55%, transparent);
+        }
 
-        @media (min-width: 1000px) {
-          .chat-shell[data-layout="wide"] {
-            flex-direction: row;
-            align-items: stretch;
-          }
-          .chat-shell[data-layout="wide"] .chat-column {
-            flex: 1 1 0;
-          }
-          .chat-shell[data-layout="wide"] .session-rail {
-            width: min(320px, 32vw);
-            border-bottom: 0;
-            border-right: 1px solid var(--vscode-sideBar-border, var(--vscode-widget-border, #444));
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-          }
-          .chat-shell[data-layout="wide"] .session-rail-header {
-            padding: 8px 10px 6px;
-          }
-          .chat-shell[data-layout="wide"] .session-toggle {
-            cursor: pointer;
-          }
-          .chat-shell[data-layout="wide"] .session-drawer {
-            display: block;
-            flex: 1 1 auto;
-            max-height: none;
-            padding: 0 10px 10px;
-          }
-          .chat-shell[data-layout="wide"] .main-panel {
-            padding: 8px 12px 0;
-          }
-          .chat-shell[data-layout="wide"][data-session-rail="collapsed"] .session-rail {
-            width: 48px;
-            min-width: 48px;
-          }
-          .chat-shell[data-layout="wide"][data-session-rail="collapsed"] .session-rail-header {
-            justify-content: center;
-            padding: 8px 4px 6px;
-          }
-          .chat-shell[data-layout="wide"][data-session-rail="collapsed"] .toggle-label,
-          .chat-shell[data-layout="wide"][data-session-rail="collapsed"] .session-count-badge,
-          .chat-shell[data-layout="wide"][data-session-rail="collapsed"] .create-session-btn {
-            display: none;
-          }
-          .chat-shell[data-layout="wide"][data-session-rail="collapsed"] .session-toggle {
-            justify-content: center;
-          }
-          .chat-shell[data-layout="wide"][data-session-rail="collapsed"] .session-drawer {
-            display: none;
-          }
+        /* ---- Run-mode context banner (hidden during normal chat) ---- */
+        .run-context-banner {
+          flex: 0 0 auto;
+        }
+        .run-context-banner.hidden {
+          display: none;
         }
 
         /* ---- Main content: fills remaining space ---- */
@@ -435,10 +388,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           overflow: hidden;
           padding: 8px 10px 0;
         }
-        .panel-header {
-          flex: 0 0 auto;
-        }
-        .rail-header, .panel-header, .row {
+        .row {
           display: flex;
           gap: 8px;
           align-items: center;

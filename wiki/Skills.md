@@ -258,6 +258,10 @@ External tools from MCP servers appear as skills with the ID pattern `mcp:<serve
 - Individual MCP tools can be enabled/disabled in the Skills tree view
 - MCP server connections persist across sessions
 
+### Workspace-path defaulting
+
+Many git/workspace MCP tools require a repo or working-directory argument (for example GitKraken's `git_status` needs `repoPath`). When the model omits it, AtlasMind fills that parameter with the current workspace folder before dispatch, so the call succeeds instead of failing with "repoPath is required". Only string-typed, currently-empty parameters whose name denotes a repo/working path (`repoPath`, `projectPath`, `cwd`, `workingDirectory`, …) are defaulted — a bare `path`/`file` argument is left untouched, and any value you supply explicitly is never overridden.
+
 See [[Tool Execution]] for approval gating details.
 
 ## Extension Paths Summary

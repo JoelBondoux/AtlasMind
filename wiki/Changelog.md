@@ -6,6 +6,28 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.121.1 — MCP git tools auto-fill the repo path
+
+- **Fixed "repoPath is required" on MCP git tools.** When the model calls an MCP tool that needs a repo/working directory (e.g. GitKraken `git_status`) but omits it, AtlasMind now defaults that parameter to the current workspace folder before dispatch. Only repo/working-path parameters (`repoPath`, `projectPath`, `cwd`, `workingDirectory`, …) are filled; a bare `path` argument and any explicit value are left alone.
+
+---
+
+## v0.121.0 — Roadmap replies ask before they plan
+
+- **Plan requests ask, not dump.** Asking AtlasMind to *plan the route to MVP* when project basics are missing now returns a focused **"Plan your MVP"** ask listing just the gaps (`Project type`, `Target audience`, `Timeline`, `Tech stack`, …) as direct questions — not the whole backlog. Once answered, planning hands off to the model.
+- **Answer everything in one message.** A single **"Answer all N questions"** chip pre-fills the composer with a fill-in-the-blank block, so you resolve every gap at once instead of one chip at a time.
+- **Status replies are tidier.** Explicit *roadmap status/progress* questions still get a summary, now leading with the questions + combined chip and with the outstanding list in a collapsed disclosure.
+- **Counts only real work.** Shipped `release-history.md` notes, resolved metadata, and scaffold/legend prose outside the managed backlog block are excluded; only items inside `<!-- atlasmind:roadmap-items:start/end -->` count as outstanding.
+
+---
+
+## v0.120.4 — Decluttered chat panel header
+
+- **Rebuilt the top of the chat panel.** The `AtlasMind / project` title sits on top; below it a single control strip carries a Runs icon, a Chat-Threads icon with the session count and the `+` new-session button, and the five chat action buttons (font size, clear, copy, open-as-Markdown) right-aligned on the same line.
+- Chat threads and standalone runs are now independent dropdowns under the strip. The old "Dedicated Workspace" eyebrow and boilerplate subtitle are gone; the active-thread title and run guidance show only while inspecting an autonomous run.
+
+---
+
 ## v0.120.3 — Comparison matrix re-verified + Mission Control row
 
 - **Every competitor cell re-checked against official docs (June 2026).** Corrected stale figures: Cline **30+ providers**, Aider **100+ providers**, Cursor **5+ providers + custom API**; Claude Code custom-agent artifact fixed to **subagent `.md` files**; Copilot/Cursor/Windsurf/Continue custom-agent support moved ❌ → ⚠️; Windsurf image input, MCP, and named checkpoints upgraded; Aider/Windsurf voice input noted; Cline/Cursor/Continue/Copilot CLIs noted; Cursor & Claude Code cost visibility noted.

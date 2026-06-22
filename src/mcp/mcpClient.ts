@@ -97,8 +97,17 @@ export class McpClient {
       throw new Error(`MCP server "${this.config.name}" is not connected.`);
     }
 
+    // Many git/workspace MCP tools (e.g. GitKraken's git_status) require a repo path the model
+    // routinely omits. Default such params to the current workspace folder so the call succeeds.
+    const schema = this._tools.find(tool => tool.name === toolName)?.inputSchema;
+    const enrichedArgs = applyMcpWorkspacePathDefaults(
+      toolArgs,
+      schema,
+      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+    );
+
     const result = await this.client.callTool(
-      { name: toolName, arguments: toolArgs },
+      { name: toolName, arguments: enrichedArgs },
       undefined,
       { timeout: MCP_TOOL_CALL_TIMEOUT_MS },
     );
@@ -196,6 +205,60 @@ export class McpToolError extends Error {
 }
 
 // ── Module-level helpers ─────────────────────────────────────────
+
+/**
+ * Does this MCP tool parameter name denote the repo/working directory the call should default to
+ * the workspace folder? Conservative on purpose: a bare `path`/`file` is left untouched (those are
+ * specific arguments), but `repoPath`, `projectPath`, `cwd`, `workingDirectory`, etc. are filled.
+ */
+function isWorkspacePathParam(name: string): boolean {
+  const normalized = name.toLowerCase().replace(/[_-]/g, '');
+  if (['cwd', 'workingdirectory', 'workingdir', 'workspacefolder', 'workspaceroot'].includes(normalized)) {
+    return true;
+  }
+  return normalized.endsWith('path') && /^(repo|repository|project|root|workspace|working|git)/.test(normalized);
+}
+
+/**
+ * Fill missing repo/working-directory parameters with the current workspace folder. The model
+ * frequently omits these (GitKraken's `git_status` requires `repoPath`); without a default the
+ * server rejects the call with "repoPath is required". Only string-typed, currently-empty params
+ * whose name denotes a repo/working path are touched, and explicit caller values are never replaced.
+ */
+export function applyMcpWorkspacePathDefaults(
+  toolArgs: Record<string, unknown>,
+  inputSchema: Record<string, unknown> | undefined,
+  workspaceFolder: string | undefined,
+): Record<string, unknown> {
+  if (!workspaceFolder) {
+    return toolArgs;
+  }
+  const properties = inputSchema && typeof inputSchema === 'object'
+    ? (inputSchema as { properties?: unknown }).properties
+    : undefined;
+  if (!properties || typeof properties !== 'object') {
+    return toolArgs;
+  }
+
+  const args: Record<string, unknown> = { ...(toolArgs ?? {}) };
+  for (const [propName, propSchema] of Object.entries(properties as Record<string, unknown>)) {
+    if (!isWorkspacePathParam(propName)) {
+      continue;
+    }
+    const propType = propSchema && typeof propSchema === 'object'
+      ? (propSchema as { type?: unknown }).type
+      : undefined;
+    if (propType !== undefined && propType !== 'string') {
+      continue;
+    }
+    const current = args[propName];
+    const missing = current === undefined || current === null || (typeof current === 'string' && current.trim() === '');
+    if (missing) {
+      args[propName] = workspaceFolder;
+    }
+  }
+  return args;
+}
 
 /** Extract readable text from a tool-call content array. */
 function extractTextContent(content: unknown): string {

@@ -3,6 +3,7 @@ import * as fs from 'node:fs/promises';
 import * as vscode from 'vscode';
 import type { AtlasMindContext } from '../extension.js';
 import type {
+  SessionComposerPrefill,
   SessionConversationSummary,
   SessionPromptAttachment,
   SessionSuggestedFollowup,
@@ -20,7 +21,7 @@ import type {
 } from '../types.js';
 import {
   applyOperatorFrustrationAdaptation,
-  buildRoadmapStatusMarkdown,
+  buildRoadmapStatusResult,
   buildAssistantResponseMetadata,
   buildProjectResponseMetadata,
   buildWorkstationContext,
@@ -136,7 +137,7 @@ interface PreparedPromptRequest {
   userMessage: string;
   projectGoal?: string;
   loopGoal?: string;
-  directResponse?: { markdown: string; modelUsed: string };
+  directResponse?: { markdown: string; modelUsed: string; composerPrefills?: SessionComposerPrefill[] };
   commandIntent?: { commandId: string; args?: unknown[]; summary: string };
   terminalDirective?: ManagedTerminalDirective;
   context: Record<string, unknown>;
@@ -996,6 +997,9 @@ export class ChatPanel {
               summary: 'Returned a live roadmap status summary from the current SSOT files.',
               bullets: ['Used roadmap files on disk instead of snippet-based memory retrieval.'],
             },
+            ...(preparedRequest.directResponse.composerPrefills
+              ? { composerPrefills: preparedRequest.directResponse.composerPrefills }
+              : {}),
           },
         );
         await this.syncState();
@@ -1884,7 +1888,7 @@ export class ChatPanel {
           summary: routedIntent.summary,
         }
       : undefined;
-    const roadmapStatusMarkdown = forceSteer ? undefined : await buildRoadmapStatusMarkdown(prompt);
+    const roadmapStatus = forceSteer ? undefined : await buildRoadmapStatusResult(prompt);
     const currentImageAttachments = attachments
       .map(item => item.imageAttachment)
       .filter((item): item is TaskImageAttachment => Boolean(item));
@@ -1938,7 +1942,15 @@ export class ChatPanel {
       userMessage,
       projectGoal,
       ...(loopGoal ? { loopGoal } : {}),
-      ...(roadmapStatusMarkdown ? { directResponse: { markdown: roadmapStatusMarkdown, modelUsed: 'atlasmind/roadmap-status' } } : {}),
+      ...(roadmapStatus
+        ? {
+          directResponse: {
+            markdown: roadmapStatus.markdown,
+            modelUsed: 'atlasmind/roadmap-status',
+            ...(roadmapStatus.prefills.length > 0 ? { composerPrefills: roadmapStatus.prefills } : {}),
+          },
+        }
+        : {}),
       commandIntent,
       ...(terminalDirectiveResolution?.directive ? { terminalDirective: terminalDirectiveResolution.directive } : {}),
       context,

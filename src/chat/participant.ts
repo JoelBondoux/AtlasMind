@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { AtlasMindContext } from '../extension.js';
 import type {
+  SessionComposerPrefill,
   SessionPolicySnapshot,
   SessionSuggestedFollowup,
   SessionTimelineNote,
@@ -145,6 +146,31 @@ const CONTEXT_TOKEN_SKIP_WORDS = new Set([
 ]);
 const ROADMAP_STATUS_PROMPT_PATTERN = /\broadmap\b/i;
 const ROADMAP_STATUS_DETAIL_PATTERN = /\b(?:outstanding|remaining|left|pending|todo|to do|next steps?|follow-?ups?|progress|complete|completed|incomplete|address)\b/i;
+// A "plan/build" request asks for an ordered plan, not a status dump — we collect the gaps then hand
+// off to real planning. An explicit "status/progress" request still gets the deterministic summary.
+const ROADMAP_PLAN_INTENT_PATTERN = /\b(?:plan|planning|build|building|ship|deliver|delivering|route|path|roadmap to|get to|next milestone|mvp|minimum viable)\b/i;
+const ROADMAP_STATUS_INTENT_PATTERN = /\b(?:status|progress|outstanding|remaining|left|how many|where are we|what'?s left|done so far|completed|backlog)\b/i;
+// The real developer backlog lives between these markers in improvement-plan.md; everything else in
+// that file (Project Context, Prioritisation Notes legend) is scaffold, not outstanding work.
+const ROADMAP_MANAGED_BLOCK_START = /<!--\s*atlasmind:roadmap-items:start\s*-->/i;
+const ROADMAP_MANAGED_BLOCK_END = /<!--\s*atlasmind:roadmap-items:end\s*-->/i;
+// A profile field whose value matches one of these is treated as unanswered → posed as a question.
+const ROADMAP_UNSPECIFIED_VALUES = new Set(['unspecified', 'tbd', 'to be decided', 'todo', 'to do', 'n/a', 'na', 'none', 'unknown', '?', '-']);
+// Known profile fields get hand-written questions/labels; unknown `Key: Unspecified` lines fall back to generated text.
+const ROADMAP_PROFILE_FIELDS: Record<string, { question: string; label: string }> = {
+  'project': { question: 'What is the project name?', label: 'Project name' },
+  'project name': { question: 'What is the project name?', label: 'Project name' },
+  'project type': { question: 'What type of project is this?', label: 'Project type' },
+  'target audience': { question: 'Who is the target audience?', label: 'Target audience' },
+  'audience': { question: 'Who is the target audience?', label: 'Audience' },
+  'timeline': { question: 'What is the target timeline?', label: 'Timeline' },
+  'deadline': { question: 'What is the deadline?', label: 'Deadline' },
+  'tech stack': { question: 'What is the tech stack?', label: 'Tech stack' },
+  'stack': { question: 'What is the tech stack?', label: 'Stack' },
+  'platform': { question: 'What platform(s) does this target?', label: 'Platform' },
+  'budget': { question: 'What is the budget?', label: 'Budget' },
+  'goal': { question: 'What is the primary goal?', label: 'Goal' },
+};
 const FOLLOWUP_FIX_QUESTION = 'Do you want me to fix this?';
 
 interface StoredPersonalityProfileRecord {
@@ -166,16 +192,34 @@ export interface UserFrustrationSignal {
   guidance: string;
 }
 
+// 'descriptor' = scaffold/legend prose (e.g. Prioritisation Notes) excluded from the tally;
+// 'metadata' = resolved profile fields; 'shipped' = release-history notes.
+type RoadmapItemKind = 'question' | 'task' | 'completed' | 'shipped' | 'metadata' | 'descriptor';
+
 interface RoadmapChecklistItem {
   path: string;
   text: string;
   completed: boolean;
+  kind: RoadmapItemKind;
+  question?: RoadmapQuestion;
+}
+
+/** An unanswered project-profile field, posed as a direct question the user can answer in chat. */
+export interface RoadmapQuestion {
+  /** Direct question shown to the user, e.g. "What type of project is this?". */
+  question: string;
+  /** Nicely-cased field name used in the combined answer block, e.g. "Project type". */
+  fieldLabel: string;
+  /** Source roadmap file (workspace-relative path). */
+  sourcePath: string;
 }
 
 export interface RoadmapStatusSnapshot {
   completed: number;
   total: number;
   outstanding: RoadmapChecklistItem[];
+  /** Unanswered profile fields posed as questions the user can resolve to unblock planning. */
+  questions: RoadmapQuestion[];
 }
 
 export interface AtlasChatProjectIntent {
@@ -2652,23 +2696,65 @@ export function isRoadmapStatusPrompt(prompt: string): boolean {
   return ROADMAP_STATUS_PROMPT_PATTERN.test(prompt) && ROADMAP_STATUS_DETAIL_PATTERN.test(prompt);
 }
 
+/**
+ * Within a roadmap-context prompt, distinguish "plan/build the route to MVP" (collect gaps then
+ * hand off to real planning) from an explicit "status/progress" question (deterministic summary).
+ * An explicit status word always wins so "outstanding roadmap items" stays a status request.
+ */
+export function isRoadmapPlanIntent(prompt: string): boolean {
+  if (ROADMAP_STATUS_INTENT_PATTERN.test(prompt)) {
+    return false;
+  }
+  return ROADMAP_PLAN_INTENT_PATTERN.test(prompt);
+}
+
 export function summarizeRoadmapStatus(files: Array<{ path: string; content: string }>): RoadmapStatusSnapshot {
   const items = files.flatMap(file => extractRoadmapChecklistItems(file.path, file.content));
+  const completed = items.filter(item => item.kind === 'completed').length;
+  const outstanding = items.filter(item => item.kind === 'task');
+
+  // De-duplicate profile questions by field so the same unanswered field across multiple
+  // roadmap files is only posed once.
+  const seenQuestions = new Set<string>();
+  const questions: RoadmapQuestion[] = [];
+  for (const item of items) {
+    if (item.kind !== 'question' || !item.question) {
+      continue;
+    }
+    const key = item.question.fieldLabel.toLowerCase();
+    if (seenQuestions.has(key)) {
+      continue;
+    }
+    seenQuestions.add(key);
+    questions.push(item.question);
+  }
+
+  // Shipped release notes, resolved metadata, and scaffold descriptors are deliberately excluded
+  // from the tally so the progress count reflects real open work, not template noise.
   return {
-    completed: items.filter(item => item.completed).length,
-    total: items.length,
-    outstanding: items.filter(item => !item.completed),
+    completed,
+    total: completed + outstanding.length + questions.length,
+    outstanding,
+    questions,
   };
 }
 
-export async function buildRoadmapStatusMarkdown(prompt: string): Promise<string | undefined> {
+/** A deterministic roadmap reply plus any composer-prefill chips to surface beneath it. */
+export interface RoadmapStatusResult {
+  markdown: string;
+  questions: RoadmapQuestion[];
+  /** Chips rendered under the reply; at most one combined "Answer all" prefill. */
+  prefills: SessionComposerPrefill[];
+}
+
+export async function buildRoadmapStatusResult(prompt: string): Promise<RoadmapStatusResult | undefined> {
   if (!isRoadmapStatusPrompt(prompt)) {
     return undefined;
   }
 
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   if (!workspaceRoot) {
-    return '### Roadmap Status\n\nOpen a workspace to inspect the live roadmap files.';
+    return { markdown: '### Roadmap Status\n\nOpen a workspace to inspect the live roadmap files.', questions: [], prefills: [] };
   }
 
   const ssotPath = normalizeSsotPathForLookup(
@@ -2678,31 +2764,88 @@ export async function buildRoadmapStatusMarkdown(prompt: string): Promise<string
   const files = await readRoadmapMarkdownFiles(roadmapRoot, workspaceRoot);
   const snapshot = summarizeRoadmapStatus(files);
 
-  if (snapshot.total === 0) {
-    return `### Roadmap Status\n\nNo tracked roadmap checklist items were found in \`${ssotPath}/roadmap/\`.`;
+  // A "plan/build the route to MVP" request wants an actual plan. If profile gaps block that, ask
+  // only those (compact, no checklist dump); once answered, the normal pipeline does the planning.
+  // With no gaps, defer entirely so the model plans rather than returning a status summary.
+  if (isRoadmapPlanIntent(prompt)) {
+    if (snapshot.questions.length === 0) {
+      return undefined;
+    }
+    return buildRoadmapPlanGapsReply(snapshot.questions);
   }
 
+  if (snapshot.total === 0) {
+    return {
+      markdown: `### Roadmap Status\n\nNo tracked roadmap checklist items were found in \`${ssotPath}/roadmap/\`.`,
+      questions: [],
+      prefills: [],
+    };
+  }
+
+  return buildRoadmapStatusReply(snapshot);
+}
+
+/** Plan-intent reply: pose only the blocking profile gaps, with a single combined answer chip. */
+function buildRoadmapPlanGapsReply(questions: RoadmapQuestion[]): RoadmapStatusResult {
+  const lines = [
+    '### Plan your MVP',
+    '',
+    'I can map the fastest safe route — first I need a few project basics so the plan fits your actual stack and audience:',
+    '',
+  ];
+  questions.forEach((item, index) => lines.push(`${index + 1}. ${item.question}`));
+  lines.push(
+    '',
+    `Tap **${questions.length > 1 ? `Answer all ${questions.length} questions` : 'Answer this'}** below to fill them in one message — I'll record them and turn the backlog into an ordered MVP plan.`,
+  );
+  return { markdown: lines.join('\n'), questions, prefills: [buildRoadmapAnswerAllPrefill(questions)] };
+}
+
+/** Status-intent reply: counts + answerable questions, with the outstanding list collapsed. */
+function buildRoadmapStatusReply(snapshot: RoadmapStatusSnapshot): RoadmapStatusResult {
   const lines = [
     '### Roadmap Status',
     '',
     `- Dashboard-aligned progress: **${snapshot.completed}/${snapshot.total}** roadmap item(s) marked complete.`,
     `- Outstanding roadmap items: **${snapshot.outstanding.length}**.`,
   ];
+  if (snapshot.questions.length > 0) {
+    lines.push(`- Open questions you can answer now: **${snapshot.questions.length}**.`);
+  }
 
-  if (snapshot.outstanding.length === 0) {
+  if (snapshot.outstanding.length === 0 && snapshot.questions.length === 0) {
     lines.push('', 'All tracked roadmap items are currently marked complete.');
-    return lines.join('\n');
+    return { markdown: lines.join('\n'), questions: [], prefills: [] };
   }
 
-  lines.push('', '#### Outstanding Items', '');
-  for (const item of snapshot.outstanding.slice(0, 25)) {
-    lines.push(`- [ ] \`${item.path}\` — ${item.text}`);
-  }
-  if (snapshot.outstanding.length > 25) {
-    lines.push(`- ...and **${snapshot.outstanding.length - 25}** more outstanding roadmap item(s).`);
+  if (snapshot.questions.length > 0) {
+    lines.push(
+      '',
+      '#### Questions to unblock the plan',
+      '',
+      `Answer any of these and I'll fold them into the roadmap — tap **${snapshot.questions.length > 1 ? 'Answer all' : 'Answer this'}** below, or just reply:`,
+      '',
+    );
+    snapshot.questions.forEach((item, index) => lines.push(`${index + 1}. ${item.question}`));
   }
 
-  return lines.join('\n');
+  if (snapshot.outstanding.length > 0) {
+    // Heading matches the chat panel's auxiliary-section detector, so the list renders collapsed.
+    lines.push('', '#### Outstanding roadmap items', '');
+    for (const item of snapshot.outstanding.slice(0, 25)) {
+      lines.push(`- \`${item.path}\` — ${item.text}`);
+    }
+    if (snapshot.outstanding.length > 25) {
+      lines.push(`- ...and **${snapshot.outstanding.length - 25}** more.`);
+    }
+  }
+
+  const prefills = snapshot.questions.length > 0 ? [buildRoadmapAnswerAllPrefill(snapshot.questions)] : [];
+  return { markdown: lines.join('\n'), questions: snapshot.questions, prefills };
+}
+
+export async function buildRoadmapStatusMarkdown(prompt: string): Promise<string | undefined> {
+  return (await buildRoadmapStatusResult(prompt))?.markdown;
 }
 
 function normalizeSsotPathForLookup(value: string | undefined): string {
@@ -2731,14 +2874,105 @@ async function readRoadmapMarkdownFiles(roadmapRoot: string, workspaceRoot: stri
 }
 
 function extractRoadmapChecklistItems(filePath: string, content: string): RoadmapChecklistItem[] {
-  return [...content.matchAll(/^\s*(?:[-*]|\d+\.)\s+(.+?)\s*$/gm)]
-    .map(match => match[1]?.trim() ?? '')
-    .filter(Boolean)
-    .map(text => ({
-      path: filePath,
-      text,
-      completed: /^(?:✅|\[x\])/i.test(text),
-    }));
+  // When a file delimits its real backlog with managed-block markers (improvement-plan.md), only
+  // checklist items inside the block are genuine work; everything else (Project Context legend,
+  // Prioritisation Notes) is scaffold we must not count as outstanding.
+  const startMatch = content.match(ROADMAP_MANAGED_BLOCK_START);
+  const endMatch = content.match(ROADMAP_MANAGED_BLOCK_END);
+  const hasBlock = Boolean(startMatch && endMatch && (startMatch.index ?? 0) < (endMatch.index ?? 0));
+  const blockStart = startMatch?.index ?? -1;
+  const blockEnd = endMatch?.index ?? -1;
+
+  const items: RoadmapChecklistItem[] = [];
+  for (const match of content.matchAll(/^\s*(?:[-*]|\d+\.)\s+(.+?)\s*$/gm)) {
+    const text = match[1]?.trim();
+    if (!text) {
+      continue;
+    }
+    const insideBlock = hasBlock && (match.index ?? 0) > blockStart && (match.index ?? 0) < blockEnd;
+    items.push(classifyRoadmapLine(text, filePath, { hasBlock, insideBlock }));
+  }
+  return items;
+}
+
+/**
+ * Classify a roadmap bullet so the status reply can distinguish real open work from changelog
+ * noise (shipped release notes), resolved metadata, scaffold descriptors, and the answerable
+ * profile-field questions the user can resolve inline.
+ */
+function classifyRoadmapLine(
+  rawText: string,
+  filePath: string,
+  block: { hasBlock: boolean; insideBlock: boolean },
+): RoadmapChecklistItem {
+  const completed = /^(?:✅|\[[xX]\])/.test(rawText);
+  // Strip the leading status marker so the displayed text never shows a redundant "[ ]".
+  const text = rawText.replace(/^(?:✅|\[[ xX]\])\s*/, '').trim() || rawText;
+  const make = (kind: RoadmapItemKind, question?: RoadmapQuestion): RoadmapChecklistItem =>
+    ({ path: filePath, text, completed, kind, ...(question ? { question } : {}) });
+
+  // Release history is a shipped changelog, not a backlog — never count it as outstanding.
+  if (/(?:^|\/)release-history\.md$/i.test(filePath)) {
+    return make('shipped');
+  }
+
+  // Profile / metadata fields shaped as "Key: Value" (kept regardless of managed-block position,
+  // since the project profile lives outside the backlog block).
+  const fieldMatch = text.match(/^([A-Za-z][A-Za-z /]{1,28}):\s*(.*)$/);
+  if (fieldMatch) {
+    const key = fieldMatch[1].trim().toLowerCase();
+    const value = fieldMatch[2].trim();
+    const known = ROADMAP_PROFILE_FIELDS[key];
+    const unanswered = value === '' || ROADMAP_UNSPECIFIED_VALUES.has(value.toLowerCase());
+    if (known) {
+      return unanswered ? make('question', buildProfileQuestion(key, known, filePath)) : make('metadata');
+    }
+    // Unknown key, but explicitly unspecified → still a question the user can answer.
+    if (unanswered && value !== '') {
+      return make('question', buildProfileQuestion(key, undefined, filePath));
+    }
+  }
+
+  // A checklist line outside a file's managed backlog block is scaffold/legend prose, not work.
+  if (block.hasBlock && !block.insideBlock) {
+    return make('descriptor');
+  }
+
+  return make(completed ? 'completed' : 'task');
+}
+
+function buildProfileQuestion(
+  key: string,
+  known: { question: string; label: string } | undefined,
+  sourcePath: string,
+): RoadmapQuestion {
+  return {
+    question: known?.question ?? `What is the ${key}?`,
+    fieldLabel: known?.label ?? toTitleCase(key),
+    sourcePath,
+  };
+}
+
+function toTitleCase(value: string): string {
+  return value.replace(/\b\w/g, character => character.toUpperCase());
+}
+
+/**
+ * Build the single "Answer all" chip that pre-fills the composer with a fill-in-the-blank block
+ * covering every open profile question, so the user resolves them in one message.
+ */
+function buildRoadmapAnswerAllPrefill(questions: RoadmapQuestion[]): SessionComposerPrefill {
+  const intro = 'Project basics (fill in and send — I\'ll record them, then plan from there):';
+  const fieldLines = questions.map(question => `${question.fieldLabel}: `);
+  const template = [intro, ...fieldLines].join('\n');
+  // Drop the cursor right after the first field's "Label: " so the user can start typing immediately.
+  const cursorOffset = intro.length + 1 + questions[0].fieldLabel.length + 2;
+  return {
+    label: questions.length > 1 ? `Answer all ${questions.length} questions` : 'Answer this',
+    template,
+    description: 'Fill in the project basics in one message',
+    cursorOffset,
+  };
 }
 
 // -- Follow-up suggestions -------------------------------------------------
