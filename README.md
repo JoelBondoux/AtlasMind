@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.121.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.121.2</strong> · </sub></p>
 
 
 <p align="center">
@@ -250,7 +250,8 @@ Key settings under `atlasmind.*` in VS Code settings:
 | `allowTerminalWrite` | `false` | Allow terminal subprocesses (installs, commits) after explicit approval |
 | `autoVerifyAfterWrite` | `true` | Run verification scripts after workspace writes |
 | `ssotPath` | `project_memory` | Relative path to the SSOT memory folder |
-| `localOpenAiBaseUrl` | `http://127.0.0.1:11434/v1` | Base URL for Ollama or LM Studio |
+| `localOpenAiEndpoints` | `[]` | Labeled local OpenAI-compatible endpoints (`id`/`label`/`baseUrl`) aggregated under the Local provider; managed from Settings → Models & Integrations |
+| `localOpenAiBaseUrl` | `http://127.0.0.1:11434/v1` | Legacy single-endpoint fallback for Ollama or LM Studio (auto-migrated into `localOpenAiEndpoints`) |
 | `toolWebhookEnabled` | `false` | Send tool execution events to an outbound webhook |
 | `ard.enabled` | `true` | Enable Agentic Resource Discovery (panel, `/discover`, and the read-only `discover-resources` skill) |
 | `ard.federationMode` | `referrals` | How ARD searches fan out across federated registries: `auto`, `referrals`, `none` |

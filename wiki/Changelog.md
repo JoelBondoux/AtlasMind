@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.121.2 — Local endpoints save again
+
+- **Adding a local endpoint now persists.** OpenAI-compatible local endpoints (Ollama, LM Studio, …) added in **Settings → Models & Integrations** were silently dropped on refresh and never showed up in the Model Providers sidebar. The `atlasmind.localOpenAiEndpoints` setting was documented but never registered in `package.json`, so VS Code rejected the save and the fire-and-forget Settings handler swallowed the error. The setting is now a registered typed array of `{ id, label, baseUrl }`, edits persist, and any remaining save failure surfaces as a notification instead of failing silently.
+
+---
+
 ## v0.121.1 — MCP git tools auto-fill the repo path
 
 - **Fixed "repoPath is required" on MCP git tools.** When the model calls an MCP tool that needs a repo/working directory (e.g. GitKraken `git_status`) but omits it, AtlasMind now defaults that parameter to the current workspace folder before dispatch. Only repo/working-path parameters (`repoPath`, `projectPath`, `cwd`, `workingDirectory`, …) are filled; a bare `path` argument and any explicit value are left alone.

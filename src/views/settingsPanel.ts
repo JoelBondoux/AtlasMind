@@ -707,8 +707,16 @@ export class SettingsPanel {
 
       case 'setLocalOpenAiEndpoints': {
         const normalized = normalizeLocalOpenAiEndpoints(message.payload);
-        await configuration.update('localOpenAiEndpoints', normalized, vscode.ConfigurationTarget.Workspace);
-        await configuration.update('localOpenAiBaseUrl', normalized[0]?.baseUrl ?? '', vscode.ConfigurationTarget.Workspace);
+        try {
+          await configuration.update('localOpenAiEndpoints', normalized, vscode.ConfigurationTarget.Workspace);
+          await configuration.update('localOpenAiBaseUrl', normalized[0]?.baseUrl ?? '', vscode.ConfigurationTarget.Workspace);
+        } catch (error) {
+          // Surface persistence failures instead of letting the fire-and-forget
+          // message handler swallow them (e.g. no workspace folder is open).
+          vscode.window.showErrorMessage(
+            `AtlasMind could not save local endpoints: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
         return;
       }
 

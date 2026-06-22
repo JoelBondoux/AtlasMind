@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.121.1",
+  "version": "0.121.2",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -1166,6 +1166,33 @@
           "default": "",
           "description": "Optional model ID pinned to draft mechanical/low-stakes tasks (e.g. a fast local model). Struggle-gated escalation upgrades to a stronger model if the draft falls short. Leave empty to route normally.",
           "markdownDescription": "Optional model ID pinned to **draft** mechanical, low-stakes tasks (routine edits, script runs, narrow test generation) — the local-draft half of local-draft / frontier-escalate routing. A fast local model is a good choice.\n\nWhen set, draftable tasks (auto budget + mechanical) start with this model; if the draft struggles (low confidence / repeated tool failures), AtlasMind's existing escalation upgrades to a stronger reasoning-capable model automatically. The pin applies only to the first attempt and never blocks escalation. Empty (default) routes normally; an unknown model falls back to normal routing.\n\nExamples:\n- `local/llama-3.1-8b-instruct`\n- `google/gemini-2.0-flash`"
+        },
+        "atlasmind.localOpenAiEndpoints": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "object",
+            "required": [
+              "baseUrl"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Stable identifier used to attribute routed local models to this endpoint. Auto-generated from the label when omitted."
+              },
+              "label": {
+                "type": "string",
+                "description": "Human-facing name shown in provider surfaces (e.g. \"Ollama\", \"LM Studio\"). Inferred from the base URL when omitted."
+              },
+              "baseUrl": {
+                "type": "string",
+                "description": "OpenAI-compatible base URL for this local engine, e.g. http://127.0.0.1:11434/v1."
+              }
+            },
+            "additionalProperties": false
+          },
+          "description": "Labeled local OpenAI-compatible endpoints AtlasMind aggregates under the Local provider. Each entry has a stable id, a human-facing label, and a baseUrl.",
+          "markdownDescription": "Configure one or more labeled local OpenAI-compatible endpoints AtlasMind aggregates under the **Local** provider. Each entry has a stable `id`, a human-facing `label`, and a `baseUrl`, which lets AtlasMind keep multiple local engines online together and still show which endpoint owns each routed local model.\n\nManage these from **AtlasMind Settings → Models & Integrations → OpenAI-compatible endpoints** rather than editing JSON by hand.\n\nExample:\n```json\n[\n  { \"id\": \"ollama\", \"label\": \"Ollama\", \"baseUrl\": \"http://127.0.0.1:11434/v1\" },\n  { \"id\": \"lm-studio\", \"label\": \"LM Studio\", \"baseUrl\": \"http://127.0.0.1:1234/v1\" }\n]\n```\n\nWhen only the legacy `atlasmind.localOpenAiBaseUrl` is explicitly set, AtlasMind auto-migrates it into this structured list once."
         },
         "atlasmind.localOpenAiBaseUrl": {
           "type": "string",
