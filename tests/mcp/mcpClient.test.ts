@@ -63,7 +63,7 @@ vi.mock('@modelcontextprotocol/sdk/client/streamableHttp.js', () => ({
 
 // ── Import after mock registration ───────────────────────────────
 
-import { McpClient, McpToolError } from '../../src/mcp/mcpClient.ts';
+import { applyMcpWorkspacePathDefaults, McpClient, McpToolError } from '../../src/mcp/mcpClient.ts';
 import type { McpServerConfig } from '../../src/types.ts';
 
 // ── Helpers ──────────────────────────────────────────────────────
@@ -265,6 +265,67 @@ describe('McpClient', () => {
     it('throws when not connected', async () => {
       const client = new McpClient(makeStdioConfig());
       await expect(client.callTool('tool', {})).rejects.toThrow('not connected');
+    });
+
+    it('defaults a required repoPath to the workspace folder when the model omits it', async () => {
+      mockListTools.mockResolvedValueOnce({
+        tools: [{
+          name: 'git_status',
+          description: 'Show repo status.',
+          inputSchema: { type: 'object', properties: { repoPath: { type: 'string' } }, required: ['repoPath'] },
+        }],
+        nextCursor: undefined,
+      });
+
+      const client = new McpClient(makeStdioConfig());
+      await client.connect();
+      await client.callTool('git_status', {});
+
+      expect(mockCallTool).toHaveBeenCalledWith(
+        { name: 'git_status', arguments: { repoPath: 'C:/AtlasMindWorkspace' } },
+        undefined,
+        expect.any(Object),
+      );
+    });
+  });
+
+  describe('applyMcpWorkspacePathDefaults()', () => {
+    const schema = { type: 'object', properties: { repoPath: { type: 'string' } }, required: ['repoPath'] };
+
+    it('fills a missing repo-path param with the workspace folder', () => {
+      expect(applyMcpWorkspacePathDefaults({}, schema, '/repo')).toEqual({ repoPath: '/repo' });
+      expect(applyMcpWorkspacePathDefaults({ repoPath: '   ' }, schema, '/repo')).toEqual({ repoPath: '/repo' });
+    });
+
+    it('never overrides a value the caller supplied', () => {
+      expect(applyMcpWorkspacePathDefaults({ repoPath: '/other' }, schema, '/repo')).toEqual({ repoPath: '/other' });
+    });
+
+    it('recognizes cwd / workingDirectory / projectPath but not a bare path', () => {
+      const wide = {
+        properties: {
+          cwd: { type: 'string' },
+          workingDirectory: { type: 'string' },
+          projectPath: { type: 'string' },
+          path: { type: 'string' },
+        },
+      };
+      expect(applyMcpWorkspacePathDefaults({}, wide, '/repo')).toEqual({
+        cwd: '/repo',
+        workingDirectory: '/repo',
+        projectPath: '/repo',
+      });
+    });
+
+    it('is a no-op without a workspace folder, schema, or matching params', () => {
+      expect(applyMcpWorkspacePathDefaults({ a: 1 }, schema, undefined)).toEqual({ a: 1 });
+      expect(applyMcpWorkspacePathDefaults({ a: 1 }, undefined, '/repo')).toEqual({ a: 1 });
+      expect(applyMcpWorkspacePathDefaults({ a: 1 }, { properties: { other: { type: 'string' } } }, '/repo')).toEqual({ a: 1 });
+    });
+
+    it('skips non-string repo-path params', () => {
+      const numeric = { properties: { repoPath: { type: 'number' } } };
+      expect(applyMcpWorkspacePathDefaults({}, numeric, '/repo')).toEqual({});
     });
   });
 });

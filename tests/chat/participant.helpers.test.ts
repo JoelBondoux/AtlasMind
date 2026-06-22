@@ -22,6 +22,7 @@ vi.mock('vscode', () => ({
 import {
   addFileAttribution,
   buildRoadmapStatusMarkdown,
+  buildRoadmapStatusResult,
   buildAssistantResponseMetadata,
   buildProjectRunSubTaskArtifacts,
   buildProjectRunSummary,
@@ -34,6 +35,7 @@ import {
   getProjectUiConfig,
   detectUserFrustrationSignal,
   isAutonomousContinuationPrompt,
+  isRoadmapPlanIntent,
   isRoadmapStatusPrompt,
   mergeImageAttachments,
   reconcileAssistantResponse,
@@ -367,6 +369,77 @@ describe('participant helper logic', () => {
     expect(snapshot.completed).toBe(2);
     expect(snapshot.total).toBe(4);
     expect(snapshot.outstanding.map(item => item.text)).toEqual(['pending item', 'numbered pending']);
+    expect(snapshot.questions).toEqual([]);
+  });
+
+  it('poses only unspecified profile fields as questions (clarify-style items stay tasks)', () => {
+    const snapshot = summarizeRoadmapStatus([
+      {
+        path: 'project_memory/roadmap/improvement-plan.md',
+        content: [
+          '- Project: lookdesigner-pro',
+          '- Project type: Unspecified',
+          '- Target audience: Unspecified',
+          '- Tech stack: C#',
+          '- [ ] Clarify the next highest-value user or business outcome.',
+          '- [ ] Harden auth token validation',
+        ].join('\n'),
+      },
+    ]);
+
+    // Resolved metadata (Project name, Tech stack) is excluded; only clean profile gaps are questions.
+    expect(snapshot.questions.map(question => question.fieldLabel)).toEqual(['Project type', 'Target audience']);
+    expect(snapshot.questions[0].question).toBe('What type of project is this?');
+    // Clarify-style items are no longer mangled into questions — they remain outstanding tasks.
+    expect(snapshot.outstanding.map(item => item.text)).toEqual([
+      'Clarify the next highest-value user or business outcome.',
+      'Harden auth token validation',
+    ]);
+    expect(snapshot.total).toBe(4); // 2 questions + 2 tasks, 0 completed
+  });
+
+  it('excludes scaffold/legend lines outside the managed backlog block', () => {
+    const snapshot = summarizeRoadmapStatus([
+      {
+        path: 'project_memory/roadmap/improvement-plan.md',
+        content: [
+          '## Project Context',
+          '- Project type: Unspecified',
+          '- Tech stack: C#',
+          '## Prioritized Backlog',
+          '<!-- atlasmind:roadmap-items:start -->',
+          '- [ ] Real backlog task one',
+          '- [ ] Real backlog task two',
+          '<!-- atlasmind:roadmap-items:end -->',
+          '## Prioritisation Notes',
+          '1. Critical, security, reliability, or production-blocking work.',
+          '2. Architectural integrity and changes that unlock safer future work.',
+        ].join('\n'),
+      },
+    ]);
+
+    // Only items inside the managed block count as outstanding; legend numbers are dropped.
+    expect(snapshot.outstanding.map(item => item.text)).toEqual(['Real backlog task one', 'Real backlog task two']);
+    // The profile gap outside the block is still posed as a question; resolved metadata is excluded.
+    expect(snapshot.questions.map(question => question.fieldLabel)).toEqual(['Project type']);
+    expect(snapshot.total).toBe(3); // 2 tasks + 1 question
+  });
+
+  it('excludes shipped release-history notes from the outstanding tally', () => {
+    const snapshot = summarizeRoadmapStatus([
+      {
+        path: 'project_memory/roadmap/improvement-plan.md',
+        content: ['- [ ] Real open task'].join('\n'),
+      },
+      {
+        path: 'project_memory/roadmap/release-history.md',
+        content: ['- **Shipped a thing.** Already done.', '- **Shipped another thing.**'].join('\n'),
+      },
+    ]);
+
+    expect(snapshot.outstanding.map(item => item.text)).toEqual(['Real open task']);
+    expect(snapshot.total).toBe(1);
+    expect(snapshot.questions).toEqual([]);
   });
 
   it('builds a live roadmap status response from roadmap files on disk', async () => {
@@ -390,6 +463,131 @@ describe('participant helper logic', () => {
       expect(markdown).toContain('project_memory/roadmap/improvement-plan.md');
       expect(markdown).toContain('pending milestone');
       expect(markdown).toContain('pending provider task');
+    } finally {
+      (vscode.workspace as { workspaceFolders?: unknown }).workspaceFolders = originalFolders;
+      (vscode.workspace as { getConfiguration: typeof vscode.workspace.getConfiguration }).getConfiguration = originalGetConfiguration;
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('surfaces answerable questions and prefill chips in the roadmap status result', async () => {
+    const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'atlasmind-roadmap-questions-'));
+    const roadmapRoot = path.join(tempRoot, 'project_memory', 'roadmap');
+    mkdirSync(roadmapRoot, { recursive: true });
+    writeFileSync(
+      path.join(roadmapRoot, 'improvement-plan.md'),
+      [
+        '- Project type: Unspecified',
+        '- Timeline: Unspecified',
+        '- [ ] Tighten the core implementation',
+      ].join('\n'),
+    );
+
+    const originalFolders = (vscode.workspace as { workspaceFolders?: unknown }).workspaceFolders;
+    const originalGetConfiguration = vscode.workspace.getConfiguration;
+    (vscode.workspace as { workspaceFolders?: unknown }).workspaceFolders = [{ uri: { fsPath: tempRoot, path: tempRoot } }];
+    (vscode.workspace as { getConfiguration: typeof vscode.workspace.getConfiguration }).getConfiguration = () => ({
+      get: (_key: string, fallback?: unknown) => fallback,
+    } as never);
+
+    try {
+      const result = await buildRoadmapStatusResult('what are the outstanding roadmap items we need to address?');
+      expect(result).toBeDefined();
+      expect(result?.questions.map(question => question.fieldLabel)).toEqual(['Project type', 'Timeline']);
+      expect(result?.markdown).toContain('#### Questions to unblock the plan');
+      expect(result?.markdown).toContain('What type of project is this?');
+      expect(result?.markdown).toContain('Open questions you can answer now: **2**');
+      // The genuine task is still listed, without a redundant double checkbox.
+      expect(result?.markdown).toContain('Tighten the core implementation');
+      expect(result?.markdown).not.toContain('— [ ] Tighten');
+      // A single combined "Answer all" chip pre-fills every gap at once.
+      expect(result?.prefills).toHaveLength(1);
+      expect(result?.prefills[0].label).toBe('Answer all 2 questions');
+      expect(result?.prefills[0].template).toContain('Project type: ');
+      expect(result?.prefills[0].template).toContain('Timeline: ');
+      expect(typeof result?.prefills[0].cursorOffset).toBe('number');
+    } finally {
+      (vscode.workspace as { workspaceFolders?: unknown }).workspaceFolders = originalFolders;
+      (vscode.workspace as { getConfiguration: typeof vscode.workspace.getConfiguration }).getConfiguration = originalGetConfiguration;
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('classifies plan/build intent vs explicit status requests', () => {
+    expect(isRoadmapPlanIntent('Plan the fastest safe route to a minimum viable product')).toBe(true);
+    expect(isRoadmapPlanIntent('Build the roadmap to MVP')).toBe(true);
+    // Explicit status words win, even when "plan" appears.
+    expect(isRoadmapPlanIntent('what are the outstanding roadmap items in the plan?')).toBe(false);
+    expect(isRoadmapPlanIntent('show roadmap progress')).toBe(false);
+  });
+
+  it('asks only the blocking gaps for a plan request and omits the checklist dump', async () => {
+    const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'atlasmind-roadmap-plan-'));
+    const roadmapRoot = path.join(tempRoot, 'project_memory', 'roadmap');
+    mkdirSync(roadmapRoot, { recursive: true });
+    writeFileSync(
+      path.join(roadmapRoot, 'improvement-plan.md'),
+      [
+        '- Project type: Unspecified',
+        '- Timeline: Unspecified',
+        '## Prioritized Backlog',
+        '<!-- atlasmind:roadmap-items:start -->',
+        '- [ ] Some real backlog task',
+        '<!-- atlasmind:roadmap-items:end -->',
+      ].join('\n'),
+    );
+
+    const originalFolders = (vscode.workspace as { workspaceFolders?: unknown }).workspaceFolders;
+    const originalGetConfiguration = vscode.workspace.getConfiguration;
+    (vscode.workspace as { workspaceFolders?: unknown }).workspaceFolders = [{ uri: { fsPath: tempRoot, path: tempRoot } }];
+    (vscode.workspace as { getConfiguration: typeof vscode.workspace.getConfiguration }).getConfiguration = () => ({
+      get: (_key: string, fallback?: unknown) => fallback,
+    } as never);
+
+    try {
+      const result = await buildRoadmapStatusResult('Plan the fastest safe route to MVP using the roadmap; address the highest-risk gap first.');
+      expect(result).toBeDefined();
+      expect(result?.markdown).toContain('### Plan your MVP');
+      expect(result?.markdown).toContain('What type of project is this?');
+      // Plan mode stays focused — no outstanding-items dump.
+      expect(result?.markdown).not.toContain('Outstanding roadmap items');
+      expect(result?.markdown).not.toContain('Some real backlog task');
+      expect(result?.prefills).toHaveLength(1);
+      expect(result?.prefills[0].label).toBe('Answer all 2 questions');
+    } finally {
+      (vscode.workspace as { workspaceFolders?: unknown }).workspaceFolders = originalFolders;
+      (vscode.workspace as { getConfiguration: typeof vscode.workspace.getConfiguration }).getConfiguration = originalGetConfiguration;
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('defers a plan request to real planning when there are no profile gaps', async () => {
+    const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'atlasmind-roadmap-noplan-'));
+    const roadmapRoot = path.join(tempRoot, 'project_memory', 'roadmap');
+    mkdirSync(roadmapRoot, { recursive: true });
+    writeFileSync(
+      path.join(roadmapRoot, 'improvement-plan.md'),
+      [
+        '- Project type: CLI tool',
+        '- Timeline: 2 weeks',
+        '## Prioritized Backlog',
+        '<!-- atlasmind:roadmap-items:start -->',
+        '- [ ] Some real backlog task',
+        '<!-- atlasmind:roadmap-items:end -->',
+      ].join('\n'),
+    );
+
+    const originalFolders = (vscode.workspace as { workspaceFolders?: unknown }).workspaceFolders;
+    const originalGetConfiguration = vscode.workspace.getConfiguration;
+    (vscode.workspace as { workspaceFolders?: unknown }).workspaceFolders = [{ uri: { fsPath: tempRoot, path: tempRoot } }];
+    (vscode.workspace as { getConfiguration: typeof vscode.workspace.getConfiguration }).getConfiguration = () => ({
+      get: (_key: string, fallback?: unknown) => fallback,
+    } as never);
+
+    try {
+      // No gaps → undefined so the normal pipeline (the model) does the actual planning.
+      const result = await buildRoadmapStatusResult('Plan the fastest safe route to MVP using the roadmap; address the highest-risk gap first.');
+      expect(result).toBeUndefined();
     } finally {
       (vscode.workspace as { workspaceFolders?: unknown }).workspaceFolders = originalFolders;
       (vscode.workspace as { getConfiguration: typeof vscode.workspace.getConfiguration }).getConfiguration = originalGetConfiguration;

@@ -37,6 +37,15 @@ export interface SessionSuggestedFollowup {
   description?: string;
 }
 
+/** A chip that pre-fills the composer (rather than submitting), letting the user finish an answer. */
+export interface SessionComposerPrefill {
+  label: string;
+  template: string;
+  description?: string;
+  /** Optional caret position within `template` to place the cursor after pre-filling. */
+  cursorOffset?: number;
+}
+
 export interface SessionTimelineNote {
   label: string;
   summary: string;
@@ -62,6 +71,8 @@ export interface SessionTranscriptMetadata {
   suggestedFollowups?: SessionSuggestedFollowup[];
   /** Immediate-submit pill buttons shown below a response that ends with a question. */
   quickReplies?: SessionSuggestedFollowup[];
+  /** Chips that pre-fill the composer so the user can answer an open question inline. */
+  composerPrefills?: SessionComposerPrefill[];
   timelineNotes?: SessionTimelineNote[];
   promptAttachments?: SessionPromptAttachment[];
   policies?: SessionPolicySnapshot[];
@@ -754,6 +765,12 @@ function cloneMetadata(metadata: SessionTranscriptMetadata): SessionTranscriptMe
     ...(metadata.suggestedFollowups
       ? { suggestedFollowups: metadata.suggestedFollowups.map(item => ({ ...item })) }
       : {}),
+    ...(metadata.quickReplies
+      ? { quickReplies: metadata.quickReplies.map(item => ({ ...item })) }
+      : {}),
+    ...(metadata.composerPrefills
+      ? { composerPrefills: metadata.composerPrefills.map(item => ({ ...item })) }
+      : {}),
     ...(metadata.timelineNotes
       ? { timelineNotes: metadata.timelineNotes.map(item => ({ ...item })) }
       : {}),
@@ -834,6 +851,8 @@ function isSessionTranscriptMetadata(value: unknown): value is SessionTranscript
     && (candidate['suggestedToolCallsPerTurnLimit'] === undefined || typeof candidate['suggestedToolCallsPerTurnLimit'] === 'number')
     && (candidate['thoughtSummary'] === undefined || isSessionThoughtSummary(candidate['thoughtSummary']))
     && (candidate['suggestedFollowups'] === undefined || (Array.isArray(candidate['suggestedFollowups']) && candidate['suggestedFollowups'].every(isSessionSuggestedFollowup)))
+    && (candidate['quickReplies'] === undefined || (Array.isArray(candidate['quickReplies']) && candidate['quickReplies'].every(isSessionSuggestedFollowup)))
+    && (candidate['composerPrefills'] === undefined || (Array.isArray(candidate['composerPrefills']) && candidate['composerPrefills'].every(isSessionComposerPrefill)))
     && (candidate['timelineNotes'] === undefined || (Array.isArray(candidate['timelineNotes']) && candidate['timelineNotes'].every(isSessionTimelineNote)))
     && (candidate['promptAttachments'] === undefined || (Array.isArray(candidate['promptAttachments']) && candidate['promptAttachments'].every(isSessionPromptAttachment)))
     && (candidate['policies'] === undefined || (Array.isArray(candidate['policies']) && candidate['policies'].every(isSessionPolicySnapshot)));
@@ -862,6 +881,18 @@ function isSessionSuggestedFollowup(value: unknown): value is SessionSuggestedFo
   return typeof candidate['label'] === 'string'
     && typeof candidate['prompt'] === 'string'
     && (candidate['description'] === undefined || typeof candidate['description'] === 'string');
+}
+
+function isSessionComposerPrefill(value: unknown): value is SessionComposerPrefill {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate['label'] === 'string'
+    && typeof candidate['template'] === 'string'
+    && (candidate['description'] === undefined || typeof candidate['description'] === 'string')
+    && (candidate['cursorOffset'] === undefined || typeof candidate['cursorOffset'] === 'number');
 }
 
 function isSessionTimelineNote(value: unknown): value is SessionTimelineNote {

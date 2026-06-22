@@ -233,6 +233,7 @@
   const createSession = document.getElementById('createSession');
   const panelTitle = document.getElementById('panelTitle');
   const panelSubtitle = document.getElementById('panelSubtitle');
+  const runContextBanner = document.getElementById('runContextBanner');
   const brandTitle = document.getElementById('brandTitle');
   const brandSeparator = document.getElementById('brandSeparator');
   const brandProject = document.getElementById('brandProject');
@@ -418,22 +419,6 @@
   }
 
   function applyResponsiveLayout() {
-    var isWide = Boolean(wideLayoutQuery.matches);
-    if (chatShell) {
-      chatShell.setAttribute('data-layout', isWide ? 'wide' : 'narrow');
-      chatShell.setAttribute('data-session-rail', isWide && wideSessionRailCollapsed ? 'collapsed' : 'open');
-    }
-    if (isWide) {
-      if (sessionDrawer) {
-        sessionDrawer.classList.toggle('open', !wideSessionRailCollapsed);
-        sessionDrawer.setAttribute('aria-hidden', String(wideSessionRailCollapsed));
-      }
-      if (sessionToggle) {
-        sessionToggle.setAttribute('aria-expanded', String(!wideSessionRailCollapsed));
-      }
-      return;
-    }
-
     if (sessionDrawer) {
       sessionDrawer.classList.toggle('open', narrowSessionDrawerOpen);
       sessionDrawer.setAttribute('aria-hidden', String(!narrowSessionDrawerOpen));
@@ -446,12 +431,6 @@
   // Sessions drawer toggle
   if (sessionToggle) {
     sessionToggle.addEventListener('click', function () {
-      if (wideLayoutQuery.matches) {
-        wideSessionRailCollapsed = !wideSessionRailCollapsed;
-        applyResponsiveLayout();
-        persistUiState();
-        return;
-      }
       narrowSessionDrawerOpen = !narrowSessionDrawerOpen;
       applyResponsiveLayout();
       persistUiState();
@@ -714,25 +693,29 @@
     runList.innerHTML = '';
     var hasRuns = Array.isArray(runs) && runs.length > 0;
 
-    if (runToggle) {
-      runToggle.classList.toggle('hidden', !hasRuns);
-    }
+    // The runs nav icon is a permanent peer of the sessions icon, so it stays
+    // visible and clickable even with no standalone runs — the dropdown then
+    // shows an empty state rather than silently doing nothing.
     if (runListContainer) {
-      runListContainer.classList.toggle('hidden', !hasRuns);
+      runListContainer.classList.remove('hidden');
     }
 
-    if (!hasRuns) {
-      return;
-    }
-
-    // Count active (in-progress) runs for the badge.
-    var activeCount = runs.filter(function (r) { return r.status === 'running'; }).length;
+    // The badge counts only in-progress runs.
+    var activeCount = hasRuns ? runs.filter(function (r) { return r.status === 'running'; }).length : 0;
     if (runCountBadge) {
       runCountBadge.textContent = String(activeCount);
       runCountBadge.classList.toggle('hidden', activeCount === 0);
     }
 
     applyRunsCollapsedState();
+
+    if (!hasRuns) {
+      var emptyRuns = document.createElement('div');
+      emptyRuns.className = 'empty-state';
+      emptyRuns.textContent = 'No standalone runs yet.';
+      runList.appendChild(emptyRuns);
+      return;
+    }
 
     for (const run of runs) {
       const button = document.createElement('button');
@@ -2159,6 +2142,12 @@
       actions.appendChild(renderAssistantFollowupControls(entry.id, entry.meta.followupQuestion, entry.meta.suggestedFollowups));
     }
 
+    // Composer-prefill chips — clicking one drops an answer template into the input so the user
+    // can resolve an open question inline (used by the roadmap-status reply).
+    if (entry.meta && Array.isArray(entry.meta.composerPrefills) && entry.meta.composerPrefills.length > 0) {
+      actions.appendChild(renderComposerPrefillButtons(entry.meta.composerPrefills));
+    }
+
     var currentVote = entry.meta && entry.meta.userVote ? entry.meta.userVote : undefined;
     actions.appendChild(createVoteButton(entry.id, 'up', currentVote === 'up'));
     actions.appendChild(createVoteButton(entry.id, 'down', currentVote === 'down'));
@@ -2196,6 +2185,52 @@
     }
 
     return wrapper;
+  }
+
+  /**
+   * Render chips that pre-fill (not submit) the composer. Each chip seeds an answer template so
+   * the user can finish typing and send — used to pose open roadmap questions answerably in chat.
+   */
+  function renderComposerPrefillButtons(prefills) {
+    var wrapper = document.createElement('div');
+    wrapper.className = 'quick-reply-buttons';
+    wrapper.setAttribute('aria-label', 'Answer an open question');
+
+    for (var i = 0; i < prefills.length; i += 1) {
+      var prefill = prefills[i];
+      if (!prefill || typeof prefill.template !== 'string' || prefill.template.length === 0) {
+        continue;
+      }
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'quick-reply-btn';
+      btn.textContent = prefill.label || prefill.template;
+      btn.title = prefill.description || ('Start your answer: ' + prefill.template);
+      btn.setAttribute('aria-label', prefill.description || prefill.label || prefill.template);
+      btn.addEventListener('click', (function (template, cursorOffset) {
+        return function () {
+          prefillComposerWith(template, cursorOffset);
+        };
+      }(prefill.template, prefill.cursorOffset)));
+      wrapper.appendChild(btn);
+    }
+
+    return wrapper;
+  }
+
+  function prefillComposerWith(template, cursorOffset) {
+    if (!promptInput || promptInput.disabled) {
+      return;
+    }
+    promptInput.value = template;
+    promptInput.focus();
+    if (typeof promptInput.setSelectionRange === 'function') {
+      var caret = typeof cursorOffset === 'number' && cursorOffset >= 0 && cursorOffset <= promptInput.value.length
+        ? cursorOffset
+        : promptInput.value.length;
+      promptInput.setSelectionRange(caret, caret);
+    }
+    promptInput.dispatchEvent(new Event('input', { bubbles: true }));
   }
 
   function renderMessageDeleteRow(entryId) {
@@ -2405,7 +2440,7 @@
 
   function isAuxiliaryHeading(text) {
     var normalized = String(text || '').replace(/^#{1,6}\s+/, '').trim().toLowerCase();
-    return /^(changed files?|execution summary|workspace impact|supporting details?|verification(?: evidence| notes| summary)?|references?|actions?|related (?:resources|artifacts|actions)|logs?|cost summary|artifacts?|run metadata|file impact|diagnostics?)$/.test(normalized);
+    return /^(changed files?|execution summary|workspace impact|supporting details?|verification(?: evidence| notes| summary)?|references?|actions?|related (?:resources|artifacts|actions)|logs?|cost summary|artifacts?|run metadata|file impact|diagnostics?|outstanding(?: roadmap)? items?)$/.test(normalized);
   }
 
   function isUtilityLine(text) {
@@ -3674,6 +3709,9 @@
       runInspector.classList.toggle('hidden', !isRun);
       updateComposerAvailability();
       clearConversation.disabled = isRun;
+      if (runContextBanner) {
+        runContextBanner.classList.toggle('hidden', !isRun);
+      }
       panelTitle.textContent = isRun
         ? (state.selectedRun ? state.selectedRun.goal : 'Autonomous Run')
         : (((state.sessions || []).find(function (s) { return s.id === state.selectedSessionId; }) || {}).title || 'AtlasMind Chat');

@@ -8,6 +8,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.121.1] - 2026-06-21
+
+### Fixed
+- **MCP git/workspace tools no longer fail with "repoPath is required".** When the model invokes an MCP tool whose schema declares a repo/working-directory parameter it omitted (e.g. GitKraken's `git_status` / `git_commit` needing `repoPath`), `McpClient.callTool` now defaults that parameter to the current workspace folder before dispatch. Only string-typed, currently-empty params whose name denotes a repo/working path (`repoPath`, `projectPath`, `cwd`, `workingDirectory`, …) are filled — a bare `path`/`file` argument is left untouched, and an explicit caller value is never overridden. Surfaced by the new roadmap plan hand-off, which now runs the model (and its tools) instead of returning a deterministic dump.
+
+## [0.121.0] - 2026-06-21
+
+### Added
+- **Roadmap replies now ask before they plan, and answer in one shot.** When you ask AtlasMind to *plan/build the route to MVP* and the SSOT has unanswered project basics (`Project type`, `Target audience`, `Timeline`, `Tech stack`, …), the deterministic `atlasmind/roadmap-status` reply no longer dumps the backlog — it returns a focused **"Plan your MVP"** ask listing just those gaps as direct questions, with a single **"Answer all N questions"** chip that pre-fills the composer with a fill-in-the-blank block so you resolve every gap in one message. Once answered, planning hands off to the model. Explicit *status/progress* questions still get a **Roadmap Status** summary, now leading with the same answerable questions + combined chip and with the outstanding list rendered in a collapsed disclosure. New `buildRoadmapStatusResult` (returns markdown + questions + prefills), `isRoadmapPlanIntent`, and a `composerPrefills` message-metadata field (`SessionComposerPrefill`, with optional `cursorOffset`) carry the chip to the chat panel.
+
+### Changed
+- **Roadmap status counts only real open work.** Shipped `release-history.md` notes, already-resolved metadata (e.g. `Tech stack: C#`), and scaffold/legend prose outside the managed backlog block (Project Context, Prioritisation Notes) are excluded from the tally, so the `X/Y` progress figure and the outstanding list reflect genuine backlog items. Only checklist lines inside `<!-- atlasmind:roadmap-items:start/end -->` count as outstanding. Mangled auto-generated questions from `Clarify/Define`-style backlog items are gone — only clean profile-field questions are posed; the rest stay as outstanding tasks. Outstanding entries also drop the redundant double `[ ]`.
+
+## [0.120.4] - 2026-06-21
+
+### Changed
+- **Decluttered the top of the chat panel.** Replaced the noisy `Sessions`/`Standalone Runs` text toggles and the redundant "Dedicated Workspace / AtlasMind Chat / subtitle" block with a single compact control strip: the `AtlasMind / project` title stays on top, followed by a Runs icon, a Chat-Threads icon with the session count and the `+` new-session button, and the five chat action buttons (font −/＋, clear, copy, open-as-Markdown) right-aligned on the same line. Chat threads and standalone runs now open as their own dropdowns beneath the strip — the runs icon is a permanent peer of the chat-threads icon and always toggles its dropdown, showing a "No standalone runs yet." empty state instead of silently doing nothing when there are none. The dynamic active-thread title and run-mode guidance are preserved and surface only as a slim banner while inspecting an autonomous run. Dissolves the separate session rail, so the wide editor-tab view uses the same clean dropdown layout at every width.
+
 ## [0.120.3] - 2026-06-21
 
 ### Changed
