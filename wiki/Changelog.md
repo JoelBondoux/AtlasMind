@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.122.1 — Recovery no longer leaks the echo stub
+
+- **Provider-failure recovery concludes cleanly instead of parroting its own prompt.** When a provider failed mid-turn (e.g. a 30s timeout) and no failover model existed, the self-healing recovery could route to the built-in `local/echo-1` placeholder, whose adapter just echoes the prompt — so the final reply became `Local adapter response: … Failure context: Provider "google" failed with: …`, leaking the internal recovery prompt and raw error to the user. The maintenance/bootstrap completion paths now detect the echo adapter's sentinel and return empty, so recovery falls through to a clean, actionable template (the provider stopped responding, nothing was changed, here's how to continue) and the response can finish.
+
+---
+
 ## v0.122.0 — Proposed project runs flow straight through
 
 - **No more dead-end "Proceed".** When a chat reply ends by offering to start an autonomous project run (e.g. *"…want me to kick off a project run to build this out?"*), AtlasMind now continues into the run on the same turn instead of stopping and waiting. It runs **immediately** under Autopilot (with a brief notice), or after a cancellable *"Starting a project run to: … — use Stop to cancel"* notice otherwise. The run reuses the exact goal that typing "Proceed" would have resolved, and unusually large runs still hit the file-count approval gate (auto-flowed runs aren't pre-approved). Detection is conservative — explicit project/autonomous-run vocabulary plus a first-person go-ahead, with declines and requirement-gathering questions ignored. Controlled by the new `atlasmind.autoStartProposedProjectRuns` setting (default **on**); set it to `false` to keep the previous Yes/No-pill confirmation.

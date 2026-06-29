@@ -2156,6 +2156,35 @@ describe('Orchestrator agentic loop', () => {
     expect(result.response).toContain('Provider "local" failed: Provider timed out after 30000ms.');
   });
 
+  it('never surfaces the local echo stub parrot as a maintenance/recovery completion', async () => {
+    // Reproduces the failure where a provider hard-stop recovery routed to the
+    // local echo adapter, which parrots the recovery prompt back verbatim and
+    // leaked the internal "Failure context" string to the user.
+    const echo: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn(async (req: CompletionRequest) => {
+        const lastUser = [...req.messages].reverse().find(m => m.role === 'user')?.content ?? '';
+        return {
+          content: `Local adapter response: ${lastUser}`,
+          model: req.model,
+          inputTokens: 5,
+          outputTokens: 5,
+          finishReason: 'stop' as const,
+        };
+      }),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const orchestrator = makeOrchestrator(echo, [], makeSkillContext());
+    const recovered = await orchestrator.completeMaintenance(
+      'You are a recovery assistant.',
+      'Task the user asked: plan the MVP\n\nFailure context: Provider "google" failed with: Provider timed out after 30000ms.',
+    );
+
+    expect(recovered).toBe('');
+  });
+
   it('selects the most relevant enabled agent instead of first registered', async () => {
     const provider = makeMockProvider([
       {

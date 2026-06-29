@@ -11,6 +11,7 @@ import { gradeExecutionQuality } from './executionQuality.js';
 import type { MemoryManager } from '../memory/memoryManager.js';
 import type { CostTracker } from './costTracker.js';
 import type { ProviderRegistry } from '../providers/index.js';
+import { LOCAL_ECHO_RESPONSE_PREFIX } from '../providers/registry.js';
 import type { ChatMessage, CompletionResponse, ProviderAdapter, ToolCall, ToolDefinition } from '../providers/adapter.js';
 import { toJsonPreview, toTextPreview } from './toolPreview.js';
 import type { ToolWebhookDispatcher } from './toolWebhookDispatcher.js';
@@ -569,6 +570,13 @@ export class Orchestrator {
         maxTokens: 1024,
         temperature: 0.2,
       });
+      // The local echo adapter (no configured endpoint, or the built-in `echo-1`
+      // placeholder) just parrots the prompt back. That is not a real completion
+      // — surfacing it would leak our internal recovery prompt to the user — so
+      // treat it as "no usable model" and let the caller fall back to a template.
+      if (response.content.trimStart().startsWith(LOCAL_ECHO_RESPONSE_PREFIX)) {
+        return '';
+      }
       return response.content;
     } catch {
       return '';
@@ -600,6 +608,11 @@ export class Orchestrator {
         maxTokens: 3000,
         temperature: 0.4,
       });
+      // Never let the local echo stub's prompt-parrot leak as generated content;
+      // callers fall back to template content on empty.
+      if (response.content.trimStart().startsWith(LOCAL_ECHO_RESPONSE_PREFIX)) {
+        return '';
+      }
       return response.content;
     } catch {
       return '';
@@ -1336,7 +1349,7 @@ export class Orchestrator {
               ? recoveryContent.trim()
               : autoDisabledProvider
                 ? `**${autoDisabledProvider.displayName}** has been paused this session because it reported insufficient credits. No other configured provider is available to complete this request.\n\nTo resume, top up your ${autoDisabledProvider.displayName} account or enable a different provider in **AtlasMind: Model Providers**.`
-                : `Provider "${selectedProvider}" failed: ${failureMessage}`;
+                : `The model provider stopped responding before it could finish, and no alternative provider was available to take over (Provider "${selectedProvider}" failed: ${failureMessage}).\n\nNothing was changed. You can retry the request, or enable a faster or alternative provider in **AtlasMind: Model Providers** so the response can complete.`;
             finalAttempt = {
               model: currentModel,
               completion: {

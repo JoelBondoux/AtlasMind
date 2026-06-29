@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.122.1] - 2026-06-29
+
+### Fixed
+- **Provider-failure recovery no longer leaks the local echo stub's prompt-parrot as the final reply.** When a provider failed mid-turn (e.g. `Provider "google" failed with: Provider timed out after 30000ms.`) and no failover model was available, the hard-stop recovery called `completeMaintenance()` to generate a human-readable acknowledgement. If routing fell back to the built-in `local/echo-1` placeholder — `ModelRouter.selectModel()` returns it when no real model is selectable, and `LocalEchoAdapter.complete()` simply echoes the prompt — the recovery "message" became `Local adapter response: Task the user asked: …\n\nFailure context: Provider "google" failed with: …`. The `recoveryContent.trim().length > 20` guard accepted that echo as valid, so the turn concluded by surfacing the **internal recovery prompt and raw failure-context string** to the user instead of a coherent answer. `completeMaintenance()` and `completeBootstrap()` now detect the echo adapter's sentinel (new exported `LOCAL_ECHO_RESPONSE_PREFIX` in `src/providers/registry.ts`) and return an empty string, so the recovery path falls through to a clean, actionable template (acknowledges the provider stopped responding, confirms nothing was changed, and points to **AtlasMind: Model Providers**) and the response can conclude. New regression test in `tests/core/orchestrator.tools.test.ts`.
+
 ## [0.122.0] - 2026-06-22
 
 ### Added

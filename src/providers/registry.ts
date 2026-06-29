@@ -7,6 +7,16 @@ import type { SecretStore } from '../runtime/secrets.js';
 const LOCAL_OPENAI_DEFAULT_BASE_URL = 'http://127.0.0.1:11434/v1';
 const LOCAL_MODEL_ID_DELIMITER = '@@';
 
+/**
+ * Sentinel prefix emitted by {@link LocalEchoAdapter} when it falls back to
+ * echoing the prompt (no real local endpoint is configured, or the built-in
+ * `echo-1` placeholder model was selected). It is NOT a real model completion,
+ * so callers that route through the maintenance/recovery paths must detect this
+ * prefix and treat the output as "no usable model" rather than surfacing the
+ * echo — which would leak the internal prompt back to the user.
+ */
+export const LOCAL_ECHO_RESPONSE_PREFIX = 'Local adapter response:';
+
 export interface LocalEndpointConfig {
   id: string;
   label: string;
@@ -51,7 +61,7 @@ export class LocalEchoAdapter implements ProviderAdapter {
       .reverse()
       .find(message => message.role === 'user')?.content ?? '';
 
-    const content = `Local adapter response: ${lastUserMessage}`;
+    const content = `${LOCAL_ECHO_RESPONSE_PREFIX} ${lastUserMessage}`;
     return {
       content,
       model: request.model,
