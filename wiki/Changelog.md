@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.123.0 — Models learn from their struggles
+
+- **AtlasMind now remembers when a model keeps failing a *kind* of task, and routes around it.** This targets the recurring "drift down to a weak/cheap/local model" you may have noticed. When a model times out, returns nothing, emits a tool call as plain text, errors out, or gets corrected by you on the next turn, AtlasMind records a *struggle* keyed by the task signature (`phase · reasoning · tools`). The penalty is marginal and decaying (~2.5-day half-life, halved on a clean turn), but once a model has repeatedly failed a task kind, a **budget tier-escape** opens up more capable (pricier) models for that task kind so a stronger model can take over — the recurring drift is the cheap model's price advantage winning, and this is what counters it. The memory persists across sessions in `globalState` (`atlasmind.modelStruggleSignals`) and is gated by the existing learned-routing weight (`atlasmind.feedbackRoutingWeight = 0` turns it off). De-weighted models show a **"de-weighted: …"** hint in the **Compare Models** panel explaining why.
+
+---
+
 ## v0.122.1 — Recovery no longer leaks the echo stub
 
 - **Provider-failure recovery concludes cleanly instead of parroting its own prompt.** When a provider failed mid-turn (e.g. a 30s timeout) and no failover model existed, the self-healing recovery could route to the built-in `local/echo-1` placeholder, whose adapter just echoes the prompt — so the final reply became `Local adapter response: … Failure context: Provider "google" failed with: …`, leaking the internal recovery prompt and raw error to the user. The maintenance/bootstrap completion paths now detect the echo adapter's sentinel and return empty, so recovery falls through to a clean, actionable template (the provider stopped responding, nothing was changed, here's how to continue) and the response can finish.

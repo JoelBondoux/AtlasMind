@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.123.0] - 2026-06-29
+
+### Added
+- **Persistent model-struggle memory that de-weights models on the task kinds they keep failing.** AtlasMind now learns, across sessions, when a specific model under-performs on a specific *kind* of task and routes around it — directly targeting the recurring "drift down to a weak/cheap/local model" pattern. Implemented as a new struggle store on `ModelRouter` (`src/core/modelRouter.ts`), persisted in VS Code `globalState` under `atlasmind.modelStruggleSignals` (machine-level — reliability is about the model, not the project) and restored on activation.
+  - **Signals recorded** (`Orchestrator.noteModelStruggle`, `src/core/orchestrator.ts`): provider **timeout**, **empty completion**, **tool-call-as-text** (a model that emits a tool call as plain text instead of a structured `tool_calls` response — the exact failure the grader used to miss), **error finish**, and **user-correction** (best-effort: a turn like *"no, that's not correct"* attributes a struggle to the model that produced the previous top-level answer; billing/deprecation failures are excluded since they say nothing about model quality).
+  - **Keyed by a low-cardinality task signature** — `phase | modality | reasoning | requiresTools` — so a model is only de-weighted for the task kind it actually fails (e.g. high-reasoning planning), not globally.
+  - **Marginal + escalating + decaying.** Each struggle folds a severity-weighted increment onto the model's decayed penalty (capped). A small penalty breaks near-ties; once a model crosses the threshold for a signature, a **budget tier-escape** re-opens candidacy one tier higher (`cheap → balanced → expensive`) and re-ranks, so a capable (pricier) model can take over the task kind the cheap model keeps failing — the penalty alone can't overcome the `cheapness × 14` budget weight, so this is what actually fixes the drift. Penalties decay with a ~2.5-day half-life and a clean turn halves them, so transient glitches fade while genuinely weak models stay de-weighted. Gated by the existing learned-routing weight (`atlasmind.feedbackRoutingWeight = 0` disables it).
+  - **Surfaced in the Model Comparison panel** (`src/views/modelComparisonPanel.ts`): a model with an active de-weight shows a **"de-weighted: …"** badge with a tooltip explaining the task signature, the number of struggles, the most recent kind, and that the penalty decays over ~2.5 days.
+- **Types**: `ModelStruggleKind` and `ModelStruggleState` (`src/types.ts`); `OrchestratorHooks.onModelStruggleRecorded` to persist the snapshot, mirroring `onModelOutcomeRecorded`. **Router API**: `recordModelStruggle`, `recoverModelStruggle`, `getStruggleSignals`/`setStruggleSignals` (validated round-trip; drops malformed/fully-decayed entries), and `getStruggleSummary` (active de-weights for diagnostics/UI).
+- **Tests**: `tests/core/modelRouter.test.ts` (signature isolation, tier-escape flips a chronically-struggling cheap model to a capable one, soft-not-hard never starves the sole candidate, decay + restore filtering, feedback-weight gating, accumulate/recover, malformed-entry rejection) and `tests/core/orchestrator.tools.test.ts` (timeout records a `timeout` struggle; a correction turn records a `user-correction` struggle against the previous turn's model).
+
 ## [0.122.1] - 2026-06-29
 
 ### Fixed

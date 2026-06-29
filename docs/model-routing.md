@@ -132,7 +132,43 @@ When a workspace needs explicit control, `atlasmind.specialistRoutingOverrides` 
      + taskFit(profile, model)
      + healthBonus(provider)
      + feedbackBias(model)
-8. Return the highest-scoring model
+     + outcomeBias(model, reasoningTier)        // decaying EWMA of execution quality
+     − strugglePenalty(model, taskSignature)    // persistent, decaying de-weight
+8. Struggle tier-escape: if the top pick has repeatedly struggled on THIS task
+   signature, re-open candidacy one budget tier higher (cheap → balanced →
+   expensive) and re-rank — bounded to two bumps — so a capable model can take
+   over the task kind the cheap model keeps failing
+9. Return the highest-scoring model
+```
+
+## Model-Struggle Memory
+
+Alongside the (positive) outcome-driven `outcomeBias`, the router keeps a
+**persistent, task-signature-keyed de-weight** for models that repeatedly
+under-perform on a *kind* of task. This counters the "drift to a weak/cheap/local
+model" failure: the `cheapness × 14` budget weight in cheap/auto mode otherwise
+dwarfs every learned bias, so a cheap model that keeps failing keeps winning.
+
+- **Signals** (recorded by `Orchestrator.noteModelStruggle`): `timeout`, `empty`
+  completion, `tool-call-as-text` (plain text where a structured `tool_calls`
+  response was required), `error-finish`, and `user-correction` (a follow-up turn
+  disputing the previous answer, attributed best-effort to the previous top-level
+  turn's model). Billing/deprecation failures are excluded.
+- **Task signature**: `phase | modality | reasoning | requiresTools` — low
+  cardinality, so a model is de-weighted only for the task kind it actually fails.
+- **Magnitude & decay**: each struggle folds a severity-weighted increment onto
+  the model's *decayed* penalty (capped at `STRUGGLE_PENALTY_MAX`). The penalty is
+  subtracted in `scoreModel` (a marginal de-weight that breaks near-ties); once it
+  crosses `STRUGGLE_TIER_ESCAPE_THRESHOLD`, the **tier-escape** above lets a
+  capable model win. Penalties decay with a ~2.5-day half-life and a clean turn
+  halves them (`recoverModelStruggle`), so transient glitches fade while genuinely
+  weak models stay de-weighted across sessions.
+- **Gate & persistence**: disabled when `feedbackRoutingWeight = 0` (the same
+  learned-routing control as `outcomeBias`). Snapshotted via
+  `getStruggleSignals`/`setStruggleSignals` and persisted in `globalState` under
+  `atlasmind.modelStruggleSignals` (machine-level — reliability is a property of
+  the model, not the project). Active de-weights are surfaced as a "de-weighted"
+  badge in the **Compare Models** panel (`getStruggleSummary`).
 
 ## Data Privacy trusted-model gate
 

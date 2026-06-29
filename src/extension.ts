@@ -53,7 +53,7 @@ import { syncExchangeRates } from './core/currencyFormatter.js';
 import { syncLocalModels, isLocalSyncStale, LOCAL_MODEL_SYNC_CACHE_KEY, type LocalModelSyncResult } from './providers/localModelSync.js';
 import { syncLocalModelCatalog } from './providers/localModelCatalogSync.js';
 import type { DiscoveredModel } from './providers/adapter.js';
-import type { AgentDefinition, MemoryEntry, ModelInfo, ProviderConfig, ProviderId, SkillDefinition, SkillExecutionContext, SkillScanResult, SpecialistDomain } from './types.js';
+import type { AgentDefinition, MemoryEntry, ModelInfo, ModelStruggleState, ProviderConfig, ProviderId, SkillDefinition, SkillExecutionContext, SkillScanResult, SpecialistDomain } from './types.js';
 import { ToolApprovalManager } from './core/toolApprovalManager.js';
 import { RemoteControlServer } from './remote/remoteControlServer.js';
 
@@ -85,6 +85,7 @@ const SSOT_PRESENT_CONTEXT_KEY = 'atlasmind.ssotPresent';
 const PERSONALITY_PROFILE_STORAGE_KEY = 'atlasmind.personalityProfile';
 const SUBSCRIPTION_QUOTA_STORAGE_KEY = 'atlasmind.subscriptionQuota';
 const EXECUTION_OUTCOMES_STORAGE_KEY = 'atlasmind.executionOutcomes';
+const MODEL_STRUGGLE_STORAGE_KEY = 'atlasmind.modelStruggleSignals';
 const COPILOT_MULTIPLIER_SYNC_STORAGE_KEY = 'atlasmind.copilotMultiplierSync';
 const PROVIDER_PRICING_STORAGE_KEY = 'atlasmind.providerPricing';
 const PREMIUM_MULTIPLIER_OVERRIDES_SETTING = 'premiumMultiplierOverrides';
@@ -577,6 +578,18 @@ function restoreExecutionOutcomes(globalState: vscode.Memento, modelRouter: Mode
 
 function persistExecutionOutcomes(globalState: vscode.Memento, outcomes: Record<string, { ewma: number; samples: number }>): void {
   void globalState.update(EXECUTION_OUTCOMES_STORAGE_KEY, outcomes);
+}
+
+/** Restore persisted per-(model × task-signature) struggle de-weights so the memory survives restarts. */
+function restoreModelStruggleSignals(globalState: vscode.Memento, modelRouter: ModelRouter): void {
+  const stored = globalState.get<Record<string, ModelStruggleState>>(MODEL_STRUGGLE_STORAGE_KEY, {});
+  if (stored && typeof stored === 'object') {
+    modelRouter.setStruggleSignals(stored);
+  }
+}
+
+function persistModelStruggleSignals(globalState: vscode.Memento, signals: Record<string, ModelStruggleState>): void {
+  void globalState.update(MODEL_STRUGGLE_STORAGE_KEY, signals);
 }
 
 function loadCopilotMultiplierSync(globalState: vscode.Memento): MultiplierSyncResult | undefined {
@@ -1901,6 +1914,7 @@ async function bootstrapAtlasMind(
         postToolVerifier,
         onQuotaUpdated: (pid, rem, tot) => quotaUpdatedRef(pid, rem, tot),
         onModelOutcomeRecorded: outcomes => persistExecutionOutcomes(context.globalState, outcomes),
+        onModelStruggleRecorded: signals => persistModelStruggleSignals(context.globalState, signals),
         onClassifiedContentForUntrustedModel: ({ matches }) => {
           const kinds = [...new Set(matches.map(m => m.label))].slice(0, 3).join(', ') || 'confidential data';
           void vscode.window.showWarningMessage(
@@ -1940,6 +1954,9 @@ async function bootstrapAtlasMind(
     // Restore learned execution outcomes (Direction 2) so outcome-driven routing
     // carries over across sessions.
     restoreExecutionOutcomes(context.globalState, modelRouter);
+    // Restore persistent model-struggle memory so de-weighting of models that
+    // repeatedly fail a kind of task carries across sessions (it still decays).
+    restoreModelStruggleSignals(context.globalState, modelRouter);
 
     // Wire up quota tracking: persist on every decrement and warn when
     // a provider transitions into overflow or approaches exhaustion.

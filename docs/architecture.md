@@ -105,6 +105,8 @@ Utility helpers that build the prompt for Atlas-generated custom skill drafts, n
 
 Maintains a map of `ProviderConfig` objects plus provider health state. `selectModel()` accepts `RoutingConstraints`, an optional model whitelist, and an optional `TaskProfile`. It filters by required capabilities, task-profile gates, and provider health before scoring the remaining models using budget mode, speed mode, capability proxies, and task fit. `getModelInfo()` exposes pricing metadata for orchestration cost accounting.
 
+The router carries two learned, decaying routing channels (both gated by `feedbackRoutingWeight`): a positive **outcome bias** (EWMA of graded execution quality, in `executionOutcomes`) and a **struggle memory** (`struggleSignals`) — a persistent, task-signature-keyed de-weight for models that repeatedly fail a *kind* of task. `recordModelStruggle()` folds a severity-weighted, decaying increment (kinds: timeout, empty, tool-call-as-text, error-finish, user-correction) keyed by `phase|modality|reasoning|requiresTools`; `scoreModel()` subtracts the decayed penalty, and `selectBestModel()` applies a **tier-escape** (re-opening candidacy one budget tier higher and re-ranking) when the top pick is a chronic struggler, so a capable model can take over the task kind a cheap model keeps failing. `recoverModelStruggle()` halves the penalty on a clean turn; `getStruggleSignals()`/`setStruggleSignals()` snapshot/restore for persistence (`globalState` key `atlasmind.modelStruggleSignals`); `getStruggleSummary()` exposes active de-weights for the Model Comparison panel hint.
+
 Key behaviors added in 0.73.0–0.73.1:
 - **Deprecation filter**: models with a `deprecatedAt` date in the past are auto-excluded from candidates.
 - **Failure TTL**: stale failure records (older than 5 min) are cleared so transient errors don't permanently exclude providers.
@@ -414,6 +416,8 @@ All shared types live in `src/types.ts`. See the [type definitions](../src/types
 | `ProviderConfig` | Provider identity, API key setting key, enabled flag, model list |
 | `RoutingConstraints` | Budget mode, speed mode, max cost, preferred provider, preferred model (role pin), parallel slots, cacheable-prefix ratio |
 | `TaskProfile` | Inferred task phase, modality, reasoning intensity, and capability preferences |
+| `ModelStruggleKind` | A way a model under-performed on a turn: `timeout`, `empty`, `tool-call-as-text`, `error-finish`, `user-correction` |
+| `ModelStruggleState` | Persistent decaying de-weight for a model on a task signature: `penalty`, `lastUpdated`, `hits`, `lastKind` |
 | `SubTask` | Unit of work in a project plan: id, title, role, skills, `dependsOn` edges |
 | `SubTaskResult` | Execution outcome: `status` (`completed` / `failed` / `needs-input`), output, costUsd, durationMs, error, and (when capped) `iterationLimitHit` + suggested raised limits |
 | `ProjectPlan` | Decomposed goal: id, goal, `subTasks[]` DAG |

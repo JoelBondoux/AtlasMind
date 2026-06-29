@@ -1,4 +1,4 @@
-import type { BudgetMode, ModelCapability, ModelInfo, ProviderConfig, RoutingConstraints, SpeedMode, SubscriptionQuota, TaskProfile } from '../types.js';
+import type { BudgetMode, ModelCapability, ModelInfo, ModelStruggleKind, ModelStruggleState, ProviderConfig, RoutingConstraints, SpeedMode, SubscriptionQuota, TaskProfile } from '../types.js';
 import {
   BUDGET_TIER_CHEAP_THRESHOLD_USD,
   BUDGET_TIER_BALANCED_THRESHOLD_USD,
@@ -121,6 +121,58 @@ function outcomeBucketKey(modelId: string, reasoningTier: TaskProfile['reasoning
   return `${modelId}::${reasoningTier}`;
 }
 
+// ── Struggle memory (persistent, task-signature-keyed model de-weighting) ──────
+/** Upper bound on the decayed struggle penalty subtracted from a model's score. */
+const STRUGGLE_PENALTY_MAX = 1.5;
+/**
+ * Decayed-penalty level at which a model's *price advantage* is neutralised for
+ * the task signature it keeps failing: its budget/quality weights are scored one
+ * tier more expensive, so a very cheap weak model stops dominating that task kind
+ * on `cheapness × budgetWeight` alone (the recurring "drift to weak model" bug).
+ */
+const STRUGGLE_TIER_ESCAPE_THRESHOLD = 0.9;
+/** Half-life of a struggle penalty (~2.5 days): persists across sessions but always decays. */
+const STRUGGLE_HALF_LIFE_MS = 60 * 60 * 1000 * 60;
+/** Below this decayed magnitude a penalty is treated as cleared. */
+const STRUGGLE_MIN_ACTIVE = 0.03;
+/** Severity-weighted increment per struggle kind (folded onto the decayed penalty). */
+const STRUGGLE_INCREMENT: Record<ModelStruggleKind, number> = {
+  'error-finish': 0.5,
+  timeout: 0.5,
+  'tool-call-as-text': 0.45,
+  'user-correction': 0.4,
+  empty: 0.3,
+};
+
+/**
+ * Stable, low-cardinality signature for "the kind of task" a struggle applies to.
+ * Uses only the fixed enum profile fields (no derived capability arrays), joined
+ * by `|` — no profile literal contains `|`, so there is no collision with the
+ * `::` model/signature separator used by {@link struggleKey}.
+ */
+function taskSignatureKey(profile?: TaskProfile): string {
+  if (!profile) {
+    return 'all';
+  }
+  return [profile.phase, profile.modality, profile.reasoning, profile.requiresTools ? 't' : 'f'].join('|');
+}
+
+/** Composite key for a per-(model × task-signature) struggle record. */
+function struggleKey(modelId: string, profile?: TaskProfile): string {
+  return `${modelId}::${taskSignatureKey(profile)}`;
+}
+
+/** Bumps a budget mode one tier more expensive (used by struggle tier-escape). */
+function escalateBudgetTier(budget: BudgetMode): BudgetMode {
+  if (budget === 'cheap') {
+    return 'balanced';
+  }
+  if (budget === 'balanced' || budget === 'auto') {
+    return 'expensive';
+  }
+  return budget;
+}
+
 type ModelFailureState = {
   providerId: string;
   message: string;
@@ -137,6 +189,7 @@ export class ModelRouter {
   private providerHealth = new Map<string, boolean>();
   private modelPreferences = new Map<string, ModelPreferenceStats>();
   private executionOutcomes = new Map<string, ModelOutcomeState>();
+  private struggleSignals = new Map<string, ModelStruggleState>();
   private modelFailures = new Map<string, ModelFailureState>();
   private feedbackWeight = 1;
   /** Providers paused automatically this session (e.g. billing failure). ProviderId → reason string. */
@@ -360,6 +413,132 @@ export class ModelRouter {
     );
   }
 
+  // ── Struggle memory ──────────────────────────────────────────────────────
+  /** Time-decays a stored penalty to "now" (half-life {@link STRUGGLE_HALF_LIFE_MS}). */
+  private decayedPenalty(state: ModelStruggleState): number {
+    const ageMs = Date.now() - new Date(state.lastUpdated).getTime();
+    if (!Number.isFinite(ageMs) || ageMs <= 0) {
+      return state.penalty;
+    }
+    return state.penalty * Math.pow(0.5, ageMs / STRUGGLE_HALF_LIFE_MS);
+  }
+
+  /**
+   * Record that `modelId` struggled on the kind of task described by
+   * `taskProfile`. The increment is folded onto the *decayed* current penalty
+   * (so repeated struggles accumulate while old ones fade) and capped at
+   * {@link STRUGGLE_PENALTY_MAX}. Keyed per task signature so a model is only
+   * de-weighted for the task kind it actually fails.
+   */
+  recordModelStruggle(modelId: string, kind: ModelStruggleKind, taskProfile?: TaskProfile): void {
+    const key = struggleKey(modelId, taskProfile);
+    const existing = this.struggleSignals.get(key);
+    const decayed = existing ? this.decayedPenalty(existing) : 0;
+    const increment = STRUGGLE_INCREMENT[kind] ?? 0.3;
+    this.struggleSignals.set(key, {
+      penalty: Math.min(STRUGGLE_PENALTY_MAX, decayed + increment),
+      lastUpdated: new Date().toISOString(),
+      hits: (existing?.hits ?? 0) + 1,
+      lastKind: kind,
+    });
+  }
+
+  /**
+   * Partial recovery after a clean turn: halve the decayed penalty for this
+   * (model, task-signature) rather than clearing it, so a single good turn does
+   * not erase a sustained struggle. Drops the record once it decays below
+   * {@link STRUGGLE_MIN_ACTIVE}.
+   */
+  recoverModelStruggle(modelId: string, taskProfile?: TaskProfile): void {
+    const key = struggleKey(modelId, taskProfile);
+    const existing = this.struggleSignals.get(key);
+    if (!existing) {
+      return;
+    }
+    const halved = this.decayedPenalty(existing) * 0.5;
+    if (halved < STRUGGLE_MIN_ACTIVE) {
+      this.struggleSignals.delete(key);
+      return;
+    }
+    this.struggleSignals.set(key, { ...existing, penalty: halved, lastUpdated: new Date().toISOString() });
+  }
+
+  /**
+   * Bounded de-weight for a model on a task signature, scaled by `feedbackWeight`
+   * (the same learned-routing control as outcome bias) and clamped to
+   * `[0, STRUGGLE_PENALTY_MAX]`. Subtracted from the model's score — it never
+   * removes the model from candidacy.
+   */
+  private scoreStrugglePenalty(modelId: string, taskProfile?: TaskProfile): number {
+    if (this.feedbackWeight <= 0) {
+      return 0;
+    }
+    const state = this.struggleSignals.get(struggleKey(modelId, taskProfile));
+    if (!state) {
+      return 0;
+    }
+    const penalty = this.decayedPenalty(state) * this.feedbackWeight;
+    return Math.max(0, Math.min(STRUGGLE_PENALTY_MAX, penalty));
+  }
+
+  /**
+   * Whether a model's struggle on this task signature has crossed the tier-escape
+   * threshold. Uses the same `feedbackWeight`-scaled magnitude as
+   * {@link scoreStrugglePenalty} so the escape and the score penalty stay consistent.
+   */
+  private struggleEscapesBudgetTier(modelId: string, taskProfile?: TaskProfile): boolean {
+    if (this.feedbackWeight <= 0) {
+      return false;
+    }
+    const state = this.struggleSignals.get(struggleKey(modelId, taskProfile));
+    return !!state && (this.decayedPenalty(state) * this.feedbackWeight) >= STRUGGLE_TIER_ESCAPE_THRESHOLD;
+  }
+
+  /** Snapshot all struggle signals (for persistence across sessions). */
+  getStruggleSignals(): Record<string, ModelStruggleState> {
+    return Object.fromEntries([...this.struggleSignals.entries()].map(([key, s]) => [key, { ...s }]));
+  }
+
+  /** Restore persisted struggle signals, dropping malformed or fully-decayed entries. */
+  setStruggleSignals(signals: Record<string, ModelStruggleState>): void {
+    const validKinds = new Set<ModelStruggleKind>(Object.keys(STRUGGLE_INCREMENT) as ModelStruggleKind[]);
+    this.struggleSignals = new Map(
+      Object.entries(signals ?? {})
+        .filter(([, s]) =>
+          s && typeof s.lastUpdated === 'string'
+          && Number.isFinite(s.penalty) && s.penalty > 0
+          && Number.isFinite(s.hits)
+          && validKinds.has(s.lastKind))
+        .map(([key, s]) => [key, {
+          penalty: Math.min(STRUGGLE_PENALTY_MAX, Math.max(0, s.penalty)),
+          lastUpdated: s.lastUpdated,
+          hits: Math.max(1, Math.floor(s.hits)),
+          lastKind: s.lastKind,
+        }] as [string, ModelStruggleState])
+        .filter(([, s]) => this.decayedPenalty(s) >= STRUGGLE_MIN_ACTIVE),
+    );
+  }
+
+  /**
+   * Currently-active (decayed) struggle de-weights, for diagnostics and the
+   * Model Comparison UI hint. One entry per (model, task-signature) above
+   * {@link STRUGGLE_MIN_ACTIVE}, highest penalty first.
+   */
+  getStruggleSummary(): Array<{ modelId: string; signature: string; penalty: number; hits: number; lastKind: ModelStruggleKind }> {
+    const rows: Array<{ modelId: string; signature: string; penalty: number; hits: number; lastKind: ModelStruggleKind }> = [];
+    for (const [key, state] of this.struggleSignals.entries()) {
+      const penalty = this.decayedPenalty(state);
+      if (penalty < STRUGGLE_MIN_ACTIVE) {
+        continue;
+      }
+      const sep = key.lastIndexOf('::');
+      const modelId = sep >= 0 ? key.slice(0, sep) : key;
+      const signature = sep >= 0 ? key.slice(sep + 2) : 'all';
+      rows.push({ modelId, signature, penalty, hits: state.hits, lastKind: state.lastKind });
+    }
+    return rows.sort((a, b) => b.penalty - a.penalty);
+  }
+
   setFeedbackWeight(weight: number): void {
     if (!Number.isFinite(weight)) {
       return;
@@ -402,11 +581,43 @@ export class ModelRouter {
       return undefined;
     }
 
-    const sorted = candidates
-      .map(model => ({ model, score: this.scoreModel(model, constraints, taskProfile) }))
-      .sort((a, b) => b.score - a.score);
+    let effective = constraints;
+    let sorted = this.rankCandidates(candidates, effective, taskProfile);
+
+    // Struggle tier-escape: when the top pick is a model that has *repeatedly*
+    // failed THIS task signature, its price advantage (cheapness × up-to-14) is
+    // the reason it keeps being chosen. Re-open candidacy one budget tier higher
+    // and re-rank so a more capable (pricier) model can take over the task kind it
+    // fails — landing at the *minimal* tier that escapes the struggler. Bounded to
+    // two bumps (cheap → balanced → expensive). A model that is the only candidate
+    // is never starved out.
+    let bumps = 0;
+    while (bumps < 2 && this.struggleEscapesBudgetTier(sorted[0].model.id, taskProfile)) {
+      const escalated = escalateBudgetTier(effective.budget);
+      if (escalated === effective.budget) {
+        break;
+      }
+      const widened = this.getCandidateModels({ ...effective, budget: escalated }, allowedModels, taskProfile);
+      if (widened.length === 0) {
+        break;
+      }
+      effective = { ...effective, budget: escalated };
+      sorted = this.rankCandidates(widened, effective, taskProfile);
+      bumps += 1;
+    }
 
     return sorted[0].model.id;
+  }
+
+  /** Score and rank candidate models for the given constraints, highest first. */
+  private rankCandidates(
+    candidates: ModelInfo[],
+    constraints: RoutingConstraints,
+    taskProfile?: TaskProfile,
+  ): Array<{ model: ModelInfo; score: number }> {
+    return candidates
+      .map(model => ({ model, score: this.scoreModel(model, constraints, taskProfile) }))
+      .sort((a, b) => b.score - a.score);
   }
 
   listCandidateModelIds(
@@ -612,8 +823,9 @@ export class ModelRouter {
     const localBonus = this.scoreLocalPreference(model, taskProfile);
     const subscriptionBonus = this.scoreActiveSubscriptionPreference(model);
     const outcomeBias = this.scoreOutcomeBias(model.id, taskProfile);
+    const strugglePenalty = this.scoreStrugglePenalty(model.id, taskProfile);
 
-    return (cheapness * budgetWeight) + (speedProxy * speedWeight) + (qualityProxy * qualityWeight) + taskFit + healthWeight + preferenceBias + localBonus + subscriptionBonus + outcomeBias;
+    return (cheapness * budgetWeight) + (speedProxy * speedWeight) + (qualityProxy * qualityWeight) + taskFit + healthWeight + preferenceBias + localBonus + subscriptionBonus + outcomeBias - strugglePenalty;
   }
 
   /**

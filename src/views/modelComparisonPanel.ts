@@ -24,6 +24,24 @@ interface AvailableModel {
   providerId: string;
   providerName: string;
   enabled: boolean;
+  /** Active struggle de-weight for this model (worst task signature), if any. */
+  struggle?: { label: string; tooltip: string };
+}
+
+/** Turns a struggle signature key (`phase|modality|reasoning|t`) into a short human label. */
+function humanizeStruggleSignature(signature: string): string {
+  if (signature === 'all') {
+    return 'all tasks';
+  }
+  const [phase, modality, reasoning, tools] = signature.split('|');
+  const parts = [phase, reasoning].filter(Boolean);
+  if (modality && modality !== 'text') {
+    parts.push(modality);
+  }
+  if (tools === 't') {
+    parts.push('tools');
+  }
+  return parts.join(' · ');
 }
 
 /** Result row sent to the webview for client-side sortable rendering. */
@@ -135,6 +153,18 @@ export class ModelComparisonPanel {
         }
       }),
     );
+    // Worst active struggle de-weight per model, for the "de-weighted" hint.
+    const struggleByModel = new Map<string, { label: string; tooltip: string }>();
+    for (const entry of this.atlas.modelRouter.getStruggleSummary()) {
+      if (struggleByModel.has(entry.modelId)) {
+        continue; // summary is sorted by penalty desc — first per model is the worst
+      }
+      const signature = humanizeStruggleSignature(entry.signature);
+      struggleByModel.set(entry.modelId, {
+        label: `de-weighted: ${signature}`,
+        tooltip: `Routing is de-weighting this model for ${signature} tasks — ${entry.hits} struggle${entry.hits === 1 ? '' : 's'} recorded (most recent: ${entry.lastKind.replace(/-/g, ' ')}). The penalty decays over ~2.5 days and lifts as the model succeeds.`,
+      });
+    }
     return providers
       .filter((_, index) => configuredFlags[index])
       .flatMap(provider =>
@@ -144,6 +174,7 @@ export class ModelComparisonPanel {
           providerId: provider.id,
           providerName: provider.displayName,
           enabled: model.enabled,
+          struggle: struggleByModel.get(model.id),
         })),
       )
       .sort((a, b) => a.providerName.localeCompare(b.providerName) || a.id.localeCompare(b.id));
@@ -288,7 +319,10 @@ export class ModelComparisonPanel {
       const groupHtml = Array.from(groups.entries()).map(([providerName, providerModels]) => {
         const rows = providerModels.map(model => {
           const disabledTag = model.enabled ? '' : ' <span class="muted-tag">disabled</span>';
-          return `<label class="model-pick"><input type="checkbox" class="model-cb" data-provider="${escapeHtml(providerName)}" value="${escapeHtml(model.id)}" /> <code>${escapeHtml(model.id)}</code> <span class="badge">${escapeHtml(model.name)}</span>${disabledTag}</label>`;
+          const struggleTag = model.struggle
+            ? ` <span class="struggle-tag" title="${escapeHtml(model.struggle.tooltip)}">${escapeHtml(model.struggle.label)}</span>`
+            : '';
+          return `<label class="model-pick"><input type="checkbox" class="model-cb" data-provider="${escapeHtml(providerName)}" value="${escapeHtml(model.id)}" /> <code>${escapeHtml(model.id)}</code> <span class="badge">${escapeHtml(model.name)}</span>${disabledTag}${struggleTag}</label>`;
         }).join('');
         return `<details class="provider-group">
           <summary>
@@ -613,6 +647,7 @@ export class ModelComparisonPanel {
       .model-pick { cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 8px; }
       .model-pick:hover { background: color-mix(in srgb, var(--vscode-list-hoverBackground, transparent) 90%, transparent); }
       .muted-tag { font-size: 0.7rem; padding: 1px 6px; border-radius: 999px; background: color-mix(in srgb, var(--vscode-widget-border, #444) 60%, transparent); color: var(--vscode-descriptionForeground); }
+      .struggle-tag { font-size: 0.7rem; padding: 1px 7px; border-radius: 999px; background: color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) 22%, transparent); color: var(--vscode-editorWarning-foreground, #cca700); border: 1px solid color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) 45%, transparent); cursor: help; white-space: nowrap; }
       .judge-row { display: flex; align-items: center; gap: 12px; margin-top: 14px; flex-wrap: wrap; }
       .judge-toggle { cursor: pointer; }
       #judge-model { background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, #444); border-radius: 8px; padding: 6px 8px; max-width: 100%; }

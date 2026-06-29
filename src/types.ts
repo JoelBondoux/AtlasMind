@@ -306,6 +306,38 @@ export interface TaskProfile {
   preferredCapabilities: ModelCapability[];
 }
 
+/**
+ * A way a model under-performed on a turn, fed into the router's persistent
+ * "struggle memory" so a model that repeatedly fails a *kind* of task is
+ * de-weighted for that task signature. Distinct from a hard provider failure:
+ * these are quality/behaviour signals the coarse execution grader can miss
+ * (e.g. a small model that emits a tool call as plain text instead of a
+ * structured `tool_calls` response).
+ */
+export type ModelStruggleKind =
+  | 'timeout'
+  | 'empty'
+  | 'tool-call-as-text'
+  | 'error-finish'
+  | 'user-correction';
+
+/**
+ * Persistent, decaying de-weight signal for a model on a specific task
+ * signature. `penalty` is the stored (un-decayed) magnitude as of
+ * `lastUpdated`; the router applies time-decay on read so transient glitches
+ * fade while genuinely weak models stay de-weighted across sessions.
+ */
+export interface ModelStruggleState {
+  /** Stored penalty magnitude (>= 0) as of `lastUpdated`; decayed on read. */
+  penalty: number;
+  /** ISO timestamp of the last record/recover; drives time-decay. */
+  lastUpdated: string;
+  /** Number of struggle records folded in — diagnostics / "why" surfacing. */
+  hits: number;
+  /** The most recent struggle kind — surfaced in the UI hint. */
+  lastKind: ModelStruggleKind;
+}
+
 // ── Agents ──────────────────────────────────────────────────────
 
 /**
@@ -768,6 +800,13 @@ export interface OrchestratorHooks {
    * outcome state so it can be persisted across sessions.
    */
   onModelOutcomeRecorded?: (outcomes: Record<string, { ewma: number; samples: number }>) => void;
+
+  /**
+   * Called after a model's struggle signal is recorded or recovered. Receives
+   * the full snapshot of per-(model × task-signature) struggle state so it can
+   * be persisted across sessions, mirroring `onModelOutcomeRecorded`.
+   */
+  onModelStruggleRecorded?: (signals: Record<string, ModelStruggleState>) => void;
 
   /**
    * Called each time the active model changes during task execution — on initial

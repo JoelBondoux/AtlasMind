@@ -11,7 +11,7 @@ AtlasMind is a VS Code extension built in TypeScript, and it now also ships a sm
 | **Orchestrator** | `src/core/orchestrator.ts` | Central coordinator: agent selection -> retrieval policy -> memory and live evidence -> model routing -> skill execution -> cost tracking |
 | **AgentRegistry** | `src/core/agentRegistry.ts` | CRUD for `AgentDefinition` objects; persisted enable/disable state |
 | **SkillsRegistry** | `src/core/skillsRegistry.ts` | CRUD for `SkillDefinition` objects; per-skill enable/disable, security scan status, and persistent custom skill folders |
-| **ModelRouter** | `src/core/modelRouter.ts` | Budget/speed-aware model selection with subscription quota tracking; deprecation filter; failure TTL auto-clear; thinking-token cost scaling; smooth context-window gradients; outcome feedback loop via `recordModelOutcome()` |
+| **ModelRouter** | `src/core/modelRouter.ts` | Budget/speed-aware model selection with subscription quota tracking; deprecation filter; failure TTL auto-clear; thinking-token cost scaling; smooth context-window gradients; outcome feedback loop via `recordModelOutcome()`; persistent task-signature-keyed **struggle memory** (`recordModelStruggle()` + tier-escape in `selectBestModel()`) that de-weights models on the task kinds they repeatedly fail |
 | **CostTracker** | `src/core/costTracker.ts` | Per-request and per-session cost accumulation |
 | **MemoryManager** | `src/memory/memoryManager.ts` | SSOT folder read/write/search with semantic retrieval, source-backed evidence pointers, and security scanning |
 | **MemoryScanner** | `src/memory/memoryScanner.ts` | Scans content for prompt injection and credential leakage |
@@ -285,7 +285,7 @@ src/
 |  |- toolWebhookPanel.ts  Webhook config webview
 |  |- skillScannerPanel.ts  Scanner rules webview
 |  |- costDashboardPanel.ts  Cost Dashboard webview (daily chart, model breakdown, budget bar)
-|  |- modelComparisonPanel.ts  Model Comparison webview (run a prompt across models, ranked results)
+|  |- modelComparisonPanel.ts  Model Comparison webview (run a prompt across models, ranked results; flags models de-weighted by the router's struggle memory)
 |  |- missionControlPanel.ts  Mission Control webview (define/launch/watch/checkpoint/audit Mission Loop runs)
 |  `- webviewUtils.ts    Shared webview helpers (escapeHtml, CSP, nonce)
 |- utils/
@@ -317,6 +317,7 @@ All shared interfaces live in `src/types.ts`. Key types include:
 | `ProviderConfig` | Provider registration, API key reference, pricing model, subscription quota |
 | `CostRecord` | Per-request token counts plus provider, billing category, display cost, budget-counted cost, and optional chat session/message linkage |
 | `TaskProfile` | Inferred task phase, modality, reasoning intensity, required capabilities |
+| `ModelStruggleKind` / `ModelStruggleState` | A model's under-performance signal (`timeout`, `empty`, `tool-call-as-text`, `error-finish`, `user-correction`) and its persistent decaying de-weight per task signature |
 | `MemoryEntry` | Memory path, title, tags, snippet, timestamp, optional embedding |
 | `SubTask` | Plan node: title, role, skills, dependency edges |
 | `SubTaskResult` | Execution outcome with `status` (`completed` / `failed` / `needs-input`); a capped subtask reports `needs-input` plus `iterationLimitHit` and suggested raised limits |
