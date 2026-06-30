@@ -2066,24 +2066,125 @@ function summarizeToolActionsForDisplay(toolCalls: Array<{ toolName: string }>):
     .join(', ');
 }
 
+function capitalizeFirst(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+/** Strip bold/inline-code emphasis so a question/option line can be matched and shown cleanly. */
+function stripMarkdownEmphasis(line: string): string {
+  return line.replace(/\*\*|__|`/g, '').trim();
+}
+
+/** Strip a leading list/quote marker (e.g. "- ", "1. ", "> ") from a line. */
+function stripLeadingMarker(line: string): string {
+  return line.replace(/^\s*(?:[-*•>]\s+|\d+[.)]\s+)/, '').trim();
+}
+
+/** True when a line is a markdown bullet or numbered list item with content. */
+function isOptionLine(line: string): boolean {
+  return /^\s*(?:[-*•]|\d+[.)])\s+\S/.test(line);
+}
+
+function endsWithQuestion(line: string): boolean {
+  return /\?\s*$/.test(stripMarkdownEmphasis(line));
+}
+
+/** Extract a clean pick-one label from a list-item line (lead phrase before any "— explanation"). */
+function extractOptionLabel(line: string): string {
+  let label = line.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, '');
+  label = label.replace(/\*\*|__|`/g, '');
+  label = label.split(/\s+[—–]\s+|\s+-\s+|:\s+/)[0];
+  return label.replace(/[.,;:!?]+\s*$/, '').trim();
+}
+
+/** Extract the question clause (last sentence ending in "?") from a line. */
+function extractQuestionClause(line: string): string | undefined {
+  const stripped = stripLeadingMarker(stripMarkdownEmphasis(line));
+  const match = /([^.!?]*\?)\s*$/.exec(stripped);
+  const question = (match?.[1] ?? stripped).trim();
+  return question.length >= 6 && question.length <= 300 ? question : undefined;
+}
+
 /**
- * Inspect the final sentence of a response and, if it ends with a "?", produce
- * quick-reply pill options that the user can click to respond in one tap.
+ * Locate the response's trailing question and any adjacent enumerated option
+ * list. Handles three real shapes that the old single-regex missed:
+ *  - the question is the last line (optionally a markdown bullet);
+ *  - the question is followed by a markdown/numbered option list;
+ *  - the option list is followed by the question.
+ * Falls back to {@link RESPONSE_TRAILING_QUESTION_PATTERN} for a mid-line
+ * question at the very end.
+ */
+function analyzeTrailingQuestion(text: string): { question: string; optionLines: string[] } | undefined {
+  if (!text) { return undefined; }
+  const lines = text.split('\n').map(line => line.trim());
+  let end = lines.length - 1;
+  while (end >= 0 && lines[end] === '') { end -= 1; }
+  if (end < 0) { return undefined; }
+
+  let questionIdx = -1;
+  let optionLines: string[] = [];
+
+  if (endsWithQuestion(lines[end])) {
+    questionIdx = end;
+    // Gather a contiguous option block immediately above the question.
+    let k = end - 1;
+    while (k >= 0 && lines[k] === '') { k -= 1; }
+    const block: string[] = [];
+    while (k >= 0 && isOptionLine(lines[k])) { block.unshift(lines[k]); k -= 1; }
+    optionLines = block;
+  } else if (isOptionLine(lines[end])) {
+    // Trailing option block; the question is the first non-empty line above it.
+    let k = end;
+    const block: string[] = [];
+    while (k >= 0 && isOptionLine(lines[k])) { block.unshift(lines[k]); k -= 1; }
+    while (k >= 0 && lines[k] === '') { k -= 1; }
+    if (k >= 0 && endsWithQuestion(lines[k])) {
+      questionIdx = k;
+      optionLines = block;
+    }
+  }
+
+  if (questionIdx < 0) {
+    const match = RESPONSE_TRAILING_QUESTION_PATTERN.exec(text);
+    return match?.[1] ? { question: match[1].trim(), optionLines: [] } : undefined;
+  }
+
+  const question = extractQuestionClause(lines[questionIdx]);
+  return question ? { question, optionLines } : undefined;
+}
+
+/** Confirmatory / first-person-offer / permission questions that take a yes or no. */
+function isYesNoQuestion(question: string): boolean {
+  return /^\s*(?:(?:want|would\s+you\s+(?:like)?|shall\s+(?:i|we)|should\s+(?:i|we)|do\s+you\s+(?:want|need)|can\s+i|could\s+i|may\s+i|want\s+me|ready|proceed)\b|(?:is\s+that|does\s+that|does\s+this|are\s+you)\b)/i.test(question)
+    || /\b(?:sounds?\s+good|looks?\s+good|makes?\s+sense|ok(?:ay)?(?:\s+with\s+you)?)\s*\?*\s*$/i.test(question);
+}
+
+/** A question that asks the user to choose between discrete options. */
+function isSelectionQuestion(question: string): boolean {
+  return /\b(?:which|pick|choose|select|prefer|priorit(?:ise|ize|y)|start\s+with|focus\s+on|tackle|first|next|option|approach|where\s+should)\b/i.test(question);
+}
+
+/**
+ * Inspect the end of a response and, if it ends with a question, produce
+ * quick-reply pill options the user can click to respond in one tap. Recognises:
+ * yes/no, an enumerated markdown/numbered option list, an inline "A, B, or C?"
+ * list, and "A or B?".
  *
- * Detection is intentionally conservative: we only recognise well-known question
- * shapes so we don't accidentally generate buttons on rhetorical questions.
+ * Detection is conservative so it never fabricates buttons on rhetorical or open
+ * questions: a list only becomes pick-one pills when the question is clearly a
+ * selection question, so a yes/no question above a *findings* list stays yes/no.
  */
 export function detectResponseQuickReplies(responseText: string): {
   followupQuestion: string;
   quickReplies?: SessionSuggestedFollowup[];
 } | undefined {
-  const match = RESPONSE_TRAILING_QUESTION_PATTERN.exec(responseText.trim());
-  if (!match?.[1]) { return undefined; }
-  const question = match[1].trim();
+  const analysis = analyzeTrailingQuestion(responseText.trim());
+  if (!analysis) { return undefined; }
+  const { question, optionLines } = analysis;
 
-  // Yes / No — confirmatory questions
-  const isYesNo = /^\s*(?:(?:want|would\s+you\s+(?:like)?|shall\s+i|should\s+i|do\s+you\s+want|can\s+i|may\s+i|ready|proceed)\s+|(?:is\s+that|does\s+that|does\s+this|are\s+you)\s+)/i.test(question);
-  if (isYesNo) {
+  // Yes / No — confirmatory questions (checked first so a yes/no question that
+  // happens to sit above a list is never mistaken for a pick-one).
+  if (isYesNoQuestion(question)) {
     return {
       followupQuestion: question,
       quickReplies: [
@@ -2093,9 +2194,19 @@ export function detectResponseQuickReplies(responseText: string): {
     };
   }
 
-  // Enumerated list — "…: A, B, or C?" style questions (3–4 options). Checked
-  // before the 2-option case so triage answers ("work on X, Y, or Z?") become a
-  // clickable pick-one list instead of falling through to a plain text input.
+  // Enumerated markdown / numbered list — "Which …?\n- A\n- B\n- C" (2–5 options),
+  // in either order. Only for selection-style questions.
+  if (optionLines.length >= 2 && isSelectionQuestion(question)) {
+    const labels = optionLines.map(extractOptionLabel).filter(label => label.length >= 2 && label.length <= 48);
+    if (labels.length === optionLines.length && labels.length >= 2 && labels.length <= 5) {
+      return {
+        followupQuestion: question,
+        quickReplies: labels.map(label => ({ label: capitalizeFirst(label), prompt: label })),
+      };
+    }
+  }
+
+  // Inline enumerated list — "…: A, B, or C?" style questions (3–4 options).
   {
     const optionSegment = question.replace(/\?+\s*$/, '').split(/[:：]/).pop()?.trim() ?? '';
     if (/,/.test(optionSegment) && /\bor\b/i.test(optionSegment)) {
@@ -2106,7 +2217,7 @@ export function detectResponseQuickReplies(responseText: string): {
       if (cleaned.length >= 3 && cleaned.length <= 4 && cleaned.length === rawParts.length) {
         return {
           followupQuestion: question,
-          quickReplies: cleaned.map(opt => ({ label: opt.charAt(0).toUpperCase() + opt.slice(1), prompt: opt })),
+          quickReplies: cleaned.map(opt => ({ label: capitalizeFirst(opt), prompt: opt })),
         };
       }
     }
@@ -2121,8 +2232,8 @@ export function detectResponseQuickReplies(responseText: string): {
       return {
         followupQuestion: question,
         quickReplies: [
-          { label: optA.charAt(0).toUpperCase() + optA.slice(1), prompt: optA },
-          { label: optB.charAt(0).toUpperCase() + optB.slice(1), prompt: optB },
+          { label: capitalizeFirst(optA), prompt: optA },
+          { label: capitalizeFirst(optB), prompt: optB },
         ],
       };
     }

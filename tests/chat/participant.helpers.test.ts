@@ -99,6 +99,47 @@ describe('detectResponseQuickReplies', () => {
   it('returns nothing when the response does not end with a question', () => {
     expect(detectResponseQuickReplies('Here is the final answer. All done.')).toBeUndefined();
   });
+
+  it('builds pick-one pills from a numbered list that follows the question', () => {
+    const result = detectResponseQuickReplies(
+      'Which would you like to tackle first?\n\n1. Batch concurrency\n2. Shopify sync\n3. Edge cases',
+    );
+    expect(result?.quickReplies?.map(r => r.label)).toEqual(['Batch concurrency', 'Shopify sync', 'Edge cases']);
+  });
+
+  it('builds pick-one pills from a bulleted list that precedes the question', () => {
+    const result = detectResponseQuickReplies(
+      'Here are the options:\n\n- Raise the limit\n- Skip the subtask\n\nWhich would you prefer?',
+    );
+    expect(result?.quickReplies?.map(r => r.label)).toEqual(['Raise the limit', 'Skip the subtask']);
+  });
+
+  it('keeps a yes/no question above a findings list as yes/no (not pick-one)', () => {
+    const result = detectResponseQuickReplies(
+      'I found two issues:\n\n- Bug A\n- Bug B\n\nShould I fix them?',
+    );
+    expect(result?.quickReplies?.map(r => r.prompt)).toEqual(['yes', 'no']);
+  });
+
+  it('recognises broadened yes/no openers and confirmation tails', () => {
+    expect(detectResponseQuickReplies('Should we ship it?')?.quickReplies?.map(r => r.prompt)).toEqual(['yes', 'no']);
+    expect(detectResponseQuickReplies('I refactored the module. Does that sound good?')?.quickReplies?.map(r => r.prompt)).toEqual(['yes', 'no']);
+  });
+
+  it('does not fabricate pick-one pills for an open question above a list', () => {
+    const result = detectResponseQuickReplies(
+      'Some thoughts:\n\n- Idea A\n- Idea B\n\nWhat do you think?',
+    );
+    expect(result?.quickReplies).toBeUndefined();
+    expect(result?.followupQuestion).toBe('What do you think?');
+  });
+
+  it('detects a trailing question even when wrapped in markdown emphasis', () => {
+    const result = detectResponseQuickReplies(
+      'Done. **Which would you like next: tests, docs, or cleanup?**',
+    );
+    expect(result?.quickReplies?.map(r => r.label)).toEqual(['Tests', 'Docs', 'Cleanup']);
+  });
 });
 
 describe('participant helper logic', () => {

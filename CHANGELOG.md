@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.125.0] - 2026-06-29
+
+### Changed
+- **Quick-reply chips now appear reliably on far more question shapes** (`src/chat/participant.ts`, `detectResponseQuickReplies`). When an assistant reply ends with a question, the Chat panel shows one-tap pills — but detection used to only fire when the question was the literal last text with no internal punctuation, and only recognised inline `A, B, or C?` / yes-no, so many real questions silently fell back to a plain text box. The detector was rewritten to be both more robust and broader:
+  - **Markdown / numbered option lists are now recognised** (the most common miss): a selection question followed by — or preceded by — a `1. … 2. … 3. …` or `- … - …` list (2–5 items, either order) becomes pick-one pills. A new `analyzeTrailingQuestion` locates the question and any adjacent option block instead of requiring the question to be the very last characters; it tolerates markdown emphasis (`**…?**`), leading list/quote markers, and a question clause that has internal punctuation.
+  - **Broader yes/no coverage**: openers like *"Should we…", "Shall we…", "Could I…", "Do you need…", "Want me to…"* and confirmation tails like *"…sound good?", "…look good?", "…make sense?"* now produce Yes/No pills.
+  - **Still conservative — no false pills.** A list only becomes pick-one when the question is genuinely a selection question, so a yes/no question above a *findings* list stays Yes/No, and an open question (*"What do you think?"*) above a list still surfaces a plain text box, never fabricated buttons.
+- **Tests**: `tests/chat/participant.helpers.test.ts` gains 6 cases (numbered list after the question, bulleted list before it, yes/no-above-findings stays yes/no, broadened openers + confirmation tails, open-question-no-pills, and markdown-emphasis extraction).
+
 ## [0.124.0] - 2026-06-29
 
 ### Added

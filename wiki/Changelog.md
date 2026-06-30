@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.125.0 — Quick-reply chips show up far more reliably
+
+- **One-tap reply chips now appear on many more question shapes.** When an AtlasMind reply ends with a question, the Chat panel offers clickable pills — but they used to only show for inline *"A, B, or C?"* and a narrow set of yes/no phrasings, so plenty of questions silently fell back to a plain text box. Detection was rewritten: it now recognises **markdown / numbered option lists** (a selection question with a `1. … 2. …` or `- …` list above or below it → pick-one pills), tolerates markdown emphasis and internal punctuation around the question, and covers **more yes/no openers and confirmation tails** (*"Should we…", "Could I…", "…sound good?", "…make sense?"*). It stays conservative — a yes/no question above a *findings* list stays Yes/No, and an open question above a list still gets a text box rather than fabricated buttons.
+
+---
+
 ## v0.124.0 — Promotions resolve their own fixable blockers
 
 - **"Resolve & run" in the promotion modal.** When a promotion is blocked only by checks AtlasMind can fix — the version isn't bumped, or there's no changelog entry — the modal now offers a one-click **Resolve & run** instead of dead-ending. It bumps `package.json`, adds a `CHANGELOG.md` entry, commits them (`chore(release): vX.Y.Z`, path-scoped, **never pushed**), then runs the promotion under the single-flight lock. The **bump level is assessed from the conventional-commit history** since the target (feat → minor, breaking → major, else patch), and the modal explains what it will do and why. The offer only appears when *every* failing auto-check is fixable (a failing CI / separation-of-duties / working-tree check disables it), your own gates (manual checks, approval, protected confirmation) must already be satisfied, and the full gate is re-enforced after the fix before anything deploys.
