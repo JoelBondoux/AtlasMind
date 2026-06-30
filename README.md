@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.125.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.127.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -103,6 +103,7 @@ Use these in the AtlasMind chat panel by typing `@atlas /<command>`.
 | `/cost` | Show cost summary for the current session |
 | `/runs` | Open the Project Run Center and inspect recent autonomous runs |
 | `/ship` | Run the project's default routine from `project_memory/routines/`. `/ship <id>` runs a named routine; trailing text sets `${message}` for interpolation |
+| `/sync-instructions` | Two-way sync AI instruction sets across tools (Claude, Copilot, Cursor, …) and AtlasMind: reconcile every tool's instructions into one unified set, resolve significant conflicts in chat, then mirror the set back into each tool's file (managed block, native format). `apply` / `choose <#> <#>` continue an in-progress sync |
 | `/voice` | Open the Voice Panel for TTS and STT |
 | `/vision` | Pick workspace images and ask a multimodal question |
 

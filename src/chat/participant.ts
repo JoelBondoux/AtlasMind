@@ -38,8 +38,32 @@ import {
   DEFAULT_MISSION_GOAL_CONFIDENCE,
 } from '../constants.js';
 import { mergeImageAttachments, resolveInlineImageAttachments, resolvePickedImageAttachments } from './imageAttachments.js';
+import {
+  applyManagedInstructionBlock,
+  detectedWritebackTools,
+  gatherInstructionSources,
+  runInstructionMerge,
+  runInstructionRender,
+  writeUnifiedToSsot,
+  type InstructionMergeResult,
+  type MergeConflict,
+  type MergeDirective,
+} from '../utils/aiInstructionMerge.js';
 
 export { extractImagePathCandidates, mergeImageAttachments, resolveInlineImageAttachments } from './imageAttachments.js';
+
+/** workspaceState key for an in-flight two-way instruction sync awaiting conflict resolution. */
+const PENDING_INSTRUCTION_SYNC_KEY = 'atlasmind.pendingInstructionSync';
+
+interface PendingInstructionSync {
+  unified: MergeDirective[];
+  conflicts: MergeConflict[];
+  /** Conflict id → chosen option index (overrides the recommended option). */
+  choices: Record<string, number>;
+  autoResolvedCount: number;
+  sourceCount: number;
+  createdAt: string;
+}
 
 export const ATLASMIND_CHAT_PARTICIPANT_ID = 'atlasmind.orchestrator';
 
@@ -737,6 +761,10 @@ async function handleChatRequest(
 
     case 'ship':
       await handleShipCommand(request.prompt, stream, atlas);
+      break;
+
+    case 'sync-instructions':
+      await handleSyncInstructionsCommand(request.prompt, stream, atlas);
       break;
 
     case 'voice':
@@ -1517,6 +1545,213 @@ async function handleBootstrapCommand(
   const { bootstrapProject } = await import('../bootstrap/bootstrapper.js');
   await bootstrapProject(workspaceFolder.uri, atlas);
   stream.markdown('Bootstrap completed. AtlasMind also offered governance baseline scaffolding for this project.');
+}
+
+/**
+ * Build a chat button that re-submits a `/sync-instructions` subcommand. All
+ * sync actions stay in chat by routing through the native chat-open command, so
+ * conflict resolution is a normal conversational round-trip.
+ */
+function syncInstructionsButton(stream: vscode.ChatResponseStream, title: string, args: string): void {
+  stream.button({
+    title,
+    command: 'workbench.action.chat.open',
+    arguments: [{ query: `@atlas /sync-instructions ${args}`.trim() }],
+  });
+}
+
+/**
+ * `/sync-instructions` — two-way AI instruction-set sync. Reconciles every
+ * detected tool's instructions (+ AtlasMind's own) into one unified set and
+ * mirrors it back into each tool's file. Significant conflicts are raised here
+ * in chat and the writeback is gated until the user resolves them.
+ */
+async function handleSyncInstructionsCommand(
+  prompt: string,
+  stream: vscode.ChatResponseStream,
+  atlas: AtlasMindContext,
+): Promise<void> {
+  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  if (!workspaceFolder) {
+    stream.markdown('Open a workspace folder first, then run `/sync-instructions` again.');
+    return;
+  }
+  const workspaceRoot = workspaceFolder.uri.fsPath;
+  const sub = prompt.trim();
+  const complete = (system: string, user: string): Promise<string> => atlas.orchestrator.completeBootstrap(system, user);
+
+  if (/^apply\b/i.test(sub)) {
+    await applyPendingInstructionSync(workspaceRoot, stream, atlas, complete);
+    return;
+  }
+  if (/^choose\b/i.test(sub)) {
+    await recordInstructionConflictChoice(sub, stream, atlas);
+    return;
+  }
+  if (/^(reset|cancel)\b/i.test(sub)) {
+    await atlas.extensionContext.workspaceState.update(PENDING_INSTRUCTION_SYNC_KEY, undefined);
+    stream.markdown('Cleared the pending instruction sync. Run `/sync-instructions` to start over.');
+    return;
+  }
+
+  // ── Start: gather + reconcile ──────────────────────────────────────────────
+  stream.markdown('Scanning AI instruction sets and reconciling them…\n\n');
+  const sources = gatherInstructionSources(workspaceRoot);
+  if (sources.length === 0) {
+    stream.markdown(
+      'No AI instruction files were found to sync. Create a `CLAUDE.md`, `.github/copilot-instructions.md`, ' +
+      '`AGENTS.md`, or similar (or run `/bootstrap`) first.',
+    );
+    return;
+  }
+
+  let merge: InstructionMergeResult;
+  try {
+    merge = await runInstructionMerge(sources, complete);
+  } catch (err) {
+    stream.markdown(`⚠️ Could not reconcile the instruction sets: ${err instanceof Error ? err.message : String(err)}`);
+    return;
+  }
+
+  const sourceList = sources.map(source => `\`${source.tool}\``).join(', ');
+  stream.markdown(
+    `Found **${sources.length}** instruction source${sources.length === 1 ? '' : 's'} (${sourceList}). ` +
+    `Reconciled **${merge.unified.length}** directive${merge.unified.length === 1 ? '' : 's'}` +
+    (merge.autoResolved.length > 0
+      ? `, auto-resolving **${merge.autoResolved.length}** minor difference${merge.autoResolved.length === 1 ? '' : 's'}`
+      : '') +
+    '.\n\n',
+  );
+
+  if (merge.conflicts.length === 0) {
+    await atlas.extensionContext.workspaceState.update(PENDING_INSTRUCTION_SYNC_KEY, undefined);
+    await performInstructionWriteback(workspaceRoot, merge.unified, stream, atlas, complete);
+    return;
+  }
+
+  // ── Significant conflicts → raise in chat, gate the writeback ───────────────
+  const pending: PendingInstructionSync = {
+    unified: merge.unified,
+    conflicts: merge.conflicts,
+    choices: {},
+    autoResolvedCount: merge.autoResolved.length,
+    sourceCount: sources.length,
+    createdAt: new Date().toISOString(),
+  };
+  await atlas.extensionContext.workspaceState.update(PENDING_INSTRUCTION_SYNC_KEY, pending);
+
+  stream.markdown(
+    `### ⚠️ ${merge.conflicts.length} conflict${merge.conflicts.length === 1 ? '' : 's'} need your decision\n\n` +
+    'Nothing is written until these are resolved. AtlasMind has a recommendation for each — apply them as-is, ' +
+    'or override any conflict, then finish the sync.\n',
+  );
+  merge.conflicts.forEach((conflict, index) => {
+    const lines: string[] = [`\n**${index + 1}. ${conflict.topic}**`];
+    conflict.options.forEach((option, optionIndex) => {
+      const recommended = optionIndex === conflict.recommendedOptionIndex ? ' _(recommended)_' : '';
+      lines.push(`   - \`${optionIndex + 1}\` **${option.tool}**: ${option.directive}${recommended}`);
+    });
+    stream.markdown(lines.join('\n') + '\n');
+    conflict.options.forEach((option, optionIndex) => {
+      syncInstructionsButton(stream, `#${index + 1}: use ${option.tool}'s`, `choose ${index + 1} ${optionIndex + 1}`);
+    });
+  });
+  stream.markdown('\nWhen you are ready:\n');
+  syncInstructionsButton(stream, '✅ Apply recommendations & finish sync', 'apply');
+}
+
+/** Record a per-conflict override into the pending sync state. */
+async function recordInstructionConflictChoice(
+  sub: string,
+  stream: vscode.ChatResponseStream,
+  atlas: AtlasMindContext,
+): Promise<void> {
+  const pending = atlas.extensionContext.workspaceState.get<PendingInstructionSync>(PENDING_INSTRUCTION_SYNC_KEY);
+  if (!pending) {
+    stream.markdown('No pending instruction sync. Run `/sync-instructions` first.');
+    return;
+  }
+  const match = /choose\s+(\d+)\s+(\d+)/i.exec(sub);
+  if (!match) {
+    stream.markdown('Usage: `/sync-instructions choose <conflict #> <option #>` — e.g. `choose 1 2`.');
+    return;
+  }
+  const conflictPos = Number.parseInt(match[1]!, 10) - 1;
+  const optionPos = Number.parseInt(match[2]!, 10) - 1;
+  const conflict = pending.conflicts[conflictPos];
+  if (!conflict) {
+    stream.markdown(`There is no conflict #${conflictPos + 1}. There ${pending.conflicts.length === 1 ? 'is' : 'are'} ${pending.conflicts.length}.`);
+    return;
+  }
+  if (optionPos < 0 || optionPos >= conflict.options.length) {
+    stream.markdown(`Conflict #${conflictPos + 1} has ${conflict.options.length} options; pick between 1 and ${conflict.options.length}.`);
+    return;
+  }
+  pending.choices[conflict.id] = optionPos;
+  await atlas.extensionContext.workspaceState.update(PENDING_INSTRUCTION_SYNC_KEY, pending);
+
+  const chosen = conflict.options[optionPos]!;
+  stream.markdown(`Recorded for **${conflict.topic}**: using **${chosen.tool}**'s rule.\n`);
+  const decided = Object.keys(pending.choices).length;
+  stream.markdown(`${decided} of ${pending.conflicts.length} conflict${pending.conflicts.length === 1 ? '' : 's'} overridden. Apply when ready (unset conflicts use the recommendation).\n`);
+  syncInstructionsButton(stream, '✅ Apply & finish sync', 'apply');
+}
+
+/** Resolve the pending sync (choices or recommendations) and write everything back. */
+async function applyPendingInstructionSync(
+  workspaceRoot: string,
+  stream: vscode.ChatResponseStream,
+  atlas: AtlasMindContext,
+  complete: (system: string, user: string) => Promise<string>,
+): Promise<void> {
+  const pending = atlas.extensionContext.workspaceState.get<PendingInstructionSync>(PENDING_INSTRUCTION_SYNC_KEY);
+  if (!pending) {
+    stream.markdown('No pending instruction sync to apply. Run `/sync-instructions` first.');
+    return;
+  }
+  const resolvedDirectives: MergeDirective[] = pending.conflicts.map(conflict => {
+    const index = pending.choices[conflict.id] ?? conflict.recommendedOptionIndex;
+    const option = conflict.options[index] ?? conflict.options[conflict.recommendedOptionIndex] ?? conflict.options[0]!;
+    return { id: `resolved-${conflict.id}`, category: conflict.topic, text: option.directive, sources: [option.tool] };
+  });
+  const finalUnified = [...pending.unified, ...resolvedDirectives];
+  await atlas.extensionContext.workspaceState.update(PENDING_INSTRUCTION_SYNC_KEY, undefined);
+  await performInstructionWriteback(workspaceRoot, finalUnified, stream, atlas, complete);
+}
+
+/** Render the unified set per-tool and write the managed blocks + SSOT mirror. */
+async function performInstructionWriteback(
+  workspaceRoot: string,
+  unified: MergeDirective[],
+  stream: vscode.ChatResponseStream,
+  atlas: AtlasMindContext,
+  complete: (system: string, user: string) => Promise<string>,
+): Promise<void> {
+  const targetTools = detectedWritebackTools(workspaceRoot);
+  const rendered = await runInstructionRender(unified, targetTools, complete);
+  const writeResult = await applyManagedInstructionBlock(workspaceRoot, rendered, unified);
+  const isoDate = new Date().toISOString().slice(0, 10);
+  const ssotWritten = await writeUnifiedToSsot(workspaceRoot, unified, isoDate);
+
+  const lines: string[] = ['### ✅ Instruction sync complete\n'];
+  if (writeResult.updated.length > 0) {
+    lines.push(`Mirrored the unified instructions into **${writeResult.updated.length}** tool file${writeResult.updated.length === 1 ? '' : 's'} (managed block only):`);
+    for (const updatedPath of writeResult.updated) {
+      lines.push(`- \`${updatedPath}\``);
+    }
+  } else {
+    lines.push('No tool instruction files were detected to update.');
+  }
+  if (writeResult.skipped.length > 0) {
+    lines.push('\n**Skipped:**');
+    for (const skip of writeResult.skipped) {
+      lines.push(`- \`${skip.path}\` — ${skip.reason}`);
+    }
+  }
+  if (ssotWritten) {
+    lines.push('\nThe unified set is saved to `project_memory/domain/ai-instructions-sync.md` and loaded as AtlasMind context.');
+  }
+  stream.markdown(lines.join('\n'));
 }
 
 async function handleImportCommand(

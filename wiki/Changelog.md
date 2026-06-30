@@ -6,6 +6,28 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.127.1 — "Install in Ollama" shows live progress
+
+- **The Local Model Advisor's "Install in Ollama" button now works visibly.** It always fired the pull, but it blocked silently on a non-streaming request (and failed quietly when Ollama wasn't running), so it looked like nothing happened. It now streams the download as live progress in the **"AtlasMind: Local Model Install"** output channel and a cancellable notification (matching the LM Studio install), and tells you clearly when the Ollama daemon isn't running. AtlasMind drives Ollama through its API (the same thing the `ollama pull` CLI does), so it works without the CLI on `PATH` and honours a remote Ollama endpoint.
+
+---
+
+## v0.127.0 — Instruction sets sync both ways, with conflicts resolved in chat
+
+- **AI instruction sets now sync two-way.** Previously the AI Instructions page only *imported* other tools' instruction files into AtlasMind. The new **`/sync-instructions`** chat command (and the **"Align all instruction sets (two-way)"** button) reconciles every detected tool's instructions — GitHub Copilot, Claude Code, Cursor, Cline, Codex/AGENTS.md, Gemini, Windsurf, Aider — **plus AtlasMind's own** into one unified set, then mirrors that set **back into each tool's file** (in its own format, inside a managed block so your other content is preserved), so they all share the same guidance.
+- **Conflicts are resolved by you, in chat.** Trivial differences merge automatically; only genuinely contradictory rules (e.g. tabs vs spaces) are raised as conflicts with a recommended pick and one button per option. **Nothing is written until you resolve them** — accept the recommendation, override with `choose <#> <#>`, then `apply`.
+- **Safe by construction.** Only AtlasMind's delimited block is ever written, only into files that already exist; JSON-config tools are skipped; malformed model output aborts before any write. The unified set is also saved to `project_memory/domain/ai-instructions-sync.md`.
+
+---
+
+## v0.126.0 — Local Model Advisor: installs that work, on both runtimes, with installed badges
+
+- **"Install in LM Studio" actually installs now.** It used to run `lms get` as the terminal's shell process; because `lms get` is interactive, it exited non-zero and VS Code threw the cryptic *"terminated with exit code 1"* dialog. It now runs as a direct child process with the **`--yes`** flag (skips the prompt, picks the recommended quant), streams progress into an **"AtlasMind: LM Studio Install"** output channel under a cancellable progress bar, and on failure shows the real reason and opens the HuggingFace page as a fallback.
+- **"Install in Ollama" is offered for HuggingFace models too.** Ollama can pull GGUF straight from HuggingFace via the `hf.co/<owner>/<repo>` prefix, so every recommendation card now shows both **Install in Ollama** and **Install in LM Studio**.
+- **Recommendation cards show when a model is already installed.** Matching is now done on a normalized identity key (source prefix, repo path, and quant noise stripped; parameter size kept), so HuggingFace-sourced models are correctly recognised and the card shows an **Installed · Ollama / · LM Studio** badge instead of install buttons.
+
+---
+
 ## v0.125.0 — Quick-reply chips show up far more reliably
 
 - **One-tap reply chips now appear on many more question shapes.** When an AtlasMind reply ends with a question, the Chat panel offers clickable pills — but they used to only show for inline *"A, B, or C?"* and a narrow set of yes/no phrasings, so plenty of questions silently fell back to a plain text box. Detection was rewritten: it now recognises **markdown / numbered option lists** (a selection question with a `1. … 2. …` or `- …` list above or below it → pick-one pills), tolerates markdown emphasis and internal punctuation around the question, and covers **more yes/no openers and confirmation tails** (*"Should we…", "Could I…", "…sound good?", "…make sense?"*). It stays conservative — a yes/no question above a *findings* list stays Yes/No, and an open question above a list still gets a text box rather than fabricated buttons.

@@ -19,6 +19,7 @@ Short continuation prompts such as `Proceed`, `Continue`, or `Proceed autonomous
 | `/loop` | Run an autonomous goal-seeking **Mission Loop** within a closed budget envelope; pauses for approval at configurable checkpoints |
 | `/runs` | Open the Project Run Center to review recent autonomous runs |
 | `/ship` | Run the project's default publish/release routine. `/ship <id>` runs a named routine |
+| `/sync-instructions` | Two-way sync AI instruction sets across tools and AtlasMind, resolving significant conflicts in chat |
 | `/agents` | List and manage registered agents |
 | `/skills` | List and manage registered skills |
 | `/discover` | Discover external agentic resources (MCP servers, agents, skills, APIs) via [[Resource Discovery]] (ARD), with one-click install of the results |
@@ -141,6 +142,27 @@ Runs a project routine — a saved sequence of shell commands (test, commit, pus
 Routines are defined as markdown files with YAML frontmatter in `project_memory/routines/`. See `project_memory/routines/README.md` for the format and examples.
 
 Each step streams a live checklist into chat. If a step fails and `on_fail: abort` is set, execution stops and the stderr output is shown. The run is recorded in Project Run History.
+
+---
+
+## `/sync-instructions`
+
+Two-way sync of AI instruction sets. Where the **Settings → AI Instructions** "Scan & import" flow only pulls other tools' instructions *into* AtlasMind, `/sync-instructions` reconciles **every** detected tool's instructions (GitHub Copilot, Claude Code, Cursor, Cline, OpenAI Codex/AGENTS.md, Gemini CLI, Windsurf, Aider) **plus AtlasMind's own** into one unified set, then mirrors that set **back into each tool's file** so they all share the same guidance.
+
+```
+@atlas /sync-instructions            # start: gather, reconcile, surface conflicts
+@atlas /sync-instructions choose 1 2 # override conflict #1 with option #2
+@atlas /sync-instructions apply      # write the unified set back to every tool
+@atlas /sync-instructions reset      # discard the in-progress sync
+```
+
+How it works:
+
+1. **Gather + reconcile.** AtlasMind reads each tool's full instructions (ignoring its own previously-written managed block) and uses the model to build a unified, de-duplicated directive set. Trivial/compatible differences are merged automatically and reported as a count.
+2. **Resolve conflicts in chat.** Only *genuinely contradictory* rules (e.g. tabs vs spaces) are surfaced as numbered conflicts with a recommended pick and one button per option. **Nothing is written until you resolve them** — click a recommendation, override with `choose <conflict #> <option #>`, then **Apply**.
+3. **Mirror back.** The resolved set is re-expressed in each tool's native format and written into an AtlasMind-managed, delimited block (`<!-- atlasmind:shared-instructions:start … -->`) in each detected file — non-destructive and reversible; content outside the block is preserved. JSON-config tools (Continue) are reported as skipped. The unified set is also saved to `project_memory/domain/ai-instructions-sync.md` so AtlasMind loads it as context.
+
+The **Settings → AI Instructions → "Align all instruction sets (two-way)"** button is a shortcut that opens chat and runs this command.
 
 ---
 

@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.125.0",
+  "version": "0.127.1",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -104,6 +104,10 @@
           {
             "name": "ship",
             "description": "Run the project's default publish/release routine from project_memory/routines/"
+          },
+          {
+            "name": "sync-instructions",
+            "description": "Two-way sync AI instruction sets across tools (Claude, Copilot, Cursor…), resolving conflicts in chat"
           }
         ]
       }
