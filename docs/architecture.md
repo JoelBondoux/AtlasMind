@@ -431,6 +431,8 @@ All shared types live in `src/types.ts`. See the [type definitions](../src/types
 | `McpConnectionStatus` | `'disconnected' \| 'connecting' \| 'connected' \| 'error'` |
 | `McpToolInfo` | Server id, tool name, description, input JSON Schema |
 | `McpServerState` | Live snapshot: config + status + error + discovered tools |
+| `PromotionPlan` | Assembled promotion: ordered guarded steps, preflight `checks`, blockers, gate flags, and an optional `remediation` |
+| `PromotionRemediation` | "Resolve & run" offer for fixable failing checks: `resolves`, assessed `targetVersion`/`bumpLevel`/`bumpReason`, `editsChangelog`, `commits`, `summary` |
 
 ## Detailed Architecture Subdocs
 

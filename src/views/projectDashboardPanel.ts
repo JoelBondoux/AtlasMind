@@ -15,7 +15,7 @@ import { DataPrivacyManager, readDataPrivacyConfig, writeDataPrivacyConfig, defa
 import { COMPLIANCE_PACKS } from '../core/compliancePacks.js';
 import { getProviderDataGovernance } from '../core/providerDataGovernance.js';
 import { DELIVERY_SSOT_PATH, DELIVERY_SUMMARY_SSOT_PATH, sanitizeDeliveryConfig, seedDeliveryConfig, appendPromotionHistory, readPromotionHistory, acquireDeliveryLock, releaseDeliveryLock, type DeliverySeedInput, type DeliveryArchetype } from '../core/deliveryManager.js';
-import { buildPromotionPlan, evaluatePromotionGate, runPromotion, runRollback, checkHealthUrl } from '../core/promotionRunner.js';
+import { buildPromotionPlan, evaluatePromotionGate, evaluatePromotionGateExceptFixable, runPromotion, runRollback, checkHealthUrl, classifyBumpLevel, applyPromotionRemediation } from '../core/promotionRunner.js';
 import type { DataPrivacyActivityEvent, DataPrivacySensitivity, DeliveryConfig, DeploymentStage, PromotionPath, PromotionHistoryEntry } from '../types.js';
 
 const execFileAsync = promisify(execFile);
@@ -94,6 +94,7 @@ type ProjectDashboardMessage =
   | { type: 'saveDeliveryConfig'; payload: import('../types.js').DeliveryConfig }
   | { type: 'requestPromotionPlan'; payload: { pathId: string; mode: 'execute' | 'runbook' } }
   | { type: 'runPromotion'; payload: { pathId: string; attestations: string[]; confirmText: string } }
+  | { type: 'resolveAndRunPromotion'; payload: { pathId: string; attestations: string[]; confirmText: string } }
   | { type: 'markDeliveryReviewed' }
   | { type: 'reimportDelivery' }
   | { type: 'rollbackStage'; payload: { stageId: string; confirmText: string } }
@@ -1304,6 +1305,9 @@ export class ProjectDashboardPanel {
       case 'runPromotion':
         await this.handleRunPromotion(message.payload);
         return;
+      case 'resolveAndRunPromotion':
+        await this.handleResolveAndRunPromotion(message.payload);
+        return;
       case 'testDataPrivacy':
         {
           const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -1765,7 +1769,8 @@ export class ProjectDashboardPanel {
     await this.atlas.routineRegistry.reload(workspaceRoot).catch(() => undefined);
     const routine = promo.routineId ? this.atlas.routineRegistry.get(promo.routineId) : undefined;
     const liveStatusChecks = await this.resolveLiveCiStatus(workspaceRoot, from);
-    const plan = buildPromotionPlan({ config, pathId, ...facts, routine, liveStatusChecks });
+    const remediationAssessment = await assessPromotionRemediation(workspaceRoot, from, to);
+    const plan = buildPromotionPlan({ config, pathId, ...facts, routine, liveStatusChecks, remediationAssessment });
     if (!plan) {
       await this.postMessage({ type: 'promotionError', payload: 'Could not build a promotion plan.' });
       return;
@@ -1795,7 +1800,8 @@ export class ProjectDashboardPanel {
     const liveStatusChecks = await this.resolveLiveCiStatus(workspaceRoot, from);
     const approver = await resolveGitActorEmail(workspaceRoot);
     const lastCommitAuthor = await resolveLastCommitAuthor(workspaceRoot, from.branchRef);
-    const plan = buildPromotionPlan({ config, pathId: payload.pathId, ...facts, routine, liveStatusChecks, approver, lastCommitAuthor });
+    const remediationAssessment = await assessPromotionRemediation(workspaceRoot, from, to);
+    const plan = buildPromotionPlan({ config, pathId: payload.pathId, ...facts, routine, liveStatusChecks, approver, lastCommitAuthor, remediationAssessment });
     if (!plan) {
       await this.postMessage({ type: 'promotionError', payload: 'Could not build a promotion plan.' });
       return;
@@ -1834,6 +1840,115 @@ export class ProjectDashboardPanel {
         fromName: from.name,
         toName: to.name,
         version: facts.fromVersion,
+        succeeded: result.succeeded,
+        ranAt: result.startedAt,
+        durationMs: result.durationMs,
+        actor: await resolveGitActor(workspaceRoot),
+      }).catch(() => undefined);
+      await this.postMessage({ type: 'promotionDone', payload: result });
+    } finally {
+      await releaseDeliveryLock(workspaceRoot);
+    }
+    await this.syncState();
+  }
+
+  /**
+   * Resolve the fixable failing preflight checks (version bump + changelog),
+   * commit them, then run the promotion — the modal's "Resolve & run". The
+   * remediation is computed server-side from the live plan; the webview only
+   * triggers it. The whole sequence runs under the single-flight delivery lock so
+   * the edit/commit and the promotion are atomic with respect to other runs.
+   */
+  private async handleResolveAndRunPromotion(payload: { pathId: string; attestations: string[]; confirmText: string }): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const config = this.atlas.deliveryManager.getConfig();
+    if (!workspaceRoot || !config) {
+      await this.postMessage({ type: 'promotionError', payload: 'No delivery pipeline is available.' });
+      return;
+    }
+    const promo = config.paths.find(candidate => candidate.id === payload.pathId);
+    const from = promo && config.stages.find(stage => stage.id === promo.fromStageId);
+    const to = promo && config.stages.find(stage => stage.id === promo.toStageId);
+    if (!promo || !from || !to) {
+      await this.postMessage({ type: 'promotionError', payload: 'That promotion path no longer exists.' });
+      return;
+    }
+
+    // Build the plan from live state and confirm a remediation is actually on offer
+    // (every failing auto-check is fixable). Refuse otherwise — never half-fix.
+    await this.atlas.routineRegistry.reload(workspaceRoot).catch(() => undefined);
+    const routine = promo.routineId ? this.atlas.routineRegistry.get(promo.routineId) : undefined;
+    const facts = await gatherPromotionFacts(workspaceRoot, from, to);
+    const liveStatusChecks = await this.resolveLiveCiStatus(workspaceRoot, from);
+    const approver = await resolveGitActorEmail(workspaceRoot);
+    const lastCommitAuthor = await resolveLastCommitAuthor(workspaceRoot, from.branchRef);
+    const remediationAssessment = await assessPromotionRemediation(workspaceRoot, from, to);
+    const plan = buildPromotionPlan({ config, pathId: payload.pathId, ...facts, routine, liveStatusChecks, approver, lastCommitAuthor, remediationAssessment });
+    if (!plan) {
+      await this.postMessage({ type: 'promotionError', payload: 'Could not build a promotion plan.' });
+      return;
+    }
+    if (!plan.remediation) {
+      await this.postMessage({ type: 'promotionError', payload: 'Nothing here can be auto-resolved — a non-fixable check is failing, or the checks already pass.' });
+      return;
+    }
+    // The non-fixable gates (manual attestations, approval, protected confirm) must
+    // already be satisfied; only the fixable auto-checks may still be failing.
+    const nonAutoGate = evaluatePromotionGateExceptFixable(plan, payload.attestations, payload.confirmText, to.name);
+    if (!nonAutoGate.allowed) {
+      await this.postMessage({ type: 'promotionError', payload: nonAutoGate.reason ?? 'Promotion is not permitted.' });
+      return;
+    }
+
+    if (!await acquireDeliveryLock(workspaceRoot, `resolve+promote ${from.name} → ${to.name}`)) {
+      await this.postMessage({ type: 'promotionError', payload: 'Another promotion or rollback is already in progress. Wait for it to finish (or it clears automatically after 60 min).' });
+      return;
+    }
+    try {
+      await this.postMessage({ type: 'promotionProgress', payload: { stepId: 'resolve', label: 'Resolve preflight', index: 0, total: 0, status: 'running' } });
+      const applied = await applyPromotionRemediation(workspaceRoot, plan.remediation);
+      await this.postMessage({ type: 'promotionProgress', payload: { stepId: 'resolve', label: 'Resolve preflight', index: 0, total: 0, status: applied.ok ? 'done' : 'failed', output: applied.output } });
+      if (!applied.ok) {
+        await this.postMessage({ type: 'promotionError', payload: `Could not auto-resolve the failing checks: ${applied.output}` });
+        return;
+      }
+
+      // Rebuild from the now-updated tree and enforce the FULL gate before running.
+      const facts2 = await gatherPromotionFacts(workspaceRoot, from, to);
+      const liveStatusChecks2 = await this.resolveLiveCiStatus(workspaceRoot, from);
+      const lastCommitAuthor2 = await resolveLastCommitAuthor(workspaceRoot, from.branchRef);
+      const plan2 = buildPromotionPlan({ config, pathId: payload.pathId, ...facts2, routine, liveStatusChecks: liveStatusChecks2, approver, lastCommitAuthor: lastCommitAuthor2 });
+      if (!plan2) {
+        await this.postMessage({ type: 'promotionError', payload: 'Could not rebuild the promotion plan after resolving checks.' });
+        return;
+      }
+      const gate = evaluatePromotionGate(plan2, payload.attestations, payload.confirmText, to.name);
+      if (!gate.allowed) {
+        await this.postMessage({ type: 'promotionError', payload: `Resolved the fixable checks, but the promotion is still gated: ${gate.reason ?? 'not permitted.'}` });
+        return;
+      }
+
+      const result = await runPromotion({
+        workspaceRoot,
+        plan: plan2,
+        config,
+        routine,
+        onProgress: update => { void this.postMessage({ type: 'promotionProgress', payload: update }); },
+      });
+      const updated: DeliveryConfig = {
+        ...config,
+        paths: config.paths.map(candidate => candidate.id === payload.pathId
+          ? { ...candidate, lastPromotion: { ranAt: result.startedAt, succeeded: result.succeeded, version: facts2.fromVersion } }
+          : candidate),
+      };
+      await this.atlas.deliveryManager.save(updated);
+      await appendPromotionHistory(workspaceRoot, {
+        id: `promo-${Date.now()}`,
+        kind: 'promotion',
+        pathId: payload.pathId,
+        fromName: from.name,
+        toName: to.name,
+        version: facts2.fromVersion,
         succeeded: result.succeeded,
         ranAt: result.startedAt,
         durationMs: result.durationMs,
@@ -1992,7 +2107,7 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
       && (p['mode'] === 'execute' || p['mode'] === 'runbook');
   }
 
-  if (candidate['type'] === 'runPromotion') {
+  if (candidate['type'] === 'runPromotion' || candidate['type'] === 'resolveAndRunPromotion') {
     const p = candidate['payload'] as Record<string, unknown> | undefined;
     return typeof p === 'object' && p !== null && typeof p['pathId'] === 'string' && p['pathId'].length > 0
       && Array.isArray(p['attestations']) && typeof p['confirmText'] === 'string';
@@ -3326,6 +3441,55 @@ async function gatherPromotionFacts(
     changelogHasFromVersion = false;
   }
   return { fromVersion, toVersion, workingTreeClean, changelogHasFromVersion };
+}
+
+/**
+ * Assess the inputs for the "Resolve & run" remediation: the SemVer bump level
+ * warranted by the conventional-commit history between the target and the source
+ * (feat → minor, breaking → major, else patch), and whether the version/changelog
+ * files can be written. Read-only — no edits happen here.
+ */
+async function assessPromotionRemediation(
+  workspaceRoot: string,
+  from: DeploymentStage,
+  to: DeploymentStage,
+): Promise<{ bumpLevel: 'patch' | 'minor' | 'major'; bumpReason: string; canBumpVersion: boolean; canEditChangelog: boolean }> {
+  const fromRef = (from.branchRef ?? '').trim() || 'HEAD';
+  const toRef = (to.branchRef ?? '').trim();
+  let messages: string[] = [];
+  let compared = false;
+  if (toRef) {
+    try {
+      const out = await runGit(workspaceRoot, ['log', `${toRef}..${fromRef}`, '--format=%B%x00']);
+      messages = out.split('\u0000').map(part => part.trim()).filter(part => part.length > 0);
+      compared = true;
+    } catch {
+      compared = false;
+    }
+  }
+  const bumpLevel = classifyBumpLevel(messages);
+  const count = messages.length;
+  let bumpReason: string;
+  if (!compared) {
+    bumpReason = `patch — no branch to compare against ${to.name}; defaulting to patch.`;
+  } else if (count === 0) {
+    bumpReason = `patch — no new commits ahead of ${to.name}; defaulting to patch.`;
+  } else {
+    const since = `since ${to.name} (${count} commit${count === 1 ? '' : 's'})`;
+    bumpReason = bumpLevel === 'major'
+      ? `major — a breaking change ${since}.`
+      : bumpLevel === 'minor'
+        ? `minor — at least one feature ${since}.`
+        : `patch — fixes/chores only ${since}.`;
+  }
+  let canBumpVersion = false;
+  try {
+    await fs.access(path.join(workspaceRoot, 'package.json'));
+    canBumpVersion = true;
+  } catch {
+    canBumpVersion = false;
+  }
+  return { bumpLevel, bumpReason, canBumpVersion, canEditChangelog: true };
 }
 
 /**
@@ -7213,6 +7377,9 @@ const DASHBOARD_CSS = `
   .promo-check.fail { color: var(--vscode-errorForeground, #f14c4c); }
   .promo-check.manual { color: var(--vscode-foreground); }
   .promo-check.manual label { display: inline-flex; gap: 7px; align-items: center; cursor: pointer; }
+  .promo-fix-tag { font-size: 0.66em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--vscode-charts-blue, #4daafc); color: var(--vscode-charts-blue, #4daafc); white-space: nowrap; }
+  .promo-remediation { font-size: 0.82em; margin: 10px 0 0; padding: 9px 11px; border-radius: 8px; border: 1px solid color-mix(in srgb, var(--vscode-charts-blue, #4daafc) 45%, transparent); background: color-mix(in srgb, var(--vscode-charts-blue, #4daafc) 10%, transparent); display: flex; flex-direction: column; gap: 3px; }
+  .promo-remediation small { color: var(--vscode-descriptionForeground); }
   .promo-progress-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
   .promo-step { font-size: 0.84em; }
   .promo-step.done { color: var(--vscode-charts-green, #89d185); }

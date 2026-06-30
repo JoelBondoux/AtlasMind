@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.124.0 — Promotions resolve their own fixable blockers
+
+- **"Resolve & run" in the promotion modal.** When a promotion is blocked only by checks AtlasMind can fix — the version isn't bumped, or there's no changelog entry — the modal now offers a one-click **Resolve & run** instead of dead-ending. It bumps `package.json`, adds a `CHANGELOG.md` entry, commits them (`chore(release): vX.Y.Z`, path-scoped, **never pushed**), then runs the promotion under the single-flight lock. The **bump level is assessed from the conventional-commit history** since the target (feat → minor, breaking → major, else patch), and the modal explains what it will do and why. The offer only appears when *every* failing auto-check is fixable (a failing CI / separation-of-duties / working-tree check disables it), your own gates (manual checks, approval, protected confirmation) must already be satisfied, and the full gate is re-enforced after the fix before anything deploys.
+
+---
+
 ## v0.123.0 — Models learn from their struggles
 
 - **AtlasMind now remembers when a model keeps failing a *kind* of task, and routes around it.** This targets the recurring "drift down to a weak/cheap/local model" you may have noticed. When a model times out, returns nothing, emits a tool call as plain text, errors out, or gets corrected by you on the next turn, AtlasMind records a *struggle* keyed by the task signature (`phase · reasoning · tools`). The penalty is marginal and decaying (~2.5-day half-life, halved on a clean turn), but once a model has repeatedly failed a task kind, a **budget tier-escape** opens up more capable (pricier) models for that task kind so a stronger model can take over — the recurring drift is the cheap model's price advantage winning, and this is what counters it. The memory persists across sessions in `globalState` (`atlasmind.modelStruggleSignals`) and is gated by the existing learned-routing weight (`atlasmind.feedbackRoutingWeight = 0` turns it off). De-weighted models show a **"de-weighted: …"** hint in the **Compare Models** panel explaining why.

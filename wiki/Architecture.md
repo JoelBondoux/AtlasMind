@@ -324,6 +324,7 @@ All shared interfaces live in `src/types.ts`. Key types include:
 | `ProjectPlan` | Goal string + SubTask DAG |
 | `ProjectResult` | Execution results, synthesis, cost totals |
 | `ToolInvocationPolicy` | Risk category, risk level, approval summary |
+| `PromotionPlan` / `PromotionRemediation` | Assembled guarded promotion (preflight checks, steps, gate flags) and the optional "Resolve & run" offer for fixable failing checks (assessed version bump + changelog + commit) |
 | `ToolApprovalState` | Runtime task-bypass and session autopilot flags for approval prompts |
 | `McpServerConfig` | Server ID, transport type, command/args or URL |
 | `SkillExecutionContext` | All workspace APIs injected into skill handlers |

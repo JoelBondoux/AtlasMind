@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.124.0] - 2026-06-29
+
+### Added
+- **"Resolve & run" — fixable preflight failures can be fixed inline as part of a promotion** (`src/core/promotionRunner.ts`, `src/views/projectDashboardPanel.ts`, `media/projectDashboard.js`). When a promotion is blocked only by auto-checks AtlasMind can repair — **version not bumped** and **missing changelog entry** — the promotion modal now offers a single **Resolve & run** button instead of dead-ending. It bumps `package.json`, adds a `CHANGELOG.md` entry, commits them (`chore(release): vX.Y.Z`), then runs the promotion — all under the single-flight delivery lock. AtlasMind commits the two edited files path-scoped (never sweeping in unrelated changes) and **never pushes or force-pushes**.
+  - **The version level is assessed from the changes**, not hard-coded: the conventional-commit history between the target and the source is classified (`feat` → minor, a `type!:` subject or `BREAKING CHANGE` footer → major, otherwise patch), matching both general SemVer practice and repos whose stated rules follow it. The modal shows what it will do and why (e.g. *"bump 0.0.0 → 0.1.0 (minor); add a CHANGELOG entry for 0.1.0; commit … — minor — at least one feature since Staging."*).
+  - **Safety-preserving.** The offer only appears when *every* failing auto-check is fixable (a failing CI/separation-of-duties/working-tree check disables it — editing version/changelog can't unblock those). The user's own gates (manual attestations, approval, protected type-to-confirm) must already be satisfied before Resolve & run is enabled (`evaluatePromotionGateExceptFixable`), and the **full** gate is re-enforced on the rebuilt plan after the fix, before anything deploys. The edits/commit are server-sourced from the computed plan; the webview can only trigger the action, never inject content. The git commit runs via `execFile` (argument array, **no shell**) and the version is validated against a strict semver pattern before it is written or committed, so a version string can never be interpreted as a command.
+  - **Types**: `PromotionRemediation` and `PromotionPreflightCheck.fixable` (`src/types.ts`); `PromotionPlan.remediation`. **Engine**: `classifyBumpLevel`, `bumpVersion`, `setPackageJsonVersion`, `insertChangelogEntry`, `buildInitialChangelog`, `applyPromotionRemediation`, `evaluatePromotionGateExceptFixable`.
+  - **Tests**: `tests/core/promotionRunner.test.ts` (20 cases — bump-level classification, version bump, package.json/changelog edits, remediation assembly incl. non-fixable-failure suppression and changelog-only/no-bump, and the relaxed gate).
+
 ## [0.123.0] - 2026-06-29
 
 ### Added
