@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { AgentDefinition, BudgetMode, DataPrivacyMatch, MemoryEntry, ModelCapability, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, SubTaskStatus, TaskProfile, TaskRequest, TaskResult, TestingMethodologyId, ToolExecutionArtifact } from '../types.js';
+import type { AgentDefinition, BudgetMode, DataPrivacyMatch, MemoryEntry, ModelCapability, ModelStruggleKind, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, SubTaskStatus, TaskProfile, TaskRequest, TaskResult, TestingMethodologyId, ToolExecutionArtifact } from '../types.js';
 import type { AgentAutoUpdater } from './agentAutoUpdater.js';
 import { ClassifierService, type ClassificationResult } from './classifierService.js';
 import { formatCost } from './currencyFormatter.js';
@@ -11,6 +11,7 @@ import { gradeExecutionQuality } from './executionQuality.js';
 import type { MemoryManager } from '../memory/memoryManager.js';
 import type { CostTracker } from './costTracker.js';
 import type { ProviderRegistry } from '../providers/index.js';
+import { LOCAL_ECHO_RESPONSE_PREFIX } from '../providers/registry.js';
 import type { ChatMessage, CompletionResponse, ProviderAdapter, ToolCall, ToolDefinition } from '../providers/adapter.js';
 import { toJsonPreview, toTextPreview } from './toolPreview.js';
 import type { ToolWebhookDispatcher } from './toolWebhookDispatcher.js';
@@ -361,7 +362,15 @@ export class Orchestrator {
   private postToolVerifier?: OrchestratorHooks['postToolVerifier'];
   private onQuotaUpdated?: OrchestratorHooks['onQuotaUpdated'];
   private onModelOutcomeRecorded?: OrchestratorHooks['onModelOutcomeRecorded'];
+  private onModelStruggleRecorded?: OrchestratorHooks['onModelStruggleRecorded'];
   private onModelSelected?: OrchestratorHooks['onModelSelected'];
+  /**
+   * Best-effort record of the previous top-level chat turn's model + task
+   * profile, so a user-correction turn ("you didn't complete the mvp") can
+   * attribute a struggle signal to the model that produced the corrected
+   * answer. In-memory only; recovery passes and sub-tasks do not update it.
+   */
+  private lastMainChatTurn?: { model: string; profile: TaskProfile };
   private getPersonalityProfilePrompt?: PersonalityProfilePromptProvider;
   private cfg: OrchestratorConfig;
   private readonly failedAutoSyntheses = new Map<string, string>();
@@ -391,6 +400,7 @@ export class Orchestrator {
     this.postToolVerifier = hooks?.postToolVerifier;
     this.onQuotaUpdated = hooks?.onQuotaUpdated;
     this.onModelOutcomeRecorded = hooks?.onModelOutcomeRecorded;
+    this.onModelStruggleRecorded = hooks?.onModelStruggleRecorded;
     this.onModelSelected = hooks?.onModelSelected;
     this.onClassifiedContentForUntrustedModel = hooks?.onClassifiedContentForUntrustedModel;
     this.classifier = new ClassifierService(router, providers, taskProfiler);
@@ -545,6 +555,21 @@ export class Orchestrator {
   }
 
   /**
+   * Record that a model struggled on a kind of task and persist the updated
+   * snapshot. Mirrors the `recordExecutionOutcome` → `onModelOutcomeRecorded`
+   * pairing so struggle memory survives across sessions.
+   *
+   * Callers pass the **base** task profile (not an escalated retry variant): a
+   * future similar task is first profiled at the base signature, so keying the
+   * de-weight there is what lets it influence the *initial* model pick — and it
+   * matches the bucketing of `recordExecutionOutcome(…, baseTaskProfile.reasoning)`.
+   */
+  private noteModelStruggle(modelId: string, kind: ModelStruggleKind, taskProfile?: TaskProfile): void {
+    this.router.recordModelStruggle(modelId, kind, taskProfile);
+    this.onModelStruggleRecorded?.(this.router.getStruggleSignals());
+  }
+
+  /**
    * Lightweight one-shot completion for background session context maintenance.
    * Prefers local/free models via the 'maintenance' task phase routing hint.
    * Falls back through subscription → pay-per-token if no local model is available.
@@ -569,6 +594,13 @@ export class Orchestrator {
         maxTokens: 1024,
         temperature: 0.2,
       });
+      // The local echo adapter (no configured endpoint, or the built-in `echo-1`
+      // placeholder) just parrots the prompt back. That is not a real completion
+      // — surfacing it would leak our internal recovery prompt to the user — so
+      // treat it as "no usable model" and let the caller fall back to a template.
+      if (response.content.trimStart().startsWith(LOCAL_ECHO_RESPONSE_PREFIX)) {
+        return '';
+      }
       return response.content;
     } catch {
       return '';
@@ -600,6 +632,11 @@ export class Orchestrator {
         maxTokens: 3000,
         temperature: 0.4,
       });
+      // Never let the local echo stub's prompt-parrot leak as generated content;
+      // callers fall back to template content on empty.
+      if (response.content.trimStart().startsWith(LOCAL_ECHO_RESPONSE_PREFIX)) {
+        return '';
+      }
       return response.content;
     } catch {
       return '';
@@ -640,6 +677,7 @@ export class Orchestrator {
     // a capable, reasoning-class model for the recovery attempt. Fall back to the
     // original model only when nothing better is available.
     this.router.recordModelFailure(modelUsed, 'Returned an empty completion (no content).');
+    this.noteModelStruggle(modelUsed, 'empty', taskProfile);
     const escalatedModel = this.selectEscalatedModel(
       modelUsed,
       buildExecutionRoutingConstraints(request.constraints, tools.length > 0),
@@ -927,6 +965,14 @@ export class Orchestrator {
         speed: 'considered',
       };
       onProgress?.('Detected a correction of the previous answer — routing to a capable model instead of downgrading.');
+      // Attribute a struggle signal to the model that produced the answer the
+      // user is now correcting (best-effort: the previous top-level chat turn),
+      // de-weighting it for that task signature. Cleared after use so a series of
+      // corrections does not repeatedly penalise the same single turn.
+      if (this.lastMainChatTurn) {
+        this.noteModelStruggle(this.lastMainChatTurn.model, 'user-correction', this.lastMainChatTurn.profile);
+        this.lastMainChatTurn = undefined;
+      }
     }
 
     // Cache-aware routing: when a substantial reused context prefix is carried
@@ -1221,6 +1267,7 @@ export class Orchestrator {
           // a tool-capable model so the task can complete without user input.
           if (taskAttempt.toolCapabilityMissing && tools.length > 0) {
             this.router.recordModelFailure(currentModel, 'Model returned plain text instead of tool_calls; lacks runtime function_calling support.');
+            this.noteModelStruggle(currentModel, 'tool-call-as-text', baseTaskProfile);
             const toolCapableConstraints: RoutingConstraints = {
               ...routingConstraints,
               budget: 'expensive',
@@ -1263,6 +1310,11 @@ export class Orchestrator {
           }
 
           this.router.clearModelFailure(currentModel);
+          // Clean turn: partially recover (halve) any struggle penalty for this
+          // model on this task signature, so sustained struggles fade gradually
+          // rather than being wiped by a single good turn.
+          this.router.recoverModelStruggle(currentModel, baseTaskProfile);
+          this.onModelStruggleRecorded?.(this.router.getStruggleSignals());
           finalAttempt = taskAttempt;
 
           if (!taskAttempt.escalationReason || !escalatedModel) {
@@ -1276,6 +1328,12 @@ export class Orchestrator {
           attemptedModels.add(currentModel);
           const failureMessage = error instanceof Error ? error.message : String(error);
           this.router.recordModelFailure(currentModel, failureMessage);
+          // Feed struggle memory — but only for genuine model/provider failures,
+          // not a billing pause (provider out of credits) or a deprecated-model
+          // signal, which say nothing about how this model performs on the task.
+          if (!isBillingError(error) && !isModelDeprecatedError(error)) {
+            this.noteModelStruggle(currentModel, /timed out/i.test(failureMessage) ? 'timeout' : 'error-finish', baseTaskProfile);
+          }
 
           if (isBillingError(error)) {
             this.router.autoDisableProvider(selectedProvider, 'billing');
@@ -1336,7 +1394,7 @@ export class Orchestrator {
               ? recoveryContent.trim()
               : autoDisabledProvider
                 ? `**${autoDisabledProvider.displayName}** has been paused this session because it reported insufficient credits. No other configured provider is available to complete this request.\n\nTo resume, top up your ${autoDisabledProvider.displayName} account or enable a different provider in **AtlasMind: Model Providers**.`
-                : `Provider "${selectedProvider}" failed: ${failureMessage}`;
+                : `The model provider stopped responding before it could finish, and no alternative provider was available to take over (Provider "${selectedProvider}" failed: ${failureMessage}).\n\nNothing was changed. You can retry the request, or enable a faster or alternative provider in **AtlasMind: Model Providers** so the response can complete.`;
             finalAttempt = {
               model: currentModel,
               completion: {
@@ -1447,6 +1505,13 @@ export class Orchestrator {
     // bucketed by this task's reasoning tier so routing adapts per task context.
     this.router.recordExecutionOutcome(modelUsed, gradeExecutionQuality(completion), baseTaskProfile.reasoning);
     this.onModelOutcomeRecorded?.(this.router.getExecutionOutcomes());
+
+    // Remember this turn's model + task signature so a *following* user-correction
+    // turn can attribute a struggle signal to it. Only top-level chat turns —
+    // not recovery passes (which reuse the same request) or planner sub-tasks.
+    if (!request.context['__recoveryPass'] && !request.context['__subTask']) {
+      this.lastMainChatTurn = { model: modelUsed, profile: baseTaskProfile };
+    }
 
     // When the model returned nothing, run a two-step recovery before surfacing a failure:
     //  1. Self-recovery: reprompt with workspace-investigation instruction; if still
@@ -1643,6 +1708,7 @@ export class Orchestrator {
         id: `subtask-${task.id}-${Date.now()}`,
         userMessage: message,
         context: {
+          __subTask: true,
           projectTddPolicy: buildProjectTddPolicy(task, depOutputs),
           ...(projectGoal ? { sessionContextBundle: projectBundle } : {}),
           ...(subTaskMethodologyId ? { __testingMethodologyHint: buildMethodologySystemPromptHint(subTaskMethodologyId) } : {}),

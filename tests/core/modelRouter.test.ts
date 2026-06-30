@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ModelRouter, estimateCacheablePrefixRatio } from '../../src/core/modelRouter.ts';
 import { TaskProfiler } from '../../src/core/taskProfiler.ts';
-import type { ProviderConfig, SubscriptionQuota, TaskProfile } from '../../src/types.ts';
+import type { ModelStruggleKind, ProviderConfig, SubscriptionQuota, TaskProfile } from '../../src/types.ts';
 
 describe('ModelRouter', () => {
   it('respects preferred provider when selecting a model', () => {
@@ -1073,6 +1073,140 @@ function registerSubscriptionVsFree(router: ModelRouter): void {
     models: [{ id: 'freex/m', provider: 'freex', name: 'Free M', ...model, capabilities: [...model.capabilities] }],
   });
 }
+
+describe('model struggle memory', () => {
+  /**
+   * A cheap/free weak model vs a pricier capable (expensive-tier) model, both at
+   * the same speed tier so cheapness — not the speed gate — drives the default
+   * pick. Mirrors the real drift: a free local model out-scoring a capable model.
+   */
+  function registerWeakVsStrong(router: ModelRouter): void {
+    router.registerProvider({
+      id: 'wk', displayName: 'Weak', apiKeySettingKey: 'k', enabled: true, pricingModel: 'free',
+      models: [{ id: 'wk/weak', provider: 'wk', name: 'Weak', contextWindow: 8000, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat'], reasoningDepth: 0, latencyClass: 'balanced', enabled: true }],
+    });
+    router.registerProvider({
+      id: 'st', displayName: 'Strong', apiKeySettingKey: 'k', enabled: true, pricingModel: 'pay-per-token',
+      models: [{ id: 'st/strong', provider: 'st', name: 'Strong', contextWindow: 200000, inputPricePer1k: 0.003, outputPricePer1k: 0.015, capabilities: ['chat', 'code', 'reasoning', 'function_calling'], reasoningDepth: 3, latencyClass: 'balanced', enabled: true }],
+    });
+  }
+
+  function planProfile(): TaskProfile {
+    return { phase: 'planning', modality: 'text', reasoning: 'high', requiresTools: true, requiredCapabilities: [], preferredCapabilities: ['reasoning', 'function_calling'] };
+  }
+
+  it('surfaces a recorded struggle in the summary, keyed by task signature', () => {
+    const router = new ModelRouter();
+    router.recordModelStruggle('x/m', 'tool-call-as-text', planProfile());
+    const summary = router.getStruggleSummary();
+    expect(summary).toHaveLength(1);
+    expect(summary[0].modelId).toBe('x/m');
+    expect(summary[0].signature).toBe('planning|text|high|t');
+    expect(summary[0].hits).toBe(1);
+    expect(summary[0].lastKind).toBe('tool-call-as-text');
+    expect(summary[0].penalty).toBeGreaterThan(0);
+  });
+
+  it('de-weights a cheap model that repeatedly struggles, escaping the budget tier for that task kind', () => {
+    const router = new ModelRouter();
+    registerWeakVsStrong(router);
+    const profile = planProfile();
+    // Cheapness dominates first: the free weak model wins under a cheap budget.
+    expect(router.selectModel({ budget: 'cheap', speed: 'balanced' }, undefined, profile)).toBe('wk/weak');
+    // Two timeouts cross the tier-escape threshold for this signature.
+    router.recordModelStruggle('wk/weak', 'timeout', profile);
+    router.recordModelStruggle('wk/weak', 'timeout', profile);
+    expect(router.selectModel({ budget: 'cheap', speed: 'balanced' }, undefined, profile)).toBe('st/strong');
+  });
+
+  it('isolates the penalty to the task signature it was recorded for', () => {
+    const router = new ModelRouter();
+    registerWeakVsStrong(router);
+    const planning = planProfile();
+    router.recordModelStruggle('wk/weak', 'timeout', planning);
+    router.recordModelStruggle('wk/weak', 'timeout', planning);
+    // A different task signature is unaffected — the cheap model still wins there.
+    const other: TaskProfile = { phase: 'execution', modality: 'text', reasoning: 'low', requiresTools: false, requiredCapabilities: [], preferredCapabilities: [] };
+    expect(router.selectModel({ budget: 'cheap', speed: 'balanced' }, undefined, other)).toBe('wk/weak');
+    expect(router.selectModel({ budget: 'cheap', speed: 'balanced' }, undefined, planning)).toBe('st/strong');
+  });
+
+  it('is a soft penalty — a heavily struggled model is still selectable when it is the only candidate', () => {
+    const router = new ModelRouter();
+    router.registerProvider({
+      id: 'solo', displayName: 'Solo', apiKeySettingKey: 'k', enabled: true, pricingModel: 'free',
+      models: [{ id: 'solo/only', provider: 'solo', name: 'Only', contextWindow: 8000, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling'], enabled: true }],
+    });
+    const profile = planProfile();
+    for (let i = 0; i < 4; i++) { router.recordModelStruggle('solo/only', 'error-finish', profile); }
+    expect(router.selectModel({ budget: 'cheap', speed: 'balanced' }, undefined, profile)).toBe('solo/only');
+  });
+
+  it('disables struggle de-weighting when the feedback weight is 0', () => {
+    const router = new ModelRouter();
+    registerWeakVsStrong(router);
+    const profile = planProfile();
+    router.recordModelStruggle('wk/weak', 'timeout', profile);
+    router.recordModelStruggle('wk/weak', 'timeout', profile);
+    router.setFeedbackWeight(0);
+    // With learned routing off, the struggle no longer affects selection.
+    expect(router.selectModel({ budget: 'cheap', speed: 'balanced' }, undefined, profile)).toBe('wk/weak');
+  });
+
+  it('scales the tier-escape threshold by the feedback weight, consistent with the score penalty', () => {
+    const router = new ModelRouter();
+    registerWeakVsStrong(router);
+    const profile = planProfile();
+    router.recordModelStruggle('wk/weak', 'timeout', profile);
+    router.recordModelStruggle('wk/weak', 'timeout', profile); // raw decayed ~1.0
+    // At half feedback weight the effective magnitude (~0.5) is below the
+    // tier-escape threshold (0.9), so the escape does NOT fire and the cheap
+    // model still wins — whereas at weight 1.0 the same struggle flips to strong.
+    router.setFeedbackWeight(0.5);
+    expect(router.selectModel({ budget: 'cheap', speed: 'balanced' }, undefined, profile)).toBe('wk/weak');
+  });
+
+  it('accumulates repeated struggles and partially recovers on a clean turn', () => {
+    const router = new ModelRouter();
+    const profile = planProfile();
+    router.recordModelStruggle('x/m', 'timeout', profile); // 0.5
+    router.recordModelStruggle('x/m', 'timeout', profile); // ~1.0
+    const before = router.getStruggleSummary()[0].penalty;
+    expect(before).toBeGreaterThan(0.9);
+    router.recoverModelStruggle('x/m', profile);
+    const after = router.getStruggleSummary()[0].penalty;
+    expect(after).toBeCloseTo(before / 2, 2);
+  });
+
+  it('decays a penalty over time and drops fully-decayed entries on restore', () => {
+    const fresh = new ModelRouter();
+    fresh.recordModelStruggle('x/m', 'timeout', planProfile());
+    const snapshot = fresh.getStruggleSignals();
+    const key = Object.keys(snapshot)[0];
+
+    // An entry last touched 30 days ago has decayed far below the active floor.
+    const stale = new ModelRouter();
+    stale.setStruggleSignals({ [key]: { ...snapshot[key], penalty: 1.0, lastUpdated: new Date(Date.now() - 30 * 86_400_000).toISOString() } });
+    expect(stale.getStruggleSummary()).toHaveLength(0);
+
+    // A recent one survives the restore.
+    const recent = new ModelRouter();
+    recent.setStruggleSignals(snapshot);
+    expect(recent.getStruggleSummary()).toHaveLength(1);
+  });
+
+  it('round-trips struggle signals and rejects malformed entries on restore', () => {
+    const router = new ModelRouter();
+    router.setStruggleSignals({
+      'good/m::planning|text|high|t': { penalty: 0.8, lastUpdated: new Date().toISOString(), hits: 2, lastKind: 'timeout' },
+      'bad/neg::all': { penalty: -1, lastUpdated: new Date().toISOString(), hits: 1, lastKind: 'timeout' },
+      'bad/kind::all': { penalty: 0.5, lastUpdated: new Date().toISOString(), hits: 1, lastKind: 'nonsense' as ModelStruggleKind },
+    });
+    const summary = router.getStruggleSummary();
+    expect(summary).toHaveLength(1);
+    expect(summary[0].modelId).toBe('good/m');
+  });
+});
 
 function registerProviders(router: ModelRouter): void {
   const providers: ProviderConfig[] = [

@@ -458,6 +458,23 @@
       vscode.postMessage({ type: 'runPromotion', payload: { pathId: p.plan.pathId, attestations: attest, confirmText: p.confirmText || '' } });
       return;
     }
+    if (action === 'promotion-resolve-run') {
+      const p = state.promotion;
+      if (!p || !p.plan || p.running || !p.plan.remediation) { return; }
+      if (p.plan.isProtected && (p.confirmText || '').trim().toLowerCase() !== p.plan.toName.trim().toLowerCase()) {
+        p.error = 'Type the target name “' + p.plan.toName + '” exactly to confirm a protected promotion.';
+        render();
+        return;
+      }
+      const attest = Object.keys(p.attestations).filter(key => p.attestations[key]);
+      p.error = '';
+      p.running = true;
+      p.progress = [];
+      p.result = null;
+      render();
+      vscode.postMessage({ type: 'resolveAndRunPromotion', payload: { pathId: p.plan.pathId, attestations: attest, confirmText: p.confirmText || '' } });
+      return;
+    }
   });
 
   root?.addEventListener('input', event => {
@@ -2520,6 +2537,20 @@
     return true;
   }
 
+  // "Resolve & run" is offered when a remediation exists, every non-fixable auto
+  // check already passes, there is at least one failing fixable check to resolve,
+  // and the user has satisfied the manual/approval/protected gates.
+  function resolveAndRunEnabled(p) {
+    const plan = p.plan;
+    if (!plan || plan.blockers.length || !plan.remediation) { return false; }
+    if (plan.checks.some(c => c.kind === 'auto' && c.status !== 'pass' && !c.fixable)) { return false; }
+    if (!plan.checks.some(c => c.kind === 'auto' && c.status !== 'pass' && c.fixable)) { return false; }
+    if (!plan.checks.filter(c => c.kind === 'manual').every(c => p.attestations[c.id])) { return false; }
+    if (plan.requiresApproval && !p.attestations['approve']) { return false; }
+    if (plan.isProtected && (p.confirmText || '').trim().toLowerCase() !== plan.toName.trim().toLowerCase()) { return false; }
+    return true;
+  }
+
   function promoStatusIcon(status) {
     if (status === 'done') { return '✓'; }
     if (status === 'failed') { return '✗'; }
@@ -2560,7 +2591,7 @@
     const autoChecks = plan.checks.filter(c => c.kind === 'auto');
     const manualChecks = plan.checks.filter(c => c.kind === 'manual');
     const checksHtml = `
-      ${autoChecks.map(c => `<li class="promo-check ${c.status === 'pass' ? 'pass' : 'fail'}">${c.status === 'pass' ? '✓' : '✗'} <span>${escapeHtml(c.label)}</span><small>${escapeHtml(c.detail)}</small></li>`).join('')}
+      ${autoChecks.map(c => `<li class="promo-check ${c.status === 'pass' ? 'pass' : 'fail'}">${c.status === 'pass' ? '✓' : '✗'} <span>${escapeHtml(c.label)}</span>${c.fixable ? ' <span class="promo-fix-tag">fixable</span>' : ''}<small>${escapeHtml(c.detail)}</small></li>`).join('')}
       ${runbook
         ? manualChecks.map(c => `<li class="promo-check manual">☐ <span>${escapeHtml(c.label)}</span> <small>(manual confirmation)</small></li>`).join('')
         : manualChecks.map(c => `<li class="promo-check manual"><label><input type="checkbox" class="promotion-attest" data-check-id="${escapeAttr(c.id)}" ${p.attestations[c.id] ? 'checked' : ''}/> <span>${escapeHtml(c.label)}</span></label></li>`).join('')}
@@ -2576,7 +2607,9 @@
       actions = `<button type="button" class="promotion-ghost-btn" disabled>Running…</button>`;
     } else {
       const enabled = promotionRunEnabled(p) && !blocked;
-      actions = `<button type="button" class="action-link primary" data-action="promotion-run" data-payload="" ${enabled ? '' : 'disabled'}>Confirm &amp; run</button>
+      const canResolve = resolveAndRunEnabled(p);
+      actions = `${canResolve ? `<button type="button" class="action-link primary" data-action="promotion-resolve-run" data-payload="">Resolve &amp; run</button>` : ''}
+                 <button type="button" class="action-link${canResolve ? '' : ' primary'}" data-action="promotion-run" data-payload="" ${enabled ? '' : 'disabled'}>Confirm &amp; run</button>
                  <button type="button" class="action-link" data-action="promotion-cancel" data-payload="">Cancel</button>`;
     }
 
@@ -2590,6 +2623,7 @@
             <ol class="promo-plan-list">${stepsHtml}</ol>
           </div>
           ${plan.checks.length ? `<div class="promo-section"><h4>Preflight checks</h4><ul class="promo-check-list">${checksHtml}</ul></div>` : ''}
+          ${(!runbook && !done && plan.remediation) ? `<div class="promo-remediation"><strong>⚙ Resolve &amp; run</strong> will ${escapeHtml(plan.remediation.summary)}<small>${escapeHtml(plan.remediation.bumpReason)}</small></div>` : ''}
           ${(!runbook && plan.requiresApproval) ? `<label class="stage-edit-check"><input type="checkbox" class="promotion-attest" data-check-id="approve" ${p.attestations['approve'] ? 'checked' : ''}/> <span>I approve this promotion to ${escapeHtml(plan.toName)}.</span></label>` : ''}
           ${(!runbook && plan.isProtected) ? `<label class="stage-edit-field"><span>Type “${escapeHtml(plan.toName)}” to confirm (protected stage)</span><input type="text" id="promotion-confirm-text" value="${escapeAttr(p.confirmText)}" placeholder="${escapeAttr(plan.toName)}" autocomplete="off" /></label>` : ''}
           ${p.progress && p.progress.length ? `<div class="promo-section"><h4>Progress</h4><ul class="promo-progress-list">${p.progress.map(s => `<li class="promo-step ${escapeAttr(s.status)}">${promoStatusIcon(s.status)} ${escapeHtml(s.label)}${s.output ? `<div class="promo-step-out">${escapeHtml(s.output)}</div>` : ''}</li>`).join('')}</ul></div>` : ''}

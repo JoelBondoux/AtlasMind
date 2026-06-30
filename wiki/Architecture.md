@@ -11,7 +11,7 @@ AtlasMind is a VS Code extension built in TypeScript, and it now also ships a sm
 | **Orchestrator** | `src/core/orchestrator.ts` | Central coordinator: agent selection -> retrieval policy -> memory and live evidence -> model routing -> skill execution -> cost tracking |
 | **AgentRegistry** | `src/core/agentRegistry.ts` | CRUD for `AgentDefinition` objects; persisted enable/disable state |
 | **SkillsRegistry** | `src/core/skillsRegistry.ts` | CRUD for `SkillDefinition` objects; per-skill enable/disable, security scan status, and persistent custom skill folders |
-| **ModelRouter** | `src/core/modelRouter.ts` | Budget/speed-aware model selection with subscription quota tracking; deprecation filter; failure TTL auto-clear; thinking-token cost scaling; smooth context-window gradients; outcome feedback loop via `recordModelOutcome()` |
+| **ModelRouter** | `src/core/modelRouter.ts` | Budget/speed-aware model selection with subscription quota tracking; deprecation filter; failure TTL auto-clear; thinking-token cost scaling; smooth context-window gradients; outcome feedback loop via `recordModelOutcome()`; persistent task-signature-keyed **struggle memory** (`recordModelStruggle()` + tier-escape in `selectBestModel()`) that de-weights models on the task kinds they repeatedly fail |
 | **CostTracker** | `src/core/costTracker.ts` | Per-request and per-session cost accumulation |
 | **MemoryManager** | `src/memory/memoryManager.ts` | SSOT folder read/write/search with semantic retrieval, source-backed evidence pointers, and security scanning |
 | **MemoryScanner** | `src/memory/memoryScanner.ts` | Scans content for prompt injection and credential leakage |
@@ -32,6 +32,8 @@ AtlasMind is a VS Code extension built in TypeScript, and it now also ships a sm
 | **TestingConfigLoader** | `src/core/testingConfigLoader.ts` | Reads testing-config.json; infers methodology for subtasks; resolves per-methodology model overrides |
 | **TestingScaffolder** | `src/core/testingScaffolder.ts` | Constructs a language- and archetype-aware starter testing framework (idiomatic example tests + strategy playbook) for Node/Python/Rust/Go/.NET/Java from enabled methodologies; non-destructive |
 | **TestingProtocolSync** | `src/utils/testingProtocolSync.ts` | Outbound sync of enabled testing protocols into detected external agent instruction files (CLAUDE.md, copilot-instructions.md, AGENTS.md, …) via a managed, path-safe markdown block |
+| **AiInstructionMerge** | `src/utils/aiInstructionMerge.ts` | Two-way instruction-set sync: gathers every tool's instructions + AtlasMind's, LLM-reconciles them into one unified set (auto-resolving trivial diffs, flagging significant conflicts), and mirrors the set back into each tool's file inside a managed block. Drives the `/sync-instructions` chat command |
+| **ManagedBlock** | `src/utils/managedBlock.ts` | Shared delimited managed-block `upsertManagedBlock` / `stripManagedBlock` used by the testing-protocol and instruction-set outbound writers (non-destructive, reversible) |
 | **TerminalOutput** | `src/utils/terminalOutput.ts` | Display-side sanitizers for captured tool output: `stripAnsiSequences` removes ANSI/CSI/OSC escape sequences; `sanitizeTerminalOutput` also folds carriage returns and drops residual control bytes so colour codes can't reach chat summaries as garbled `[1m…` fragments |
 | **ModelEvalHarness** | `src/core/modelEvalHarness.ts` | Scored-replay model comparison: runs one prompt across candidate models, ranks by graded quality/cost, and records outcomes to calibrate routing |
 | **ScannerRulesManager** | `src/core/scannerRulesManager.ts` | Configurable rule overrides persisted in globalState |
@@ -285,7 +287,7 @@ src/
 |  |- toolWebhookPanel.ts  Webhook config webview
 |  |- skillScannerPanel.ts  Scanner rules webview
 |  |- costDashboardPanel.ts  Cost Dashboard webview (daily chart, model breakdown, budget bar)
-|  |- modelComparisonPanel.ts  Model Comparison webview (run a prompt across models, ranked results)
+|  |- modelComparisonPanel.ts  Model Comparison webview (run a prompt across models, ranked results; flags models de-weighted by the router's struggle memory)
 |  |- missionControlPanel.ts  Mission Control webview (define/launch/watch/checkpoint/audit Mission Loop runs)
 |  `- webviewUtils.ts    Shared webview helpers (escapeHtml, CSP, nonce)
 |- utils/
@@ -317,12 +319,14 @@ All shared interfaces live in `src/types.ts`. Key types include:
 | `ProviderConfig` | Provider registration, API key reference, pricing model, subscription quota |
 | `CostRecord` | Per-request token counts plus provider, billing category, display cost, budget-counted cost, and optional chat session/message linkage |
 | `TaskProfile` | Inferred task phase, modality, reasoning intensity, required capabilities |
+| `ModelStruggleKind` / `ModelStruggleState` | A model's under-performance signal (`timeout`, `empty`, `tool-call-as-text`, `error-finish`, `user-correction`) and its persistent decaying de-weight per task signature |
 | `MemoryEntry` | Memory path, title, tags, snippet, timestamp, optional embedding |
 | `SubTask` | Plan node: title, role, skills, dependency edges |
 | `SubTaskResult` | Execution outcome with `status` (`completed` / `failed` / `needs-input`); a capped subtask reports `needs-input` plus `iterationLimitHit` and suggested raised limits |
 | `ProjectPlan` | Goal string + SubTask DAG |
 | `ProjectResult` | Execution results, synthesis, cost totals |
 | `ToolInvocationPolicy` | Risk category, risk level, approval summary |
+| `PromotionPlan` / `PromotionRemediation` | Assembled guarded promotion (preflight checks, steps, gate flags) and the optional "Resolve & run" offer for fixable failing checks (assessed version bump + changelog + commit) |
 | `ToolApprovalState` | Runtime task-bypass and session autopilot flags for approval prompts |
 | `McpServerConfig` | Server ID, transport type, command/args or URL |
 | `SkillExecutionContext` | All workspace APIs injected into skill handlers |

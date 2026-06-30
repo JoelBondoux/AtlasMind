@@ -6,6 +6,58 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.127.1 — "Install in Ollama" shows live progress
+
+- **The Local Model Advisor's "Install in Ollama" button now works visibly.** It always fired the pull, but it blocked silently on a non-streaming request (and failed quietly when Ollama wasn't running), so it looked like nothing happened. It now streams the download as live progress in the **"AtlasMind: Local Model Install"** output channel and a cancellable notification (matching the LM Studio install), and tells you clearly when the Ollama daemon isn't running. AtlasMind drives Ollama through its API (the same thing the `ollama pull` CLI does), so it works without the CLI on `PATH` and honours a remote Ollama endpoint.
+
+---
+
+## v0.127.0 — Instruction sets sync both ways, with conflicts resolved in chat
+
+- **AI instruction sets now sync two-way.** Previously the AI Instructions page only *imported* other tools' instruction files into AtlasMind. The new **`/sync-instructions`** chat command (and the **"Align all instruction sets (two-way)"** button) reconciles every detected tool's instructions — GitHub Copilot, Claude Code, Cursor, Cline, Codex/AGENTS.md, Gemini, Windsurf, Aider — **plus AtlasMind's own** into one unified set, then mirrors that set **back into each tool's file** (in its own format, inside a managed block so your other content is preserved), so they all share the same guidance.
+- **Conflicts are resolved by you, in chat.** Trivial differences merge automatically; only genuinely contradictory rules (e.g. tabs vs spaces) are raised as conflicts with a recommended pick and one button per option. **Nothing is written until you resolve them** — accept the recommendation, override with `choose <#> <#>`, then `apply`.
+- **Safe by construction.** Only AtlasMind's delimited block is ever written, only into files that already exist; JSON-config tools are skipped; malformed model output aborts before any write. The unified set is also saved to `project_memory/domain/ai-instructions-sync.md`.
+
+---
+
+## v0.126.0 — Local Model Advisor: installs that work, on both runtimes, with installed badges
+
+- **"Install in LM Studio" actually installs now.** It used to run `lms get` as the terminal's shell process; because `lms get` is interactive, it exited non-zero and VS Code threw the cryptic *"terminated with exit code 1"* dialog. It now runs as a direct child process with the **`--yes`** flag (skips the prompt, picks the recommended quant), streams progress into an **"AtlasMind: LM Studio Install"** output channel under a cancellable progress bar, and on failure shows the real reason and opens the HuggingFace page as a fallback.
+- **"Install in Ollama" is offered for HuggingFace models too.** Ollama can pull GGUF straight from HuggingFace via the `hf.co/<owner>/<repo>` prefix, so every recommendation card now shows both **Install in Ollama** and **Install in LM Studio**.
+- **Recommendation cards show when a model is already installed.** Matching is now done on a normalized identity key (source prefix, repo path, and quant noise stripped; parameter size kept), so HuggingFace-sourced models are correctly recognised and the card shows an **Installed · Ollama / · LM Studio** badge instead of install buttons.
+
+---
+
+## v0.125.0 — Quick-reply chips show up far more reliably
+
+- **One-tap reply chips now appear on many more question shapes.** When an AtlasMind reply ends with a question, the Chat panel offers clickable pills — but they used to only show for inline *"A, B, or C?"* and a narrow set of yes/no phrasings, so plenty of questions silently fell back to a plain text box. Detection was rewritten: it now recognises **markdown / numbered option lists** (a selection question with a `1. … 2. …` or `- …` list above or below it → pick-one pills), tolerates markdown emphasis and internal punctuation around the question, and covers **more yes/no openers and confirmation tails** (*"Should we…", "Could I…", "…sound good?", "…make sense?"*). It stays conservative — a yes/no question above a *findings* list stays Yes/No, and an open question above a list still gets a text box rather than fabricated buttons.
+
+---
+
+## v0.124.0 — Promotions resolve their own fixable blockers
+
+- **"Resolve & run" in the promotion modal.** When a promotion is blocked only by checks AtlasMind can fix — the version isn't bumped, or there's no changelog entry — the modal now offers a one-click **Resolve & run** instead of dead-ending. It bumps `package.json`, adds a `CHANGELOG.md` entry, commits them (`chore(release): vX.Y.Z`, path-scoped, **never pushed**), then runs the promotion under the single-flight lock. The **bump level is assessed from the conventional-commit history** since the target (feat → minor, breaking → major, else patch), and the modal explains what it will do and why. The offer only appears when *every* failing auto-check is fixable (a failing CI / separation-of-duties / working-tree check disables it), your own gates (manual checks, approval, protected confirmation) must already be satisfied, and the full gate is re-enforced after the fix before anything deploys.
+
+---
+
+## v0.123.0 — Models learn from their struggles
+
+- **AtlasMind now remembers when a model keeps failing a *kind* of task, and routes around it.** This targets the recurring "drift down to a weak/cheap/local model" you may have noticed. When a model times out, returns nothing, emits a tool call as plain text, errors out, or gets corrected by you on the next turn, AtlasMind records a *struggle* keyed by the task signature (`phase · reasoning · tools`). The penalty is marginal and decaying (~2.5-day half-life, halved on a clean turn), but once a model has repeatedly failed a task kind, a **budget tier-escape** opens up more capable (pricier) models for that task kind so a stronger model can take over — the recurring drift is the cheap model's price advantage winning, and this is what counters it. The memory persists across sessions in `globalState` (`atlasmind.modelStruggleSignals`) and is gated by the existing learned-routing weight (`atlasmind.feedbackRoutingWeight = 0` turns it off). De-weighted models show a **"de-weighted: …"** hint in the **Compare Models** panel explaining why.
+
+---
+
+## v0.122.1 — Recovery no longer leaks the echo stub
+
+- **Provider-failure recovery concludes cleanly instead of parroting its own prompt.** When a provider failed mid-turn (e.g. a 30s timeout) and no failover model existed, the self-healing recovery could route to the built-in `local/echo-1` placeholder, whose adapter just echoes the prompt — so the final reply became `Local adapter response: … Failure context: Provider "google" failed with: …`, leaking the internal recovery prompt and raw error to the user. The maintenance/bootstrap completion paths now detect the echo adapter's sentinel and return empty, so recovery falls through to a clean, actionable template (the provider stopped responding, nothing was changed, here's how to continue) and the response can finish.
+
+---
+
+## v0.122.0 — Proposed project runs flow straight through
+
+- **No more dead-end "Proceed".** When a chat reply ends by offering to start an autonomous project run (e.g. *"…want me to kick off a project run to build this out?"*), AtlasMind now continues into the run on the same turn instead of stopping and waiting. It runs **immediately** under Autopilot (with a brief notice), or after a cancellable *"Starting a project run to: … — use Stop to cancel"* notice otherwise. The run reuses the exact goal that typing "Proceed" would have resolved, and unusually large runs still hit the file-count approval gate (auto-flowed runs aren't pre-approved). Detection is conservative — explicit project/autonomous-run vocabulary plus a first-person go-ahead, with declines and requirement-gathering questions ignored. Controlled by the new `atlasmind.autoStartProposedProjectRuns` setting (default **on**); set it to `false` to keep the previous Yes/No-pill confirmation.
+
+---
+
 ## v0.121.2 — Local endpoints save again
 
 - **Adding a local endpoint now persists.** OpenAI-compatible local endpoints (Ollama, LM Studio, …) added in **Settings → Models & Integrations** were silently dropped on refresh and never showed up in the Model Providers sidebar. The `atlasmind.localOpenAiEndpoints` setting was documented but never registered in `package.json`, so VS Code rejected the save and the fire-and-forget Settings handler swallowed the error. The setting is now a registered typed array of `{ id, label, baseUrl }`, edits persist, and any remaining save failure surfaces as a notification instead of failing silently.

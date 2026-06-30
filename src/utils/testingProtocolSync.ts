@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import type { AgentDefinition, ProjectTestingConfig } from '../types.js';
 import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
 import { resolveRelativePath } from './aiInstructionSync.js';
+import { upsertManagedBlock } from './managedBlock.js';
 
 /**
  * Outbound testing-protocol sync.
@@ -118,23 +119,7 @@ export function buildTestingProtocolsMarkdown(
   return lines.join('\n').trimEnd();
 }
 
-function upsertManagedBlock(existing: string, blockBody: string): string {
-  const block = `${MANAGED_BLOCK_START}\n${blockBody}\n${MANAGED_BLOCK_END}`;
-  const startIdx = existing.indexOf(MANAGED_BLOCK_START);
-  const endIdx = existing.indexOf(MANAGED_BLOCK_END);
-
-  if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
-    const before = existing.slice(0, startIdx).replace(/\s*$/, '');
-    const after = existing.slice(endIdx + MANAGED_BLOCK_END.length).replace(/^\s*/, '');
-    const head = before.length > 0 ? `${before}\n\n` : '';
-    const tail = after.length > 0 ? `\n\n${after}` : '\n';
-    return `${head}${block}${tail}`;
-  }
-
-  // No existing block — append, preserving prior content.
-  const trimmed = existing.replace(/\s*$/, '');
-  return trimmed.length > 0 ? `${trimmed}\n\n${block}\n` : `${block}\n`;
-}
+const TESTING_PROTOCOL_MARKERS = { start: MANAGED_BLOCK_START, end: MANAGED_BLOCK_END };
 
 /**
  * Writes the testing-protocol managed block into every detected (existing)
@@ -158,7 +143,7 @@ export async function syncTestingProtocols(
     }
     try {
       const existing = readFileSync(resolved, { encoding: 'utf8' });
-      const next = upsertManagedBlock(existing, blockBody);
+      const next = upsertManagedBlock(existing, blockBody, TESTING_PROTOCOL_MARKERS);
       if (next !== existing) {
         await vscode.workspace.fs.writeFile(vscode.Uri.file(resolved), Buffer.from(next, 'utf8'));
       }

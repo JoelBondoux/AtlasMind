@@ -21,6 +21,19 @@ AtlasMind's broader Project workspace now also includes a pre-planning ideation 
 
 ---
 
+## Starting a run from chat — auto-flow from a proposal
+
+You don't have to type `/project`. When a normal chat reply ends by **offering** to start an autonomous project run (e.g. *"…want me to kick off a project run to build this out?"*), AtlasMind continues straight into the run on the same turn instead of stopping for you to type **Proceed** — you already asked for the job, so the extra confirmation is redundant.
+
+- **Autopilot ON** — the run starts **immediately** after a brief *"Autopilot — auto-continuing into a project run"* notice.
+- **Autopilot OFF** — AtlasMind prints a *"Starting a project run to: … — use Stop to cancel"* notice, then begins on the same turn. Use the **Stop** button to cancel before it gets going.
+
+Auto-flow reuses the **exact goal** that typing "Proceed" would have resolved (the assistant's proposed action, or your last actionable request), so nothing about execution changes — only the keystroke is gone. Crucially, auto-flowed runs are **not pre-approved**: they pass the bare goal, so the `projectApprovalFileThreshold` safety gate (step 2 above) still pauses unusually large runs to show the plan before any files change.
+
+Detection is deliberately conservative — it requires explicit project/autonomous-run vocabulary plus a first-person go-ahead, ignores generic "I'll build this", vetoes declines/deferrals, and never fires when the reply is still gathering requirements. Turn the whole behavior off with `atlasmind.autoStartProposedProjectRuns: false` (see [[Configuration]]) to return to the previous **Yes/No**-pill confirmation.
+
+---
+
 ## Mission Loop (`/loop`) vs the single-pass planner
 
 `/project` is a **single pass**: plan → execute the DAG → synthesize → stop. The **Mission Loop** (`/loop` and the Mission Control panel, backed by `src/core/missionRunner.ts`) wraps that same machinery in an **outer loop**:

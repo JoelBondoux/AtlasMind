@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.121.2",
+  "version": "0.127.1",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -104,6 +104,10 @@
           {
             "name": "ship",
             "description": "Run the project's default publish/release routine from project_memory/routines/"
+          },
+          {
+            "name": "sync-instructions",
+            "description": "Two-way sync AI instruction sets across tools (Claude, Copilot, Cursor…), resolving conflicts in chat"
           }
         ]
       }
@@ -1241,6 +1245,12 @@
           "default": false,
           "description": "Automatically re-import stale imported SSOT memory entries on startup and file changes. Off by default — the re-import is an expensive LLM re-summarization; when off, AtlasMind still flags stale memory so you can refresh on demand via Update Memory.",
           "markdownDescription": "Automatically re-import stale imported SSOT memory entries on startup and when workspace files change.\n\n**Off by default.** The auto-refresh re-summarizes every stale imported entry with the LLM, which is slow on startup and costs tokens. When off, AtlasMind still detects staleness and surfaces the **Update Memory** action so you can refresh on demand. Turn this on only if you want imported memory kept continuously in sync automatically and accept the cost.\n\nExamples:\n- Fast startup, refresh memory manually: `false` (default)\n- Always keep imported memory in lockstep with the workspace: `true`"
+        },
+        "atlasmind.autoStartProposedProjectRuns": {
+          "type": "boolean",
+          "default": true,
+          "description": "When a chat reply offers to start an autonomous project run, flow straight into it instead of waiting for you to type \"Proceed\". Immediate under Autopilot; otherwise it prints a cancellable notice first. The file-count safety gate still applies.",
+          "markdownDescription": "When an AtlasMind chat reply ends by offering to start an autonomous project run (e.g. \"…want me to kick off a project run to build this out?\"), flow straight into the run instead of stopping for you to type **Proceed**. You already asked for the job, so the extra confirmation is usually redundant.\n\nBehaviour:\n- **Autopilot ON** — the run starts immediately with a brief notice.\n- **Autopilot OFF** — a `Starting a project run to: … — use Stop to cancel` notice is printed, then the run begins on the same turn; use the **Stop** button to cancel.\n- Unusually large runs still hit the `approvalFileThreshold` safety gate, which pauses and shows the plan before changing files.\n\nSet to `false` to keep the previous behaviour: the reply stops with **Yes/No** pills and the run only starts when you confirm.\n\nExamples:\n- Hands-off flow where you want proposed runs to just go: `true` (default)\n- Cautious review-first workflow: `false`"
         },
         "atlasmind.showImportProjectAction": {
           "type": "boolean",

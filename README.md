@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.121.2</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.127.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -103,6 +103,7 @@ Use these in the AtlasMind chat panel by typing `@atlas /<command>`.
 | `/cost` | Show cost summary for the current session |
 | `/runs` | Open the Project Run Center and inspect recent autonomous runs |
 | `/ship` | Run the project's default routine from `project_memory/routines/`. `/ship <id>` runs a named routine; trailing text sets `${message}` for interpolation |
+| `/sync-instructions` | Two-way sync AI instruction sets across tools (Claude, Copilot, Cursor, …) and AtlasMind: reconcile every tool's instructions into one unified set, resolve significant conflicts in chat, then mirror the set back into each tool's file (managed block, native format). `apply` / `choose <#> <#>` continue an in-progress sync |
 | `/voice` | Open the Voice Panel for TTS and STT |
 | `/vision` | Pick workspace images and ask a multimodal question |
 
@@ -249,6 +250,7 @@ Key settings under `atlasmind.*` in VS Code settings:
 | `loop.goalAchievedConfidenceThreshold` | `0.7` | Min evaluator confidence to accept an `achieved` verdict |
 | `allowTerminalWrite` | `false` | Allow terminal subprocesses (installs, commits) after explicit approval |
 | `autoVerifyAfterWrite` | `true` | Run verification scripts after workspace writes |
+| `autoStartProposedProjectRuns` | `true` | When a reply offers an autonomous project run, flow straight into it (immediate under Autopilot; cancellable notice otherwise) instead of waiting for "Proceed"; the file-count gate still applies |
 | `ssotPath` | `project_memory` | Relative path to the SSOT memory folder |
 | `localOpenAiEndpoints` | `[]` | Labeled local OpenAI-compatible endpoints (`id`/`label`/`baseUrl`) aggregated under the Local provider; managed from Settings → Models & Integrations |
 | `localOpenAiBaseUrl` | `http://127.0.0.1:11434/v1` | Legacy single-endpoint fallback for Ollama or LM Studio (auto-migrated into `localOpenAiEndpoints`) |

@@ -38,8 +38,32 @@ import {
   DEFAULT_MISSION_GOAL_CONFIDENCE,
 } from '../constants.js';
 import { mergeImageAttachments, resolveInlineImageAttachments, resolvePickedImageAttachments } from './imageAttachments.js';
+import {
+  applyManagedInstructionBlock,
+  detectedWritebackTools,
+  gatherInstructionSources,
+  runInstructionMerge,
+  runInstructionRender,
+  writeUnifiedToSsot,
+  type InstructionMergeResult,
+  type MergeConflict,
+  type MergeDirective,
+} from '../utils/aiInstructionMerge.js';
 
 export { extractImagePathCandidates, mergeImageAttachments, resolveInlineImageAttachments } from './imageAttachments.js';
+
+/** workspaceState key for an in-flight two-way instruction sync awaiting conflict resolution. */
+const PENDING_INSTRUCTION_SYNC_KEY = 'atlasmind.pendingInstructionSync';
+
+interface PendingInstructionSync {
+  unified: MergeDirective[];
+  conflicts: MergeConflict[];
+  /** Conflict id → chosen option index (overrides the recommended option). */
+  choices: Record<string, number>;
+  autoResolvedCount: number;
+  sourceCount: number;
+  createdAt: string;
+}
 
 export const ATLASMIND_CHAT_PARTICIPANT_ID = 'atlasmind.orchestrator';
 
@@ -127,6 +151,18 @@ const ASSISTANT_OFFER_LEAD_IN_PATTERN = /^\s*(?:so\s+|then\s+|now\s+|ok(?:ay)?,?
 /** Matches a bare informational question ("what/why/how/… ?"), which is not an executable goal. */
 const INFORMATIONAL_QUESTION_PATTERN = /^\s*(?:what|why|how|which|where|when|who|whose|whom)\b[\s\S]*\?\s*$/i;
 const PROJECT_RUN_REQUEST_PATTERN = /^\s*(?:please\s+)?(?:(?:start|begin|run|launch|kick off|continue|switch to)\s+(?:an?\s+)?)?(?:atlasmind\s+)?(?:autonomous\s+)?project(?:\s+run|\s+execution|\s+task)?\b(?:\s+(?:to|for|on|about|that|which))?\s*(.+)?$/i;
+/**
+ * Detects when the assistant's *own* reply is offering to start an autonomous
+ * project run (e.g. "…want me to kick off a project run to build this out?").
+ * Requires explicit project/autonomous-run vocabulary — generic "I'll build this"
+ * is deliberately excluded so auto-flow never escalates an ordinary edit into a
+ * multi-step run. Used by {@link resolveProjectRunAutoFlow}.
+ */
+const PROJECT_RUN_PROPOSAL_INTENT_PATTERN = /\b(?:(?:autonomous|atlasmind)\s+project\s+run|project\s+run|autonomous\s+run|autonomous\s+project|project\s+execution\s+mode|kick\s+off\s+(?:an?\s+|the\s+)?(?:autonomous\s+)?(?:project\s+)?run|start\s+(?:an?\s+|the\s+)?(?:autonomous\s+)?project\s+run|launch\s+(?:an?\s+|the\s+)?(?:autonomous\s+)?(?:project\s+)?run|run\s+(?:this|it|that)\s+autonomously|run\s+(?:this|it|that)\s+as\s+(?:an?\s+)?(?:autonomous\s+)?(?:project\s+)?run|switch\s+(?:in)?to\s+project\s+(?:execution\s+)?mode)\b/i;
+/** First-person offer/readiness lead-ins that mark a proposal as an actual go-ahead the user can accept. */
+const PROJECT_RUN_OFFER_PATTERN = /\b(?:want\s+me\s+to|would\s+you\s+like\s+me\s+to|do\s+you\s+want\s+me\s+to|shall\s+i|should\s+i|can\s+i|may\s+i|i\s+can|i'?ll|i\s+will|let\s+me|i'?m\s+ready\s+to|i\s+am\s+ready\s+to|ready\s+to)\b/i;
+/** Negation/deferral cues that veto a proposal match — the model is declining or still waiting on the user. */
+const PROJECT_RUN_PROPOSAL_NEGATION_PATTERN = /\b(?:won'?t|will\s+not|cannot|can'?t|do\s+not|don'?t|shouldn'?t|not\s+ready|hold\s+off|before\s+(?:i|we)\s+(?:start|begin|run|proceed)|once\s+you|after\s+you)\b/i;
 const EXPLICIT_FIX_PROMPT_PATTERN = /\b(?:fix|patch|repair|resolve|implement|update|change|modify|correct|adjust|rewrite|refactor)\b/i;
 const EXPLICIT_NO_FIX_PATTERN = /\b(?:do not fix|don't fix|without changing|no code changes|read only|explain only|question only)\b/i;
 const CONCRETE_ISSUE_PROMPT_PATTERN = /\b(?:bug|issue|problem|broken|regression|failing|fails|error|incorrect|wrong|missing|stuck|overflow|scroll|layout|sidebar|dropdown|panel|webview|tooltip|session rail|hides|hidden|crash|hang|stops|stopped|too tall|too wide|not working|doesn't|does not|won't|will not|can't|cannot)\b/i;
@@ -727,6 +763,10 @@ async function handleChatRequest(
       await handleShipCommand(request.prompt, stream, atlas);
       break;
 
+    case 'sync-instructions':
+      await handleSyncInstructionsCommand(request.prompt, stream, atlas);
+      break;
+
     case 'voice':
       await handleVoiceCommand(stream);
       break;
@@ -761,7 +801,7 @@ async function handleChatRequest(
         break;
       }
 
-      await handleFreeformMessage(request, stream, atlas, sessionId);
+      projectOutcome = await handleFreeformMessage(request, stream, token, atlas, sessionId);
       break;
     }
   }
@@ -1507,6 +1547,213 @@ async function handleBootstrapCommand(
   stream.markdown('Bootstrap completed. AtlasMind also offered governance baseline scaffolding for this project.');
 }
 
+/**
+ * Build a chat button that re-submits a `/sync-instructions` subcommand. All
+ * sync actions stay in chat by routing through the native chat-open command, so
+ * conflict resolution is a normal conversational round-trip.
+ */
+function syncInstructionsButton(stream: vscode.ChatResponseStream, title: string, args: string): void {
+  stream.button({
+    title,
+    command: 'workbench.action.chat.open',
+    arguments: [{ query: `@atlas /sync-instructions ${args}`.trim() }],
+  });
+}
+
+/**
+ * `/sync-instructions` — two-way AI instruction-set sync. Reconciles every
+ * detected tool's instructions (+ AtlasMind's own) into one unified set and
+ * mirrors it back into each tool's file. Significant conflicts are raised here
+ * in chat and the writeback is gated until the user resolves them.
+ */
+async function handleSyncInstructionsCommand(
+  prompt: string,
+  stream: vscode.ChatResponseStream,
+  atlas: AtlasMindContext,
+): Promise<void> {
+  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  if (!workspaceFolder) {
+    stream.markdown('Open a workspace folder first, then run `/sync-instructions` again.');
+    return;
+  }
+  const workspaceRoot = workspaceFolder.uri.fsPath;
+  const sub = prompt.trim();
+  const complete = (system: string, user: string): Promise<string> => atlas.orchestrator.completeBootstrap(system, user);
+
+  if (/^apply\b/i.test(sub)) {
+    await applyPendingInstructionSync(workspaceRoot, stream, atlas, complete);
+    return;
+  }
+  if (/^choose\b/i.test(sub)) {
+    await recordInstructionConflictChoice(sub, stream, atlas);
+    return;
+  }
+  if (/^(reset|cancel)\b/i.test(sub)) {
+    await atlas.extensionContext.workspaceState.update(PENDING_INSTRUCTION_SYNC_KEY, undefined);
+    stream.markdown('Cleared the pending instruction sync. Run `/sync-instructions` to start over.');
+    return;
+  }
+
+  // ── Start: gather + reconcile ──────────────────────────────────────────────
+  stream.markdown('Scanning AI instruction sets and reconciling them…\n\n');
+  const sources = gatherInstructionSources(workspaceRoot);
+  if (sources.length === 0) {
+    stream.markdown(
+      'No AI instruction files were found to sync. Create a `CLAUDE.md`, `.github/copilot-instructions.md`, ' +
+      '`AGENTS.md`, or similar (or run `/bootstrap`) first.',
+    );
+    return;
+  }
+
+  let merge: InstructionMergeResult;
+  try {
+    merge = await runInstructionMerge(sources, complete);
+  } catch (err) {
+    stream.markdown(`⚠️ Could not reconcile the instruction sets: ${err instanceof Error ? err.message : String(err)}`);
+    return;
+  }
+
+  const sourceList = sources.map(source => `\`${source.tool}\``).join(', ');
+  stream.markdown(
+    `Found **${sources.length}** instruction source${sources.length === 1 ? '' : 's'} (${sourceList}). ` +
+    `Reconciled **${merge.unified.length}** directive${merge.unified.length === 1 ? '' : 's'}` +
+    (merge.autoResolved.length > 0
+      ? `, auto-resolving **${merge.autoResolved.length}** minor difference${merge.autoResolved.length === 1 ? '' : 's'}`
+      : '') +
+    '.\n\n',
+  );
+
+  if (merge.conflicts.length === 0) {
+    await atlas.extensionContext.workspaceState.update(PENDING_INSTRUCTION_SYNC_KEY, undefined);
+    await performInstructionWriteback(workspaceRoot, merge.unified, stream, atlas, complete);
+    return;
+  }
+
+  // ── Significant conflicts → raise in chat, gate the writeback ───────────────
+  const pending: PendingInstructionSync = {
+    unified: merge.unified,
+    conflicts: merge.conflicts,
+    choices: {},
+    autoResolvedCount: merge.autoResolved.length,
+    sourceCount: sources.length,
+    createdAt: new Date().toISOString(),
+  };
+  await atlas.extensionContext.workspaceState.update(PENDING_INSTRUCTION_SYNC_KEY, pending);
+
+  stream.markdown(
+    `### ⚠️ ${merge.conflicts.length} conflict${merge.conflicts.length === 1 ? '' : 's'} need your decision\n\n` +
+    'Nothing is written until these are resolved. AtlasMind has a recommendation for each — apply them as-is, ' +
+    'or override any conflict, then finish the sync.\n',
+  );
+  merge.conflicts.forEach((conflict, index) => {
+    const lines: string[] = [`\n**${index + 1}. ${conflict.topic}**`];
+    conflict.options.forEach((option, optionIndex) => {
+      const recommended = optionIndex === conflict.recommendedOptionIndex ? ' _(recommended)_' : '';
+      lines.push(`   - \`${optionIndex + 1}\` **${option.tool}**: ${option.directive}${recommended}`);
+    });
+    stream.markdown(lines.join('\n') + '\n');
+    conflict.options.forEach((option, optionIndex) => {
+      syncInstructionsButton(stream, `#${index + 1}: use ${option.tool}'s`, `choose ${index + 1} ${optionIndex + 1}`);
+    });
+  });
+  stream.markdown('\nWhen you are ready:\n');
+  syncInstructionsButton(stream, '✅ Apply recommendations & finish sync', 'apply');
+}
+
+/** Record a per-conflict override into the pending sync state. */
+async function recordInstructionConflictChoice(
+  sub: string,
+  stream: vscode.ChatResponseStream,
+  atlas: AtlasMindContext,
+): Promise<void> {
+  const pending = atlas.extensionContext.workspaceState.get<PendingInstructionSync>(PENDING_INSTRUCTION_SYNC_KEY);
+  if (!pending) {
+    stream.markdown('No pending instruction sync. Run `/sync-instructions` first.');
+    return;
+  }
+  const match = /choose\s+(\d+)\s+(\d+)/i.exec(sub);
+  if (!match) {
+    stream.markdown('Usage: `/sync-instructions choose <conflict #> <option #>` — e.g. `choose 1 2`.');
+    return;
+  }
+  const conflictPos = Number.parseInt(match[1]!, 10) - 1;
+  const optionPos = Number.parseInt(match[2]!, 10) - 1;
+  const conflict = pending.conflicts[conflictPos];
+  if (!conflict) {
+    stream.markdown(`There is no conflict #${conflictPos + 1}. There ${pending.conflicts.length === 1 ? 'is' : 'are'} ${pending.conflicts.length}.`);
+    return;
+  }
+  if (optionPos < 0 || optionPos >= conflict.options.length) {
+    stream.markdown(`Conflict #${conflictPos + 1} has ${conflict.options.length} options; pick between 1 and ${conflict.options.length}.`);
+    return;
+  }
+  pending.choices[conflict.id] = optionPos;
+  await atlas.extensionContext.workspaceState.update(PENDING_INSTRUCTION_SYNC_KEY, pending);
+
+  const chosen = conflict.options[optionPos]!;
+  stream.markdown(`Recorded for **${conflict.topic}**: using **${chosen.tool}**'s rule.\n`);
+  const decided = Object.keys(pending.choices).length;
+  stream.markdown(`${decided} of ${pending.conflicts.length} conflict${pending.conflicts.length === 1 ? '' : 's'} overridden. Apply when ready (unset conflicts use the recommendation).\n`);
+  syncInstructionsButton(stream, '✅ Apply & finish sync', 'apply');
+}
+
+/** Resolve the pending sync (choices or recommendations) and write everything back. */
+async function applyPendingInstructionSync(
+  workspaceRoot: string,
+  stream: vscode.ChatResponseStream,
+  atlas: AtlasMindContext,
+  complete: (system: string, user: string) => Promise<string>,
+): Promise<void> {
+  const pending = atlas.extensionContext.workspaceState.get<PendingInstructionSync>(PENDING_INSTRUCTION_SYNC_KEY);
+  if (!pending) {
+    stream.markdown('No pending instruction sync to apply. Run `/sync-instructions` first.');
+    return;
+  }
+  const resolvedDirectives: MergeDirective[] = pending.conflicts.map(conflict => {
+    const index = pending.choices[conflict.id] ?? conflict.recommendedOptionIndex;
+    const option = conflict.options[index] ?? conflict.options[conflict.recommendedOptionIndex] ?? conflict.options[0]!;
+    return { id: `resolved-${conflict.id}`, category: conflict.topic, text: option.directive, sources: [option.tool] };
+  });
+  const finalUnified = [...pending.unified, ...resolvedDirectives];
+  await atlas.extensionContext.workspaceState.update(PENDING_INSTRUCTION_SYNC_KEY, undefined);
+  await performInstructionWriteback(workspaceRoot, finalUnified, stream, atlas, complete);
+}
+
+/** Render the unified set per-tool and write the managed blocks + SSOT mirror. */
+async function performInstructionWriteback(
+  workspaceRoot: string,
+  unified: MergeDirective[],
+  stream: vscode.ChatResponseStream,
+  atlas: AtlasMindContext,
+  complete: (system: string, user: string) => Promise<string>,
+): Promise<void> {
+  const targetTools = detectedWritebackTools(workspaceRoot);
+  const rendered = await runInstructionRender(unified, targetTools, complete);
+  const writeResult = await applyManagedInstructionBlock(workspaceRoot, rendered, unified);
+  const isoDate = new Date().toISOString().slice(0, 10);
+  const ssotWritten = await writeUnifiedToSsot(workspaceRoot, unified, isoDate);
+
+  const lines: string[] = ['### ✅ Instruction sync complete\n'];
+  if (writeResult.updated.length > 0) {
+    lines.push(`Mirrored the unified instructions into **${writeResult.updated.length}** tool file${writeResult.updated.length === 1 ? '' : 's'} (managed block only):`);
+    for (const updatedPath of writeResult.updated) {
+      lines.push(`- \`${updatedPath}\``);
+    }
+  } else {
+    lines.push('No tool instruction files were detected to update.');
+  }
+  if (writeResult.skipped.length > 0) {
+    lines.push('\n**Skipped:**');
+    for (const skip of writeResult.skipped) {
+      lines.push(`- \`${skip.path}\` — ${skip.reason}`);
+    }
+  }
+  if (ssotWritten) {
+    lines.push('\nThe unified set is saved to `project_memory/domain/ai-instructions-sync.md` and loaded as AtlasMind context.');
+  }
+  stream.markdown(lines.join('\n'));
+}
+
 async function handleImportCommand(
   stream: vscode.ChatResponseStream,
   atlas: AtlasMindContext,
@@ -1663,20 +1910,42 @@ async function handleCostCommand(
 async function handleFreeformMessage(
   request: vscode.ChatRequest,
   stream: vscode.ChatResponseStream,
+  token: vscode.CancellationToken,
   atlas: AtlasMindContext,
   sessionId: string,
-): Promise<void> {
+): Promise<ProjectRunOutcome | undefined> {
   const prompt = request.prompt;
   const roadmapStatusMarkdown = await buildRoadmapStatusMarkdown(prompt);
   if (roadmapStatusMarkdown) {
     stream.markdown(roadmapStatusMarkdown);
-    return;
+    return undefined;
   }
   if (await handleRoutineEditIntent(prompt, stream, atlas)) {
-    return;
+    return undefined;
   }
   const imageAttachments = await resolveInlineImageAttachments(prompt);
-  await runChatTask(prompt, stream, atlas, imageAttachments, sessionId);
+  const responseText = await runChatTask(prompt, stream, atlas, imageAttachments, sessionId);
+
+  // If the reply offered an autonomous project run, flow straight into it rather
+  // than stopping for the operator to type "Proceed" — they already asked for the
+  // job. Calls the run with a bare goal (not pre-approved) so the file-count safety
+  // gate in runProjectCommand stays active for unusually large runs.
+  const configuration = vscode.workspace.getConfiguration('atlasmind');
+  const autoFlow = resolveProjectRunAutoFlow(
+    responseText,
+    atlas.sessionConversation.getTranscript(sessionId),
+    {
+      enabled: configuration.get<boolean>('autoStartProposedProjectRuns', true),
+      autopilot: atlas.toolApprovalManager?.isAutopilot?.() ?? false,
+    },
+  );
+  if (!autoFlow || token.isCancellationRequested) {
+    return undefined;
+  }
+
+  stream.markdown(`\n\n---\n\n${autoFlow.notice}\n\n`);
+  const { sessionContextBundle, sessionContext } = await prepareProjectRunContext(atlas, sessionId);
+  return runProjectCommand(autoFlow.goal, stream, token, atlas, sessionId, sessionContextBundle, sessionContext);
 }
 
 /**
@@ -1764,7 +2033,7 @@ async function runChatTask(
   atlas: AtlasMindContext,
   explicitAttachments: TaskImageAttachment[] = [],
   sessionId?: string,
-): Promise<void> {
+): Promise<string> {
   const configuration = vscode.workspace.getConfiguration('atlasmind');
   const sessionContext = atlas.sessionConversation.buildContext({
     maxTurns: configuration.get<number>('chatSessionTurnLimit', 6),
@@ -1824,6 +2093,8 @@ async function runChatTask(
   if (configuration.get<boolean>('voice.ttsEnabled', false)) {
     atlas.voiceManager.speak(reconciled.transcriptText);
   }
+
+  return reconciled.transcriptText;
 }
 
 export function reconcileAssistantResponse(
@@ -2030,24 +2301,125 @@ function summarizeToolActionsForDisplay(toolCalls: Array<{ toolName: string }>):
     .join(', ');
 }
 
+function capitalizeFirst(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+/** Strip bold/inline-code emphasis so a question/option line can be matched and shown cleanly. */
+function stripMarkdownEmphasis(line: string): string {
+  return line.replace(/\*\*|__|`/g, '').trim();
+}
+
+/** Strip a leading list/quote marker (e.g. "- ", "1. ", "> ") from a line. */
+function stripLeadingMarker(line: string): string {
+  return line.replace(/^\s*(?:[-*•>]\s+|\d+[.)]\s+)/, '').trim();
+}
+
+/** True when a line is a markdown bullet or numbered list item with content. */
+function isOptionLine(line: string): boolean {
+  return /^\s*(?:[-*•]|\d+[.)])\s+\S/.test(line);
+}
+
+function endsWithQuestion(line: string): boolean {
+  return /\?\s*$/.test(stripMarkdownEmphasis(line));
+}
+
+/** Extract a clean pick-one label from a list-item line (lead phrase before any "— explanation"). */
+function extractOptionLabel(line: string): string {
+  let label = line.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, '');
+  label = label.replace(/\*\*|__|`/g, '');
+  label = label.split(/\s+[—–]\s+|\s+-\s+|:\s+/)[0];
+  return label.replace(/[.,;:!?]+\s*$/, '').trim();
+}
+
+/** Extract the question clause (last sentence ending in "?") from a line. */
+function extractQuestionClause(line: string): string | undefined {
+  const stripped = stripLeadingMarker(stripMarkdownEmphasis(line));
+  const match = /([^.!?]*\?)\s*$/.exec(stripped);
+  const question = (match?.[1] ?? stripped).trim();
+  return question.length >= 6 && question.length <= 300 ? question : undefined;
+}
+
 /**
- * Inspect the final sentence of a response and, if it ends with a "?", produce
- * quick-reply pill options that the user can click to respond in one tap.
+ * Locate the response's trailing question and any adjacent enumerated option
+ * list. Handles three real shapes that the old single-regex missed:
+ *  - the question is the last line (optionally a markdown bullet);
+ *  - the question is followed by a markdown/numbered option list;
+ *  - the option list is followed by the question.
+ * Falls back to {@link RESPONSE_TRAILING_QUESTION_PATTERN} for a mid-line
+ * question at the very end.
+ */
+function analyzeTrailingQuestion(text: string): { question: string; optionLines: string[] } | undefined {
+  if (!text) { return undefined; }
+  const lines = text.split('\n').map(line => line.trim());
+  let end = lines.length - 1;
+  while (end >= 0 && lines[end] === '') { end -= 1; }
+  if (end < 0) { return undefined; }
+
+  let questionIdx = -1;
+  let optionLines: string[] = [];
+
+  if (endsWithQuestion(lines[end])) {
+    questionIdx = end;
+    // Gather a contiguous option block immediately above the question.
+    let k = end - 1;
+    while (k >= 0 && lines[k] === '') { k -= 1; }
+    const block: string[] = [];
+    while (k >= 0 && isOptionLine(lines[k])) { block.unshift(lines[k]); k -= 1; }
+    optionLines = block;
+  } else if (isOptionLine(lines[end])) {
+    // Trailing option block; the question is the first non-empty line above it.
+    let k = end;
+    const block: string[] = [];
+    while (k >= 0 && isOptionLine(lines[k])) { block.unshift(lines[k]); k -= 1; }
+    while (k >= 0 && lines[k] === '') { k -= 1; }
+    if (k >= 0 && endsWithQuestion(lines[k])) {
+      questionIdx = k;
+      optionLines = block;
+    }
+  }
+
+  if (questionIdx < 0) {
+    const match = RESPONSE_TRAILING_QUESTION_PATTERN.exec(text);
+    return match?.[1] ? { question: match[1].trim(), optionLines: [] } : undefined;
+  }
+
+  const question = extractQuestionClause(lines[questionIdx]);
+  return question ? { question, optionLines } : undefined;
+}
+
+/** Confirmatory / first-person-offer / permission questions that take a yes or no. */
+function isYesNoQuestion(question: string): boolean {
+  return /^\s*(?:(?:want|would\s+you\s+(?:like)?|shall\s+(?:i|we)|should\s+(?:i|we)|do\s+you\s+(?:want|need)|can\s+i|could\s+i|may\s+i|want\s+me|ready|proceed)\b|(?:is\s+that|does\s+that|does\s+this|are\s+you)\b)/i.test(question)
+    || /\b(?:sounds?\s+good|looks?\s+good|makes?\s+sense|ok(?:ay)?(?:\s+with\s+you)?)\s*\?*\s*$/i.test(question);
+}
+
+/** A question that asks the user to choose between discrete options. */
+function isSelectionQuestion(question: string): boolean {
+  return /\b(?:which|pick|choose|select|prefer|priorit(?:ise|ize|y)|start\s+with|focus\s+on|tackle|first|next|option|approach|where\s+should)\b/i.test(question);
+}
+
+/**
+ * Inspect the end of a response and, if it ends with a question, produce
+ * quick-reply pill options the user can click to respond in one tap. Recognises:
+ * yes/no, an enumerated markdown/numbered option list, an inline "A, B, or C?"
+ * list, and "A or B?".
  *
- * Detection is intentionally conservative: we only recognise well-known question
- * shapes so we don't accidentally generate buttons on rhetorical questions.
+ * Detection is conservative so it never fabricates buttons on rhetorical or open
+ * questions: a list only becomes pick-one pills when the question is clearly a
+ * selection question, so a yes/no question above a *findings* list stays yes/no.
  */
 export function detectResponseQuickReplies(responseText: string): {
   followupQuestion: string;
   quickReplies?: SessionSuggestedFollowup[];
 } | undefined {
-  const match = RESPONSE_TRAILING_QUESTION_PATTERN.exec(responseText.trim());
-  if (!match?.[1]) { return undefined; }
-  const question = match[1].trim();
+  const analysis = analyzeTrailingQuestion(responseText.trim());
+  if (!analysis) { return undefined; }
+  const { question, optionLines } = analysis;
 
-  // Yes / No — confirmatory questions
-  const isYesNo = /^\s*(?:(?:want|would\s+you\s+(?:like)?|shall\s+i|should\s+i|do\s+you\s+want|can\s+i|may\s+i|ready|proceed)\s+|(?:is\s+that|does\s+that|does\s+this|are\s+you)\s+)/i.test(question);
-  if (isYesNo) {
+  // Yes / No — confirmatory questions (checked first so a yes/no question that
+  // happens to sit above a list is never mistaken for a pick-one).
+  if (isYesNoQuestion(question)) {
     return {
       followupQuestion: question,
       quickReplies: [
@@ -2057,9 +2429,19 @@ export function detectResponseQuickReplies(responseText: string): {
     };
   }
 
-  // Enumerated list — "…: A, B, or C?" style questions (3–4 options). Checked
-  // before the 2-option case so triage answers ("work on X, Y, or Z?") become a
-  // clickable pick-one list instead of falling through to a plain text input.
+  // Enumerated markdown / numbered list — "Which …?\n- A\n- B\n- C" (2–5 options),
+  // in either order. Only for selection-style questions.
+  if (optionLines.length >= 2 && isSelectionQuestion(question)) {
+    const labels = optionLines.map(extractOptionLabel).filter(label => label.length >= 2 && label.length <= 48);
+    if (labels.length === optionLines.length && labels.length >= 2 && labels.length <= 5) {
+      return {
+        followupQuestion: question,
+        quickReplies: labels.map(label => ({ label: capitalizeFirst(label), prompt: label })),
+      };
+    }
+  }
+
+  // Inline enumerated list — "…: A, B, or C?" style questions (3–4 options).
   {
     const optionSegment = question.replace(/\?+\s*$/, '').split(/[:：]/).pop()?.trim() ?? '';
     if (/,/.test(optionSegment) && /\bor\b/i.test(optionSegment)) {
@@ -2070,7 +2452,7 @@ export function detectResponseQuickReplies(responseText: string): {
       if (cleaned.length >= 3 && cleaned.length <= 4 && cleaned.length === rawParts.length) {
         return {
           followupQuestion: question,
-          quickReplies: cleaned.map(opt => ({ label: opt.charAt(0).toUpperCase() + opt.slice(1), prompt: opt })),
+          quickReplies: cleaned.map(opt => ({ label: capitalizeFirst(opt), prompt: opt })),
         };
       }
     }
@@ -2085,8 +2467,8 @@ export function detectResponseQuickReplies(responseText: string): {
       return {
         followupQuestion: question,
         quickReplies: [
-          { label: optA.charAt(0).toUpperCase() + optA.slice(1), prompt: optA },
-          { label: optB.charAt(0).toUpperCase() + optB.slice(1), prompt: optB },
+          { label: capitalizeFirst(optA), prompt: optA },
+          { label: capitalizeFirst(optB), prompt: optB },
         ],
       };
     }
@@ -3209,6 +3591,86 @@ export function extractAssistantProposedAction(
     .replace(/\?+\s*$/, '')
     .trim();
   return action.length >= 3 ? action : undefined;
+}
+
+/** Result of {@link resolveProjectRunAutoFlow}: the goal to run plus the notice to surface first. */
+export interface ProjectRunAutoFlow {
+  /** The goal to execute — identical to what typing "Proceed" would resolve. */
+  goal: string;
+  /** Markdown notice shown before the run starts (cancellable, or Autopilot variant). */
+  notice: string;
+}
+
+/**
+ * True when the assistant's reply ends by offering to start an autonomous project
+ * run. Conservative by construction: it requires explicit project/autonomous-run
+ * vocabulary {@link PROJECT_RUN_PROPOSAL_INTENT_PATTERN} **and** a first-person
+ * go-ahead offer, vetoes negation/deferral, and — when the reply closes with a
+ * question — only matches if that question is itself an offer (so requirement-
+ * gathering questions never trigger an auto-run).
+ */
+export function detectProjectRunProposal(responseText: string): boolean {
+  const trimmed = responseText.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  // The offer/readiness line lives at the tail of the reply; bound the scan so an
+  // unrelated mid-reply mention of "project run" can't trip detection.
+  const window = trimmed.slice(-400);
+  if (!PROJECT_RUN_PROPOSAL_INTENT_PATTERN.test(window)) {
+    return false;
+  }
+  if (PROJECT_RUN_PROPOSAL_NEGATION_PATTERN.test(window)) {
+    return false;
+  }
+
+  // If the reply closes with a question, it must be an *offer* ("Want me to …?"),
+  // not an information-seeking one ("What stack are you using?"). An info question
+  // means the model is still gathering requirements — don't auto-start.
+  const trailingQuestion = RESPONSE_TRAILING_QUESTION_PATTERN.exec(trimmed)?.[1]?.trim();
+  if (trailingQuestion) {
+    return ASSISTANT_OFFER_LEAD_IN_PATTERN.test(trailingQuestion)
+      || PROJECT_RUN_OFFER_PATTERN.test(trailingQuestion);
+  }
+
+  // No closing question: accept a first-person readiness statement that offers to run.
+  return PROJECT_RUN_OFFER_PATTERN.test(window);
+}
+
+/** The notice rendered before an auto-flowed run — Autopilot is immediate; otherwise it's cancellable. */
+export function buildProjectRunAutoFlowNotice(goal: string, autopilot: boolean): string {
+  const display = truncateForSummary(goal, 160);
+  if (autopilot) {
+    return `**Autopilot** — auto-continuing into a project run.\n\nGoal: \`${display}\``;
+  }
+  return `Starting a project run to: **${display}**\n\n_Use Stop to cancel._`;
+}
+
+/**
+ * Single entry point both chat surfaces use to decide whether a freeform reply that
+ * proposed a project run should flow straight into one. Reuses the exact goal that
+ * typing "Proceed" resolves ({@link resolveAutonomousContinuationGoal}), so auto-flow
+ * changes nothing about execution — it only removes the manual confirmation keystroke.
+ * Returns undefined (no auto-flow) when disabled, when no run was proposed, or when no
+ * actionable goal resolves.
+ */
+export function resolveProjectRunAutoFlow(
+  responseText: string,
+  transcript: SessionTranscriptEntry[],
+  options: { enabled: boolean; autopilot: boolean },
+): ProjectRunAutoFlow | undefined {
+  if (!options.enabled) {
+    return undefined;
+  }
+  if (!detectProjectRunProposal(responseText)) {
+    return undefined;
+  }
+  const goal = resolveAutonomousContinuationGoal('proceed', transcript)?.trim();
+  if (!goal) {
+    return undefined;
+  }
+  return { goal, notice: buildProjectRunAutoFlowNotice(goal, options.autopilot) };
 }
 
 function normalizeAutonomousSourcePrompt(prompt: string): string {

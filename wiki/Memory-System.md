@@ -24,6 +24,8 @@ project_memory/
 
 These folders are defined as `SSOT_FOLDERS` in `src/types.ts`.
 
+`domain/ai-instructions-sync.md` holds the unified AI instruction set produced by the two-way sync (`/sync-instructions`): the reconciled superset of every detected tool's instructions plus AtlasMind's own, which AtlasMind also mirrors back into each tool's instruction file. See [[Chat-Commands]].
+
 `sessions/` is used by the Memory Agent to persist per-session chat state and is intentionally excluded from standard SSOT query/index operations so ephemeral runtime context stays separate from durable project memory.
 
 ### Session Context (Memory Agent)

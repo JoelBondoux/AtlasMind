@@ -1,6 +1,6 @@
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import * as vscode from 'vscode';
@@ -259,6 +259,7 @@ type SettingsMessage =
   | { type: 'openWorkspaceFile'; payload: string }
   | { type: 'scanAiInstructions' }
   | { type: 'syncAiInstructions'; payload: string[] }
+  | { type: 'alignAiInstructions' }
   | { type: 'saveTestingConfig'; payload: import('../types.js').ProjectTestingConfig }
   | { type: 'autoAssessTestingConfig' }
   | { type: 'syncTestingProtocols' }
@@ -283,6 +284,9 @@ export class SettingsPanel {
   private disposables: vscode.Disposable[] = [];
   private readonly extensionContext: vscode.ExtensionContext;
   private readonly atlasContext?: import('../extension').AtlasMindContext;
+  // Lazily created output channel for streaming local-model install progress/errors
+  // (shared by the LM Studio `lms get` and Ollama `/api/pull` install flows).
+  private localModelInstallChannel?: vscode.OutputChannel;
   // Resource Discovery (ARD) tab state. Search results persist in the ARD registry
   // (getRecentResults/setRecentResults); only transient view state lives here.
   private ardStatus?: { kind: 'info' | 'success' | 'warning' | 'error'; text: string };
@@ -990,6 +994,10 @@ export class SettingsPanel {
       case 'syncAiInstructions':
         await this.handleSyncAiInstructions(message.payload);
         return;
+
+      case 'alignAiInstructions':
+        await this.handleAlignAiInstructions();
+        return;
     }
   }
 
@@ -1060,6 +1068,31 @@ export class SettingsPanel {
 
     const result = await syncAiInstructionFiles(workspaceRoot, selectedPaths as string[]);
     await this.panel.webview.postMessage({ type: 'aiInstructionSyncResult', payload: result });
+  }
+
+  /**
+   * Two-way alignment: hands off to the `/sync-instructions` chat command, which
+   * reconciles every tool's instructions (plus AtlasMind's), raises any significant
+   * conflicts for the user to resolve in chat, then mirrors the unified set back
+   * into each tool's file. Conflict resolution lives in chat by design.
+   */
+  private async handleAlignAiInstructions(): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      await this.panel.webview.postMessage({
+        type: 'aiInstructionSyncResult',
+        payload: { success: false, summary: 'Open a workspace folder first, then align instruction sets.' },
+      });
+      return;
+    }
+    try {
+      await vscode.commands.executeCommand('workbench.action.chat.open', { query: '@atlas /sync-instructions' });
+    } catch {
+      // Fallback: if the native chat cannot be opened, tell the user how to start it.
+      await vscode.window.showInformationMessage(
+        'Run "@atlas /sync-instructions" in the AtlasMind chat to align instruction sets across tools.',
+      );
+    }
   }
 
   private async createTestFile(): Promise<void> {
@@ -1352,31 +1385,102 @@ export class SettingsPanel {
 
     const configuration = vscode.workspace.getConfiguration('atlasmind');
     const { ollamaBaseUrl } = resolveRuntimeBaseUrls(configuration);
+    // Ollama can pull GGUF models straight from HuggingFace via the "hf.co/" prefix;
+    // the live catalog tags those candidates as "hf:owner/repo", which /api/pull rejects.
+    const ollamaPullTarget = modelTag.startsWith('hf:')
+      ? `hf.co/${modelTag.slice(3)}`
+      : modelTag;
+
+    // Preflight: a stopped daemon is the most common reason the pull "does nothing".
+    if (!(await isOllamaReachable(ollamaBaseUrl))) {
+      await this.panel.webview.postMessage({
+        type: 'localModelRecommendationStatus',
+        payload: `Ollama is not reachable at ${ollamaBaseUrl}. Start it (run \`ollama serve\` or launch the Ollama app), then click Install again.`,
+      });
+      return;
+    }
+
+    const channel = this.getLocalModelInstallChannel();
+    channel.clear();
+    channel.show(true);
+    channel.appendLine(`$ ollama pull ${ollamaPullTarget}`);
+    channel.appendLine('');
     await this.panel.webview.postMessage({
       type: 'localModelRecommendationStatus',
-      payload: `Installing ${modelTag} into Ollama...`,
+      payload: `Downloading ${ollamaPullTarget} into Ollama — progress is shown in the "AtlasMind: Local Model Install" output panel. Large models can take several minutes.`,
     });
 
-    try {
-      await installOllamaModel(ollamaBaseUrl, modelTag);
+    const outcome = await vscode.window.withProgress<{ ok: true } | { ok: false; error: string; cancelled?: boolean }>(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: `Ollama: installing ${ollamaPullTarget}`,
+        cancellable: true,
+      },
+      (progress, token) => {
+        const controller = new AbortController();
+        token.onCancellationRequested(() => {
+          channel.appendLine('\n[cancelled by user]');
+          controller.abort();
+        });
+        return installOllamaModel(
+          ollamaBaseUrl,
+          ollamaPullTarget,
+          line => {
+            channel.appendLine(line);
+            progress.report({ message: line });
+          },
+          controller.signal,
+        )
+          .then(() => ({ ok: true as const }))
+          .catch((error: unknown) => {
+            const cancelled = error instanceof Error && error.name === 'AbortError';
+            return { ok: false as const, error: error instanceof Error ? error.message : String(error), cancelled };
+          });
+      },
+    );
+
+    if (outcome.ok) {
+      channel.appendLine('\n[done]');
+      // Force a fresh local-model sync so the newly pulled model is detected.
+      await this.extensionContext.globalState.update(LOCAL_MODEL_SYNC_CACHE_KEY, undefined);
       await this.panel.webview.postMessage({
         type: 'localModelRecommendationStatus',
-        payload: `Installed ${modelTag} into Ollama. Refreshing recommendations...`,
+        payload: `Installed ${ollamaPullTarget} into Ollama. Refreshing recommendations...`,
       });
       await this.handleRecommendLocalModels();
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
+      return;
+    }
+
+    if (outcome.cancelled) {
       await this.panel.webview.postMessage({
         type: 'localModelRecommendationStatus',
-        payload: `Install failed for ${modelTag}: ${detail}`,
+        payload: `Cancelled the Ollama download of ${ollamaPullTarget}.`,
       });
+      return;
     }
+
+    channel.appendLine(`\n[failed] ${outcome.error}`);
+    await this.panel.webview.postMessage({
+      type: 'localModelRecommendationStatus',
+      payload: `Install failed for ${ollamaPullTarget}: ${outcome.error}. See the "AtlasMind: Local Model Install" output for details.`,
+    });
   }
 
   private async handleInstallInLmStudio(modelTag: string): Promise<void> {
     // Strip the "hf:" prefix added by the live catalog sync to get the raw HF repo ID.
     // Ollama-style tags (no prefix) are passed through as-is — lms searches HF for them.
     const hfModelId = modelTag.startsWith('hf:') ? modelTag.slice(3) : modelTag;
+
+    // Defense-in-depth: we spawn lms directly (no shell), but still only allow the
+    // characters that appear in HF repo ids / lms search terms / quant selectors.
+    if (!/^[A-Za-z0-9._@/:-]+$/.test(hfModelId)) {
+      await this.panel.webview.postMessage({
+        type: 'localModelRecommendationStatus',
+        payload: `Refusing to install "${hfModelId}": the model id contains unexpected characters.`,
+      });
+      return;
+    }
+
     const hfUrl = vscode.Uri.parse(`https://huggingface.co/${hfModelId}`);
 
     // lms ships with LM Studio at a fixed location on all platforms.
@@ -1384,30 +1488,117 @@ export class SettingsPanel {
       ? path.join(os.homedir(), '.lmstudio', 'bin', 'lms.exe')
       : path.join(os.homedir(), '.lmstudio', 'bin', 'lms');
 
-    if (existsSync(lmsBin)) {
-      // Run `lms get` in a dedicated terminal so the user sees download progress.
-      // Use shellPath + shellArgs so the OS spawns lms directly — no shell involved,
-      // no quoting needed, works on PowerShell / CMD / bash / zsh / fish alike.
-      const terminal = vscode.window.createTerminal({
-        name: 'LM Studio: Install Model',
-        shellPath: lmsBin,
-        shellArgs: ['get', hfModelId],
-      });
-      terminal.show(false); // show without stealing focus from the settings panel
+    if (!existsSync(lmsBin)) {
+      // lms not found — open the HuggingFace model page.
+      // HuggingFace shows a "Use this model → LM Studio" button that opens LM Studio directly.
+      await vscode.env.openExternal(hfUrl);
       await this.panel.webview.postMessage({
         type: 'localModelRecommendationStatus',
-        payload: `Downloading ${hfModelId} via lms — see the "LM Studio: Install Model" terminal. Click Scan & Recommend when complete.`,
+        payload: `LM Studio CLI (lms) was not found. Opened ${hfModelId} on HuggingFace — click "Use this model → LM Studio" to install, then click Scan & Recommend.`,
       });
       return;
     }
 
-    // lms not found — open the HuggingFace model page.
-    // HuggingFace shows a "Use this model → LM Studio" button that opens LM Studio directly.
+    await this.runLmsGetInstall(lmsBin, hfModelId, hfUrl);
+  }
+
+  /**
+   * Run `lms get <model> --yes` as a child process (no shell — sidesteps every
+   * cross-platform quoting pitfall) and stream its output to a dedicated channel.
+   *
+   * `--yes` is essential: without it `lms get` waits for an interactive
+   * quantization/confirmation choice that cannot be answered in a spawned process,
+   * so it exits non-zero — the "terminated with exit code 1" failure users hit when
+   * the install was previously wired through a `shellPath` terminal. On failure the
+   * real reason is surfaced and the HuggingFace page is opened as a fallback.
+   */
+  private async runLmsGetInstall(lmsBin: string, modelId: string, hfUrl: vscode.Uri): Promise<void> {
+    const channel = this.getLocalModelInstallChannel();
+    channel.clear();
+    channel.show(true);
+    channel.appendLine(`$ "${lmsBin}" get ${modelId} --yes`);
+    channel.appendLine('');
+
+    await this.panel.webview.postMessage({
+      type: 'localModelRecommendationStatus',
+      payload: `Downloading ${modelId} via LM Studio — progress is shown in the "AtlasMind: Local Model Install" output panel. Large models can take several minutes.`,
+    });
+
+    const outcome = await vscode.window.withProgress<{ code: number | null; stderrTail: string; failure?: string }>(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: `LM Studio: installing ${modelId}`,
+        cancellable: true,
+      },
+      (_progress, token) =>
+        new Promise(resolve => {
+          let stderrTail = '';
+          let settled = false;
+          const finish = (value: { code: number | null; stderrTail: string; failure?: string }): void => {
+            if (!settled) {
+              settled = true;
+              resolve(value);
+            }
+          };
+
+          const child = spawn(lmsBin, ['get', modelId, '--yes'], { windowsHide: true });
+
+          token.onCancellationRequested(() => {
+            channel.appendLine('\n[cancelled by user]');
+            child.kill();
+            finish({ code: null, stderrTail, failure: 'cancelled' });
+          });
+
+          child.stdout?.on('data', (chunk: Buffer) => channel.append(chunk.toString()));
+          child.stderr?.on('data', (chunk: Buffer) => {
+            const text = chunk.toString();
+            stderrTail = (stderrTail + text).slice(-2000);
+            channel.append(text);
+          });
+          child.on('error', error => {
+            channel.appendLine(`\n[failed to launch lms] ${error.message}`);
+            finish({ code: null, stderrTail, failure: error.message });
+          });
+          child.on('close', code => finish({ code, stderrTail }));
+        }),
+    );
+
+    if (outcome.failure === 'cancelled') {
+      await this.panel.webview.postMessage({
+        type: 'localModelRecommendationStatus',
+        payload: `Cancelled the LM Studio download of ${modelId}.`,
+      });
+      return;
+    }
+
+    if (outcome.code === 0) {
+      channel.appendLine('\n[done]');
+      // Force a fresh local-model sync so the newly downloaded model is detected.
+      await this.extensionContext.globalState.update(LOCAL_MODEL_SYNC_CACHE_KEY, undefined);
+      await this.panel.webview.postMessage({
+        type: 'localModelRecommendationStatus',
+        payload: `Installed ${modelId} via LM Studio. Refreshing recommendations...`,
+      });
+      await this.handleRecommendLocalModels();
+      return;
+    }
+
+    const reason = outcome.failure
+      ?? lastNonEmptyLine(outcome.stderrTail)
+      ?? `lms exited with code ${outcome.code ?? 'unknown'}`;
     await vscode.env.openExternal(hfUrl);
     await this.panel.webview.postMessage({
       type: 'localModelRecommendationStatus',
-      payload: `Opened ${hfModelId} on HuggingFace. Click "Use this model → LM Studio" on that page to install. Click Scan & Recommend here when done.`,
+      payload: `LM Studio install of ${modelId} failed: ${reason}. See the "AtlasMind: Local Model Install" output for the full log. Opened the HuggingFace page as a fallback.`,
     });
+  }
+
+  private getLocalModelInstallChannel(): vscode.OutputChannel {
+    if (!this.localModelInstallChannel) {
+      this.localModelInstallChannel = vscode.window.createOutputChannel('AtlasMind: Local Model Install');
+      this.disposables.push(this.localModelInstallChannel);
+    }
+    return this.localModelInstallChannel;
   }
 
   private async handleRemoveInstalledLocalModel(
@@ -2119,17 +2310,29 @@ export class SettingsPanel {
           <section id="page-ai-instructions" class="settings-page ${initialPage === 'ai-instructions' ? 'active fallback-visible' : ''}" role="tabpanel" aria-labelledby="tab-ai-instructions" tabindex="0">
             <div class="page-header">
               <p class="page-kicker">AI Instructions</p>
-              <h2>Import instruction sets from other AI tools</h2>
-              <p>Scan the workspace for instruction files used by GitHub Copilot, Claude Code, Cursor, Cline, Continue, OpenAI Codex, Gemini CLI, Windsurf, and Aider — then selectively merge them into AtlasMind's workspace context.</p>
+              <h2>Align instruction sets across your AI tools</h2>
+              <p>Reconcile the instruction files used by GitHub Copilot, Claude Code, Cursor, Cline, Continue, OpenAI Codex, Gemini CLI, Windsurf, and Aider — plus AtlasMind's own — into one unified set, then mirror it back into every tool so they all share the same guidance.</p>
             </div>
 
             <div class="page-grid">
+              <article class="settings-card" id="aiInstructionsAlignCard">
+                <div class="card-header">
+                  <p class="card-kicker">Two-way sync</p>
+                  <h3>Align all instruction sets</h3>
+                </div>
+                <p class="card-copy">AtlasMind reads every detected tool's instructions (and its own), reconciles them into one unified set, and writes that set back into each tool's file — in that tool's own format, inside a managed block so your other content is preserved. Trivial differences are merged automatically; <strong>significant conflicting rules are raised in chat for you to resolve</strong> before anything is written.</p>
+                <div class="button-stack">
+                  <button id="alignAiInstructions">Align all instruction sets (two-way)</button>
+                </div>
+                <p class="info-note">Opens the AtlasMind chat and runs <code>/sync-instructions</code>. The unified set is also saved to <code>project_memory/domain/ai-instructions-sync.md</code>.</p>
+              </article>
+
               <article class="settings-card" id="aiInstructionsScanCard">
                 <div class="card-header">
-                  <p class="card-kicker">Discovery</p>
-                  <h3>Scan for instruction sets</h3>
+                  <p class="card-kicker">One-way import</p>
+                  <h3>Scan &amp; import into AtlasMind only</h3>
                 </div>
-                <p class="card-copy">AtlasMind scans the workspace root for instruction files from popular AI coding assistants. Found files are listed with a content preview so you can decide what to include before syncing.</p>
+                <p class="card-copy">Prefer not to touch your other tools' files? Scan the workspace and selectively merge the chosen instruction files into AtlasMind's workspace context only — nothing is written back to the other tools.</p>
                 <div class="button-stack">
                   <button id="scanAiInstructions">Scan Workspace</button>
                 </div>
@@ -4042,24 +4245,30 @@ export class SettingsPanel {
 
           const cardsHtml = recommendations.length > 0
             ? recommendations.map(item => {
-              const badgeClass = item.status === 'installed' ? 'local-model-badge-installed' : 'local-model-badge-recommended';
-              const badgeText = item.status === 'installed' ? 'Installed' : 'Recommended';
+              const isInstalled = item.status === 'installed';
+              const installedRuntimeLabel = item.installedRuntime === 'lmstudio'
+                ? 'LM Studio'
+                : item.installedRuntime === 'ollama' ? 'Ollama' : '';
+              const badgeClass = isInstalled ? 'local-model-badge-installed' : 'local-model-badge-recommended';
+              const badgeText = isInstalled
+                ? (installedRuntimeLabel ? 'Installed · ' + installedRuntimeLabel : 'Installed')
+                : 'Recommended';
               const rationale = Array.isArray(item.rationale)
                 ? item.rationale.map(line => '<li>' + escapeForHtml(String(line)) + '</li>').join('')
                 : '';
               const tag = String(item.recommendedTag ?? '');
-              const isHfTag = tag.startsWith('hf:');
               let actionsHtml = '';
-              if (item.status === 'installed') {
+              if (isInstalled) {
                 if (item.installedRuntime === 'ollama') {
                   actionsHtml = '<button type="button" class="danger-button" data-local-model-action="remove" data-runtime="ollama" data-model-id="' + escapeForHtml(String(item.installedModelId ?? '')) + '">Remove from Ollama</button>';
                 } else if (item.installedRuntime === 'lmstudio') {
                   actionsHtml = '<span class="local-model-runtime-note">Manage in LM Studio</span>';
                 }
               } else {
-                if (!isHfTag) {
-                  actionsHtml += '<button type="button" class="secondary-button" data-local-model-action="install" data-runtime="ollama" data-model-tag="' + escapeForHtml(tag) + '">Install in Ollama</button>';
-                }
+                // Both runtimes can install any candidate: Ollama pulls GGUF straight from
+                // HuggingFace via the hf.co/ prefix (translated in the host), and lms searches
+                // HuggingFace for Ollama-style tags. Offer both buttons for every recommendation.
+                actionsHtml += '<button type="button" class="secondary-button" data-local-model-action="install" data-runtime="ollama" data-model-tag="' + escapeForHtml(tag) + '">Install in Ollama</button>';
                 actionsHtml += '<button type="button" class="secondary-button" data-local-model-action="install" data-runtime="lmstudio" data-model-tag="' + escapeForHtml(tag) + '">Install in LM Studio</button>';
               }
               return '<article class="local-model-recommendation-card">'
@@ -4140,6 +4349,12 @@ export class SettingsPanel {
         }
 
         // AI Instructions sync
+        const alignAiInstructionsBtn = document.getElementById('alignAiInstructions');
+        if (alignAiInstructionsBtn instanceof HTMLButtonElement) {
+          alignAiInstructionsBtn.addEventListener('click', () => {
+            vscode.postMessage({ type: 'alignAiInstructions' });
+          });
+        }
         const scanAiInstructionsBtn = document.getElementById('scanAiInstructions');
         const rescanAiInstructionsBtn = document.getElementById('rescanAiInstructions');
         const resetAiInstructionScanBtn = document.getElementById('resetAiInstructionScan');
@@ -5431,7 +5646,8 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
     message.type === 'openVisionPanel' ||
     message.type === 'openChat' ||
     message.type === 'recommendLocalModels' ||
-    message.type === 'scanAiInstructions'
+    message.type === 'scanAiInstructions' ||
+    message.type === 'alignAiInstructions'
   ) {
     return true;
   }
@@ -5790,16 +6006,117 @@ function toRuntimeRootBaseUrl(baseUrl: string): string {
   }
 }
 
-async function installOllamaModel(ollamaBaseUrl: string, modelTag: string): Promise<void> {
+/** Lightweight reachability probe for the Ollama daemon (2.5s timeout). */
+async function isOllamaReachable(ollamaBaseUrl: string): Promise<boolean> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 2500);
+  try {
+    const response = await fetch(`${ollamaBaseUrl.replace(/\/+$/, '')}/api/version`, { signal: controller.signal });
+    return response.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export function formatByteCount(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
+
+/**
+ * Interpret one newline-delimited JSON object from Ollama's `/api/pull` stream.
+ * Returns a human-readable progress `text` (status + percentage when a byte
+ * count is present), an `error` message, or an empty object for blank/non-JSON
+ * keep-alive lines. Pure — unit-tested.
+ */
+export function interpretOllamaPullLine(line: string): { text?: string; error?: string } {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return {};
+  }
+  let obj: Record<string, unknown>;
+  try {
+    obj = JSON.parse(trimmed) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+  if (typeof obj['error'] === 'string') {
+    return { error: obj['error'] };
+  }
+  const status = typeof obj['status'] === 'string' ? obj['status'] : '';
+  const completed = typeof obj['completed'] === 'number' ? obj['completed'] : undefined;
+  const total = typeof obj['total'] === 'number' ? obj['total'] : undefined;
+  if (status && completed !== undefined && total !== undefined && total > 0) {
+    const pct = Math.floor((completed / total) * 100);
+    return { text: `${status} — ${pct}% (${formatByteCount(completed)}/${formatByteCount(total)})` };
+  }
+  return status ? { text: status } : {};
+}
+
+/**
+ * Pull a model into Ollama via `POST /api/pull`, streaming the newline-delimited
+ * JSON progress objects so the caller can surface live download progress (rather
+ * than blocking silently on a single `stream:false` request). Talking to the API
+ * directly — which is exactly what the `ollama pull` CLI does under the hood —
+ * means this works without the CLI on PATH and honours a remote `ollamaBaseUrl`.
+ * Honours `signal` for cancellation and throws on any reported error.
+ */
+async function installOllamaModel(
+  ollamaBaseUrl: string,
+  modelTag: string,
+  onProgress?: (line: string) => void,
+  signal?: AbortSignal,
+): Promise<void> {
   const response = await fetch(`${ollamaBaseUrl.replace(/\/+$/, '')}/api/pull`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: modelTag, stream: false }),
+    body: JSON.stringify({ name: modelTag, stream: true }),
+    ...(signal ? { signal } : {}),
   });
 
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(`Ollama install failed (${response.status}): ${detail}`);
+  if (!response.ok || !response.body) {
+    const detail = await response.text().catch(() => '');
+    throw new Error(`Ollama install failed (${response.status})${detail ? `: ${detail.trim()}` : ''}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let lastReported = '';
+  let reportedError: string | undefined;
+
+  const handleLine = (line: string): void => {
+    const { text, error } = interpretOllamaPullLine(line);
+    if (error) {
+      reportedError = error;
+      return;
+    }
+    if (text && text !== lastReported) {
+      lastReported = text;
+      onProgress?.(text);
+    }
+  };
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    buffer += decoder.decode(value, { stream: true });
+    let newlineIndex: number;
+    while ((newlineIndex = buffer.indexOf('\n')) >= 0) {
+      handleLine(buffer.slice(0, newlineIndex));
+      buffer = buffer.slice(newlineIndex + 1);
+    }
+  }
+  handleLine(buffer);
+
+  if (reportedError) {
+    throw new Error(reportedError);
   }
 }
 
@@ -5829,11 +6146,7 @@ async function buildLocalModelRecommendationPayload(
     lmStudioBaseUrl,
   );
 
-  const installedFamilyCounts = new Map<string, number>();
-  for (const model of localSync?.models ?? []) {
-    const family = inferLocalModelFamily(model.id);
-    installedFamilyCounts.set(family, (installedFamilyCounts.get(family) ?? 0) + 1);
-  }
+  const installedLocalModels = localSync?.models ?? [];
 
   const allRecentRecords = atlasContext?.costTracker.getRecords({ days: 30 }) ?? [];
   const recentLocalRecords = allRecentRecords
@@ -5896,19 +6209,17 @@ async function buildLocalModelRecommendationPayload(
         );
       }
 
-      const installedCount = installedFamilyCounts.get(candidate.modelFamily) ?? 0;
-      const installedModel = installedCount > 0
-        ? (localSync?.models ?? []).find(m => inferLocalModelFamily(m.id) === candidate.modelFamily)
-        : undefined;
-      if (installedCount > 0) {
+      const installedModel = findInstalledLocalMatch(candidate, installedLocalModels);
+      if (installedModel) {
         fitScore += 6;
-        rationale.push('A model from this family is already installed locally.');
+        const runtimeLabel = installedModel.runtime === 'lmstudio' ? 'LM Studio' : 'Ollama';
+        rationale.push(`Already installed in ${runtimeLabel} as "${installedModel.id}".`);
       }
 
       return {
         modelFamily: candidate.modelFamily,
         recommendedTag: candidate.recommendedTag,
-        status: installedCount > 0 ? 'installed' : 'recommended',
+        status: installedModel ? 'installed' : 'recommended',
         ...(installedModel ? { installedModelId: installedModel.id, installedRuntime: installedModel.runtime } : {}),
         fitScore: Math.max(1, Math.min(100, Math.round(fitScore))),
         rationale,
@@ -6119,6 +6430,57 @@ function buildWorkloadContext(
   }
 
   return { signals, evidence };
+}
+
+/**
+ * Reduce a model tag/id to a normalized identity key for cross-runtime matching.
+ * Strips the runtime/source prefix (`hf:`, `hf.co/`, `huggingface.co/`), keeps only
+ * the repo name, drops quant/tag noise (`:Q4_K_M`, `:latest`) while preserving the
+ * parameter size (`:14b`), removes the `-gguf`/`-instruct`/`-chat`/`-it` suffix, and
+ * compacts to alphanumerics. So `hf:antirez/DeepSeek-V4-GGUF`, `deepseek-v4:latest`,
+ * and `hf.co/antirez/DeepSeek-V4-GGUF:Q4_K_M` all collapse to `deepseekv4`.
+ */
+export function localModelMatchKey(rawId: string): string {
+  let s = rawId.trim().toLowerCase();
+  s = s.replace(/^hf:/, '').replace(/^hf\.co\//, '').replace(/^huggingface\.co\//, '');
+  const lastSlash = s.lastIndexOf('/');
+  if (lastSlash >= 0) {
+    s = s.slice(lastSlash + 1); // keep the repo name, drop the owner
+  }
+  const colon = s.indexOf(':');
+  if (colon >= 0) {
+    const base = s.slice(0, colon);
+    const suffix = s.slice(colon + 1);
+    // Keep size-like suffixes (e.g. "14b", "30b", "8x7b"); drop quant/tag noise.
+    s = /^\d/.test(suffix) ? `${base}${suffix}` : base;
+  }
+  s = s.replace(/[-_](gguf|instruct|chat|it)$/i, '').replace(/gguf$/i, '');
+  return s.replace(/[^a-z0-9]/g, '');
+}
+
+/**
+ * Determine whether a recommendation candidate is already installed in any local
+ * runtime. Matches on the normalized identity key, with a coarse family-name
+ * fallback for the curated default candidates whose families are canonical.
+ */
+export function findInstalledLocalMatch(
+  candidate: { recommendedTag: string; modelFamily: string },
+  installedModels: ReadonlyArray<{ id: string; runtime: 'ollama' | 'lmstudio' }>,
+): { id: string; runtime: 'ollama' | 'lmstudio' } | undefined {
+  const candidateKey = localModelMatchKey(candidate.recommendedTag);
+  return installedModels.find(model => {
+    const modelKey = localModelMatchKey(model.id);
+    if (candidateKey && modelKey && candidateKey === modelKey) {
+      return true;
+    }
+    return inferLocalModelFamily(model.id) === candidate.modelFamily;
+  });
+}
+
+/** Last non-blank, trimmed line of a string, or undefined if there is none. */
+function lastNonEmptyLine(text: string): string | undefined {
+  const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  return lines.length > 0 ? lines[lines.length - 1] : undefined;
 }
 
 function inferLocalModelFamily(modelId: string): string {

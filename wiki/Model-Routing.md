@@ -221,6 +221,7 @@ Each candidate is scored using:
 ```
 score = (cheapness × budgetWeight) + (speedProxy × speedWeight)
       + (qualityProxy × qualityWeight) + taskFit + healthBonus + feedbackBias
+      + outcomeBias − strugglePenalty
 ```
 
 | Factor | How it's computed |
@@ -231,6 +232,8 @@ score = (cheapness × budgetWeight) + (speedProxy × speedWeight)
 | **Task fit** | Bonus for matching preferred capabilities and task phase |
 | **Health bonus** | +1.25 for healthy providers, 0 for unhealthy |
 | **Feedback bias** | Small capped adjustment derived from stored thumbs up/down history for that exact `modelUsed` id |
+| **Outcome bias** | Decaying EWMA of graded execution quality, bucketed per reasoning tier — nudges toward models that perform well |
+| **Struggle penalty** | Persistent, decaying **de-weight** for a model that repeatedly fails *this kind of task* — see [Model-Struggle Memory](#model-struggle-memory) |
 
 The Cost Dashboard now surfaces the same signals before routing applies them: recent request rows show the linked response's vote, and the dashboard includes a per-model approval table with thumbs totals and filtered spend for rated models.
 
@@ -251,6 +254,31 @@ Weights are controlled by budget and speed mode:
 | `balanced` | 1.5 |
 | `considered` | 0.75 |
 | `auto` | 1.5 |
+
+---
+
+## Model-Struggle Memory
+
+AtlasMind remembers when a specific model repeatedly under-performs on a specific
+*kind* of task and routes around it — countering the "drift down to a weak/cheap/
+local model" pattern, where a cheap model's large price advantage keeps winning
+even after it fails.
+
+- **Signals recorded**: `timeout`, `empty` completion, `tool-call-as-text` (a model
+  that emits a tool call as plain text instead of a structured `tool_calls`
+  response), `error-finish`, and `user-correction` (a follow-up turn disputing the
+  previous answer, attributed best-effort to the previous turn's model). Billing
+  and deprecation failures are excluded.
+- **Keyed by task signature** (`phase · modality · reasoning · tools`), so a model
+  is de-weighted only for the task kind it actually fails — not globally.
+- **Marginal, escalating, decaying**: a small penalty breaks near-ties; once a
+  model crosses the threshold for a signature, a **budget tier-escape** opens up
+  more capable (pricier) models for that task kind (cheap → balanced → expensive)
+  and re-ranks. Penalties decay with a ~2.5-day half-life and halve on a clean
+  turn, so transient glitches fade while genuinely weak models stay de-weighted.
+- **Persistence & control**: stored in `globalState` (`atlasmind.modelStruggleSignals`)
+  so it survives restarts; disabled when `feedbackRoutingWeight = 0`. De-weighted
+  models show a **"de-weighted: …"** badge in the **Compare Models** panel.
 
 ---
 

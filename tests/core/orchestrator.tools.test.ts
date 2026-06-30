@@ -9,7 +9,7 @@ import { MemoryManager } from '../../src/memory/memoryManager.ts';
 import { CostTracker } from '../../src/core/costTracker.ts';
 import { ProviderRegistry } from '../../src/providers/index.ts';
 import { TaskProfiler } from '../../src/core/taskProfiler.ts';
-import type { AgentDefinition, MemoryEntry, ModelCapability, SkillDefinition, SkillExecutionContext } from '../../src/types.ts';
+import type { AgentDefinition, MemoryEntry, ModelCapability, ModelStruggleState, SkillDefinition, SkillExecutionContext } from '../../src/types.ts';
 import type { CompletionRequest, CompletionResponse, ProviderAdapter } from '../../src/providers/adapter.ts';
 
 function makeSkillContext(overrides: Partial<SkillExecutionContext> = {}): SkillExecutionContext {
@@ -82,6 +82,7 @@ function makeOrchestrator(
     modelCapabilities?: ModelCapability[];
     contextWindow?: number;
     memoryEntries?: MemoryEntry[];
+    onModelStruggleRecorded?: (signals: Record<string, ModelStruggleState>) => void;
     extraProviders?: Array<{
       providerId: string;
       adapter: ProviderAdapter;
@@ -160,7 +161,7 @@ function makeOrchestrator(
     taskProfiler,
     undefined,
     toolWebhookDispatcher as never,
-    { toolApprovalGate, writeCheckpointHook, postToolVerifier, generatedSkillApprovalGate } as never,
+    { toolApprovalGate, writeCheckpointHook, postToolVerifier, generatedSkillApprovalGate, onModelStruggleRecorded: options?.onModelStruggleRecorded } as never,
   );
 }
 
@@ -2154,6 +2155,96 @@ describe('Orchestrator agentic loop', () => {
 
     expect(provider.complete).toHaveBeenCalledTimes(1);
     expect(result.response).toContain('Provider "local" failed: Provider timed out after 30000ms.');
+  });
+
+  it('records a model-struggle signal when a provider times out mid-turn', async () => {
+    const provider: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn().mockRejectedValue(new Error('Provider timed out after 30000ms.')),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+    let lastSnapshot: Record<string, ModelStruggleState> = {};
+    const orchestrator = makeOrchestrator(
+      provider, [], makeSkillContext(), undefined, [], [], undefined, undefined, undefined, undefined,
+      { onModelStruggleRecorded: snap => { lastSnapshot = snap; } },
+    );
+
+    await orchestrator.processTask({
+      id: 'task-struggle-timeout',
+      userMessage: 'Plan the MVP for this project.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    const kinds = Object.values(lastSnapshot).map(s => s.lastKind);
+    expect(kinds).toContain('timeout');
+  });
+
+  it('attributes a user-correction struggle to the previous turn\'s model', async () => {
+    const provider = makeMockProvider([{
+      content: 'A complete and confident answer.',
+      model: 'local/echo-1',
+      inputTokens: 10,
+      outputTokens: 8,
+      finishReason: 'stop',
+    }]);
+    let lastSnapshot: Record<string, ModelStruggleState> = {};
+    const orchestrator = makeOrchestrator(
+      provider, [], makeSkillContext(), undefined, [], [], undefined, undefined, undefined, undefined,
+      { onModelStruggleRecorded: snap => { lastSnapshot = snap; } },
+    );
+
+    // Turn 1: a normal answer — records the turn's model as the "last main turn".
+    await orchestrator.processTask({
+      id: 'turn-1',
+      userMessage: 'Summarize the build pipeline.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    // Turn 2: the user disputes the previous answer.
+    await orchestrator.processTask({
+      id: 'turn-2',
+      userMessage: 'No, that is not correct — check that again.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    const kinds = Object.values(lastSnapshot).map(s => s.lastKind);
+    expect(kinds).toContain('user-correction');
+  });
+
+  it('never surfaces the local echo stub parrot as a maintenance/recovery completion', async () => {
+    // Reproduces the failure where a provider hard-stop recovery routed to the
+    // local echo adapter, which parrots the recovery prompt back verbatim and
+    // leaked the internal "Failure context" string to the user.
+    const echo: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn(async (req: CompletionRequest) => {
+        const lastUser = [...req.messages].reverse().find(m => m.role === 'user')?.content ?? '';
+        return {
+          content: `Local adapter response: ${lastUser}`,
+          model: req.model,
+          inputTokens: 5,
+          outputTokens: 5,
+          finishReason: 'stop' as const,
+        };
+      }),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const orchestrator = makeOrchestrator(echo, [], makeSkillContext());
+    const recovered = await orchestrator.completeMaintenance(
+      'You are a recovery assistant.',
+      'Task the user asked: plan the MVP\n\nFailure context: Provider "google" failed with: Provider timed out after 30000ms.',
+    );
+
+    expect(recovered).toBe('');
   });
 
   it('selects the most relevant enabled agent instead of first registered', async () => {

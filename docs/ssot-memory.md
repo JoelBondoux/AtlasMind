@@ -79,6 +79,8 @@ Unstructured space for brainstorming. No format requirements.
 ### `domain/`
 Domain-specific knowledge: glossary, business rules, entity relationships, external system documentation.
 
+`domain/ai-instructions-sync.md` holds the unified AI instruction set produced by the two-way sync (`/sync-instructions`, `src/utils/aiInstructionMerge.ts`): the reconciled superset of every detected tool's instructions plus AtlasMind's own, which AtlasMind also mirrors back into each tool's instruction file. It is loaded as `domain` context like any other entry.
+
 ### `operations/`
 Deployment procedures, environment setup, monitoring, incident response.
 

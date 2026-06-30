@@ -306,6 +306,38 @@ export interface TaskProfile {
   preferredCapabilities: ModelCapability[];
 }
 
+/**
+ * A way a model under-performed on a turn, fed into the router's persistent
+ * "struggle memory" so a model that repeatedly fails a *kind* of task is
+ * de-weighted for that task signature. Distinct from a hard provider failure:
+ * these are quality/behaviour signals the coarse execution grader can miss
+ * (e.g. a small model that emits a tool call as plain text instead of a
+ * structured `tool_calls` response).
+ */
+export type ModelStruggleKind =
+  | 'timeout'
+  | 'empty'
+  | 'tool-call-as-text'
+  | 'error-finish'
+  | 'user-correction';
+
+/**
+ * Persistent, decaying de-weight signal for a model on a specific task
+ * signature. `penalty` is the stored (un-decayed) magnitude as of
+ * `lastUpdated`; the router applies time-decay on read so transient glitches
+ * fade while genuinely weak models stay de-weighted across sessions.
+ */
+export interface ModelStruggleState {
+  /** Stored penalty magnitude (>= 0) as of `lastUpdated`; decayed on read. */
+  penalty: number;
+  /** ISO timestamp of the last record/recover; drives time-decay. */
+  lastUpdated: string;
+  /** Number of struggle records folded in — diagnostics / "why" surfacing. */
+  hits: number;
+  /** The most recent struggle kind — surfaced in the UI hint. */
+  lastKind: ModelStruggleKind;
+}
+
 // ── Agents ──────────────────────────────────────────────────────
 
 /**
@@ -768,6 +800,13 @@ export interface OrchestratorHooks {
    * outcome state so it can be persisted across sessions.
    */
   onModelOutcomeRecorded?: (outcomes: Record<string, { ewma: number; samples: number }>) => void;
+
+  /**
+   * Called after a model's struggle signal is recorded or recovered. Receives
+   * the full snapshot of per-(model × task-signature) struggle state so it can
+   * be persisted across sessions, mirroring `onModelOutcomeRecorded`.
+   */
+  onModelStruggleRecorded?: (signals: Record<string, ModelStruggleState>) => void;
 
   /**
    * Called each time the active model changes during task execution — on initial
@@ -1237,6 +1276,39 @@ export interface PromotionPreflightCheck {
   kind: PromotionCheckKind;
   status: PromotionCheckStatus;
   detail: string;
+  /**
+   * True when this failing auto-check can be auto-resolved by the plan's
+   * {@link PromotionRemediation} (version bump / changelog entry). Used by the UI
+   * to flag the check as fixable.
+   */
+  fixable?: boolean;
+}
+
+/**
+ * An offer to auto-resolve the failing, fixable preflight checks (version not
+ * bumped, missing changelog entry) inline as part of the promotion, surfaced as
+ * a one-click "Resolve & run". AtlasMind edits `package.json`/`CHANGELOG.md` and
+ * commits them with a conventional message — it never pushes or force-pushes.
+ * The version level is *assessed* from the conventional-commit history since the
+ * target (feat → minor, breaking → major, otherwise patch). Like every other
+ * command in the runner, the edits/commit are server-sourced; the webview can
+ * only trigger this, never inject content.
+ */
+export interface PromotionRemediation {
+  /** IDs of the currently-failing checks this resolution will turn green. */
+  resolves: string[];
+  /** Version `package.json` will be set to (bumped, or the current version when only the changelog is missing). */
+  targetVersion: string;
+  /** SemVer level the version advances by, or null when no bump is needed. */
+  bumpLevel: 'patch' | 'minor' | 'major' | null;
+  /** Human reasoning for the assessed level (e.g. "minor — 3 feature commit(s) since Staging"). */
+  bumpReason: string;
+  /** Whether a CHANGELOG.md entry will be added for `targetVersion`. */
+  editsChangelog: boolean;
+  /** Whether the edits will be committed (chore(release): vX.Y.Z), never pushed. */
+  commits: boolean;
+  /** One-line description shown in the modal; also the commit subject. */
+  summary: string;
 }
 
 /** The lifecycle phase a plan step belongs to. */
@@ -1276,6 +1348,8 @@ export interface PromotionPlan {
   /** Whether a bound promotion routine with steps was found on disk. */
   hasRoutine: boolean;
   routineId?: string;
+  /** Offer to auto-resolve fixable failing checks, when any exist. */
+  remediation?: PromotionRemediation;
 }
 
 export interface PromotionStepResult {
