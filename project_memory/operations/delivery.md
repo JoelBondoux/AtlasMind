@@ -33,7 +33,7 @@ Shared integration branch (`develop`). Work merges here and is built, linted, an
 
 The released product your users install or consume via VS Code Marketplace. Promotion is the release: version-gated, requires sign-off, and never force-pushed.
 
-- **Branch:** `master`
+- **Branch:** `main`
 - **Hosting:** VS Code Marketplace
 - **Config source:** — (location only — secret values stay in your secret store)
 - **Data:** No application database
@@ -63,7 +63,7 @@ Every promotion runs the same guarded sequence:
 
 1. **Preflight gate** — the required checks below must all pass, or the promotion aborts.
 2. **Backup** — optional for this target.
-3. **Promote via Pull Request** — open a PR into `master` (a protected branch); the required status checks must be green and the PR merged. AtlasMind never force-pushes or pushes directly.
+3. **Promote via Pull Request** — open a PR into `main` (a protected branch); the required status checks must be green and the PR merged. AtlasMind never force-pushes or pushes directly.
 4. **Verify** — the target is health-checked after deploy.
 
 - **Required checks:** `Working tree clean`, `Compile/build passes`, `Lint passes`, `Tests pass`
@@ -75,4 +75,4 @@ Every promotion runs the same guarded sequence:
 
 ---
 
-_Last updated: 2026-06-21T00:12:30.699Z._
+_Last updated: 2026-07-04T00:00:00.000Z._

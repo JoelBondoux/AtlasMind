@@ -124,13 +124,13 @@ chore: update dependencies
 
 - `develop` is the default branch for everyday integration work.
 - Create `feat/*`, `fix/*`, and `chore/*` branches from `develop`.
-- Keep `master` release-ready and use it only when intentionally publishing a new Marketplace release.
-- Do not push routine work directly to `master`; promote `develop` into `master` by PR once the build is ready to ship.
+- Keep `main` release-ready and use it only when intentionally publishing a new Marketplace release.
+- Do not push routine work directly to `main`; promote `develop` into `main` by PR once the build is ready to ship.
 - For the current solo-maintainer workflow, push routine work directly to `develop` and reserve topic branches plus PRs into `develop` for isolated or higher-risk changes.
-- `master` relies on required CI, auto-merge, and PR-only merges rather than mandatory approving reviews or conversation-resolution gates.
+- `main` relies on required CI, auto-merge, and PR-only merges rather than mandatory approving reviews or conversation-resolution gates.
 - Keep AtlasMind branded as Beta until `1.0.0`, but use `npm run publish:release` for normal Marketplace publication.
 - Treat `develop` as the normal destination for development push requests.
-- Use the `Release — promote develop to master` workflow to start a release; the follow-up tag and Marketplace publish workflows run automatically from `master` and the resulting `v<version>` tag.
+- Use the `Release — promote develop to main` workflow to start a release; the follow-up tag and Marketplace publish workflows run automatically from `main` and the resulting `v<version>` tag.
 
 ---
 

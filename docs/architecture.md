@@ -356,7 +356,7 @@ Command Palette or walkthrough -> openPersonalityProfile
 ## Quality Gates
 
 - Local quality loop: `npm run lint`, `npm run test`, `npm run compile`.
-- CI pipeline (`.github/workflows/ci.yml`) enforces compile, lint, test, and coverage for pushes and pull requests to `master`.
+- CI pipeline (`.github/workflows/ci.yml`) enforces compile, lint, test, and coverage for pushes and pull requests to `main`.
 - Ownership and review enforcement are defined in `.github/CODEOWNERS`.
 
 ## Dependency Graph

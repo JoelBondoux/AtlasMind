@@ -55,15 +55,15 @@
 ### Branching and Pull Requests
 - Branch from `develop` using descriptive names (for example `feat/provider-health-checks`).
 - `develop` is the default branch for routine integration work and normal push targets.
-- Keep `master` reserved for release-ready stable builds only.
-- **Do not include any `project_memory/` files or folders in `master`.** The entire `project_memory/` directory is for development and feature branches only, and must be excluded from release PRs and the `master` branch. This is enforced by `.gitignore` and should be checked in PR reviews.
+- Keep `main` reserved for release-ready stable builds only.
+- **Do not include any `project_memory/` files or folders in `main`.** The entire `project_memory/` directory is for development and feature branches only, and must be excluded from release PRs and the `main` branch. This is enforced by `.gitignore` and should be checked in PR reviews.
 - Open pull requests early and link the governing issue.
 - Complete all PR checklist items from `.github/pull_request_template.md`.
-- For the current solo-maintainer flow, rely on required CI plus PR-only merges on `master` instead of mandatory reviewer approval.
+- For the current solo-maintainer flow, rely on required CI plus PR-only merges on `main` instead of mandatory reviewer approval.
 - Merge feature work into `develop` when CI checks pass.
-- Promote `develop` into `master` only when you intentionally want a new published stable release.
+- Promote `develop` into `main` only when you intentionally want a new published stable release.
 - Marketplace publication uses the standard release channel (`npm run publish:release`); use `npm run publish:pre-release` only for explicit opt-in pre-release cuts.
-- Do not treat `master` as a normal development push target.
+- Do not treat `main` as a normal development push target.
 
 ### Issues and Project Tracking
 - Create bugs and features using the issue templates under `.github/ISSUE_TEMPLATE/`.

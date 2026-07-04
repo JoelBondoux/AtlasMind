@@ -6,14 +6,14 @@ It is built for teams that want autonomy without hand-waving. AtlasMind keeps sa
 
 This wiki is the reference layer behind the shorter repository README. Use it for setup details, command reference, architecture notes, and configuration depth.
 
-Current repository workflow: `develop` is the default branch for routine integration, and `master` is reserved for release-ready Marketplace promotions from `develop`.
+Current repository workflow: `develop` is the integration branch for routine work, and `main` is the default branch, reserved for release-ready Marketplace promotions from `develop`.
 
 AtlasMind remains branded as Beta until `1.0.0`, even though Marketplace publication now uses the standard release channel.
 
 Published Marketplace version numbers appear in the Marketplace badge and changelog highlights. The source version for the branch you are currently viewing always comes from that branch's `package.json`.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/JoelBondoux/AtlasMind/master/media/icon.svg" width="100" alt="AtlasMind logo" />
+  <img src="https://raw.githubusercontent.com/JoelBondoux/AtlasMind/main/media/icon.svg" width="100" alt="AtlasMind logo" />
 </p>
 
 ---
@@ -93,4 +93,4 @@ For headless workflows, the CLI now rejects malformed flags instead of treating 
 
 ## License
 
-AtlasMind is open-source under the [MIT License](https://github.com/JoelBondoux/AtlasMind/blob/master/LICENSE).
+AtlasMind is open-source under the [MIT License](https://github.com/JoelBondoux/AtlasMind/blob/main/LICENSE).

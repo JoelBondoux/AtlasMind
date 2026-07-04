@@ -200,7 +200,7 @@ Scaffolding is non-destructive and will not overwrite existing files.
 - Test runner: Vitest 4.
 - Baseline unit tests currently cover core services (`ModelRouter`, `CostTracker`).
 - Coverage reports are generated via `npm run test:coverage`.
-- CI runs compile, lint, test, and coverage on push and pull requests to `master`.
+- CI runs compile, lint, test, and coverage on push and pull requests to `main`.
 
 ## Security Reporting
 
@@ -209,7 +209,7 @@ Scaffolding is non-destructive and will not overwrite existing files.
 
 ## GitHub Governance
 
-- Use feature branches and open pull requests into `master`.
+- Use feature branches and open pull requests into `main`.
 - Follow `.github/pull_request_template.md` for release and quality checklists.
 - Use `.github/ISSUE_TEMPLATE/` for bug and feature intake.
 - Keep ownership mappings updated in `.github/CODEOWNERS`.
