@@ -8,6 +8,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.127.2] - 2026-07-04
+
+### Changed
+- **Renamed the protected release branch `master` → `main` and made `main` the repository's default branch.** Anyone landing on GitHub now sees the released, Marketplace-matching branch by default instead of the in-progress `develop` branch. `develop` remains the routine integration branch and normal push target.
+  - **CI / release automation**: `.github/workflows/ci.yml` now triggers on `[main, develop]`; the `Release — promote develop to main` workflow (`release.yml`) opens its promotion PR with `--base main`.
+  - **Delivery pipeline**: the Production stage in `project_memory/operations/delivery.json` (and its `delivery.md` runbook mirror) now targets `main`.
+  - **Docs & instructions**: `CLAUDE.md`, `.github/copilot-instructions.md`, `CONTRIBUTING.md`, `docs/`, `wiki/`, and the `project_memory/` routines/operations/decisions/domain now reference `main` as the protected release branch. Branch-name-agnostic guards (the `git-push` protected-branch list, delivery branch detection, runtime push policy) already covered both names and are intentionally unchanged.
+  - **Dependabot**: added `target-branch: "develop"` to both ecosystems so dependency PRs keep opening against the integration branch rather than the new default.
+
+### Fixed
+- **`.vscode/settings.json`**: resolved a committed, unresolved merge-conflict marker (both sides were identical) that had left the workspace settings file as invalid JSON.
+
 ## [0.127.1] - 2026-06-30
 
 ### Fixed

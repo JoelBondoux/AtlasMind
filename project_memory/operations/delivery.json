@@ -75,7 +75,7 @@
       "kind": "production",
       "rank": 2,
       "description": "The released product your users install or consume via VS Code Marketplace. Promotion is the release: version-gated, requires sign-off, and never force-pushed.",
-      "branchRef": "master",
+      "branchRef": "main",
       "config": {},
       "hosting": {
         "provider": "VS Code Marketplace"
@@ -125,5 +125,5 @@
       "routineId": "publishing-routine"
     }
   ],
-  "updatedAt": "2026-06-21T00:12:30.699Z"
+  "updatedAt": "2026-07-04T00:00:00.000Z"
 }

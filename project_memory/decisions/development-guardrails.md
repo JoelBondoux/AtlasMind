@@ -46,32 +46,32 @@ When you make **any** of the following changes, you **MUST** update the correspo
 ## Branch Strategy
 
 - `develop`: default branch and integration branch for routine day-to-day work.
-- `master`: protected release-ready branch used only for intentional Marketplace publication.
+- `main`: protected release-ready branch used only for intentional Marketplace publication.
 - Feature branches: `feat/<short-name>` created from `develop`.
 - Fix branches: `fix/<short-name>` created from `develop`.
 - Chore branches: `chore/<short-name>` created from `develop`.
-- Promotion model: routine maintainer work can land directly on `develop`, optional topic branches can still merge into `develop`, and `develop` is promoted into `master` only when you intentionally want a new Marketplace release build.
+- Promotion model: routine maintainer work can land directly on `develop`, optional topic branches can still merge into `develop`, and `develop` is promoted into `main` only when you intentionally want a new Marketplace release build.
 
 ## Pull Request Workflow
 
 1. Open an issue first when the work benefits from tracking or external review.
 2. For routine solo-maintainer work, commit and push directly to `develop`.
 3. For isolated or higher-risk changes, create a branch from `develop`, implement the change with tests and docs, and open a PR back into `develop`.
-4. Promote `develop` into `master` only when you want to publish the next Marketplace release.
+4. Promote `develop` into `main` only when you want to publish the next Marketplace release.
 
 
 ## Release Flow
 
 - Use `develop` for normal integration, active implementation, and routine push targets.
-- Keep `master` releasable at all times.
-- **Do not include any `project_memory/` files or folders in `master`.** The entire `project_memory/` directory is for development and feature branches only, and must be excluded from release PRs and the `master` branch. This is enforced by `.gitignore` and should be checked in PR reviews.
+- Keep `main` releasable at all times.
+- **Do not include any `project_memory/` files or folders in `main`.** The entire `project_memory/` directory is for development and feature branches only, and must be excluded from release PRs and the `main` branch. This is enforced by `.gitignore` and should be checked in PR reviews.
 - Every commit (not just PRs) must include a version bump in `package.json` and a matching `CHANGELOG.md` entry. This applies to all code, doc, and config changes. The version bump and changelog update must be in the same commit as the change.
-- Trigger `Release — promote develop to master` from the Actions tab when you want a release.
-- That workflow creates or reuses the `develop` -> `master` release PR and enables squash auto-merge.
-- When the release PR merges into `master`, the `Release — tag merged master version` workflow creates the matching `v<package.json version>` tag.
+- Trigger `Release — promote develop to main` from the Actions tab when you want a release.
+- That workflow creates or reuses the `develop` -> `main` release PR and enables squash auto-merge.
+- When the release PR merges into `main`, the `Release — tag merged main version` workflow creates the matching `v<package.json version>` tag.
 - The `Release — publish Marketplace from tag` workflow publishes from that tag and creates the GitHub Release entry.
-- Direct pushes to `master` are blocked, including for admins.
-- If you later split preview and stable delivery again, keep `master` for stable and add a dedicated `pre-release` branch.
+- Direct pushes to `main` are blocked, including for admins.
+- If you later split preview and stable delivery again, keep `main` for stable and add a dedicated `pre-release` branch.
 
 ## Release Hygiene
 

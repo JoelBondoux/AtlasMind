@@ -2,6 +2,8 @@ version: 2
 updates:
   - package-ecosystem: npm
     directory: "/"
+    # Keep dependency PRs on the integration branch, not the default (main).
+    target-branch: "develop"
     schedule:
       interval: daily
     open-pull-requests-limit: 10
@@ -26,6 +28,8 @@ updates:
 
   - package-ecosystem: github-actions
     directory: "/"
+    # Keep dependency PRs on the integration branch, not the default (main).
+    target-branch: "develop"
     schedule:
       interval: weekly
       day: monday

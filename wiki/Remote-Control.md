@@ -1,5 +1,5 @@
 
-> **Note:** The `project_memory/` folder is only present in development and feature branches. It is excluded from the `master` branch and all release builds.
+> **Note:** The `project_memory/` folder is only present in development and feature branches. It is excluded from the `main` branch and all release builds.
 
 # Remote Control (Web → Desktop)
 
