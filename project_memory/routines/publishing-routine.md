@@ -16,9 +16,9 @@ steps:
     label: Package
     run: atlasmind-${VERSION}.vsix
     on_fail: abort
-  - id: open-pr-to-master
-    label: Open PR to master
-    run: gh pr create --base master --head develop
+  - id: open-pr-to-main
+    label: Open PR to main
+    run: gh pr create --base main --head develop
     on_fail: abort
   - id: publish
     label: Publish

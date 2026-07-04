@@ -27,10 +27,6 @@
     "atlasmind.autoVerifyAfterWrite": true,
     "atlasmind.autoVerifyScripts": ["compile", "lint", "test"],
     "atlasmind.autoVerifyTimeoutMs": 120000,
-<<<<<<< HEAD
     "atlasmind.maxToolIterations": 40,
-=======
-    "atlasmind.maxToolIterations": 40,
->>>>>>> e0ff3ba (Merge with master and publish)
     "atlasmind.projectApprovalFileThreshold": 20
 }

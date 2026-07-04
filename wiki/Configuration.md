@@ -1,11 +1,11 @@
-# Project Memory Rule (master branch)
+# Project Memory Rule (main branch)
 
-**Important:** The `project_memory/` folder and its contents are only present in development and feature branches. They are excluded from the `master` branch and all release builds. This is enforced by `.gitignore` and documented in the contribution guidelines. Do not expect `project_memory/` to exist on `master` or in published Marketplace packages.
+**Important:** The `project_memory/` folder and its contents are only present in development and feature branches. They are excluded from the `main` branch and all release builds. This is enforced by `.gitignore` and documented in the contribution guidelines. Do not expect `project_memory/` to exist on `main` or in published Marketplace packages.
 
 If you need to reference SSOT memory or session context, use the `atlasmind.ssotPath` setting, which defaults to `project_memory`. For more details, see the [Memory System](Memory-System.md) documentation.
 
 
-> **Note:** The `project_memory/` folder is only present in development and feature branches. It is excluded from the `master` branch and all release builds. This is enforced by `.gitignore` and documented in the contribution guidelines.
+> **Note:** The `project_memory/` folder is only present in development and feature branches. It is excluded from the `main` branch and all release builds. This is enforced by `.gitignore` and documented in the contribution guidelines.
 
 # User Environment Tracking
 

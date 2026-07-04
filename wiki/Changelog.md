@@ -1,8 +1,14 @@
 # Changelog
 
-This page highlights major releases. For the complete changelog, see [CHANGELOG.md](https://github.com/JoelBondoux/AtlasMind/blob/master/CHANGELOG.md) in the repository.
+This page highlights major releases. For the complete changelog, see [CHANGELOG.md](https://github.com/JoelBondoux/AtlasMind/blob/main/CHANGELOG.md) in the repository.
 
 **Note:** Every commit (not just PRs) must include a version bump in `package.json` and a matching `CHANGELOG.md` entry. This applies to all code, doc, and config changes. The version bump and changelog update must be in the same commit as the change.
+
+---
+
+## v0.127.2 — `main` is now the default branch
+
+- **The repository's default branch is now `main`.** The old release branch `master` was renamed to `main` and set as GitHub's default, so anyone landing on the repo sees the released, Marketplace-matching code instead of in-progress work. `develop` stays the day-to-day integration branch. CI, the release-promotion workflow, the delivery pipeline, and all docs were updated to match, and Dependabot keeps opening dependency PRs against `develop`. Also fixed an unresolved merge-conflict marker that had left `.vscode/settings.json` as invalid JSON.
 
 ---
 
@@ -1349,4 +1355,4 @@ AtlasMind's testing system was rebuilt from a single TDD default into a full 23-
 
 ## Earlier Releases
 
-See [CHANGELOG.md](https://github.com/JoelBondoux/AtlasMind/blob/master/CHANGELOG.md) for the complete version history.
+See [CHANGELOG.md](https://github.com/JoelBondoux/AtlasMind/blob/main/CHANGELOG.md) for the complete version history.
