@@ -8,6 +8,7 @@
 
 
 <p align="center">
+  <strong>BETA</strong><br/>
   <strong>AtlasMind is your AI teammate for solo and small dev teams.</strong><br/>
   <em>Ship faster, automate the boring parts, and keep your project's brain in one place — all inside VS Code.</em>
 </p>
