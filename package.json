@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.131.0",
+  "version": "0.132.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -404,6 +404,11 @@
         "command": "atlasmind.remote.enable",
         "title": "AtlasMind: Enable Remote Control",
         "icon": "$(broadcast)"
+      },
+      {
+        "command": "atlasmind.remote.enableGateway",
+        "title": "AtlasMind: Enable Remote Control (Gateway)",
+        "icon": "$(globe)"
       },
       {
         "command": "atlasmind.remote.disable",
@@ -1695,6 +1700,17 @@
           "default": false,
           "description": "Allow this desktop AtlasMind instance to accept remote-control connections from the web build over a localhost WebSocket.",
           "markdownDescription": "Allow this desktop AtlasMind instance to accept remote-control connections from the web build (vscode.dev / github.dev / code-server) over a localhost WebSocket. This is the master switch for the remote-control server.\n\nThe server still only listens after you run **AtlasMind: Enable Remote Control**, approve the workspace for remote control, and a pairing token exists. It binds to `127.0.0.1` only.\n\nExamples:\n- Default, no remote access: `false`\n- Local development where you drive the desktop instance from a browser tab on the same machine: `true`\n\nKeep this off unless you are actively pairing a web client. See the Remote Control documentation for the full security model."
+        },
+        "atlasmind.remote.mode": {
+          "type": "string",
+          "enum": ["localhost", "gateway"],
+          "enumDescriptions": [
+            "Same-machine pairing: a web client on this machine connects with the pairing token.",
+            "SSO gateway: an authenticated Cloudflare Worker + tunnel front the server; the browser's login is its identity."
+          ],
+          "default": "localhost",
+          "description": "Transport and authentication mode for the remote-control server.",
+          "markdownDescription": "Transport and authentication mode for the remote-control server.\n\n- **`localhost`** (default) — a same-machine web client (vscode.dev / github.dev / code-server) pairs with the token over `ws://127.0.0.1`.\n- **`gateway`** — the server is fronted by an SSO-gated Cloudflare Worker and a Cloudflare Tunnel, so you can reach it from a browser signed into your platform login. The server authenticates each connection by the `x-atlas-origin-secret` header the Worker injects (reusing the pairing-token secret) instead of an in-band token, so the browser never holds a token. Pin `atlasmind.remote.port` to a stable value so the tunnel target stays fixed. Run **AtlasMind: Enable Remote Control (Gateway)** to switch on this mode. See the Remote Control documentation for the full topology and security model."
         },
         "atlasmind.remote.port": {
           "type": "number",

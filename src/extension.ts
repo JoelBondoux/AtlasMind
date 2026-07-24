@@ -2427,6 +2427,17 @@ async function bootstrapAtlasMind(
         void vscode.window.showInformationMessage('Remote URL and pairing token copied to the clipboard.');
       }
     };
+    const showGatewayGuidance = async (localUrl: string, originSecret: string): Promise<void> => {
+      const port = localUrl.split(':').pop() ?? '0';
+      const choice = await vscode.window.showInformationMessage(
+        `AtlasMind remote control is live in gateway mode on ${localUrl}. Point the "atlas-lab" Cloudflare Tunnel at http://127.0.0.1:${port}, and set the atlas gateway Worker's ORIGIN_SECRET to the copied value. The browser never sees this secret — the platform login is its identity.`,
+        'Copy origin secret',
+      );
+      if (choice === 'Copy origin secret') {
+        await vscode.env.clipboard.writeText(originSecret);
+        void vscode.window.showInformationMessage('Origin secret copied. Set it on the Worker with `wrangler secret put ORIGIN_SECRET`.');
+      }
+    };
     context.subscriptions.push(
       remoteOutput,
       remoteControlServer,
@@ -2437,6 +2448,14 @@ async function bootstrapAtlasMind(
         updateRemoteStatusBar();
         if (result) {
           await showRemotePairing(result.url, result.token);
+        }
+      }),
+      vscode.commands.registerCommand('atlasmind.remote.enableGateway', async () => {
+        await vscode.workspace.getConfiguration('atlasmind').update('remote.mode', 'gateway', vscode.ConfigurationTarget.Global);
+        const result = await remoteControlServer.enable(true);
+        updateRemoteStatusBar();
+        if (result) {
+          await showGatewayGuidance(result.url, result.token);
         }
       }),
       vscode.commands.registerCommand('atlasmind.remote.disable', () => {

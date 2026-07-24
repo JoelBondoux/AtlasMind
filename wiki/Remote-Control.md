@@ -58,8 +58,9 @@ Each frame is a JSON envelope `{ v, kind, id?, channel, payload }`:
 | Control | Behaviour |
 |---|---|
 | Off by default | Server never listens until `AtlasMind: Enable Remote Control` is run and `atlasmind.remote.enabled` is on. |
-| Localhost only (v1) | Binds to `127.0.0.1`. Cross-machine reach is a later phase requiring TLS. |
-| Pairing + bearer token | Token stored in `SecretStorage` on both sides; no valid token → refused. |
+| Localhost bind | Always binds to `127.0.0.1`. Cross-machine reach is via your own SSO gateway + tunnel over TLS (`remote.mode: gateway`), never by exposing the port. |
+| Pairing + bearer token (localhost) | Token stored in `SecretStorage` on both sides; no valid token → refused. |
+| Gateway origin secret (gateway) | The SSO gateway authenticates each WebSocket via an `x-atlas-origin-secret` header (timing-safe vs the pairing-token slot); the browser holds no token — the login is its identity. |
 | Workspace-trust gate | Refuses to serve until the workspace is approved for remote control. |
 | Redaction boundary | API keys/secrets are never serialized across the bridge. |
 | No silent approvals | Remote tool approvals require an authenticated session, are audited, and **default to deny** on disconnect. |
@@ -73,6 +74,7 @@ See [[Security]] and [[Tool Execution]] for how this fits the broader safety mod
 | Command | Purpose |
 |---|---|
 | `AtlasMind: Enable Remote Control` | Start the localhost server (trust prompt + pairing code). |
+| `AtlasMind: Enable Remote Control (Gateway)` | Switch to `gateway` mode + start; show the origin secret and local tunnel target. |
 | `AtlasMind: Disable Remote Control` | Stop the server and drop sessions. |
 | `AtlasMind: Show Remote Pairing Code` | Re-display the current pairing code. |
 | `AtlasMind: Revoke Remote Access` | Rotate the token and disconnect all clients. |
@@ -80,11 +82,22 @@ See [[Security]] and [[Tool Execution]] for how this fits the broader safety mod
 | Setting | Default | Purpose |
 |---|---|---|
 | `atlasmind.remote.enabled` | `false` | Master switch for the desktop server. |
-| `atlasmind.remote.port` | `0` (auto) | Localhost port to bind (`0` = free port). |
+| `atlasmind.remote.mode` | `localhost` | `localhost` (same-machine token pairing) or `gateway` (front with your own SSO gateway + tunnel). |
+| `atlasmind.remote.port` | `0` (auto) | Localhost port to bind (`0` = free port; pin in `gateway` mode). |
 
-## Limitations (v1)
+## Gateway mode (cross-machine)
 
-- Same-machine (localhost) only. Cross-machine remote is planned via VS Code Tunnels or
-  a self-hosted relay.
+`remote.mode: gateway` fronts the localhost server with **your own** SSO-gated reverse proxy
+(e.g. a Cloudflare Worker) plus a tunnel (e.g. `cloudflared`) back to `127.0.0.1:<port>`, so a
+browser signed into your login can reach it — **no inbound port** is opened. The browser holds no
+token: your gateway authorizes the session and injects an `x-atlas-origin-secret` header the
+desktop verifies (timing-safe, same slot as the pairing token; **Revoke Remote Access** rotates
+it). An optional `x-atlas-user-id` header is recorded for audit. All desktop gates still apply.
+Run **AtlasMind: Enable Remote Control (Gateway)**; pin `atlasmind.remote.port` first.
+
+## Limitations
+
+- Cross-machine access requires your own SSO gateway + tunnel (`gateway` mode); AtlasMind hosts
+  no relay. A same-machine client needs no gateway.
 - Web client exposes chat plus **read-only** cost and project-run dashboards; mutating
   panels remain desktop-only.

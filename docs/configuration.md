@@ -203,7 +203,8 @@ The autonomous goal-seeking loop (`/loop` chat command and the Mission Control p
 | Setting | Type | Default | Description |
 |---|---|---|---|
 | `atlasmind.remote.enabled` | `boolean` | `false` | Allow the AtlasMind web build to remote-control this desktop instance over a localhost WebSocket. Off by default; the server only listens after **AtlasMind: Enable Remote Control**, workspace approval, and a pairing token. Binds to `127.0.0.1` only. See [Remote Control](remote-control.md). |
-| `atlasmind.remote.port` | `number` | `0` | Localhost port for the remote-control server. `0` picks a free port automatically; pin a value to keep the `ws://localhost:PORT` URL stable across restarts. |
+| `atlasmind.remote.mode` | `string` | `localhost` | Transport/auth mode for the remote-control server. `localhost` pairs a same-machine web client with the token; `gateway` fronts the server with an SSO-gated Cloudflare Worker + Cloudflare Tunnel so a browser signed into your platform login can reach it, authenticating each connection by the `x-atlas-origin-secret` header the Worker injects instead of an in-band token. Enable via **AtlasMind: Enable Remote Control (Gateway)**. See [Remote Control](remote-control.md). |
+| `atlasmind.remote.port` | `number` | `0` | Localhost port for the remote-control server. `0` picks a free port automatically; pin a value to keep the `ws://localhost:PORT` URL stable across restarts (recommended in `gateway` mode so the tunnel target stays fixed). |
 
 ## Budget
 

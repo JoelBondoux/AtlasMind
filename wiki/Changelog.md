@@ -6,6 +6,14 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.132.0 — Remote control over an SSO gateway
+
+- **Reach your desktop AtlasMind from your own website login.** Remote control can now run in `gateway` mode behind an SSO-gated Cloudflare Worker + Cloudflare Tunnel, so you can drive the orchestrator and view read-only cost/run dashboards from any browser signed into your platform login — not only a same-machine web client. No inbound port is opened; the Worker and tunnel are outbound/edge.
+- **Identity from the login, not a copied token.** In gateway mode the server authenticates each WebSocket by the `x-atlas-origin-secret` header the Worker injects (timing-safe against the pairing-token secret) and records the forwarded user id for audit; the browser never holds a credential. Localhost pairing mode is unchanged and still the default.
+- **Same safety posture.** Workspace-trust approval, the redaction boundary, desktop-authoritative tool approvals, and default-deny-on-disconnect all still apply. New command **AtlasMind: Enable Remote Control (Gateway)** and setting `atlasmind.remote.mode`.
+
+---
+
 ## v0.131.0 — Guided MCP setup wizard
 
 - **MCP is now approachable for first-time users.** The MCP Servers panel leads with a step-by-step **Guided Setup**: **Scan my computer** (AtlasMind finds servers it can set up from tools you already have) or **Browse by category**, then it checks prerequisites, asks only for the inputs a server needs, and connects. The old raw form lives on as an **Advanced** tab.

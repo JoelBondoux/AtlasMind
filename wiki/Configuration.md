@@ -215,7 +215,8 @@ AtlasMind does not yet ship an OS-native host speech backend. The current voice 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `atlasmind.remote.enabled` | boolean | `false` | Allow the AtlasMind web build to remote-control this desktop instance over a localhost WebSocket. Off by default; the server only listens after **AtlasMind: Enable Remote Control**, workspace approval, and a pairing token. Binds to `127.0.0.1` only. See [[Remote Control]]. |
-| `atlasmind.remote.port` | number | `0` | Localhost port for the remote-control server. `0` picks a free port automatically; pin a value to keep the `ws://localhost:PORT` URL stable. |
+| `atlasmind.remote.mode` | string | `localhost` | Transport/auth mode: `localhost` pairs a same-machine web client with the token; `gateway` fronts the server with your own SSO-gated Cloudflare Worker + tunnel so a browser signed into your login can reach it, authenticating each connection by the `x-atlas-origin-secret` header instead of an in-band token. Enable via **AtlasMind: Enable Remote Control (Gateway)**. See [[Remote Control]]. |
+| `atlasmind.remote.port` | number | `0` | Localhost port for the remote-control server. `0` picks a free port automatically; pin a value to keep the `ws://localhost:PORT` URL stable (recommended in `gateway` mode so the tunnel target stays fixed). |
 
 ## Mission Loop
 

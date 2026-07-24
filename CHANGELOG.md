@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.132.0] - 2026-07-24
+
+### Added
+- **Remote control over an SSO gateway (cross-machine, `atlasmind.remote.mode: "gateway"`).** The desktop remote-control server can now sit behind an authenticated Cloudflare Worker + Cloudflare Tunnel, so you can drive AtlasMind and view its read-only cost/run dashboards from a browser signed into your own platform login — not just a same-machine web client. In gateway mode the server authenticates each WebSocket by the `x-atlas-origin-secret` header the Worker injects (verified timing-safe against the existing pairing-token secret) instead of an in-band token, so the browser never holds a credential; it also records the forwarded `x-atlas-user-id` for audit. No inbound port is opened — the Worker and tunnel are outbound/edge. Localhost pairing mode is unchanged and remains the default. Every existing safety gate holds: workspace-trust approval, the redaction boundary, desktop-authoritative tool approvals, and default-deny on disconnect. New command **AtlasMind: Enable Remote Control (Gateway)** and setting `atlasmind.remote.mode` (`localhost` | `gateway`); the companion `atlas` gateway Worker is documented in `docs/remote-control.md`. `src/remote/remoteControlServer.ts`, `src/extension.ts`.
+
 ## [0.131.0] - 2026-07-24
 
 ### Added

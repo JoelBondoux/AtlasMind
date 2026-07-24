@@ -143,7 +143,8 @@ Custom skills are statically scanned before enablement:
 The web build can remote-control a desktop instance over a WebSocket. Because that exposes a surface able to run tools and hold secrets, it is **default-deny**:
 
 - **Off by default.** The server never listens until the operator runs `AtlasMind: Enable Remote Control` and `atlasmind.remote.enabled` is on.
-- **Localhost only (v1).** The server binds to `127.0.0.1`. Cross-machine reach is a planned follow-up and will require TLS.
+- **Localhost bind.** The server always binds to `127.0.0.1`. Cross-machine reach (`atlasmind.remote.mode: "gateway"`) is achieved by fronting it with your own SSO gateway + tunnel over TLS, never by exposing the port directly.
+- **Gateway origin secret.** In `gateway` mode the SSO gateway authenticates each WebSocket via an `x-atlas-origin-secret` header the desktop verifies constant-time against the pairing-token slot; the browser never holds a credential (the login is its identity), and an optional `x-atlas-user-id` is recorded for audit.
 - **Pairing + bearer token.** A token is generated and stored in **SecretStorage** on both sides; connections without a matching token are refused (constant-time comparison). Unauthenticated connections are dropped after a short timeout and audited.
 - **Workspace-trust gate.** The server refuses to serve until the workspace is explicitly approved for remote control (mirrors the webhook trust gate).
 - **Redaction boundary holds.** API keys and secrets are never serialized across the bridge — the desktop executes; the client only receives already-redacted results. Cost/run RPCs are **read-only**.
