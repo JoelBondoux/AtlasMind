@@ -47,6 +47,13 @@
     rollbackText: '',
     rollbackNotice: '',
     healthNotice: '',
+    // Project Director editor state.
+    directorEditContactId: '',
+    directorConfirmRemoveContactId: '',
+    directorNewFollowUp: false,
+    directorNewResponsibility: false,
+    directorNewAssignment: false,
+    directorSeedConfirm: false,
   };
 
   refreshButton?.addEventListener('click', () => {
@@ -475,6 +482,146 @@
       vscode.postMessage({ type: 'resolveAndRunPromotion', payload: { pathId: p.plan.pathId, attestations: attest, confirmText: p.confirmText || '' } });
       return;
     }
+
+    // ── Project Director ──
+    if (action === 'director-seed') {
+      const cfg = getDirectorConfig();
+      state.directorSeedConfirm = !!(cfg && cfg.contacts.length > 0);
+      if (!state.directorSeedConfirm) { vscode.postMessage({ type: 'seedDirectorFromRepo' }); }
+      render();
+      return;
+    }
+    if (action === 'director-seed-confirm') { state.directorSeedConfirm = false; vscode.postMessage({ type: 'seedDirectorFromRepo' }); render(); return; }
+    if (action === 'director-seed-cancel') { state.directorSeedConfirm = false; render(); return; }
+    if (action === 'director-store-pii') { const cfg = getDirectorConfig(); if (cfg) { postDirectorConfig(cfg); } return; }
+    if (action === 'director-mode') { const cfg = cloneDirectorConfig(); cfg.settings.teamMode = payload; postDirectorConfig(cfg); return; }
+    if (action === 'director-copy') { vscode.postMessage({ type: 'copyContact', payload: payload }); return; }
+    if (action === 'director-open-link') {
+      const parts = payload.split('::');
+      if (parts.length === 2) { vscode.postMessage({ type: 'openContactDeepLink', payload: { contactId: parts[0], linkId: parts[1] } }); }
+      return;
+    }
+    if (action === 'director-contact-add') { state.directorEditContactId = 'new'; state.directorConfirmRemoveContactId = ''; render(); return; }
+    if (action === 'director-contact-edit') { state.directorEditContactId = payload; state.directorConfirmRemoveContactId = ''; render(); return; }
+    if (action === 'director-contact-cancel') { state.directorEditContactId = ''; render(); return; }
+    if (action === 'director-contact-remove') { state.directorConfirmRemoveContactId = payload; render(); return; }
+    if (action === 'director-contact-remove-cancel') { state.directorConfirmRemoveContactId = ''; render(); return; }
+    if (action === 'director-contact-remove-confirm') {
+      const cfg = cloneDirectorConfig();
+      cfg.contacts = cfg.contacts.filter(c => c.id !== payload);
+      cfg.stakeholders = cfg.stakeholders.filter(s => s.contactId !== payload);
+      cfg.teamMembers = cfg.teamMembers.filter(t => t.contactId !== payload);
+      cfg.responsibilities = cfg.responsibilities.filter(r => r.ownerContactId !== payload);
+      if (cfg.selfContactId === payload) { cfg.selfContactId = ''; }
+      state.directorConfirmRemoveContactId = '';
+      state.directorEditContactId = '';
+      postDirectorConfig(cfg);
+      return;
+    }
+    if (action === 'director-contact-save') {
+      const container = document.getElementById('director-contact-editor');
+      if (!container) { return; }
+      const val = f => { const el = container.querySelector('[data-field="' + f + '"]'); return el ? el.value : ''; };
+      const chk = f => { const el = container.querySelector('[data-field="' + f + '"]'); return !!(el && el.checked); };
+      const name = val('name').trim();
+      if (!name) { return; }
+      const cfg = cloneDirectorConfig();
+      let id = payload;
+      if (payload === 'new') {
+        let base = 'contact-' + slugClient(name); let u = base; let n = 1;
+        while (cfg.contacts.some(c => c.id === u)) { u = base + '-' + (n++); }
+        id = u;
+      }
+      const linkKind = val('linkKind') || 'email';
+      const linkHandle = val('linkHandle').trim();
+      const links = [];
+      if (linkHandle) {
+        const dl = directorDeepLink(linkKind, linkHandle);
+        const lnk = { id: 'link-' + slugClient(linkHandle), kind: linkKind, label: val('linkLabel').trim() || linkKind, handle: linkHandle, preferred: true };
+        if (dl) { lnk.deepLink = dl; }
+        links.push(lnk);
+      }
+      const existingIdx = cfg.contacts.findIndex(c => c.id === id);
+      const existing = existingIdx >= 0 ? cfg.contacts[existingIdx] : null;
+      const finalLinks = links.length ? links : (existing ? existing.links : []);
+      const contact = { id: id, name: name, kind: 'person', title: val('title').trim() || undefined, org: val('org').trim() || undefined, links: finalLinks, piiStored: finalLinks.some(l => directorIsPiiLink(l.kind)) };
+      if (existing && existing.ref) { contact.ref = existing.ref; }
+      if (existingIdx >= 0) { cfg.contacts[existingIdx] = contact; } else { cfg.contacts.push(contact); }
+      if (chk('isSelf')) { cfg.selfContactId = id; } else if (cfg.selfContactId === id) { cfg.selfContactId = ''; }
+      cfg.stakeholders = cfg.stakeholders.filter(s => s.contactId !== id);
+      if (chk('asStakeholder')) { cfg.stakeholders.push({ id: 'stk-' + id, contactId: id, category: val('stkCategory') || 'internal', influence: val('stkInfluence') || 'medium', interest: val('stkInterest') || 'medium' }); }
+      cfg.teamMembers = cfg.teamMembers.filter(t => t.contactId !== id);
+      if (chk('asTeam')) { cfg.teamMembers.push({ id: 'tm-' + id, contactId: id, discipline: val('teamDiscipline').trim() || 'contributor' }); }
+      state.directorEditContactId = '';
+      postDirectorConfig(cfg);
+      return;
+    }
+    if (action === 'director-resp-add') { state.directorNewResponsibility = true; render(); return; }
+    if (action === 'director-resp-cancel') { state.directorNewResponsibility = false; render(); return; }
+    if (action === 'director-resp-remove') { const cfg = cloneDirectorConfig(); cfg.responsibilities = cfg.responsibilities.filter(r => r.id !== payload); postDirectorConfig(cfg); return; }
+    if (action === 'director-resp-save') {
+      const container = document.getElementById('director-resp-editor');
+      if (!container) { return; }
+      const val = f => { const el = container.querySelector('[data-field="' + f + '"]'); return el ? el.value : ''; };
+      const area = val('area').trim();
+      const owner = val('ownerContactId');
+      if (!area || !owner) { return; }
+      const cfg = cloneDirectorConfig();
+      cfg.responsibilities.push({ id: 'resp-' + slugClient(area) + '-' + (cfg.responsibilities.length + 1), area: area, description: val('description').trim() || undefined, ownerContactId: owner, backupContactId: val('backupContactId') || undefined });
+      state.directorNewResponsibility = false;
+      postDirectorConfig(cfg);
+      return;
+    }
+    if (action === 'director-assignment-add') { state.directorNewAssignment = true; render(); return; }
+    if (action === 'director-assignment-cancel') { state.directorNewAssignment = false; render(); return; }
+    if (action === 'director-assignment-remove') { const cfg = cloneDirectorConfig(); cfg.assignments = cfg.assignments.filter(a => a.id !== payload); postDirectorConfig(cfg); return; }
+    if (action === 'director-assignment-cycle') {
+      const cfg = cloneDirectorConfig();
+      const order = ['todo', 'in-progress', 'blocked', 'done'];
+      const a = cfg.assignments.find(x => x.id === payload);
+      if (a) { a.status = order[(order.indexOf(a.status) + 1) % order.length]; a.updatedAt = new Date().toISOString(); postDirectorConfig(cfg); }
+      return;
+    }
+    if (action === 'director-assignment-save') {
+      const container = document.getElementById('director-assignment-editor');
+      if (!container) { return; }
+      const val = f => { const el = container.querySelector('[data-field="' + f + '"]'); return el ? el.value : ''; };
+      const title = val('title').trim();
+      if (!title) { return; }
+      const cfg = cloneDirectorConfig();
+      const now = new Date().toISOString();
+      cfg.assignments.push({ id: 'asg-' + slugClient(title) + '-' + (cfg.assignments.length + 1), title: title, kind: 'task', assigneeContactId: val('assigneeContactId') || undefined, status: val('status') || 'todo', priority: val('priority') || 'medium', due: val('due').trim() || undefined, source: 'manual', createdAt: now, updatedAt: now });
+      state.directorNewAssignment = false;
+      postDirectorConfig(cfg);
+      return;
+    }
+    if (action === 'director-followup-add') { state.directorNewFollowUp = true; render(); return; }
+    if (action === 'director-followup-cancel') { state.directorNewFollowUp = false; render(); return; }
+    if (action === 'director-followup-save') {
+      const container = document.getElementById('director-followup-editor');
+      if (!container) { return; }
+      const val = f => { const el = container.querySelector('[data-field="' + f + '"]'); return el ? el.value : ''; };
+      const title = val('title').trim();
+      if (!title) { return; }
+      const cfg = cloneDirectorConfig();
+      const now = new Date().toISOString();
+      cfg.followUps.push({ id: 'fu-' + slugClient(title) + '-' + (cfg.followUps.length + 1), title: title, dueDate: val('dueDate').trim() || directorTodayKey(), cadence: val('cadence') || 'once', status: 'open', linked: { kind: 'none' }, withContactId: val('withContactId') || undefined, createdAt: now, updatedAt: now });
+      state.directorNewFollowUp = false;
+      postDirectorConfig(cfg);
+      return;
+    }
+    if (action === 'director-followup-complete' || action === 'director-followup-snooze' || action === 'director-followup-cancel-item') {
+      const cfg = cloneDirectorConfig();
+      const f = cfg.followUps.find(x => x.id === payload);
+      if (!f) { return; }
+      const now = new Date().toISOString();
+      if (action === 'director-followup-complete') { f.status = 'done'; f.completedAt = now; }
+      else if (action === 'director-followup-snooze') { f.status = 'snoozed'; f.snoozedUntil = directorAddDaysKey(7); }
+      else { f.status = 'cancelled'; }
+      f.updatedAt = now;
+      postDirectorConfig(cfg);
+      return;
+    }
   });
 
   root?.addEventListener('input', event => {
@@ -539,6 +686,12 @@
     if (target.id === 'test-select-jump') {
       state.selectedTestId = target.value;
       render();
+    }
+    if (target.getAttribute('data-action') === 'director-assign-run') {
+      const runId = target.getAttribute('data-run') || '';
+      if (runId) {
+        vscode.postMessage({ type: 'assignRunOwner', payload: { runId: runId, contactId: target.value } });
+      }
     }
   });
 
@@ -741,6 +894,7 @@
         ['security', 'Security'],
         ['privacy', 'Privacy'],
         ['delivery', 'Delivery'],
+        ['director', 'Director'],
       ];
 
       root.innerHTML = `
@@ -783,6 +937,7 @@
         ${renderSecurity(snapshot)}
         ${renderPrivacy(snapshot)}
         ${renderDelivery(snapshot)}
+        ${renderDirector(snapshot)}
         ${renderPromotionModal()}
       `;
 
@@ -2367,6 +2522,44 @@
     vscode.postMessage({ type: 'saveDeliveryConfig', payload: cfg });
   }
 
+  // ── Project Director helpers ───────────────────────────────────
+  function emptyDirectorConfig() {
+    return {
+      version: 1, project: { name: '', summary: '' }, selfContactId: '',
+      contacts: [], stakeholders: [], teamMembers: [], responsibilities: [],
+      assignments: [], followUps: [],
+      settings: { teamMode: 'auto', nudgeOnActivation: true, remindersEnabled: false, outboundEnabled: false },
+    };
+  }
+  function getDirectorConfig() {
+    const d = state.snapshot && state.snapshot.director;
+    return d && d.config ? d.config : null;
+  }
+  function cloneDirectorConfig() {
+    const cfg = getDirectorConfig();
+    return cfg ? JSON.parse(JSON.stringify(cfg)) : emptyDirectorConfig();
+  }
+  function postDirectorConfig(cfg) {
+    vscode.postMessage({ type: 'saveDirectorConfig', payload: cfg });
+  }
+  function directorTodayKey() {
+    const d = new Date();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return d.getFullYear() + '-' + m + '-' + day;
+  }
+  function directorAddDaysKey(days) {
+    const d = new Date();
+    d.setDate(d.getDate() + days);
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return d.getFullYear() + '-' + m + '-' + day;
+  }
+  function directorNameOf(cfg, contactId) {
+    const c = cfg.contacts.find(x => x.id === contactId);
+    return c ? c.name : '—';
+  }
+
   function findRawStage(id) {
     const cfg = getDeliveryConfig();
     return (cfg && cfg.stages.find(s => s.id === id)) || defaultNewStage();
@@ -2711,6 +2904,307 @@
         })()}
       </section>
     `;
+  }
+
+  // ── Project Director page ──────────────────────────────────────
+  function directorDeepLink(kind, handle) {
+    const h = String(handle || '').trim();
+    if (!h) { return ''; }
+    if (kind === 'email') { return 'mailto:' + h; }
+    if (kind === 'phone') { return 'tel:' + h; }
+    if (kind === 'sms') { return 'sms:' + h; }
+    if (kind === 'github') { return 'https://github.com/' + h.replace(/^@/, ''); }
+    if (kind === 'linkedin') { return h.indexOf('http') === 0 ? h : 'https://www.linkedin.com/in/' + h.replace(/^@/, ''); }
+    return '';
+  }
+  function directorIsPiiLink(kind) { return kind === 'email' || kind === 'phone' || kind === 'sms'; }
+
+  function renderDirectorContactCard(cfg, snap, contact) {
+    const isSelf = cfg.selfContactId === contact.id;
+    const stk = cfg.stakeholders.find(s => s.contactId === contact.id);
+    const team = cfg.teamMembers.find(t => t.contactId === contact.id);
+    const badges = [];
+    if (isSelf) { badges.push('<span class="tag" style="background:var(--vscode-badge-background)">you</span>'); }
+    if (stk) { badges.push('<span class="tag">' + escapeHtml(stk.category) + ' · ' + escapeHtml(stk.influence) + '/' + escapeHtml(stk.interest) + '</span>'); }
+    if (team) { badges.push('<span class="tag mono">' + escapeHtml(team.discipline) + '</span>'); }
+    const linkButtons = contact.links.map(link => {
+      const open = link.deepLink
+        ? '<button type="button" class="action-link" data-action="director-open-link" data-payload="' + escapeAttr(contact.id + '::' + link.id) + '">Open ' + escapeHtml(link.kind) + '</button>'
+        : '<span class="tag mono">' + escapeHtml(link.kind) + '</span>';
+      return open;
+    }).join(' ');
+    return `
+      <article class="list-card">
+        <div class="row-head">
+          <h4>${escapeHtml(contact.name)}</h4>
+          <div class="tag-row">${badges.join(' ')}</div>
+        </div>
+        ${contact.title || contact.org ? `<div class="list-meta">${escapeHtml([contact.title, contact.org].filter(Boolean).join(' · '))}</div>` : ''}
+        <div class="tag-row">${linkButtons || '<span class="list-meta">No contact channels yet.</span>'}</div>
+        <div class="tag-row">
+          ${contact.links.length ? '<button type="button" class="action-link" data-action="director-copy" data-payload="' + escapeAttr(contact.id) + '">Copy contact</button>' : ''}
+          <button type="button" class="action-link" data-action="director-contact-edit" data-payload="${escapeAttr(contact.id)}">Edit</button>
+          ${state.directorConfirmRemoveContactId === contact.id
+            ? `<span class="stage-remove-confirm">Remove? <button type="button" class="action-link danger" data-action="director-contact-remove-confirm" data-payload="${escapeAttr(contact.id)}">Yes</button> <button type="button" class="action-link" data-action="director-contact-remove-cancel" data-payload="">No</button></span>`
+            : `<button type="button" class="action-link danger" data-action="director-contact-remove" data-payload="${escapeAttr(contact.id)}">Remove</button>`}
+        </div>
+      </article>`;
+  }
+
+  function renderDirectorContactEditor(cfg, contact, isNew) {
+    const kinds = ['email', 'slack', 'teams', 'phone', 'github', 'linkedin', 'other'].map(k => ({ value: k, label: k }));
+    const cats = ['sponsor', 'client', 'user-representative', 'regulator', 'vendor', 'partner', 'internal', 'other'].map(k => ({ value: k, label: k }));
+    const levels = ['high', 'medium', 'low'].map(k => ({ value: k, label: k }));
+    const primary = (contact.links && contact.links[0]) || { kind: 'email', label: '', handle: '' };
+    const stk = cfg.stakeholders.find(s => s.contactId === contact.id);
+    const team = cfg.teamMembers.find(t => t.contactId === contact.id);
+    return `
+      <article class="stage-card stage-editor" id="director-contact-editor">
+        <div class="stage-head"><h4>${isNew ? 'Add person' : 'Edit person'}</h4></div>
+        <div class="stage-edit-grid">
+          ${edText('Name', 'name', contact.name, 'Jane Doe')}
+          ${edText('Title / role', 'title', contact.title, 'VP Product')}
+          ${edText('Organisation', 'org', contact.org, '')}
+          ${edSelect('Channel', 'linkKind', primary.kind, kinds)}
+          ${edText('Label', 'linkLabel', primary.label, 'Work email')}
+          ${edText('Handle (address / @user / phone)', 'linkHandle', primary.handle, 'jane@example.com')}
+        </div>
+        <div class="stage-edit-checks">
+          ${edCheck('This is me', 'isSelf', cfg.selfContactId === contact.id)}
+          ${edCheck('Stakeholder', 'asStakeholder', !!stk)}
+          ${edCheck('Team member', 'asTeam', !!team)}
+        </div>
+        <div class="stage-edit-grid">
+          ${edSelect('Stakeholder category', 'stkCategory', stk ? stk.category : 'internal', cats)}
+          ${edSelect('Influence', 'stkInfluence', stk ? stk.influence : 'medium', levels)}
+          ${edSelect('Interest', 'stkInterest', stk ? stk.interest : 'medium', levels)}
+          ${edText('Team discipline', 'teamDiscipline', team ? team.discipline : '', 'backend-engineer')}
+        </div>
+        <p class="list-meta">Storing an email or phone number is personal data — you'll be asked to acknowledge the GDPR implications the first time.</p>
+        <div class="tag-row">
+          <button type="button" class="action-link primary" data-action="director-contact-save" data-payload="${escapeAttr(isNew ? 'new' : contact.id)}">Save</button>
+          <button type="button" class="action-link" data-action="director-contact-cancel" data-payload="">Cancel</button>
+        </div>
+      </article>`;
+  }
+
+  function renderDirectorResponsibilities(cfg) {
+    const contactOptions = cfg.contacts.map(c => ({ value: c.id, label: c.name }));
+    const rows = cfg.responsibilities.map(r => `
+      <div class="history-row">
+        <div><strong>${escapeHtml(r.area)}</strong>${r.description ? ' — ' + escapeHtml(r.description) : ''}</div>
+        <div class="list-meta">Owner: ${escapeHtml(directorNameOf(cfg, r.ownerContactId))}${r.backupContactId ? ' · Backup: ' + escapeHtml(directorNameOf(cfg, r.backupContactId)) : ''}
+          <button type="button" class="action-link danger" data-action="director-resp-remove" data-payload="${escapeAttr(r.id)}">Remove</button></div>
+      </div>`).join('');
+    const editor = state.directorNewResponsibility ? `
+      <article class="stage-card stage-editor" id="director-resp-editor">
+        <div class="stage-edit-grid">
+          ${edText('Area / scope', 'area', '', 'Payments, Release sign-off')}
+          ${edText('Description', 'description', '', '')}
+          ${edSelect('Owner', 'ownerContactId', cfg.selfContactId || (contactOptions[0] && contactOptions[0].value) || '', contactOptions)}
+          ${edSelect('Backup (optional)', 'backupContactId', '', [{ value: '', label: '—' }].concat(contactOptions))}
+        </div>
+        <div class="tag-row">
+          <button type="button" class="action-link primary" data-action="director-resp-save" data-payload="">Save</button>
+          <button type="button" class="action-link" data-action="director-resp-cancel" data-payload="">Cancel</button>
+        </div>
+      </article>` : `<div class="tag-row"><button type="button" class="action-link" data-action="director-resp-add" data-payload="">＋ Add responsibility</button></div>`;
+    return `
+      <article class="list-card">
+        <p class="section-kicker">Ownership</p>
+        <h3>Responsibilities — who owns what</h3>
+        <div class="stack-list">${rows || '<div class="dashboard-empty">No responsibilities recorded yet.</div>'}</div>
+        ${editor}
+      </article>`;
+  }
+
+  function renderDirectorAssignments(cfg, snap) {
+    const contactOptions = cfg.contacts.map(c => ({ value: c.id, label: c.name }));
+    const statuses = ['todo', 'in-progress', 'blocked', 'done', 'cancelled'];
+    const manual = cfg.assignments.filter(a => a.source !== 'run' || !a.linkedRunId);
+    const rows = manual.map(a => `
+      <div class="history-row">
+        <div><strong>${escapeHtml(a.title)}</strong> <span class="tag">${escapeHtml(a.priority)}</span></div>
+        <div class="list-meta">
+          Assignee: ${escapeHtml(a.assigneeContactId ? directorNameOf(cfg, a.assigneeContactId) : '—')}${a.due ? ' · Due ' + escapeHtml(a.due) : ''}
+          <button type="button" class="action-link" data-action="director-assignment-cycle" data-payload="${escapeAttr(a.id)}">${escapeHtml(a.status)} ↻</button>
+          <button type="button" class="action-link danger" data-action="director-assignment-remove" data-payload="${escapeAttr(a.id)}">Remove</button>
+        </div>
+      </div>`).join('');
+    const editor = state.directorNewAssignment ? `
+      <article class="stage-card stage-editor" id="director-assignment-editor">
+        <div class="stage-edit-grid">
+          ${edText('Title', 'title', '', 'Draft the release notes')}
+          ${edSelect('Assignee', 'assigneeContactId', cfg.selfContactId || '', [{ value: '', label: '—' }].concat(contactOptions))}
+          ${edSelect('Status', 'status', 'todo', statuses.map(s => ({ value: s, label: s })))}
+          ${edSelect('Priority', 'priority', 'medium', ['high', 'medium', 'low'].map(s => ({ value: s, label: s })))}
+          ${edText('Due (YYYY-MM-DD)', 'due', '', '')}
+        </div>
+        <div class="tag-row">
+          <button type="button" class="action-link primary" data-action="director-assignment-save" data-payload="">Save</button>
+          <button type="button" class="action-link" data-action="director-assignment-cancel" data-payload="">Cancel</button>
+        </div>
+      </article>` : `<div class="tag-row"><button type="button" class="action-link" data-action="director-assignment-add" data-payload="">＋ Add assignment</button></div>`;
+    return `
+      <article class="list-card">
+        <p class="section-kicker">Work</p>
+        <h3>Assignments</h3>
+        <div class="stack-list">${rows || '<div class="dashboard-empty">No assignments yet.</div>'}</div>
+        ${editor}
+        ${renderDirectorRuns(cfg, snap)}
+      </article>`;
+  }
+
+  function renderDirectorRuns(cfg, snap) {
+    if (!snap.runs || snap.runs.length === 0) { return ''; }
+    const contactOptions = [{ value: '', label: '— unassigned —' }].concat(cfg.contacts.map(c => ({ value: c.id, label: c.name })));
+    const rows = snap.runs.map(run => {
+      const owner = cfg.assignments.find(a => a.linkedRunId === run.id);
+      const selected = owner ? owner.assigneeContactId || '' : '';
+      const opts = contactOptions.map(o => '<option value="' + escapeAttr(o.value) + '"' + (o.value === selected ? ' selected' : '') + '>' + escapeHtml(o.label) + '</option>').join('');
+      return `
+        <div class="history-row">
+          <div><button type="button" class="action-link" data-action="openRun" data-payload="${escapeAttr(run.id)}">${escapeHtml(run.title)}</button> <span class="tag">${escapeHtml(run.status)}</span></div>
+          <div class="list-meta">${escapeHtml(run.relative)} · Owner:
+            <select data-action="director-assign-run" data-run="${escapeAttr(run.id)}">${opts}</select>
+          </div>
+        </div>`;
+    }).join('');
+    return `
+      <p class="section-kicker" style="margin-top:12px">Autonomous runs</p>
+      <div class="stack-list">${rows}</div>`;
+  }
+
+  function renderDirectorFollowUps(cfg, snap) {
+    const contactOptions = cfg.contacts.map(c => ({ value: c.id, label: c.name }));
+    const urgency = snap.followUpUrgency || {};
+    const active = cfg.followUps.filter(f => f.status !== 'done' && f.status !== 'cancelled');
+    const groupOf = (key, heading, tone) => {
+      const items = active.filter(f => urgency[f.id] === key);
+      if (items.length === 0) { return ''; }
+      const rows = items.map(f => `
+        <div class="signal-card ${tone} static" style="text-align:left">
+          <div class="checkline">${escapeHtml(f.title)}</div>
+          <div class="signal-detail">Due ${escapeHtml(f.dueDate)}${f.withContactId ? ' · with ' + escapeHtml(directorNameOf(cfg, f.withContactId)) : ''}${f.status === 'snoozed' ? ' · snoozed' : ''}</div>
+          <div class="tag-row">
+            <button type="button" class="action-link" data-action="director-followup-complete" data-payload="${escapeAttr(f.id)}">Done</button>
+            <button type="button" class="action-link" data-action="director-followup-snooze" data-payload="${escapeAttr(f.id)}">Snooze 7d</button>
+            <button type="button" class="action-link danger" data-action="director-followup-cancel-item" data-payload="${escapeAttr(f.id)}">Cancel</button>
+          </div>
+        </div>`).join('');
+      return '<p class="section-kicker">' + escapeHtml(heading) + '</p><div class="signal-grid">' + rows + '</div>';
+    };
+    const editor = state.directorNewFollowUp ? `
+      <article class="stage-card stage-editor" id="director-followup-editor">
+        <div class="stage-edit-grid">
+          ${edText('What needs following up', 'title', '', 'Check in with the sponsor')}
+          ${edText('Due (YYYY-MM-DD)', 'dueDate', directorTodayKey(), '')}
+          ${edSelect('With (optional)', 'withContactId', '', [{ value: '', label: '—' }].concat(contactOptions))}
+          ${edSelect('Repeat', 'cadence', 'once', ['once', 'daily', 'weekly', 'biweekly', 'monthly'].map(s => ({ value: s, label: s })))}
+        </div>
+        <div class="tag-row">
+          <button type="button" class="action-link primary" data-action="director-followup-save" data-payload="">Save</button>
+          <button type="button" class="action-link" data-action="director-followup-cancel" data-payload="">Cancel</button>
+        </div>
+      </article>` : `<div class="tag-row"><button type="button" class="action-link" data-action="director-followup-add" data-payload="">＋ Add follow-up</button></div>`;
+    const groups = groupOf('overdue', 'Overdue', 'warn') + groupOf('due-soon', 'Due soon', '') + groupOf('upcoming', 'Upcoming', 'good');
+    return `
+      <article class="list-card">
+        <p class="section-kicker">Cadence</p>
+        <h3>Follow-ups</h3>
+        ${groups || '<div class="dashboard-empty">No open follow-ups. Add one to stay on top of check-ins and deadlines.</div>'}
+        ${editor}
+      </article>`;
+  }
+
+  function renderDirector(snapshot) {
+    const d = snapshot.director;
+    const active = state.activePage === 'director';
+    const wrap = (inner) => '<section class="page-section ' + (active ? 'active' : '') + '">' + inner + '</section>';
+    if (!d) { return wrap('<div class="dashboard-empty">Director data unavailable.</div>'); }
+    const cfg = d.config || emptyDirectorConfig();
+    const solo = d.teamMode === 'solo';
+
+    const intro = renderPageIntro({
+      kicker: 'People',
+      title: 'Project Director',
+      summary: solo
+        ? 'Your cockpit for a team of one: track the areas you own, your assignments, and your follow-ups. Add teammates or external stakeholders any time.'
+        : 'The people around this project — stakeholders, delivery team, who owns what, and the follow-ups that keep delivery on track.',
+      chips: [
+        { label: solo ? 'Solo' : 'Team', tone: 'accent' },
+        d.overdueCount > 0 ? { label: d.overdueCount + ' overdue', tone: 'warn' } : { label: 'No overdue follow-ups', tone: 'good' },
+      ],
+    });
+
+    const gdprBanner = (d.storesRawPii && !d.piiAcknowledged) ? `
+      <article class="panel-card" style="border-color:var(--vscode-inputValidation-warningBorder,#c90)">
+        <p class="section-kicker">Personal data</p>
+        <h3>This roster holds personal data (GDPR)</h3>
+        <p class="section-copy">Names and contact details are personal data. AtlasMind will classify them as confidential so they never reach an un-trusted model. Prefer referencing people in Microsoft 365 / Slack over storing raw details. Acknowledge to persist the roster to disk.</p>
+        <div class="tag-row">
+          <button type="button" class="action-link primary" data-action="director-store-pii" data-payload="">Acknowledge &amp; store</button>
+          <button type="button" class="action-link" data-action="page" data-payload="privacy">Open Privacy page</button>
+        </div>
+      </article>` : '';
+
+    const modeButtons = ['auto', 'solo', 'team'].map(m =>
+      '<button type="button" data-action="director-mode" data-payload="' + m + '" class="' + (cfg.settings.teamMode === m ? 'active' : '') + '">' + m + '</button>').join('');
+    const seedControl = state.directorSeedConfirm
+      ? '<span class="stage-remove-confirm">Re-seed replaces the roster from repo signals. <button type="button" class="action-link danger" data-action="director-seed-confirm" data-payload="">Re-seed</button> <button type="button" class="action-link" data-action="director-seed-cancel" data-payload="">Cancel</button></span>'
+      : '<button type="button" class="action-link" data-action="director-seed" data-payload="">Seed from repo</button>';
+
+    const setupCard = `
+      <article class="panel-card">
+        <p class="section-kicker">Setup</p>
+        <h3>${escapeHtml(cfg.project.name || snapshot.workspaceName)}</h3>
+        ${cfg.project.summary ? '<p class="section-copy">' + escapeHtml(cfg.project.summary) + '</p>' : ''}
+        <div class="mini-grid">
+          ${renderMetricPill('People', String(cfg.contacts.length))}
+          ${renderMetricPill('Stakeholders', String(cfg.stakeholders.length))}
+          ${renderMetricPill('Team', String(cfg.teamMembers.length))}
+          ${renderMetricPill('Open follow-ups', String(cfg.followUps.filter(f => f.status !== 'done' && f.status !== 'cancelled').length), { tone: d.overdueCount > 0 ? 'warn' : 'good' })}
+        </div>
+        <div class="timescale-switch" role="group" aria-label="Team mode" style="margin-top:8px">${modeButtons}</div>
+        <div class="tag-row">${seedControl}<button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(d.summaryPath)}">Open project-director.md</button></div>
+      </article>`;
+
+    const editingContact = state.directorEditContactId;
+    let contactEditor = '';
+    if (editingContact === 'new') {
+      contactEditor = renderDirectorContactEditor(cfg, { id: '', name: '', links: [] }, true);
+    } else if (editingContact) {
+      const c = cfg.contacts.find(x => x.id === editingContact);
+      if (c) { contactEditor = renderDirectorContactEditor(cfg, c, false); }
+    }
+    const contactCards = cfg.contacts.length
+      ? cfg.contacts.map(c => renderDirectorContactCard(cfg, d, c)).join('')
+      : '<div class="dashboard-empty">No people yet. Seed from repo or add someone.</div>';
+    const rosterCard = `
+      <article class="list-card" style="grid-column: 1 / -1">
+        <div class="row-head"><h3>${solo ? 'You & external stakeholders' : 'People'}</h3>
+          <button type="button" class="action-link" data-action="director-contact-add" data-payload="">＋ Add person</button></div>
+        ${contactEditor}
+        <div class="director-roster">${contactCards}</div>
+      </article>`;
+
+    return wrap(`
+      ${intro}
+      ${gdprBanner}
+      <div class="delivery-grid">
+        ${setupCard}
+      </div>
+      <div class="review-grid">
+        ${rosterCard}
+      </div>
+      <div class="review-grid">
+        ${renderDirectorResponsibilities(cfg)}
+        ${renderDirectorAssignments(cfg, d)}
+      </div>
+      <div class="review-grid">
+        ${renderDirectorFollowUps(cfg, d)}
+      </div>
+    `);
   }
 
   function renderStatCard(stat) {

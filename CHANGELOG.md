@@ -8,6 +8,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.133.0] - 2026-07-24
+
+### Added
+- **Project Director dashboard — the usable v1 (Phase 2).** The Project Dashboard has a new **Director** tab (`src/views/projectDashboardPanel.ts`, `media/projectDashboard.js`) that surfaces and edits the people model backed by `ProjectDirectorManager`: a **Setup** card (project, team-mode toggle, "Seed from repo", open the markdown mirror), a **People** roster (contacts with role badges, per-channel **Open** deep-links and **Copy contact**, inline add/edit with stakeholder/team roles), **Responsibilities** (area → owner/backup), **Assignments** (add/edit/status-cycle, plus an **Autonomous runs** list where each `ProjectRunRecord` can be given a human owner), and **Follow-ups** grouped Overdue / Due soon / Upcoming with complete/snooze/cancel. First open seeds a first-draft roster from repo signals (git contributors, `.github/CODEOWNERS`, `package.json` author, Website Studio stakeholders).
+- **Solo-dev aware presentation.** The tab reads `resolveTeamMode`/`isSoloProject`: a solo project foregrounds self-management (your responsibilities, assignments, and follow-ups) and marks "you", while a team project shows the full roster. A one-line mode toggle (auto / solo / team) overrides the inference.
+- **GDPR consent gate + safe boundaries.** Persisting raw personal data triggers a one-time modal (modelled on the remote-control workspace-approval gate); on approval AtlasMind records the acknowledgement (workspace-scoped) and enables the built-in `gdpr-pii` compliance pack so the stored PII is classified confidential and never sent to an un-trusted model. Every webview payload is validated by `isProjectDashboardMessage` and re-sanitised by `sanitizeProjectDirectorConfig` before it touches disk; contact deep-links are resolved server-side and re-checked against the scheme allowlist before `openExternal`; "Copy contact" builds the text host-side.
+
+## [0.132.0] - 2026-07-24
+
+### Added
+- **Remote control over an SSO gateway (cross-machine, `atlasmind.remote.mode: "gateway"`).** The desktop remote-control server can now sit behind an authenticated Cloudflare Worker + Cloudflare Tunnel, so you can drive AtlasMind and view its read-only cost/run dashboards from a browser signed into your own platform login — not just a same-machine web client. In gateway mode the server authenticates each WebSocket by the `x-atlas-origin-secret` header the Worker injects (verified timing-safe against the existing pairing-token secret) instead of an in-band token, so the browser never holds a credential; it also records the forwarded `x-atlas-user-id` for audit. No inbound port is opened — the Worker and tunnel are outbound/edge. Localhost pairing mode is unchanged and remains the default. Every existing safety gate holds: workspace-trust approval, the redaction boundary, desktop-authoritative tool approvals, and default-deny on disconnect. New command **AtlasMind: Enable Remote Control (Gateway)** and setting `atlasmind.remote.mode` (`localhost` | `gateway`); the companion `atlas` gateway Worker is documented in `docs/remote-control.md`. `src/remote/remoteControlServer.ts`, `src/extension.ts`.
+
 ## [0.131.0] - 2026-07-24
 
 ### Added

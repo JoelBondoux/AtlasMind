@@ -310,6 +310,7 @@ These are also available from the Command Palette (`Ctrl+Shift+P`):
 | `AtlasMind: Show Cost Summary` | Same as `/cost` |
 | `AtlasMind: Open Cost Dashboard` | Full cost management dashboard with adjustable day ranges, subscription-aware totals, budget utilisation, and recent requests |
 | `AtlasMind: Enable Remote Control` | (desktop) Start the localhost server so the web build can drive this instance — prompts for workspace trust and shows the pairing code |
+| `AtlasMind: Enable Remote Control (Gateway)` | (desktop) Switch to `gateway` mode and start the server behind an SSO-gated Cloudflare Worker + tunnel for cross-machine access; shows the origin secret and local tunnel target |
 | `AtlasMind: Disable Remote Control` | (desktop) Stop the remote-control server and drop all sessions |
 | `AtlasMind: Show Remote Pairing Code` | (desktop) Re-display the pairing URL and token |
 | `AtlasMind: Revoke Remote Access` | (desktop) Rotate the pairing token and disconnect all clients |

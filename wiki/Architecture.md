@@ -54,7 +54,7 @@ AtlasMind is a VS Code extension built in TypeScript, and it now also ships a sm
 | **LocalModelRecommendationRegistry** | `src/providers/localModelRecommendationRegistry.ts` | Data-driven local-model recommendation catalog with validated workspace override loading |
 | **SessionConversation** | `src/chat/sessionConversation.ts` | Persistent workspace chat sessions and compact carry-forward context |
 | **Shared Runtime** | `src/runtime/core.ts` | Common bootstrapping path used by the extension and CLI |
-| **RemoteControlServer** | `src/remote/remoteControlServer.ts` | Desktop-only localhost WebSocket server; pairs authenticated web clients and binds each to a `ChatPanel` via a synthetic host (off by default, token + workspace-trust gated) |
+| **RemoteControlServer** | `src/remote/remoteControlServer.ts` | Desktop-only localhost WebSocket server; pairs authenticated web clients and binds each to a `ChatPanel` via a synthetic host (off by default, token + workspace-trust gated). A `gateway` mode authenticates via an `x-atlas-origin-secret` upgrade header so it can sit behind an SSO gateway + tunnel for cross-machine access |
 | **RemoteWebviewHost** | `src/remote/remoteBridge.ts` | Synthetic `ChatPanelHost` that pipes a ChatPanel's protocol over the socket; fans outbound messages to the client and injects validated inbound frames |
 | **RemoteClient** (web) | `src/web/remoteClient.ts` | Browser-side WebSocket client (pairing, reconnect, RPC) for the web thin client |
 

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.131.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.133.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -149,6 +149,7 @@ Access these from the VS Code Command Palette (`Ctrl+Shift+P`).
 | `AtlasMind: Compare Models on a Prompt` | Run one prompt across your configured models (grouped by provider, Select All + sample prompts) and view a sortable comparison. An optional LLM **judge** scores each answer 0–100; click any column header to sort. Records outcomes to calibrate routing. Reachable from the Models view titlebar (beaker icon) and the Settings overview. |
 | `AtlasMind: Sync Testing Protocols to AI Agents` | Write the enabled testing protocols into detected AI agent instruction files (`CLAUDE.md`, `copilot-instructions.md`, `AGENTS.md`, etc.) |
 | `AtlasMind: Enable Remote Control` | Start the localhost server so the web build can drive this desktop instance (desktop) |
+| `AtlasMind: Enable Remote Control (Gateway)` | Switch to `gateway` mode and start the server behind an SSO-gated Cloudflare Worker + tunnel for cross-machine access (desktop) |
 | `AtlasMind: Disable Remote Control` | Stop the remote-control server and drop sessions (desktop) |
 | `AtlasMind: Show Remote Pairing Code` | Re-display the remote pairing URL and token (desktop) |
 | `AtlasMind: Revoke Remote Access` | Rotate the pairing token and disconnect all clients (desktop) |
@@ -282,7 +283,8 @@ Key settings under `atlasmind.*` in VS Code settings:
 | `ard.requestTimeoutMs` | `15000` | Timeout for each outbound ARD discovery request (ms) |
 | `ard.allowInsecureEndpoints` | `false` | Allow `http://`/localhost Agent Finders (e.g. the ARD conformance demo); otherwise HTTPS is required and private hosts are rejected |
 | `remote.enabled` | `false` | Allow the web build to remote-control this desktop instance over a localhost WebSocket |
-| `remote.port` | `0` | Localhost port for the remote-control server (0 = auto) |
+| `remote.mode` | `localhost` | Transport/auth mode: `localhost` (same-machine token pairing) or `gateway` (SSO-gated Cloudflare Worker + tunnel for cross-machine access) |
+| `remote.port` | `0` | Localhost port for the remote-control server (0 = auto; pin a value in `gateway` mode so the tunnel target stays fixed) |
 
 See [Configuration Reference](docs/configuration.md) and [wiki/Configuration.md](wiki/Configuration.md) for the full settings list.
 

@@ -5,6 +5,7 @@
 import * as vscode from 'vscode';
 import { WebSocketServer, WebSocket, type RawData } from 'ws';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
+import type { IncomingMessage } from 'node:http';
 import { ChatPanel } from '../views/chatPanel.js';
 import type { AtlasMindContext } from '../extension.js';
 import { RemoteWebviewHost } from './remoteBridge.js';
@@ -24,6 +25,16 @@ import {
 const PAIRING_TOKEN_SECRET_KEY = 'atlasmind.remote.pairingToken';
 const WORKSPACE_APPROVED_KEY = 'atlasmind.remote.workspaceApproved';
 const AUTH_TIMEOUT_MS = 10_000;
+/** Header the SSO gateway Worker injects with the shared origin secret (gateway mode). */
+const ORIGIN_SECRET_HEADER = 'x-atlas-origin-secret';
+/** Header the SSO gateway Worker injects with the authenticated platform user id. */
+const ORIGIN_USER_HEADER = 'x-atlas-user-id';
+
+/** First value of a possibly-repeated inbound header, or undefined if absent/empty. */
+function firstHeaderValue(value: string | string[] | undefined): string | undefined {
+  const v = Array.isArray(value) ? value[0] : value;
+  return typeof v === 'string' && v.length > 0 ? v : undefined;
+}
 
 interface RemoteSession {
   socket: WebSocket;
@@ -36,6 +47,8 @@ export interface RemoteServerStatus {
   running: boolean;
   url?: string;
   clientCount: number;
+  /** Active transport/auth mode: same-machine token pairing, or SSO-gateway origin-secret. */
+  mode: 'localhost' | 'gateway';
 }
 
 /** Optional read-only RPC handler for the cost/runs channels (wired in Phase 4). */
@@ -70,11 +83,18 @@ export class RemoteControlServer {
     return this.server !== undefined;
   }
 
+  /** Resolve the configured transport/auth mode (defaults to same-machine `localhost`). */
+  getMode(): 'localhost' | 'gateway' {
+    const mode = vscode.workspace.getConfiguration('atlasmind').get<string>('remote.mode', 'localhost');
+    return mode === 'gateway' ? 'gateway' : 'localhost';
+  }
+
   getStatus(): RemoteServerStatus {
     return {
       running: this.isRunning(),
       url: this.boundPort ? `ws://localhost:${this.boundPort}` : undefined,
       clientCount: [...this.sessions].filter(s => s.authenticated).length,
+      mode: this.getMode(),
     };
   }
 
@@ -151,7 +171,7 @@ export class RemoteControlServer {
         this.emitStatus();
         resolve({ url: `ws://localhost:${this.boundPort}`, token });
       });
-      server.on('connection', socket => this.onConnection(socket, token));
+      server.on('connection', (socket, request) => this.onConnection(socket, request, token));
       server.on('error', err => {
         this.output.appendLine(`[remote] Server error: ${err instanceof Error ? err.message : String(err)}`);
         resolve(undefined);
@@ -198,38 +218,71 @@ export class RemoteControlServer {
 
   // ── Connection handling ─────────────────────────────────────────────────────
 
-  private onConnection(socket: WebSocket, token: string): void {
+  private onConnection(socket: WebSocket, request: IncomingMessage, token: string): void {
     const host = new RemoteWebviewHost(message => {
       this.safeSend(socket, chatFrame(message));
     });
     const session: RemoteSession = { socket, host, panel: undefined as unknown as ChatPanel, authenticated: false };
     this.sessions.add(session);
 
-    const authTimer = setTimeout(() => {
-      if (!session.authenticated) {
-        this.output.appendLine('[remote] Auth timeout; dropping unauthenticated connection.');
-        this.closeSession(session, 'auth timeout');
+    let authTimer: NodeJS.Timeout | undefined;
+
+    if (this.getMode() === 'gateway') {
+      // Gateway mode: the SSO-gated Cloudflare Worker is the client. Authenticate the
+      // connection by the shared origin secret it injects on the upgrade request, not an
+      // in-band token frame — the browser holds no token; the platform login is its
+      // identity. The secret reuses the same SecretStorage slot as the pairing token, so
+      // "Revoke Remote Access" rotates it. See docs/remote-control.md.
+      const provided = firstHeaderValue(request.headers[ORIGIN_SECRET_HEADER]);
+      if (!provided || !this.tokenMatches(provided, token)) {
+        this.output.appendLine('[remote] Rejected gateway connection: missing or invalid origin secret.');
+        this.safeSend(socket, errorFrame({ code: 'unauthenticated', message: 'Invalid origin secret.' }));
+        this.closeSession(session, 'gateway authentication failed');
+        return;
       }
-    }, AUTH_TIMEOUT_MS);
+      const userId = firstHeaderValue(request.headers[ORIGIN_USER_HEADER]);
+      this.promoteToAuthenticated(session, userId ? `gateway:user ${userId}` : 'gateway', 'auth');
+    } else {
+      // Localhost mode: the client must authenticate with an in-band token frame in time.
+      authTimer = setTimeout(() => {
+        if (!session.authenticated) {
+          this.output.appendLine('[remote] Auth timeout; dropping unauthenticated connection.');
+          this.closeSession(session, 'auth timeout');
+        }
+      }, AUTH_TIMEOUT_MS);
+    }
 
     socket.on('message', (data: RawData) => {
       void this.onMessage(session, token, data, authTimer);
     });
     socket.on('close', () => {
-      clearTimeout(authTimer);
+      if (authTimer) { clearTimeout(authTimer); }
       this.closeSession(session, 'client disconnected');
     });
     socket.on('error', () => {
-      clearTimeout(authTimer);
+      if (authTimer) { clearTimeout(authTimer); }
       this.closeSession(session, 'socket error');
     });
+  }
+
+  /**
+   * Bind an authenticated session to a real ChatPanel and acknowledge the client. Shared by
+   * the localhost in-band token path and the gateway origin-secret path; either way the
+   * remote surface can only do what the local chat UI can, re-validated per inbound frame.
+   */
+  private promoteToAuthenticated(session: RemoteSession, clientName: string | undefined, ackId: string): void {
+    session.authenticated = true;
+    session.panel = new ChatPanel(session.host, this.atlas.extensionContext.extensionUri, this.atlas);
+    this.output.appendLine(`[remote] Client authenticated${clientName ? ` (${clientName})` : ''}. Active clients: ${this.getStatus().clientCount}`);
+    this.safeSend(session.socket, ackFrame('chat', ackId, { ok: true, v: REMOTE_PROTOCOL_VERSION }));
+    this.emitStatus();
   }
 
   private async onMessage(
     session: RemoteSession,
     token: string,
     data: RawData,
-    authTimer: NodeJS.Timeout,
+    authTimer: NodeJS.Timeout | undefined,
   ): Promise<void> {
     const envelope = decodeFrame(data.toString());
     if (!envelope || envelope.v !== REMOTE_PROTOCOL_VERSION) {
@@ -237,7 +290,8 @@ export class RemoteControlServer {
       return;
     }
 
-    // First frame must authenticate.
+    // First frame must authenticate (localhost mode; gateway sessions are already
+    // authenticated by the origin-secret upgrade header before any frame arrives).
     if (!session.authenticated) {
       if (envelope.kind !== 'auth' || !isRemoteAuthPayload(envelope.payload) || !this.tokenMatches(envelope.payload.token, token)) {
         this.output.appendLine('[remote] Rejected connection: authentication failed.');
@@ -245,12 +299,14 @@ export class RemoteControlServer {
         this.closeSession(session, 'authentication failed');
         return;
       }
-      clearTimeout(authTimer);
-      session.authenticated = true;
-      session.panel = new ChatPanel(session.host, this.atlas.extensionContext.extensionUri, this.atlas);
-      this.output.appendLine(`[remote] Client authenticated${envelope.payload.clientName ? ` (${envelope.payload.clientName})` : ''}. Active clients: ${this.getStatus().clientCount}`);
-      this.safeSend(session.socket, ackFrame('chat', envelope.id ?? 'auth', { ok: true, v: REMOTE_PROTOCOL_VERSION }));
-      this.emitStatus();
+      if (authTimer) { clearTimeout(authTimer); }
+      this.promoteToAuthenticated(session, envelope.payload.clientName, envelope.id ?? 'auth');
+      return;
+    }
+
+    // Tolerate a redundant auth frame from an already-authenticated client (e.g. a gateway
+    // client that still announces itself on connect); it carries no new authority.
+    if (envelope.kind === 'auth') {
       return;
     }
 
