@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.135.2] - 2026-07-24
+
+### Security
+- **Resolved all reported dependency vulnerabilities (`npm audit` → 0).** `npm audit fix` updated transitive packages (`brace-expansion`, `fast-uri`, `js-yaml`, `linkify-it`, `hono`), and an `overrides` pin forces `@hono/node-server` to `^2.0.5` — patching a Windows `serve-static` path-traversal advisory that the MCP SDK otherwise held at a vulnerable `^1.19.9`. AtlasMind uses the MCP SDK as a **client** (never the server-side static path), and the override was verified with a clean compile, an MCP client-module load smoke test, and the full test suite (1399 passing).
+- **Bumped pinned GitHub Actions** `actions/checkout` and `actions/setup-node` from `@v6` to `@v7` across the CI, publish, and release workflows.
+
 ## [0.135.1] - 2026-07-24
 
 ### Changed
