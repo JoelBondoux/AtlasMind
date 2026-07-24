@@ -75,7 +75,7 @@ The autonomous **Mission Loop** (`/loop` and Mission Control — see [[Project P
 
 ### Approvals over remote control
 
-When a session is driven by the AtlasMind web build (see [[Remote Control]]), the same approval cards and decision paths apply through the shared chat protocol — a remote peer can never auto-approve a `workspace-write`, `git-write`, `terminal-write`, or `network` tool without an explicit, authenticated decision. Remote approval decisions are audited. If the remote client disconnects, the bound chat surface is disposed and any in-flight execution is aborted, so **pending approvals default to denied** rather than proceeding unattended.
+When a session is driven by the AtlasMind web build (see [[Remote Control]]), the same approval cards and decision paths apply through the shared chat protocol — a remote peer can never auto-approve a `workspace-write`, `git-write`, `terminal-write`, or `network` tool without an explicit, authenticated decision. Remote approval decisions are audited. If the remote client disconnects, the bound chat surface is disposed and any in-flight execution is aborted, so **pending approvals default to denied** rather than proceeding unattended. This holds identically in `gateway` mode (`atlasmind.remote.mode: "gateway"`), where an SSO gateway fronts the server: the gateway authenticates transport only (the browser holds no token) and grants no tool authority, so every approval remains an explicit, authenticated decision on the desktop.
 
 Destructive memory-administration actions are kept outside the normal tool pipeline. The Settings-based project-memory purge flow always requires an explicit modal confirmation plus a typed `PURGE MEMORY` phrase before AtlasMind deletes the SSOT root and recreates the scaffold.
 
@@ -132,6 +132,10 @@ AtlasMind now also exposes a dedicated `docker-cli` skill for container work. It
 Read-only Docker inspection is classified as `terminal-read`. Container lifecycle actions are classified as `terminal-write` and follow the same approval path as other high-risk external execution.
 
 ---
+
+## MCP runtime bootstrap is confirm-before-install
+
+Setting up an MCP server can require a local runtime (Node/`npx`, `uv`/`uvx`, …). The guided setup wizard and the recommended-install command never install one silently: `checkStarterRuntime` (`src/mcp/mcpRuntime.ts`) only *plans* the install and surfaces the exact package-manager command (e.g. `winget install --id astral-sh.uv`); `runRuntimeInstallPlan` executes it **only after an explicit modal confirmation**. Declining leaves nothing changed and shows the command to run manually. Credentials the wizard collects are stored in VS Code SecretStorage, never in settings — see [[Security]].
 
 ## Resource discovery is pre-invocation, not execution
 
@@ -283,6 +287,10 @@ Tools from connected MCP servers follow the same approval and safety pipeline:
 
 See [[Skills]] for MCP server setup.
 
+### Project Director outbound (email / schedule / message)
+
+The Project Director tab can reach a contact through a connected MCP connector, but this is **opt-in and deny-by-default**. Dispatch happens only when all of the following hold: the project has `settings.outboundEnabled` on (default off), a connected connector exposes a tool that can perform the intent (`directorCommsRunner` matches tool names like `outlook_send_mail` / `create_event` / `post_message`), and the user confirms an explicit `{ modal: true }` dialog that spells out the exact action — connector, tool, recipient, subject/body, and the classified risk. Only then does AtlasMind run the tool via its `mcp:<serverId>:<toolName>` skill wrapper. The **webview never supplies the tool or a command** — it sends a draft, which the extension re-resolves against the persisted roster, re-classifies with `classifyToolInvocation`, and maps onto the tool's declared input schema (inventing no fields). When no connector can perform the intent, it falls back to the contact's deep-link and never auto-sends. Connector credentials live in SecretStorage; successful sends are recorded to `project-director-history.json`.
+
 ## Promotion Execution (Delivery)
 
 Promoting a build between deployment stages on the Project Dashboard → **Delivery** page (`PromotionRunner`) is a high-trust action and carries its own guardrails on top of the tool pipeline:
@@ -299,3 +307,13 @@ Promoting a build between deployment stages on the Project Dashboard → **Deliv
 4. **Approval & protected confirmation.** When the target requires approval, an explicit approval checkbox is mandatory; when the target is **protected**, the operator must type the target's name to confirm.
 5. **Commands are server-sourced.** Every executed command (backup, deploy/migration routine steps, rollback hint) is read from the persisted, user-authored stage config and routine files. The webview can only *trigger* and *attest* — it can never supply a command string.
 6. **Non-destructive bias.** AtlasMind never force-pushes; the deploy body is the user's own routine; the gate is re-evaluated against live git state at execution time; and each run records its outcome plus a rollback handle.
+
+## Website Studio Is Planning, Not Execution
+
+Website Studio deliberately stops before external mutation:
+
+1. Selecting Cloudflare Pages, GitHub Pages, WordPress/Elementor, or another target records the intended platform and readiness only.
+2. The hosting plan is fixed to Develop → Staging → Production. Develop is loopback-only unless its explicit HTTPS/password-protected fallback is selected; Staging is always an HTTPS, password-protected `<review-label>.<production-domain>`; Production is always public and promotion-protected. These invariants are rebuilt in the extension host, not trusted from the webview.
+3. A public site URL, project label, environment label, n8n instance URL, opaque workflow ID, and credential *reference* may be stored; API keys, passwords, bearer tokens, and n8n webhook values may not. Credential references require a provider prefix such as `env:` or `SecretStorage:`.
+4. Marking a hosting environment `ready`, a platform `configured`/`live`, or an automation `verified` is descriptive state and never triggers a deploy or workflow.
+5. Production publishing must use the guarded Delivery flow above. A future n8n execution feature must be implemented as a host-side tool subject to tool-risk classification, approval, bounded inputs, secret resolution from SecretStorage, and audit output; the current webview has no trigger message.

@@ -36,17 +36,18 @@ src/
     criticality.ts
     currencyFormatter.ts
     dataPrivacyManager.ts
+    deliveryManager.ts
+    directorCommsRunner.ts
     environmentManager.ts
     executionQuality.ts
+    goalEvaluator.ts
+    missionRegistry.ts
+    missionRunner.ts
     modelEvalHarness.ts
-    modelRouter.ts
-    orchestrator.ts
-    planner.ts
-    projectRunHistory.ts
-    providerDataGovernance.ts
-    ... (15 more entries)
+    ... (23 more entries)
   mcp/
     mcpClient.ts
+    mcpRuntime.ts
     mcpServerRegistry.ts
   memory/
     memoryAgent.ts
@@ -101,18 +102,21 @@ src/
     gitBlame.ts
     ... (23 more entries)
   utils/
+    aiInstructionMerge.ts
     aiInstructionSync.ts
+    managedBlock.ts
     secretRedactor.ts
+    terminalOutput.ts
     testingProtocolSync.ts
     workspacePicker.ts
   views/
     agentManagerPanel.ts
-    ardDiscoveryPanel.ts
     chatPanel.ts
     chatProtocol.ts
     chatWebviewMarkup.ts
     costDashboardPanel.ts
     mcpPanel.ts
+    missionControlPanel.ts
     modelComparisonPanel.ts
     modelProviderPanel.ts
     personalityProfilePanel.ts
@@ -126,7 +130,7 @@ src/
     toolWebhookPanel.ts
     treeViews.ts
     visionPanel.ts
-    ... (2 more entries)
+    ... (3 more entries)
   voice/
     hostSpeechSynthesizer.ts
     localTranscriber.ts
@@ -171,23 +175,23 @@ tests/
     compliancePacks.test.ts
     costTracker.test.ts
     dataPrivacyManager.test.ts
+    deliveryManager.test.ts
+    directorCommsRunner.test.ts
+    goalEvaluator.test.ts
+    missionRegistry.test.ts
+    missionRunner.test.ts
     modelEvalHarness.test.ts
     modelRouter.test.ts
     orchestrator.security.test.ts
     orchestrator.tools.test.ts
     planner.scheduler.test.ts
     planner.test.ts
+    projectDirectorManager.test.ts
     projectRunHistory.test.ts
+    promotionRunner.test.ts
     providerDataGovernance.test.ts
     scannerRulesManager.test.ts
-    skillDrafting.test.ts
-    skillScanner.test.ts
-    taskProfiler.test.ts
-    testingConfigLoader.test.ts
-    testingScaffolder.test.ts
-    toolApprovalManager.test.ts
-    toolPolicy.test.ts
-    ... (1 more entries)
+    ... (9 more entries)
   integration/
     taskLifecycle.test.ts
   mcp/
@@ -236,12 +240,17 @@ tests/
     memoryWrite.test.ts
     ... (10 more entries)
   utils/
+    aiInstructionMerge.test.ts
+    managedBlock.test.ts
+    terminalOutput.test.ts
     testingProtocolSync.test.ts
   views/
+    localModelMatch.test.ts
     panelFlows.test.ts
     skillScannerPanel.test.ts
     treeViews.test.ts
     voicePanel.test.ts
+    websiteStudioPanel.test.ts
     webviewMessages.test.ts
     webviewSecurity.test.ts
   voice/
@@ -271,6 +280,7 @@ docs/
   roadmap.md
   ssot-memory.md
   user-environment.md
+  website-studio.md
 ```
 
 ## wiki
@@ -296,7 +306,7 @@ wiki/
   Resource-Discovery.md
   Security.md
   Skills.md
-  ... (1 more entries)
+  ... (2 more entries)
 ```
 
 ## project_memory
@@ -342,7 +352,10 @@ project_memory/
     product-capabilities.md
   ideas/
     .gitkeep
+    atlas-gateway-worker.md
     okf-interop.md
+    remote-web-access.md
+    supacode-competitive-analysis.md
   index/
     .gitkeep
     import-catalog.md
@@ -357,6 +370,8 @@ project_memory/
     blocker-unstable-environment.md
     configuration-reference.md
     data-privacy.json
+    delivery.json
+    delivery.md
     development-workflow.md
     project-run-2026-06-03T01-45-39-088Z.json
     project-run-2026-06-04T00-20-12-535Z.json
@@ -373,8 +388,8 @@ project_memory/
     publishing-routine.md
     README.md
   sessions/
-    chat-1781201164053-hd8hj9/
-    chat-1781278082539-n11939/
+    chat-1775389876037-6d714e/
+    chat-1784894194166-qzv1s4/
     .gitkeep
   skills/
     .gitkeep
@@ -394,6 +409,7 @@ project_memory/
   scripts/
     audit-integration-coverage.mjs
     check-integration-drift.mjs
+    tag-release.mjs
   workflows/
     ci.yml
     publish.yml
@@ -409,8 +425,8 @@ project_memory/
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-06-18T18:51:10.022Z
+generated-at: 2026-07-24T12:06:10.564Z
 source-paths: src | tests | docs | wiki | project_memory | .github
-source-fingerprint: 27697b8d
-body-fingerprint: 5c9b4255
+source-fingerprint: eab07eb6
+body-fingerprint: df6d1038
 -->

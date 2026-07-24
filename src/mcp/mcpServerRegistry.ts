@@ -14,7 +14,7 @@
 
 import type * as vscode from 'vscode';
 import { randomUUID } from 'crypto';
-import { McpClient } from './mcpClient.js';
+import { McpClient, findCommandExecutable } from './mcpClient.js';
 import type { SkillsRegistry } from '../core/skillsRegistry.js';
 import type { McpServerConfig, McpServerState, McpToolInfo, SkillDefinition } from '../types.js';
 
@@ -37,6 +37,13 @@ export interface McpServerImportResult {
   failedConnections: Array<{ name: string; message: string }>;
 }
 
+/** A server discovered by scanning the local environment, with why it was surfaced. */
+export interface DetectedMcpServer {
+  config: Omit<McpServerConfig, 'id'>;
+  /** Short, user-facing reason this server was detected (e.g. "Node.js / npx is installed"). */
+  reason: string;
+}
+
 export class McpServerRegistry {
   private clients = new Map<string, McpClient>();
   private states = new Map<string, McpServerState>();
@@ -46,7 +53,54 @@ export class McpServerRegistry {
     private readonly skillsRegistry: SkillsRegistry,
     private readonly onRefresh: () => void,
     private readonly outputChannel?: vscode.OutputChannel,
+    private readonly secrets?: vscode.SecretStorage,
   ) {}
+
+  // ── Secrets ─────────────────────────────────────────────────
+  //
+  // Values for env vars listed in `config.secretEnvKeys` live in SecretStorage
+  // under `atlasmind.mcp.<serverId>.<KEY>` — never in the persisted config.
+  // They are resolved and merged into the process env only at connect time.
+
+  private secretStorageKey(serverId: string, envKey: string): string {
+    return `atlasmind.mcp.${serverId}.${envKey}`;
+  }
+
+  /** Store guided-wizard secret values for a server in SecretStorage. */
+  async setServerSecrets(serverId: string, secrets: Record<string, string>): Promise<void> {
+    if (!this.secrets) { return; }
+    for (const [envKey, value] of Object.entries(secrets)) {
+      await this.secrets.store(this.secretStorageKey(serverId, envKey), value);
+    }
+  }
+
+  /** Delete all stored secret values for a server's declared secret env keys. */
+  private async deleteServerSecrets(config: McpServerConfig): Promise<void> {
+    if (!this.secrets || !config.secretEnvKeys?.length) { return; }
+    for (const envKey of config.secretEnvKeys) {
+      try {
+        await this.secrets.delete(this.secretStorageKey(config.id, envKey));
+      } catch {
+        // Best-effort cleanup; a missing key is not an error.
+      }
+    }
+  }
+
+  /** Resolve declared secret env vars from SecretStorage, merged over the stored env. */
+  private async resolveEffectiveEnv(config: McpServerConfig): Promise<Record<string, string> | undefined> {
+    const baseEnv = config.env ? { ...config.env } : undefined;
+    if (!this.secrets || !config.secretEnvKeys?.length) {
+      return baseEnv;
+    }
+    const merged: Record<string, string> = baseEnv ? { ...baseEnv } : {};
+    for (const envKey of config.secretEnvKeys) {
+      const value = await this.secrets.get(this.secretStorageKey(config.id, envKey));
+      if (typeof value === 'string' && value.length > 0) {
+        merged[envKey] = value;
+      }
+    }
+    return Object.keys(merged).length > 0 ? merged : baseEnv;
+  }
 
   // ── Auto-detection ──────────────────────────────────────────
 
@@ -54,223 +108,75 @@ export class McpServerRegistry {
    * Detect available MCP servers and return configurations for user approval.
    * Checks for known npm packages and running services.
    */
-  async detectAvailableServers(): Promise<Array<Omit<McpServerConfig, 'id'>>> {
-    // Core servers (zero-config)
-    const coreServers = [
-      {
-        name: 'Filesystem MCP Server',
-        transport: 'stdio' as const,
-        command: 'npx',
-        args: ['-y', '@modelcontextprotocol/server-filesystem', '${workspaceFolder}'],
-        enabled: false, // Requires user approval
-        env: undefined,
-        url: undefined,
-      },
-      {
-        name: 'Shell MCP Server',
-        transport: 'stdio' as const,
-        command: 'npx',
-        args: ['-y', '@modelcontextprotocol/server-shell'],
-        enabled: false,
-        env: undefined,
-        url: undefined,
-      },
-      {
-        name: 'Process MCP Server',
-        transport: 'stdio' as const,
-        command: 'npx',
-        args: ['-y', '@modelcontextprotocol/server-process'],
-        enabled: false,
-        env: undefined,
-        url: undefined,
-      },
-      {
-        name: 'Git MCP Server',
-        transport: 'stdio' as const,
-        command: 'uvx',
-        args: ['mcp-server-git'],
-        enabled: false,
-        env: undefined,
-        url: undefined,
-      },
-      {
-        name: 'SQLite MCP Server',
-        transport: 'stdio' as const,
-        command: 'npx',
-        args: ['-y', '@modelcontextprotocol/server-sqlite'],
-        enabled: false,
-        env: undefined,
-        url: undefined,
-      },
-    ];
+  async detectAvailableServers(): Promise<DetectedMcpServer[]> {
+    const detected: DetectedMcpServer[] = [];
 
-    // Developer power tools
-    const powerToolServers = [
-      {
-        name: 'Browser MCP Server',
-        transport: 'stdio' as const,
-        command: 'npx',
-        args: ['-y', '@modelcontextprotocol/server-browser'],
-        enabled: false,
-        env: undefined,
-        url: undefined,
-      },
-      {
-        name: 'Node REPL MCP Server',
-        transport: 'stdio' as const,
-        command: 'npx',
-        args: ['-y', '@modelcontextprotocol/server-node'],
-        enabled: false,
-        env: undefined,
-        url: undefined,
-      },
-      {
-        name: 'Python REPL MCP Server',
-        transport: 'stdio' as const,
-        command: 'npx',
-        args: ['-y', '@modelcontextprotocol/server-python'],
-        enabled: false,
-        env: undefined,
-        url: undefined,
-      },
-    ];
+    // Only surface servers whose launch runtime is actually present and whose
+    // command is verified — a scan that offers broken options is worse than none.
+    const hasNpx = Boolean(findCommandExecutable('npx'));
+    const hasUvx = Boolean(findCommandExecutable('uvx'));
 
-    // Add Docker server if Docker CLI is available
-    try {
-      const { exec } = await import('child_process');
-      const { promisify } = await import('util');
-      const execAsync = promisify(exec);
-      await execAsync('docker --version');
-      powerToolServers.push({
-        name: 'Docker MCP Server',
-        transport: 'stdio' as const,
-        command: 'npx',
-        args: ['-y', '@modelcontextprotocol/server-docker'],
-        enabled: false,
-        env: undefined,
-        url: undefined,
-      });
-    } catch {
-      // Docker not available, skip
-    }
-
-    // Check for local model servers
-    const localModelServers: Array<Omit<McpServerConfig, 'id'>> = [];
-
-    // Check LM Studio (localhost:1234)
-    try {
-      const response = await fetch('http://localhost:1234/health', { 
-        method: 'GET',
-        signal: AbortSignal.timeout(2000)
-      });
-      if (response.ok) {
-        localModelServers.push({
-          name: 'LM Studio MCP',
-          transport: 'http' as const,
-          url: 'http://localhost:1234/mcp',
-          enabled: false,
-          command: undefined,
-          args: undefined,
-          env: undefined,
-        });
-      }
-    } catch {
-      // LM Studio not running
-    }
-
-    // Check Ollama
-    try {
-      const { exec } = await import('child_process');
-      const { promisify } = await import('util');
-      const execAsync = promisify(exec);
-      await execAsync('ollama --version');
-      localModelServers.push({
-        name: 'Ollama MCP',
-        transport: 'stdio' as const,
-        command: 'ollama',
-        args: ['mcp'],
-        enabled: false,
-        env: undefined,
-        url: undefined,
-      });
-    } catch {
-      // Ollama not installed
-    }
-
-    // Check cloud CLI credentials (only if already configured)
-    const cloudServers: Array<Omit<McpServerConfig, 'id'>> = [];
-
-    // AWS CLI
-    try {
-      const { existsSync } = await import('fs');
-      const { homedir } = await import('os');
-      const { join } = await import('path');
-      if (existsSync(join(homedir(), '.aws', 'credentials'))) {
-        cloudServers.push({
-          name: 'AWS CLI MCP',
-          transport: 'stdio' as const,
+    if (hasNpx) {
+      detected.push({
+        reason: 'Node.js / npx is installed',
+        config: {
+          name: 'Filesystem MCP Server',
+          transport: 'stdio',
           command: 'npx',
-          args: ['-y', '@aws/mcp-server'],
-          enabled: false,
+          args: ['-y', '@modelcontextprotocol/server-filesystem', '${workspaceFolder}'],
           env: undefined,
           url: undefined,
-        });
-      }
-    } catch {
-      // AWS credentials check failed
+          enabled: false,
+        },
+      });
     }
 
-    // GCP gcloud
-    try {
-      const { exec } = await import('child_process');
-      const { promisify } = await import('util');
-      const execAsync = promisify(exec);
-      const result = await execAsync('gcloud auth list --filter=status:ACTIVE --format="value(account)"');
-      if (result.stdout.trim()) {
-        cloudServers.push({
-          name: 'GCP gcloud MCP',
-          transport: 'stdio' as const,
-          command: 'npx',
-          args: ['-y', '@google-cloud/mcp-server'],
-          enabled: false,
+    if (hasUvx) {
+      detected.push({
+        reason: 'The uv / uvx runtime is installed',
+        config: {
+          name: 'Git MCP Server',
+          transport: 'stdio',
+          command: 'uvx',
+          args: ['mcp-server-git'],
           env: undefined,
           url: undefined,
-        });
-      }
-    } catch {
-      // gcloud not authenticated
-    }
-
-    // Azure CLI
-    try {
-      const { exec } = await import('child_process');
-      const { promisify } = await import('util');
-      const execAsync = promisify(exec);
-      const result = await execAsync('az account show');
-      if (result.stdout.trim()) {
-        cloudServers.push({
-          name: 'Azure CLI MCP',
-          transport: 'stdio' as const,
-          command: 'npx',
-          args: ['-y', '@azure/mcp@latest', 'server', 'start'],
           enabled: false,
-          env: undefined,
-          url: undefined,
-        });
-      }
-    } catch {
-      // Azure CLI not authenticated
+        },
+      });
     }
 
-    // Filter out servers that already exist
-    const allDetectedServers = [...coreServers, ...powerToolServers, ...localModelServers, ...cloudServers];
+    // Azure MCP — only when the Azure CLI is installed AND signed in.
+    if (hasNpx && findCommandExecutable('az')) {
+      try {
+        const { exec } = await import('node:child_process');
+        const { promisify } = await import('node:util');
+        const execAsync = promisify(exec);
+        const result = await execAsync('az account show');
+        if (result.stdout.trim()) {
+          detected.push({
+            reason: 'Azure CLI is installed and signed in',
+            config: {
+              name: 'Azure MCP Server',
+              transport: 'stdio',
+              command: 'npx',
+              args: ['-y', '@azure/mcp@latest', 'server', 'start'],
+              env: undefined,
+              url: undefined,
+              enabled: false,
+            },
+          });
+        }
+      } catch {
+        // Azure CLI not signed in; skip.
+      }
+    }
+
+    // Drop anything already configured.
     const existingSignatures = new Set(
-      [...this.states.values()].map(state => toComparableSignature(state.config))
+      [...this.states.values()].map(state => toComparableSignature(state.config)),
     );
-
-    return allDetectedServers.filter(config => 
-      !existingSignatures.has(toComparableSignature(config))
-    );
+    return detected.filter(entry => !existingSignatures.has(toComparableSignature(entry.config)));
   }
 
   // ── CRUD ────────────────────────────────────────────────────
@@ -299,9 +205,13 @@ export class McpServerRegistry {
     this.onRefresh();
   }
 
-  /** Remove a server and clean up its connection and registered skills. */
+  /** Remove a server and clean up its connection, stored secrets, and registered skills. */
   async removeServer(id: string): Promise<void> {
+    const config = this.states.get(id)?.config;
     await this.disconnectServer(id, /* removing */ true);
+    if (config) {
+      await this.deleteServerSecrets(config);
+    }
     this.states.delete(id);
     void this.persist();
     this.onRefresh();
@@ -375,7 +285,14 @@ export class McpServerRegistry {
     state.status = 'connecting';
     this.onRefresh();
 
-    const client = new McpClient(state.config);
+    // Resolve SecretStorage-backed env vars into a connect-time-only config.
+    // The secret values are never written back to state.config / persist().
+    const connectConfig: McpServerConfig = {
+      ...state.config,
+      env: await this.resolveEffectiveEnv(state.config),
+    };
+
+    const client = new McpClient(connectConfig);
     this.clients.set(id, client);
 
     try {
@@ -384,7 +301,7 @@ export class McpServerRegistry {
       // If StreamableHTTP failed and transport is 'http', try SSE fallback
       if (state.config.transport === 'http' && state.config.url) {
         try {
-          const sseFallbackClient = await this.connectViaSse(state.config);
+          const sseFallbackClient = await this.connectViaSse(connectConfig);
           if (sseFallbackClient) {
             this.clients.set(id, sseFallbackClient);
             state.status = 'connected';

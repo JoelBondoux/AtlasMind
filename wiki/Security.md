@@ -31,6 +31,10 @@ AtlasMind is designed with a **safety-first** principle: the extension defaults 
 - All webview panels use a strict **Content Security Policy (CSP)**
 - Destructive webview-triggered actions such as project-memory purge require extension-side confirmation and a typed confirmation phrase before any filesystem deletion occurs
 - Delivery **stage edits** are posted whole and re-sanitised server-side (`sanitizeDeliveryConfig`) before they touch disk: string lengths are clamped, types coerced (booleans strict `=== true`), ids de-duplicated, and dangling/self promotion edges dropped. No secret values are ever stored — only config-source *locations*
+- Website Studio messages are allow-listed by type, fixed SSOT path, and fixed navigation command. Brief, sitemap, design, hosting, platform, and n8n payloads are re-sanitised server-side: counts/lengths are capped, ids/status/platforms/colors/URLs are normalized or allow-listed, only one primary platform survives, the canonical Develop/Staging/Production access policies are reconstructed, shared secret patterns are redacted, n8n webhook-shaped URLs are removed, and both outputs pass the SSOT memory scanner before file writes begin
+- **Project Director** edits (the dashboard's Director tab) are posted whole and re-sanitised server-side (`sanitizeProjectDirectorConfig`) before they touch disk: string lengths are clamped, every enum is whitelisted to a safe fallback, ids are regenerated, role records referencing a non-existent contact are dropped, dangling optional references cleared, and contact deep-links whose scheme is not allowlisted (`mailto:`/`tel:`/`sms:`/`slack:`/`msteams:`/`zoommtg:`/`https:`) stripped. Communication `handle`s are non-secret identifiers — no tokens/passwords are stored. Opening a contact deep-link resolves the link from the persisted config and re-checks the scheme server-side before `openExternal`; "Copy contact" builds the text host-side; the webview never supplies a raw URL or command. **Guarded outbound (Phase 3):** the Director can email/schedule/message a contact through a connected MCP connector only when the project enabled it (`outboundEnabled`, default off), a connector can perform the intent, and the user confirms an explicit modal showing the exact action — the tool comes from the connected server (run via its `mcp:` skill), the webview only supplies a draft, and there is a deep-link fallback (see [[Tool-Execution]])
+
+**Website hosting/n8n credential boundary.** `WebsiteWorkspaceConfig` contains workflow IDs and credential *references* but no credential-value, bearer-token, password, or webhook-value field. References require an explicit provider prefix such as `env:` or `SecretStorage:`; a raw password-like string is discarded. Platform/n8n URLs must be HTTP(S) and cannot carry username/password, query, or fragment data. Hosting readiness additionally restricts local Develop to loopback, requires HTTPS and password references for hosted Develop/Staging, requires Staging to use `<review-label>.<production-domain>`, and keeps Production public and promotion-protected. Free-text imports still pass through the shared secret redactor. The resulting `project_memory/domain/website.json` is planning state, not an authorization record: a `ready` environment or `configured` platform/workflow status cannot publish or trigger anything.
 
 ### 3a. Promotion Execution Boundary
 
@@ -81,6 +85,8 @@ Classified content may only ever be sent to the **trusted models you select**. E
 
 **Deny-by-default**: an empty trusted list trusts nothing — enabling the policy with no trusted model redacts classified content for every model until you select one. When confidential content is detected but no trusted model is available, the content is redacted and the user is notified with a shortcut to the Privacy page. The compliance detectors are heuristic aids, **not** a certification of GDPR/HIPAA/PCI-DSS compliance.
 
+**Project Director PII consent gate.** The Director tab prefers to *reference* people in their system of record (Microsoft 365 / Slack / Google) over storing raw personal data locally. The first time a save would persist raw PII (a name plus an email/phone), a modal explains the GDPR implications and requires an explicit acknowledgement (workspace-scoped, `atlasmind.projectDirector.piiStorageAcknowledged`); declining aborts the write. On acknowledgement AtlasMind enables the built-in `gdpr-pii` compliance pack so stored personal data is classified confidential and gated by the layers above. The git-tracked `project-director.md` mirror describes channels by kind/label only, so raw addresses never enter a diff.
+
 ### 5. Terminal Allow-List
 
 - Only ~40 pre-approved commands are allowed via `terminal-run`
@@ -123,6 +129,11 @@ Custom skills are statically scanned before enablement:
 - Built-in skills are **pre-approved** and skip scanning
 - MCP tools are **pre-approved** (trust is delegated to the MCP server)
 
+**MCP guided setup (`src/views/mcpPanel.ts`):**
+- **Credentials in SecretStorage, not settings.** Secret inputs the wizard collects (API tokens, etc.) are stored in VS Code SecretStorage under `atlasmind.mcp.<serverId>.<KEY>` via `McpServerConfig.secretEnvKeys`, merged into the process env only at connect time, and deleted when the server is removed. The persisted config (in `globalState`) holds only the key names — secret values never touch settings or the git-tracked tree, and are never echoed back to the webview.
+- **Confirm before install.** A missing runtime (Node, uv, …) is surfaced with the exact package-manager command and installed **only after explicit user confirmation** (`checkStarterRuntime` plans; `runRuntimeInstallPlan` runs only post-confirmation) — replacing the previous silent auto-install.
+- **Trustworthy scan.** `detectAvailableServers()` surfaces only servers whose launch runtime is actually present, so the wizard never offers a broken option.
+
 ### 7a. On-Device Voice Asset Provisioning
 
 - Local speech-to-text (`LocalTranscriber`) downloads its Whisper model and, on Windows x64, the `whisper-cli` binary. Both are fetched over **HTTPS** from pinned URLs and **SHA-256-verified** against hardcoded checksums before use; a mismatch deletes the partial file and aborts rather than running unverified code.
@@ -135,7 +146,8 @@ Custom skills are statically scanned before enablement:
 The web build can remote-control a desktop instance over a WebSocket. Because that exposes a surface able to run tools and hold secrets, it is **default-deny**:
 
 - **Off by default.** The server never listens until the operator runs `AtlasMind: Enable Remote Control` and `atlasmind.remote.enabled` is on.
-- **Localhost only (v1).** The server binds to `127.0.0.1`. Cross-machine reach is a planned follow-up and will require TLS.
+- **Localhost bind.** The server always binds to `127.0.0.1`. Cross-machine reach (`atlasmind.remote.mode: "gateway"`) is achieved by fronting it with your own SSO gateway + tunnel over TLS, never by exposing the port directly.
+- **Gateway origin secret.** In `gateway` mode the SSO gateway authenticates each WebSocket via an `x-atlas-origin-secret` header the desktop verifies constant-time against the pairing-token slot; the browser never holds a credential (the login is its identity), and an optional `x-atlas-user-id` is recorded for audit.
 - **Pairing + bearer token.** A token is generated and stored in **SecretStorage** on both sides; connections without a matching token are refused (constant-time comparison). Unauthenticated connections are dropped after a short timeout and audited.
 - **Workspace-trust gate.** The server refuses to serve until the workspace is explicitly approved for remote control (mirrors the webhook trust gate).
 - **Redaction boundary holds.** API keys and secrets are never serialized across the bridge — the desktop executes; the client only receives already-redacted results. Cost/run RPCs are **read-only**.

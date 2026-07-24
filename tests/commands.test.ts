@@ -91,6 +91,7 @@ describe('collapseAtlasMindSidebarTrees', () => {
       'workbench.actions.treeView.atlasmind.mcpServersView.collapseAll',
       'workbench.actions.treeView.atlasmind.discoveryView.collapseAll',
       'workbench.actions.treeView.atlasmind.modelsView.collapseAll',
+      'workbench.actions.treeView.atlasmind.projectDirectorView.collapseAll',
     ]);
   });
 });
@@ -112,6 +113,15 @@ describe('registerCommands', () => {
     registerCommands({ subscriptions: [] } as never, () => undefined);
 
     expect(registerCommand.mock.calls.map(call => call[0])).toContain('atlasmind.mcpServers.installRecommended');
+  });
+
+  it('registers the dedicated Website Studio command', () => {
+    const registerCommand = vi.fn().mockReturnValue({ dispose: () => undefined });
+    (vscode as { commands: { registerCommand: typeof registerCommand } }).commands = { registerCommand };
+
+    registerCommands({ subscriptions: [] } as never, () => undefined);
+
+    expect(registerCommand.mock.calls.map(call => call[0])).toContain('atlasmind.openWebsiteStudio');
   });
 });
 

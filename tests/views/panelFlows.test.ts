@@ -143,7 +143,8 @@ import { ProjectDashboardPanel } from '../../src/views/projectDashboardPanel.ts'
 import { MissionControlPanel, parseMissionControlMessage } from '../../src/views/missionControlPanel.ts';
 import { ProjectIdeationPanel } from '../../src/views/projectIdeationPanel.ts';
 import { SettingsPanel } from '../../src/views/settingsPanel.ts';
-import { McpPanel } from '../../src/views/mcpPanel.ts';
+import { McpPanel, buildWizardServerConfig, validatePanelMessage } from '../../src/views/mcpPanel.ts';
+import { getRecommendedMcpStarterDetails } from '../../src/constants.ts';
 import * as providerIndex from '../../src/providers/index.ts';
 
 function createSessionConversationStub(transcript: Array<{ id?: string }> = []) {
@@ -184,6 +185,66 @@ describe('chat composer mode helpers', () => {
     expect(isOneShotComposerMode('new-session')).toBe(true);
     expect(isOneShotComposerMode('send')).toBe(false);
     expect(isOneShotComposerMode('steer')).toBe(false);
+  });
+});
+
+describe('MCP guided wizard: buildWizardServerConfig', () => {
+  it('splits secret inputs into SecretStorage and non-secret inputs into env', () => {
+    const starter = getRecommendedMcpStarterDetails('mcp-server-slack');
+    const built = buildWizardServerConfig('Slack MCP Server', starter, {
+      SLACK_BOT_TOKEN: 'xoxb-123',
+      SLACK_TEAM_ID: 'T123',
+    });
+
+    expect(built).not.toBeNull();
+    expect(built?.secrets).toEqual({ SLACK_BOT_TOKEN: 'xoxb-123' });
+    expect(built?.config.secretEnvKeys).toEqual(['SLACK_BOT_TOKEN']);
+    // The team id is a plain env var; the token value never lands in the config.
+    expect(built?.config.env).toEqual({ SLACK_TEAM_ID: 'T123' });
+    expect(JSON.stringify(built?.config)).not.toContain('xoxb-123');
+  });
+
+  it('returns null when a required input is missing', () => {
+    const starter = getRecommendedMcpStarterDetails('mcp-server-slack');
+    const built = buildWizardServerConfig('Slack MCP Server', starter, { SLACK_TEAM_ID: 'T123' });
+    expect(built).toBeNull();
+  });
+
+  it('substitutes an arg placeholder and keeps the default when left blank', () => {
+    const starter = getRecommendedMcpStarterDetails('mcp-server-filesystem');
+
+    const withDefault = buildWizardServerConfig('Filesystem', starter, {});
+    expect(withDefault?.config.args).toContain('${workspaceFolder}');
+
+    const withFolder = buildWizardServerConfig('Filesystem', starter, { '${workspaceFolder}': '/home/me/project' });
+    expect(withFolder?.config.args).toContain('/home/me/project');
+    expect(withFolder?.config.args).not.toContain('${workspaceFolder}');
+  });
+
+  it('fills an arg placeholder for a connection URL', () => {
+    const starter = getRecommendedMcpStarterDetails('mcp-server-postgres');
+    const built = buildWizardServerConfig('Postgres', starter, { '<DATABASE_URL>': 'postgresql://u:p@h:5432/db' });
+    expect(built?.config.args).toContain('postgresql://u:p@h:5432/db');
+    expect(built?.config.secretEnvKeys).toBeUndefined();
+  });
+});
+
+describe('MCP guided wizard: validatePanelMessage', () => {
+  it('accepts the wizard message types', () => {
+    expect(validatePanelMessage({ type: 'scanEnvironment' })).toEqual({ type: 'scanEnvironment' });
+    expect(validatePanelMessage({ type: 'checkPrerequisites', payload: { serverId: 'mcp-server-slack' } }))
+      .toEqual({ type: 'checkPrerequisites', payload: { serverId: 'mcp-server-slack' } });
+    expect(validatePanelMessage({ type: 'connectDetected', payload: { index: 2 } }))
+      .toEqual({ type: 'connectDetected', payload: { index: 2 } });
+    expect(validatePanelMessage({ type: 'wizardConnect', payload: { serverId: 'x', inputs: { A: '1', B: 2 } } }))
+      .toEqual({ type: 'wizardConnect', payload: { serverId: 'x', inputs: { A: '1' } } });
+  });
+
+  it('rejects malformed wizard messages', () => {
+    expect(validatePanelMessage({ type: 'connectDetected', payload: { index: -1 } })).toBeNull();
+    expect(validatePanelMessage({ type: 'connectDetected', payload: { index: 'x' } })).toBeNull();
+    expect(validatePanelMessage({ type: 'checkPrerequisites', payload: {} })).toBeNull();
+    expect(validatePanelMessage({ type: 'wizardConnect', payload: { inputs: {} } })).toBeNull();
   });
 });
 

@@ -12,12 +12,13 @@ Source: `docs/architecture.md`
 │  │ @atlas Chat   │   │ Sidebar      │   │ Webview Panels     │  │
 │  │ Participant   │   │ Tree Views   │   │ (Settings,         │  │
 │  │               │   │ (Agents,     │   │  Model Providers,  │  │
-│  │               │   │  Skills,     │   │  Tool Webhooks)    │  │
+│  │               │   │  Skills,     │   │  Tool Webhooks,    │  │
 │  │ /bootstrap    │   │  Skills,     │   │                    │  │
 │  │ /agents       │   │  Memory,     │   │                    │  │
 │  │ /skills       │   │  Models)     │   │                    │  │
 │  │ /memory       │   │              │   │                    │  │
-│  │ /cost         │   │              │   │  Voice, Vision)    │  │
+│  │ /cost         │   │              │   │  Voice, Vision,    │  │
+│  │               │   │              │   │  Website Studio)   │  │
 │  └──────┬───────┘   └──────┬───────┘   └────────┬───────────┘  │
 │         │                  │                     │              │
 │  ───────┴──────────────────┴─────────────────────┘              │
@@ -48,15 +49,14 @@ Source: `docs/architecture.md`
 │                   │             │                              │
 │                   │ Anthropic   │                              │
 │                   │ Claude CLI  │                              │
-│                   │ OpenAI      │                              │
-│         
+│        
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: architecture/runtime-and-surfaces.md
 generator-version: 2
-generated-at: 2026-06-18T18:51:10.022Z
+generated-at: 2026-07-24T11:56:11.404Z
 source-paths: docs/architecture.md
-source-fingerprint: 0632f471
-body-fingerprint: 9798b455
+source-fingerprint: 30ff5a4c
+body-fingerprint: e6bd7aff
 -->

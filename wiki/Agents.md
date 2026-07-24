@@ -113,6 +113,8 @@ The **Agent Editor** shows a **Testing Roles** section below Skills. When a meth
 
 During `@atlas /bootstrap` (new project) and `@atlas /import` (existing project), AtlasMind presents an **Auto / Manual / Skip** picker before the methodology list. In Auto mode the inferred methodology set is pre-selected in a customisable QuickPick; Manual lets you choose freely; Skip defaults to TDD + Unit. After confirming, if a test-focused agent exists, an offer is made to assign it as the primary agent for all enabled methodologies.
 
+Choosing **Website / Marketing Site** during guided bootstrap also seeds Website Studio from the captured brief without overwriting an existing `project_memory/domain/website.json`. Website Studio is planning/review state, not tool authorization: platform selection cannot deploy, n8n status cannot trigger a workflow, and imported dashboard data is sanitized/redacted before SSOT persistence. See [[Website Studio]].
+
 #### Scaffolding & external-agent sync
 
 Two actions on the Settings → Testing page operationalise the matrix:

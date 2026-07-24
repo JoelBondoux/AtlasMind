@@ -138,9 +138,11 @@ describe('package manifest', () => {
     const commands = (manifest.contributes?.commands ?? []) as ContributedCommand[];
     const chatView = commands.find(entry => entry.command === 'atlasmind.openChatView');
     const dashboard = commands.find(entry => entry.command === 'atlasmind.openProjectDashboard');
+    const websiteStudio = commands.find(entry => entry.command === 'atlasmind.openWebsiteStudio');
 
     expect(chatView?.title).toBe('AtlasMind: Focus Chat View');
     expect(dashboard?.title).toBe('AtlasMind: Open Project Dashboard');
+    expect(websiteStudio?.title).toBe('AtlasMind: Open Website Studio');
   });
 
   it('contributes page-specific AtlasMind settings commands', () => {
@@ -312,6 +314,7 @@ describe('package manifest', () => {
       'atlasmind.mcpServersView',
       'atlasmind.discoveryView',
       'atlasmind.modelsView',
+      'atlasmind.projectDirectorView',
     ]);
 
     expect(views.filter(entry => entry.id !== 'atlasmind.chatView')).toEqual(expect.arrayContaining([
@@ -323,6 +326,7 @@ describe('package manifest', () => {
       expect.objectContaining({ id: 'atlasmind.mcpServersView', visibility: 'collapsed' }),
       expect.objectContaining({ id: 'atlasmind.discoveryView', visibility: 'collapsed' }),
       expect.objectContaining({ id: 'atlasmind.modelsView', visibility: 'collapsed' }),
+      expect.objectContaining({ id: 'atlasmind.projectDirectorView', visibility: 'collapsed' }),
     ]));
   });
 

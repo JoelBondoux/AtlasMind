@@ -6,6 +6,74 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.135.0 — Project Director reminders & surfacing (Phase 4)
+
+- **Follow-up reminders that don't nag.** A new in-process scheduler surfaces a throttled, once-per-day in-editor nudge when follow-ups are overdue or due soon, with a one-click "Open Project Director". It is notification-only — it never auto-sends anything on a timer. A startup nudge is on by default; the recurring timer is opt-in. Both toggle from the Director Setup card.
+- **A Project Director sidebar view.** A new tree groups Stakeholders, Team, and due/overdue Follow-ups, with a badge showing the overdue count; clicking any item opens the Director tab.
+- **Chat, too.** `@atlas /director` prints a skimmable status (people, responsibilities, assignments, follow-ups) and `@atlas /followups` lists open follow-ups grouped overdue / due soon / upcoming — both with a button to open the dashboard.
+
+---
+
+## v0.134.0 — Project Director connectors (Phase 3)
+
+- **Reach people through your connected tools — opt-in and guarded.** When outbound messaging is enabled and a matching MCP connector is connected (Microsoft 365 / Outlook, Slack, a Google-Calendar server), the Director tab can email, schedule a meeting, or post a message to a contact. Otherwise it falls back to the existing deep-link / copy path and never auto-sends.
+- **Deny-by-default with an explicit confirm.** Every send requires the project toggle, a connected connector, and a modal that shows exactly what will be sent (connector, tool, recipient, subject/body, risk) before anything runs. The tool comes from the connected server; the webview only supplies the draft, which is re-resolved and re-classified host-side. Sends are recorded to the Director history.
+- **Connectors surfaced; credentials stay in SecretStorage.** The Setup card shows connected messaging connectors and a link to manage MCP Servers, plus an On/Off outbound toggle. Referencing a person in Microsoft 365 / Slack stays preferred over storing raw personal data.
+
+---
+
+## v0.133.0 — Project Director dashboard (Phase 2)
+
+- **A People tab in the Project Dashboard.** The new **Director** tab surfaces and edits the stakeholders, delivery team, responsibilities, assignments, and follow-ups around a project, backed by `ProjectDirectorManager`. Contacts show role badges with **Open** (deep-link) and **Copy contact**; responsibilities map an area to an owner and backup; assignments can be status-cycled and can give an autonomous run a human owner; follow-ups group into Overdue / Due soon / Upcoming with done/snooze/cancel.
+- **Solo-friendly, not just teams.** A one-person project foregrounds self-management and marks "you"; a team project shows the full roster. An auto/solo/team toggle overrides the inference.
+- **GDPR-safe.** Seeding pulls a first draft from your repo (git contributors, CODEOWNERS, package author, Website Studio stakeholders). Storing raw personal data asks for a one-time acknowledgement and turns on the `gdpr-pii` classification pack; every edit is re-sanitised host-side and deep-links are re-checked against a scheme allowlist before opening.
+
+---
+
+## v0.132.0 — Remote control over an SSO gateway
+
+- **Reach your desktop AtlasMind from your own website login.** Remote control can now run in `gateway` mode behind an SSO-gated Cloudflare Worker + Cloudflare Tunnel, so you can drive the orchestrator and view read-only cost/run dashboards from any browser signed into your platform login — not only a same-machine web client. No inbound port is opened; the Worker and tunnel are outbound/edge.
+- **Identity from the login, not a copied token.** In gateway mode the server authenticates each WebSocket by the `x-atlas-origin-secret` header the Worker injects (timing-safe against the pairing-token secret) and records the forwarded user id for audit; the browser never holds a credential. Localhost pairing mode is unchanged and still the default.
+- **Same safety posture.** Workspace-trust approval, the redaction boundary, desktop-authoritative tool approvals, and default-deny-on-disconnect all still apply. New command **AtlasMind: Enable Remote Control (Gateway)** and setting `atlasmind.remote.mode`.
+
+---
+
+## v0.131.0 — Guided MCP setup wizard
+
+- **MCP is now approachable for first-time users.** The MCP Servers panel leads with a step-by-step **Guided Setup**: **Scan my computer** (AtlasMind finds servers it can set up from tools you already have) or **Browse by category**, then it checks prerequisites, asks only for the inputs a server needs, and connects. The old raw form lives on as an **Advanced** tab.
+- **Credentials done right.** Guided secret fields (API tokens) are stored in VS Code **SecretStorage** and injected as env vars only at connect time — never written to settings — via the new `McpServerConfig.secretEnvKeys`.
+- **Confirm before install.** Missing runtimes (Node, uv, …) are surfaced with the exact command and installed **only after you confirm**, replacing the previous silent auto-install.
+- **Trustworthy environment scan.** The revived `detectAvailableServers()` now surfaces only servers whose launch runtime is actually present.
+
+---
+
+## v0.130.0 — Project Director (Phase 1: people model)
+
+- **AtlasMind now models the people a project runs on.** A new `ProjectDirectorManager` captures stakeholders, the delivery team, responsibilities (who owns what), human task assignments, and follow-ups, persisted to `project_memory/operations/project-director.json` with a human-readable `project-director.md` mirror and a capped history file.
+- **Human owners for autonomous work.** Assignments introduce a human-assignee layer that agent-role tasks lacked, and can bind an autonomous run to a human owner without mutating the run record.
+- **GDPR-first by design.** AtlasMind prefers to reference people in their system of record (Microsoft 365, Slack, Google Workspace — each with a data-governance reference) instead of storing raw personal data; any locally-stored PII is flagged for a one-time consent gate, communication deep-links are restricted to a safe scheme allowlist, and the git-tracked mirror shows channels by kind/label only.
+- *(This is the data + service foundation; the Project Dashboard → Director tab, guarded connector send/schedule, and scheduled reminders follow in later phases.)*
+
+---
+
+## v0.129.0 — Guarded website hosting environments
+
+- **Every Website Studio project now has Develop, Staging, and Production.** Develop is local/loopback by default, with an explicit HTTPS and password-protected hosted fallback when local execution is unavailable. Staging is always an HTTPS, password-protected `<review-label>.<production-domain>` for client review. Production is public and promotion-protected.
+- **The Hosting & Platforms dashboard shows the complete path.** Each environment has URL, branch/project reference, notes, locked access policy, readiness state, and actionable setup/blocking issues before the platform catalog.
+- **The policy is enforced in the extension host.** A modified webview payload cannot make Staging public, turn Production into a password store, or remove Production protection. Credential fields accept only provider-prefixed references such as `SecretStorage:website.staging.password` and `env:WEBSITE_STAGING_PASSWORD`; the password value remains outside project memory.
+- **Readiness is descriptive, never deployment authority.** Website Studio validates loopback, HTTPS, credential-reference, and Staging-subdomain topology, while actual publishing still enters the Project Dashboard's guarded Delivery pipeline.
+
+---
+
+## v0.128.0 — Website Studio
+
+- **AtlasMind now has a dedicated, end-to-end Website Studio.** Six dashboards carry a client project from imported or hand-authored brief through sitemap, wireframes, visual design, UI system decisions, hosting/CMS readiness, and n8n workflow mapping.
+- **Broad platform coverage.** Cloudflare Pages, GitHub Pages, WordPress + Elementor, WordPress, Vercel, Netlify, Azure Static Web Apps, Shopify, Webflow, and custom targets share one safe planning surface; guarded production delivery still happens in the existing Delivery dashboard.
+- **Website-aware bootstrap and SSOT.** Choosing **Website / Marketing Site** seeds `project_memory/domain/website.json` and its review-friendly `website.md` mirror without overwriting an existing plan.
+- **Secret-safe n8n planning.** Website Studio accepts workflow and credential references, not credential values or webhook URLs, and sanitizes/redacts imported webview data before persistence.
+
+---
+
 ## v0.127.2 — `main` is now the default branch
 
 - **The repository's default branch is now `main`.** The old release branch `master` was renamed to `main` and set as GitHub's default, so anyone landing on the repo sees the released, Marketplace-matching code instead of in-progress work. `develop` stays the day-to-day integration branch. CI, the release-promotion workflow, the delivery pipeline, and all docs were updated to match, and Dependabot keeps opening dependency PRs against `develop`. Also fixed an unresolved merge-conflict marker that had left `.vscode/settings.json` as invalid JSON.

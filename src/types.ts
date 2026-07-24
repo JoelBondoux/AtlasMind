@@ -1068,6 +1068,145 @@ export interface RoutineRunResult {
   durationMs: number;
 }
 
+// ── Website Studio ───────────────────────────────────────────────
+
+/** Hosting/CMS targets understood by the Website Studio. */
+export type WebsitePlatformId =
+  | 'cloudflare-pages'
+  | 'github-pages'
+  | 'wordpress-elementor'
+  | 'wordpress'
+  | 'vercel'
+  | 'netlify'
+  | 'azure-static-web-apps'
+  | 'shopify'
+  | 'webflow'
+  | 'custom';
+
+export type WebsiteWorkStatus = 'not-started' | 'draft' | 'review' | 'approved' | 'blocked';
+export type WebsitePlatformStatus = 'not-planned' | 'planned' | 'configured' | 'live' | 'blocked';
+export type WebsiteAutomationStatus = 'idea' | 'mapped' | 'configured' | 'verified' | 'paused';
+
+/** Normalized, deliberately bounded client brief imported into Website Studio. */
+export interface ClientWebsiteIntake {
+  clientName: string;
+  projectName: string;
+  summary: string;
+  goals: string[];
+  audiences: string[];
+  requiredFeatures: string[];
+  contentSources: string[];
+  brandNotes: string;
+  constraints: string[];
+  successMetrics: string[];
+  targetLaunch?: string;
+  budget?: string;
+  stakeholders: string[];
+}
+
+/** One page moving from sitemap through wireframe, visual design, content, and SEO review. */
+export interface WebsitePagePlan {
+  id: string;
+  title: string;
+  slug: string;
+  purpose: string;
+  template: string;
+  sections: string[];
+  wireframeNotes: string;
+  designNotes: string;
+  wireframeStatus: WebsiteWorkStatus;
+  designStatus: WebsiteWorkStatus;
+  contentStatus: WebsiteWorkStatus;
+  seoStatus: WebsiteWorkStatus;
+}
+
+/** Project-level UI direction. Values are design decisions, never generated CSS or executable code. */
+export interface WebsiteDesignSystem {
+  brandDirection: string;
+  tone: string;
+  primaryColor: string;
+  secondaryColor: string;
+  accentColor: string;
+  headingFont: string;
+  bodyFont: string;
+  spacingScale: string;
+  cornerStyle: string;
+  accessibilityTarget: string;
+  componentNotes: string[];
+}
+
+/** One possible publishing target. Secret values are intentionally excluded. */
+export interface WebsitePlatformTarget {
+  id: WebsitePlatformId;
+  label: string;
+  status: WebsitePlatformStatus;
+  primary: boolean;
+  siteUrl?: string;
+  projectReference?: string;
+  environmentReference?: string;
+  notes: string;
+}
+
+/** The fixed website delivery environments presented by Website Studio. */
+export type WebsiteHostingEnvironmentId = 'develop' | 'staging' | 'production';
+
+/** Develop can run locally or use a guarded hosted fallback; later stages are hosted. */
+export type WebsiteHostingMode = 'local' | 'hosted';
+
+/** Access is policy-controlled by environment and is not freely user-selectable. */
+export type WebsiteAccessPolicy = 'local-only' | 'password-protected' | 'public';
+
+/**
+ * One stage in Website Studio's fixed Develop → Staging → Production pipeline.
+ * Credential references point to SecretStorage, environment variables, or an
+ * external secret manager; raw passwords are deliberately outside this schema.
+ */
+export interface WebsiteHostingEnvironment {
+  id: WebsiteHostingEnvironmentId;
+  name: 'Develop' | 'Staging' | 'Production';
+  purpose: string;
+  hostingMode: WebsiteHostingMode;
+  accessPolicy: WebsiteAccessPolicy;
+  url?: string;
+  branchReference?: string;
+  credentialReference?: string;
+  subdomainLabel?: string;
+  notes: string;
+  promotionProtected: boolean;
+}
+
+/**
+ * A planned n8n workflow. `credentialReference` names an environment variable,
+ * SecretStorage entry, or external secret-manager item; it must never contain
+ * the credential or webhook value itself.
+ */
+export interface WebsiteAutomation {
+  id: string;
+  name: string;
+  event: string;
+  outcome: string;
+  status: WebsiteAutomationStatus;
+  n8nWorkflowId?: string;
+  instanceUrl?: string;
+  credentialReference?: string;
+  dataNotes: string;
+}
+
+/**
+ * Website Studio SSOT. Persisted to `project_memory/domain/website.json` with
+ * a human-readable `website.md` mirror for review and version control.
+ */
+export interface WebsiteWorkspaceConfig {
+  version: 1;
+  updatedAt: string;
+  intake: ClientWebsiteIntake;
+  pages: WebsitePagePlan[];
+  designSystem: WebsiteDesignSystem;
+  platforms: WebsitePlatformTarget[];
+  hostingEnvironments: WebsiteHostingEnvironment[];
+  automations: WebsiteAutomation[];
+}
+
 // ── Delivery / Deployment Stages ─────────────────────────────────
 
 /**
@@ -1389,6 +1528,283 @@ export interface PromotionHistoryEntry {
   durationMs?: number;
   /** git user that ran it (name <email>), when resolvable. */
   actor?: string;
+}
+
+// ── Project Director ─────────────────────────────────────────────
+
+/**
+ * A communication channel kind. Open union so a project can record a channel
+ * AtlasMind doesn't model natively without a type change.
+ */
+export type CommunicationChannelKind =
+  | 'email'
+  | 'slack'
+  | 'teams'
+  | 'phone'
+  | 'sms'
+  | 'meet'
+  | 'zoom'
+  | 'github'
+  | 'linkedin'
+  | 'other'
+  | (string & {});
+
+/**
+ * A reference to a person/group in their GDPR-compliant system of record
+ * (Microsoft 365 / Entra, Slack, Google Workspace). AtlasMind prefers to
+ * *reference* people here and resolve their details on demand from the
+ * connected directory, rather than hoarding raw personal data locally.
+ */
+export interface DirectoryRef {
+  /** Which system of record owns this identity. `local` = stored in AtlasMind only. */
+  source: 'm365' | 'slack' | 'google' | 'local' | (string & {});
+  /** Stable external id (Entra object id, Slack user id, …). Not PII on its own. */
+  externalId?: string;
+  /** Non-PII display label where possible, e.g. "Design Lead", "#project-x". */
+  displayLabel: string;
+}
+
+/**
+ * One way to reach a {@link DirectorContact}. `handle` is a **non-secret**
+ * identifier (an address, @username, or phone number) — never a token or
+ * password. `deepLink`, when present, is a launchable URL restricted to a
+ * scheme allowlist (mailto:/tel:/sms:/slack:/msteams:/zoommtg:/https:).
+ */
+export interface CommunicationLink {
+  id: string;
+  kind: CommunicationChannelKind;
+  /** Human label shown in the UI, e.g. "Work email", "#project-x". */
+  label: string;
+  /** Non-secret handle: address, @username, phone number. */
+  handle: string;
+  /** Optional launchable deep link (scheme-allowlisted). */
+  deepLink?: string;
+  /** Marks the contact's preferred channel, surfaced first. */
+  preferred?: boolean;
+}
+
+/**
+ * A person, group, or organisation involved in the project. The single source
+ * of truth for identity + communication; {@link Stakeholder} and
+ * {@link TeamMember} reference a contact by id so the same human can play both
+ * roles without duplicating their channels.
+ */
+export interface DirectorContact {
+  id: string;
+  name: string;
+  kind: 'person' | 'group' | 'org' | (string & {});
+  /** Free-text role/title, e.g. "VP Product", "Design Lead". */
+  title?: string;
+  org?: string;
+  /** Optional timezone label for scheduling context (display only). */
+  timezone?: string;
+  /** Preferred link to the person's system of record (GDPR-minimising). */
+  ref?: DirectoryRef;
+  links: CommunicationLink[];
+  /**
+   * True when raw personal data (beyond a non-PII label) is persisted locally.
+   * Drives the one-time GDPR consent gate and the confidential classification.
+   */
+  piiStored: boolean;
+  notes?: string;
+}
+
+export type StakeholderCategory =
+  | 'sponsor'
+  | 'client'
+  | 'user-representative'
+  | 'regulator'
+  | 'vendor'
+  | 'partner'
+  | 'internal'
+  | 'other'
+  | (string & {});
+
+/** High/medium/low scale used for the stakeholder influence/interest grid. */
+export type DirectorLevel = 'high' | 'medium' | 'low' | (string & {});
+
+/** A role a contact plays as a project stakeholder. Thin record → a contact. */
+export interface Stakeholder {
+  id: string;
+  contactId: string;
+  category: StakeholderCategory;
+  influence: DirectorLevel;
+  interest: DirectorLevel;
+  /** What this stakeholder cares about / expects from the project. */
+  interestSummary?: string;
+  notes?: string;
+}
+
+/** A role a contact plays as a delivery team member. Thin record → a contact. */
+export interface TeamMember {
+  id: string;
+  contactId: string;
+  /** Discipline/role on delivery, e.g. "backend-engineer", "QA". */
+  discipline: string;
+  /** Optional allocation hint (display only), e.g. "50%", "2 days/wk". */
+  allocation?: string;
+  availability?: string;
+  notes?: string;
+}
+
+/**
+ * An area of ownership. `ownerContactId` is the single accountable owner;
+ * `backupContactId` names a fallback. A full RACI matrix is deferred.
+ */
+export interface Responsibility {
+  id: string;
+  /** Area/scope label, e.g. "Payments", "Release sign-off". */
+  area: string;
+  description?: string;
+  ownerContactId: string;
+  backupContactId?: string;
+  notes?: string;
+}
+
+export type AssignmentKind =
+  | 'task'
+  | 'responsibility'
+  | 'review'
+  | 'decision'
+  | 'other'
+  | (string & {});
+export type AssignmentStatus =
+  | 'todo'
+  | 'in-progress'
+  | 'blocked'
+  | 'done'
+  | 'cancelled'
+  | (string & {});
+export type AssignmentPriority = 'high' | 'medium' | 'low' | (string & {});
+
+/**
+ * Links a human (contact) to a unit of work — the human-assignee overlay that
+ * {@link ProjectRunRecord} / {@link SubTask} (assigned to *agent roles*) lack.
+ * `linkedRunId` binds an autonomous run to its human owner **without mutating
+ * the run record**; `linkedResponsibilityId` binds an ongoing responsibility.
+ */
+export interface Assignment {
+  id: string;
+  title: string;
+  kind: AssignmentKind;
+  assigneeContactId?: string;
+  status: AssignmentStatus;
+  priority: AssignmentPriority;
+  /** ISO date (yyyy-mm-dd) or full ISO timestamp; optional. */
+  due?: string;
+  /** ProjectRunRecord.id this assignment aggregates, when it maps to a run. */
+  linkedRunId?: string;
+  linkedResponsibilityId?: string;
+  /** Provenance so imported/derived items are distinguishable from manual ones. */
+  source: 'manual' | 'imported' | 'run' | (string & {});
+  createdAt: string;
+  updatedAt: string;
+  notes?: string;
+}
+
+export type FollowUpStatus = 'open' | 'done' | 'snoozed' | 'cancelled' | (string & {});
+export type FollowUpCadence =
+  | 'once'
+  | 'daily'
+  | 'weekly'
+  | 'biweekly'
+  | 'monthly'
+  | (string & {});
+
+/** What a follow-up is about, so the dashboard can deep-link to the entity. */
+export interface FollowUpLinkedEntity {
+  kind: 'stakeholder' | 'teamMember' | 'assignment' | 'responsibility' | 'run' | 'none' | (string & {});
+  id?: string;
+}
+
+/**
+ * A durable follow-up (a nudge to do or check something by a date). `due` /
+ * `overdue` are **derived** at read time from `dueDate` + `status` +
+ * `snoozedUntil`, never persisted. `cadence` and `lastFiredAt` support the
+ * scheduled-reminder engine (later phase).
+ */
+export interface FollowUp {
+  id: string;
+  title: string;
+  /** Who is responsible for doing the follow-up. */
+  ownerContactId?: string;
+  /** Who the follow-up is with (e.g. the stakeholder to contact). */
+  withContactId?: string;
+  /** ISO date the follow-up is due. */
+  dueDate: string;
+  cadence: FollowUpCadence;
+  status: FollowUpStatus;
+  linked: FollowUpLinkedEntity;
+  /** Preferred channel to use when reaching out. */
+  channelHint?: CommunicationChannelKind;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  /** If snoozed, the ISO date it re-surfaces. */
+  snoozedUntil?: string;
+  /** Last time a reminder fired for this item, to avoid duplicate nudges. */
+  lastFiredAt?: string;
+  notes?: string;
+}
+
+/**
+ * Whether the project is run by a single person or a team. `auto` infers it
+ * from the roster (solo when there is no team member other than "me"), so a
+ * solo dev is never asked to fill in stakeholder/team ceremony they don't need,
+ * while a team project surfaces the full roster. Drives dashboard presentation.
+ */
+export type ProjectTeamMode = 'solo' | 'team' | 'auto';
+
+/** Project Director behaviour toggles, persisted with the config. */
+export interface ProjectDirectorSettings {
+  /** Solo vs team framing; `auto` infers from the roster. */
+  teamMode: ProjectTeamMode;
+  /** Show a single throttled nudge on activation when follow-ups are overdue. */
+  nudgeOnActivation: boolean;
+  /** Enable the scheduled-reminder engine (recurring follow-up nudges). */
+  remindersEnabled: boolean;
+  /** Enable guarded outbound send/schedule via connected MCP tools. */
+  outboundEnabled: boolean;
+}
+
+/**
+ * Project Director SSOT. Persisted to
+ * `project_memory/operations/project-director.json` with a human-readable
+ * `project-director.md` mirror and a capped `project-director-history.json`
+ * audit trail, so the people, ownership, and follow-ups around a project are
+ * maintainable in natural language and reviewable in version control.
+ */
+export interface ProjectDirectorConfig {
+  version: 1;
+  updatedAt?: string;
+  project: { name: string; summary?: string };
+  /**
+   * The contact representing "me" (the AtlasMind user). Assignments and
+   * follow-ups default to this contact, the UI addresses them as "you", and a
+   * solo project is recognised when this is the only human on the roster.
+   */
+  selfContactId?: string;
+  contacts: DirectorContact[];
+  stakeholders: Stakeholder[];
+  teamMembers: TeamMember[];
+  responsibilities: Responsibility[];
+  assignments: Assignment[];
+  followUps: FollowUp[];
+  settings: ProjectDirectorSettings;
+}
+
+/**
+ * One append-only audit record of a Project Director change, persisted newest
+ * first to `project_memory/operations/project-director-history.json`.
+ */
+export interface ProjectDirectorHistoryEntry {
+  id: string;
+  kind: 'assignment-status' | 'followup-status' | 'roster-change' | 'outbound' | (string & {});
+  summary: string;
+  entityId?: string;
+  /** git user that made the change (name <email>), when resolvable. */
+  actor?: string;
+  ranAt: string;
 }
 
 // ── Scanner rule configuration ────────────────────────────────────
@@ -2110,6 +2526,13 @@ export interface McpServerConfig {
   command?: string;            // e.g. "npx"
   args?: string[];             // e.g. ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
   env?: Record<string, string>;
+  /**
+   * Names of environment variables whose *values* are stored in VS Code
+   * SecretStorage (under `atlasmind.mcp.<id>.<KEY>`) instead of in `env`.
+   * Resolved and merged into the process env at connect time; never persisted
+   * to globalState. Used by the guided setup wizard for credentials.
+   */
+  secretEnvKeys?: string[];
   // http fields
   url?: string;                // e.g. "http://localhost:3000/mcp"
   /** Whether the server should be connected on extension activation. */

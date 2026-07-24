@@ -244,14 +244,19 @@ Open Command Palette → **AtlasMind: Configure Scanner Rules** to:
 
 External tools from MCP servers appear as skills with the ID pattern `mcp:<serverId>:<toolName>`.
 
-### Connecting an MCP Server
+### Connecting an MCP Server (Guided Setup)
 
-1. Open Command Palette → **AtlasMind: Manage MCP Servers**
-2. Add a server:
-   - **stdio** transport: `npx -y @modelcontextprotocol/server-filesystem /path/to/allowed`
-   - **HTTP** transport: `https://my-mcp-server.example.com`
-3. Tools from the server auto-register as skills
-4. MCP skills are pre-approved (no security scan required)
+New to MCP? The panel leads with a **Guided Setup** wizard:
+
+1. Open Command Palette → **AtlasMind: Manage MCP Servers** → **Guided Setup**.
+2. Choose a path:
+   - **Scan my computer** — AtlasMind lists servers it can set up from tools you already have (e.g. `npx` → Filesystem, `uvx` → Git, signed-in Azure CLI → Azure). Each is a one-click **Add & connect**.
+   - **Browse by category** — pick from the curated catalogue grouped by Core, Cloud, Databases, DevOps, and more.
+3. AtlasMind checks prerequisites. If a runtime is missing it shows the exact install command (e.g. `winget install --id astral-sh.uv`) and installs it **only after you confirm**.
+4. It collects only the inputs a server needs via labelled fields — no raw JSON. Secret fields (API tokens) are stored in VS Code **SecretStorage** and injected as env vars at connect time.
+5. Tools from the server auto-register as skills (pre-approved — no security scan required).
+
+Prefer full control? The **Advanced** tab keeps the raw transport/command/args/env form and also backs editing an existing server.
 
 ### Per-Skill Control
 

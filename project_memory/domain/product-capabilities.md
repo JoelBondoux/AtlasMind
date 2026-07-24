@@ -17,28 +17,30 @@ Key settings under `atlasmind.*` in VS Code settings:
 | `dailyCostLimitUsd` | `0` | Daily spend cap in USD (0 = unlimited) |
 | `agentAutoUpdateCadence` | `never` | How often to AI-refresh agent definitions: `never`, `daily`, `weekly`, `monthly`, `every-use` |
 | `maxToolIterations` | `10` | Max tool-call loop iterations per agent turn |
+| `loop.enabled` | `true` | Enable the autonomous Mission Loop (`/loop` + Mission Control) |
+| `loop.defaultMaxIterations` | `8` | Default hard cap on Mission Loop iterations |
+| `loop.defaultMaxCostUsd` | `5` | Default hard ceiling (USD) on a Mission Loop run |
+| `loop.defaultMaxTokens` | `2000000` | Default cumulative token cap for a Mission Loop run |
+| `loop.defaultMaxDurationMinutes` | `30` | Default wall-clock cap (minutes) for a Mission Loop run |
+| `loop.maxConsecutiveNoProgress` | `2` | Stop after this many consecutive no-progress iterations |
+| `loop.checkpointEveryNIterations` | `3` | Pause for approval every N iterations (0 = off) |
+| `loop.checkpointAtBudgetFraction` | `0.75` | Pause when spend crosses this fraction (0..1) of the cost budget |
+| `loop.requireApprovalBeforeWriteBatches` | `false` | Require approval before any write/commit iteration |
+| `loop.allowDiscovery` | `true` | Allow the loop to synthesize/discover capabilities (gated) |
+| `loop.goalAchievedConfidenceThreshold` | `0.7` | Min evaluator confidence to accept an `achieved` verdict |
 | `allowTerminalWrite` | `false` | Allow terminal subprocesses (installs, commits) after explicit approval |
 | `autoVerifyAfterWrite` | `true` | Run verification scripts after workspace writes |
+| `autoStartProposedProjectRuns` | `true` | When a reply offers an autonomous project run, flow straight into it (immediate under Autopilot; cancellable notice otherwise) instead of waiting for "Proceed"; the file-count gate still applies |
 | `ssotPath` | `project_memory` | Relative path to the SSOT memory folder |
-| `localOpenAiBaseUrl` | `http://127.0.0.1:11434/v1` | Base URL for Ollama or LM Studio |
-| `toolWebhookEnabled` | `false` | Send tool execution events to an outbound webhook |
-| `ard.enabled` | `true` | Enable Agentic Resource Discovery (panel, `/discover`, and the read-only `discover-resources` skill) |
-| `ard.federationMode` | `referrals` | How ARD searches fan out across federated registries: `auto`, `referrals`, `none` |
-| `ard.maxResults` | `10` | Maximum results returned from a discovery search |
-| `ard.requestTimeoutMs` | `15000` | Timeout for each outbound ARD discovery request (ms) |
-| `ard.allowInsecureEndpoints` | `false` | Allow `http://`/localhost Agent Finders (e.g. the ARD conformance demo); otherwise HTTPS is required and private hosts are rejected |
-| `remote.enabled` | `false` | Allow the web build to remote-control this desktop instance over a localhost WebSocket |
-| `remote.port` | `0` | Localhost port for the remote-control server (0 = auto) |
-
-See [Configuration Reference](docs/configuration.md) and [wiki/Configuration.md](wiki/Configuration.md) for the full settings list.
-
----
+| `localOpenAiEndpoints` | `[]` | Labeled local OpenAI-compatible endpoints (`id`/`label`/`baseUrl`) aggregated under the Local provider; managed from Settings → Models & Integrations |
+| `localOpenAiBaseUrl` | `http://127.0.0.1:11434/v1` | Legacy single-endpoint fallback for Ol
+…(truncated)
 
 <!-- atlasmind-import
 entry-path: domain/product-capabilities.md
 generator-version: 2
-generated-at: 2026-06-18T18:51:10.022Z
+generated-at: 2026-07-24T12:06:10.564Z
 source-paths: README.md | package.json
-source-fingerprint: ee406563
-body-fingerprint: 7fe03d7d
+source-fingerprint: 955381c5
+body-fingerprint: ca109b33
 -->

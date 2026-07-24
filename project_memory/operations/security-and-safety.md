@@ -7,18 +7,38 @@
 - Security-sensitive regressions are treated as correctness bugs, not polish items.
 
 ## Runtime Boundaries
-## Security Boundaries
+# Architecture Overview
 
-- Webviews are isolated behind a strict CSP and communicate only through validated message payloads.
-- Provider credentials belong in VS Code SecretStorage and are not part of the SSOT or workspace configuration.
-- Bootstrap operations are constrained to safe relative paths inside the current workspace.
-- Future orchestrator execution should preserve the same rule: validate inputs, redact secrets, and prefer explicit user confirmation for risky actions.
+## System Diagram
 
-## Quality Gates
-
-- Local quality loop: `npm run lint`, `npm run test`, `npm run compile`.
-- CI pipeline (`.github/workflows/ci.yml`) enforces compile, lint, test, and coverage for pushes and pull requests to `main`.
-- Ownership and review enforcement are defined in `.github/CODEOWNERS`.
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  VS Code                                                        │
+│                                                                 │
+│  ┌──────────────┐   ┌──────────────┐   ┌────────────────────┐  │
+│  │ @atlas Chat   │   │ Sidebar      │   │ Webview Panels     │  │
+│  │ Participant   │   │ Tree Views   │   │ (Settings,         │  │
+│  │               │   │ (Agents,     │   │  Model Providers,  │  │
+│  │               │   │  Skills,     │   │  Tool Webhooks,    │  │
+│  │ /bootstrap    │   │  Skills,     │   │                    │  │
+│  │ /agents       │   │  Memory,     │   │                    │  │
+│  │ /skills       │   │  Models)     │   │                    │  │
+│  │ /memory       │   │              │   │                    │  │
+│  │ /cost         │   │              │   │  Voice, Vision,    │  │
+│  │               │   │              │   │  Website Studio)   │  │
+│  └──────┬───────┘   └──────┬───────┘   └────────┬───────────┘  │
+│         │                  │                     │              │
+│  ───────┴──────────────────┴─────────────────────┘              │
+│                            │                                    │
+│                   ┌────────▼────────┐                           │
+│                   │  Orchestrator   │                           │
+│                   │                 │                           │
+│                   │  • selectAgent  │                           │
+│                   │  • gatherMemory │                           │
+│                   │  • pickModel    │                           │
+│                   │  • execute      │                           │
+│                   │  •
+…(truncated)
 
 ## Repository Security Policy
 # Security Policy
@@ -79,8 +99,8 @@ Out of scope:
 <!-- atlasmind-import
 entry-path: operations/security-and-safety.md
 generator-version: 2
-generated-at: 2026-06-18T18:51:10.022Z
+generated-at: 2026-07-24T11:56:11.404Z
 source-paths: SECURITY.md | docs/architecture.md | .github/copilot-instructions.md
-source-fingerprint: ae0bc4e8
-body-fingerprint: 33b05c10
+source-fingerprint: 4d9718ce
+body-fingerprint: 59d94606
 -->

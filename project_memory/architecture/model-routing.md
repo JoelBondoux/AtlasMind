@@ -16,16 +16,16 @@ Anthropic now follows the same compatibility principle for tool-enabled turns. A
 
 AtlasMind can also perform one bounded escalation during execution when the current model shows repeated struggle signals, such as repeated failed tool calls or excessive tool-loop churn. In those cases it reroutes to a stronger reasoning-capable model instead of exhausting the entire loop on the weaker route.
 
-For action-oriented workspace requests, AtlasMind also distinguishes between evidence-gathering and follow-through. Prompts that ask Atlas to wire, integrate, configure, support, add, update, fix, or otherwise implement behavior are now biased more aggressively toward direct execution, and after successful read-only evidence gathering AtlasMind issues one stronger follow-through reprompt before accepting a summary-only answer. Verification-style follow-ups such as asking whether a change actually happened now also trigger a repository-backed check, and investigation stalling like “I need to check” is treated as a retry signal rather than an acceptable final answer.
+**Correction turns are never downgraded.** When the user's message disputes or corrects the assistant's previous answer (`isUserCorrectionTurn` — e.g. "that's not correct", "no, that's wrong", "you got it wrong", "are you sure?", "re-check that"), AtlasMind treats the turn as high-stakes: it forces the task profile to **high** reasoning, prefers a reasoning-capable model, and escalates the routing budget/speed (`budgetForCorrection`: `cheap → balanced`, otherwise `→ expensive`; speed `→ considered`). This prevents a pushback against a wrong answer from being silently routed to the cheapest/local model — the failure mode where a flaky local model returned an empty completion when challenged.
 
-AtlasMind also treats prompts about the current project structure, settings pages, or voice and audio settings as workspace-backed investigation reque
+**Empty completions trigger escalation, not a blank turn.** If the selected model returns a completion with no usable conten
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: architecture/model-routing.md
 generator-version: 2
-generated-at: 2026-06-18T18:51:10.022Z
+generated-at: 2026-07-24T11:56:11.404Z
 source-paths: docs/model-routing.md
-source-fingerprint: d0a442f4
-body-fingerprint: 587cb05e
+source-fingerprint: 6612f474
+body-fingerprint: 59de9e31
 -->

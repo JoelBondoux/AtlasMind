@@ -29,6 +29,7 @@ import type { CheckpointManager } from './core/checkpointManager.js';
 import type { ProjectRunHistory } from './core/projectRunHistory.js';
 import type { RoutineRegistry } from './core/routineRegistry.js';
 import type { DeliveryManager } from './core/deliveryManager.js';
+import type { ProjectDirectorManager } from './core/projectDirectorManager.js';
 import type { MissionRegistry } from './core/missionRegistry.js';
 import { getConfiguredLocalEndpoints, type ProviderRegistry } from './providers/index.js';
 import { getModelInfoUrl, getProviderInfoUrl, lookupCatalog } from './providers/modelCatalog.js';
@@ -104,6 +105,10 @@ const MEMORY_SELF_HEAL_INTERVAL_MS = 90_000;
 const MEMORY_SELF_HEAL_DEBOUNCE_MS = 1_200;
 const MEMORY_SELF_HEAL_MAX_CHANGES_PER_PASS = 12;
 const MEMORY_QUARANTINE_RELATIVE_DIR = 'temp/quarantine';
+/** How often the Project Director follow-up reminder timer re-evaluates. */
+const PROJECT_DIRECTOR_REMINDER_INTERVAL_MS = 30 * 60 * 1000;
+/** workspaceState key holding the last day (yyyy-mm-dd) a follow-up reminder was shown. */
+const PROJECT_DIRECTOR_REMINDER_KEY = 'atlasmind.projectDirector.lastReminderKey';
 
 export function requiresExplicitProviderActivation(providerId: string): boolean {
   return providerId === 'copilot';
@@ -162,6 +167,8 @@ export interface AtlasMindContext {
   dataPrivacyManager: DataPrivacyManager;
   agentRegistry: AgentRegistry;
   skillsRegistry: SkillsRegistry;
+  /** Shared skill-execution context, used to dispatch MCP tool skills from panels. */
+  skillContext: SkillExecutionContext;
   modelRouter: ModelRouter;
   memoryManager: MemoryManager;
   costTracker: CostTracker;
@@ -201,6 +208,10 @@ export interface AtlasMindContext {
   deliveryManager: DeliveryManager;
   /** Fires when delivery.json changes on disk, so the dashboard can re-sync. */
   deliveryRefresh: vscode.EventEmitter<void>;
+  /** People model: stakeholders, team, responsibilities, assignments, follow-ups. */
+  projectDirectorManager: ProjectDirectorManager;
+  /** Fires when project-director.json changes on disk, so the dashboard can re-sync. */
+  projectDirectorRefresh: vscode.EventEmitter<void>;
   /** Audit trail + persistence for autonomous Mission Loop runs. */
   missionRegistry: MissionRegistry;
   rollbackLastCheckpoint(): Promise<{ ok: boolean; summary: string; restoredPaths: string[] }>;
@@ -1557,6 +1568,8 @@ async function bootstrapAtlasMind(
       toolPolicyModule,
       routineRegistryModule,
       deliveryManagerModule,
+      projectDirectorManagerModule,
+      followUpSchedulerModule,
       missionRegistryModule,
       dataPrivacyModule,
       ardClientModule,
@@ -1589,6 +1602,8 @@ async function bootstrapAtlasMind(
       import('./core/toolPolicy.js'),
       import('./core/routineRegistry.js'),
       import('./core/deliveryManager.js'),
+      import('./core/projectDirectorManager.js'),
+      import('./core/followUpScheduler.js'),
       import('./core/missionRegistry.js'),
       import('./core/dataPrivacyManager.js'),
       import('./ard/ardClient.js'),
@@ -1639,6 +1654,8 @@ async function bootstrapAtlasMind(
       requiresToolApproval: toolPolicyModule.requiresToolApproval,
       RoutineRegistry: routineRegistryModule.RoutineRegistry,
       DeliveryManager: deliveryManagerModule.DeliveryManager,
+      ProjectDirectorManager: projectDirectorManagerModule.ProjectDirectorManager,
+      FollowUpScheduler: followUpSchedulerModule.FollowUpScheduler,
       MissionRegistry: missionRegistryModule.MissionRegistry,
       DataPrivacyManager: dataPrivacyModule.DataPrivacyManager,
       readDataPrivacyConfig: dataPrivacyModule.readDataPrivacyConfig,
@@ -1663,6 +1680,7 @@ async function bootstrapAtlasMind(
     const memoryRefresh = new vscode.EventEmitter<void>();
     const discoveryRefresh = new vscode.EventEmitter<void>();
     const deliveryRefresh = new vscode.EventEmitter<void>();
+    const projectDirectorRefresh = new vscode.EventEmitter<void>();
     const scannerRulesManager = new startupModules.ScannerRulesManager(context.globalState);
     const toolWebhookDispatcher = new startupModules.ToolWebhookDispatcher(context, outputChannel);
     const voiceManager = new startupModules.VoiceManager(context.secrets, undefined, {
@@ -1694,6 +1712,44 @@ async function bootstrapAtlasMind(
       deliveryWatcher.onDidDelete(reloadDelivery);
       context.subscriptions.push(deliveryWatcher);
     }
+    const projectDirectorManager = new startupModules.ProjectDirectorManager(workspaceRootPath);
+    if (workspaceRootPath) {
+      // Keep the Director dashboard current when project-director.json changes
+      // outside the dashboard editor (hand edits, a teammate's change via git pull).
+      const directorWatcher = vscode.workspace.createFileSystemWatcher(
+        new vscode.RelativePattern(workspaceRootPath, 'project_memory/operations/project-director.json'),
+      );
+      const reloadDirector = () => { projectDirectorManager.reload(); projectDirectorRefresh.fire(); };
+      directorWatcher.onDidChange(reloadDirector);
+      directorWatcher.onDidCreate(reloadDirector);
+      directorWatcher.onDidDelete(reloadDirector);
+      context.subscriptions.push(directorWatcher);
+    }
+    // Follow-up reminders (notification-only, deny-by-default). Nudges once per
+    // day when follow-ups are due/overdue, opening the Director tab on click. The
+    // recurring timer runs only while the project has reminders enabled; a single
+    // startup nudge fires when `nudgeOnActivation` is on (both default from config).
+    const followUpScheduler = new startupModules.FollowUpScheduler({
+      getConfig: () => projectDirectorManager.getConfig(),
+      getLastReminderKey: () => context.workspaceState.get<string>(PROJECT_DIRECTOR_REMINDER_KEY),
+      setLastReminderKey: (key: string) => { void context.workspaceState.update(PROJECT_DIRECTOR_REMINDER_KEY, key); },
+      notify: (message: string) => {
+        void vscode.window.showInformationMessage(message, 'Open Project Director').then(choice => {
+          if (choice === 'Open Project Director') {
+            void vscode.commands.executeCommand('atlasmind.openProjectDirector');
+          }
+        });
+      },
+    });
+    if (projectDirectorManager.getConfig()?.settings.nudgeOnActivation !== false) {
+      followUpScheduler.runOnce();
+    }
+    const followUpReminderTimer = setInterval(() => {
+      if (projectDirectorManager.getConfig()?.settings.remindersEnabled === true) {
+        try { followUpScheduler.runOnce(); } catch { /* best-effort */ }
+      }
+    }, PROJECT_DIRECTOR_REMINDER_INTERVAL_MS);
+    context.subscriptions.push({ dispose: () => { followUpScheduler.dispose(); clearInterval(followUpReminderTimer); } });
     const missionRegistry = new startupModules.MissionRegistry(workspaceRootPath);
     const projectRunHistory = new startupModules.ProjectRunHistory(context.workspaceState, {
       workspaceKey: workspaceRootPath,
@@ -2176,6 +2232,7 @@ async function bootstrapAtlasMind(
         void skillAutoAssigner.reassessAllAutoAgents(available).then(() => agentsRefresh.fire());
       },
       outputChannel,
+      context.secrets,
     );
     mcpServerRegistry.loadFromStorage();
 
@@ -2206,6 +2263,7 @@ async function bootstrapAtlasMind(
       dataPrivacyManager,
       agentRegistry,
       skillsRegistry,
+      skillContext,
       modelRouter,
       memoryManager,
       costTracker,
@@ -2321,6 +2379,8 @@ async function bootstrapAtlasMind(
       routinesRefresh,
       deliveryManager,
       deliveryRefresh,
+      projectDirectorManager,
+      projectDirectorRefresh,
       missionRegistry,
       rollbackLastCheckpoint: async () => {
         if (!checkpointManager) {
@@ -2402,6 +2462,17 @@ async function bootstrapAtlasMind(
         void vscode.window.showInformationMessage('Remote URL and pairing token copied to the clipboard.');
       }
     };
+    const showGatewayGuidance = async (localUrl: string, originSecret: string): Promise<void> => {
+      const port = localUrl.split(':').pop() ?? '0';
+      const choice = await vscode.window.showInformationMessage(
+        `AtlasMind remote control is live in gateway mode on ${localUrl}. Point the "atlas-lab" Cloudflare Tunnel at http://127.0.0.1:${port}, and set the atlas gateway Worker's ORIGIN_SECRET to the copied value. The browser never sees this secret — the platform login is its identity.`,
+        'Copy origin secret',
+      );
+      if (choice === 'Copy origin secret') {
+        await vscode.env.clipboard.writeText(originSecret);
+        void vscode.window.showInformationMessage('Origin secret copied. Set it on the Worker with `wrangler secret put ORIGIN_SECRET`.');
+      }
+    };
     context.subscriptions.push(
       remoteOutput,
       remoteControlServer,
@@ -2412,6 +2483,14 @@ async function bootstrapAtlasMind(
         updateRemoteStatusBar();
         if (result) {
           await showRemotePairing(result.url, result.token);
+        }
+      }),
+      vscode.commands.registerCommand('atlasmind.remote.enableGateway', async () => {
+        await vscode.workspace.getConfiguration('atlasmind').update('remote.mode', 'gateway', vscode.ConfigurationTarget.Global);
+        const result = await remoteControlServer.enable(true);
+        updateRemoteStatusBar();
+        if (result) {
+          await showGatewayGuidance(result.url, result.token);
         }
       }),
       vscode.commands.registerCommand('atlasmind.remote.disable', () => {

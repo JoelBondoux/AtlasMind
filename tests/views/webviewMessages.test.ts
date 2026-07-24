@@ -612,6 +612,20 @@ describe('isProjectDashboardMessage', () => {
         nextPrompts: ['What risk matters most?'],
       },
     })).toBe(true);
+    // Project Director messages.
+    expect(isProjectDashboardMessage({ type: 'seedDirectorFromRepo' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'copyContact', payload: 'contact-1' })).toBe(true);
+    expect(isProjectDashboardMessage({
+      type: 'saveDirectorConfig',
+      payload: { version: 1, project: { name: 'P' }, contacts: [], stakeholders: [], teamMembers: [], responsibilities: [], assignments: [], followUps: [], settings: {} },
+    })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'openContactDeepLink', payload: { contactId: 'c1', linkId: 'l1' } })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'assignRunOwner', payload: { runId: 'run-1', contactId: 'c1' } })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'assignRunOwner', payload: { runId: 'run-1', contactId: '' } })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'openPrompt', payload: { prompt: 'Who owns releases?', sourcePage: 'director' } })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'directorSendComms', payload: { intent: 'email', contactId: 'c1', subject: 'Hi', body: 'Hello' } })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'directorSendComms', payload: { intent: 'schedule', contactId: 'c1' } })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'directorSendComms', payload: { intent: 'message', contactId: 'c1', body: 'ping' } })).toBe(true);
   });
 
   it('rejects invalid dashboard messages', () => {
@@ -626,6 +640,12 @@ describe('isProjectDashboardMessage', () => {
     expect(isProjectDashboardMessage({ type: 'resolveGapItem', payload: '' })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'resolveGapGroup', payload: '' })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'deleteDashboard' })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'copyContact', payload: '' })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'saveDirectorConfig', payload: { version: 1, contacts: [] } })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'openContactDeepLink', payload: { contactId: 'c1' } })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'assignRunOwner', payload: { runId: '', contactId: 'c1' } })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'directorSendComms', payload: { intent: 'sms', contactId: 'c1' } })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'directorSendComms', payload: { intent: 'email', contactId: '' } })).toBe(false);
   });
 });
 

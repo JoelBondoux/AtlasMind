@@ -3,6 +3,7 @@ import { getValidatedSsotPath } from '../bootstrap/bootstrapper.js';
 import type { AtlasMindContext } from '../extension.js';
 import { SSOT_FOLDERS } from '../types.js';
 import type { AgentDefinition, ArdDiscoveredResource, ArdDiscoveryEndpoint, McpServerState, MemoryEntry, ProjectRunRecord, SkillDefinition, SkillScanResult } from '../types.js';
+import { countOverdueFollowUps, deriveFollowUpUrgency, resolveTeamMode } from '../core/projectDirectorManager.js';
 import type { SessionConversationSummary, SessionFolderSummary } from '../chat/sessionConversation.js';
 import { ChatViewProvider } from './chatPanel.js';
 
@@ -47,6 +48,17 @@ export function registerTreeViews(
   const mcpServersProvider = new McpServersTreeProvider(atlas);
   const discoveryProvider = new DiscoveryTreeProvider(atlas);
   const memoryProvider = new MemoryTreeProvider(atlas);
+  const projectDirectorProvider = new ProjectDirectorTreeProvider(atlas);
+  const projectDirectorTreeView = vscode.window.createTreeView('atlasmind.projectDirectorView', {
+    treeDataProvider: projectDirectorProvider,
+  });
+  const refreshDirectorBadge = (): void => {
+    const overdue = countOverdueFollowUps(atlas.projectDirectorManager?.getConfig());
+    projectDirectorTreeView.badge = overdue > 0
+      ? { value: overdue, tooltip: `${overdue} overdue follow-up${overdue === 1 ? '' : 's'}` }
+      : undefined;
+  };
+  refreshDirectorBadge();
   atlas.agentsRefresh.event(() => agentsProvider.refresh());
   atlas.skillsRefresh.event(() => skillsProvider.refresh());
   atlas.skillsRefresh.event(() => mcpServersProvider.refresh());
@@ -65,6 +77,7 @@ export function registerTreeViews(
   atlas.projectRunsRefresh.event(() => projectRunsProvider.refresh());
   atlas.projectRunsRefresh.event(() => sessionsProvider.refresh());
   atlas.memoryRefresh.event(() => memoryProvider.refresh());
+  atlas.projectDirectorRefresh?.event(() => { projectDirectorProvider.refresh(); refreshDirectorBadge(); });
 
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(
@@ -94,6 +107,7 @@ export function registerTreeViews(
       discoveryProvider,
     ),
     modelsTreeView,
+    projectDirectorTreeView,
     vscode.window.registerTreeDataProvider(
       'atlasmind.projectRunsView',
       projectRunsProvider,
@@ -1001,6 +1015,93 @@ class DiscoveryTreeProvider implements vscode.TreeDataProvider<DiscoveryTreeNode
       return results.map(resource => new DiscoveryResultItem(resource));
     }
 
+    return [];
+  }
+}
+
+// ── Project Director tree ────────────────────────────────────────
+
+type DirectorTreeNode = DirectorGroupItem | DirectorEntryItem;
+
+class DirectorGroupItem extends vscode.TreeItem {
+  constructor(public readonly group: 'stakeholders' | 'team' | 'followups', label: string, count: number, icon: string) {
+    super(`${label} (${count})`, vscode.TreeItemCollapsibleState.Expanded);
+    this.contextValue = `director-group-${group}`;
+    this.iconPath = new vscode.ThemeIcon(icon);
+  }
+}
+
+class DirectorEntryItem extends vscode.TreeItem {
+  constructor(label: string, description: string, icon: string, color?: string) {
+    super(label || '—', vscode.TreeItemCollapsibleState.None);
+    this.description = description;
+    this.iconPath = new vscode.ThemeIcon(icon, color ? new vscode.ThemeColor(color) : undefined);
+    this.command = { command: 'atlasmind.openProjectDirector', title: 'Open Project Director' };
+  }
+}
+
+class ProjectDirectorTreeProvider implements vscode.TreeDataProvider<DirectorTreeNode> {
+  private readonly _onDidChangeTreeData = new vscode.EventEmitter<DirectorTreeNode | undefined>();
+  readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
+
+  constructor(private readonly atlas: AtlasMindContext) {}
+
+  refresh(): void {
+    this._onDidChangeTreeData.fire(undefined);
+  }
+
+  getTreeItem(element: DirectorTreeNode): vscode.TreeItem {
+    return element;
+  }
+
+  getChildren(element?: DirectorTreeNode): DirectorTreeNode[] {
+    const config = this.atlas.projectDirectorManager?.getConfig();
+    if (!config) {
+      return [];
+    }
+    const nameOf = (contactId: string): string =>
+      config.contacts.find(contact => contact.id === contactId)?.name ?? '—';
+    const isDueOrOverdue = (status: string, urgency: string): boolean =>
+      status !== 'done' && status !== 'cancelled' && (urgency === 'overdue' || urgency === 'due-soon');
+
+    if (!element) {
+      const dueItems = config.followUps.filter(f => isDueOrOverdue(f.status, deriveFollowUpUrgency(f)));
+      const groups: DirectorTreeNode[] = [];
+      if (config.stakeholders.length > 0 || resolveTeamMode(config) === 'team') {
+        groups.push(new DirectorGroupItem('stakeholders', 'Stakeholders', config.stakeholders.length, 'organization'));
+      }
+      if (resolveTeamMode(config) === 'team') {
+        groups.push(new DirectorGroupItem('team', 'Team', config.teamMembers.length, 'organization'));
+      }
+      groups.push(new DirectorGroupItem('followups', 'Follow-ups', dueItems.length, 'bell'));
+      return groups;
+    }
+
+    if (element instanceof DirectorGroupItem && element.group === 'stakeholders') {
+      return config.stakeholders.map(stakeholder =>
+        new DirectorEntryItem(nameOf(stakeholder.contactId), `${stakeholder.category} · ${stakeholder.influence}/${stakeholder.interest}`, 'account'));
+    }
+    if (element instanceof DirectorGroupItem && element.group === 'team') {
+      return config.teamMembers.map(member =>
+        new DirectorEntryItem(nameOf(member.contactId), member.discipline, 'person'));
+    }
+    if (element instanceof DirectorGroupItem && element.group === 'followups') {
+      const items = config.followUps.filter(f => isDueOrOverdue(f.status, deriveFollowUpUrgency(f)));
+      if (items.length === 0) {
+        const empty = new vscode.TreeItem('Nothing due', vscode.TreeItemCollapsibleState.None);
+        empty.contextValue = 'director-empty';
+        return [empty as DirectorTreeNode];
+      }
+      return items.map(followUp => {
+        const overdue = deriveFollowUpUrgency(followUp) === 'overdue';
+        return new DirectorEntryItem(
+          followUp.title,
+          `due ${followUp.dueDate}`,
+          overdue ? 'warning' : 'clock',
+          overdue ? 'charts.red' : 'charts.yellow',
+        );
+      });
+    }
     return [];
   }
 }

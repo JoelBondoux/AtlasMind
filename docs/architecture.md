@@ -10,12 +10,13 @@
 │  │ @atlas Chat   │   │ Sidebar      │   │ Webview Panels     │  │
 │  │ Participant   │   │ Tree Views   │   │ (Settings,         │  │
 │  │               │   │ (Agents,     │   │  Model Providers,  │  │
-│  │               │   │  Skills,     │   │  Tool Webhooks)    │  │
+│  │               │   │  Skills,     │   │  Tool Webhooks,    │  │
 │  │ /bootstrap    │   │  Skills,     │   │                    │  │
 │  │ /agents       │   │  Memory,     │   │                    │  │
 │  │ /skills       │   │  Models)     │   │                    │  │
 │  │ /memory       │   │              │   │                    │  │
-│  │ /cost         │   │              │   │  Voice, Vision)    │  │
+│  │ /cost         │   │              │   │  Voice, Vision,    │  │
+│  │               │   │              │   │  Website Studio)   │  │
 │  └──────┬───────┘   └──────┬───────┘   └────────┬───────────┘  │
 │         │                  │                     │              │
 │  ───────┴──────────────────┴─────────────────────┘              │
@@ -129,6 +130,25 @@ Enforcement lives in the `Orchestrator`: `applyDataPrivacyGate()` classifies the
 
 The gate also records a **catch** (`recordCatch`) each time a rule/detector fires for a real task, capturing the source label and sensitivity (never the matched value) and whether the selected model was trusted. The activity log is persisted workspace-scoped and powers the Privacy dashboard charts (catches over time + per-detector breakdown). `src/core/providerDataGovernance.ts` is a static reference mapping each provider to its GDPR/data-subject request portal, privacy policy, DPA, retention summary, and default training stance, surfaced on the Privacy page for the providers hosting trusted models. The Privacy page renders the trusted-model allow-list as a collapsible provider→model tree limited to currently-active models.
 
+### WebsiteWorkspaceManager (`src/core/websiteWorkspaceManager.ts`)
+
+Filesystem-only service behind **AtlasMind: Open Website Studio**. It owns the website SSOT at `project_memory/domain/website.json` and regenerates `website.md` on every save. The shared `WebsiteWorkspaceConfig` types in `src/types.ts` model:
+
+- normalized client intake;
+- page inventory with sitemap fields, section outline, design notes, and separate wireframe/UI/content/SEO review states;
+- project-level UI system decisions;
+- the fixed Develop → Staging → Production hosting environments, including URL/branch references, locked access policy, secret reference, and promotion-protection metadata;
+- a catalog of static, managed-CMS, commerce, and custom platform targets;
+- n8n workflow maps containing event/outcome/status plus non-secret references.
+
+`sanitizeWebsiteWorkspace()` is the untrusted-input boundary for both webview edits and imported client JSON. It caps text/list/page/workflow sizes, normalizes and deduplicates IDs, allow-lists statuses, platform IDs, HTTP(S) URLs, and six-digit hex colors, removes URL credentials/query/fragment values, enforces at most one primary platform, applies the shared secret redactor, and replaces n8n webhook-shaped URLs with a marker before disk persistence. It also rebuilds the three hosting environments from canonical server-side policy: Develop is loopback/local unless the explicit hosted fallback is selected (then password-protected), Staging is always hosted and password-protected, and Production is always hosted, public, and promotion-protected. Credential references require an explicit secret-provider prefix, so a raw password-like string does not survive sanitation. Both rendered SSOT files then pass `scanMemoryEntry`; error-level prompt-injection content aborts the write before either file is created. The schema intentionally has no API-key, password, bearer-token, or webhook-value field.
+
+`assessWebsiteHostingEnvironments()` is a non-executing readiness evaluator. It requires HTTPS for hosted environments, restricts local Develop to loopback hosts, requires password references for hosted Develop and Staging, and verifies Staging's exact `<review-label>.<production-domain>` topology. It reports missing setup separately from blocking policy violations; it never deploys.
+
+Guided bootstrap exposes **Website / Marketing Site**. `seedWebsiteWorkspace()` carries the captured project name, summary, audience, outcome, constraints, metrics, timing, budget, and inferred platform into the Studio, but refuses to overwrite an existing website plan. The same Studio can import a bounded JSON brief and normalize common form/CRM aliases.
+
+`src/views/websiteStudioPanel.ts` is a six-page webview (Brief, Sitemap, Wireframes & UI, UI System, Hosting & Platforms, n8n Automations). Its Hosting & Platforms page renders the fixed three-stage environment pipeline, locked access posture, readiness issues, and platform catalog. Its message guard accepts only save/import, the two fixed website SSOT paths, and three fixed AtlasMind navigation commands. It models publishing and automation readiness but executes neither. Production publishing stays in `PromotionRunner`, where backup, preflight, approval, protected confirmation, and verification remain enforceable; n8n triggering is likewise deliberately outside this planning surface.
+
 ### DeliveryManager (`src/core/deliveryManager.ts`)
 
 Models a project's **deployment stages** (Local → Staging → Production …) and the **promotion ("push") edges** between them, surfaced on the Project Dashboard → Delivery page. A `DeliveryConfig` (`stages: DeploymentStage[]`, `paths: PromotionPath[]`) is persisted as the source of truth at `project_memory/operations/delivery.json`, with a human-readable `delivery.md` runbook mirror regenerated on every write (`renderDeliveryMarkdown`) so the pipeline is understandable and editable by a newcomer without asking the AI. The persistence helpers (`readDeliveryConfig`/`writeDeliveryConfig`/`seedDeliveryConfig`) are `vscode`-free (node `fs` only), matching the `DataPrivacyManager` pattern.
@@ -154,6 +174,22 @@ The guarded promotion ("push") engine. `buildPromotionPlan(input)` assembles an 
 **Governance + safety (concurrency, CD, data, duties).** A workspace lock (`acquireDeliveryLock` / `releaseDeliveryLock`, `project_memory/operations/.delivery-lock.json`, stale after 60 min) makes promotions/rollbacks single-flight. A stage may set `promotionPolicy.dispatchWorkflow` (auto-detected from a `workflow_dispatch` deploy/release workflow when no routine is bound) so the promote step becomes `gh workflow run <file>` — deploying in CI/CD rather than on the developer's machine. `backupPolicy.verifyCommand` runs as a managed step after the backup (verified, not just executed); `data.migrateCommand` runs migrations inside the guarded sequence. `promotionPolicy.requireDistinctApprover` adds an automatic separation-of-duties gate comparing the git actor's email against the source head-commit author (`resolveGitActorEmail` / `resolveLastCommitAuthor`), degrading to manual attestation when identities are unresolved. (Deferred for dedicated design: first-class progressive delivery and ephemeral preview environments.)
 
 The panel (`projectDashboardPanel.ts`) drives this through two webview messages — `requestPromotionPlan` (builds the plan/runbook from live git state) and `runPromotion` (rebuilds the plan, re-runs `evaluatePromotionGate`, executes, then records the outcome onto the path via `DeliveryManager.save()`). **Security boundary:** every executed command is read server-side from the persisted, user-authored stage config (`backupPolicy.command`) or routine files — the webview can only *trigger* and *attest*, never supply a command string — and AtlasMind itself never force-pushes.
+
+### ProjectDirectorManager (`src/core/projectDirectorManager.ts`)
+
+Models the **people** a project runs on — its stakeholders, delivery team, responsibilities (who owns what), human task assignments, and follow-ups — the data backbone of the Project Director dashboard (Project Dashboard → Director page). A `ProjectDirectorConfig` (`contacts`, `stakeholders`, `teamMembers`, `responsibilities`, `assignments`, `followUps`, `settings`) is persisted as the source of truth at `project_memory/operations/project-director.json`, with a human-readable `project-director.md` mirror regenerated on every write (`renderProjectDirectorMarkdown`) and a capped `project-director-history.json` audit trail. Like `DeliveryManager`/`DataPrivacyManager`, the persistence helpers (`readProjectDirectorConfig`/`writeProjectDirectorConfig`/`seedProjectDirectorConfig`) are `vscode`-free (node `fs` only).
+
+**Contacts are the identity layer.** A `DirectorContact` holds a person/group's name, title, communication `links`, and an optional `ref: DirectoryRef` pointing at their system of record. `Stakeholder` and `TeamMember` are thin role records referencing a contact by id, so one human can be both without duplicating their channels. `Assignment` is the human-owner overlay that `ProjectRunRecord`/`SubTask` (assigned to *agent roles*) lack; `Assignment.linkedRunId` binds an autonomous run to a human owner **without mutating the run record**.
+
+**Solo dev, not just teams.** `ProjectDirectorConfig.selfContactId` marks "me" (seeded from the git user), so assignments/follow-ups default to you and the UI can address you as "you". `settings.teamMode` (`solo`/`team`/`auto`) with `resolveTeamMode`/`isSoloProject` infers **solo** when there is no team member other than yourself — a one-person project is never asked to fill in team ceremony, the dashboard foregrounds self-management (your follow-ups and the areas you own), and external stakeholders (a client, end-users, an app-store reviewer) are still first-class when they exist.
+
+**GDPR-first, deny-by-default.** AtlasMind prefers to *reference* people in their GDPR-compliant system of record (Microsoft 365 / Entra, Slack, Google Workspace — each carries a `providerDataGovernance` entry with DSAR/retention links) and resolve details on demand, rather than hoarding raw personal data locally. A contact that stores raw PII is flagged `piiStored` so the extension layer can gate it behind a one-time consent notice and the existing `gdpr-pii` classification. Communication `handle`s are non-secret identifiers (never tokens/passwords); the markdown mirror describes channels by *kind/label only* so raw addresses never land in git-tracked prose. `sanitizeProjectDirectorConfig` is the webview→disk boundary: it clamps string lengths, whitelists every enum (unknown → safe fallback), regenerates duplicate/missing ids, **drops role records referencing a non-existent contact**, clears dangling optional references, and strips any `deepLink` whose scheme is not allowlisted (`mailto:`/`tel:`/`sms:`/`slack:`/`msteams:`/`zoommtg:`/`https:` — bare `http:`, `javascript:`, and `data:` are rejected). Pure derivations `deriveFollowUpUrgency`/`countOverdueFollowUps` classify follow-ups (`overdue`/`due-soon`/`upcoming`/`snoozed`/`done`) for the dashboard, tree badge, and (later) scheduler. A `vscode` file watcher on `project-director.json` (registered in `extension.ts`) reloads the manager and fires `projectDirectorRefresh` on external edits.
+
+**Dashboard tab (Phase 2).** The Project Dashboard has a **Director** page (`collectDirectorSnapshot`/`detectDirectorSignals` in `projectDashboardPanel.ts`, rendered by `renderDirector` in `media/projectDashboard.js`) with Setup, People (roster), Responsibilities, Assignments (+ an "assign a human owner" overlay on autonomous `ProjectRunRecord`s via `Assignment.linkedRunId`), and Follow-ups sub-sections. It is **solo-aware** (`resolveTeamMode`/`isSoloProject` foreground self-management for a one-person project) and **GDPR-gated**: persisting raw PII triggers a one-time consent modal (workspace-scoped ack) that also enables the `gdpr-pii` compliance pack. Every webview payload is validated by `isProjectDashboardMessage` and re-run through `sanitizeProjectDirectorConfig` before it touches disk; contact deep-links are resolved and re-checked against the scheme allowlist server-side before `openExternal`, and "Copy contact" is built host-side.
+
+**Guarded connectors (Phase 3).** With outbound messaging enabled (`settings.outboundEnabled`, default off) and a matching MCP connector connected, the Director tab can email / schedule / message a contact. `DirectorCommsRunner` (`src/core/directorCommsRunner.ts`, pure/vscode-free) detects which connected MCP tool can perform each intent — matching tool names (`outlook_send_mail`, `create_event`, `post_message`, …) across `mcpServerRegistry.listServers()`, preferring real send/create tools over drafts — and best-effort maps a composed draft onto that tool's declared input-schema fields (inventing nothing). Dispatch is deny-by-default in the panel: it requires the toggle, a connected connector, and an explicit `{ modal: true }` confirmation showing the exact action (connector, tool, recipient, subject/body, classified risk via `classifyToolInvocation`) before running the tool through its `mcp:<serverId>:<toolName>` skill wrapper (`skillsRegistry.get(...).execute(args, atlas.skillContext)`). No connector for the intent → non-destructive fallback to the deep-link. The webview only supplies the draft; the tool comes from the connected server, credentials stay in SecretStorage, and successful sends are recorded to `project-director-history.json`.
+
+**Reminders + surfacing (Phase 4).** `FollowUpScheduler` (`src/core/followUpScheduler.ts`, pure eval + a thin timer class) surfaces a **throttled, once-per-day** in-editor nudge (via injected `notify`) when follow-ups are overdue/due-soon, opening the Director tab on click. It is **notification-only and deny-by-default** — it never sends anything outbound on a timer (outbound always needs the per-send confirmation above). A startup `runOnce()` fires when `settings.nudgeOnActivation` is on (default); the recurring 30-minute timer (wired near the manager in `extension.ts`) only nudges while `settings.remindersEnabled` is on (default off); the once/day throttle is a `workspaceState` date-key that survives restarts. A sidebar tree `atlasmind.projectDirectorView` (`ProjectDirectorTreeProvider` in `treeViews.ts`) groups Stakeholders / Team / Follow-ups with an overdue badge refreshed on `projectDirectorRefresh`; `atlasmind.openProjectDirector` opens the dashboard on the Director tab, and `@atlas /director` + `/followups` print a skimmable status.
 
 ### MissionRunner (`src/core/missionRunner.ts`)
 
@@ -215,7 +251,7 @@ Interface to the SSOT folder structure. Supports `queryRelevant()` (local hashed
 
 ### RemoteControlServer (`src/remote/remoteControlServer.ts`)
 
-Desktop-only localhost WebSocket server that lets the AtlasMind web build remote-control this instance. Off by default; only listens after `AtlasMind: Enable Remote Control`, a workspace-trust approval, and a pairing token (stored in `SecretStorage`, modeled on `ToolWebhookDispatcher`). On an authenticated connection it constructs a `RemoteWebviewHost` (`src/remote/remoteBridge.ts`) — a synthetic `ChatPanelHost` — and binds a real `ChatPanel` to it, so the full chat implementation drives the remote browser. Outbound `webview.postMessage` calls are forwarded over the socket; inbound chat frames are re-validated with `isChatPanelMessage` before dispatch. It also answers read-only `cost`/`runs` RPCs backed by `CostTracker` and `ProjectRunHistory`. Disconnect disposes the ChatPanel (aborting in-flight work, so pending tool approvals default to denied). The wire protocol is the Node-free `src/remote/protocol.ts`, shared with the web build. See [Remote Control](remote-control.md).
+Desktop-only localhost WebSocket server that lets the AtlasMind web build remote-control this instance. Off by default; only listens after `AtlasMind: Enable Remote Control`, a workspace-trust approval, and a pairing token (stored in `SecretStorage`, modeled on `ToolWebhookDispatcher`). On an authenticated connection it constructs a `RemoteWebviewHost` (`src/remote/remoteBridge.ts`) — a synthetic `ChatPanelHost` — and binds a real `ChatPanel` to it, so the full chat implementation drives the remote browser. Outbound `webview.postMessage` calls are forwarded over the socket; inbound chat frames are re-validated with `isChatPanelMessage` before dispatch. It also answers read-only `cost`/`runs` RPCs backed by `CostTracker` and `ProjectRunHistory`. Disconnect disposes the ChatPanel (aborting in-flight work, so pending tool approvals default to denied). The wire protocol is the Node-free `src/remote/protocol.ts`, shared with the web build. In `gateway` mode (`atlasmind.remote.mode`) it instead authenticates each connection by an `x-atlas-origin-secret` upgrade header injected by an SSO gateway (verified timing-safe against the pairing-token slot) and records `x-atlas-user-id` for audit, so it can sit behind a Cloudflare Worker + tunnel for cross-machine access without opening an inbound port. See [Remote Control](remote-control.md).
 
 ## Key Interfaces
 
@@ -271,6 +307,12 @@ Wraps `@modelcontextprotocol/sdk` `Client` for a single server. Supports `connec
 ### McpServerRegistry (`src/mcp/mcpServerRegistry.ts`)
 
 Manages `McpServerConfig` persistence (key: `atlasmind.mcpServers` in `globalState`) and live `McpClient` instances. On `connectServer()`: instantiates a client, calls `connect()`, then registers each discovered tool as a `SkillDefinition` in `SkillsRegistry` (ID: `mcp:<serverId>:<toolName>`) with auto-approved scan status. On `disconnectServer()`: disables or unregisters the corresponding skills. `connectAll()` is called non-blocking on activation; `disposeAll()` is called on deactivation.
+
+Credentials are kept out of `globalState`: env vars listed in `McpServerConfig.secretEnvKeys` have their **values** stored in VS Code `SecretStorage` (key `atlasmind.mcp.<serverId>.<KEY>`, injected via the constructor's optional `secrets` param), resolved and merged into the process env only inside `connectServer()`, and deleted on `removeServer()`. `setServerSecrets()` writes them; the persisted config holds only the key names. `detectAvailableServers()` scans the local environment and returns only servers whose launch runtime is actually present (each with a `reason`), for the guided setup wizard's **Scan my computer** step.
+
+### mcpRuntime (`src/mcp/mcpRuntime.ts`)
+
+Shared runtime-bootstrap helpers used by both the recommended-install command and the guided wizard. `checkStarterRuntime()` reports whether a server's launch runtime exists and, if not, *plans* an install (`installable` with the exact command, or `manual`) — it never installs. `runRuntimeInstallPlan()` runs a plan only after the caller has obtained explicit user confirmation (confirm-before-install policy).
 
 ### Agentic Resource Discovery (`src/ard/`)
 
@@ -351,6 +393,7 @@ Command Palette or walkthrough -> openPersonalityProfile
 - Webviews are isolated behind a strict CSP and communicate only through validated message payloads.
 - Provider credentials belong in VS Code SecretStorage and are not part of the SSOT or workspace configuration.
 - Bootstrap operations are constrained to safe relative paths inside the current workspace.
+- Website Studio persists only bounded, sanitized planning data and provider-prefixed secret references; it server-locks the Develop/Staging/Production access policies, validates loopback/HTTPS/review-subdomain readiness, redacts recognized secrets/n8n webhook URLs, and exposes no direct deploy or workflow-trigger message.
 - Future orchestrator execution should preserve the same rule: validate inputs, redact secrets, and prefer explicit user confirmation for risky actions.
 
 ## Quality Gates
@@ -370,6 +413,8 @@ extension.ts
   │     ├── views/modelProviderPanel.ts
   │     ├── views/toolWebhookPanel.ts
   │     ├── views/skillScannerPanel.ts
+  │     ├── views/websiteStudioPanel.ts
+  │     │     └── core/websiteWorkspaceManager.ts
   │     ├── views/missionControlPanel.ts
   │     │     └── core/missionRunner.ts (→ core/goalEvaluator.ts, core/missionRegistry.ts)
   │     └── bootstrap/bootstrapper.ts
@@ -389,7 +434,8 @@ extension.ts
         ├── memory/memoryManager.ts
         │     └── memory/memoryScanner.ts
         ├── mcp/mcpServerRegistry.ts
-        │     └── mcp/mcpClient.ts
+        │     ├── mcp/mcpClient.ts
+        │     └── mcp/mcpRuntime.ts
             ├── skills/index.ts
             │     ├── skills/dockerCli.ts
             │     └── skills/gitApplyPatch.ts
@@ -402,6 +448,7 @@ extension.ts
 tests/core/
   ├── modelRouter.test.ts
   ├── costTracker.test.ts
+  ├── websiteWorkspaceManager.test.ts
   ├── skillDrafting.test.ts
   └── planner.scheduler.test.ts
 tests/memory/
@@ -437,7 +484,7 @@ All shared types live in `src/types.ts`. See the [type definitions](../src/types
 | `TaskResult` | Agent ID, model used, response, cost, duration |
 | `CostRecord` | Per-request token counts and cost |
 | `MemoryEntry` | Path, title, tags, last modified, snippet |
-| `McpServerConfig` | MCP server id, name, transport (stdio/http), command/args/env or url, enabled |
+| `McpServerConfig` | MCP server id, name, transport (stdio/http), command/args/env or url, enabled, `secretEnvKeys` (env var names whose values live in SecretStorage) |
 | `McpConnectionStatus` | `'disconnected' \| 'connecting' \| 'connected' \| 'error'` |
 | `McpToolInfo` | Server id, tool name, description, input JSON Schema |
 | `McpServerState` | Live snapshot: config + status + error + discovered tools |

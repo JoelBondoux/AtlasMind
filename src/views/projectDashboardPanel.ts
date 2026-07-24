@@ -16,7 +16,29 @@ import { COMPLIANCE_PACKS } from '../core/compliancePacks.js';
 import { getProviderDataGovernance } from '../core/providerDataGovernance.js';
 import { DELIVERY_SSOT_PATH, DELIVERY_SUMMARY_SSOT_PATH, sanitizeDeliveryConfig, seedDeliveryConfig, appendPromotionHistory, readPromotionHistory, acquireDeliveryLock, releaseDeliveryLock, type DeliverySeedInput, type DeliveryArchetype } from '../core/deliveryManager.js';
 import { buildPromotionPlan, evaluatePromotionGate, evaluatePromotionGateExceptFixable, runPromotion, runRollback, checkHealthUrl, classifyBumpLevel, applyPromotionRemediation } from '../core/promotionRunner.js';
-import type { DataPrivacyActivityEvent, DataPrivacySensitivity, DeliveryConfig, DeploymentStage, PromotionPath, PromotionHistoryEntry } from '../types.js';
+import {
+  PROJECT_DIRECTOR_SSOT_PATH,
+  PROJECT_DIRECTOR_SUMMARY_SSOT_PATH,
+  sanitizeProjectDirectorConfig,
+  seedProjectDirectorConfig,
+  resolveTeamMode,
+  deriveFollowUpUrgency,
+  countOverdueFollowUps,
+  configStoresRawPii,
+  appendProjectDirectorHistory,
+  type ProjectDirectorSeedInput,
+  type FollowUpUrgency,
+} from '../core/projectDirectorManager.js';
+import {
+  detectConnectorCapabilities,
+  resolveCapability,
+  buildToolArgs,
+  type DirectorCommsIntent,
+  type CommsDraft,
+} from '../core/directorCommsRunner.js';
+import { mcpSkillId } from '../mcp/mcpServerRegistry.js';
+import { classifyToolInvocation } from '../core/toolPolicy.js';
+import type { DataPrivacyActivityEvent, DataPrivacySensitivity, DeliveryConfig, DeploymentStage, PromotionPath, PromotionHistoryEntry, ProjectDirectorConfig, ProjectRunRecord } from '../types.js';
 
 const execFileAsync = promisify(execFile);
 const PROJECT_DASHBOARD_VIEW_TYPE = 'atlasmind.projectDashboard';
@@ -52,6 +74,7 @@ const ALLOWED_DASHBOARD_COMMANDS = new Set([
   'atlasmind.updateProjectMemory',
   'atlasmind.bootstrapProject',
   'atlasmind.importProject',
+  'atlasmind.openMcpServers',
   'workbench.view.scm',
 ]);
 const EXPECTED_SSOT_DIRECTORIES = [
@@ -100,6 +123,12 @@ type ProjectDashboardMessage =
   | { type: 'rollbackStage'; payload: { stageId: string; confirmText: string } }
   | { type: 'testHealthUrl'; payload: { url: string } }
   | { type: 'testDataPrivacy'; payload: { kind: 'text' | 'path'; value: string } }
+  | { type: 'saveDirectorConfig'; payload: import('../types.js').ProjectDirectorConfig }
+  | { type: 'seedDirectorFromRepo' }
+  | { type: 'copyContact'; payload: string }
+  | { type: 'openContactDeepLink'; payload: { contactId: string; linkId: string } }
+  | { type: 'assignRunOwner'; payload: { runId: string; contactId: string } }
+  | { type: 'directorSendComms'; payload: { intent: DirectorCommsIntent; contactId: string; subject?: string; body?: string; start?: string } }
   | { type: 'openExternalUrl'; payload: string };
 
 type DashboardWebviewMessage =
@@ -132,7 +161,7 @@ interface DashboardStat {
   command?: string;
 }
 
-type DashboardPageId = 'overview' | 'score' | 'repo' | 'runtime' | 'testing' | 'ssot' | 'roadmap' | 'gapAnalysis' | 'security' | 'delivery' | 'ideation';
+type DashboardPageId = 'overview' | 'score' | 'repo' | 'runtime' | 'testing' | 'ssot' | 'roadmap' | 'gapAnalysis' | 'security' | 'delivery' | 'director' | 'ideation';
 
 type IdeationCardKind =
   | 'concept'
@@ -602,6 +631,45 @@ interface DashboardStagePipeline {
   notInGitRepo: boolean;
 }
 
+/** A lightweight projection of an autonomous run for the Director assignments view. */
+interface DashboardDirectorRun {
+  id: string;
+  title: string;
+  status: string;
+  relative: string;
+  /** Name of the human owner, when an Assignment links this run to a contact. */
+  ownerName?: string;
+}
+
+interface DashboardDirectorSnapshot {
+  /** Workspace-relative path of the JSON source of truth. */
+  configPath: string;
+  /** Workspace-relative path of the human-readable markdown mirror. */
+  summaryPath: string;
+  /** The raw, editable config (secret-free) so the dashboard can mutate a copy and post it back. Null when none exists yet. */
+  config: ProjectDirectorConfig | null;
+  /** Resolved solo/team mode driving the presentation (self-management vs full roster). */
+  teamMode: 'solo' | 'team';
+  /** True when a contact stores raw personal data locally (drives the GDPR notice). */
+  storesRawPii: boolean;
+  /** True once the user has acknowledged the one-time PII/GDPR storage notice. */
+  piiAcknowledged: boolean;
+  /** Count of overdue follow-ups (derived). */
+  overdueCount: number;
+  /** Derived urgency per follow-up id, so the client can group without re-deriving. */
+  followUpUrgency: Record<string, FollowUpUrgency>;
+  /** Recent autonomous runs, for the "assign a human owner" view. */
+  runs: DashboardDirectorRun[];
+  /** Whether guarded outbound send/schedule is enabled for this project. */
+  outboundEnabled: boolean;
+  /** Communication intents a connected MCP connector can perform right now. */
+  connectors: Array<{ intent: DirectorCommsIntent; serverName: string; toolName: string }>;
+  /** True when this view seeded a first draft on first open. */
+  seeded: boolean;
+  /** True when no git repository is present, so the roster cannot be seeded yet. */
+  notInGitRepo: boolean;
+}
+
 type DashboardGapPriority = 'P1' | 'P2' | 'P3';
 type DashboardGapCategory = 'architecture' | 'security' | 'functionality' | 'ui-ux' | 'memory' | 'code-structure' | 'testing' | 'delivery' | 'documentation' | 'quality' | 'general';
 
@@ -706,6 +774,7 @@ interface DashboardSnapshot {
     artifacts: ArtifactSignal[];
     stages: DashboardStagePipeline;
   };
+  director: DashboardDirectorSnapshot;
   score: DashboardScoreBreakdown;
   ideation: DashboardIdeationSnapshot;
   gapAnalysis: DashboardGapAnalysisSnapshot;
@@ -1149,6 +1218,7 @@ export class ProjectDashboardPanel {
     this.atlas.skillsRefresh.event(() => { void this.syncState(); }, null, this.disposables);
     this.atlas.modelsRefresh.event(() => { void this.syncState(); }, null, this.disposables);
     this.atlas.deliveryRefresh?.event(() => { void this.syncState(); }, null, this.disposables);
+    this.atlas.projectDirectorRefresh?.event(() => { void this.syncState(); }, null, this.disposables);
     this.atlas.projectRunsRefresh.event(() => { void this.syncState(); }, null, this.disposables);
     this.atlas.memoryRefresh.event(() => { void this.syncState(); }, null, this.disposables);
     this.atlas.sessionConversation.onDidChange(() => { void this.syncState(); }, null, this.disposables);
@@ -1307,6 +1377,24 @@ export class ProjectDashboardPanel {
         return;
       case 'resolveAndRunPromotion':
         await this.handleResolveAndRunPromotion(message.payload);
+        return;
+      case 'saveDirectorConfig':
+        await this.handleSaveDirectorConfig(message.payload);
+        return;
+      case 'seedDirectorFromRepo':
+        await this.handleSeedDirector();
+        return;
+      case 'copyContact':
+        await this.handleCopyContact(message.payload);
+        return;
+      case 'openContactDeepLink':
+        await this.handleOpenContactDeepLink(message.payload);
+        return;
+      case 'assignRunOwner':
+        await this.handleAssignRunOwner(message.payload);
+        return;
+      case 'directorSendComms':
+        await this.handleDirectorSendComms(message.payload);
         return;
       case 'testDataPrivacy':
         {
@@ -1735,6 +1823,262 @@ export class ProjectDashboardPanel {
     await this.syncState();
   }
 
+  // ── Project Director ─────────────────────────────────────────────
+
+  /**
+   * The one-time GDPR consent gate. When a config would persist raw personal
+   * data locally and the user has not yet acknowledged it, show a modal
+   * explaining the GDPR implications; on approval, record the acknowledgement
+   * and enable the built-in `gdpr-pii` classification pack so the stored PII is
+   * covered by the existing redaction boundary. Returns true when it is OK to
+   * persist. Modelled on `remoteControlServer.ensureWorkspaceApproval`.
+   */
+  private async ensurePiiConsent(config: ProjectDirectorConfig): Promise<boolean> {
+    if (!configStoresRawPii(config)) {
+      return true;
+    }
+    const context = this.atlas.extensionContext;
+    const already = context?.workspaceState?.get<boolean>(PROJECT_DIRECTOR_PII_ACK_KEY, false) ?? false;
+    if (already) {
+      return true;
+    }
+    const choice = await vscode.window.showWarningMessage(
+      'This stores personal data (names and contact details) in project_memory/operations/project-director.json. '
+      + 'Under the GDPR you are the data controller: keep it minimal, store only what you need, and remove it on request. '
+      + 'AtlasMind classifies stored personal data as confidential so it is never sent to an un-trusted model. '
+      + 'Where possible, prefer referencing people in Microsoft 365 / Slack over storing raw details locally.',
+      { modal: true },
+      'Store personal data',
+    );
+    if (choice !== 'Store personal data') {
+      return false;
+    }
+    await context?.workspaceState?.update(PROJECT_DIRECTOR_PII_ACK_KEY, true);
+    await this.enableGdprPiiPack();
+    return true;
+  }
+
+  /** Enable the built-in gdpr-pii compliance pack so stored Director PII is classified. */
+  private async enableGdprPiiPack(): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      return;
+    }
+    try {
+      const current = readDataPrivacyConfig(workspaceRoot) ?? defaultDataPrivacyConfig();
+      if (current.compliancePacks.includes('gdpr-pii')) {
+        return;
+      }
+      const next = { ...current, enabled: true, compliancePacks: [...current.compliancePacks, 'gdpr-pii'] };
+      await writeDataPrivacyConfig(workspaceRoot, next);
+      this.atlas.dataPrivacyManager?.setConfig(next);
+    } catch {
+      // Best-effort; the Director save still proceeds.
+    }
+  }
+
+  private async handleSaveDirectorConfig(payload: unknown): Promise<void> {
+    const clean = sanitizeProjectDirectorConfig(payload);
+    if (!clean) {
+      return;
+    }
+    if (!(await this.ensurePiiConsent(clean))) {
+      return;
+    }
+    await this.atlas.projectDirectorManager.save(clean);
+    await this.syncState();
+  }
+
+  /** Re-seed the roster from repository signals (git users, CODEOWNERS, package author, website intake). */
+  private async handleSeedDirector(): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot || !this.atlas.projectDirectorManager) {
+      return;
+    }
+    const signals = await detectDirectorSignals(workspaceRoot);
+    const config = seedProjectDirectorConfig(signals);
+    if (!(await this.ensurePiiConsent(config)) && configStoresRawPii(config)) {
+      // Consent declined and the draft carries PII: do not persist.
+      return;
+    }
+    await this.atlas.projectDirectorManager.save(config);
+    await this.syncState();
+  }
+
+  private async handleCopyContact(contactId: string): Promise<void> {
+    const contact = this.atlas.projectDirectorManager?.getConfig()?.contacts.find(entry => entry.id === contactId);
+    if (!contact) {
+      return;
+    }
+    const lines = [contact.name];
+    if (contact.title) { lines.push(contact.title); }
+    if (contact.org) { lines.push(contact.org); }
+    for (const link of contact.links) {
+      lines.push(`${link.label || link.kind}: ${link.handle}`);
+    }
+    await vscode.env.clipboard.writeText(lines.join('\n'));
+    await vscode.window.showInformationMessage(`Copied contact details for ${contact.name}.`);
+  }
+
+  private async handleOpenContactDeepLink(payload: { contactId: string; linkId: string }): Promise<void> {
+    const contact = this.atlas.projectDirectorManager?.getConfig()?.contacts.find(entry => entry.id === payload.contactId);
+    const link = contact?.links.find(entry => entry.id === payload.linkId);
+    if (!link?.deepLink) {
+      return;
+    }
+    // Re-validate the scheme server-side (defense in depth; the sanitiser already did).
+    const scheme = link.deepLink.match(/^([a-zA-Z][a-zA-Z0-9+.-]*):/)?.[1]?.toLowerCase();
+    const allowed = ['mailto', 'tel', 'sms', 'slack', 'msteams', 'zoommtg', 'https'];
+    if (!scheme || !allowed.includes(scheme)) {
+      return;
+    }
+    await vscode.env.openExternal(vscode.Uri.parse(link.deepLink));
+  }
+
+  /** Link (or clear) a human owner for an autonomous run via a Director assignment. */
+  private async handleAssignRunOwner(payload: { runId: string; contactId: string }): Promise<void> {
+    const manager = this.atlas.projectDirectorManager;
+    const config = manager?.getConfig();
+    if (!manager || !config) {
+      return;
+    }
+    const runId = payload.runId.trim();
+    if (!runId) {
+      return;
+    }
+    const contactId = payload.contactId.trim();
+    if (contactId && !config.contacts.some(entry => entry.id === contactId)) {
+      return;
+    }
+    const now = new Date().toISOString();
+    const assignments = [...config.assignments];
+    const existingIndex = assignments.findIndex(entry => entry.linkedRunId === runId);
+    if (!contactId) {
+      if (existingIndex >= 0) { assignments.splice(existingIndex, 1); }
+    } else if (existingIndex >= 0) {
+      assignments[existingIndex] = { ...assignments[existingIndex], assigneeContactId: contactId, updatedAt: now };
+    } else {
+      const runs = await this.atlas.projectRunHistory.listRunsAsync(40);
+      const run = runs.find(entry => entry.id === runId);
+      assignments.push({
+        id: `asg-run-${runId}`,
+        title: run?.title || run?.goal || 'Autonomous run',
+        kind: 'task',
+        assigneeContactId: contactId,
+        status: run?.status === 'completed' ? 'done' : run?.status === 'failed' ? 'blocked' : 'in-progress',
+        priority: 'medium',
+        linkedRunId: runId,
+        source: 'run',
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+    const clean = sanitizeProjectDirectorConfig({ ...config, assignments });
+    if (clean) {
+      await manager.save(clean);
+      await this.syncState();
+    }
+  }
+
+  /**
+   * Guarded outbound send/schedule via a connected MCP connector. Deny-by-default:
+   * it does nothing unless the project has `outboundEnabled`, a matching connector
+   * is connected, and the user confirms the exact action in a modal. Falls back to
+   * the contact's deep-link when no connector can perform the intent; never
+   * auto-sends. The executed tool comes from the connected server — the webview
+   * only supplies the draft, which is re-resolved and re-classified server-side.
+   */
+  private async handleDirectorSendComms(payload: { intent: DirectorCommsIntent; contactId: string; subject?: string; body?: string; start?: string }): Promise<void> {
+    const config = this.atlas.projectDirectorManager?.getConfig();
+    if (!config) {
+      return;
+    }
+    if (config.settings.outboundEnabled !== true) {
+      void vscode.window.showWarningMessage('Outbound messaging is off for this project. Enable it on the Project Director → Setup card.');
+      return;
+    }
+    const contact = config.contacts.find(entry => entry.id === payload.contactId);
+    if (!contact) {
+      return;
+    }
+    const intent = payload.intent;
+    const preferKinds = intent === 'message' ? ['slack', 'teams'] : ['email'];
+    const link = contact.links.find(entry => preferKinds.includes(entry.kind)) ?? contact.links[0];
+    const recipient = link?.handle ?? '';
+    if (!recipient) {
+      void vscode.window.showWarningMessage(`No ${intent === 'message' ? 'chat' : intent} channel on file for ${contact.name}.`);
+      return;
+    }
+
+    const capabilities = detectConnectorCapabilities(this.atlas.mcpServerRegistry?.listServers() ?? []);
+    const capability = resolveCapability(capabilities, intent);
+    if (!capability) {
+      // Non-destructive fallback: open the deep-link, or explain there's no connector.
+      if (link?.deepLink) {
+        await vscode.env.openExternal(vscode.Uri.parse(link.deepLink));
+      } else {
+        const open = await vscode.window.showWarningMessage(
+          `No connected MCP connector can ${intent === 'message' ? 'post a message' : intent === 'schedule' ? 'schedule an event' : 'send email'}. Connect one from MCP Servers.`,
+          'Open MCP Servers',
+        );
+        if (open === 'Open MCP Servers') {
+          await vscode.commands.executeCommand('atlasmind.openMcpServers');
+        }
+      }
+      return;
+    }
+
+    const draft: CommsDraft = {
+      intent,
+      recipient,
+      recipientName: contact.name,
+      subject: payload.subject,
+      body: payload.body,
+      start: payload.start,
+    };
+    const args = buildToolArgs(capability, draft);
+    const skillId = mcpSkillId(capability.serverId, capability.toolName);
+    const policy = classifyToolInvocation(skillId, args);
+
+    // Authorization gate: an explicit modal showing the exact external action.
+    const summary = [
+      `Send this ${intent} through the connector "${capability.serverName}" (tool ${capability.toolName})?`,
+      `To: ${contact.name}${recipient ? ` <${recipient}>` : ''}`,
+    ];
+    if (draft.subject) { summary.push(`Subject: ${draft.subject}`); }
+    if (draft.start) { summary.push(`When: ${draft.start}`); }
+    if (draft.body) { summary.push(`Body: ${draft.body.length > 240 ? `${draft.body.slice(0, 240)}…` : draft.body}`); }
+    summary.push('', `Risk: ${policy.risk}. This performs a real, external action that AtlasMind cannot undo.`);
+    const choice = await vscode.window.showWarningMessage(summary.join('\n'), { modal: true }, 'Send');
+    if (choice !== 'Send') {
+      return;
+    }
+
+    const skill = this.atlas.skillsRegistry.get(skillId);
+    if (!skill || !this.atlas.skillsRegistry.isEnabled(skill.id)) {
+      void vscode.window.showErrorMessage(`Connector tool "${capability.toolName}" is unavailable. Reconnect the server from MCP Servers.`);
+      return;
+    }
+    try {
+      await skill.execute(args, this.atlas.skillContext);
+      void vscode.window.showInformationMessage(`Sent ${intent} to ${contact.name} via ${capability.serverName}.`);
+      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (workspaceRoot) {
+        await appendProjectDirectorHistory(workspaceRoot, {
+          id: `out-${skillId}-${new Date().toISOString()}`,
+          kind: 'outbound',
+          summary: `${intent} → ${contact.name} via ${capability.serverName} (${capability.toolName})`,
+          entityId: contact.id,
+          ranAt: new Date().toISOString(),
+        });
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showErrorMessage(`Connector send failed: ${detail}`);
+    }
+    await this.syncState();
+  }
+
   /** Resolve live CI status for the branch being promoted (best-effort, gh). */
   private async resolveLiveCiStatus(
     workspaceRoot: string,
@@ -2063,11 +2407,11 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
   }
 
   const candidate = message as Record<string, unknown>;
-  if (candidate['type'] === 'ready' || candidate['type'] === 'refresh' || candidate['type'] === 'runGapAnalysis' || candidate['type'] === 'markDeliveryReviewed' || candidate['type'] === 'reimportDelivery') {
+  if (candidate['type'] === 'ready' || candidate['type'] === 'refresh' || candidate['type'] === 'runGapAnalysis' || candidate['type'] === 'markDeliveryReviewed' || candidate['type'] === 'reimportDelivery' || candidate['type'] === 'seedDirectorFromRepo') {
     return true;
   }
 
-  if ((candidate['type'] === 'openCommand' || candidate['type'] === 'openFile' || candidate['type'] === 'openRun' || candidate['type'] === 'openRunWithGoal' || candidate['type'] === 'openSession' || candidate['type'] === 'addressGap' || candidate['type'] === 'resolveGapItem' || candidate['type'] === 'resolveGapGroup' || candidate['type'] === 'openGapFiles') && typeof candidate['payload'] === 'string') {
+  if ((candidate['type'] === 'openCommand' || candidate['type'] === 'openFile' || candidate['type'] === 'openRun' || candidate['type'] === 'openRunWithGoal' || candidate['type'] === 'openSession' || candidate['type'] === 'addressGap' || candidate['type'] === 'resolveGapItem' || candidate['type'] === 'resolveGapGroup' || candidate['type'] === 'openGapFiles' || candidate['type'] === 'copyContact') && typeof candidate['payload'] === 'string') {
     return candidate['payload'].trim().length > 0;
   }
 
@@ -2099,6 +2443,32 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
   if (candidate['type'] === 'saveDeliveryConfig') {
     const p = candidate['payload'] as Record<string, unknown> | undefined;
     return typeof p === 'object' && p !== null && p['version'] === 1 && Array.isArray(p['stages']) && Array.isArray(p['paths']);
+  }
+
+  if (candidate['type'] === 'saveDirectorConfig') {
+    const p = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof p === 'object' && p !== null && p['version'] === 1
+      && Array.isArray(p['contacts']) && Array.isArray(p['stakeholders']) && Array.isArray(p['teamMembers'])
+      && Array.isArray(p['responsibilities']) && Array.isArray(p['assignments']) && Array.isArray(p['followUps']);
+  }
+
+  if (candidate['type'] === 'openContactDeepLink') {
+    const p = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof p === 'object' && p !== null && typeof p['contactId'] === 'string' && p['contactId'].length > 0
+      && typeof p['linkId'] === 'string' && p['linkId'].length > 0;
+  }
+
+  if (candidate['type'] === 'assignRunOwner') {
+    const p = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof p === 'object' && p !== null && typeof p['runId'] === 'string' && p['runId'].length > 0
+      && typeof p['contactId'] === 'string';
+  }
+
+  if (candidate['type'] === 'directorSendComms') {
+    const p = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof p === 'object' && p !== null
+      && (p['intent'] === 'email' || p['intent'] === 'schedule' || p['intent'] === 'message')
+      && typeof p['contactId'] === 'string' && p['contactId'].length > 0;
   }
 
   if (candidate['type'] === 'requestPromotionPlan') {
@@ -2191,7 +2561,7 @@ function normalizeDashboardPromptRequest(payload: unknown): { prompt: string; so
   const sourcePage = candidate['sourcePage'];
   return {
     prompt,
-    ...(sourcePage === 'overview' || sourcePage === 'score' || sourcePage === 'repo' || sourcePage === 'runtime' || sourcePage === 'testing' || sourcePage === 'ssot' || sourcePage === 'roadmap' || sourcePage === 'security' || sourcePage === 'delivery' || sourcePage === 'ideation'
+    ...(sourcePage === 'overview' || sourcePage === 'score' || sourcePage === 'repo' || sourcePage === 'runtime' || sourcePage === 'testing' || sourcePage === 'ssot' || sourcePage === 'roadmap' || sourcePage === 'security' || sourcePage === 'delivery' || sourcePage === 'director' || sourcePage === 'ideation'
       ? { sourcePage }
       : {}),
   };
@@ -2228,6 +2598,7 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
   const enabledSkills = skills.filter(skill => atlas.skillsRegistry.isEnabled(skill.id)).length;
   const sessions = atlas.sessionConversation.listSessions();
   const runs = await atlas.projectRunHistory.listRunsAsync(40);
+  const directorSnapshot = await collectDirectorSnapshot(atlas, workspaceRoot, gitSnapshot.currentBranch, runs);
   const runtimeTdd = summarizeRuntimeTdd(runs);
   const costSummary = atlas.costTracker.getSummary();
   const memoryEntries = atlas.memoryManager.listEntries();
@@ -2490,6 +2861,7 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
       artifacts: await collectArtifacts(workspaceRoot),
       stages: stagePipeline,
     },
+    director: directorSnapshot,
     score: scoreBreakdown,
     ideation: {
       boardPath: buildIdeationRelativePath(ssotPath, activeIdeationWorkspace.boardFile),
@@ -3572,6 +3944,181 @@ async function collectDeliveryStagePipeline(
 }
 
 const DELIVERY_REVIEW_STATE_KEY = 'atlasmind.deliveryReview';
+
+/** Workspace-scoped flag: the user has acknowledged the one-time PII/GDPR storage notice. */
+const PROJECT_DIRECTOR_PII_ACK_KEY = 'atlasmind.projectDirector.piiStorageAcknowledged';
+
+/**
+ * Gather a first-draft roster from the repository: the git user (as "me"),
+ * distinct git contributors, CODEOWNERS handles, the package author, and any
+ * Website Studio client-intake stakeholders. Everything is optional and
+ * best-effort — a missing signal is simply omitted.
+ */
+async function detectDirectorSignals(workspaceRoot: string): Promise<ProjectDirectorSeedInput> {
+  const input: ProjectDirectorSeedInput = { projectName: path.basename(workspaceRoot) };
+
+  // package.json — project name/summary + author.
+  try {
+    const pkg = JSON.parse(await fs.readFile(path.join(workspaceRoot, 'package.json'), 'utf-8')) as Record<string, unknown>;
+    if (typeof pkg['name'] === 'string' && pkg['name'].trim()) { input.projectName = pkg['name'].trim(); }
+    if (typeof pkg['description'] === 'string' && pkg['description'].trim()) { input.projectSummary = pkg['description'].trim(); }
+    const author = pkg['author'];
+    if (typeof author === 'string' && author.trim()) {
+      input.packageAuthor = author.trim();
+    } else if (author && typeof author === 'object') {
+      const a = author as Record<string, unknown>;
+      const name = typeof a['name'] === 'string' ? a['name'] : '';
+      const email = typeof a['email'] === 'string' ? a['email'] : '';
+      if (name) { input.packageAuthor = email ? `${name} <${email}>` : name; }
+    }
+  } catch { /* no package.json */ }
+
+  // git identity → "me".
+  try {
+    const name = (await runGit(workspaceRoot, ['config', 'user.name'])).trim();
+    const email = (await runGit(workspaceRoot, ['config', 'user.email'])).trim();
+    if (name || email) { input.self = { name: name || email, email: email || undefined }; }
+  } catch { /* not configured */ }
+
+  // Distinct git contributors.
+  try {
+    const out = await runGit(workspaceRoot, ['log', '--no-merges', '--format=%an\t%ae', '-n', '2000']);
+    const seen = new Set<string>();
+    const contributors: Array<{ name: string; email: string }> = [];
+    for (const line of out.split(/\r?\n/)) {
+      const [name, email] = line.split('\t');
+      const key = (email || name || '').toLowerCase().trim();
+      if (!key || seen.has(key)) { continue; }
+      seen.add(key);
+      contributors.push({ name: (name || '').trim(), email: (email || '').trim() });
+      if (contributors.length >= 50) { break; }
+    }
+    if (contributors.length > 0) { input.gitContributors = contributors; }
+  } catch { /* no history */ }
+
+  // CODEOWNERS owner handles.
+  try {
+    const raw = await fs.readFile(path.join(workspaceRoot, '.github', 'CODEOWNERS'), 'utf-8');
+    const handles = new Set<string>();
+    for (const line of raw.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) { continue; }
+      for (const token of trimmed.split(/\s+/).slice(1)) {
+        if (token.startsWith('@')) { handles.add(token); }
+      }
+    }
+    if (handles.size > 0) { input.codeowners = [...handles].slice(0, 30); }
+  } catch { /* none */ }
+
+  // Website Studio client intake → stakeholder names.
+  try {
+    const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
+    const parsed = JSON.parse(await fs.readFile(path.join(workspaceRoot, ssotPath, 'domain', 'website.json'), 'utf-8')) as Record<string, unknown>;
+    const intake = parsed['intake'] as Record<string, unknown> | undefined;
+    const raw = intake?.['stakeholders'] ?? parsed['stakeholders'];
+    if (Array.isArray(raw)) {
+      const names = raw.filter((s): s is string => typeof s === 'string' && s.trim().length > 0).slice(0, 30);
+      if (names.length > 0) { input.websiteStakeholders = names; }
+    }
+  } catch { /* none */ }
+
+  return input;
+}
+
+/**
+ * Assemble the Project Director view. Mirrors {@link collectDeliveryStagePipeline}:
+ * reads the persisted roster, seeds a first draft on first open (in-memory only
+ * when it would store raw PII the user has not yet consented to), and computes
+ * derived follow-up urgency + a run-attribution overlay for the assignments view.
+ */
+async function collectDirectorSnapshot(
+  atlas: AtlasMindContext,
+  workspaceRoot: string | undefined,
+  currentBranch: string,
+  runs: ProjectRunRecord[],
+): Promise<DashboardDirectorSnapshot> {
+  const connectors = detectConnectorCapabilities(atlas.mcpServerRegistry?.listServers() ?? [])
+    .map(capability => ({ intent: capability.intent, serverName: capability.serverName, toolName: capability.toolName }));
+  const base: DashboardDirectorSnapshot = {
+    configPath: PROJECT_DIRECTOR_SSOT_PATH,
+    summaryPath: PROJECT_DIRECTOR_SUMMARY_SSOT_PATH,
+    config: null,
+    teamMode: 'solo',
+    storesRawPii: false,
+    piiAcknowledged: false,
+    overdueCount: 0,
+    followUpUrgency: {},
+    runs: [],
+    outboundEnabled: false,
+    connectors,
+    seeded: false,
+    notInGitRepo: false,
+  };
+  const manager = atlas.projectDirectorManager;
+  let piiAcknowledged = false;
+  try {
+    piiAcknowledged = atlas.extensionContext?.workspaceState?.get<boolean>(PROJECT_DIRECTOR_PII_ACK_KEY, false) ?? false;
+  } catch {
+    piiAcknowledged = false;
+  }
+  if (!workspaceRoot || !manager) {
+    return { ...base, piiAcknowledged };
+  }
+
+  const isGit = currentBranch !== 'Not a git repository' && currentBranch !== 'Detached';
+  let config = manager.getConfig();
+  let seeded = false;
+  if (!config) {
+    if (!isGit) {
+      return { ...base, piiAcknowledged, notInGitRepo: true };
+    }
+    // First open: seed a first-draft roster from the repo. Do NOT persist raw PII
+    // to disk until the user has acknowledged the GDPR notice — if the draft would
+    // store PII and consent hasn't been given, keep it in memory only for now.
+    const signals = await detectDirectorSignals(workspaceRoot);
+    config = seedProjectDirectorConfig(signals);
+    seeded = true;
+    if (!configStoresRawPii(config) || piiAcknowledged) {
+      try { await manager.save(config); } catch { /* best-effort; served in-memory */ }
+    }
+  }
+
+  const followUpUrgency: Record<string, FollowUpUrgency> = {};
+  for (const followUp of config.followUps) {
+    followUpUrgency[followUp.id] = deriveFollowUpUrgency(followUp);
+  }
+
+  const nameByContact = new Map(config.contacts.map(contact => [contact.id, contact.name] as const));
+  const ownerByRun = new Map<string, string>();
+  for (const assignment of config.assignments) {
+    if (assignment.linkedRunId && assignment.assigneeContactId) {
+      const name = nameByContact.get(assignment.assigneeContactId);
+      if (name) { ownerByRun.set(assignment.linkedRunId, name); }
+    }
+  }
+  const runViews: DashboardDirectorRun[] = runs.slice(0, 12).map(run => ({
+    id: run.id,
+    title: run.title || run.goal || 'Untitled run',
+    status: run.status,
+    relative: formatRelativeDate(run.updatedAt || run.createdAt),
+    ownerName: ownerByRun.get(run.id),
+  }));
+
+  return {
+    ...base,
+    config,
+    teamMode: resolveTeamMode(config),
+    storesRawPii: configStoresRawPii(config),
+    piiAcknowledged,
+    overdueCount: countOverdueFollowUps(config),
+    followUpUrgency,
+    runs: runViews,
+    outboundEnabled: config.settings.outboundEnabled === true,
+    connectors,
+    seeded,
+    notInGitRepo: false,
+  };
+}
 
 const STAGE_CANDIDATE_EXACT = new Set([
   'main', 'master', 'develop', 'development', 'staging', 'stage', 'production', 'prod',
@@ -5960,6 +6507,19 @@ const DASHBOARD_CSS = `
   .security-grid,
   .review-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .director-roster {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 12px;
+    margin-top: 12px;
+  }
+  .stage-edit-checks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin: 8px 0;
   }
 
   .privacy-toggle,

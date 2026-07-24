@@ -14,10 +14,15 @@ const mockDisconnect = vi.fn().mockResolvedValue(undefined);
 const mockCallTool = vi.fn().mockResolvedValue('tool result');
 let mockStatus = 'connected';
 let mockTools: McpToolInfo[] = [];
+/** Captures the config the registry passes to McpClient at connect time. */
+let lastConstructedConfig: McpServerConfig | undefined;
+const mockFindCommandExecutable = vi.fn((_command: string): string | undefined => undefined);
 
 vi.mock('../../src/mcp/mcpClient.ts', () => ({
   McpClient: class MockMcpClient {
-    constructor(..._args: unknown[]) {}
+    constructor(...args: unknown[]) {
+      lastConstructedConfig = args[0] as McpServerConfig;
+    }
 
     connect = mockConnect;
     disconnect = mockDisconnect;
@@ -27,6 +32,8 @@ vi.mock('../../src/mcp/mcpClient.ts', () => ({
     get tools() { return mockTools; }
     get error() { return undefined; }
   },
+  findCommandExecutable: (command: string) => mockFindCommandExecutable(command),
+  getKnownCommandInstallHint: () => 'Install the required runtime.',
 }));
 
 import { McpServerRegistry } from '../../src/mcp/mcpServerRegistry.ts';
@@ -39,6 +46,16 @@ function makeMockMemento(): { get: ReturnType<typeof vi.fn>; update: ReturnType<
   return {
     get: vi.fn((key: string, defaultValue?: unknown) => store.get(key) ?? defaultValue),
     update: vi.fn(async (key: string, value: unknown) => { store.set(key, value); }),
+  };
+}
+
+function makeMockSecrets() {
+  const store = new Map<string, string>();
+  return {
+    store: vi.fn(async (key: string, value: string) => { store.set(key, value); }),
+    get: vi.fn(async (key: string) => store.get(key)),
+    delete: vi.fn(async (key: string) => { store.delete(key); }),
+    _store: store,
   };
 }
 
@@ -59,8 +76,10 @@ describe('McpServerRegistry', () => {
     vi.clearAllMocks();
     mockStatus = 'connected';
     mockTools = [];
+    lastConstructedConfig = undefined;
     mockConnect.mockResolvedValue(undefined);
     mockDisconnect.mockResolvedValue(undefined);
+    mockFindCommandExecutable.mockReturnValue(undefined);
   });
 
   describe('addServer()', () => {
@@ -324,6 +343,75 @@ describe('McpServerRegistry', () => {
       expect(mockConnect).toHaveBeenCalledTimes(1);
       const server = registry.listServers().find(entry => entry.config.id === id);
       expect(server?.config.enabled).toBe(true);
+    });
+  });
+
+  describe('SecretStorage-backed env', () => {
+    it('resolves secretEnvKeys from SecretStorage into the connect-time env only', async () => {
+      const secrets = makeMockSecrets();
+      const registry = new McpServerRegistry(makeMockMemento(), new SkillsRegistry(), vi.fn(), undefined, secrets as never);
+      const id = registry.addServer({ ...makeStdioConfig(), env: { PLAIN: 'x' }, secretEnvKeys: ['TOKEN'] });
+      await registry.setServerSecrets(id, { TOKEN: 'super-secret' });
+
+      await registry.connectServer(id);
+
+      // The client receives the merged secret value…
+      expect(lastConstructedConfig?.env).toMatchObject({ PLAIN: 'x', TOKEN: 'super-secret' });
+      // …but the persisted config never stores the secret value.
+      const persisted = registry.listServers().find(entry => entry.config.id === id)?.config;
+      expect(persisted?.env).toEqual({ PLAIN: 'x' });
+      expect(secrets.store).toHaveBeenCalledWith(`atlasmind.mcp.${id}.TOKEN`, 'super-secret');
+    });
+
+    it('deletes stored secrets when the server is removed', async () => {
+      const secrets = makeMockSecrets();
+      const registry = new McpServerRegistry(makeMockMemento(), new SkillsRegistry(), vi.fn(), undefined, secrets as never);
+      const id = registry.addServer({ ...makeStdioConfig(), secretEnvKeys: ['TOKEN'] });
+      await registry.setServerSecrets(id, { TOKEN: 'super-secret' });
+
+      await registry.removeServer(id);
+
+      expect(secrets.delete).toHaveBeenCalledWith(`atlasmind.mcp.${id}.TOKEN`);
+    });
+
+    it('leaves env untouched when no SecretStorage is provided', async () => {
+      const registry = new McpServerRegistry(makeMockMemento(), new SkillsRegistry(), vi.fn());
+      const id = registry.addServer({ ...makeStdioConfig(), env: { PLAIN: 'x' } });
+
+      await registry.connectServer(id);
+
+      expect(lastConstructedConfig?.env).toEqual({ PLAIN: 'x' });
+    });
+  });
+
+  describe('detectAvailableServers()', () => {
+    it('only surfaces servers whose launch runtime is present', async () => {
+      mockFindCommandExecutable.mockImplementation((command: string) => (command === 'npx' ? '/usr/bin/npx' : undefined));
+      const registry = new McpServerRegistry(makeMockMemento(), new SkillsRegistry(), vi.fn());
+
+      const detected = await registry.detectAvailableServers();
+      const names = detected.map(entry => entry.config.name);
+
+      expect(names).toContain('Filesystem MCP Server');
+      expect(names).not.toContain('Git MCP Server'); // uvx absent
+      expect(detected.every(entry => typeof entry.reason === 'string' && entry.reason.length > 0)).toBe(true);
+    });
+
+    it('returns nothing when no supported runtime is installed', async () => {
+      mockFindCommandExecutable.mockReturnValue(undefined);
+      const registry = new McpServerRegistry(makeMockMemento(), new SkillsRegistry(), vi.fn());
+
+      expect(await registry.detectAvailableServers()).toHaveLength(0);
+    });
+
+    it('does not re-offer an already-configured server', async () => {
+      mockFindCommandExecutable.mockImplementation((command: string) => (command === 'uvx' ? '/usr/bin/uvx' : undefined));
+      const registry = new McpServerRegistry(makeMockMemento(), new SkillsRegistry(), vi.fn());
+      registry.addServer({ name: 'Git MCP Server', transport: 'stdio', command: 'uvx', args: ['mcp-server-git'], enabled: false });
+
+      const detected = await registry.detectAvailableServers();
+
+      expect(detected.map(entry => entry.config.name)).not.toContain('Git MCP Server');
     });
   });
 });

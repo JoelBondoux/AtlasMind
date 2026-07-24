@@ -116,7 +116,7 @@ Check the security scan results:
 - Error-level rules (eval, child_process, hardcoded secrets) block enablement
 
 ### How do I connect an MCP server?
-`Ctrl+Shift+P` → **AtlasMind: Manage MCP Servers** → Add a server with stdio or HTTP transport. Tools auto-register as skills.
+`Ctrl+Shift+P` → **AtlasMind: Manage MCP Servers** → **Guided Setup**. Choose **Scan my computer** (AtlasMind finds servers it can set up from tools you already have) or **Browse by category**. It checks prerequisites (installing a missing runtime only after you confirm), collects any credentials into VS Code SecretStorage, then connects — no JSON required. Tools auto-register as skills. Power users can still use the **Advanced** tab to type stdio/HTTP details directly.
 
 ### Why is terminal-run blocking my command?
 Only ~40 pre-approved commands are allowed. Write-capable commands (npm install, etc.) require `atlasmind.allowTerminalWrite = true` and explicit approval. See [[Tool Execution]] for the allow-list.

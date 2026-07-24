@@ -5,6 +5,17 @@ import type { ArdDiscoveryEndpoint } from './types.js';
 export type RecommendedMcpServerProvenance = 'official' | 'community' | 'registry' | 'archived';
 export type RecommendedMcpSetupMode = 'prefill' | 'manual';
 
+/** Browsable groupings for the guided setup wizard's "Browse by category" view. */
+export type RecommendedMcpCategory =
+	| 'Core'
+	| 'Cloud'
+	| 'Databases'
+	| 'DevOps'
+	| 'Messaging'
+	| 'Collaboration'
+	| 'Commerce & Social'
+	| 'Design';
+
 export interface RecommendedMcpServer {
 	id: string;
 	name: string;
@@ -12,6 +23,27 @@ export interface RecommendedMcpServer {
 	installUrl: string;
 	docsUrl: string;
 	provenance: RecommendedMcpServerProvenance;
+	category: RecommendedMcpCategory;
+}
+
+/**
+ * A single value the guided wizard collects for a recommended server before
+ * connecting. `kind: 'secret'` values are written to VS Code SecretStorage and
+ * exposed only as an env var at connect time; everything else is stored with
+ * the server config (env var or a substituted arg placeholder).
+ */
+export interface RecommendedMcpInput {
+	/** Env var name (target 'env') or the arg placeholder token (target 'arg'). */
+	key: string;
+	label: string;
+	help?: string;
+	kind: 'text' | 'secret' | 'folder' | 'url';
+	target: 'env' | 'arg';
+	/** For target 'arg': the exact token in `args` to replace, e.g. '<DATABASE_URL>'. */
+	placeholder?: string;
+	/** Default value shown in the field (e.g. '${workspaceFolder}' for a folder). */
+	defaultValue?: string;
+	required?: boolean;
 }
 
 export type RecommendedRuntimePackageManager = 'winget' | 'brew' | 'apt-get' | 'dnf' | 'pacman';
@@ -32,11 +64,13 @@ export interface RecommendedMcpStarterDetails {
 	url?: string;
 	note: string;
 	runtimeInstalls?: Partial<Record<SupportedRuntimePlatform, RecommendedMcpRuntimeInstall[]>>;
+	/** Values the guided wizard collects (credentials, folders, connection URLs). */
+	inputs?: RecommendedMcpInput[];
 }
 
 const MCP_REGISTRY_URL = 'https://registry.modelcontextprotocol.io/';
 
-function inferRecommendedMcpServerProvenance(server: Omit<RecommendedMcpServer, 'provenance'>): RecommendedMcpServerProvenance {
+function inferRecommendedMcpServerProvenance(server: Omit<RecommendedMcpServer, 'provenance' | 'category'>): RecommendedMcpServerProvenance {
 	const installUrl = server.installUrl.toLowerCase();
 	const docsUrl = server.docsUrl.toLowerCase();
 	const combined = `${installUrl} ${docsUrl}`;
@@ -62,11 +96,63 @@ function inferRecommendedMcpServerProvenance(server: Omit<RecommendedMcpServer, 
 	return 'community';
 }
 
+/** Maps a recommended server id to its browsable category (mirrors the catalogue's section grouping). */
+const RECOMMENDED_MCP_CATEGORY_BY_ID: Record<string, RecommendedMcpCategory> = {
+	'mcp-server-filesystem': 'Core',
+	'mcp-server-git': 'Core',
+	'mcp-server-work-timer': 'Core',
+	'mcp-server-openai': 'Core',
+	'mcp-server-azure': 'Cloud',
+	'mcp-server-aws': 'Cloud',
+	'mcp-server-gcp': 'Cloud',
+	'mcp-server-cloudflare': 'Cloud',
+	'mcp-server-cloudflare-workers': 'Cloud',
+	'mcp-server-m365': 'Cloud',
+	'mcp-server-entra': 'Cloud',
+	'mcp-server-powerplatform': 'Cloud',
+	'mcp-server-appledev': 'Cloud',
+	'mcp-server-apns': 'Cloud',
+	'mcp-server-mysql': 'Databases',
+	'mcp-server-postgres': 'Databases',
+	'mcp-server-mongodb': 'Databases',
+	'mcp-server-elasticsearch': 'Databases',
+	'mcp-server-rabbitmq': 'Messaging',
+	'mcp-server-sqs': 'Messaging',
+	'mcp-server-twilio': 'Messaging',
+	'mcp-server-sendgrid': 'Messaging',
+	'mcp-server-jenkins': 'DevOps',
+	'mcp-server-circleci': 'DevOps',
+	'mcp-server-gitkraken': 'DevOps',
+	'mcp-server-github': 'DevOps',
+	'mcp-server-grafana': 'DevOps',
+	'mcp-server-prometheus': 'DevOps',
+	'mcp-server-sentry': 'DevOps',
+	'mcp-server-jira': 'Collaboration',
+	'mcp-server-slack': 'Collaboration',
+	'mcp-server-trello': 'Collaboration',
+	'mcp-server-contrast-checker': 'Design',
+	'mcp-server-stripe': 'Commerce & Social',
+	'mcp-server-shopify': 'Commerce & Social',
+	'mcp-server-woocommerce': 'Commerce & Social',
+	'mcp-server-wordpress': 'Commerce & Social',
+	'mcp-server-webflow': 'Commerce & Social',
+	'mcp-server-wix': 'Commerce & Social',
+	'mcp-server-youtube': 'Commerce & Social',
+	'mcp-server-twitch': 'Commerce & Social',
+	'mcp-server-linkedin': 'Commerce & Social',
+	'mcp-server-meta': 'Commerce & Social',
+	'mcp-server-x': 'Commerce & Social',
+};
+
+function inferRecommendedMcpServerCategory(id: string): RecommendedMcpCategory {
+	return RECOMMENDED_MCP_CATEGORY_BY_ID[id] ?? 'Core';
+}
+
 /**
  * Recommended MCP servers for software developers. Used in the Settings Dashboard catalogue.
  * Each entry uses a verified working documentation page or the official MCP registry/catalogue as a safe fallback.
  */
-const RECOMMENDED_MCP_SERVER_CATALOGUE: Array<Omit<RecommendedMcpServer, 'provenance'>> = [
+const RECOMMENDED_MCP_SERVER_CATALOGUE: Array<Omit<RecommendedMcpServer, 'provenance' | 'category'>> = [
 	// Core developer and infra servers
 	{
 		id: 'mcp-server-filesystem',
@@ -394,6 +480,7 @@ const RECOMMENDED_MCP_SERVER_CATALOGUE: Array<Omit<RecommendedMcpServer, 'proven
 export const RECOMMENDED_MCP_SERVERS: RecommendedMcpServer[] = RECOMMENDED_MCP_SERVER_CATALOGUE.map(server => ({
 	...server,
 	provenance: inferRecommendedMcpServerProvenance(server),
+	category: inferRecommendedMcpServerCategory(server.id),
 }));
 
 export function getRecommendedMcpStarterDetails(serverId: string): RecommendedMcpStarterDetails {
@@ -405,6 +492,18 @@ export function getRecommendedMcpStarterDetails(serverId: string): RecommendedMc
 				command: 'npx',
 				args: ['-y', '@modelcontextprotocol/server-filesystem', '${workspaceFolder}'],
 				note: 'Verified local filesystem server. AtlasMind scopes it to the current workspace by default.',
+				inputs: [
+					{
+						key: '${workspaceFolder}',
+						label: 'Folder to expose',
+						help: 'The server can only read and write inside this folder. Defaults to your current workspace.',
+						kind: 'folder',
+						target: 'arg',
+						placeholder: '${workspaceFolder}',
+						defaultValue: '${workspaceFolder}',
+						required: false,
+					},
+				],
 				runtimeInstalls: {
 					win32: [{ packageManager: 'winget', packageId: 'OpenJS.NodeJS.LTS', displayName: 'Node.js LTS' }],
 					darwin: [{ packageManager: 'brew', packageId: 'node', displayName: 'Node.js' }],
@@ -521,21 +620,96 @@ export function getRecommendedMcpStarterDetails(serverId: string): RecommendedMc
 			};
 		case 'mcp-server-postgres':
 			return {
-				setupMode: 'manual',
+				setupMode: 'prefill',
 				transport: 'stdio',
-				note: 'Confirmed example command: npx -y @modelcontextprotocol/server-postgres <postgresql://...>. Replace the database URL with your real connection string before saving.',
+				command: 'npx',
+				args: ['-y', '@modelcontextprotocol/server-postgres', '<DATABASE_URL>'],
+				note: 'Verified command: npx -y @modelcontextprotocol/server-postgres <connection URL>. Enter your PostgreSQL connection string below and AtlasMind fills it in.',
+				inputs: [
+					{
+						key: '<DATABASE_URL>',
+						label: 'PostgreSQL connection URL',
+						help: 'e.g. postgresql://user:password@localhost:5432/mydb',
+						kind: 'url',
+						target: 'arg',
+						placeholder: '<DATABASE_URL>',
+						required: true,
+					},
+				],
+				runtimeInstalls: {
+					win32: [{ packageManager: 'winget', packageId: 'OpenJS.NodeJS.LTS', displayName: 'Node.js LTS' }],
+					darwin: [{ packageManager: 'brew', packageId: 'node', displayName: 'Node.js' }],
+					linux: [
+						{ packageManager: 'brew', packageId: 'node', displayName: 'Node.js' },
+						{ packageManager: 'apt-get', packageId: 'nodejs', extraPackages: ['npm'], displayName: 'Node.js and npm' },
+						{ packageManager: 'dnf', packageId: 'nodejs', extraPackages: ['npm'], displayName: 'Node.js and npm' },
+						{ packageManager: 'pacman', packageId: 'nodejs', extraPackages: ['npm'], displayName: 'Node.js and npm' },
+					],
+				},
 			};
 		case 'mcp-server-sentry':
 			return {
-				setupMode: 'manual',
+				setupMode: 'prefill',
 				transport: 'stdio',
-				note: 'Confirmed example command: uvx mcp-server-sentry. You still need the required Sentry authentication environment variables for your account.',
+				command: 'uvx',
+				args: ['mcp-server-sentry'],
+				note: 'Verified command: uvx mcp-server-sentry. Enter a Sentry auth token below; AtlasMind stores it securely and passes it as an environment variable.',
+				inputs: [
+					{
+						key: 'SENTRY_AUTH_TOKEN',
+						label: 'Sentry Auth Token',
+						help: 'Create one under Sentry → Settings → Auth Tokens.',
+						kind: 'secret',
+						target: 'env',
+						required: true,
+					},
+				],
+				runtimeInstalls: {
+					win32: [{ packageManager: 'winget', packageId: 'astral-sh.uv', displayName: 'uv' }],
+					darwin: [{ packageManager: 'brew', packageId: 'uv', displayName: 'uv' }],
+					linux: [
+						{ packageManager: 'brew', packageId: 'uv', displayName: 'uv' },
+						{ packageManager: 'apt-get', packageId: 'uv', displayName: 'uv' },
+						{ packageManager: 'dnf', packageId: 'uv', displayName: 'uv' },
+						{ packageManager: 'pacman', packageId: 'uv', displayName: 'uv' },
+					],
+				},
 			};
 		case 'mcp-server-slack':
 			return {
-				setupMode: 'manual',
+				setupMode: 'prefill',
 				transport: 'stdio',
-				note: 'Confirmed example command: npx -y @zencoderai/slack-mcp-server. You must also provide Slack bot credentials such as SLACK_BOT_TOKEN and SLACK_TEAM_ID.',
+				command: 'npx',
+				args: ['-y', '@zencoderai/slack-mcp-server'],
+				note: 'Verified command: npx -y @zencoderai/slack-mcp-server. Enter your Slack bot credentials below; the bot token is stored securely.',
+				inputs: [
+					{
+						key: 'SLACK_BOT_TOKEN',
+						label: 'Slack Bot Token',
+						help: 'Starts with xoxb-. From your Slack app → OAuth & Permissions.',
+						kind: 'secret',
+						target: 'env',
+						required: true,
+					},
+					{
+						key: 'SLACK_TEAM_ID',
+						label: 'Slack Team ID',
+						help: 'Your workspace/team ID (starts with T).',
+						kind: 'text',
+						target: 'env',
+						required: true,
+					},
+				],
+				runtimeInstalls: {
+					win32: [{ packageManager: 'winget', packageId: 'OpenJS.NodeJS.LTS', displayName: 'Node.js LTS' }],
+					darwin: [{ packageManager: 'brew', packageId: 'node', displayName: 'Node.js' }],
+					linux: [
+						{ packageManager: 'brew', packageId: 'node', displayName: 'Node.js' },
+						{ packageManager: 'apt-get', packageId: 'nodejs', extraPackages: ['npm'], displayName: 'Node.js and npm' },
+						{ packageManager: 'dnf', packageId: 'nodejs', extraPackages: ['npm'], displayName: 'Node.js and npm' },
+						{ packageManager: 'pacman', packageId: 'nodejs', extraPackages: ['npm'], displayName: 'Node.js and npm' },
+					],
+				},
 			};
 		case 'mcp-server-github':
 			return {

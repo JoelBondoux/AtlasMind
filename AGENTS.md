@@ -1,4 +1,4 @@
-# AtlasMind — Claude Code Instructions
+# AtlasMind — Codex Instructions
 
 You are working on **AtlasMind**, a VS Code extension providing a multi-agent orchestrator with model routing, long-term memory (SSOT), and a skills registry.
 

@@ -121,6 +121,10 @@ The **Agent Editor** shows a **Testing Roles** section below Skills. When a meth
 
 During `@atlas /bootstrap` (new project) and `@atlas /import` (existing project), AtlasMind presents an **Auto / Manual / Skip** picker before the methodology list. In Auto mode the inferred methodology set is pre-selected in a customisable QuickPick; Manual lets you choose freely; Skip defaults to TDD + Unit. After confirming, if a test-focused agent exists, an offer is made to assign it as the primary agent for all enabled methodologies.
 
+When guided bootstrap selects **Website / Marketing Site** (or a Shopify store/theme template), AtlasMind also seeds Website Studio from the captured brief. The seed is non-destructive: an existing `project_memory/domain/website.json` is never replaced. From there, **AtlasMind: Open Website Studio** provides client intake, sitemap, wireframe/UI review, UI-system, Hosting & Platforms, and n8n dashboards. The hosting plan is always Develop → Staging → Production: Develop defaults to loopback, Staging is a password-protected client-review subdomain of Production, and Production is public and promotion-protected.
+
+Website Studio is a planning and review boundary, not an execution shortcut. Imported/webview data is bounded and sanitized before SSOT persistence; common credential shapes and n8n webhook URLs are redacted; password and n8n inputs store only provider-prefixed credential references rather than values. Hosting access policies are rebuilt server-side, with HTTPS/loopback/subdomain readiness checks, so a webview payload cannot make Staging public or remove Production protection. Choosing Cloudflare Pages, GitHub Pages, WordPress/Elementor, or another platform does not authorize a deployment, and marking an n8n workflow configured does not trigger it. Publishing continues through the guarded Delivery pipeline, and any future n8n runner must enter the normal tool-risk and approval path.
+
 #### Framework scaffolding (`src/core/testingScaffolder.ts`)
 
 The **Scaffold framework** button on the Settings → Testing page (command: `AtlasMind: Scaffold Testing Framework`) constructs a starter framework that fits the current project. `scaffoldTestingFramework` detects the project **language** — Node (JS/TS), Python, Rust, Go, .NET, or Java — from manifest fingerprints, plus a coarse **archetype** (web / api / cli / game / mobile / library / generic), then for each *enabled* methodology generates idiomatic starter files: Vitest/Jest specs, Playwright/Cypress e2e (or an API smoke test / CLI spawn harness depending on archetype), fast-check property tests, k6 load scripts and snapshot tests for Node; pytest + Hypothesis + Locust for Python; `cargo test` + proptest + criterion for Rust; `go test` + `testing/quick` + benchmarks for Go; xUnit for .NET; JUnit 5 for Java. It also writes a managed `project_memory/operations/testing-strategy.md` playbook with language-specific set-up commands, trade-offs, and starter-file references; unknown stacks degrade to playbook-only guidance. It is strictly **non-destructive**: files are created only when absent and never overwritten, no manifest is ever mutated (install commands are surfaced for the developer to run), and the action is confirmed via a modal dialog.
@@ -450,6 +454,8 @@ The following skills are registered automatically at extension activation (`src/
 
 AtlasMind can connect to any [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server and expose its tools as skills. Open **AtlasMind: Manage MCP Servers** to configure servers, or run **AtlasMind: Import VS Code MCP Servers** to copy compatible entries from the current VS Code profile `mcp.json` and workspace `.vscode/mcp.json` files.
 
+**Guided Setup wizard** (`src/views/mcpPanel.ts`): the panel leads with a step-by-step flow for first-time users — **Scan my computer** (`McpServerRegistry.detectAvailableServers()` surfaces only servers whose runtime is present) or **Browse by category** → prerequisite check (missing runtimes install only after confirmation, via `src/mcp/mcpRuntime.ts`) → guided credential/parameter fields → connect. Recommended starters declare typed `inputs` (`RecommendedMcpInput` in `src/constants.ts`); secret-kind values are stored in VS Code SecretStorage (`McpServerConfig.secretEnvKeys`) and merged into the process env only at connect time. The former raw form remains under the **Advanced** tab (and backs editing an existing server).
+
 **Skill ID pattern**: `mcp:<serverId>:<toolName>`  
 **Source field**: `mcp://<serverId>/<toolName>`
 
@@ -467,7 +473,7 @@ MCP skills are registered in `SkillsRegistry` when a server connects and automat
 **Security notes**:
 - MCP tools execute in a separate process or remote service — they are not sandboxed within the extension.
 - The URL field must use `http://` or `https://`; other schemes are rejected.
-- Env vars for stdio servers are merged with the extension host environment; do not store secrets there — use the server's native secret management.
+- Env vars for stdio servers are merged with the extension host environment. Secrets entered through the Guided Setup wizard are stored in VS Code SecretStorage (via `McpServerConfig.secretEnvKeys`), never in `globalState`, and injected only at connect time; if you use the Advanced form's raw `env` field, prefer the server's native secret management for sensitive values.
 - AtlasMind only imports MCP entries it can reproduce faithfully. VS Code-only fields such as sandbox settings, unresolved `${...}` variables, custom headers, or other unsupported transport options are skipped instead of being downgraded silently.
 
 ---

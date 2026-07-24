@@ -10,8 +10,10 @@
 
 import * as vscode from 'vscode';
 import { RECOMMENDED_MCP_SERVERS, getRecommendedMcpStarterDetails } from '../constants.js';
+import type { RecommendedMcpStarterDetails } from '../constants.js';
+import { checkStarterRuntime, runRuntimeInstallPlan } from '../mcp/mcpRuntime.js';
 import { getWebviewHtmlShell, escapeHtml } from './webviewUtils.js';
-import type { McpServerRegistry } from '../mcp/mcpServerRegistry.js';
+import type { McpServerRegistry, DetectedMcpServer } from '../mcp/mcpServerRegistry.js';
 import type { McpServerConfig, McpServerState } from '../types.js';
 
 // ── Validated message types from the webview ─────────────────────
@@ -25,7 +27,13 @@ type PanelMessage =
   | { type: 'importVsCodeConfig' }
   | { type: 'openSettingsSafety' }
   | { type: 'openAgentPanel' }
-  | { type: 'openResourceDiscovery' };
+  | { type: 'openResourceDiscovery' }
+  // Guided setup wizard
+  | { type: 'scanEnvironment' }
+  | { type: 'connectDetected'; payload: { index: number } }
+  | { type: 'checkPrerequisites'; payload: { serverId: string } }
+  | { type: 'installPrerequisite'; payload: { serverId: string } }
+  | { type: 'wizardConnect'; payload: WizardConnectPayload };
 
 interface AddServerPayload {
   editServerId?: string;
@@ -38,8 +46,14 @@ interface AddServerPayload {
   enabled: boolean;
 }
 
+interface WizardConnectPayload {
+  serverId: string;
+  /** Collected input values keyed by input.key. May contain secret values. */
+  inputs: Record<string, string>;
+}
+
 interface McpPanelTarget {
-  page?: 'overview' | 'servers' | 'add';
+  page?: 'overview' | 'servers' | 'add' | 'advanced';
   recommendedServerId?: string;
   statusMessage?: string;
   statusKind?: 'info' | 'success' | 'warning' | 'error';
@@ -52,6 +66,8 @@ export class McpPanel {
   private readonly panel: vscode.WebviewPanel;
   private disposables: vscode.Disposable[] = [];
   private currentTarget: McpPanelTarget | undefined;
+  /** Cache of the most recent environment scan, referenced by index from the webview. */
+  private lastDetected: DetectedMcpServer[] = [];
 
   public static createOrShow(
     context: vscode.ExtensionContext,
@@ -261,8 +277,150 @@ export class McpPanel {
       case 'openResourceDiscovery':
         await vscode.commands.executeCommand('atlasmind.openResourceDiscovery');
         return;
+      case 'scanEnvironment':
+        await this.handleScanEnvironment();
+        return;
+      case 'connectDetected':
+        await this.handleConnectDetected(message.payload.index);
+        return;
+      case 'checkPrerequisites':
+        await this.handleCheckPrerequisites(message.payload.serverId);
+        return;
+      case 'installPrerequisite':
+        await this.handleInstallPrerequisite(message.payload.serverId);
+        return;
+      case 'wizardConnect':
+        await this.handleWizardConnect(message.payload);
+        return;
     }
 
+    this.panel.webview.html = this.buildHtml();
+  }
+
+  // ── Guided setup wizard handlers ─────────────────────────────
+
+  private async handleScanEnvironment(): Promise<void> {
+    this.lastDetected = await this.registry.detectAvailableServers();
+    const results = this.lastDetected.map((entry, index) => ({
+      index,
+      name: entry.config.name,
+      reason: entry.reason,
+      detail: entry.config.transport === 'stdio'
+        ? `${entry.config.command ?? ''} ${(entry.config.args ?? []).join(' ')}`.trim()
+        : (entry.config.url ?? ''),
+    }));
+    await this.panel.webview.postMessage({ type: 'scanResults', payload: { results } });
+  }
+
+  private async handleConnectDetected(index: number): Promise<void> {
+    const entry = this.lastDetected[index];
+    if (!entry) { return; }
+    await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: `AtlasMind: connecting ${entry.config.name}`, cancellable: false },
+      async () => { await this.registry.importServers([{ ...entry.config, enabled: true }]); },
+    );
+    const state = this.registry.listServers().find(server => server.config.name === entry.config.name);
+    const connected = state?.status === 'connected';
+    this.currentTarget = {
+      page: connected ? 'servers' : 'add',
+      statusKind: connected ? 'success' : 'warning',
+      statusMessage: connected
+        ? `${entry.config.name} connected and exposed ${state?.tools.length ?? 0} tool${state?.tools.length === 1 ? '' : 's'}.`
+        : `${entry.config.name} was saved, but the connection did not complete yet.${state?.error ? ` Last error: ${state.error}` : ''}`,
+    };
+    this.onRefresh();
+    this.panel.webview.html = this.buildHtml();
+  }
+
+  private async handleCheckPrerequisites(serverId: string): Promise<void> {
+    const starter = getRecommendedMcpStarterDetails(serverId);
+    const runtimeCommand = starter.transport === 'stdio' ? starter.command : undefined;
+    const check = checkStarterRuntime(serverId, runtimeCommand);
+    await this.panel.webview.postMessage({
+      type: 'prerequisiteStatus',
+      payload: check.status === 'installable'
+        ? { serverId, status: 'installable', displayName: check.plan.displayName, humanCommand: check.plan.humanCommand }
+        : check.status === 'manual'
+          ? { serverId, status: 'manual', message: check.message }
+          : { serverId, status: 'ready' },
+    });
+  }
+
+  private async handleInstallPrerequisite(serverId: string): Promise<void> {
+    const starter = getRecommendedMcpStarterDetails(serverId);
+    const runtimeCommand = starter.transport === 'stdio' ? starter.command : undefined;
+    const check = checkStarterRuntime(serverId, runtimeCommand);
+    if (check.status !== 'installable') {
+      await this.handleCheckPrerequisites(serverId);
+      return;
+    }
+
+    // Confirm before installing anything (confirm-before-install policy).
+    const installLabel = `Install ${check.plan.displayName}`;
+    const choice = await vscode.window.showInformationMessage(
+      `Install ${check.plan.displayName}?`,
+      { modal: true, detail: `AtlasMind will run:\n\n${check.plan.humanCommand}\n\nNothing is installed until you choose "${installLabel}".` },
+      installLabel,
+    );
+    if (choice !== installLabel) {
+      await this.panel.webview.postMessage({
+        type: 'prerequisiteStatus',
+        payload: { serverId, status: 'installable', displayName: check.plan.displayName, humanCommand: check.plan.humanCommand, declined: true },
+      });
+      return;
+    }
+
+    const result = await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: `AtlasMind: installing ${check.plan.displayName}`, cancellable: false },
+      async progress => runRuntimeInstallPlan(check.runtimeCommand, check.plan, message => progress.report({ message })),
+    );
+    if (!result.ok) {
+      await this.panel.webview.postMessage({ type: 'prerequisiteStatus', payload: { serverId, status: 'manual', message: result.message } });
+      return;
+    }
+    // Re-check: should now resolve to ready.
+    await this.handleCheckPrerequisites(serverId);
+  }
+
+  private async handleWizardConnect(payload: WizardConnectPayload): Promise<void> {
+    const server = RECOMMENDED_MCP_SERVERS.find(entry => entry.id === payload.serverId);
+    if (!server) { return; }
+    const starter = getRecommendedMcpStarterDetails(payload.serverId);
+    const built = buildWizardServerConfig(server.name, starter, payload.inputs ?? {});
+    if (!built) {
+      await this.panel.webview.postMessage({
+        type: 'wizardStatus',
+        payload: { kind: 'error', text: 'Some required details are missing. Please complete every required field.' },
+      });
+      return;
+    }
+
+    const id = this.registry.addServer(built.config);
+    // Store secrets BEFORE connecting so they resolve into the process env.
+    if (Object.keys(built.secrets).length > 0) {
+      await this.registry.setServerSecrets(id, built.secrets);
+    }
+    await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: `AtlasMind: connecting ${server.name}`, cancellable: false },
+      async progress => {
+        progress.report({ message: 'Starting the MCP server and completing its first handshake…' });
+        await this.registry.connectServer(id);
+      },
+    );
+
+    const state = this.registry.listServers().find(entry => entry.config.id === id);
+    const connected = state?.status === 'connected';
+    this.currentTarget = {
+      page: connected ? 'servers' : 'add',
+      statusKind: connected ? 'success' : 'warning',
+      statusMessage: connected
+        ? `${server.name} connected and exposed ${state?.tools.length ?? 0} tool${state?.tools.length === 1 ? '' : 's'}.`
+        : `${server.name} was saved, but the connection did not complete yet.${state?.error ? ` Last error: ${state.error}` : ''}`,
+    };
+    if (connected) {
+      void vscode.window.showInformationMessage(`${server.name} connected successfully.`);
+    }
+    this.onRefresh();
     this.panel.webview.html = this.buildHtml();
   }
 
@@ -316,9 +474,10 @@ function buildBody(servers: McpServerState[], target?: McpPanelTarget): string {
 
   <div class="panel-layout">
     <nav class="panel-nav" aria-label="MCP server sections" role="tablist" aria-orientation="vertical">
-      <button type="button" class="nav-link active" data-page-target="overview" data-search="overview safety settings agents server skills">Overview</button>
+      <button type="button" class="nav-link active" data-page-target="overview" data-search="overview safety settings agents server skills what is mcp">Overview</button>
       <button type="button" class="nav-link" data-page-target="servers" data-search="servers configured connected disconnected tools stdio http">Configured Servers</button>
-      <button type="button" class="nav-link" data-page-target="add" data-search="add server stdio http env args url connect immediately">Add Server</button>
+      <button type="button" class="nav-link" data-page-target="add" data-search="add server guided setup wizard scan computer browse category connect credentials">Guided Setup</button>
+      <button type="button" class="nav-link" data-page-target="advanced" data-search="advanced manual stdio http env args url command custom endpoint">Advanced</button>
     </nav>
 
     <main class="panel-main">
@@ -328,10 +487,15 @@ function buildBody(servers: McpServerState[], target?: McpPanelTarget): string {
           <h2>MCP workspace</h2>
           <p>Quickly add a server, jump to safety settings for external tool policy, or open the agent workspace that consumes MCP-exposed skills.</p>
         </div>
+        <div class="explainer-card">
+          <h3>New to MCP?</h3>
+          <p>An <strong>MCP server</strong> is a small helper program that gives AtlasMind extra tools — reading files, running Git, querying a database, posting to Slack, and more. When a server connects, its tools become AtlasMind skills your agents can use.</p>
+          <p class="muted">Start with <strong>Guided Setup</strong>: AtlasMind detects what it can, asks only for what it needs, and connects for you. Nothing runs on your machine or installs without your confirmation, and any credentials you enter are stored in the OS secret store.</p>
+        </div>
         <div class="action-grid">
           <button type="button" class="action-card action-primary" data-nav-target="add">
-            <span class="action-title">Add MCP Server</span>
-            <span class="action-copy">Move directly into the new-server form with stdio and HTTP transport support.</span>
+            <span class="action-title">Guided Setup</span>
+            <span class="action-copy">Scan your computer or browse a curated catalogue. AtlasMind checks prerequisites and collects any credentials for you.</span>
           </button>
           <button type="button" id="import-vscode-mcp" class="action-card">
             <span class="action-title">Import VS Code MCP Config</span>
@@ -382,9 +546,67 @@ function buildBody(servers: McpServerState[], target?: McpPanelTarget): string {
 
       <section id="page-add" class="panel-page" hidden>
         <div class="page-header">
-          <p class="page-kicker">Add Server</p>
-          <h2>Register a new MCP endpoint</h2>
-          <p>Pick a recommended MCP starter or enter your own endpoint details. AtlasMind will show what stage the connection is in while it saves and connects.</p>
+          <p class="page-kicker">Guided Setup</p>
+          <h2>Add an MCP server</h2>
+          <p>AtlasMind detects what it can, asks only for what it needs, and connects for you. Prerequisites are never installed without your confirmation.</p>
+        </div>
+
+        <div id="wizardStatus" class="status-banner status-${initialStatusKind}" aria-live="polite">${initialStatusMessage}</div>
+
+        <!-- Step: choose a path -->
+        <section id="wiz-choose" class="wizard-step content-card">
+          <div class="action-grid">
+            <button type="button" class="action-card action-primary" id="wiz-scan-btn">
+              <span class="action-title">Scan my computer</span>
+              <span class="action-copy">Find servers AtlasMind can set up from tools you already have installed.</span>
+            </button>
+            <button type="button" class="action-card" id="wiz-browse-btn">
+              <span class="action-title">Browse by category</span>
+              <span class="action-copy">Pick from a curated catalogue grouped by what each server does.</span>
+            </button>
+          </div>
+          <p class="muted">Prefer to type the command yourself? <button type="button" class="link-button" id="wiz-advanced-link">Enter details manually (Advanced)</button>.</p>
+        </section>
+
+        <!-- Step: scan results -->
+        <section id="wiz-scan" class="wizard-step content-card" hidden>
+          <button type="button" class="btn-small" data-wiz-back>&larr; Back</button>
+          <h3>Detected on your computer</h3>
+          <div id="wiz-scan-list"><p class="muted">Scanning your environment…</p></div>
+        </section>
+
+        <!-- Step: browse catalogue -->
+        <section id="wiz-browse" class="wizard-step content-card" hidden>
+          <button type="button" class="btn-small" data-wiz-back>&larr; Back</button>
+          <h3>Browse recommended servers</h3>
+          <div id="wiz-browse-list"></div>
+        </section>
+
+        <!-- Step: configure the selected server -->
+        <section id="wiz-configure" class="wizard-step content-card" hidden>
+          <button type="button" class="btn-small" data-wiz-back>&larr; Back</button>
+          <h3 id="wiz-config-name"></h3>
+          <p id="wiz-config-desc" class="muted"></p>
+          <div id="wiz-config-badges" class="badge-row" aria-live="polite"></div>
+          <div id="wiz-prereq" class="status-banner status-info" aria-live="polite">Checking prerequisites…</div>
+          <div id="wiz-prereq-actions" class="actions"></div>
+          <form id="wiz-config-form">
+            <div id="wiz-inputs"></div>
+            <div class="preset-links">
+              <a id="wiz-config-docs" href="#" target="_blank" rel="noopener" hidden>View documentation</a>
+            </div>
+            <div class="actions">
+              <button type="submit" id="wiz-connect-btn">Connect</button>
+            </div>
+          </form>
+        </section>
+      </section>
+
+      <section id="page-advanced" class="panel-page" hidden>
+        <div class="page-header">
+          <p class="page-kicker">Advanced</p>
+          <h2>Enter MCP endpoint details manually</h2>
+          <p>Pick a recommended starter or type your own endpoint. Use this when you need full control over the command, arguments, or environment.</p>
         </div>
         <section class="content-card">
           <div class="preset-shell">
@@ -493,10 +715,21 @@ function getRecommendedProvenanceHint(provenance: string): string {
   }
 }
 
+interface WizardInputMeta {
+  key: string;
+  label: string;
+  help: string;
+  kind: 'text' | 'secret' | 'folder' | 'url';
+  target: 'env' | 'arg';
+  defaultValue: string;
+  required: boolean;
+}
+
 function buildRecommendedPresetData(): Array<{
   id: string;
   name: string;
   description: string;
+  category: string;
   docsUrl: string;
   installUrl: string;
   provenance: string;
@@ -509,6 +742,7 @@ function buildRecommendedPresetData(): Array<{
   command: string;
   args: string;
   url: string;
+  inputs: WizardInputMeta[];
 }> {
   return RECOMMENDED_MCP_SERVERS.map(server => {
     const starter = getRecommendedMcpStarterDetails(server.id);
@@ -516,6 +750,7 @@ function buildRecommendedPresetData(): Array<{
       id: server.id,
       name: server.name,
       description: server.description,
+      category: server.category,
       docsUrl: server.docsUrl,
       installUrl: server.installUrl,
       provenance: server.provenance,
@@ -528,8 +763,77 @@ function buildRecommendedPresetData(): Array<{
       command: starter.command || '',
       args: (starter.args || []).join(' '),
       url: starter.url || '',
+      // Input *metadata* only — no secret values ever cross into the webview.
+      inputs: (starter.inputs ?? []).map(input => ({
+        key: input.key,
+        label: input.label,
+        help: input.help ?? '',
+        kind: input.kind,
+        target: input.target,
+        defaultValue: input.defaultValue ?? '',
+        required: Boolean(input.required),
+      })),
     };
   });
+}
+
+/**
+ * Build a connect-ready server config from a recommended starter and the values
+ * the wizard collected. Secret-kind inputs are split out into `secrets` (for
+ * SecretStorage) and recorded as `secretEnvKeys` on the config; other inputs
+ * fill env vars or substitute arg placeholders. Returns null if a required
+ * input is missing.
+ */
+export function buildWizardServerConfig(
+  serverName: string,
+  starter: RecommendedMcpStarterDetails,
+  inputValues: Record<string, string>,
+): { config: Omit<McpServerConfig, 'id'>; secrets: Record<string, string> } | null {
+  let args = [...(starter.args ?? [])];
+  const env: Record<string, string> = {};
+  const secrets: Record<string, string> = {};
+  const secretEnvKeys: string[] = [];
+
+  for (const input of starter.inputs ?? []) {
+    const raw = inputValues[input.key];
+    const value = typeof raw === 'string' ? raw.trim() : '';
+    if (!value) {
+      if (input.required) { return null; }
+      continue; // optional + empty → keep the starter default (e.g. ${workspaceFolder})
+    }
+    if (input.target === 'arg' && input.placeholder) {
+      args = args.map(arg => (arg === input.placeholder ? value : arg));
+    } else if (input.target === 'env') {
+      if (input.kind === 'secret') {
+        secrets[input.key] = value;
+        secretEnvKeys.push(input.key);
+      } else {
+        env[input.key] = value;
+      }
+    }
+  }
+
+  if (starter.transport === 'http') {
+    if (!starter.url) { return null; }
+    return {
+      config: { name: serverName, transport: 'http', url: starter.url, enabled: true },
+      secrets,
+    };
+  }
+
+  if (!starter.command) { return null; }
+  return {
+    config: {
+      name: serverName,
+      transport: 'stdio',
+      command: starter.command,
+      args,
+      env: Object.keys(env).length > 0 ? env : undefined,
+      secretEnvKeys: secretEnvKeys.length > 0 ? secretEnvKeys : undefined,
+      enabled: true,
+    },
+    secrets,
+  };
 }
 
 function renderServerCard(state: McpServerState): string {
@@ -704,6 +1008,25 @@ const MCP_EXTRA_CSS = `
     outline: 2px solid var(--atlas-accent);
     outline-offset: 2px;
   }
+  .explainer-card { border: 1px solid color-mix(in srgb, var(--atlas-accent) 40%, var(--atlas-border)); border-radius: 16px; padding: 16px 18px; margin-bottom: 16px; background: color-mix(in srgb, var(--atlas-accent) 8%, var(--vscode-editor-background)); }
+  .explainer-card h3 { margin: 0 0 6px; }
+  .explainer-card p { margin: 0 0 8px; }
+  .explainer-card p:last-child { margin-bottom: 0; }
+  .link-button { background: none; border: none; color: var(--atlas-accent); cursor: pointer; padding: 0; font: inherit; text-decoration: underline; }
+  .link-button:focus-visible { outline: 2px solid var(--atlas-accent); outline-offset: 2px; }
+  .wizard-step { margin-bottom: 12px; }
+  .wizard-step > .btn-small[data-wiz-back] { margin-bottom: 10px; }
+  .wiz-category { margin-bottom: 16px; }
+  .wiz-category h4 { margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.78rem; color: var(--atlas-muted); }
+  .wiz-server-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+  .wiz-server-card { display: flex; flex-direction: column; gap: 4px; text-align: left; border: 1px solid var(--atlas-border); border-radius: 12px; padding: 12px; background: var(--vscode-editor-background); color: var(--vscode-foreground); cursor: pointer; }
+  .wiz-server-card:hover, .wiz-server-card:focus-visible { outline: 2px solid var(--atlas-accent); outline-offset: 2px; }
+  .wiz-server-name { font-weight: 700; }
+  .wiz-server-desc { font-size: 0.85em; color: var(--atlas-muted); }
+  .wiz-detected-card { display: flex; align-items: center; gap: 12px; justify-content: space-between; flex-wrap: wrap; border: 1px solid var(--atlas-border); border-radius: 12px; padding: 12px; margin-bottom: 8px; }
+  .wiz-detected-detail { margin-top: 4px; font-size: 0.82em; color: var(--atlas-muted); }
+  .wiz-install-cmd { display: inline-block; margin-left: 8px; padding: 2px 6px; background: var(--atlas-surface-strong); border-radius: 6px; }
+  .field-help { margin: 2px 0 0; font-size: 0.8em; }
   @media (max-width: 920px) {
     .panel-layout, .action-grid, .summary-grid { grid-template-columns: 1fr; }
     .panel-nav { position: static; }
@@ -886,7 +1209,7 @@ function buildMcpScript(target?: McpPanelTarget, servers: McpServerState[] = [])
     }
     setTransportMode(existing.transport === 'stdio');
     setStatus('Editing this server. Update the parameters below, then save when you are ready.', 'info');
-    activatePage('add');
+    activatePage('advanced');
     updateSubmitButton();
   }
 
@@ -962,7 +1285,7 @@ function buildMcpScript(target?: McpPanelTarget, servers: McpServerState[] = [])
       needsManualSetup ? 'warning' : 'info',
     );
     updateSubmitButton();
-    activatePage('add');
+    activatePage('advanced');
   }
 
   navButtons.forEach(button => {
@@ -1123,14 +1446,326 @@ function buildMcpScript(target?: McpPanelTarget, servers: McpServerState[] = [])
       if (message.payload && typeof message.payload === 'object' && typeof message.payload.page === 'string') {
         activatePage(message.payload.page);
       }
+      return;
     }
+
+    if (message.type === 'scanResults') {
+      renderScanResults(message.payload && message.payload.results);
+      return;
+    }
+
+    if (message.type === 'prerequisiteStatus') {
+      applyPrerequisiteStatus(message.payload);
+      return;
+    }
+
+    if (message.type === 'wizardStatus') {
+      const payload = message.payload || {};
+      setWizardStatus(typeof payload.text === 'string' ? payload.text : '', typeof payload.kind === 'string' ? payload.kind : 'info');
+      const connectBtn = document.getElementById('wiz-connect-btn');
+      if (connectBtn instanceof HTMLButtonElement) { connectBtn.disabled = false; connectBtn.textContent = 'Connect'; }
+      return;
+    }
+  });
+
+  // ── Guided setup wizard ──────────────────────────────────────
+  const wizardSteps = Array.from(document.querySelectorAll('.wizard-step'));
+  let wizardServerId = '';
+
+  function showWizardStep(id) {
+    wizardSteps.forEach(step => {
+      if (step instanceof HTMLElement) { step.hidden = step.id !== id; }
+    });
+  }
+
+  function setWizardStatus(text, kind) {
+    const banner = document.getElementById('wizardStatus');
+    if (!(banner instanceof HTMLElement)) { return; }
+    banner.textContent = text;
+    banner.className = 'status-banner status-' + (typeof kind === 'string' && kind.length > 0 ? kind : 'info');
+  }
+
+  function renderBrowseCategories() {
+    const container = document.getElementById('wiz-browse-list');
+    if (!(container instanceof HTMLElement)) { return; }
+    container.innerHTML = '';
+    const byCategory = {};
+    recommendedServers.forEach(server => {
+      const key = server.category || 'Other';
+      (byCategory[key] = byCategory[key] || []).push(server);
+    });
+    Object.keys(byCategory).sort().forEach(category => {
+      const group = document.createElement('div');
+      group.className = 'wiz-category';
+      const heading = document.createElement('h4');
+      heading.textContent = category;
+      group.appendChild(heading);
+      const grid = document.createElement('div');
+      grid.className = 'wiz-server-grid';
+      byCategory[category].forEach(server => {
+        const card = document.createElement('button');
+        card.type = 'button';
+        card.className = 'wiz-server-card';
+        card.dataset.serverId = server.id;
+        const name = document.createElement('span');
+        name.className = 'wiz-server-name';
+        name.textContent = server.name;
+        const desc = document.createElement('span');
+        desc.className = 'wiz-server-desc';
+        desc.textContent = server.description;
+        card.appendChild(name);
+        card.appendChild(desc);
+        grid.appendChild(card);
+      });
+      group.appendChild(grid);
+      container.appendChild(group);
+    });
+  }
+
+  function renderWizardBadges(server) {
+    const badges = document.getElementById('wiz-config-badges');
+    if (!(badges instanceof HTMLElement)) { return; }
+    badges.innerHTML = '';
+    const provenance = document.createElement('span');
+    provenance.className = 'provenance-badge provenance-' + (server.provenance || 'registry');
+    provenance.textContent = server.provenanceLabel || 'Registry fallback';
+    provenance.title = server.provenanceHint || '';
+    badges.appendChild(provenance);
+  }
+
+  function renderWizardInputs(server) {
+    const container = document.getElementById('wiz-inputs');
+    if (!(container instanceof HTMLElement)) { return; }
+    container.innerHTML = '';
+    if (!server.inputs || server.inputs.length === 0) {
+      const note = document.createElement('p');
+      note.className = 'muted';
+      note.textContent = 'No extra details needed — just connect.';
+      container.appendChild(note);
+      return;
+    }
+    server.inputs.forEach(input => {
+      const row = document.createElement('div');
+      row.className = 'field-row';
+      const label = document.createElement('label');
+      label.textContent = input.label + (input.required ? ' *' : '');
+      label.setAttribute('for', 'wiz-input-' + input.key);
+      row.appendChild(label);
+      const field = document.createElement('input');
+      field.id = 'wiz-input-' + input.key;
+      field.dataset.inputKey = input.key;
+      field.type = input.kind === 'secret' ? 'password' : (input.kind === 'url' ? 'url' : 'text');
+      field.autocomplete = 'off';
+      if (input.defaultValue) { field.value = input.defaultValue; }
+      row.appendChild(field);
+      if (input.help) {
+        const help = document.createElement('p');
+        help.className = 'field-help muted';
+        help.textContent = input.help;
+        row.appendChild(help);
+      }
+      if (input.kind === 'secret') {
+        const secure = document.createElement('p');
+        secure.className = 'field-help muted';
+        secure.textContent = 'Stored securely in the OS secret store; never written to settings.';
+        row.appendChild(secure);
+      }
+      container.appendChild(row);
+    });
+  }
+
+  function openWizardConfigure(serverId) {
+    const server = recommendedServers.find(entry => entry.id === serverId);
+    if (!server) { return; }
+    wizardServerId = serverId;
+    const nameEl = document.getElementById('wiz-config-name');
+    const descEl = document.getElementById('wiz-config-desc');
+    const docsEl = document.getElementById('wiz-config-docs');
+    if (nameEl instanceof HTMLElement) { nameEl.textContent = server.name; }
+    if (descEl instanceof HTMLElement) { descEl.textContent = server.description; }
+    if (docsEl instanceof HTMLAnchorElement) {
+      docsEl.href = server.docsUrl || '#';
+      docsEl.hidden = !server.docsUrl;
+    }
+    renderWizardBadges(server);
+    renderWizardInputs(server);
+    const prereq = document.getElementById('wiz-prereq');
+    if (prereq instanceof HTMLElement) { prereq.textContent = 'Checking prerequisites…'; prereq.className = 'status-banner status-info'; }
+    const actions = document.getElementById('wiz-prereq-actions');
+    if (actions instanceof HTMLElement) { actions.innerHTML = ''; }
+    showWizardStep('wiz-configure');
+    setWizardStatus('Review the details below. AtlasMind will connect once everything is ready.', 'info');
+    vscode.postMessage({ type: 'checkPrerequisites', payload: { serverId } });
+  }
+
+  function renderScanResults(results) {
+    const list = document.getElementById('wiz-scan-list');
+    if (!(list instanceof HTMLElement)) { return; }
+    list.innerHTML = '';
+    if (!Array.isArray(results) || results.length === 0) {
+      const empty = document.createElement('p');
+      empty.className = 'muted';
+      empty.textContent = 'AtlasMind did not detect any ready-to-connect servers. Try "Browse by category" instead.';
+      list.appendChild(empty);
+      setWizardStatus('No servers detected automatically. Browse the catalogue to pick one.', 'info');
+      return;
+    }
+    setWizardStatus(results.length + ' server' + (results.length === 1 ? '' : 's') + ' detected. Add the ones you want.', 'success');
+    results.forEach(result => {
+      const card = document.createElement('div');
+      card.className = 'wiz-detected-card';
+      const info = document.createElement('div');
+      const name = document.createElement('strong');
+      name.textContent = result.name;
+      const reason = document.createElement('span');
+      reason.className = 'muted';
+      reason.textContent = ' — ' + result.reason;
+      info.appendChild(name);
+      info.appendChild(reason);
+      if (result.detail) {
+        const detail = document.createElement('div');
+        detail.className = 'wiz-detected-detail';
+        const code = document.createElement('code');
+        code.textContent = result.detail;
+        detail.appendChild(code);
+        info.appendChild(detail);
+      }
+      card.appendChild(info);
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'btn-small';
+      button.dataset.detectedIndex = String(result.index);
+      button.textContent = 'Add & connect';
+      card.appendChild(button);
+      list.appendChild(card);
+    });
+  }
+
+  function applyPrerequisiteStatus(payload) {
+    if (!payload || payload.serverId !== wizardServerId) { return; }
+    const prereq = document.getElementById('wiz-prereq');
+    const actions = document.getElementById('wiz-prereq-actions');
+    const connectBtn = document.getElementById('wiz-connect-btn');
+    if (!(prereq instanceof HTMLElement)) { return; }
+    if (actions instanceof HTMLElement) { actions.innerHTML = ''; }
+    if (connectBtn instanceof HTMLButtonElement) { connectBtn.disabled = false; connectBtn.textContent = 'Connect'; }
+
+    if (payload.status === 'ready') {
+      prereq.textContent = 'All prerequisites are ready.';
+      prereq.className = 'status-banner status-success';
+      return;
+    }
+
+    if (payload.status === 'installable') {
+      prereq.textContent = (payload.declined ? 'Installation was cancelled. ' : '') + 'This server needs ' + (payload.displayName || 'a runtime') + ', which is not installed yet.';
+      prereq.className = 'status-banner status-warning';
+      if (actions instanceof HTMLElement) {
+        const install = document.createElement('button');
+        install.type = 'button';
+        install.className = 'btn-small';
+        install.dataset.wizInstall = '1';
+        install.textContent = 'Install ' + (payload.displayName || 'runtime');
+        actions.appendChild(install);
+        if (payload.humanCommand) {
+          const cmd = document.createElement('code');
+          cmd.className = 'wiz-install-cmd';
+          cmd.textContent = payload.humanCommand;
+          actions.appendChild(cmd);
+        }
+      }
+      return;
+    }
+
+    // manual
+    prereq.textContent = payload.message || 'This server needs manual setup before it can connect.';
+    prereq.className = 'status-banner status-warning';
+  }
+
+  document.getElementById('wiz-scan-btn')?.addEventListener('click', () => {
+    showWizardStep('wiz-scan');
+    const list = document.getElementById('wiz-scan-list');
+    if (list instanceof HTMLElement) { list.innerHTML = '<p class="muted">Scanning your environment…</p>'; }
+    setWizardStatus('Scanning your computer for tools AtlasMind can set up…', 'info');
+    vscode.postMessage({ type: 'scanEnvironment' });
+  });
+
+  document.getElementById('wiz-browse-btn')?.addEventListener('click', () => {
+    renderBrowseCategories();
+    showWizardStep('wiz-browse');
+    setWizardStatus('Choose a server to set up. AtlasMind will guide you through the rest.', 'info');
+  });
+
+  document.getElementById('wiz-advanced-link')?.addEventListener('click', () => activatePage('advanced'));
+
+  document.querySelectorAll('[data-wiz-back]').forEach(button => {
+    if (button instanceof HTMLElement) {
+      button.addEventListener('click', () => {
+        showWizardStep('wiz-choose');
+        setWizardStatus('Choose how you would like to add an MCP server.', 'info');
+      });
+    }
+  });
+
+  document.getElementById('wiz-browse-list')?.addEventListener('click', event => {
+    const target = event.target instanceof HTMLElement ? event.target.closest('[data-server-id]') : null;
+    if (target instanceof HTMLElement && target.dataset.serverId) {
+      openWizardConfigure(target.dataset.serverId);
+    }
+  });
+
+  document.getElementById('wiz-scan-list')?.addEventListener('click', event => {
+    const target = event.target instanceof HTMLElement ? event.target.closest('[data-detected-index]') : null;
+    if (target instanceof HTMLElement && target.dataset.detectedIndex !== undefined) {
+      const index = parseInt(target.dataset.detectedIndex, 10);
+      if (!Number.isNaN(index)) {
+        if (target instanceof HTMLButtonElement) { target.disabled = true; target.textContent = 'Connecting…'; }
+        setWizardStatus('Connecting the detected server…', 'info');
+        vscode.postMessage({ type: 'connectDetected', payload: { index } });
+      }
+    }
+  });
+
+  document.getElementById('wiz-prereq-actions')?.addEventListener('click', event => {
+    const target = event.target instanceof HTMLElement ? event.target.closest('[data-wiz-install]') : null;
+    if (target instanceof HTMLElement && wizardServerId) {
+      setWizardStatus('Preparing to install the required runtime…', 'info');
+      vscode.postMessage({ type: 'installPrerequisite', payload: { serverId: wizardServerId } });
+    }
+  });
+
+  document.getElementById('wiz-config-form')?.addEventListener('submit', event => {
+    event.preventDefault();
+    if (!wizardServerId) { return; }
+    const inputs = {};
+    document.querySelectorAll('#wiz-inputs [data-input-key]').forEach(field => {
+      if (field instanceof HTMLInputElement && field.dataset.inputKey) {
+        inputs[field.dataset.inputKey] = field.value;
+      }
+    });
+    const server = recommendedServers.find(entry => entry.id === wizardServerId);
+    if (server && Array.isArray(server.inputs)) {
+      for (const input of server.inputs) {
+        if (input.required && !(inputs[input.key] || '').trim()) {
+          setWizardStatus('Please fill in "' + input.label + '" before connecting.', 'warning');
+          return;
+        }
+      }
+    }
+    const connectBtn = document.getElementById('wiz-connect-btn');
+    if (connectBtn instanceof HTMLButtonElement) { connectBtn.disabled = true; connectBtn.textContent = 'Connecting…'; }
+    setWizardStatus('Saving and connecting… first-time installs can take a minute.', 'info');
+    vscode.postMessage({ type: 'wizardConnect', payload: { serverId: wizardServerId, inputs } });
   });
 
   setTransportMode(Boolean((document.getElementById('transportStdio') || {}).checked));
   updateSubmitButton();
-  if (initialRecommendedServerId && presetSelect instanceof HTMLSelectElement) {
-    presetSelect.value = initialRecommendedServerId;
-    applyRecommendedPreset(initialRecommendedServerId);
+  if (initialRecommendedServerId) {
+    if (initialPage === 'add') {
+      openWizardConfigure(initialRecommendedServerId);
+    } else if (presetSelect instanceof HTMLSelectElement) {
+      presetSelect.value = initialRecommendedServerId;
+      applyRecommendedPreset(initialRecommendedServerId);
+    }
   }
 })();
 `;
@@ -1178,6 +1813,37 @@ export function validatePanelMessage(raw: unknown): PanelMessage | null {
       return { type: 'openAgentPanel' };
     case 'openResourceDiscovery':
       return { type: 'openResourceDiscovery' };
+    case 'scanEnvironment':
+      return { type: 'scanEnvironment' };
+    case 'connectDetected': {
+      const p = msg['payload'];
+      if (typeof p !== 'object' || p === null) { return null; }
+      const index = (p as Record<string, unknown>)['index'];
+      if (typeof index !== 'number' || !Number.isInteger(index) || index < 0) { return null; }
+      return { type: 'connectDetected', payload: { index } };
+    }
+    case 'checkPrerequisites':
+    case 'installPrerequisite': {
+      const p = msg['payload'];
+      if (typeof p !== 'object' || p === null) { return null; }
+      const serverId = (p as Record<string, unknown>)['serverId'];
+      if (typeof serverId !== 'string' || !serverId) { return null; }
+      return { type, payload: { serverId } } as PanelMessage;
+    }
+    case 'wizardConnect': {
+      const p = msg['payload'];
+      if (typeof p !== 'object' || p === null) { return null; }
+      const pp = p as Record<string, unknown>;
+      if (typeof pp['serverId'] !== 'string' || !pp['serverId']) { return null; }
+      const rawInputs = pp['inputs'];
+      const inputs: Record<string, string> = {};
+      if (typeof rawInputs === 'object' && rawInputs !== null) {
+        for (const [key, value] of Object.entries(rawInputs as Record<string, unknown>)) {
+          if (typeof key === 'string' && typeof value === 'string') { inputs[key] = value; }
+        }
+      }
+      return { type: 'wizardConnect', payload: { serverId: pp['serverId'] as string, inputs } };
+    }
     default:
       return null;
   }
