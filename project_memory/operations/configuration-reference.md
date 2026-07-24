@@ -30,8 +30,8 @@ Source: `docs/configuration.md`
 <!-- atlasmind-import
 entry-path: operations/configuration-reference.md
 generator-version: 2
-generated-at: 2026-06-18T18:51:10.022Z
+generated-at: 2026-07-24T11:56:11.404Z
 source-paths: docs/configuration.md
-source-fingerprint: 78657729
+source-fingerprint: b85b44a2
 body-fingerprint: d2587119
 -->

@@ -14,6 +14,7 @@ Top-level contents of the workspace:
 .vitest-panelFlows.json
 .vscode/
 .vscodeignore
+AGENTS.md
 CHANGELOG.md
 CLAUDE.md
 CODE_OF_CONDUCT.md
@@ -23,9 +24,8 @@ LICENSE
 README.md
 SECURITY.md
 architecture/
-atlasmind-0.100.1.vsix
-atlasmind-0.104.2.vsix
-atlasmind-0.104.3.vsix
+atlasmind-0.127.1.vsix
+atlasmind-0.127.2.vsix
 coverage/
 data/
 debug_node.js
@@ -50,8 +50,8 @@ wiki/
 <!-- atlasmind-import
 entry-path: architecture/project-structure.md
 generator-version: 2
-generated-at: 2026-06-18T18:51:10.022Z
+generated-at: 2026-07-24T11:56:11.404Z
 source-paths: workspace-root
-source-fingerprint: fd78dd0b
-body-fingerprint: b6c042a5
+source-fingerprint: b5f87ccc
+body-fingerprint: 73880d6a
 -->

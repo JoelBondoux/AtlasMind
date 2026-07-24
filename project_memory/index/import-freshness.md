@@ -11,93 +11,94 @@
 ### Project Overview
 - Path: `architecture/project-overview.md`
 - Status: `refreshed`
-- Source fingerprint: `1a1d6f3d`
+- Source fingerprint: `764aa97f`
 - Sources: README.md
 
 ### Project Dependencies
 - Path: `architecture/dependencies.md`
 - Status: `refreshed`
-- Source fingerprint: `09af8f4f`
+- Source fingerprint: `1fd3665c`
 - Sources: package.json
 
 ### Project Structure
 - Path: `architecture/project-structure.md`
-- Status: `refreshed`
-- Source fingerprint: `fd78dd0b`
+- Status: `unchanged`
+- Source fingerprint: `b5f87ccc`
 - Sources: workspace-root
 
 ### Codebase Map
 - Path: `architecture/codebase-map.md`
 - Status: `refreshed`
-- Source fingerprint: `27697b8d`
+- Source fingerprint: `eab07eb6`
 - Sources: src, tests, docs, wiki, project_memory, .github
 
 ### Build & Tooling Conventions
 - Path: `domain/conventions.md`
-- Status: `refreshed`
-- Source fingerprint: `04e12665`
+- Status: `unchanged`
+- Source fingerprint: `181248cd`
 - Sources: tsconfig.json, .gitignore, .editorconfig, .prettierrc, eslint.config.js, .eslintrc.json, .eslintrc.js, Dockerfile, docker-compose.yml, Makefile
 
 ### Product Capabilities
 - Path: `domain/product-capabilities.md`
 - Status: `refreshed`
-- Source fingerprint: `ee406563`
+- Source fingerprint: `955381c5`
 - Sources: README.md, package.json
 
 ### Runtime & Surface Architecture
 - Path: `architecture/runtime-and-surfaces.md`
-- Status: `refreshed`
-- Source fingerprint: `0632f471`
+- Status: `unchanged`
+- Source fingerprint: `30ff5a4c`
 - Sources: docs/architecture.md
 
 ### Model Routing Summary
 - Path: `architecture/model-routing.md`
-- Status: `refreshed`
-- Source fingerprint: `d0a442f4`
+- Status: `unchanged`
+- Source fingerprint: `6612f474`
 - Sources: docs/model-routing.md
 
 ### Agents & Skills Summary
 - Path: `architecture/agents-and-skills.md`
 - Status: `rejected`
-- Source fingerprint: `08cc3a95`
+- Source fingerprint: `6bd9a4fc`
 - Sources: docs/agents-and-skills.md
 - Note: Content failed security scan: Possible prompt injection: system-prompt override pattern detected. This entry will not be sent to the model.
 
 ### Development Workflow
 - Path: `operations/development-workflow.md`
-- Status: `refreshed`
-- Source fingerprint: `7e4841b2`
+- Status: `unchanged`
+- Source fingerprint: `d835ce42`
 - Sources: docs/development.md, docs/github-workflow.md
 
 ### Configuration Reference Summary
 - Path: `operations/configuration-reference.md`
-- Status: `refreshed`
-- Source fingerprint: `78657729`
+- Status: `unchanged`
+- Source fingerprint: `b85b44a2`
 - Sources: docs/configuration.md
 
 ### Security & Safety Summary
 - Path: `operations/security-and-safety.md`
-- Status: `refreshed`
-- Source fingerprint: `ae0bc4e8`
+- Status: `unchanged`
+- Source fingerprint: `4d9718ce`
 - Sources: SECURITY.md, docs/architecture.md, .github/copilot-instructions.md
 
 ### Development Guardrails
 - Path: `decisions/development-guardrails.md`
 - Status: `unchanged`
-- Source fingerprint: `53d165fc`
+- Source fingerprint: `9264430b`
 - Sources: .github/copilot-instructions.md, docs/github-workflow.md
 
 ### Release History Snapshot
 - Path: `roadmap/release-history.md`
 - Status: `refreshed`
-- Source fingerprint: `ce1c4b0a`
+- Source fingerprint: `0c819274`
 - Sources: CHANGELOG.md, package.json
 
 ### Developer Roadmap
 - Path: `roadmap/improvement-plan.md`
-- Status: `refreshed`
-- Source fingerprint: `221fb04e`
+- Status: `preserved-manual-edits`
+- Source fingerprint: `28d558d2`
 - Sources: README.md, package.json
+- Note: Existing imported file has local edits; AtlasMind preserved it.
 
 ### Project License
 - Path: `domain/license.md`
@@ -108,8 +109,8 @@
 <!-- atlasmind-import
 entry-path: index/import-freshness.md
 generator-version: 2
-generated-at: 2026-06-18T18:51:10.022Z
+generated-at: 2026-07-24T12:06:10.564Z
 source-paths: architecture/project-overview.md | architecture/dependencies.md | architecture/project-structure.md | architecture/codebase-map.md | domain/conventions.md | domain/product-capabilities.md | architecture/runtime-and-surfaces.md | architecture/model-routing.md | architecture/agents-and-skills.md | operations/development-workflow.md | operations/configuration-reference.md | operations/security-and-safety.md | decisions/development-guardrails.md | roadmap/release-history.md | roadmap/improvement-plan.md | domain/license.md
-source-fingerprint: 4966337b
-body-fingerprint: 34e1da81
+source-fingerprint: a5eeec18
+body-fingerprint: 3ace42f5
 -->

@@ -102,8 +102,8 @@ npm run test:providers:local-recommendations
 <!-- atlasmind-import
 entry-path: operations/development-workflow.md
 generator-version: 2
-generated-at: 2026-06-18T18:51:10.022Z
+generated-at: 2026-07-24T11:56:11.404Z
 source-paths: docs/development.md | docs/github-workflow.md
-source-fingerprint: 7e4841b2
-body-fingerprint: b9e01e15
+source-fingerprint: d835ce42
+body-fingerprint: 6dbd5b83
 -->

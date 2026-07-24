@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.135.1] - 2026-07-24
+
+### Changed
+- Refreshed the SSOT project-memory index (`project_memory/**`) so the architecture, domain, operations, and roadmap notes reflect the Project Director feature (people model, dashboard tab, guarded connectors, and follow-up reminders). No runtime code changes.
+
 ## [0.135.0] - 2026-07-24
 
 ### Added

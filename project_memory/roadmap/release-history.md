@@ -10,29 +10,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-## [0.106.0] - 2026-06-18
+## [0.134.0] - 2026-07-24
 
 ### Added
-- **Agentic Resource Discovery (ARD) — AtlasMind is now a first-class ARD client and publisher.** [ARD](https://agenticresourcediscovery.org/) is a discovery-only protocol for finding agentic resources (MCP servers, A2A agents, Skills, APIs) *before* invocation. New `src/ard/` module:
-  - **`ArdClient`** (`src/ard/ardClient.ts`) — speaks both ARD mechanisms: the registry `POST /search` API (with bounded, loop-safe federation across `auto`/`referrals`/`none` modes) and static `/.well-known/ai-catalog.json` manifests (with nested-catalog expansion). All external data is treated as untrusted: strict schema validation, `urn:ai:` identifier checks, the spec's strict value-or-reference rule, byte/entry caps, HTTPS enforcement, and a private-host SSRF guard.
-  - **`ArdRegistry`** (`src/ard/ardRegistry.ts`) — persists "Agent Finders" in `globalState`, seeded with the GitHub Agent Finder and Hugging Face Discover **disabled** (opt-in; no outbound traffic until enabled), and caches recent results for the tree view.
-  - **`ArdInstaller`** (`src/ard/ardInstaller.ts`) — maps a chosen result to a non-destructive action: discovered MCP servers are added **disabled** (enabling goes through the existing MCP trust gate), nested catalogs/registries become disabled finders, and A2A agents / skills / APIs are surfaced as references (no auto-wiring of remote execution).
-  - **Catalog publisher** (`src/ard/ardCatalogExporter.ts`) — `AtlasMind: Export Resource Catalog` writes a spec-conformant `ai-catalog.json` describing this project's agents, skills, and MCP servers. System prompts, secrets, and MCP `env` are never included.
-  - **In-task discovery skill** — a read-only `discover-resources` built-in skill lets agents find missing capabilities mid-task and surface ranked candidates for approval (it never installs).
-  - **UI** — a new **Resource Discovery** webview panel and sidebar tree view, the `/discover <query>` chat command, and the `AtlasMind: Resource Discovery` / `Discover Resources (ARD)` commands. The relevance score is always labelled as a semantic match — **not** a trust or safety rating.
-  - **Settings** — `atlasmind.ard.enabled`, `ard.federationMode`, `ard.maxResults`, `ard.requestTimeoutMs`, and `ard.allowInsecureEndpoints`.
+- **Project Director — guarded outbound messaging via connectors (Phase 3, opt-in, default off).** When a project enables outbound messaging and a matching MCP connector is connected, the Director tab can **email**, **schedule a meeting**, or **post a message** to a contact through that connector — otherwise it falls back to the existing **Open** deep-link / **Copy** path and never auto-sends. A new pure `directorCommsRunner` (`src/core/directorCommsRunner.ts`) detects which connected MCP tool can perform each intent (matching tool names like `outlook_send_mail` / `create_event` / `post_message`, preferring real send/create tools over drafts) and best-effort maps a composed draft onto that tool's declared input-schema fields — inventing nothing, so the confirmation dialog shows exactly what will be sent.
+- **Authorization gate.** Dispatch is deny-by-default: it requires `settings.outboundEnabled`, a connected connector, and an explicit `{ modal: true }` confirmation summarising the exact action (connector, tool, recipient, subject/body, classified risk) before the tool runs. The executed tool is sourced from the connected MCP server (via the `mcp:<serverId>:<toolName>` skill wrapper); the webview only supplies the draft, which is re-resolved and re-classified server-side (`classifyToolInvocation`). Successful sends are recorded to `project-director-history.json`.
+- **Connector surfacing + PII minimisation.** The Setup card shows which messaging connectors are connected and a link to manage MCP Servers, and an "Outbound messaging: On/Off" toggle (persisted in the project config). `AtlasMindContext` now exposes `skillContext` so panels can dispatch MCP tool skills. Connector credentials remain in VS Code SecretStorage (`atlasmind.mcp.<serverId>.<KEY>`), and referencing a person in their system of record stays preferred over storing raw PII.
 
-## [0.105.2] - 2026-06-18
+## [0.133.0] - 2026-07-24
 
-### Fixed
-- **Sidebar chat now mirrors the main chat panel's sessions and transcript.** The chat webview (`media/chatPanel.js`) only ever *listened* for `state` updates and relied on the host's one-shot `syncState()` in the `ChatPanel` constructor for its initial render. When that push raced ahead of the webview script attaching its message listener, the message was dro
+### Added
+- **Project Director dashboard — the usable v1 (Phase 2).** The Project Dashboard has a new **Director** tab (`src/views/projectDashboardPanel.ts`, `media/projectDashboard.js`) that surfaces and edits the people model backed by `ProjectDirectorManager`: a **Setup** card (project, team-mode toggle, "Seed from repo", open the markdown mirror), a **People** roster (contacts with role badges, per-channel **Open** deep-links and **Copy contact**, inline add/edit with stakeholder/team roles), **Responsibilities** (area → owner/backup), **Assignments** (add/edit/status-cycle, plus an **Autonomous runs** list where each `ProjectRunRecord` can be given a human owner), and **Follow-ups** grouped Overdue / Due soon / Upcoming with complete/snooze/cancel.
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-06-18T18:51:10.022Z
+generated-at: 2026-07-24T12:06:10.564Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: ce1c4b0a
-body-fingerprint: 7b1efe56
+source-fingerprint: 0c819274
+body-fingerprint: c790a7b8
 -->
