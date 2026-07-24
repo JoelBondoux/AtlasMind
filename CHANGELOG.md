@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.135.4] - 2026-07-24
+
+### Changed
+- **Developer-tooling dependency updates (Dependabot #128, split).** Bumped `@types/node` `^25 → ^26`, `eslint` `^10.5 → ^10.7`, `@typescript-eslint/eslint-plugin` + `@typescript-eslint/parser` `^8.61 → ^8.65`, `@vitest/coverage-v8` `^4.1.9 → ^4.1.10`, and `@vscode/test-web` `^0.0.80 → ^0.0.81`. Verified with a clean compile, `eslint src tests`, the full test suite (1399 passing), and a clean `.vsix` package. Dev-only tooling — the published extension bundle is unaffected.
+- **Held `typescript` at `^6.0.3`** (the one bump in #128 not applied): TypeScript 7.0 removes the programmatic Compiler API until 7.1, which `@typescript-eslint/parser@8.65` requires (peer `typescript ">=4.8.4 <6.1.0"`), so upgrading now breaks linting. The bump was deferred (confirmed by both an `ERESOLVE` peer conflict and an independent risk assessment) until typescript-eslint ships official TypeScript 7 support.
+
 ## [0.135.3] - 2026-07-24
 
 ### Security
