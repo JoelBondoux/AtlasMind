@@ -454,6 +454,8 @@ The following skills are registered automatically at extension activation (`src/
 
 AtlasMind can connect to any [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server and expose its tools as skills. Open **AtlasMind: Manage MCP Servers** to configure servers, or run **AtlasMind: Import VS Code MCP Servers** to copy compatible entries from the current VS Code profile `mcp.json` and workspace `.vscode/mcp.json` files.
 
+**Guided Setup wizard** (`src/views/mcpPanel.ts`): the panel leads with a step-by-step flow for first-time users — **Scan my computer** (`McpServerRegistry.detectAvailableServers()` surfaces only servers whose runtime is present) or **Browse by category** → prerequisite check (missing runtimes install only after confirmation, via `src/mcp/mcpRuntime.ts`) → guided credential/parameter fields → connect. Recommended starters declare typed `inputs` (`RecommendedMcpInput` in `src/constants.ts`); secret-kind values are stored in VS Code SecretStorage (`McpServerConfig.secretEnvKeys`) and merged into the process env only at connect time. The former raw form remains under the **Advanced** tab (and backs editing an existing server).
+
 **Skill ID pattern**: `mcp:<serverId>:<toolName>`  
 **Source field**: `mcp://<serverId>/<toolName>`
 
@@ -471,7 +473,7 @@ MCP skills are registered in `SkillsRegistry` when a server connects and automat
 **Security notes**:
 - MCP tools execute in a separate process or remote service — they are not sandboxed within the extension.
 - The URL field must use `http://` or `https://`; other schemes are rejected.
-- Env vars for stdio servers are merged with the extension host environment; do not store secrets there — use the server's native secret management.
+- Env vars for stdio servers are merged with the extension host environment. Secrets entered through the Guided Setup wizard are stored in VS Code SecretStorage (via `McpServerConfig.secretEnvKeys`), never in `globalState`, and injected only at connect time; if you use the Advanced form's raw `env` field, prefer the server's native secret management for sensitive values.
 - AtlasMind only imports MCP entries it can reproduce faithfully. VS Code-only fields such as sandbox settings, unresolved `${...}` variables, custom headers, or other unsupported transport options are skipped instead of being downgraded silently.
 
 ---

@@ -29,6 +29,7 @@ import type { CheckpointManager } from './core/checkpointManager.js';
 import type { ProjectRunHistory } from './core/projectRunHistory.js';
 import type { RoutineRegistry } from './core/routineRegistry.js';
 import type { DeliveryManager } from './core/deliveryManager.js';
+import type { ProjectDirectorManager } from './core/projectDirectorManager.js';
 import type { MissionRegistry } from './core/missionRegistry.js';
 import { getConfiguredLocalEndpoints, type ProviderRegistry } from './providers/index.js';
 import { getModelInfoUrl, getProviderInfoUrl, lookupCatalog } from './providers/modelCatalog.js';
@@ -201,6 +202,10 @@ export interface AtlasMindContext {
   deliveryManager: DeliveryManager;
   /** Fires when delivery.json changes on disk, so the dashboard can re-sync. */
   deliveryRefresh: vscode.EventEmitter<void>;
+  /** People model: stakeholders, team, responsibilities, assignments, follow-ups. */
+  projectDirectorManager: ProjectDirectorManager;
+  /** Fires when project-director.json changes on disk, so the dashboard can re-sync. */
+  projectDirectorRefresh: vscode.EventEmitter<void>;
   /** Audit trail + persistence for autonomous Mission Loop runs. */
   missionRegistry: MissionRegistry;
   rollbackLastCheckpoint(): Promise<{ ok: boolean; summary: string; restoredPaths: string[] }>;
@@ -1557,6 +1562,7 @@ async function bootstrapAtlasMind(
       toolPolicyModule,
       routineRegistryModule,
       deliveryManagerModule,
+      projectDirectorManagerModule,
       missionRegistryModule,
       dataPrivacyModule,
       ardClientModule,
@@ -1589,6 +1595,7 @@ async function bootstrapAtlasMind(
       import('./core/toolPolicy.js'),
       import('./core/routineRegistry.js'),
       import('./core/deliveryManager.js'),
+      import('./core/projectDirectorManager.js'),
       import('./core/missionRegistry.js'),
       import('./core/dataPrivacyManager.js'),
       import('./ard/ardClient.js'),
@@ -1639,6 +1646,7 @@ async function bootstrapAtlasMind(
       requiresToolApproval: toolPolicyModule.requiresToolApproval,
       RoutineRegistry: routineRegistryModule.RoutineRegistry,
       DeliveryManager: deliveryManagerModule.DeliveryManager,
+      ProjectDirectorManager: projectDirectorManagerModule.ProjectDirectorManager,
       MissionRegistry: missionRegistryModule.MissionRegistry,
       DataPrivacyManager: dataPrivacyModule.DataPrivacyManager,
       readDataPrivacyConfig: dataPrivacyModule.readDataPrivacyConfig,
@@ -1663,6 +1671,7 @@ async function bootstrapAtlasMind(
     const memoryRefresh = new vscode.EventEmitter<void>();
     const discoveryRefresh = new vscode.EventEmitter<void>();
     const deliveryRefresh = new vscode.EventEmitter<void>();
+    const projectDirectorRefresh = new vscode.EventEmitter<void>();
     const scannerRulesManager = new startupModules.ScannerRulesManager(context.globalState);
     const toolWebhookDispatcher = new startupModules.ToolWebhookDispatcher(context, outputChannel);
     const voiceManager = new startupModules.VoiceManager(context.secrets, undefined, {
@@ -1693,6 +1702,19 @@ async function bootstrapAtlasMind(
       deliveryWatcher.onDidCreate(reloadDelivery);
       deliveryWatcher.onDidDelete(reloadDelivery);
       context.subscriptions.push(deliveryWatcher);
+    }
+    const projectDirectorManager = new startupModules.ProjectDirectorManager(workspaceRootPath);
+    if (workspaceRootPath) {
+      // Keep the Director dashboard current when project-director.json changes
+      // outside the dashboard editor (hand edits, a teammate's change via git pull).
+      const directorWatcher = vscode.workspace.createFileSystemWatcher(
+        new vscode.RelativePattern(workspaceRootPath, 'project_memory/operations/project-director.json'),
+      );
+      const reloadDirector = () => { projectDirectorManager.reload(); projectDirectorRefresh.fire(); };
+      directorWatcher.onDidChange(reloadDirector);
+      directorWatcher.onDidCreate(reloadDirector);
+      directorWatcher.onDidDelete(reloadDirector);
+      context.subscriptions.push(directorWatcher);
     }
     const missionRegistry = new startupModules.MissionRegistry(workspaceRootPath);
     const projectRunHistory = new startupModules.ProjectRunHistory(context.workspaceState, {
@@ -2176,6 +2198,7 @@ async function bootstrapAtlasMind(
         void skillAutoAssigner.reassessAllAutoAgents(available).then(() => agentsRefresh.fire());
       },
       outputChannel,
+      context.secrets,
     );
     mcpServerRegistry.loadFromStorage();
 
@@ -2321,6 +2344,8 @@ async function bootstrapAtlasMind(
       routinesRefresh,
       deliveryManager,
       deliveryRefresh,
+      projectDirectorManager,
+      projectDirectorRefresh,
       missionRegistry,
       rollbackLastCheckpoint: async () => {
         if (!checkpointManager) {

@@ -6,6 +6,24 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.131.0 — Guided MCP setup wizard
+
+- **MCP is now approachable for first-time users.** The MCP Servers panel leads with a step-by-step **Guided Setup**: **Scan my computer** (AtlasMind finds servers it can set up from tools you already have) or **Browse by category**, then it checks prerequisites, asks only for the inputs a server needs, and connects. The old raw form lives on as an **Advanced** tab.
+- **Credentials done right.** Guided secret fields (API tokens) are stored in VS Code **SecretStorage** and injected as env vars only at connect time — never written to settings — via the new `McpServerConfig.secretEnvKeys`.
+- **Confirm before install.** Missing runtimes (Node, uv, …) are surfaced with the exact command and installed **only after you confirm**, replacing the previous silent auto-install.
+- **Trustworthy environment scan.** The revived `detectAvailableServers()` now surfaces only servers whose launch runtime is actually present.
+
+---
+
+## v0.130.0 — Project Director (Phase 1: people model)
+
+- **AtlasMind now models the people a project runs on.** A new `ProjectDirectorManager` captures stakeholders, the delivery team, responsibilities (who owns what), human task assignments, and follow-ups, persisted to `project_memory/operations/project-director.json` with a human-readable `project-director.md` mirror and a capped history file.
+- **Human owners for autonomous work.** Assignments introduce a human-assignee layer that agent-role tasks lacked, and can bind an autonomous run to a human owner without mutating the run record.
+- **GDPR-first by design.** AtlasMind prefers to reference people in their system of record (Microsoft 365, Slack, Google Workspace — each with a data-governance reference) instead of storing raw personal data; any locally-stored PII is flagged for a one-time consent gate, communication deep-links are restricted to a safe scheme allowlist, and the git-tracked mirror shows channels by kind/label only.
+- *(This is the data + service foundation; the Project Dashboard → Director tab, guarded connector send/schedule, and scheduled reminders follow in later phases.)*
+
+---
+
 ## v0.129.0 — Guarded website hosting environments
 
 - **Every Website Studio project now has Develop, Staging, and Production.** Develop is local/loopback by default, with an explicit HTTPS and password-protected hosted fallback when local execution is unavailable. Staging is always an HTTPS, password-protected `<review-label>.<production-domain>` for client review. Production is public and promotion-protected.

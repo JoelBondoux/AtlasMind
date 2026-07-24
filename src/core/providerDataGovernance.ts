@@ -115,6 +115,38 @@ const PROVIDER_DATA_GOVERNANCE: Record<string, ProviderDataGovernance> = {
     notes: 'Per-request you can restrict which downstream providers may serve traffic; verify each.',
   },
   local: ON_DEVICE,
+
+  // External directory / collaboration sources used by the Project Director as a
+  // GDPR-compliant system of record for people data. AtlasMind prefers to
+  // reference contacts by their external id here and resolve details on demand,
+  // rather than storing raw PII locally.
+  m365: {
+    retentionSummary: 'Data stays in your Microsoft 365 tenant under your organisation\'s retention policies.',
+    trainsOnDataByDefault: false,
+    privacyPolicyUrl: 'https://privacy.microsoft.com/en-us/privacystatement',
+    dataRequestUrl: 'https://learn.microsoft.com/en-us/compliance/regulatory/gdpr-data-subject-requests',
+    dataSubjectRequestUrl: 'https://learn.microsoft.com/en-us/compliance/regulatory/gdpr-dsr-office365',
+    dpaUrl: 'https://www.microsoft.com/licensing/docs/view/Microsoft-Products-and-Services-Data-Protection-Addendum-DPA',
+    notes: 'System of record for identity/contact data. Prefer referencing users by Entra object id over storing raw PII.',
+  },
+  slack: {
+    retentionSummary: 'Messages/profile data retained under your Slack workspace\'s retention settings.',
+    trainsOnDataByDefault: false,
+    privacyPolicyUrl: 'https://slack.com/trust/privacy/privacy-policy',
+    dataRequestUrl: 'https://slack.com/trust/data-management/gdpr',
+    dataSubjectRequestUrl: 'https://slack.com/trust/data-management/gdpr',
+    dpaUrl: 'https://slack.com/terms-of-service/data-processing',
+    notes: 'Reference users by Slack user id; profile data stays in your workspace.',
+  },
+  'google-workspace': {
+    retentionSummary: 'Directory/calendar data is governed by your Google Workspace admin retention settings.',
+    trainsOnDataByDefault: false,
+    privacyPolicyUrl: 'https://policies.google.com/privacy',
+    dataRequestUrl: 'https://support.google.com/policies/contact/general_privacy_form',
+    dataSubjectRequestUrl: 'https://support.google.com/policies/contact/general_privacy_form',
+    dpaUrl: 'https://cloud.google.com/terms/data-processing-addendum',
+    notes: 'Reference users/events by their Workspace id; contact and calendar data stays in your tenant.',
+  },
 };
 
 const GENERIC: ProviderDataGovernance = {

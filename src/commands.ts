@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { execFile } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import type { AtlasMindContext } from './extension.js';
 import { describeLocalModel, getConfiguredLocalEndpoints } from './providers/index.js';
@@ -13,7 +12,7 @@ import { formatCostAdaptive } from './core/currencyFormatter.js';
 import { pickWorkspaceFolder } from './utils/workspacePicker.js';
 import { hasAiInstructionSyncFile, scanAiInstructionFiles, syncAiInstructionFiles } from './utils/aiInstructionSync.js';
 import { getSelectedSessionRenameTarget, postSidebarSummaryToChat } from './views/treeViews.js';
-import { findCommandExecutable, getKnownCommandInstallHint } from './mcp/mcpClient.js';
+import { checkStarterRuntime, runRuntimeInstallPlan } from './mcp/mcpRuntime.js';
 import type { ChatSessionTreeItem, DiscoveryFinderItem, McpServerTreeItem, ModelProviderTreeItem, ModelTreeItem, SessionFolderTreeItem, SkillFolderTreeItem, SkillTreeItem } from './views/treeViews.js';
 
 const SKILL_LEARNING_WARNING =
@@ -108,6 +107,11 @@ function buildRecommendedMcpInstallConfig(server: RecommendedMcpServerSelection)
   if (starter.setupMode !== 'prefill') {
     return undefined;
   }
+  // Servers that need required inputs (credentials, connection URLs) cannot be
+  // one-click installed from the quick pick — route them to the guided wizard.
+  if (starter.inputs?.some(input => input.required)) {
+    return undefined;
+  }
 
   if (starter.transport === 'http' && starter.url) {
     return {
@@ -146,145 +150,52 @@ async function openRecommendedMcpAddWorkspace(atlas: AtlasMindContext, server: R
   );
 }
 
-function execFileAsync(command: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    execFile(command, args, { windowsHide: true }, (error, stdout, stderr) => {
-      if (error) {
-        reject(new Error([error.message, stderr, stdout].filter(Boolean).join('\n').trim()));
-        return;
-      }
-      resolve({ stdout, stderr });
-    });
-  });
-}
-
-function buildRuntimeInstallInvocation(
-  packageManagerExecutable: string,
-  packageManager: 'winget' | 'brew' | 'apt-get' | 'dnf' | 'pacman',
-  packageId: string,
-  extraPackages: string[] = [],
-): { command: string; args: string[] } {
-  const packages = [packageId, ...extraPackages];
-
-  switch (packageManager) {
-    case 'winget':
-      return {
-        command: packageManagerExecutable,
-        args: [
-          'install',
-          '--id', packageId,
-          '-e',
-          '--source', 'winget',
-          '--accept-package-agreements',
-          '--accept-source-agreements',
-          '--disable-interactivity',
-        ],
-      };
-    case 'brew':
-      return { command: packageManagerExecutable, args: ['install', ...packages] };
-    case 'apt-get': {
-      const baseArgs = [packageManagerExecutable, 'install', '-y', ...packages];
-      if (typeof process.getuid === 'function' && process.getuid() !== 0) {
-        const sudoExecutable = findCommandExecutable('sudo');
-        if (sudoExecutable) {
-          return { command: sudoExecutable, args: ['-n', ...baseArgs] };
-        }
-      }
-      return { command: packageManagerExecutable, args: ['install', '-y', ...packages] };
-    }
-    case 'dnf': {
-      const baseArgs = [packageManagerExecutable, 'install', '-y', ...packages];
-      if (typeof process.getuid === 'function' && process.getuid() !== 0) {
-        const sudoExecutable = findCommandExecutable('sudo');
-        if (sudoExecutable) {
-          return { command: sudoExecutable, args: ['-n', ...baseArgs] };
-        }
-      }
-      return { command: packageManagerExecutable, args: ['install', '-y', ...packages] };
-    }
-    case 'pacman': {
-      const baseArgs = [packageManagerExecutable, '-S', '--noconfirm', ...packages];
-      if (typeof process.getuid === 'function' && process.getuid() !== 0) {
-        const sudoExecutable = findCommandExecutable('sudo');
-        if (sudoExecutable) {
-          return { command: sudoExecutable, args: ['-n', ...baseArgs] };
-        }
-      }
-      return { command: packageManagerExecutable, args: ['-S', '--noconfirm', ...packages] };
-    }
-  }
-}
-
 async function ensureRecommendedMcpRuntimeAvailable(
   server: RecommendedMcpServerSelection,
   config: Omit<McpServerConfig, 'id'>,
-  progress?: vscode.Progress<{ message?: string; increment?: number }>,
 ): Promise<RecommendedMcpRuntimeBootstrapResult> {
-  if (config.transport !== 'stdio' || !config.command) {
+  const runtimeCommand = config.transport === 'stdio' ? config.command : undefined;
+  const check = checkStarterRuntime(server.id, runtimeCommand);
+
+  if (check.status === 'ready') {
     return { ready: true };
   }
 
-  if (findCommandExecutable(config.command)) {
-    return { ready: true };
+  if (check.status === 'manual') {
+    return { ready: false, message: `${server.name} still needs setup. ${check.message}` };
   }
 
-  const starter = getRecommendedMcpStarterDetails(server.id);
-  const platformKey = (process.platform === 'win32' || process.platform === 'darwin' || process.platform === 'linux')
-    ? process.platform
-    : undefined;
-  const runtimeCandidates = platformKey ? (starter.runtimeInstalls?.[platformKey] ?? []) : [];
-  if (runtimeCandidates.length === 0) {
-    return {
-      ready: false,
-      message: `${server.name} still needs the ${config.command} runtime before AtlasMind can connect. ${getKnownCommandInstallHint(config.command)}`,
-    };
-  }
-
-  const availableInstaller = runtimeCandidates
-    .map(candidate => ({
-      candidate,
-      executable: findCommandExecutable(candidate.packageManager),
-    }))
-    .find(entry => Boolean(entry.executable));
-
-  if (!availableInstaller?.executable) {
-    return {
-      ready: false,
-      message: `${server.name} needs ${runtimeCandidates[0]?.displayName ?? config.command}, but no supported package manager was detected for this platform. AtlasMind looked for ${runtimeCandidates.map(candidate => candidate.packageManager).join(', ')}.\n\nPlease install ${runtimeCandidates[0]?.displayName ?? config.command} manually and reload VS Code.`,
-    };
-  }
-
-  const runtimeInstall = availableInstaller.candidate;
-  const installInvocation = buildRuntimeInstallInvocation(
-    availableInstaller.executable,
-    runtimeInstall.packageManager,
-    runtimeInstall.packageId,
-    runtimeInstall.extraPackages ?? [],
+  // Confirm before installing anything (AtlasMind confirm-before-install policy).
+  const installLabel = `Install ${check.plan.displayName}`;
+  const choice = await vscode.window.showInformationMessage(
+    `${server.name} needs ${check.plan.displayName}, which is not installed yet.`,
+    {
+      modal: true,
+      detail: `AtlasMind will run:\n\n${check.plan.humanCommand}\n\nNothing is installed until you choose "${installLabel}".`,
+    },
+    installLabel,
   );
 
-  progress?.report({ message: `Installing ${runtimeInstall.displayName} via ${runtimeInstall.packageManager}…` });
-  let installAttempts = 0;
-  let lastError: unknown = undefined;
-  while (installAttempts < 2) {
-    try {
-      await execFileAsync(installInvocation.command, installInvocation.args);
-      if (findCommandExecutable(config.command)) {
-        return {
-          ready: true,
-          installedRuntime: runtimeInstall.displayName,
-          message: `${runtimeInstall.displayName} was installed automatically for ${server.name}.`,
-        };
-      }
-    } catch (error) {
-      lastError = error;
-    }
-    installAttempts++;
+  if (choice !== installLabel) {
+    return {
+      ready: false,
+      message: `${server.name} still needs ${check.plan.displayName}. AtlasMind did not install anything. You can run "${check.plan.humanCommand}" yourself, reload VS Code, and try again.`,
+    };
   }
-  // After retry, still not found
-  return {
-    ready: false,
-    message: `AtlasMind tried to install ${runtimeInstall.displayName} for ${server.name}, but the install step did not complete.\n\nError: ${lastError instanceof Error ? lastError.message : String(lastError)}\n\nPlease install ${runtimeInstall.displayName} manually using ${runtimeInstall.packageManager} and reload VS Code.`,
-  };
+
+  const result = await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: `AtlasMind: installing ${check.plan.displayName}`,
+      cancellable: false,
+    },
+    async progress => runRuntimeInstallPlan(check.runtimeCommand, check.plan, message => progress.report({ message })),
+  );
+
+  if (result.ok) {
+    return { ready: true, installedRuntime: check.plan.displayName, message: `${result.message} for ${server.name}.` };
+  }
+  return { ready: false, message: result.message };
 }
 
 /**
@@ -1113,24 +1024,30 @@ export function registerCommands(
         return;
       }
 
-      let runtimeBootstrapMessage: string | undefined;
-      let installedRuntime: string | undefined;
+      // Runtime check + confirm-before-install happens first, outside the connect
+      // progress, so the confirmation dialog is not nested inside a progress toast.
+      const runtimeState = await ensureRecommendedMcpRuntimeAvailable(selectedServer, config);
+      if (!runtimeState.ready) {
+        await openRecommendedMcpAddWorkspace(
+          atlas,
+          selectedServer,
+          runtimeState.message ?? `AtlasMind could not prepare the local runtime for ${selectedServer.name}.`,
+          'warning',
+        );
+        return;
+      }
+      const runtimeBootstrapMessage: string | undefined = runtimeState.message;
+      const installedRuntime: string | undefined = runtimeState.installedRuntime;
+
       let result;
       try {
         result = await vscode.window.withProgress(
           {
             location: vscode.ProgressLocation.Notification,
-            title: `AtlasMind: installing ${selectedServer.name}`,
+            title: `AtlasMind: connecting ${selectedServer.name}`,
             cancellable: false,
           },
           async progress => {
-            const runtimeState = await ensureRecommendedMcpRuntimeAvailable(selectedServer, config, progress);
-            runtimeBootstrapMessage = runtimeState.message;
-            installedRuntime = runtimeState.installedRuntime;
-            if (!runtimeState.ready) {
-              throw new Error(runtimeState.message ?? `AtlasMind could not prepare the local runtime for ${selectedServer.name}.`);
-            }
-
             progress.report({ message: 'Saving the recommended MCP server and attempting the first connection…' });
             return atlas.mcpServerRegistry.importServers([config]);
           },

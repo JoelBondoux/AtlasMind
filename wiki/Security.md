@@ -126,6 +126,11 @@ Custom skills are statically scanned before enablement:
 - Built-in skills are **pre-approved** and skip scanning
 - MCP tools are **pre-approved** (trust is delegated to the MCP server)
 
+**MCP guided setup (`src/views/mcpPanel.ts`):**
+- **Credentials in SecretStorage, not settings.** Secret inputs the wizard collects (API tokens, etc.) are stored in VS Code SecretStorage under `atlasmind.mcp.<serverId>.<KEY>` via `McpServerConfig.secretEnvKeys`, merged into the process env only at connect time, and deleted when the server is removed. The persisted config (in `globalState`) holds only the key names — secret values never touch settings or the git-tracked tree, and are never echoed back to the webview.
+- **Confirm before install.** A missing runtime (Node, uv, …) is surfaced with the exact package-manager command and installed **only after explicit user confirmation** (`checkStarterRuntime` plans; `runRuntimeInstallPlan` runs only post-confirmation) — replacing the previous silent auto-install.
+- **Trustworthy scan.** `detectAvailableServers()` surfaces only servers whose launch runtime is actually present, so the wizard never offers a broken option.
+
 ### 7a. On-Device Voice Asset Provisioning
 
 - Local speech-to-text (`LocalTranscriber`) downloads its Whisper model and, on Windows x64, the `whisper-cli` binary. Both are fetched over **HTTPS** from pinned URLs and **SHA-256-verified** against hardcoded checksums before use; a mismatch deletes the partial file and aborts rather than running unverified code.

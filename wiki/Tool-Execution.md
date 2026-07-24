@@ -133,6 +133,10 @@ Read-only Docker inspection is classified as `terminal-read`. Container lifecycl
 
 ---
 
+## MCP runtime bootstrap is confirm-before-install
+
+Setting up an MCP server can require a local runtime (Node/`npx`, `uv`/`uvx`, …). The guided setup wizard and the recommended-install command never install one silently: `checkStarterRuntime` (`src/mcp/mcpRuntime.ts`) only *plans* the install and surfaces the exact package-manager command (e.g. `winget install --id astral-sh.uv`); `runRuntimeInstallPlan` executes it **only after an explicit modal confirmation**. Declining leaves nothing changed and shows the command to run manually. Credentials the wizard collects are stored in VS Code SecretStorage, never in settings — see [[Security]].
+
 ## Resource discovery is pre-invocation, not execution
 
 [[Resource Discovery]] (ARD) deliberately sits *before* the tool-execution path: it only locates resources. The read-only `discover-resources` skill classifies as a network read and never installs anything. Acting on a result is a separate, explicit step — installing a discovered MCP server adds it to the MCP Servers panel **disabled**, so connecting it still passes through the normal MCP trust gate before any of its tools can run. Agent Finders ship disabled, so no outbound discovery occurs until the user opts in.
