@@ -1068,6 +1068,145 @@ export interface RoutineRunResult {
   durationMs: number;
 }
 
+// ── Website Studio ───────────────────────────────────────────────
+
+/** Hosting/CMS targets understood by the Website Studio. */
+export type WebsitePlatformId =
+  | 'cloudflare-pages'
+  | 'github-pages'
+  | 'wordpress-elementor'
+  | 'wordpress'
+  | 'vercel'
+  | 'netlify'
+  | 'azure-static-web-apps'
+  | 'shopify'
+  | 'webflow'
+  | 'custom';
+
+export type WebsiteWorkStatus = 'not-started' | 'draft' | 'review' | 'approved' | 'blocked';
+export type WebsitePlatformStatus = 'not-planned' | 'planned' | 'configured' | 'live' | 'blocked';
+export type WebsiteAutomationStatus = 'idea' | 'mapped' | 'configured' | 'verified' | 'paused';
+
+/** Normalized, deliberately bounded client brief imported into Website Studio. */
+export interface ClientWebsiteIntake {
+  clientName: string;
+  projectName: string;
+  summary: string;
+  goals: string[];
+  audiences: string[];
+  requiredFeatures: string[];
+  contentSources: string[];
+  brandNotes: string;
+  constraints: string[];
+  successMetrics: string[];
+  targetLaunch?: string;
+  budget?: string;
+  stakeholders: string[];
+}
+
+/** One page moving from sitemap through wireframe, visual design, content, and SEO review. */
+export interface WebsitePagePlan {
+  id: string;
+  title: string;
+  slug: string;
+  purpose: string;
+  template: string;
+  sections: string[];
+  wireframeNotes: string;
+  designNotes: string;
+  wireframeStatus: WebsiteWorkStatus;
+  designStatus: WebsiteWorkStatus;
+  contentStatus: WebsiteWorkStatus;
+  seoStatus: WebsiteWorkStatus;
+}
+
+/** Project-level UI direction. Values are design decisions, never generated CSS or executable code. */
+export interface WebsiteDesignSystem {
+  brandDirection: string;
+  tone: string;
+  primaryColor: string;
+  secondaryColor: string;
+  accentColor: string;
+  headingFont: string;
+  bodyFont: string;
+  spacingScale: string;
+  cornerStyle: string;
+  accessibilityTarget: string;
+  componentNotes: string[];
+}
+
+/** One possible publishing target. Secret values are intentionally excluded. */
+export interface WebsitePlatformTarget {
+  id: WebsitePlatformId;
+  label: string;
+  status: WebsitePlatformStatus;
+  primary: boolean;
+  siteUrl?: string;
+  projectReference?: string;
+  environmentReference?: string;
+  notes: string;
+}
+
+/** The fixed website delivery environments presented by Website Studio. */
+export type WebsiteHostingEnvironmentId = 'develop' | 'staging' | 'production';
+
+/** Develop can run locally or use a guarded hosted fallback; later stages are hosted. */
+export type WebsiteHostingMode = 'local' | 'hosted';
+
+/** Access is policy-controlled by environment and is not freely user-selectable. */
+export type WebsiteAccessPolicy = 'local-only' | 'password-protected' | 'public';
+
+/**
+ * One stage in Website Studio's fixed Develop → Staging → Production pipeline.
+ * Credential references point to SecretStorage, environment variables, or an
+ * external secret manager; raw passwords are deliberately outside this schema.
+ */
+export interface WebsiteHostingEnvironment {
+  id: WebsiteHostingEnvironmentId;
+  name: 'Develop' | 'Staging' | 'Production';
+  purpose: string;
+  hostingMode: WebsiteHostingMode;
+  accessPolicy: WebsiteAccessPolicy;
+  url?: string;
+  branchReference?: string;
+  credentialReference?: string;
+  subdomainLabel?: string;
+  notes: string;
+  promotionProtected: boolean;
+}
+
+/**
+ * A planned n8n workflow. `credentialReference` names an environment variable,
+ * SecretStorage entry, or external secret-manager item; it must never contain
+ * the credential or webhook value itself.
+ */
+export interface WebsiteAutomation {
+  id: string;
+  name: string;
+  event: string;
+  outcome: string;
+  status: WebsiteAutomationStatus;
+  n8nWorkflowId?: string;
+  instanceUrl?: string;
+  credentialReference?: string;
+  dataNotes: string;
+}
+
+/**
+ * Website Studio SSOT. Persisted to `project_memory/domain/website.json` with
+ * a human-readable `website.md` mirror for review and version control.
+ */
+export interface WebsiteWorkspaceConfig {
+  version: 1;
+  updatedAt: string;
+  intake: ClientWebsiteIntake;
+  pages: WebsitePagePlan[];
+  designSystem: WebsiteDesignSystem;
+  platforms: WebsitePlatformTarget[];
+  hostingEnvironments: WebsiteHostingEnvironment[];
+  automations: WebsiteAutomation[];
+}
+
 // ── Delivery / Deployment Stages ─────────────────────────────────
 
 /**

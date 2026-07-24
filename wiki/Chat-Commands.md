@@ -44,6 +44,8 @@ Creates the SSOT memory folder structure and offers optional CI/CD governance sc
 3. Optionally scaffolds `.github/workflows/ci.yml`, PR template, issue templates, `CODEOWNERS`, `.vscode/extensions.json`
 4. Non-destructive — never overwrites existing files
 
+Choosing **Website / Marketing Site** also seeds the dedicated Website Studio at `project_memory/domain/website.json` plus a review-friendly `website.md` mirror. It carries the captured outcome, audience, constraints, timing, budget, metrics, and likely platform into the first draft. Existing website Studio files are never overwritten.
+
 ---
 
 ## `/import`
@@ -296,6 +298,7 @@ These are also available from the Command Palette (`Ctrl+Shift+P`):
 | `AtlasMind: Sync Testing Protocols to AI Agents` | Mirror the enabled testing protocols into detected external agent instruction files (`CLAUDE.md`, `copilot-instructions.md`, `AGENTS.md`, etc.) |
 | `AtlasMind: Compare Models on a Prompt` | Run one prompt across your configured models (grouped by provider, with Select All and ready-made sample prompts) and view a sortable comparison. An optional LLM **judge** scores each answer 0–100; click any column header to sort. Graded outcomes calibrate outcome-driven routing. Open it from the Models view titlebar (beaker icon) or the Settings overview. |
 | `AtlasMind: Open Project Dashboard` | Opens the interactive command center for repo health, runtime state, SSOT coverage, security posture, and delivery or PR-readiness signals |
+| `AtlasMind: Open Website Studio` | Opens six website dashboards for client intake, sitemap, wireframes and visual design, UI system, platform readiness, and n8n workflow mapping |
 | `AtlasMind: Open Project Run Center` | Review, approve, pause, resume autonomous runs |
 | `AtlasMind: Open Mission Control` | Define, launch, watch, checkpoint, and audit autonomous Mission Loop (`/loop`) runs |
 | `AtlasMind: Manage MCP Servers` | Connect external tool servers |

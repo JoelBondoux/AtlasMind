@@ -10,12 +10,13 @@
 │  │ @atlas Chat   │   │ Sidebar      │   │ Webview Panels     │  │
 │  │ Participant   │   │ Tree Views   │   │ (Settings,         │  │
 │  │               │   │ (Agents,     │   │  Model Providers,  │  │
-│  │               │   │  Skills,     │   │  Tool Webhooks)    │  │
+│  │               │   │  Skills,     │   │  Tool Webhooks,    │  │
 │  │ /bootstrap    │   │  Skills,     │   │                    │  │
 │  │ /agents       │   │  Memory,     │   │                    │  │
 │  │ /skills       │   │  Models)     │   │                    │  │
 │  │ /memory       │   │              │   │                    │  │
-│  │ /cost         │   │              │   │  Voice, Vision)    │  │
+│  │ /cost         │   │              │   │  Voice, Vision,    │  │
+│  │               │   │              │   │  Website Studio)   │  │
 │  └──────┬───────┘   └──────┬───────┘   └────────┬───────────┘  │
 │         │                  │                     │              │
 │  ───────┴──────────────────┴─────────────────────┘              │
@@ -128,6 +129,25 @@ Built-in **compliance packs** (`src/core/compliancePacks.ts`) contribute curated
 Enforcement lives in the `Orchestrator`: `applyDataPrivacyGate()` classifies the assembled context before model selection and restricts the agent's candidate models to the trusted allow-list (`RoutingConstraints.requireTrustedModel`); `buildMessages()` applies `privacyRedact()` to memory, live evidence, and supplemental context keyed on the actually-selected model (the fail-safe for pins/parallel overflow); and `redactToolResultForModel()` withholds `file-read` results for classified paths when the running model is un-trusted. When classified content is found but no trusted model is available, the content is redacted and the UI is notified via `OrchestratorHooks.onClassifiedContentForUntrustedModel`.
 
 The gate also records a **catch** (`recordCatch`) each time a rule/detector fires for a real task, capturing the source label and sensitivity (never the matched value) and whether the selected model was trusted. The activity log is persisted workspace-scoped and powers the Privacy dashboard charts (catches over time + per-detector breakdown). `src/core/providerDataGovernance.ts` is a static reference mapping each provider to its GDPR/data-subject request portal, privacy policy, DPA, retention summary, and default training stance, surfaced on the Privacy page for the providers hosting trusted models. The Privacy page renders the trusted-model allow-list as a collapsible provider→model tree limited to currently-active models.
+
+### WebsiteWorkspaceManager (`src/core/websiteWorkspaceManager.ts`)
+
+Filesystem-only service behind **AtlasMind: Open Website Studio**. It owns the website SSOT at `project_memory/domain/website.json` and regenerates `website.md` on every save. The shared `WebsiteWorkspaceConfig` types in `src/types.ts` model:
+
+- normalized client intake;
+- page inventory with sitemap fields, section outline, design notes, and separate wireframe/UI/content/SEO review states;
+- project-level UI system decisions;
+- the fixed Develop → Staging → Production hosting environments, including URL/branch references, locked access policy, secret reference, and promotion-protection metadata;
+- a catalog of static, managed-CMS, commerce, and custom platform targets;
+- n8n workflow maps containing event/outcome/status plus non-secret references.
+
+`sanitizeWebsiteWorkspace()` is the untrusted-input boundary for both webview edits and imported client JSON. It caps text/list/page/workflow sizes, normalizes and deduplicates IDs, allow-lists statuses, platform IDs, HTTP(S) URLs, and six-digit hex colors, removes URL credentials/query/fragment values, enforces at most one primary platform, applies the shared secret redactor, and replaces n8n webhook-shaped URLs with a marker before disk persistence. It also rebuilds the three hosting environments from canonical server-side policy: Develop is loopback/local unless the explicit hosted fallback is selected (then password-protected), Staging is always hosted and password-protected, and Production is always hosted, public, and promotion-protected. Credential references require an explicit secret-provider prefix, so a raw password-like string does not survive sanitation. Both rendered SSOT files then pass `scanMemoryEntry`; error-level prompt-injection content aborts the write before either file is created. The schema intentionally has no API-key, password, bearer-token, or webhook-value field.
+
+`assessWebsiteHostingEnvironments()` is a non-executing readiness evaluator. It requires HTTPS for hosted environments, restricts local Develop to loopback hosts, requires password references for hosted Develop and Staging, and verifies Staging's exact `<review-label>.<production-domain>` topology. It reports missing setup separately from blocking policy violations; it never deploys.
+
+Guided bootstrap exposes **Website / Marketing Site**. `seedWebsiteWorkspace()` carries the captured project name, summary, audience, outcome, constraints, metrics, timing, budget, and inferred platform into the Studio, but refuses to overwrite an existing website plan. The same Studio can import a bounded JSON brief and normalize common form/CRM aliases.
+
+`src/views/websiteStudioPanel.ts` is a six-page webview (Brief, Sitemap, Wireframes & UI, UI System, Hosting & Platforms, n8n Automations). Its Hosting & Platforms page renders the fixed three-stage environment pipeline, locked access posture, readiness issues, and platform catalog. Its message guard accepts only save/import, the two fixed website SSOT paths, and three fixed AtlasMind navigation commands. It models publishing and automation readiness but executes neither. Production publishing stays in `PromotionRunner`, where backup, preflight, approval, protected confirmation, and verification remain enforceable; n8n triggering is likewise deliberately outside this planning surface.
 
 ### DeliveryManager (`src/core/deliveryManager.ts`)
 
@@ -351,6 +371,7 @@ Command Palette or walkthrough -> openPersonalityProfile
 - Webviews are isolated behind a strict CSP and communicate only through validated message payloads.
 - Provider credentials belong in VS Code SecretStorage and are not part of the SSOT or workspace configuration.
 - Bootstrap operations are constrained to safe relative paths inside the current workspace.
+- Website Studio persists only bounded, sanitized planning data and provider-prefixed secret references; it server-locks the Develop/Staging/Production access policies, validates loopback/HTTPS/review-subdomain readiness, redacts recognized secrets/n8n webhook URLs, and exposes no direct deploy or workflow-trigger message.
 - Future orchestrator execution should preserve the same rule: validate inputs, redact secrets, and prefer explicit user confirmation for risky actions.
 
 ## Quality Gates
@@ -370,6 +391,8 @@ extension.ts
   │     ├── views/modelProviderPanel.ts
   │     ├── views/toolWebhookPanel.ts
   │     ├── views/skillScannerPanel.ts
+  │     ├── views/websiteStudioPanel.ts
+  │     │     └── core/websiteWorkspaceManager.ts
   │     ├── views/missionControlPanel.ts
   │     │     └── core/missionRunner.ts (→ core/goalEvaluator.ts, core/missionRegistry.ts)
   │     └── bootstrap/bootstrapper.ts
@@ -402,6 +425,7 @@ extension.ts
 tests/core/
   ├── modelRouter.test.ts
   ├── costTracker.test.ts
+  ├── websiteWorkspaceManager.test.ts
   ├── skillDrafting.test.ts
   └── planner.scheduler.test.ts
 tests/memory/

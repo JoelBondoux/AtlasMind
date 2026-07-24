@@ -8,6 +8,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.129.0] - 2026-07-24
+
+### Added
+- **A fixed Develop → Staging → Production website hosting pipeline.** Website Studio's Hosting & Platform dashboard now creates and persists exactly three environments with environment-specific readiness: Develop defaults to a loopback URL, Staging is a password-protected client-review subdomain of the Production domain, and Production is public and promotion-protected. The dashboard shows each stage, its URL/branch references, locked access posture, validation issues, and the handoff into the existing guarded Delivery workflow.
+- **Safe hosted fallback for Develop.** When local hosting is not possible, Develop can be explicitly switched to a hosted fallback. It is never allowed to become a public preview: HTTPS and a password credential reference are required before readiness passes.
+- **Server-enforced hosting invariants and topology checks.** `sanitizeWebsiteWorkspace()` reconstructs the three environments in their canonical order and ignores tampered access/protection fields. The readiness evaluator blocks insecure hosted URLs and a Staging hostname that is not the configured `<review-label>.<production-domain>`. Raw password-like labels are not accepted as credential references; only explicit references such as `SecretStorage:website.staging.password` or `env:WEBSITE_STAGING_PASSWORD` can enter SSOT.
+- **Hosting pipeline coverage and documentation.** Website Studio tests now cover default environment creation, downgrade-resistant policy sanitation, hosted Develop requirements, Staging-domain validation, Markdown mirroring, and the rendered dashboard. Architecture, development, security, tool-execution, README, Website Studio guide, and wiki documentation describe the same boundary.
+
+## [0.128.0] - 2026-07-24
+
+### Added
+- **Website Studio — an end-to-end client website workspace inside AtlasMind** (`src/views/websiteStudioPanel.ts`, command **AtlasMind: Open Website Studio**). Six connected dashboards cover client brief, sitemap, wireframes and visual-design review, UI system, platform readiness, and n8n workflow mapping. Each page carries independent wireframe, UI, content, and SEO status from not-started through approval; the low-fidelity section outline and design notes preserve the path from pencil-level structure to the client-reviewed layout.
+- **Website platform catalog and delivery posture.** Website Studio models Cloudflare Pages, GitHub Pages, WordPress + Elementor, WordPress, Vercel, Netlify, Azure Static Web Apps, Shopify, Webflow, and custom targets. A project can mark one primary platform, record safe site/project/environment references, and track readiness. Publishing is intentionally delegated to the existing guarded Delivery pipeline; the Studio cannot silently deploy or trigger production.
+- **Client intake import and website bootstrap.** Guided bootstrap now offers **Website / Marketing Site** and seeds `project_memory/domain/website.json` plus a human-readable `website.md` mirror without overwriting an existing plan. The Brief dashboard imports bounded JSON from forms, CRMs, or n8n normalization flows and maps common aliases such as `companyName`, `objectives`, `targetAudience`, and `kpis`.
+- **n8n workflow mapping with a secret-safe boundary.** Workflow event, outcome, status, opaque workflow ID, instance URL, data/privacy notes, and a credential *reference* can be recorded. Credential values and webhook URLs have no schema field; URL validation rejects embedded credentials/query/fragment values, common secrets are redacted before persistence, and n8n webhook-shaped URLs are replaced with a redaction marker.
+- **Website SSOT service and tests** (`src/core/websiteWorkspaceManager.ts`, `tests/core/websiteWorkspaceManager.test.ts`, `tests/views/websiteStudioPanel.test.ts`). All webview/import data is length/count bounded and sanitized, URLs and colors are allow-listed, item IDs are normalized and deduplicated, only one primary platform survives validation, both outputs pass the SSOT memory scanner before write, scripts remain nonce-protected, and arbitrary command/path messages are denied.
+
 ## [0.127.2] - 2026-07-04
 
 ### Changed

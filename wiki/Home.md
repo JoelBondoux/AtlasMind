@@ -30,6 +30,7 @@ AtlasMind turns VS Code into an agentic development environment. Instead of a si
 - **Shared runtime plugin API** — register agents, skills, providers, and lifecycle listeners without patching core bootstrap code
 - **Long-term project memory (SSOT)** — decisions, architecture notes, domain knowledge, and lessons persist in a structured memory folder
 - **Autonomous project planner** — decompose goals into parallel subtasks, preview impact, gate with approvals, and review results
+- **Website Studio** — carry client websites from intake through sitemap, wireframes, UI system, hosting/CMS readiness, and n8n workflow mapping
 - **Safety-first execution** — approval gates, memory scanning, verification hooks, and explicit operator controls are built in from the start
 - **Red/green development bias** — AtlasMind is designed to support tests-first autonomous execution instead of opaque one-shot code generation
 - **Real-time cost tracking** — per-session spend with budget guardrails
@@ -54,6 +55,7 @@ For headless workflows, the CLI now rejects malformed flags instead of treating 
 | [[Memory System]] | SSOT folder structure, retrieval, bootstrapping, import |
 | [[Remote Control]] | Drive a desktop instance from the web build (vscode.dev) |
 | [[Project Planner]] | Autonomous task decomposition and parallel execution |
+| [[Website Studio]] | Client intake, sitemap, wireframes/UI, platform readiness, and n8n workflow planning |
 | [[Tool Execution]] | Approval gating, terminal allow-list, checkpoints, webhooks |
 | [[Configuration]] | All extension settings with defaults and recommended starting points |
 | [[Funding and Sponsorship]] | How to support ongoing AtlasMind development |

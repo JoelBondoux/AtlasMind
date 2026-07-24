@@ -1332,6 +1332,13 @@ export function registerCommands(
       const { ProjectIdeationPanel } = await import('./views/projectIdeationPanel.js');
       ProjectIdeationPanel.createOrShow(atlas.extensionContext, atlas, target);
     }),
+
+    vscode.commands.registerCommand('atlasmind.openWebsiteStudio', async (target?: import('./views/websiteStudioPanel.js').WebsiteStudioPage) => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const { WebsiteStudioPanel } = await import('./views/websiteStudioPanel.js');
+      WebsiteStudioPanel.createOrShow(atlas.extensionContext, target);
+    }),
   );
 }
 

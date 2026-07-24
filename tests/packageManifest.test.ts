@@ -138,9 +138,11 @@ describe('package manifest', () => {
     const commands = (manifest.contributes?.commands ?? []) as ContributedCommand[];
     const chatView = commands.find(entry => entry.command === 'atlasmind.openChatView');
     const dashboard = commands.find(entry => entry.command === 'atlasmind.openProjectDashboard');
+    const websiteStudio = commands.find(entry => entry.command === 'atlasmind.openWebsiteStudio');
 
     expect(chatView?.title).toBe('AtlasMind: Focus Chat View');
     expect(dashboard?.title).toBe('AtlasMind: Open Project Dashboard');
+    expect(websiteStudio?.title).toBe('AtlasMind: Open Website Studio');
   });
 
   it('contributes page-specific AtlasMind settings commands', () => {

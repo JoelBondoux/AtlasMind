@@ -299,3 +299,13 @@ Promoting a build between deployment stages on the Project Dashboard → **Deliv
 4. **Approval & protected confirmation.** When the target requires approval, an explicit approval checkbox is mandatory; when the target is **protected**, the operator must type the target's name to confirm.
 5. **Commands are server-sourced.** Every executed command (backup, deploy/migration routine steps, rollback hint) is read from the persisted, user-authored stage config and routine files. The webview can only *trigger* and *attest* — it can never supply a command string.
 6. **Non-destructive bias.** AtlasMind never force-pushes; the deploy body is the user's own routine; the gate is re-evaluated against live git state at execution time; and each run records its outcome plus a rollback handle.
+
+## Website Studio Is Planning, Not Execution
+
+Website Studio deliberately stops before external mutation:
+
+1. Selecting Cloudflare Pages, GitHub Pages, WordPress/Elementor, or another target records the intended platform and readiness only.
+2. The hosting plan is fixed to Develop → Staging → Production. Develop is loopback-only unless its explicit HTTPS/password-protected fallback is selected; Staging is always an HTTPS, password-protected `<review-label>.<production-domain>`; Production is always public and promotion-protected. These invariants are rebuilt in the extension host, not trusted from the webview.
+3. A public site URL, project label, environment label, n8n instance URL, opaque workflow ID, and credential *reference* may be stored; API keys, passwords, bearer tokens, and n8n webhook values may not. Credential references require a provider prefix such as `env:` or `SecretStorage:`.
+4. Marking a hosting environment `ready`, a platform `configured`/`live`, or an automation `verified` is descriptive state and never triggers a deploy or workflow.
+5. Production publishing must use the guarded Delivery flow above. A future n8n execution feature must be implemented as a host-side tool subject to tool-risk classification, approval, bounded inputs, secret resolution from SecretStorage, and audit output; the current webview has no trigger message.

@@ -6,6 +6,24 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.129.0 — Guarded website hosting environments
+
+- **Every Website Studio project now has Develop, Staging, and Production.** Develop is local/loopback by default, with an explicit HTTPS and password-protected hosted fallback when local execution is unavailable. Staging is always an HTTPS, password-protected `<review-label>.<production-domain>` for client review. Production is public and promotion-protected.
+- **The Hosting & Platforms dashboard shows the complete path.** Each environment has URL, branch/project reference, notes, locked access policy, readiness state, and actionable setup/blocking issues before the platform catalog.
+- **The policy is enforced in the extension host.** A modified webview payload cannot make Staging public, turn Production into a password store, or remove Production protection. Credential fields accept only provider-prefixed references such as `SecretStorage:website.staging.password` and `env:WEBSITE_STAGING_PASSWORD`; the password value remains outside project memory.
+- **Readiness is descriptive, never deployment authority.** Website Studio validates loopback, HTTPS, credential-reference, and Staging-subdomain topology, while actual publishing still enters the Project Dashboard's guarded Delivery pipeline.
+
+---
+
+## v0.128.0 — Website Studio
+
+- **AtlasMind now has a dedicated, end-to-end Website Studio.** Six dashboards carry a client project from imported or hand-authored brief through sitemap, wireframes, visual design, UI system decisions, hosting/CMS readiness, and n8n workflow mapping.
+- **Broad platform coverage.** Cloudflare Pages, GitHub Pages, WordPress + Elementor, WordPress, Vercel, Netlify, Azure Static Web Apps, Shopify, Webflow, and custom targets share one safe planning surface; guarded production delivery still happens in the existing Delivery dashboard.
+- **Website-aware bootstrap and SSOT.** Choosing **Website / Marketing Site** seeds `project_memory/domain/website.json` and its review-friendly `website.md` mirror without overwriting an existing plan.
+- **Secret-safe n8n planning.** Website Studio accepts workflow and credential references, not credential values or webhook URLs, and sanitizes/redacts imported webview data before persistence.
+
+---
+
 ## v0.127.2 — `main` is now the default branch
 
 - **The repository's default branch is now `main`.** The old release branch `master` was renamed to `main` and set as GitHub's default, so anyone landing on the repo sees the released, Marketplace-matching code instead of in-progress work. `develop` stays the day-to-day integration branch. CI, the release-promotion workflow, the delivery pipeline, and all docs were updated to match, and Dependabot keeps opening dependency PRs against `develop`. Also fixed an unresolved merge-conflict marker that had left `.vscode/settings.json` as invalid JSON.

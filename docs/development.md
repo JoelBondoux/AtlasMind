@@ -76,6 +76,7 @@ AtlasMind/
 │   ├── model-routing.md  Model selection logic
 │   ├── ssot-memory.md    Memory system design
 │   ├── agents-and-skills.md  Agent and skill system
+│   ├── website-studio.md Website Studio workflow and safety boundary
 │   ├── github-workflow.md GitHub process standards
 │   └── development.md    This file
 ├── media/
@@ -85,14 +86,14 @@ AtlasMind/
 │   ├── commands.ts       Command handlers
 │   ├── types.ts          Shared type definitions
 │   ├── chat/             Chat participant
-│   ├── core/             Orchestrator, registries, router, skill drafting, task profiler, cost tracker, currency formatter, webhook dispatcher, testing config loader + scaffolder (`testingScaffolder.ts`), delivery/deployment-stage modelling (`deliveryManager.ts`) + guarded promotion engine (`promotionRunner.ts`), Mission Loop (`missionRunner.ts`, `goalEvaluator.ts`, `missionRegistry.ts`), routing intelligence (`executionQuality.ts`, `modelEvalHarness.ts`)
+│   ├── core/             Orchestrator, registries, router, skill drafting, task profiler, cost tracker, currency formatter, webhook dispatcher, Website Studio SSOT (`websiteWorkspaceManager.ts`), testing config loader + scaffolder (`testingScaffolder.ts`), delivery/deployment-stage modelling (`deliveryManager.ts`) + guarded promotion engine (`promotionRunner.ts`), Mission Loop (`missionRunner.ts`, `goalEvaluator.ts`, `missionRegistry.ts`), routing intelligence (`executionQuality.ts`, `modelEvalHarness.ts`)
 │   ├── utils/            Shared helpers: `secretRedactor.ts`, `aiInstructionSync.ts` (inbound import), `aiInstructionMerge.ts` (two-way instruction-set sync), `managedBlock.ts` (shared delimited-block upsert/strip), `testingProtocolSync.ts` (outbound testing-protocol sync), `terminalOutput.ts` (ANSI/control-sequence sanitizer for captured tool output)
 │   ├── mcp/              MCP client + server registry
 │   ├── ard/              Agentic Resource Discovery: `ardClient.ts`, `ardRegistry.ts`, `ardInstaller.ts`, `ardCatalogExporter.ts`
 │   ├── memory/           SSOT memory manager
 │   ├── providers/        LLM provider adapters (for example `anthropic.ts`, `claude-cli.ts`, `copilot.ts`); also `copilotMultiplierSync.ts`, `localModelSync.ts`, and `localModelRecommendationRegistry.ts`
 │   ├── skills/           Built-in skill handlers (for example `dockerCli.ts`, `terminalRun.ts`, `gitApplyPatch.ts`)
-│   ├── views/            Webview panels and tree views (including `personalityProfilePanel.ts`, `modelComparisonPanel.ts`, `missionControlPanel.ts`)
+│   ├── views/            Webview panels and tree views (including `personalityProfilePanel.ts`, `modelComparisonPanel.ts`, `missionControlPanel.ts`, `websiteStudioPanel.ts`)
 │   ├── voice/            TTS/STT: `voiceManager.ts` bridge, `hostSpeechSynthesizer.ts` (OS TTS), `localTranscriber.ts` (on-device Whisper STT)
 │   └── bootstrap/        Project bootstrapper
 ├── tests/                Vitest unit tests
@@ -128,6 +129,8 @@ AtlasMind/
 ## Webview Development
 
 Webview panels use `getWebviewHtmlShell()` from `src/views/webviewUtils.ts` for consistent styling.
+
+The Website Studio follows the same extension-host/webview split. `websiteStudioPanel.ts` renders and collects the six dashboard pages, including the fixed Develop → Staging → Production hosting cards, but every incoming message is checked by `isWebsiteStudioMessage()` and every data payload is passed through `sanitizeWebsiteWorkspace()` in `websiteWorkspaceManager.ts` before persistence. Treat all displayed policy fields as presentation only: the host reconstructs canonical environment names, access policies, hosting restrictions, and Production protection; `assessWebsiteHostingEnvironments()` then validates loopback/HTTPS/password-reference/review-subdomain readiness. Credential inputs are references with an explicit provider prefix, never password values. Keep platform deployment and n8n execution out of the webview: it may record readiness and non-secret references, while real production actions must continue through a separately reviewed/approved host-side path. Tests live in `tests/core/websiteWorkspaceManager.test.ts` and `tests/views/websiteStudioPanel.test.ts`.
 
 That shared shell is also used by compact sidebar webview views such as the AtlasMind Quick Links strip, so even very small sidebar surfaces still inherit the same CSP, nonce handling, and HTML escaping rules as the larger dashboard-style panels.
 

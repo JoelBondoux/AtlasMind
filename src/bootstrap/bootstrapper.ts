@@ -79,6 +79,12 @@ const KNOWN_TOOL_TERMS = [
   'LaunchDarkly',
   'Vercel',
   'Netlify',
+  'Cloudflare Pages',
+  'GitHub Pages',
+  'WordPress',
+  'Elementor',
+  'Webflow',
+  'n8n',
 ];
 
 
@@ -125,6 +131,7 @@ interface BootstrapArtifacts {
   remoteRepoUrl: string | undefined;
   templateScaffolded: ShopifyTemplate | undefined;
   claudeMdWritten: boolean;
+  websiteWorkspaceSeeded: boolean;
 }
 
 const BOOTSTRAP_DRAFT_PATH = 'index/bootstrap-draft.json';
@@ -377,6 +384,7 @@ async function collectBootstrapIntake(
     if (!hasBootstrapValue(intake.projectType)) {
       const projectTypePick = await vscode.window.showQuickPick(
         [
+          { label: 'Website / Marketing Site', description: 'Seed a client brief, sitemap, design workflow, platform targets, and n8n automation map.', template: undefined as ShopifyTemplate | undefined },
           { label: 'Web App', description: '', template: undefined as ShopifyTemplate | undefined },
           { label: 'API Server', description: '', template: undefined },
           { label: 'CLI Tool', description: '', template: undefined },
@@ -773,6 +781,25 @@ async function applyBootstrapIntake(
   const githubArtifactsUpdated = await writeGitHubPlanningArtifacts(workspaceRoot, intake);
   await writeBootstrapTestingConfig(ssotRoot, intake);
   const claudeMdWritten = await writeBootstrapClaudeMd(workspaceRoot, intake);
+  let websiteWorkspaceSeeded = false;
+  if (isWebsiteBootstrapProject(intake.projectType)) {
+    const { seedWebsiteWorkspace } = await import('../core/websiteWorkspaceManager.js');
+    websiteWorkspaceSeeded = await seedWebsiteWorkspace(workspaceRoot.fsPath, {
+      projectName: intake.projectName,
+      summary: intake.productSummary,
+      goals: splitWebsiteSeedList(intake.productOutcome),
+      audiences: splitWebsiteSeedList(intake.targetAudience),
+      requiredFeatures: splitWebsiteSeedList(intake.thirdPartyTools),
+      constraints: [
+        intake.builderProfile,
+        intake.timeline,
+      ].filter((value): value is string => Boolean(value?.trim())),
+      successMetrics: splitWebsiteSeedList(intake.successMetrics),
+      targetLaunch: intake.timeline,
+      budget: intake.projectBudget,
+      platformHint: [intake.techStack, intake.thirdPartyTools, intake.projectType].filter(Boolean).join(' '),
+    });
+  }
 
   return {
     questionCount,
@@ -786,7 +813,18 @@ async function applyBootstrapIntake(
     remoteRepoUrl: undefined,
     templateScaffolded: undefined,
     claudeMdWritten,
+    websiteWorkspaceSeeded,
   };
+}
+
+function isWebsiteBootstrapProject(projectType: string | undefined): boolean {
+  return /\b(website|marketing site|shopify new store|shopify store|shopify theme)\b/i.test(projectType ?? '');
+}
+
+function splitWebsiteSeedList(value: string | undefined): string[] {
+  return value
+    ? value.split(/\r?\n|[;](?=\s|$)/).map(item => item.trim()).filter(Boolean).slice(0, 20)
+    : [];
 }
 
 function countBootstrapSignals(intake: BootstrapProjectIntake): number {
@@ -1904,6 +1942,9 @@ function buildBootstrapCompletionSummary(ssotRelPath: string, intake: BootstrapP
     artifacts.ideationSeeded
       ? '- Seeded ideation defaults in `ideas/atlas-ideation-board.json` and `ideas/atlas-ideation-board.md`.'
       : '- Ideation defaults were not seeded.',
+    artifacts.websiteWorkspaceSeeded
+      ? '- Seeded Website Studio in `domain/website.json` and `domain/website.md`; open **AtlasMind: Open Website Studio** to continue from brief to delivery.'
+      : '',
     artifacts.githubArtifactsUpdated
       ? '- Wrote GitHub-ready planning artifacts under `.github/ISSUE_TEMPLATE/` and `.github/project-planning/`.'
       : '- GitHub-ready planning artifacts were not written.',

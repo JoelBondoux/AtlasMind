@@ -20,6 +20,7 @@ This file is the developer-facing backlog AtlasMind should absorb into SSOT and 
 - [ ] Add or update the tests needed to prove the next change safely.
 - [ ] Sequence the next milestone so delivery remains measurable.
 - [ ] Review the operational or third-party dependencies before scaling scope.
+- [ ] Make one-tap quick-reply chips a universal expectation across every chat surface, not just the main Chat panel. `detectResponseQuickReplies` now reliably detects question shapes (v0.125.0), but pills only render in the Chat panel webview. Wire `responseText` into the `buildAssistantResponseMetadata` calls for the project-dashboard ideation chat (`src/views/projectDashboardPanel.ts`), the Project Ideation panel (`src/views/projectIdeationPanel.ts`), and the Vision panel (`src/views/visionPanel.ts`), and add the `renderQuickReplyButtons` render path (and its CSS) to those webviews so questions get clickable chips everywhere a user chats. (The `@atlas` participant footer renders in native VS Code chat markdown, which can't host immediate-submit buttons, so it stays text-only.)
 <!-- atlasmind:roadmap-items:end -->
 
 ## Prioritisation Notes

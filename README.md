@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.127.2</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.129.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -58,6 +58,7 @@ AtlasMind is built for indie developers, freelancers, and small teams who want t
 - **Built-in skills**: 43 pre-built skills including file editing, git, diagnostics, code navigation, test running, debugging, HTTP requests, Docker, web fetch, and more. Skills are grouped by category and support custom folders. Agents use AI-driven auto skill assignment by default.
 - **Long-term project memory (SSOT)**: Decisions, architecture notes, and lessons learned persist in a structured memory folder. A dedicated Memory Agent maintains session context and keeps SSOT snippets fresh as source files evolve.
 - **Project planner**: Decompose goals into subtasks, preview impact, gate execution, and review results.
+- **Website Studio**: Run a client website from normalized intake through sitemap, wireframes, high-fidelity UI decisions, a fixed Develop → Staging → Production hosting pipeline, platform readiness, and n8n workflow mapping. Targets include Cloudflare Pages, GitHub Pages, WordPress/Elementor, Vercel, Netlify, Azure Static Web Apps, Shopify, Webflow, and custom hosting.
 - **Cost tracking**: Real-time per-session spend with budget guardrails and a daily cost limit.
 - **MCP server support**: Extend AtlasMind with Model Context Protocol (MCP) servers for custom tools, agent extensions, and advanced workflows.
 - **Voice & Vision**: Speak your prompts and hear responses via the Voice Panel (TTS/STT). Attach workspace images to any question via the Vision Panel for multimodal analysis.
@@ -80,6 +81,7 @@ For advanced setup, provider notes, CLI usage, or development workflows, see:
 - [Getting Started](wiki/Getting-Started.md)
 - [CLI Usage](wiki/CLI.md)
 - [Model Routing](docs/model-routing.md)
+- [Website Studio](docs/website-studio.md)
 - [Development Guide](docs/development.md)
 
 Focused provider test example:
@@ -130,6 +132,7 @@ Access these from the VS Code Command Palette (`Ctrl+Shift+P`).
 | `AtlasMind: Open Cost Dashboard` | Per-session and per-model cost breakdown, plus a live "Current Loops" section for in-flight Mission Loop spend |
 | `AtlasMind: Open Project Dashboard` | Project health, gap analysis, and roadmap — including a **Road to MVP** section that tags backlog items (`#mvp`), visualises a milestone track to a first shippable product, and recommends the best route with an "ask Atlas" handoff |
 | `AtlasMind: Open Project Ideation` | Ideation whiteboard before launching a project run |
+| `AtlasMind: Open Website Studio` | Six website dashboards for client intake, sitemap, wireframes and visual-design review, UI system decisions, guarded Develop/Staging/Production hosting plus CMS targets, and n8n workflow mapping |
 | `AtlasMind: Open Project Run Center` | Task run history and checkpoint browser |
 | `AtlasMind: Open Mission Control` | Define, launch, watch, checkpoint, and audit autonomous Mission Loop runs |
 | `AtlasMind: Show Cost Summary` | Quick cost summary in the chat |
@@ -154,6 +157,23 @@ Access these from the VS Code Command Palette (`Ctrl+Shift+P`).
 | `AtlasMind: Open Remote Dashboard` | Read-only cost and project-run dashboard in the web build (web) |
 
 See [Remote Control](docs/remote-control.md) for the architecture and security model.
+
+---
+
+## Website Studio
+
+Choose **Website / Marketing Site** during guided bootstrap, or run **AtlasMind: Open Website Studio** in any workspace. The Studio provides six connected dashboards:
+
+1. **Client brief** — capture manually or import bounded JSON from a form, CRM, or n8n normalization flow.
+2. **Sitemap** — define each page, slug, purpose, and reusable template.
+3. **Wireframes & UI** — outline page sections and track wireframe, visual design, content, and SEO through draft, review, and approval.
+4. **UI system** — record brand direction, type, palette, spacing, corners, accessibility target, and component decisions.
+5. **Hosting & Platforms** — configure the fixed Develop → Staging → Production path, then choose and track Cloudflare Pages, GitHub Pages, WordPress/Elementor, WordPress, Vercel, Netlify, Azure Static Web Apps, Shopify, Webflow, or a custom target.
+6. **n8n automations** — map events and outcomes while storing only workflow IDs and credential references, never webhook or credential values.
+
+The hosting policy is fixed: **Develop** uses a loopback URL by default and can use an HTTPS, password-protected hosted fallback only when local hosting is not possible; **Staging** is always an HTTPS, password-protected `<review-label>.<production-domain>` for client review; **Production** is public and promotion-protected. Password values are never stored—only references such as `SecretStorage:website.staging.password` or `env:WEBSITE_STAGING_PASSWORD`.
+
+The source of truth is `project_memory/domain/website.json`; AtlasMind regenerates `website.md` as a review-friendly mirror. Website Studio evaluates readiness but does not publish or trigger workflows directly. Production delivery remains behind the Project Dashboard's preflight, backup, approval, publish, and verification gates.
 
 ---
 
@@ -302,6 +322,7 @@ See [Funding and Sponsorship](wiki/Funding-and-Sponsorship.md) for details.
 - Shared utilities: `src/utils/` (including `secretRedactor.ts` — pattern-based secret scanner used to scrub credentials from memory context before LLM dispatch; `aiInstructionSync.ts` — inbound merge of external agent rule files; `testingProtocolSync.ts` — outbound sync of enabled testing protocols into external agent instruction files; `terminalOutput.ts` — strips ANSI/control escape sequences from captured tool output before it is shown in chat summaries or webviews)
 - Data privacy: `src/core/dataPrivacyManager.ts` (classifies confidential/proprietary terms, files, and folders and gates them to user-selected "trusted" models; records catch activity for the dashboard charts), `src/core/compliancePacks.ts` (built-in GDPR/HIPAA/PCI-DSS/CCPA detector packs), and `src/core/providerDataGovernance.ts` (per-provider GDPR/data-management reference links). Managed from the Project Dashboard → **Privacy** page (provider/model trust tree, catch charts, and provider data-management panel); policy stored at `project_memory/operations/data-privacy.json`.
 - Delivery & deployment stages: `src/core/deliveryManager.ts` (models Local → Staging → Production stages and promotion "push" edges; seeds a pipeline from the repo's branches, sanitises dashboard edits via `sanitizeDeliveryConfig`, and persists `project_memory/operations/delivery.json` + a human-readable `delivery.md` runbook mirror) and `src/core/promotionRunner.ts` (the guarded promotion engine: builds the preflight → backup → deploy → verify → record plan, enforces the authorization gate, and executes user-authored commands with live progress). Surfaced on the Project Dashboard → **Delivery** page as an editable **Stages & Promotion** pipeline with **Execute / Runbook** push buttons; production is protected, a data-bearing target with no backup command is deny-by-default blocked, executed commands are sourced only from your saved config/routines, and AtlasMind never force-pushes. The page **auto-refreshes** on external `delivery.json` changes (file watcher) and shows a **"review needed"** banner when the protocol, stage-candidate branches, or CI workflows have drifted since your last review.
+- Website delivery: `src/core/websiteWorkspaceManager.ts` (bounded client-intake normalization, fixed Develop/Staging/Production hosting policy and readiness, sitemap/design/platform/n8n SSOT persistence, secret redaction, and Markdown mirroring) and `src/views/websiteStudioPanel.ts` (the six-tab Website Studio webview). Website bootstrap seeds `project_memory/domain/website.json` plus `website.md` without overwriting an existing plan; publishing continues through the guarded Delivery pipeline rather than executing from the Studio.
 - Mission Loop (autonomous goal-seeking loop): `src/core/missionRunner.ts` (the outer plan → execute → evaluate loop with the closed parameter envelope and deny-by-default checkpoints), `src/core/goalEvaluator.ts` (validated, untrusted-output progress verdicts), and `src/core/missionRegistry.ts` (audit persistence to `project_memory/operations/missions.json` + a `missions.md` runbook mirror). Defined/launched/watched from the **Mission Control** webview (`src/views/missionControlPanel.ts`) and the `/loop` chat command.
 - Testing strategy: `src/core/testingConfigLoader.ts` (methodology resolution for orchestrated runs) and `src/core/testingScaffolder.ts` (stack-aware framework scaffolding)
 - Routing intelligence: `src/core/executionQuality.ts` (shared output-quality scorer), `src/core/modelEvalHarness.ts` (scored-replay model comparison), and `src/views/modelComparisonPanel.ts` (comparison webview)

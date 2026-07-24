@@ -113,6 +113,15 @@ describe('registerCommands', () => {
 
     expect(registerCommand.mock.calls.map(call => call[0])).toContain('atlasmind.mcpServers.installRecommended');
   });
+
+  it('registers the dedicated Website Studio command', () => {
+    const registerCommand = vi.fn().mockReturnValue({ dispose: () => undefined });
+    (vscode as { commands: { registerCommand: typeof registerCommand } }).commands = { registerCommand };
+
+    registerCommands({ subscriptions: [] } as never, () => undefined);
+
+    expect(registerCommand.mock.calls.map(call => call[0])).toContain('atlasmind.openWebsiteStudio');
+  });
 });
 
 describe('RECOMMENDED_MCP_SERVERS', () => {
