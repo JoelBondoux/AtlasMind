@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.135.3] - 2026-07-24
+
+### Security
+- Bumped `ws` `^8.21.0 → ^8.21.1`, closing the last open Dependabot dependency PR.
+
 ## [0.135.2] - 2026-07-24
 
 ### Security
