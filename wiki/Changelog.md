@@ -6,6 +6,14 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.133.0 — Project Director dashboard (Phase 2)
+
+- **A People tab in the Project Dashboard.** The new **Director** tab surfaces and edits the stakeholders, delivery team, responsibilities, assignments, and follow-ups around a project, backed by `ProjectDirectorManager`. Contacts show role badges with **Open** (deep-link) and **Copy contact**; responsibilities map an area to an owner and backup; assignments can be status-cycled and can give an autonomous run a human owner; follow-ups group into Overdue / Due soon / Upcoming with done/snooze/cancel.
+- **Solo-friendly, not just teams.** A one-person project foregrounds self-management and marks "you"; a team project shows the full roster. An auto/solo/team toggle overrides the inference.
+- **GDPR-safe.** Seeding pulls a first draft from your repo (git contributors, CODEOWNERS, package author, Website Studio stakeholders). Storing raw personal data asks for a one-time acknowledgement and turns on the `gdpr-pii` classification pack; every edit is re-sanitised host-side and deep-links are re-checked against a scheme allowlist before opening.
+
+---
+
 ## v0.132.0 — Remote control over an SSO gateway
 
 - **Reach your desktop AtlasMind from your own website login.** Remote control can now run in `gateway` mode behind an SSO-gated Cloudflare Worker + Cloudflare Tunnel, so you can drive the orchestrator and view read-only cost/run dashboards from any browser signed into your platform login — not only a same-machine web client. No inbound port is opened; the Worker and tunnel are outbound/edge.
