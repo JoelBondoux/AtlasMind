@@ -25,9 +25,19 @@ import {
   deriveFollowUpUrgency,
   countOverdueFollowUps,
   configStoresRawPii,
+  appendProjectDirectorHistory,
   type ProjectDirectorSeedInput,
   type FollowUpUrgency,
 } from '../core/projectDirectorManager.js';
+import {
+  detectConnectorCapabilities,
+  resolveCapability,
+  buildToolArgs,
+  type DirectorCommsIntent,
+  type CommsDraft,
+} from '../core/directorCommsRunner.js';
+import { mcpSkillId } from '../mcp/mcpServerRegistry.js';
+import { classifyToolInvocation } from '../core/toolPolicy.js';
 import type { DataPrivacyActivityEvent, DataPrivacySensitivity, DeliveryConfig, DeploymentStage, PromotionPath, PromotionHistoryEntry, ProjectDirectorConfig, ProjectRunRecord } from '../types.js';
 
 const execFileAsync = promisify(execFile);
@@ -64,6 +74,7 @@ const ALLOWED_DASHBOARD_COMMANDS = new Set([
   'atlasmind.updateProjectMemory',
   'atlasmind.bootstrapProject',
   'atlasmind.importProject',
+  'atlasmind.openMcpServers',
   'workbench.view.scm',
 ]);
 const EXPECTED_SSOT_DIRECTORIES = [
@@ -117,6 +128,7 @@ type ProjectDashboardMessage =
   | { type: 'copyContact'; payload: string }
   | { type: 'openContactDeepLink'; payload: { contactId: string; linkId: string } }
   | { type: 'assignRunOwner'; payload: { runId: string; contactId: string } }
+  | { type: 'directorSendComms'; payload: { intent: DirectorCommsIntent; contactId: string; subject?: string; body?: string; start?: string } }
   | { type: 'openExternalUrl'; payload: string };
 
 type DashboardWebviewMessage =
@@ -648,6 +660,10 @@ interface DashboardDirectorSnapshot {
   followUpUrgency: Record<string, FollowUpUrgency>;
   /** Recent autonomous runs, for the "assign a human owner" view. */
   runs: DashboardDirectorRun[];
+  /** Whether guarded outbound send/schedule is enabled for this project. */
+  outboundEnabled: boolean;
+  /** Communication intents a connected MCP connector can perform right now. */
+  connectors: Array<{ intent: DirectorCommsIntent; serverName: string; toolName: string }>;
   /** True when this view seeded a first draft on first open. */
   seeded: boolean;
   /** True when no git repository is present, so the roster cannot be seeded yet. */
@@ -1377,6 +1393,9 @@ export class ProjectDashboardPanel {
       case 'assignRunOwner':
         await this.handleAssignRunOwner(message.payload);
         return;
+      case 'directorSendComms':
+        await this.handleDirectorSendComms(message.payload);
+        return;
       case 'testDataPrivacy':
         {
           const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -1961,6 +1980,105 @@ export class ProjectDashboardPanel {
     }
   }
 
+  /**
+   * Guarded outbound send/schedule via a connected MCP connector. Deny-by-default:
+   * it does nothing unless the project has `outboundEnabled`, a matching connector
+   * is connected, and the user confirms the exact action in a modal. Falls back to
+   * the contact's deep-link when no connector can perform the intent; never
+   * auto-sends. The executed tool comes from the connected server — the webview
+   * only supplies the draft, which is re-resolved and re-classified server-side.
+   */
+  private async handleDirectorSendComms(payload: { intent: DirectorCommsIntent; contactId: string; subject?: string; body?: string; start?: string }): Promise<void> {
+    const config = this.atlas.projectDirectorManager?.getConfig();
+    if (!config) {
+      return;
+    }
+    if (config.settings.outboundEnabled !== true) {
+      void vscode.window.showWarningMessage('Outbound messaging is off for this project. Enable it on the Project Director → Setup card.');
+      return;
+    }
+    const contact = config.contacts.find(entry => entry.id === payload.contactId);
+    if (!contact) {
+      return;
+    }
+    const intent = payload.intent;
+    const preferKinds = intent === 'message' ? ['slack', 'teams'] : ['email'];
+    const link = contact.links.find(entry => preferKinds.includes(entry.kind)) ?? contact.links[0];
+    const recipient = link?.handle ?? '';
+    if (!recipient) {
+      void vscode.window.showWarningMessage(`No ${intent === 'message' ? 'chat' : intent} channel on file for ${contact.name}.`);
+      return;
+    }
+
+    const capabilities = detectConnectorCapabilities(this.atlas.mcpServerRegistry?.listServers() ?? []);
+    const capability = resolveCapability(capabilities, intent);
+    if (!capability) {
+      // Non-destructive fallback: open the deep-link, or explain there's no connector.
+      if (link?.deepLink) {
+        await vscode.env.openExternal(vscode.Uri.parse(link.deepLink));
+      } else {
+        const open = await vscode.window.showWarningMessage(
+          `No connected MCP connector can ${intent === 'message' ? 'post a message' : intent === 'schedule' ? 'schedule an event' : 'send email'}. Connect one from MCP Servers.`,
+          'Open MCP Servers',
+        );
+        if (open === 'Open MCP Servers') {
+          await vscode.commands.executeCommand('atlasmind.openMcpServers');
+        }
+      }
+      return;
+    }
+
+    const draft: CommsDraft = {
+      intent,
+      recipient,
+      recipientName: contact.name,
+      subject: payload.subject,
+      body: payload.body,
+      start: payload.start,
+    };
+    const args = buildToolArgs(capability, draft);
+    const skillId = mcpSkillId(capability.serverId, capability.toolName);
+    const policy = classifyToolInvocation(skillId, args);
+
+    // Authorization gate: an explicit modal showing the exact external action.
+    const summary = [
+      `Send this ${intent} through the connector "${capability.serverName}" (tool ${capability.toolName})?`,
+      `To: ${contact.name}${recipient ? ` <${recipient}>` : ''}`,
+    ];
+    if (draft.subject) { summary.push(`Subject: ${draft.subject}`); }
+    if (draft.start) { summary.push(`When: ${draft.start}`); }
+    if (draft.body) { summary.push(`Body: ${draft.body.length > 240 ? `${draft.body.slice(0, 240)}…` : draft.body}`); }
+    summary.push('', `Risk: ${policy.risk}. This performs a real, external action that AtlasMind cannot undo.`);
+    const choice = await vscode.window.showWarningMessage(summary.join('\n'), { modal: true }, 'Send');
+    if (choice !== 'Send') {
+      return;
+    }
+
+    const skill = this.atlas.skillsRegistry.get(skillId);
+    if (!skill || !this.atlas.skillsRegistry.isEnabled(skill.id)) {
+      void vscode.window.showErrorMessage(`Connector tool "${capability.toolName}" is unavailable. Reconnect the server from MCP Servers.`);
+      return;
+    }
+    try {
+      await skill.execute(args, this.atlas.skillContext);
+      void vscode.window.showInformationMessage(`Sent ${intent} to ${contact.name} via ${capability.serverName}.`);
+      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (workspaceRoot) {
+        await appendProjectDirectorHistory(workspaceRoot, {
+          id: `out-${skillId}-${new Date().toISOString()}`,
+          kind: 'outbound',
+          summary: `${intent} → ${contact.name} via ${capability.serverName} (${capability.toolName})`,
+          entityId: contact.id,
+          ranAt: new Date().toISOString(),
+        });
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showErrorMessage(`Connector send failed: ${detail}`);
+    }
+    await this.syncState();
+  }
+
   /** Resolve live CI status for the branch being promoted (best-effort, gh). */
   private async resolveLiveCiStatus(
     workspaceRoot: string,
@@ -2344,6 +2462,13 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     const p = candidate['payload'] as Record<string, unknown> | undefined;
     return typeof p === 'object' && p !== null && typeof p['runId'] === 'string' && p['runId'].length > 0
       && typeof p['contactId'] === 'string';
+  }
+
+  if (candidate['type'] === 'directorSendComms') {
+    const p = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof p === 'object' && p !== null
+      && (p['intent'] === 'email' || p['intent'] === 'schedule' || p['intent'] === 'message')
+      && typeof p['contactId'] === 'string' && p['contactId'].length > 0;
   }
 
   if (candidate['type'] === 'requestPromotionPlan') {
@@ -3912,6 +4037,8 @@ async function collectDirectorSnapshot(
   currentBranch: string,
   runs: ProjectRunRecord[],
 ): Promise<DashboardDirectorSnapshot> {
+  const connectors = detectConnectorCapabilities(atlas.mcpServerRegistry?.listServers() ?? [])
+    .map(capability => ({ intent: capability.intent, serverName: capability.serverName, toolName: capability.toolName }));
   const base: DashboardDirectorSnapshot = {
     configPath: PROJECT_DIRECTOR_SSOT_PATH,
     summaryPath: PROJECT_DIRECTOR_SUMMARY_SSOT_PATH,
@@ -3922,6 +4049,8 @@ async function collectDirectorSnapshot(
     overdueCount: 0,
     followUpUrgency: {},
     runs: [],
+    outboundEnabled: false,
+    connectors,
     seeded: false,
     notInGitRepo: false,
   };
@@ -3984,6 +4113,8 @@ async function collectDirectorSnapshot(
     overdueCount: countOverdueFollowUps(config),
     followUpUrgency,
     runs: runViews,
+    outboundEnabled: config.settings.outboundEnabled === true,
+    connectors,
     seeded,
     notInGitRepo: false,
   };

@@ -6,6 +6,14 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.134.0 — Project Director connectors (Phase 3)
+
+- **Reach people through your connected tools — opt-in and guarded.** When outbound messaging is enabled and a matching MCP connector is connected (Microsoft 365 / Outlook, Slack, a Google-Calendar server), the Director tab can email, schedule a meeting, or post a message to a contact. Otherwise it falls back to the existing deep-link / copy path and never auto-sends.
+- **Deny-by-default with an explicit confirm.** Every send requires the project toggle, a connected connector, and a modal that shows exactly what will be sent (connector, tool, recipient, subject/body, risk) before anything runs. The tool comes from the connected server; the webview only supplies the draft, which is re-resolved and re-classified host-side. Sends are recorded to the Director history.
+- **Connectors surfaced; credentials stay in SecretStorage.** The Setup card shows connected messaging connectors and a link to manage MCP Servers, plus an On/Off outbound toggle. Referencing a person in Microsoft 365 / Slack stays preferred over storing raw personal data.
+
+---
+
 ## v0.133.0 — Project Director dashboard (Phase 2)
 
 - **A People tab in the Project Dashboard.** The new **Director** tab surfaces and edits the stakeholders, delivery team, responsibilities, assignments, and follow-ups around a project, backed by `ProjectDirectorManager`. Contacts show role badges with **Open** (deep-link) and **Copy contact**; responsibilities map an area to an owner and backup; assignments can be status-cycled and can give an autonomous run a human owner; follow-ups group into Overdue / Due soon / Upcoming with done/snooze/cancel.

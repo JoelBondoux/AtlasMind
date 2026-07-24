@@ -287,6 +287,10 @@ Tools from connected MCP servers follow the same approval and safety pipeline:
 
 See [[Skills]] for MCP server setup.
 
+### Project Director outbound (email / schedule / message)
+
+The Project Director tab can reach a contact through a connected MCP connector, but this is **opt-in and deny-by-default**. Dispatch happens only when all of the following hold: the project has `settings.outboundEnabled` on (default off), a connected connector exposes a tool that can perform the intent (`directorCommsRunner` matches tool names like `outlook_send_mail` / `create_event` / `post_message`), and the user confirms an explicit `{ modal: true }` dialog that spells out the exact action — connector, tool, recipient, subject/body, and the classified risk. Only then does AtlasMind run the tool via its `mcp:<serverId>:<toolName>` skill wrapper. The **webview never supplies the tool or a command** — it sends a draft, which the extension re-resolves against the persisted roster, re-classifies with `classifyToolInvocation`, and maps onto the tool's declared input schema (inventing no fields). When no connector can perform the intent, it falls back to the contact's deep-link and never auto-sends. Connector credentials live in SecretStorage; successful sends are recorded to `project-director-history.json`.
+
 ## Promotion Execution (Delivery)
 
 Promoting a build between deployment stages on the Project Dashboard → **Delivery** page (`PromotionRunner`) is a high-trust action and carries its own guardrails on top of the tool pipeline:

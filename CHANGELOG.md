@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.134.0] - 2026-07-24
+
+### Added
+- **Project Director — guarded outbound messaging via connectors (Phase 3, opt-in, default off).** When a project enables outbound messaging and a matching MCP connector is connected, the Director tab can **email**, **schedule a meeting**, or **post a message** to a contact through that connector — otherwise it falls back to the existing **Open** deep-link / **Copy** path and never auto-sends. A new pure `directorCommsRunner` (`src/core/directorCommsRunner.ts`) detects which connected MCP tool can perform each intent (matching tool names like `outlook_send_mail` / `create_event` / `post_message`, preferring real send/create tools over drafts) and best-effort maps a composed draft onto that tool's declared input-schema fields — inventing nothing, so the confirmation dialog shows exactly what will be sent.
+- **Authorization gate.** Dispatch is deny-by-default: it requires `settings.outboundEnabled`, a connected connector, and an explicit `{ modal: true }` confirmation summarising the exact action (connector, tool, recipient, subject/body, classified risk) before the tool runs. The executed tool is sourced from the connected MCP server (via the `mcp:<serverId>:<toolName>` skill wrapper); the webview only supplies the draft, which is re-resolved and re-classified server-side (`classifyToolInvocation`). Successful sends are recorded to `project-director-history.json`.
+- **Connector surfacing + PII minimisation.** The Setup card shows which messaging connectors are connected and a link to manage MCP Servers, and an "Outbound messaging: On/Off" toggle (persisted in the project config). `AtlasMindContext` now exposes `skillContext` so panels can dispatch MCP tool skills. Connector credentials remain in VS Code SecretStorage (`atlasmind.mcp.<serverId>.<KEY>`), and referencing a person in their system of record stays preferred over storing raw PII.
+
 ## [0.133.0] - 2026-07-24
 
 ### Added

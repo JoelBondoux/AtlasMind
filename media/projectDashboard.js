@@ -54,6 +54,7 @@
     directorNewResponsibility: false,
     directorNewAssignment: false,
     directorSeedConfirm: false,
+    directorComposeKey: '',
   };
 
   refreshButton?.addEventListener('click', () => {
@@ -495,6 +496,23 @@
     if (action === 'director-seed-cancel') { state.directorSeedConfirm = false; render(); return; }
     if (action === 'director-store-pii') { const cfg = getDirectorConfig(); if (cfg) { postDirectorConfig(cfg); } return; }
     if (action === 'director-mode') { const cfg = cloneDirectorConfig(); cfg.settings.teamMode = payload; postDirectorConfig(cfg); return; }
+    if (action === 'director-outbound-toggle') { const cfg = cloneDirectorConfig(); cfg.settings.outboundEnabled = !cfg.settings.outboundEnabled; postDirectorConfig(cfg); return; }
+    if (action === 'director-comms-open') { state.directorComposeKey = payload; render(); return; }
+    if (action === 'director-comms-cancel') { state.directorComposeKey = ''; render(); return; }
+    if (action === 'director-comms-send') {
+      const parts = payload.split('::');
+      if (parts.length !== 2) { return; }
+      const container = document.getElementById('director-compose-editor');
+      if (!container) { return; }
+      const val = f => { const el = container.querySelector('[data-field="' + f + '"]'); return el ? el.value.trim() : ''; };
+      const body = val('body');
+      const subject = val('subject');
+      if (!body && !subject) { return; }
+      state.directorComposeKey = '';
+      vscode.postMessage({ type: 'directorSendComms', payload: { intent: parts[1], contactId: parts[0], subject: subject, body: body, start: val('start') } });
+      render();
+      return;
+    }
     if (action === 'director-copy') { vscode.postMessage({ type: 'copyContact', payload: payload }); return; }
     if (action === 'director-open-link') {
       const parts = payload.split('::');
@@ -2919,6 +2937,26 @@
   }
   function directorIsPiiLink(kind) { return kind === 'email' || kind === 'phone' || kind === 'sms'; }
 
+  var DIRECTOR_INTENT_LABEL = { email: 'Email', schedule: 'Schedule', message: 'Message' };
+
+  function renderDirectorCompose(contact, intent) {
+    const fields = intent === 'message'
+      ? edArea('Message', 'body', '', 'Type your message…')
+      : intent === 'schedule'
+        ? edText('Title', 'subject', '', 'Project sync') + edText('When (ISO, e.g. 2026-08-01T15:00)', 'start', '', '') + edArea('Notes', 'body', '', '')
+        : edText('Subject', 'subject', '', '') + edArea('Body', 'body', '', '');
+    return `
+      <article class="stage-card stage-editor" id="director-compose-editor">
+        <div class="stage-head"><h4>${escapeHtml((DIRECTOR_INTENT_LABEL[intent] || intent) + ' — ' + contact.name)}</h4></div>
+        <div class="stage-edit-grid">${fields}</div>
+        <p class="list-meta">Sends via a connected MCP connector after you confirm the exact action in a dialog. AtlasMind cannot undo it.</p>
+        <div class="tag-row">
+          <button type="button" class="action-link primary" data-action="director-comms-send" data-payload="${escapeAttr(contact.id + '::' + intent)}">Send</button>
+          <button type="button" class="action-link" data-action="director-comms-cancel" data-payload="">Cancel</button>
+        </div>
+      </article>`;
+  }
+
   function renderDirectorContactCard(cfg, snap, contact) {
     const isSelf = cfg.selfContactId === contact.id;
     const stk = cfg.stakeholders.find(s => s.contactId === contact.id);
@@ -2933,6 +2971,17 @@
         : '<span class="tag mono">' + escapeHtml(link.kind) + '</span>';
       return open;
     }).join(' ');
+    // Guarded outbound: only when the project enabled it and a connector is connected.
+    const intents = (snap.outboundEnabled && Array.isArray(snap.connectors) ? snap.connectors.map(c => c.intent) : [])
+      .filter((v, i, a) => a.indexOf(v) === i);
+    const reachRow = intents.length
+      ? '<div class="tag-row">' + intents.map(intent =>
+          '<button type="button" class="action-link" data-action="director-comms-open" data-payload="' + escapeAttr(contact.id + '::' + intent) + '">' + escapeHtml(DIRECTOR_INTENT_LABEL[intent] || intent) + '</button>').join(' ') + '</div>'
+      : '';
+    let composeForm = '';
+    for (const intent of intents) {
+      if (state.directorComposeKey === contact.id + '::' + intent) { composeForm = renderDirectorCompose(contact, intent); }
+    }
     return `
       <article class="list-card">
         <div class="row-head">
@@ -2941,6 +2990,8 @@
         </div>
         ${contact.title || contact.org ? `<div class="list-meta">${escapeHtml([contact.title, contact.org].filter(Boolean).join(' · '))}</div>` : ''}
         <div class="tag-row">${linkButtons || '<span class="list-meta">No contact channels yet.</span>'}</div>
+        ${reachRow}
+        ${composeForm}
         <div class="tag-row">
           ${contact.links.length ? '<button type="button" class="action-link" data-action="director-copy" data-payload="' + escapeAttr(contact.id) + '">Copy contact</button>' : ''}
           <button type="button" class="action-link" data-action="director-contact-edit" data-payload="${escapeAttr(contact.id)}">Edit</button>
@@ -3167,6 +3218,13 @@
         </div>
         <div class="timescale-switch" role="group" aria-label="Team mode" style="margin-top:8px">${modeButtons}</div>
         <div class="tag-row">${seedControl}<button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(d.summaryPath)}">Open project-director.md</button></div>
+        <div class="tag-row" style="margin-top:8px">
+          <button type="button" class="action-link ${d.outboundEnabled ? 'primary' : ''}" data-action="director-outbound-toggle" data-payload="">Outbound messaging: ${d.outboundEnabled ? 'On' : 'Off'}</button>
+          <button type="button" class="action-link" data-action="openCommand" data-payload="atlasmind.openMcpServers">Manage MCP servers</button>
+        </div>
+        <div class="tag-row">${(d.connectors && d.connectors.length)
+          ? d.connectors.map(c => '<span class="tag">' + escapeHtml((DIRECTOR_INTENT_LABEL[c.intent] || c.intent) + ' via ' + c.serverName) + '</span>').join(' ')
+          : '<span class="list-meta">No messaging connectors connected — Open/Copy deep-links are used instead.</span>'}</div>
       </article>`;
 
     const editingContact = state.directorEditContactId;

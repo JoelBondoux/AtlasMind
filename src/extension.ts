@@ -163,6 +163,8 @@ export interface AtlasMindContext {
   dataPrivacyManager: DataPrivacyManager;
   agentRegistry: AgentRegistry;
   skillsRegistry: SkillsRegistry;
+  /** Shared skill-execution context, used to dispatch MCP tool skills from panels. */
+  skillContext: SkillExecutionContext;
   modelRouter: ModelRouter;
   memoryManager: MemoryManager;
   costTracker: CostTracker;
@@ -2229,6 +2231,7 @@ async function bootstrapAtlasMind(
       dataPrivacyManager,
       agentRegistry,
       skillsRegistry,
+      skillContext,
       modelRouter,
       memoryManager,
       costTracker,
