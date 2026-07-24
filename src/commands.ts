@@ -35,6 +35,7 @@ const ATLASMIND_COLLAPSIBLE_TREE_VIEW_IDS = [
   'atlasmind.mcpServersView',
   'atlasmind.discoveryView',
   'atlasmind.modelsView',
+  'atlasmind.projectDirectorView',
 ] as const;
 
 type SessionFolderQuickPickItem = vscode.QuickPickItem & {
@@ -1241,6 +1242,12 @@ export function registerCommands(
       if (!atlas) { return; }
       const { ProjectDashboardPanel } = await import('./views/projectDashboardPanel.js');
       ProjectDashboardPanel.createOrShow(atlas.extensionContext, atlas);
+    }),
+    vscode.commands.registerCommand('atlasmind.openProjectDirector', async () => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const { ProjectDashboardPanel } = await import('./views/projectDashboardPanel.js');
+      ProjectDashboardPanel.createOrShow(atlas.extensionContext, atlas, 'director');
     }),
 
     vscode.commands.registerCommand('atlasmind.openProjectIdeation', async (target?: import('./views/projectIdeationPanel.js').ProjectIdeationOpenTarget) => {

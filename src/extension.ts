@@ -105,6 +105,10 @@ const MEMORY_SELF_HEAL_INTERVAL_MS = 90_000;
 const MEMORY_SELF_HEAL_DEBOUNCE_MS = 1_200;
 const MEMORY_SELF_HEAL_MAX_CHANGES_PER_PASS = 12;
 const MEMORY_QUARANTINE_RELATIVE_DIR = 'temp/quarantine';
+/** How often the Project Director follow-up reminder timer re-evaluates. */
+const PROJECT_DIRECTOR_REMINDER_INTERVAL_MS = 30 * 60 * 1000;
+/** workspaceState key holding the last day (yyyy-mm-dd) a follow-up reminder was shown. */
+const PROJECT_DIRECTOR_REMINDER_KEY = 'atlasmind.projectDirector.lastReminderKey';
 
 export function requiresExplicitProviderActivation(providerId: string): boolean {
   return providerId === 'copilot';
@@ -1565,6 +1569,7 @@ async function bootstrapAtlasMind(
       routineRegistryModule,
       deliveryManagerModule,
       projectDirectorManagerModule,
+      followUpSchedulerModule,
       missionRegistryModule,
       dataPrivacyModule,
       ardClientModule,
@@ -1598,6 +1603,7 @@ async function bootstrapAtlasMind(
       import('./core/routineRegistry.js'),
       import('./core/deliveryManager.js'),
       import('./core/projectDirectorManager.js'),
+      import('./core/followUpScheduler.js'),
       import('./core/missionRegistry.js'),
       import('./core/dataPrivacyManager.js'),
       import('./ard/ardClient.js'),
@@ -1649,6 +1655,7 @@ async function bootstrapAtlasMind(
       RoutineRegistry: routineRegistryModule.RoutineRegistry,
       DeliveryManager: deliveryManagerModule.DeliveryManager,
       ProjectDirectorManager: projectDirectorManagerModule.ProjectDirectorManager,
+      FollowUpScheduler: followUpSchedulerModule.FollowUpScheduler,
       MissionRegistry: missionRegistryModule.MissionRegistry,
       DataPrivacyManager: dataPrivacyModule.DataPrivacyManager,
       readDataPrivacyConfig: dataPrivacyModule.readDataPrivacyConfig,
@@ -1718,6 +1725,31 @@ async function bootstrapAtlasMind(
       directorWatcher.onDidDelete(reloadDirector);
       context.subscriptions.push(directorWatcher);
     }
+    // Follow-up reminders (notification-only, deny-by-default). Nudges once per
+    // day when follow-ups are due/overdue, opening the Director tab on click. The
+    // recurring timer runs only while the project has reminders enabled; a single
+    // startup nudge fires when `nudgeOnActivation` is on (both default from config).
+    const followUpScheduler = new startupModules.FollowUpScheduler({
+      getConfig: () => projectDirectorManager.getConfig(),
+      getLastReminderKey: () => context.workspaceState.get<string>(PROJECT_DIRECTOR_REMINDER_KEY),
+      setLastReminderKey: (key: string) => { void context.workspaceState.update(PROJECT_DIRECTOR_REMINDER_KEY, key); },
+      notify: (message: string) => {
+        void vscode.window.showInformationMessage(message, 'Open Project Director').then(choice => {
+          if (choice === 'Open Project Director') {
+            void vscode.commands.executeCommand('atlasmind.openProjectDirector');
+          }
+        });
+      },
+    });
+    if (projectDirectorManager.getConfig()?.settings.nudgeOnActivation !== false) {
+      followUpScheduler.runOnce();
+    }
+    const followUpReminderTimer = setInterval(() => {
+      if (projectDirectorManager.getConfig()?.settings.remindersEnabled === true) {
+        try { followUpScheduler.runOnce(); } catch { /* best-effort */ }
+      }
+    }, PROJECT_DIRECTOR_REMINDER_INTERVAL_MS);
+    context.subscriptions.push({ dispose: () => { followUpScheduler.dispose(); clearInterval(followUpReminderTimer); } });
     const missionRegistry = new startupModules.MissionRegistry(workspaceRootPath);
     const projectRunHistory = new startupModules.ProjectRunHistory(context.workspaceState, {
       workspaceKey: workspaceRootPath,

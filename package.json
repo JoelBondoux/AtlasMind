@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.134.0",
+  "version": "0.135.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -100,6 +100,14 @@
           {
             "name": "runs",
             "description": "Open the project run center and inspect recent autonomous runs"
+          },
+          {
+            "name": "director",
+            "description": "Project Director status: stakeholders, team, responsibilities, assignments, and follow-ups"
+          },
+          {
+            "name": "followups",
+            "description": "List open follow-ups grouped by overdue / due soon / upcoming"
           },
           {
             "name": "ship",
@@ -354,6 +362,11 @@
         "command": "atlasmind.openProjectDashboard",
         "title": "AtlasMind: Open Project Dashboard",
         "icon": "$(dashboard)"
+      },
+      {
+        "command": "atlasmind.openProjectDirector",
+        "title": "AtlasMind: Open Project Director",
+        "icon": "$(organization)"
       },
       {
         "command": "atlasmind.openProjectIdeation",
@@ -987,6 +1000,10 @@
         "contents": "No project runs recorded yet.\n[Open Project Ideation](command:atlasmind.openProjectIdeation)\n[Open Project Run Center](command:atlasmind.openProjectRunCenter)\n[Open Project Settings](command:atlasmind.openSettingsProject)"
       },
       {
+        "view": "atlasmind.projectDirectorView",
+        "contents": "Track the stakeholders, team, responsibilities, and follow-ups around your project.\n[Open Project Director](command:atlasmind.openProjectDirector)"
+      },
+      {
         "view": "atlasmind.sessionsView",
         "contents": "No sessions yet.\n[Focus Chat View](command:atlasmind.openChatView)\n[Open Chat Settings](command:atlasmind.openSettingsChat)"
       }
@@ -1060,6 +1077,13 @@
         {
           "id": "atlasmind.modelsView",
           "name": "Models",
+          "icon": "media/icon.svg",
+          "type": "tree",
+          "visibility": "collapsed"
+        },
+        {
+          "id": "atlasmind.projectDirectorView",
+          "name": "Project Director",
           "icon": "media/icon.svg",
           "type": "tree",
           "visibility": "collapsed"

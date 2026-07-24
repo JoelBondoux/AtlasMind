@@ -497,6 +497,8 @@
     if (action === 'director-store-pii') { const cfg = getDirectorConfig(); if (cfg) { postDirectorConfig(cfg); } return; }
     if (action === 'director-mode') { const cfg = cloneDirectorConfig(); cfg.settings.teamMode = payload; postDirectorConfig(cfg); return; }
     if (action === 'director-outbound-toggle') { const cfg = cloneDirectorConfig(); cfg.settings.outboundEnabled = !cfg.settings.outboundEnabled; postDirectorConfig(cfg); return; }
+    if (action === 'director-reminders-toggle') { const cfg = cloneDirectorConfig(); cfg.settings.remindersEnabled = !cfg.settings.remindersEnabled; postDirectorConfig(cfg); return; }
+    if (action === 'director-nudge-toggle') { const cfg = cloneDirectorConfig(); cfg.settings.nudgeOnActivation = cfg.settings.nudgeOnActivation === false; postDirectorConfig(cfg); return; }
     if (action === 'director-comms-open') { state.directorComposeKey = payload; render(); return; }
     if (action === 'director-comms-cancel') { state.directorComposeKey = ''; render(); return; }
     if (action === 'director-comms-send') {
@@ -3218,6 +3220,10 @@
         </div>
         <div class="timescale-switch" role="group" aria-label="Team mode" style="margin-top:8px">${modeButtons}</div>
         <div class="tag-row">${seedControl}<button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(d.summaryPath)}">Open project-director.md</button></div>
+        <div class="tag-row" style="margin-top:8px">
+          <button type="button" class="action-link ${cfg.settings.remindersEnabled ? 'primary' : ''}" data-action="director-reminders-toggle" data-payload="">Reminders: ${cfg.settings.remindersEnabled ? 'On' : 'Off'}</button>
+          <button type="button" class="action-link ${cfg.settings.nudgeOnActivation === false ? '' : 'primary'}" data-action="director-nudge-toggle" data-payload="">Startup nudge: ${cfg.settings.nudgeOnActivation === false ? 'Off' : 'On'}</button>
+        </div>
         <div class="tag-row" style="margin-top:8px">
           <button type="button" class="action-link ${d.outboundEnabled ? 'primary' : ''}" data-action="director-outbound-toggle" data-payload="">Outbound messaging: ${d.outboundEnabled ? 'On' : 'Off'}</button>
           <button type="button" class="action-link" data-action="openCommand" data-payload="atlasmind.openMcpServers">Manage MCP servers</button>

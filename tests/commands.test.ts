@@ -91,6 +91,7 @@ describe('collapseAtlasMindSidebarTrees', () => {
       'workbench.actions.treeView.atlasmind.mcpServersView.collapseAll',
       'workbench.actions.treeView.atlasmind.discoveryView.collapseAll',
       'workbench.actions.treeView.atlasmind.modelsView.collapseAll',
+      'workbench.actions.treeView.atlasmind.projectDirectorView.collapseAll',
     ]);
   });
 });

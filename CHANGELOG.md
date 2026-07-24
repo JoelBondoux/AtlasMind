@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.135.0] - 2026-07-24
+
+### Added
+- **Project Director — reminders, sidebar tree, and chat (Phase 4).** A new in-process `FollowUpScheduler` (`src/core/followUpScheduler.ts`) surfaces a **throttled, once-per-day** in-editor nudge ("N overdue, M due soon", with an "Open Project Director" action) when follow-ups come due. It is **notification-only and deny-by-default** — it never sends anything outbound on a timer (outbound always needs an explicit per-send confirmation). A single startup nudge fires when `nudgeOnActivation` is on (default on); the recurring 30-minute timer runs only while `remindersEnabled` is on (default off). Both toggle from the Director → Setup card.
+- **Sidebar tree view** `atlasmind.projectDirectorView` (`src/views/treeViews.ts`): groups **Stakeholders**, **Team** (team mode only), and **Follow-ups** (overdue + due-soon), each item opening the Director tab. A badge shows the overdue follow-up count and updates live via `projectDirectorRefresh`.
+- **Command + chat commands.** `atlasmind.openProjectDirector` opens the dashboard on the Director tab (used by the tree, welcome view, and chat buttons). New chat slash commands `@atlas /director` (a skimmable status: people, responsibilities, assignments, open/overdue follow-ups) and `@atlas /followups` (open follow-ups grouped Overdue / Due soon / Upcoming), each with an Open Project Director button and follow-up chips.
+
 ## [0.134.0] - 2026-07-24
 
 ### Added

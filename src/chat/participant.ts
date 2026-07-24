@@ -759,6 +759,14 @@ async function handleChatRequest(
       await handleRunsCommand(stream);
       break;
 
+    case 'director':
+      await handleDirectorCommand(stream, atlas);
+      break;
+
+    case 'followups':
+      await handleFollowUpsCommand(stream, atlas);
+      break;
+
     case 'ship':
       await handleShipCommand(request.prompt, stream, atlas);
       break;
@@ -1517,6 +1525,71 @@ async function handleRunsCommand(stream: vscode.ChatResponseStream): Promise<voi
     title: 'Open Project Run Center',
     tooltip: 'Open the review/apply and run-history panel.',
   });
+}
+
+/** Neutralise markdown control characters in user-authored text for chat output. */
+function escapeMd(value: string): string {
+  return String(value ?? '').replace(/([\\`*_{}\[\]()#+\-!|])/g, '\\$1');
+}
+
+async function handleDirectorCommand(
+  stream: vscode.ChatResponseStream,
+  atlas: AtlasMindContext,
+): Promise<void> {
+  const { countOverdueFollowUps, resolveTeamMode } = await import('../core/projectDirectorManager.js');
+  const config = atlas.projectDirectorManager?.getConfig();
+  if (!config) {
+    stream.markdown('### Project Director\n\nNo people model yet. Open the Director tab to seed a roster from your repo (git contributors, CODEOWNERS, package author).');
+    stream.button({ command: 'atlasmind.openProjectDirector', title: 'Open Project Director' });
+    return;
+  }
+  const mode = resolveTeamMode(config);
+  const openFollowUps = config.followUps.filter(f => f.status !== 'done' && f.status !== 'cancelled');
+  const overdue = countOverdueFollowUps(config);
+  const lines = [
+    `### Project Director — ${escapeMd(config.project.name || 'this project')} (${mode})`,
+    '',
+    `- **People:** ${config.contacts.length} (${config.stakeholders.length} stakeholder(s), ${config.teamMembers.length} team)`,
+    `- **Responsibilities:** ${config.responsibilities.length}`,
+    `- **Assignments:** ${config.assignments.length}`,
+    `- **Follow-ups:** ${openFollowUps.length} open${overdue > 0 ? ` — ⚠️ ${overdue} overdue` : ''}`,
+  ];
+  stream.markdown(lines.join('\n'));
+  stream.button({ command: 'atlasmind.openProjectDirector', title: 'Open Project Director' });
+}
+
+async function handleFollowUpsCommand(
+  stream: vscode.ChatResponseStream,
+  atlas: AtlasMindContext,
+): Promise<void> {
+  const { deriveFollowUpUrgency } = await import('../core/projectDirectorManager.js');
+  const config = atlas.projectDirectorManager?.getConfig();
+  const active = (config?.followUps ?? []).filter(f => f.status !== 'done' && f.status !== 'cancelled');
+  if (active.length === 0) {
+    stream.markdown('### Follow-ups\n\nNo open follow-ups. Add one from the Director tab to track a check-in or deadline.');
+    stream.button({ command: 'atlasmind.openProjectDirector', title: 'Open Project Director' });
+    return;
+  }
+  const nameOf = (contactId: string | undefined): string =>
+    config?.contacts.find(c => c.id === contactId)?.name ?? '';
+  const groups: Array<{ heading: string; urgency: string }> = [
+    { heading: 'Overdue', urgency: 'overdue' },
+    { heading: 'Due soon', urgency: 'due-soon' },
+    { heading: 'Upcoming', urgency: 'upcoming' },
+  ];
+  const out: string[] = ['### Follow-ups', ''];
+  for (const group of groups) {
+    const items = active.filter(f => deriveFollowUpUrgency(f) === group.urgency);
+    if (items.length === 0) { continue; }
+    out.push(`**${group.heading}**`);
+    for (const followUp of items) {
+      const withWhom = followUp.withContactId ? ` — with ${nameOf(followUp.withContactId)}` : '';
+      out.push(`- ${escapeMd(followUp.title)} (due ${followUp.dueDate})${withWhom}`);
+    }
+    out.push('');
+  }
+  stream.markdown(out.join('\n'));
+  stream.button({ command: 'atlasmind.openProjectDirector', title: 'Open Project Director' });
 }
 
 async function handleAgentsCommand(
@@ -3440,6 +3513,17 @@ export function buildFollowups(
         { prompt: '/project', label: 'Run a new project' },
         { prompt: '/cost', label: 'Review session cost' },
         { prompt: '/memory operations', label: 'Search operations memory' },
+      ];
+
+    case 'director':
+      return [
+        { prompt: '/followups', label: "What's due" },
+        { prompt: '/runs', label: 'Autonomous runs' },
+      ];
+
+    case 'followups':
+      return [
+        { prompt: '/director', label: 'Open Project Director' },
       ];
 
     case 'ship':

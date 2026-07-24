@@ -6,6 +6,14 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.135.0 — Project Director reminders & surfacing (Phase 4)
+
+- **Follow-up reminders that don't nag.** A new in-process scheduler surfaces a throttled, once-per-day in-editor nudge when follow-ups are overdue or due soon, with a one-click "Open Project Director". It is notification-only — it never auto-sends anything on a timer. A startup nudge is on by default; the recurring timer is opt-in. Both toggle from the Director Setup card.
+- **A Project Director sidebar view.** A new tree groups Stakeholders, Team, and due/overdue Follow-ups, with a badge showing the overdue count; clicking any item opens the Director tab.
+- **Chat, too.** `@atlas /director` prints a skimmable status (people, responsibilities, assignments, follow-ups) and `@atlas /followups` lists open follow-ups grouped overdue / due soon / upcoming — both with a button to open the dashboard.
+
+---
+
 ## v0.134.0 — Project Director connectors (Phase 3)
 
 - **Reach people through your connected tools — opt-in and guarded.** When outbound messaging is enabled and a matching MCP connector is connected (Microsoft 365 / Outlook, Slack, a Google-Calendar server), the Director tab can email, schedule a meeting, or post a message to a contact. Otherwise it falls back to the existing deep-link / copy path and never auto-sends.

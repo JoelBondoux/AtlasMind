@@ -42,7 +42,7 @@ describe('registerTreeViews', () => {
 
     expect(vscode.window.registerWebviewViewProvider).toHaveBeenCalledTimes(1);
     expect(vscode.window.registerTreeDataProvider).toHaveBeenCalledTimes(6);
-    expect(vscode.window.createTreeView).toHaveBeenCalledTimes(2);
+    expect(vscode.window.createTreeView).toHaveBeenCalledTimes(3);
     expect(vscode.commands.registerCommand).toHaveBeenCalledTimes(2);
   });
 });

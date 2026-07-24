@@ -314,6 +314,7 @@ describe('package manifest', () => {
       'atlasmind.mcpServersView',
       'atlasmind.discoveryView',
       'atlasmind.modelsView',
+      'atlasmind.projectDirectorView',
     ]);
 
     expect(views.filter(entry => entry.id !== 'atlasmind.chatView')).toEqual(expect.arrayContaining([
@@ -325,6 +326,7 @@ describe('package manifest', () => {
       expect.objectContaining({ id: 'atlasmind.mcpServersView', visibility: 'collapsed' }),
       expect.objectContaining({ id: 'atlasmind.discoveryView', visibility: 'collapsed' }),
       expect.objectContaining({ id: 'atlasmind.modelsView', visibility: 'collapsed' }),
+      expect.objectContaining({ id: 'atlasmind.projectDirectorView', visibility: 'collapsed' }),
     ]));
   });
 

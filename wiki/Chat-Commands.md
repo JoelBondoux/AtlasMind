@@ -18,6 +18,8 @@ Short continuation prompts such as `Proceed`, `Continue`, or `Proceed autonomous
 | `/project` | Decompose a goal into subtasks, preview impact, and execute autonomously |
 | `/loop` | Run an autonomous goal-seeking **Mission Loop** within a closed budget envelope; pauses for approval at configurable checkpoints |
 | `/runs` | Open the Project Run Center to review recent autonomous runs |
+| `/director` | Project Director status: stakeholders, team, responsibilities, assignments, and follow-ups (open/overdue) |
+| `/followups` | List open follow-ups grouped by overdue / due soon / upcoming |
 | `/ship` | Run the project's default publish/release routine. `/ship <id>` runs a named routine |
 | `/sync-instructions` | Two-way sync AI instruction sets across tools and AtlasMind, resolving significant conflicts in chat |
 | `/agents` | List and manage registered agents |
@@ -298,6 +300,7 @@ These are also available from the Command Palette (`Ctrl+Shift+P`):
 | `AtlasMind: Sync Testing Protocols to AI Agents` | Mirror the enabled testing protocols into detected external agent instruction files (`CLAUDE.md`, `copilot-instructions.md`, `AGENTS.md`, etc.) |
 | `AtlasMind: Compare Models on a Prompt` | Run one prompt across your configured models (grouped by provider, with Select All and ready-made sample prompts) and view a sortable comparison. An optional LLM **judge** scores each answer 0–100; click any column header to sort. Graded outcomes calibrate outcome-driven routing. Open it from the Models view titlebar (beaker icon) or the Settings overview. |
 | `AtlasMind: Open Project Dashboard` | Opens the interactive command center for repo health, runtime state, SSOT coverage, security posture, and delivery or PR-readiness signals |
+| `AtlasMind: Open Project Director` | Opens the Project Dashboard on the Director tab — stakeholders, team, responsibilities, assignments, and follow-ups |
 | `AtlasMind: Open Website Studio` | Opens six website dashboards for client intake, sitemap, wireframes and visual design, UI system, platform readiness, and n8n workflow mapping |
 | `AtlasMind: Open Project Run Center` | Review, approve, pause, resume autonomous runs |
 | `AtlasMind: Open Mission Control` | Define, launch, watch, checkpoint, and audit autonomous Mission Loop (`/loop`) runs |
