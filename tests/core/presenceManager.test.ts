@@ -49,7 +49,8 @@ function controllableTimers(): { timers: PresenceTimers; fireTimeout: () => void
       setTimeout: (fn: () => void) => { cb = fn; return 1; },
       clearTimeout: () => { cb = undefined; },
     },
-    fireTimeout: () => { cb?.(); },
+    // One-shot like a real timer: firing consumes the pending callback.
+    fireTimeout: () => { const f = cb; cb = undefined; f?.(); },
   };
 }
 
@@ -87,9 +88,15 @@ describe('buildInhibitCommand', () => {
     expect(cmd.command).toBe('systemd-inhibit');
     expect(cmd.args).toContain('--what=idle:sleep');
     expect(cmd.args).toContain('--mode=block');
-    expect(cmd.args.slice(-2)).toEqual(['sleep', 'infinity']);
+    expect(cmd.args.slice(-2)).toEqual(['sleep', 'infinity']); // no host PID → plain keeper
     // Never blocks shutdown.
     expect(cmd.args.some((a) => a.includes('shutdown'))).toBe(false);
+  });
+
+  it('adds a host-PID orphan guard on Linux when the host PID is known', () => {
+    const cmd = buildInhibitCommand('linux', { hostPid: 321 })!;
+    // The wrapped command exits (releasing the inhibitor) if the host dies.
+    expect(cmd.args.slice(-3)).toEqual(['sh', '-c', 'while kill -0 321 2>/dev/null; do sleep 30; done']);
   });
 
   it('returns undefined for unsupported platforms', () => {
@@ -227,5 +234,47 @@ describe('PresenceManager', () => {
     expect(states.at(-1)).toBe(true);
     sub.dispose();
     mgr.dispose();
+  });
+
+  it('gives up after repeated fast helper deaths instead of respawn-looping forever (F9)', () => {
+    const spawn = fakeSpawn();
+    const { timers, fireTimeout } = controllableTimers();
+    // Fixed clock so every helper "dies fast" (< STABLE_RUN_MS) and failures accumulate.
+    const mgr = new PresenceManager({ spawn, platform: 'darwin', timers, now: () => 1000, hostPid: 1 });
+    mgr.applyConfig({ keepAwake: true, acPowerOnly: false, maxAwakeMinutes: 0 });
+    for (let i = 0; i < 6; i++) {
+      const child = spawn.children[spawn.children.length - 1];
+      child.emit('close', 1, null); // unexpected death (signal null)
+      fireTimeout(); // let any scheduled respawn run
+    }
+    expect(mgr.getState().suspended).toBe('unsupported'); // gave up, did not loop
+    expect(spawn.calls.length).toBeLessThanOrEqual(5); // bounded respawns
+    mgr.dispose();
+  });
+
+  it('re-arms the backstop when maxAwakeMinutes changes mid-hold (F1/F10)', () => {
+    const spawn = fakeSpawn();
+    const { timers } = controllableTimers();
+    const mgr = new PresenceManager({ spawn, platform: 'darwin', timers, now: () => 1000, hostPid: 1 });
+    mgr.applyConfig({ keepAwake: true, acPowerOnly: false, maxAwakeMinutes: 0 }); // no cap
+    expect(mgr.getState().active).toBe(true);
+    expect(mgr.getState().expiresAt).toBeUndefined();
+
+    mgr.applyConfig({ keepAwake: true, acPowerOnly: false, maxAwakeMinutes: 60 }); // now cap 60m
+    expect(mgr.getState().active).toBe(true);
+    expect(mgr.getState().expiresAt).toBe(1000 + 60 * 60_000);
+    mgr.dispose();
+  });
+
+  it('does not re-acquire after dispose even with a pending respawn (F6)', () => {
+    const spawn = fakeSpawn();
+    const { timers, fireTimeout } = controllableTimers();
+    const mgr = new PresenceManager({ spawn, platform: 'darwin', timers, now: () => 1000 });
+    mgr.applyConfig({ keepAwake: true, acPowerOnly: false, maxAwakeMinutes: 0 });
+    spawn.children[0].emit('close', 1, null); // schedules a respawn
+    const before = spawn.calls.length;
+    mgr.dispose();
+    fireTimeout(); // a leftover respawn must not fire an acquire post-dispose
+    expect(spawn.calls.length).toBe(before);
   });
 });

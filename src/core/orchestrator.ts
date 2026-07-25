@@ -131,11 +131,14 @@ type CommonRoutingNeedId =
   | 'architecture'
   | 'backend'
   | 'build'
+  | 'commercial'
   | 'debugging'
   | 'devops'
   | 'docs'
+  | 'ethics'
   | 'frontend'
   | 'git'
+  | 'legal'
   | 'package'
   | 'performance'
   | 'release'
@@ -243,6 +246,31 @@ const COMMON_ROUTING_HEURISTICS: RoutingNeedHeuristic[] = [
     label: 'SEO and content discoverability',
     requestPattern: /\b(seo|search engine optimi[sz]ation|meta\s+(?:tag|description|title)|sitemap|robots\.txt|canonical|schema\.org|json.ld|structured data|open graph|og:|twitter card|core web vitals|lcp|cls\b|inp\b|discoverab|ranking|crawl(?:able|er|ing)?|index(?:able|ing)|rich results?|featured snippet|answer engine|aeo|hreflang|backlink|serp|keyword)\b/i,
     agentPattern: /\b(seo|search engine|meta|sitemap|robots|canonical|schema|structured data|open graph|discoverab|ranking|crawl|index(?:able|ing)?|rich results?|answer engine|aeo|serp|keyword|marketplace|discoverability)\b/i,
+  },
+  // ── Oversight needs ──────────────────────────────────────────────────────
+  // The three patterns below are deliberately narrow. Unlike the engineering
+  // needs above, an oversight need must not fire on ordinary implementation
+  // work, so each anchors on vocabulary that is distinctive to the discipline
+  // ("gdpr", "dark pattern", "monetisation") and avoids generic words that
+  // already appear in other agents' descriptions ("cost", "audit",
+  // "compliance", "privacy", "security", "accessible", "market").
+  {
+    id: 'legal',
+    label: 'legal, licensing and regulatory risk',
+    requestPattern: /\b(legal|legally|licen[cs]e|licen[cs]ing|licen[cs]ed|gdpr|ccpa|hipaa|copyright|trademark|patent(?:ed|s)?|indemnit\w+|liabilit\w+|terms of service|\btos\b|eula|privacy policy|data protection|regulator\w+|regulation|lawsuit|infringe\w*)\b/i,
+    agentPattern: /\b(legal|licen[cs]\w*|regulatory|counsel|jurisdiction|intellectual property)\b/i,
+  },
+  {
+    id: 'ethics',
+    label: 'ethics and responsible technology',
+    requestPattern: /\b(ethic\w*|dark pattern\w*|fairness|bias(?:ed|es)?|discriminat\w+|manipulat\w+|deceptive|informed consent|responsible ai|exploitat\w+|harmful)\b/i,
+    agentPattern: /\b(ethic\w*|fairness|responsible technology|dark pattern\w*)\b/i,
+  },
+  {
+    id: 'commercial',
+    label: 'commercial viability and market position',
+    requestPattern: /\b(commercial\w*|monetis\w+|monetiz\w+|pricing|price point|paywall|revenue|business model|competitor\w*|competitive analysis|vendor lock|lock-?in|\broi\b|upsell|churn|go-to-market|profitab\w+|per-seat|subscription tier)\b/i,
+    agentPattern: /\b(commercial\w*|monetis\w+|monetiz\w+|pricing|revenue|competitor\w*|viability)\b/i,
   },
 ];
 
@@ -3149,7 +3177,20 @@ export class Orchestrator {
       const fromLlm = (classification as ClassificationResult | undefined)?.fromLlm ?? false;
       const ranked = agents
         .map(agent => {
-          const explicitSkills = agent.skills.length > 0 ? this.skills.getSkillsForAgent(agent) : [];
+          // Skills are used as a routing signal only for agents that have NOT declared
+          // their routing needs. A pinned skill list can mean two different things:
+          // "this is my git agent" (a specialisation worth routing on) or "this agent
+          // may only read" (an authorization boundary, which says nothing about intent).
+          // When primaryRoutingNeeds is present it is the agent's routing metadata, so
+          // inferring more from the skill pin only adds noise — and it is noise weighted
+          // heavily: a 14-skill read-only pin contributes ~200 words of generic tooling
+          // prose ("the", "file", "workspace", "return") at 2x via skillTextHits, which
+          // no `skills: []` agent receives. Same failure mode that excludes systemPrompt
+          // from scoreAgent below; left unguarded, the oversight advisors win prompts as
+          // generic as "Hello, can you help me?".
+          const skillPinIsRoutingSignal = agent.skills.length > 0
+            && (agent.primaryRoutingNeeds === undefined || agent.primaryRoutingNeeds.length === 0);
+          const explicitSkills = skillPinIsRoutingSignal ? this.skills.getSkillsForAgent(agent) : [];
           // Full corpus for workspace/tool capability checks (includes system prompt for context).
           const agentCorpus = buildAgentRoutingCorpus(agent, explicitSkills);
           // Narrow corpus for routing need pattern matching — excludes system prompt to prevent
@@ -4629,13 +4670,32 @@ function toImageAttachments(value: unknown): Array<{ source: string; mimeType: s
     .slice(0, 4);
 }
 
+/**
+ * Content-free English function words, dropped before any token-overlap scoring.
+ *
+ * Every consumer of {@link tokenize} scores relevance by set intersection, and a
+ * shared "the" or "and" is noise, not intent — but it still scored, weighted up to
+ * 4x via roleHits. That silently favoured agents whose role/description happened to
+ * be written as longer prose over agents with terse ones, independent of the actual
+ * request. Only closed-class words are listed; nothing domain-bearing.
+ */
+const ROUTING_STOPWORDS = new Set([
+  'the', 'and', 'for', 'with', 'from', 'into', 'that', 'this', 'these', 'those', 'than', 'then',
+  'you', 'your', 'our', 'its', 'their', 'them', 'they', 'not', 'but', 'are', 'was', 'were', 'been',
+  'has', 'have', 'had', 'can', 'will', 'would', 'should', 'could', 'may', 'might', 'must',
+  'any', 'all', 'each', 'other', 'some', 'such', 'only', 'also', 'more', 'most', 'over', 'about',
+  'when', 'what', 'which', 'while', 'where', 'who', 'why', 'how', 'here', 'there',
+  'use', 'used', 'using', 'via', 'per', 'out', 'off', 'yet', 'own', 'get', 'let', 'now', 'one',
+  'rather', 'before', 'after', 'both', 'across', 'within', 'without', 'because',
+]);
+
 function tokenize(text: string): Set<string> {
   return new Set(
     text
       .toLowerCase()
       .split(/[^a-z0-9_]+/)
       .map(part => part.trim())
-      .filter(part => part.length >= 3),
+      .filter(part => part.length >= 3 && !ROUTING_STOPWORDS.has(part)),
   );
 }
 
@@ -5197,7 +5257,12 @@ function scoreAgent(agent: AgentDefinition, requestTokens: Set<string>, explicit
   const nameTokens = tokenize(agent.name);
   const roleTokens = tokenize(agent.role);
   const descriptionTokens = tokenize(agent.description);
-  const skillIdTokens = new Set<string>(agent.skills.flatMap(skill => [...tokenize(skill)]));
+  // Derived from the resolved skills the caller decided are a routing signal, not from
+  // `agent.skills` directly: a skill list pinned as an authorization boundary (e.g. the
+  // read-only oversight advisors) must not score. Otherwise ids alone leak intent —
+  // `file-read` tokenizes to "file"/"read" and wins "Read the file and tell me what is
+  // in it" against every `skills: []` agent, which scores 0 here by construction.
+  const skillIdTokens = new Set<string>(explicitSkills.flatMap(skill => [...tokenize(skill.id)]));
   const skillTextTokens = new Set<string>(
     explicitSkills.flatMap(skill => [...tokenize(`${skill.name} ${skill.description}`)]),
   );

@@ -18,13 +18,16 @@ import * as fs from 'node:fs';
  *    ES_SYSTEM_REQUIRED [| ES_DISPLAY_REQUIRED])`, re-asserted on a loop that
  *    self-exits if the extension host dies (orphan guard).
  *  - macOS:   `caffeinate -i [-d] -w <hostPid>` (`-w` ties the assertion to the host).
- *  - Linux:   `systemd-inhibit --what=idle:sleep --mode=block sleep infinity`.
+ *  - Linux:   `systemd-inhibit --what=idle:sleep --mode=block` wrapping a PID-guarded keeper.
  *
  * Safety-first: deny-by-default (holds nothing unless a reason is present),
  * AC-power-gated (suspended on battery unless opted out), and bounded by an
- * auto-releasing backstop so a stuck activity can never hold the machine awake
- * indefinitely. No untrusted input is ever interpolated into a command — only
- * validated integers (flags, host PID) and fixed literals.
+ * auto-releasing backstop. The bound is enforced by three independent layers so
+ * a stuck or orphaned helper cannot hold the machine awake for long: the
+ * host-side `maxAwakeMinutes` timer, a per-OS parent-PID guard that self-exits
+ * when the extension host dies, and a helper-side wall-clock deadline baked into
+ * the spawned command. No untrusted input is ever interpolated into a command —
+ * only validated integers (flags, host PID, minutes) and fixed literals.
  */
 
 /** Minimal subset of `child_process.spawn` used here; injectable for tests. */
@@ -89,6 +92,8 @@ const RE_ASSERT_SECONDS = 45;
 const SLEEP_DETECT_INTERVAL_MS = 15_000;
 const AC_POLL_INTERVAL_MS = 120_000;
 const RESPAWN_DELAY_MS = 2_000;
+/** A helper that lives at least this long is treated as stable (fresh retry budget). */
+const STABLE_RUN_MS = 30_000;
 const MAX_CONSECUTIVE_FAILURES = 3;
 const MAX_AWAKE_MINUTES_CAP = 1440;
 
@@ -109,10 +114,17 @@ export interface InhibitCommand {
  */
 export function buildInhibitCommand(
   platform: NodeJS.Platform,
-  opts: { keepDisplayAwake?: boolean; hostPid?: number } = {},
+  opts: { keepDisplayAwake?: boolean; hostPid?: number; maxAwakeMinutes?: number } = {},
 ): InhibitCommand | undefined {
   const hostPid = Number.isInteger(opts.hostPid) && (opts.hostPid as number) > 0
     ? Math.floor(opts.hostPid as number)
+    : 0;
+  // Optional helper-side hard cap: a self-release deadline baked into the spawned
+  // helper so an orphaned helper (host crashed AND its PID was recycled, defeating
+  // the PID guard) still self-terminates. 0 = no helper-side cap. This is
+  // defence-in-depth beneath the authoritative host-side backstop.
+  const maxMin = Number.isFinite(opts.maxAwakeMinutes) && (opts.maxAwakeMinutes as number) > 0
+    ? Math.floor(opts.maxAwakeMinutes as number)
     : 0;
 
   if (platform === 'win32') {
@@ -120,15 +132,17 @@ export function buildInhibitCommand(
     let flags = ES_CONTINUOUS | ES_SYSTEM_REQUIRED;
     if (opts.keepDisplayAwake) { flags |= ES_DISPLAY_REQUIRED; }
     const flagsU32 = flags >>> 0; // unsigned 32-bit
-    // Fixed script: only the validated integers `flagsU32` and `hostPid` are
-    // interpolated. The parent-PID watch makes the helper self-exit (releasing
-    // the lock) if the extension host dies without calling kill().
+    // Fixed script: only the validated integers `flagsU32`, `hostPid`, and
+    // `maxMin` are interpolated. The parent-PID watch makes the helper self-exit
+    // (releasing the lock) if the extension host dies without calling kill(); the
+    // fixed deadline caps an orphaned helper's lifetime.
     const script = [
       `$f=[uint32]${flagsU32}`,
       `$hp=${hostPid}`,
+      maxMin > 0 ? `$dl=(Get-Date).AddMinutes(${maxMin})` : '$dl=$null',
       `$s='[DllImport("kernel32.dll",SetLastError=true)]public static extern uint SetThreadExecutionState(uint e);'`,
       '$p=Add-Type -MemberDefinition $s -Name PresenceNative -Namespace AtlasMind -PassThru',
-      `while($true){ if($hp -gt 0 -and -not(Get-Process -Id $hp -ErrorAction SilentlyContinue)){break}; [void]$p::SetThreadExecutionState($f); Start-Sleep -Seconds ${RE_ASSERT_SECONDS} }`,
+      `while(($dl -eq $null) -or ((Get-Date) -lt $dl)){ if($hp -gt 0 -and -not(Get-Process -Id $hp -ErrorAction SilentlyContinue)){break}; [void]$p::SetThreadExecutionState($f); Start-Sleep -Seconds ${RE_ASSERT_SECONDS} }`,
     ].join('; ');
     return {
       command: 'powershell.exe',
@@ -138,15 +152,33 @@ export function buildInhibitCommand(
 
   if (platform === 'darwin') {
     // -i prevents idle system sleep (holds on battery too, unlike -s); -w ties
-    // the assertion to the extension host; -d also keeps the display on.
+    // the assertion to the extension host; -d also keeps the display on; -t caps
+    // an orphaned helper's lifetime.
     const args = opts.keepDisplayAwake ? ['-d', '-i'] : ['-i'];
     if (hostPid > 0) { args.push('-w', String(hostPid)); }
+    if (maxMin > 0) { args.push('-t', String(maxMin * 60)); }
     return { command: 'caffeinate', args };
   }
 
   if (platform === 'linux') {
     // Block only idle→sleep (never shutdown). The lock lives exactly as long as
-    // the wrapped command, so wrap a long-lived no-op we can kill to release.
+    // the wrapped command, so wrap a long-lived process we can kill to release.
+    // Orphan guard: when we know the host PID, the wrapped command watches it and
+    // exits if the extension host dies without calling dispose() — otherwise the
+    // inhibitor would be reparented to init and hold the lock until reboot. A
+    // bounded iteration count caps an orphaned helper's lifetime. Only the
+    // validated integers `hostPid` and `maxMin` are interpolated (no untrusted input).
+    const pidGuard = hostPid > 0 ? `kill -0 ${hostPid} 2>/dev/null` : '';
+    let keeper: string[];
+    if (maxMin > 0) {
+      const maxIters = maxMin * 2; // 30s per iteration
+      const cond = pidGuard ? `${pidGuard} && [ $i -lt ${maxIters} ]` : `[ $i -lt ${maxIters} ]`;
+      keeper = ['sh', '-c', `i=0; while ${cond}; do sleep 30; i=$((i+1)); done`];
+    } else if (pidGuard) {
+      keeper = ['sh', '-c', `while ${pidGuard}; do sleep 30; done`];
+    } else {
+      keeper = ['sleep', 'infinity'];
+    }
     return {
       command: 'systemd-inhibit',
       args: [
@@ -154,8 +186,7 @@ export function buildInhibitCommand(
         '--who=AtlasMind',
         '--why=AtlasMind is keeping the agent online',
         '--mode=block',
-        'sleep',
-        'infinity',
+        ...keeper,
       ],
     };
   }
@@ -204,12 +235,23 @@ export class PresenceManager {
   private _unavailable = false;
   private _displayHeld = false;
   private _expiresAt: number | undefined;
+  /** Absolute epoch-ms backstop deadline, preserved across sleep re-acquires. */
+  private _backstopDeadline: number | undefined;
   private _failures = 0;
   private _lastTick = 0;
+  private _disposed = false;
+  /** Was a reason held at the last reconcile? Distinguishes a fresh session. */
+  private _hadReasons = false;
+  private _spawnAt = 0;
+  /** Has the first AC-power probe completed for the current session? */
+  private _acProbed = false;
+  /** Monotonic id so an out-of-order AC probe result is ignored. */
+  private _acProbeGen = 0;
 
   private _sleepTimer: unknown;
   private _acTimer: unknown;
   private _backstopTimer: unknown;
+  private _respawnTimer: unknown;
 
   private readonly _listeners = new Set<(state: PresenceState) => void>();
 
@@ -230,6 +272,8 @@ export class PresenceManager {
 
   /** Apply the current `atlasmind.presence.*` settings snapshot. */
   public applyConfig(config: Partial<PresenceConfig>): void {
+    const prevDisplay = this._config.keepDisplayAwake;
+    const prevMax = this._config.maxAwakeMinutes;
     this._config = {
       keepAwake: config.keepAwake === true,
       keepDisplayAwake: config.keepDisplayAwake === true,
@@ -238,6 +282,17 @@ export class PresenceManager {
     };
     if (this._config.keepAwake) { this._reasons.add(SETTING_REASON); }
     else { this._reasons.delete(SETTING_REASON); }
+
+    // Reconcile a change against an already-held lock: a new backstop value must
+    // re-arm (or lift) the cap, and a display change must reach the running
+    // helper. Release the child so the following _evaluate() rebuilds it (and the
+    // backstop) with the new settings.
+    if (this._child !== undefined) {
+      const maxChanged = this._config.maxAwakeMinutes !== prevMax;
+      const displayChanged = this._config.keepDisplayAwake !== prevDisplay;
+      if (maxChanged) { this._backstopDeadline = undefined; }
+      if (maxChanged || displayChanged) { this._releaseChild(); }
+    }
     this._onReasonsChanged();
   }
 
@@ -284,6 +339,7 @@ export class PresenceManager {
   }
 
   public dispose(): void {
+    this._disposed = true;
     this._reasons.clear();
     this._stopTimers();
     this._releaseChild();
@@ -293,14 +349,28 @@ export class PresenceManager {
   // ── Internal ───────────────────────────────────────────────────────────────
 
   private _acGateOk(): boolean {
-    // Only block when we KNOW we are on battery; unknown is treated as AC.
-    return !this._config.acPowerOnly || this._onAc !== false;
+    if (!this._config.acPowerOnly) { return true; }
+    // Don't acquire optimistically before the first probe: an unknown state at
+    // startup must not hold the lock on battery. Once probed, only block when we
+    // KNOW we are on battery (unknown thereafter is treated as AC).
+    if (!this._acProbed) { return false; }
+    return this._onAc !== false;
   }
 
   private _onReasonsChanged(): void {
-    if (this._reasons.size > 0) {
+    const has = this._reasons.size > 0;
+    if (has && !this._hadReasons) {
+      // Fresh session: reset per-session state so a re-enable gets a clean slate
+      // (new failure budget, fresh AC probe, and a fresh backstop deadline).
       this._backstopFired = false;
       this._unavailable = false;
+      this._failures = 0;
+      this._acProbed = false;
+      this._backstopDeadline = undefined;
+      this._cancelRespawn();
+    }
+    this._hadReasons = has;
+    if (has) {
       this._startTimers();
       if (this._config.acPowerOnly) { void this._refreshAcPower(); }
     } else {
@@ -310,6 +380,11 @@ export class PresenceManager {
   }
 
   private _evaluate(): void {
+    if (this._disposed) { return; }
+    // Enforce the absolute backstop deadline even across sleep/wake re-acquires.
+    if (this._backstopDeadline !== undefined && this._now() >= this._backstopDeadline) {
+      this._backstopFired = true;
+    }
     const desired = computeDesired(
       this._reasons.size,
       this.isSupported() && !this._unavailable,
@@ -322,9 +397,11 @@ export class PresenceManager {
   }
 
   private _acquire(): void {
+    if (this._disposed) { return; }
     const plan = buildInhibitCommand(this._platform, {
       keepDisplayAwake: this._config.keepDisplayAwake,
       hostPid: this._hostPid,
+      maxAwakeMinutes: this._config.maxAwakeMinutes,
     });
     if (!plan) { this._unavailable = true; return; }
     let child: ChildProcess;
@@ -335,8 +412,8 @@ export class PresenceManager {
       return;
     }
     this._child = child;
+    this._spawnAt = this._now();
     this._displayHeld = this._config.keepDisplayAwake && this._platform !== 'linux';
-    this._failures = 0;
     this._armBackstop();
 
     let stderr = '';
@@ -344,7 +421,8 @@ export class PresenceManager {
       if (stderr.length < 4096) { stderr += chunk.toString(); }
     });
     child.on('error', (err) => {
-      if (this._child === child) { this._child = undefined; }
+      if (this._child !== child) { return; } // superseded/old child — ignore its late error
+      this._child = undefined;
       this._handleSpawnFailure(err);
     });
     child.on('close', (code, signal) => {
@@ -352,6 +430,10 @@ export class PresenceManager {
       this._child = undefined;
       this._displayHeld = false;
       if (signal) { return; } // killed by us → clean release
+      // A helper that ran stably before dying earns a fresh retry budget; one
+      // that dies almost immediately accumulates toward the give-up cap so a
+      // start-then-exit helper can never spin-loop forever.
+      if (this._now() - this._spawnAt >= STABLE_RUN_MS) { this._failures = 0; }
       this._log(`presence: keep-awake helper exited unexpectedly (code ${code})${stderr ? `: ${stderr.trim()}` : ''}`);
       this._retryAfterFailure();
     });
@@ -371,6 +453,7 @@ export class PresenceManager {
   }
 
   private _retryAfterFailure(): void {
+    if (this._disposed) { return; }
     this._failures += 1;
     if (this._failures > MAX_CONSECUTIVE_FAILURES) {
       this._unavailable = true;
@@ -378,10 +461,20 @@ export class PresenceManager {
       this._emit();
       return;
     }
-    // Throttled respawn so a helper that dies instantly cannot spin-loop.
-    const handle = this._timers.setTimeout(() => this._evaluate(), RESPAWN_DELAY_MS);
+    // Throttled respawn so a helper that dies instantly cannot spin-loop. Stored
+    // so it can be cancelled on stop/dispose (never re-acquires after teardown).
+    this._cancelRespawn();
+    const handle = this._timers.setTimeout(() => { this._respawnTimer = undefined; this._evaluate(); }, RESPAWN_DELAY_MS);
     unref(handle);
+    this._respawnTimer = handle;
     this._emit();
+  }
+
+  private _cancelRespawn(): void {
+    if (this._respawnTimer !== undefined) {
+      this._timers.clearTimeout(this._respawnTimer);
+      this._respawnTimer = undefined;
+    }
   }
 
   private _releaseChild(): void {
@@ -397,14 +490,27 @@ export class PresenceManager {
   private _armBackstop(): void {
     this._clearBackstop();
     const minutes = this._config.maxAwakeMinutes;
-    if (minutes <= 0) { this._expiresAt = undefined; return; }
-    const ms = minutes * 60_000;
-    this._expiresAt = this._now() + ms;
+    if (minutes <= 0) { this._expiresAt = undefined; this._backstopDeadline = undefined; return; }
+    // The deadline is absolute and set once per session, so repeated sleep/wake
+    // re-acquires cannot push it forward past maxAwakeMinutes of real time.
+    if (this._backstopDeadline === undefined) {
+      this._backstopDeadline = this._now() + minutes * 60_000;
+    }
+    this._expiresAt = this._backstopDeadline;
+    const remaining = this._backstopDeadline - this._now();
+    if (remaining <= 0) {
+      // Deadline already passed (e.g. across a long sleep); _evaluate() enforces
+      // this before re-acquiring, so this is a defensive fallback.
+      this._backstopFired = true;
+      this._expiresAt = undefined;
+      return;
+    }
     const handle = this._timers.setTimeout(() => {
+      this._backstopTimer = undefined;
       this._backstopFired = true;
       this._log(`presence: keep-awake auto-released after the ${minutes}-minute backstop.`);
       this._evaluate();
-    }, ms);
+    }, remaining);
     unref(handle);
     this._backstopTimer = handle;
   }
@@ -423,10 +529,16 @@ export class PresenceManager {
       unref(handle);
       this._sleepTimer = handle;
     }
-    if (this._config.acPowerOnly && this._acTimer === undefined) {
-      const handle = this._timers.setInterval(() => { void this._refreshAcPower(); }, AC_POLL_INTERVAL_MS);
-      unref(handle);
-      this._acTimer = handle;
+    if (this._config.acPowerOnly) {
+      if (this._acTimer === undefined) {
+        const handle = this._timers.setInterval(() => { void this._refreshAcPower(); }, AC_POLL_INTERVAL_MS);
+        unref(handle);
+        this._acTimer = handle;
+      }
+    } else if (this._acTimer !== undefined) {
+      // acPowerOnly was turned off mid-session — stop polling power.
+      this._timers.clearInterval(this._acTimer);
+      this._acTimer = undefined;
     }
   }
 
@@ -434,9 +546,11 @@ export class PresenceManager {
     if (this._sleepTimer !== undefined) { this._timers.clearInterval(this._sleepTimer); this._sleepTimer = undefined; }
     if (this._acTimer !== undefined) { this._timers.clearInterval(this._acTimer); this._acTimer = undefined; }
     this._clearBackstop();
+    this._cancelRespawn();
   }
 
   private _onSleepTick(): void {
+    if (this._disposed) { return; }
     const now = this._now();
     const drift = now - this._lastTick - SLEEP_DETECT_INTERVAL_MS;
     this._lastTick = now;
@@ -451,15 +565,24 @@ export class PresenceManager {
   }
 
   private async _refreshAcPower(): Promise<void> {
+    const gen = ++this._acProbeGen;
     let ac: boolean | undefined;
     try {
       ac = await this._detectAcPower(this._platform, this._spawn);
     } catch {
       ac = undefined;
     }
-    if (ac !== this._onAc) {
+    if (this._disposed) { return; }
+    if (gen !== this._acProbeGen) { return; } // a newer probe superseded this one
+    const firstProbe = !this._acProbed;
+    this._acProbed = true;
+    // Always re-evaluate on the first probe (even if the value is unchanged/unknown)
+    // so a deferred acquire can proceed once the AC gate is resolved.
+    if (firstProbe || ac !== this._onAc) {
       this._onAc = ac;
       this._evaluate();
+    } else {
+      this._onAc = ac;
     }
   }
 

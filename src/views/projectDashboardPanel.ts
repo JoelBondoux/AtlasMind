@@ -39,7 +39,21 @@ import {
 import { mcpSkillId } from '../mcp/mcpServerRegistry.js';
 import { classifyToolInvocation } from '../core/toolPolicy.js';
 import { DOCUMENTS_SSOT_PATH, DOCUMENTS_SUMMARY_SSOT_PATH, sanitizeDocumentsConfig, seedDocumentsConfig } from '../core/documentsManager.js';
-import type { DataPrivacyActivityEvent, DataPrivacySensitivity, DeliveryConfig, DeploymentStage, PromotionPath, PromotionHistoryEntry, ProjectDirectorConfig, ProjectRunRecord, DocumentCadence } from '../types.js';
+import {
+  RISK_SSOT_PATH,
+  RISK_SUMMARY_SSOT_PATH,
+  RISK_DOMAINS,
+  appendRiskOversightHistory,
+  readRiskOversightHistory,
+  openFindings,
+  hasBeenAssessed,
+  findingWeight,
+  riskMatrixCounts,
+  mergeDomainFindings,
+  parseRiskFindings,
+  sanitizeRiskFindings,
+} from '../core/riskOversightManager.js';
+import type { DataPrivacyActivityEvent, DataPrivacySensitivity, DeliveryConfig, DeploymentStage, PromotionPath, PromotionHistoryEntry, ProjectDirectorConfig, ProjectRunRecord, DocumentCadence, RiskDomain, RiskFinding, RiskOversightConfig, RiskOversightHistoryEntry, RiskStatus } from '../types.js';
 
 const execFileAsync = promisify(execFile);
 const PROJECT_DASHBOARD_VIEW_TYPE = 'atlasmind.projectDashboard';
@@ -182,6 +196,9 @@ type ProjectDashboardMessage =
   | { type: 'seedDirectorFromRepo' }
   | { type: 'saveDocumentsConfig'; payload: import('../types.js').DocumentsConfig }
   | { type: 'seedDocumentsFromRepo' }
+  | { type: 'runRiskAnalysis'; payload: { domain: import('../types.js').RiskDomain | 'all' } }
+  | { type: 'setRiskFindingStatus'; payload: { findingId: string; status: import('../types.js').RiskStatus; note?: string } }
+  | { type: 'setRiskFilter'; payload: string }
   | { type: 'copyContact'; payload: string }
   | { type: 'openContactDeepLink'; payload: { contactId: string; linkId: string } }
   | { type: 'assignRunOwner'; payload: { runId: string; contactId: string } }
@@ -198,6 +215,8 @@ type DashboardWebviewMessage =
   | { type: 'ideationResponseChunk'; payload: string }
   | { type: 'gapAnalysisBusy'; payload: boolean }
   | { type: 'gapAnalysisStatus'; payload: string }
+  | { type: 'riskBusy'; payload: boolean }
+  | { type: 'riskStatus'; payload: string }
   | { type: 'dataPrivacyTestResult'; payload: { ok: boolean; summary: string; labels: string[] } }
   | { type: 'promotionPlan'; payload: { plan: import('../types.js').PromotionPlan; mode: 'execute' | 'runbook' } }
   | { type: 'promotionProgress'; payload: { stepId: string; label: string; index: number; total: number; status: string; output?: string } }
@@ -218,7 +237,21 @@ interface DashboardStat {
   command?: string;
 }
 
-type DashboardPageId = 'overview' | 'score' | 'repo' | 'runtime' | 'testing' | 'ssot' | 'roadmap' | 'gapAnalysis' | 'security' | 'delivery' | 'director' | 'documents' | 'ideation';
+/**
+ * Every dashboard page id, in nav order.
+ *
+ * Single source of truth: the union below is derived from it and
+ * {@link normalizeDashboardPromptRequest} validates against it, so adding a page
+ * cannot leave one of them behind. It previously could — `privacy` shipped in the
+ * webview nav but was missing from both, which silently dropped `sourcePage` on
+ * every "Ask Atlas" raised from that page.
+ */
+const DASHBOARD_PAGE_IDS = [
+  'overview', 'score', 'repo', 'runtime', 'testing', 'ssot', 'roadmap', 'gapAnalysis',
+  'security', 'privacy', 'risk', 'delivery', 'director', 'documents', 'ideation',
+] as const;
+
+type DashboardPageId = typeof DASHBOARD_PAGE_IDS[number];
 
 type IdeationCardKind =
   | 'concept'
@@ -833,6 +866,7 @@ interface DashboardSnapshot {
   };
   director: DashboardDirectorSnapshot;
   documents: DashboardDocumentsSnapshot;
+  risk: DashboardRiskSnapshot;
   score: DashboardScoreBreakdown;
   ideation: DashboardIdeationSnapshot;
   gapAnalysis: DashboardGapAnalysisSnapshot;
@@ -1278,6 +1312,7 @@ export class ProjectDashboardPanel {
     this.atlas.deliveryRefresh?.event(() => { void this.syncState(); }, null, this.disposables);
     this.atlas.projectDirectorRefresh?.event(() => { void this.syncState(); }, null, this.disposables);
     this.atlas.documentsRefresh?.event(() => { void this.syncState(); }, null, this.disposables);
+    this.atlas.riskOversightRefresh?.event(() => { void this.syncState(); }, null, this.disposables);
     this.atlas.projectRunsRefresh.event(() => { void this.syncState(); }, null, this.disposables);
     this.atlas.memoryRefresh.event(() => { void this.syncState(); }, null, this.disposables);
     this.atlas.sessionConversation.onDidChange(() => { void this.syncState(); }, null, this.disposables);
@@ -1442,6 +1477,15 @@ export class ProjectDashboardPanel {
         return;
       case 'seedDirectorFromRepo':
         await this.handleSeedDirector();
+        return;
+      case 'runRiskAnalysis':
+        await this.handleRunRiskAnalysis(message.payload.domain);
+        return;
+      case 'setRiskFindingStatus':
+        await this.handleSetRiskFindingStatus(message.payload);
+        return;
+      case 'setRiskFilter':
+        // View-only state; the webview owns it. Nothing to persist.
         return;
       case 'saveDocumentsConfig':
         {
@@ -1991,6 +2035,141 @@ export class ProjectDashboardPanel {
       .filter(doc => existsSync(path.join(workspaceRoot, doc)));
     const seeded = seedDocumentsConfig({ presentDocFolders, keyDocs });
     await this.atlas.documentsManager.save(seeded);
+    await this.syncState();
+  }
+
+  /**
+   * Run one or all oversight advisors and record what they find.
+   *
+   * The agent is *pinned* via `processTaskWithAgent` rather than routed, so the Risk
+   * page always consults the advisor the user asked for. Each advisor is read-only
+   * (its skills are an allowlist), which is why persistence happens here instead:
+   * the model returns JSON, this method sanitises it and owns the single write path.
+   *
+   * "All" runs sequentially, not concurrently — three parallel model calls is a
+   * surprising cost spike from one click, and sequential progress is legible.
+   */
+  private async handleRunRiskAnalysis(domain: RiskDomain | 'all'): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot || !this.atlas.riskOversightManager) {
+      return;
+    }
+    const domains: RiskDomain[] = domain === 'all' ? [...RISK_DOMAINS] : [domain];
+
+    await this.postMessage({ type: 'riskBusy', payload: true });
+    try {
+      const configuration = vscode.workspace.getConfiguration('atlasmind');
+      let config = this.atlas.riskOversightManager.getConfig() ?? await this.atlas.riskOversightManager.ensureSeeded();
+
+      for (const [index, current] of domains.entries()) {
+        const agent = this.atlas.agentRegistry.get(`${current}-oversight`);
+        if (!agent) {
+          await this.postMessage({ type: 'riskStatus', payload: `The ${current} oversight advisor is not available.` });
+          continue;
+        }
+        const position = domains.length > 1 ? ` (${index + 1}/${domains.length})` : '';
+        await this.postMessage({ type: 'riskStatus', payload: `${agent.name} is reviewing the workspace${position}...` });
+
+        let streamedText = '';
+        let result;
+        try {
+          result = await this.atlas.orchestrator.processTaskWithAgent(
+            {
+              id: `risk-${current}-${Date.now()}`,
+              userMessage: buildRiskAnalysisPrompt(current),
+              context: { riskAnalysisMode: 'json' },
+              constraints: {
+                budget: toDashboardBudgetMode(configuration.get<string>('budgetMode')),
+                speed: toDashboardSpeedMode(configuration.get<string>('speedMode')),
+              },
+              timestamp: new Date().toISOString(),
+            },
+            agent,
+            chunk => { streamedText += chunk ?? ''; },
+            progress => { void this.postMessage({ type: 'riskStatus', payload: `${agent.name}: ${progress}` }); },
+          );
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          await this.postMessage({ type: 'riskStatus', payload: `${agent.name} failed: ${detail}` });
+          continue;
+        }
+
+        // Model output is untrusted: parse defensively, then sanitise before persisting.
+        const reconciled = reconcileAssistantResponse(streamedText, result.response);
+        const raw = parseRiskFindings(reconciled.transcriptText);
+        const incoming = sanitizeRiskFindings(raw)
+          .map(finding => ({ ...finding, domain: current }));
+
+        config = {
+          ...config,
+          findings: mergeDomainFindings(config.findings, incoming, current),
+          runs: [
+            ...config.runs.filter(run => run.domain !== current),
+            { domain: current, ranAt: new Date().toISOString(), findingCount: incoming.length },
+          ],
+        };
+        await this.atlas.riskOversightManager.save(config);
+        await appendRiskOversightHistory(workspaceRoot, {
+          id: `run-${current}-${new Date().toISOString()}`,
+          kind: 'analysis-run',
+          summary: `${agent.name} reviewed the workspace and reported ${incoming.length} finding${incoming.length === 1 ? '' : 's'}.`,
+          domain: current,
+          ranAt: new Date().toISOString(),
+        });
+
+        await this.postMessage({
+          type: 'riskStatus',
+          payload: incoming.length === 0
+            // A clean result and an unparseable one look the same to the user, so say which.
+            ? `${agent.name} reported no findings${raw.length > 0 ? ' that could be recorded' : ''}.`
+            : `${agent.name} recorded ${incoming.length} finding${incoming.length === 1 ? '' : 's'}.`,
+        });
+        await this.syncState();
+      }
+    } finally {
+      await this.postMessage({ type: 'riskBusy', payload: false });
+    }
+  }
+
+  /**
+   * Record a human decision about a finding. Findings are never deleted — a status
+   * change is the only way one leaves the open set — so the register keeps a complete
+   * account of what was raised and what was decided.
+   */
+  private async handleSetRiskFindingStatus(payload: { findingId: string; status: RiskStatus; note?: string }): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const manager = this.atlas.riskOversightManager;
+    const config = manager?.getConfig();
+    if (!manager || !config) {
+      return;
+    }
+    const finding = config.findings.find(entry => entry.id === payload.findingId);
+    if (!finding || finding.status === payload.status) {
+      return;
+    }
+    const note = payload.note?.trim().slice(0, 2000);
+    const updated: RiskOversightConfig = {
+      ...config,
+      findings: config.findings.map(entry => entry.id === payload.findingId
+        ? {
+          ...entry,
+          status: payload.status,
+          updatedAt: new Date().toISOString(),
+          ...(note ? { statusNote: note } : {}),
+        }
+        : entry),
+    };
+    await manager.save(updated);
+    if (workspaceRoot) {
+      await appendRiskOversightHistory(workspaceRoot, {
+        id: `status-${payload.findingId}-${new Date().toISOString()}`,
+        kind: 'status-change',
+        summary: `"${finding.title}" moved from ${finding.status} to ${payload.status}.`,
+        domain: finding.domain,
+        entityId: payload.findingId,
+        ranAt: new Date().toISOString(),
+      });
+    }
     await this.syncState();
   }
 
@@ -2546,6 +2725,33 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return typeof p === 'object' && p !== null && p['version'] === 1 && Array.isArray(p['filing']) && Array.isArray(p['autoUpdate']);
   }
 
+  // Risk messages trigger a paid model call and mutate the persisted register, so the
+  // domain and status are checked against their closed sets here rather than being
+  // coerced later — an unrecognised value is rejected outright, not defaulted.
+  if (candidate['type'] === 'runRiskAnalysis') {
+    const p = candidate['payload'] as Record<string, unknown> | undefined;
+    if (typeof p !== 'object' || p === null) {
+      return false;
+    }
+    const domain = p['domain'];
+    return domain === 'all' || (typeof domain === 'string' && (RISK_DOMAINS as readonly string[]).includes(domain));
+  }
+
+  if (candidate['type'] === 'setRiskFindingStatus') {
+    const p = candidate['payload'] as Record<string, unknown> | undefined;
+    if (typeof p !== 'object' || p === null) {
+      return false;
+    }
+    const validStatuses = ['open', 'accepted', 'mitigated', 'closed', 'dismissed'];
+    return typeof p['findingId'] === 'string' && p['findingId'].trim().length > 0
+      && typeof p['status'] === 'string' && validStatuses.includes(p['status'])
+      && (p['note'] === undefined || typeof p['note'] === 'string');
+  }
+
+  if (candidate['type'] === 'setRiskFilter') {
+    return typeof candidate['payload'] === 'string';
+  }
+
   if (candidate['type'] === 'openContactDeepLink') {
     const p = candidate['payload'] as Record<string, unknown> | undefined;
     return typeof p === 'object' && p !== null && typeof p['contactId'] === 'string' && p['contactId'].length > 0
@@ -2639,7 +2845,8 @@ function isDashboardRoadmapSavePayload(payload: unknown): payload is DashboardRo
   return Array.isArray(items) && items.every(item => typeof item === 'object' && item !== null && typeof (item as { text?: unknown }).text === 'string');
 }
 
-function normalizeDashboardPromptRequest(payload: unknown): { prompt: string; sourcePage?: DashboardPageId } | undefined {
+/** Exported for tests: the page-id allowlist is easy to leave a new page out of. */
+export function normalizeDashboardPromptRequest(payload: unknown): { prompt: string; sourcePage?: DashboardPageId } | undefined {
   if (typeof payload === 'string') {
     const prompt = payload.trim();
     return prompt.length > 0 ? { prompt } : undefined;
@@ -2655,8 +2862,8 @@ function normalizeDashboardPromptRequest(payload: unknown): { prompt: string; so
   const sourcePage = candidate['sourcePage'];
   return {
     prompt,
-    ...(sourcePage === 'overview' || sourcePage === 'score' || sourcePage === 'repo' || sourcePage === 'runtime' || sourcePage === 'testing' || sourcePage === 'ssot' || sourcePage === 'roadmap' || sourcePage === 'security' || sourcePage === 'delivery' || sourcePage === 'director' || sourcePage === 'documents' || sourcePage === 'ideation'
-      ? { sourcePage }
+    ...(typeof sourcePage === 'string' && (DASHBOARD_PAGE_IDS as readonly string[]).includes(sourcePage)
+      ? { sourcePage: sourcePage as DashboardPageId }
       : {}),
   };
 }
@@ -2694,6 +2901,7 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
   const runs = await atlas.projectRunHistory.listRunsAsync(40);
   const directorSnapshot = await collectDirectorSnapshot(atlas, workspaceRoot, gitSnapshot.currentBranch, runs);
   const documentsSnapshot = await collectDocumentsSnapshot(atlas, workspaceRoot);
+  const riskSnapshot = collectRiskSnapshot(atlas, workspaceRoot);
   const runtimeTdd = summarizeRuntimeTdd(runs);
   const costSummary = atlas.costTracker.getSummary();
   const memoryEntries = atlas.memoryManager.listEntries();
@@ -2745,6 +2953,7 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
     ciSignals,
     reviewReadiness,
     outcomeCompleteness,
+    risk: riskSnapshot,
   });
   const repoLabel = workspaceRoot && gitSnapshot.currentBranch !== 'Not a git repository'
     ? `${workspaceRootLabel} • ${gitSnapshot.currentBranch}`
@@ -2764,11 +2973,20 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
     { label: 'SSOT Entry', description: 'Open the most recently touched SSOT document.', filePath: ssotOpenTarget, pageTarget: 'ssot' as DashboardPageId },
   ].filter(action => typeof action.filePath !== 'undefined' ? action.filePath.trim().length > 0 : true);
 
+  // Normalise to /100 from the components actually present rather than assuming the
+  // maxScores happen to sum to 100. They did by convention, but nothing enforced it,
+  // and the UI hard-codes "/100" in the ring, the headline, and the >=85/>=65 bands.
+  // Deriving the denominator keeps those correct while categories come and go — the
+  // risk component in particular is absent until a project has been assessed.
+  const earnedScore = scoreBreakdown.components.reduce((total, component) => total + component.score, 0);
+  const availableScore = scoreBreakdown.components.reduce((total, component) => total + component.maxScore, 0);
+  const normalizedHealthScore = availableScore > 0 ? Math.round((earnedScore / availableScore) * 100) : 0;
+
   const stats: DashboardStat[] = [
     {
       id: 'health',
       label: 'Operational Health',
-      value: `${scoreBreakdown.components.reduce((total, component) => total + component.score, 0)}`,
+      value: `${normalizedHealthScore}`,
       detail: `Composite score across ${scoreBreakdown.components.length} operational dimensions, including ${outcomeCompleteness.score}% outcome completeness.`,
       tone: blockedEntries > 0 || autopilot ? 'warn' : outcomeCompleteness.score >= 75 ? 'good' : 'accent',
       pageTarget: 'score',
@@ -2958,6 +3176,7 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
     },
     director: directorSnapshot,
     documents: documentsSnapshot,
+    risk: riskSnapshot,
     score: scoreBreakdown,
     ideation: {
       boardPath: buildIdeationRelativePath(ssotPath, activeIdeationWorkspace.boardFile),
@@ -5048,6 +5267,185 @@ interface DashboardDocumentsSnapshot {
   summary: string;
 }
 
+// ── Risk oversight snapshot ──────────────────────────────────────────────────
+
+interface DashboardRiskDomainView {
+  domain: RiskDomain;
+  label: string;
+  agentId: string;
+  /** ISO date of the last run, or undefined when never analysed. */
+  lastRun?: string;
+  /** Whole days since the last run; undefined when never analysed. */
+  daysSinceRun?: number;
+  openCount: number;
+  stale: boolean;
+}
+
+interface DashboardRiskSnapshot {
+  filePath: string;
+  summaryPath: string;
+  /** False until at least one advisor has actually run — drives "not yet assessed". */
+  assessed: boolean;
+  domains: DashboardRiskDomainView[];
+  findings: RiskFinding[];
+  openCount: number;
+  acceptedCount: number;
+  resolvedCount: number;
+  /** Counts keyed `likelihood:impact`, for the risk matrix. */
+  matrix: Record<string, number>;
+  /** 0-100, higher is better. Undefined until assessed. */
+  score?: number;
+  /** Open findings over time, for the trend chart. */
+  trend: DashboardSeriesPoint[];
+  history: RiskOversightHistoryEntry[];
+  summary: string;
+}
+
+/** An assessment older than this stops counting as current assurance. */
+const RISK_STALE_DAYS = 90;
+
+const RISK_DOMAIN_BRIEF: Record<RiskDomain, string> = {
+  ethics: 'user harm, fairness and bias, consent, dark patterns, transparency about automated behaviour, accessibility as an ethical duty, and the human impact of the product\'s data and design decisions',
+  legal: 'dependency and third-party licence compatibility and obligations, intellectual property and attribution, privacy regulation such as GDPR and CCPA, liability and warranty language, terms of service, and the handling of regulated or personal data',
+  commercial: 'monetisation and business viability, vendor cost and lock-in exposure, contractual and customer obligations, competitor positioning, and go-to-market or customer impact',
+};
+
+/**
+ * Prompt for a dashboard-triggered oversight run.
+ *
+ * Asks for prose *and* a machine-readable block: the page records the JSON, while the
+ * prose keeps the run legible in the transcript. The parser tolerates the model
+ * ignoring this contract entirely (see `parseRiskFindings`), so the instruction is a
+ * request, not an assumption.
+ */
+function buildRiskAnalysisPrompt(domain: RiskDomain): string {
+  return [
+    `Review this workspace for ${domain} risk: ${RISK_DOMAIN_BRIEF[domain]}.`,
+    '',
+    'Inspect the repository before asserting anything — read the files that would actually',
+    'evidence a concern, and cite them. Distinguish what you observed here from general',
+    'principle, and say when you could not determine something rather than assuming.',
+    'Rank by likelihood and impact, and report a clean result when the project looks sound;',
+    'flagging everything is the same as flagging nothing.',
+    '',
+    'Then end your reply with a single fenced JSON block in exactly this shape:',
+    '',
+    '```json',
+    '{"findings":[{',
+    `  "title": "short specific title",`,
+    '  "detail": "what the concern is and what you saw",',
+    '  "likelihood": "low|medium|high",',
+    '  "impact": "low|medium|high",',
+    '  "confidence": "low|medium|high",',
+    '  "evidence": ["workspace-relative/path.ts"],',
+    '  "recommendation": "the next step, and the human review it needs"',
+    '}]}',
+    '```',
+    '',
+    'Use an empty array when there is nothing material to report. Evidence paths must be',
+    'workspace-relative. Do not include any other JSON block in your reply.',
+  ].join('\n');
+}
+
+const RISK_DOMAIN_LABEL: Record<RiskDomain, string> = {
+  ethics: 'Ethics',
+  legal: 'Legal',
+  commercial: 'Commercial',
+};
+
+/**
+ * Convert the persisted register into the view model the Risk page renders.
+ *
+ * Deliberately reports `assessed: false` rather than a zero score when nothing has
+ * been analysed: an unassessed project is unknown, not safe, and the page must not
+ * imply otherwise.
+ */
+function collectRiskSnapshot(atlas: AtlasMindContext, workspaceRoot: string | undefined): DashboardRiskSnapshot {
+  const config = atlas.riskOversightManager?.getConfig();
+  const history = workspaceRoot ? readRiskOversightHistory(workspaceRoot).slice(0, 50) : [];
+  const findings = config?.findings ?? [];
+  const open = config ? openFindings(config) : [];
+  const accepted = findings.filter(finding => finding.status === 'accepted');
+  const resolved = findings.filter(finding => finding.status === 'mitigated' || finding.status === 'closed' || finding.status === 'dismissed');
+  const assessed = hasBeenAssessed(config);
+  const now = Date.now();
+
+  const domains: DashboardRiskDomainView[] = RISK_DOMAINS.map(domain => {
+    const run = config?.runs.find(entry => entry.domain === domain);
+    const parsed = run ? Date.parse(run.ranAt) : Number.NaN;
+    const daysSinceRun = Number.isNaN(parsed) ? undefined : Math.floor((now - parsed) / 86_400_000);
+    return {
+      domain,
+      label: RISK_DOMAIN_LABEL[domain],
+      agentId: `${domain}-oversight`,
+      ...(run ? { lastRun: run.ranAt } : {}),
+      ...(daysSinceRun === undefined ? {} : { daysSinceRun }),
+      openCount: open.filter(finding => finding.domain === domain).length,
+      stale: daysSinceRun === undefined ? true : daysSinceRun > RISK_STALE_DAYS,
+    };
+  });
+
+  const summary = !assessed
+    ? 'Risk has not been assessed yet. Run an oversight advisor to build the register.'
+    : open.length === 0
+      ? `No open findings across ${domains.filter(entry => entry.lastRun).length} assessed domain(s).`
+      : `${open.length} open finding${open.length === 1 ? '' : 's'} across ${new Set(open.map(finding => finding.domain)).size} domain(s).`;
+
+  return {
+    filePath: RISK_SSOT_PATH,
+    summaryPath: RISK_SUMMARY_SSOT_PATH,
+    assessed,
+    domains,
+    findings,
+    openCount: open.length,
+    acceptedCount: accepted.length,
+    resolvedCount: resolved.length,
+    matrix: riskMatrixCounts(open),
+    ...(assessed ? { score: computeRiskScore(config!) } : {}),
+    trend: buildRiskTrend(history),
+    history,
+    summary,
+  };
+}
+
+/**
+ * Risk health as 0-100, higher is better. Starts at 100 and deducts weighted open
+ * findings, then applies a staleness decay so an old assessment stops reading as
+ * current assurance. `accepted` findings are excluded — a consciously owned risk is
+ * a decision, not an unmanaged gap.
+ */
+function computeRiskScore(config: RiskOversightConfig): number {
+  const open = openFindings(config);
+  const burden = open.reduce((total, finding) => total + findingWeight(finding), 0);
+  // 9 is a single worst-case finding (high/high/high confidence); ~4 of those floor the score.
+  const fromFindings = Math.max(0, 100 - Math.round((burden / 36) * 100));
+
+  const now = Date.now();
+  const assessedDomains = RISK_DOMAINS.filter(domain => config.runs.some(run => run.domain === domain));
+  if (assessedDomains.length === 0) {
+    return fromFindings;
+  }
+  // Coverage: an unassessed domain is unknown risk, so it cannot count as assurance.
+  const coverage = assessedDomains.length / RISK_DOMAINS.length;
+  // Staleness: linear decay to 0.5 at twice the stale threshold.
+  const oldestDays = Math.max(...assessedDomains.map(domain => {
+    const run = config.runs.find(entry => entry.domain === domain)!;
+    const parsed = Date.parse(run.ranAt);
+    return Number.isNaN(parsed) ? RISK_STALE_DAYS * 2 : Math.floor((now - parsed) / 86_400_000);
+  }));
+  const freshness = oldestDays <= RISK_STALE_DAYS
+    ? 1
+    : Math.max(0.5, 1 - ((oldestDays - RISK_STALE_DAYS) / (RISK_STALE_DAYS * 2)) * 0.5);
+
+  return Math.max(0, Math.min(100, Math.round(fromFindings * coverage * freshness)));
+}
+
+/** Analysis-run counts per day, so the Risk page can show assessment cadence. */
+function buildRiskTrend(history: RiskOversightHistoryEntry[]): DashboardSeriesPoint[] {
+  const runs = history.filter(entry => entry.kind === 'analysis-run');
+  return buildDailySeries(runs.map(entry => entry.ranAt), SERIES_DAY_RANGE);
+}
+
 const DOC_IGNORE_DIRS = new Set(['node_modules', 'dist', 'out', 'build', 'coverage', 'vendor', '.vscode-test']);
 
 /**
@@ -5484,7 +5882,12 @@ function serializeDashboardRoadmapDocument(existing: string, items: Array<{ text
   ].filter(Boolean).join('\n');
 }
 
-function buildScoreBreakdown(input: {
+/**
+ * Exported for tests. The component list carries a normalisation invariant (the
+ * headline score is derived from the maxScores present, not a hard-coded 100) and
+ * a safety one (risk is absent until assessed) that are worth pinning directly.
+ */
+export function buildScoreBreakdown(input: {
   ssotPath: string;
   securityPolicyPresent: boolean;
   codeownersPresent: boolean;
@@ -5503,6 +5906,7 @@ function buildScoreBreakdown(input: {
   ciSignals: Array<{ label: string; ok: boolean }>;
   reviewReadiness: Array<{ label: string; ok: boolean }>;
   outcomeCompleteness: DashboardOutcomeCompleteness;
+  risk: DashboardRiskSnapshot;
 }): DashboardScoreBreakdown {
   const components: DashboardScoreComponent[] = [
     {
@@ -5576,6 +5980,24 @@ function buildScoreBreakdown(input: {
       pageTarget: 'score',
     },
   ];
+
+  // Risk contributes only once an oversight advisor has actually run. Before that the
+  // exposure is unknown, not zero — scoring it as 0/15 would silently drop every
+  // existing project's health number for a risk nobody has been told about, and
+  // scoring it as 15/15 would be false assurance. Omitting it entirely leaves the
+  // normalised total untouched until there is evidence to weigh.
+  if (input.risk.assessed && input.risk.score !== undefined) {
+    const riskScore = input.risk.score;
+    components.push({
+      id: 'risk',
+      label: 'Risk oversight',
+      score: Math.round((riskScore / 100) * 15),
+      maxScore: 15,
+      detail: input.risk.summary,
+      tone: riskScore >= 80 ? 'good' : riskScore >= 55 ? 'accent' : riskScore >= 30 ? 'warn' : 'critical',
+      pageTarget: 'risk',
+    });
+  }
 
   const recommendations: DashboardScoreRecommendation[] = [];
 
@@ -7544,6 +7966,112 @@ const DASHBOARD_CSS = `
     display: grid;
     gap: 6px;
   }
+
+  /* ── Risk matrix ──────────────────────────────────────────────
+     Likelihood x impact heatmap. Colours are derived from the existing
+     good/warn/critical theme tokens so it tracks the VS Code theme, and every
+     cell also carries its count as text — the band is never the only signal. */
+  .risk-matrix {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 12px 0 6px;
+  }
+
+  .risk-matrix-row {
+    display: grid;
+    grid-template-columns: 72px repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    align-items: stretch;
+  }
+
+  .risk-axis-label {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    text-transform: capitalize;
+    color: var(--dash-muted);
+  }
+
+  .risk-matrix-row .risk-axis-label:first-child {
+    justify-content: flex-end;
+    padding-right: 8px;
+  }
+
+  .risk-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 46px;
+    border-radius: 8px;
+    border: 1px solid var(--dash-border);
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--vscode-foreground);
+    background: color-mix(in srgb, var(--dash-border) 25%, transparent);
+    cursor: pointer;
+    transition: transform 120ms ease, border-color 120ms ease;
+  }
+
+  .risk-cell.is-empty {
+    cursor: default;
+    color: var(--dash-muted);
+    font-weight: 400;
+  }
+
+  .risk-cell--low { background: color-mix(in srgb, var(--dash-good) 16%, transparent); }
+  .risk-cell--moderate { background: color-mix(in srgb, var(--dash-warn) 16%, transparent); }
+  .risk-cell--high { background: color-mix(in srgb, var(--dash-warn) 32%, transparent); }
+  .risk-cell--severe { background: color-mix(in srgb, var(--dash-critical) 34%, transparent); }
+
+  button.risk-cell:hover { transform: translateY(-1px); }
+  button.risk-cell:focus-visible { outline: 2px solid var(--dash-accent); outline-offset: 2px; }
+
+  .risk-cell.is-active {
+    border-color: var(--dash-accent);
+    box-shadow: inset 0 0 0 1px var(--dash-accent);
+  }
+
+  .risk-axis-caption {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--dash-muted);
+  }
+
+  .risk-finding {
+    display: grid;
+    gap: 8px;
+    padding: 12px;
+    border: 1px solid var(--dash-border);
+    border-radius: 10px;
+    margin-top: 10px;
+  }
+
+  /* Resolved findings stay visible but recede — they are history, not noise. */
+  .risk-finding--accepted,
+  .risk-finding--mitigated,
+  .risk-finding--closed,
+  .risk-finding--dismissed {
+    opacity: 0.72;
+  }
+
+  .risk-finding--open { border-color: color-mix(in srgb, var(--dash-warn) 40%, var(--dash-border)); }
+
+  .risk-tag {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--dash-border);
+    color: var(--dash-muted);
+  }
+
+  .risk-tag--ethics { border-color: color-mix(in srgb, var(--dash-accent) 50%, var(--dash-border)); }
+  .risk-tag--legal { border-color: color-mix(in srgb, var(--dash-critical) 45%, var(--dash-border)); }
+  .risk-tag--commercial { border-color: color-mix(in srgb, var(--dash-good) 45%, var(--dash-border)); }
 
   .coverage-bar {
     height: 10px;

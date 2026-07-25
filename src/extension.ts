@@ -32,6 +32,7 @@ import type { RoutineRegistry } from './core/routineRegistry.js';
 import type { DeliveryManager } from './core/deliveryManager.js';
 import type { ProjectDirectorManager } from './core/projectDirectorManager.js';
 import type { DocumentsManager } from './core/documentsManager.js';
+import type { RiskOversightManager } from './core/riskOversightManager.js';
 import type { MissionRegistry } from './core/missionRegistry.js';
 import { getConfiguredLocalEndpoints, type ProviderRegistry } from './providers/index.js';
 import { getModelInfoUrl, getProviderInfoUrl, lookupCatalog } from './providers/modelCatalog.js';
@@ -218,6 +219,10 @@ export interface AtlasMindContext {
   documentsManager: DocumentsManager;
   /** Fires when documents.json changes on disk, so the dashboard can re-sync. */
   documentsRefresh: vscode.EventEmitter<void>;
+  /** Ethics/legal/commercial risk register raised by the oversight advisors. */
+  riskOversightManager: RiskOversightManager;
+  /** Fires when risk-oversight.json changes on disk, so the dashboard can re-sync. */
+  riskOversightRefresh: vscode.EventEmitter<void>;
   /** Audit trail + persistence for autonomous Mission Loop runs. */
   missionRegistry: MissionRegistry;
   rollbackLastCheckpoint(): Promise<{ ok: boolean; summary: string; restoredPaths: string[] }>;
@@ -1576,6 +1581,7 @@ async function bootstrapAtlasMind(
       deliveryManagerModule,
       projectDirectorManagerModule,
       documentsManagerModule,
+      riskOversightManagerModule,
       followUpSchedulerModule,
       missionRegistryModule,
       dataPrivacyModule,
@@ -1611,6 +1617,7 @@ async function bootstrapAtlasMind(
       import('./core/deliveryManager.js'),
       import('./core/projectDirectorManager.js'),
       import('./core/documentsManager.js'),
+      import('./core/riskOversightManager.js'),
       import('./core/followUpScheduler.js'),
       import('./core/missionRegistry.js'),
       import('./core/dataPrivacyManager.js'),
@@ -1664,6 +1671,7 @@ async function bootstrapAtlasMind(
       DeliveryManager: deliveryManagerModule.DeliveryManager,
       ProjectDirectorManager: projectDirectorManagerModule.ProjectDirectorManager,
       DocumentsManager: documentsManagerModule.DocumentsManager,
+      RiskOversightManager: riskOversightManagerModule.RiskOversightManager,
       FollowUpScheduler: followUpSchedulerModule.FollowUpScheduler,
       MissionRegistry: missionRegistryModule.MissionRegistry,
       DataPrivacyManager: dataPrivacyModule.DataPrivacyManager,
@@ -1691,6 +1699,7 @@ async function bootstrapAtlasMind(
     const deliveryRefresh = new vscode.EventEmitter<void>();
     const projectDirectorRefresh = new vscode.EventEmitter<void>();
     const documentsRefresh = new vscode.EventEmitter<void>();
+    const riskOversightRefresh = new vscode.EventEmitter<void>();
     const scannerRulesManager = new startupModules.ScannerRulesManager(context.globalState);
     const toolWebhookDispatcher = new startupModules.ToolWebhookDispatcher(context, outputChannel);
     const voiceManager = new startupModules.VoiceManager(context.secrets, undefined, {
@@ -1747,6 +1756,19 @@ async function bootstrapAtlasMind(
       documentsWatcher.onDidCreate(reloadDocuments);
       documentsWatcher.onDidDelete(reloadDocuments);
       context.subscriptions.push(documentsWatcher);
+    }
+    const riskOversightManager = new startupModules.RiskOversightManager(workspaceRootPath);
+    if (workspaceRootPath) {
+      // Keep the Risk dashboard current when risk-oversight.json changes outside the
+      // dashboard (hand edits to a finding's status, a teammate's change via git pull).
+      const riskWatcher = vscode.workspace.createFileSystemWatcher(
+        new vscode.RelativePattern(workspaceRootPath, 'project_memory/operations/risk-oversight.json'),
+      );
+      const reloadRisk = () => { riskOversightManager.reload(); riskOversightRefresh.fire(); };
+      riskWatcher.onDidChange(reloadRisk);
+      riskWatcher.onDidCreate(reloadRisk);
+      riskWatcher.onDidDelete(reloadRisk);
+      context.subscriptions.push(riskWatcher);
     }
     // Follow-up reminders (notification-only, deny-by-default). Nudges once per
     // day when follow-ups are due/overdue, opening the Director tab on click. The
@@ -2406,6 +2428,8 @@ async function bootstrapAtlasMind(
       projectDirectorRefresh,
       documentsManager,
       documentsRefresh,
+      riskOversightManager,
+      riskOversightRefresh,
       missionRegistry,
       rollbackLastCheckpoint: async () => {
         if (!checkpointManager) {
@@ -2687,6 +2711,11 @@ async function bootstrapAtlasMind(
       presenceStatusBar.tooltip = 'Keep-awake is paused because this device is on battery power (atlasmind.presence.acPowerOnly). It resumes automatically when you reconnect power. Click to change.';
       presenceStatusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
       presenceStatusBar.show();
+    } else if (state.suspended === 'backstop') {
+      presenceStatusBar.text = '$(zap) Atlas: Awake ended (time limit)';
+      presenceStatusBar.tooltip = 'Keep-awake auto-released after the atlasmind.presence.maxAwakeMinutes safety limit. The activity keeps running under your normal power settings. Click to toggle keep-awake off, then on again, to hold the machine awake for another period.';
+      presenceStatusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+      presenceStatusBar.show();
     } else {
       presenceStatusBar.hide();
     }
@@ -2701,6 +2730,19 @@ async function bootstrapAtlasMind(
     presenceStatusBar,
     presenceManager,
     presenceManager.onDidChange((state) => updatePresenceStatusBar(state)),
+    // Dedicated listener: presence is independent of atlasContext, so its config
+    // changes must apply even before/without the full context being ready.
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (
+        event.affectsConfiguration('atlasmind.presence.keepAwake') ||
+        event.affectsConfiguration('atlasmind.presence.keepDisplayAwake') ||
+        event.affectsConfiguration('atlasmind.presence.acPowerOnly') ||
+        event.affectsConfiguration('atlasmind.presence.maxAwakeMinutes')
+      ) {
+        presenceManager.applyConfig(readPresenceConfig());
+        updatePresenceStatusBar();
+      }
+    }),
     vscode.commands.registerCommand('atlasmind.togglePresence', async () => {
       const cfg = vscode.workspace.getConfiguration('atlasmind');
       const next = !cfg.get<boolean>('presence.keepAwake', false);
@@ -2714,15 +2756,6 @@ async function bootstrapAtlasMind(
   context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(event => {
     if (!atlasContext) {
       return;
-    }
-    if (
-      event.affectsConfiguration('atlasmind.presence.keepAwake') ||
-      event.affectsConfiguration('atlasmind.presence.keepDisplayAwake') ||
-      event.affectsConfiguration('atlasmind.presence.acPowerOnly') ||
-      event.affectsConfiguration('atlasmind.presence.maxAwakeMinutes')
-    ) {
-      presenceManager.applyConfig(readPresenceConfig());
-      updatePresenceStatusBar();
     }
     if (event.affectsConfiguration('atlasmind.feedbackRoutingWeight')) {
       atlasContext.modelRouter.setFeedbackWeight(getConfiguredFeedbackRoutingWeight());

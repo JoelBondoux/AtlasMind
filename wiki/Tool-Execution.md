@@ -35,6 +35,14 @@ This prevents MCP-backed inspection tools from triggering approval prompts that 
 
 ---
 
+## Read-Only Agents
+
+Tool access is normally uniform: every built-in agent declares `skills: []`, which resolves to *all* enabled skills, and agents differ by routing metadata and system prompt rather than by restricted capability.
+
+The three oversight advisors (`ethics-oversight`, `legal-oversight`, `commercial-oversight`) are the deliberate exception. They pin an explicit read-only allowlist — file/directory reads, search, git status/diff/log/blame, diff preview, diagnostics, code symbols, framework detection, memory *query*, and `web-fetch` — and therefore have no write, commit, push, terminal, container, test-run, memory-write, or arbitrary-method `http-request` capability at all. This is enforced at skill resolution, not by prompt instruction: the tools are simply never offered to the model.
+
+The reasoning is separation of duties. An advisor that reviews whether something *should* ship should not also be the thing that changes it. Where an advisor's findings need to be recorded, the Project Dashboard owns that write path and sanitises the model's output at the boundary first.
+
 ## Approval Modes
 
 The `atlasmind.toolApprovalMode` setting controls when AtlasMind asks for confirmation:

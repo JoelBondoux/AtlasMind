@@ -173,6 +173,15 @@ See [[Remote Control]] for the full model.
 - Model-generated file paths are re-validated against the workspace sandbox
 - The redaction boundary ensures secrets never leak into model context
 - Freeform prompts, carried-forward chat context, attached text, and web/native-chat summaries are no longer promoted into the system prompt as trusted instructions. They are isolated as untrusted data and scanned before inclusion.
+- **Structured model output is parsed defensively.** Where a feature asks a model for JSON it must not assume it receives any. The Risk page's `parseRiskFindings` locates candidate JSON (fenced block, bare array, or a `{findings:[...]}` wrapper) and returns `[]` on absent, malformed, or wrongly-typed content rather than throwing, so a bad response records nothing instead of failing the run. `sanitizeRiskFindings` then clamps every string, coerces every enum to a **safe** default (unknown severity → `medium`, unknown confidence → `low`, unknown status → `open`, so a finding is never silently resolved), generates collision-safe ids, and rejects absolute paths, drive letters, and `..` traversal in any file path the model cited.
+
+### 9a. Read-Only Oversight Advisors
+
+The three oversight advisors (`ethics-oversight`, `legal-oversight`, `commercial-oversight`) are the only built-in agents with a **restricted skill allowlist**. Every other built-in uses `skills: []`, which expands to all enabled skills; the advisors pin an explicit read-only set and therefore hold no `file-write`, `file-edit`, `file-delete`, `file-move`, `git-commit`, `git-push`, `git-apply-patch`, `terminal-run`, `docker-cli`, `npm-scripts`, `test-run`, `memory-write`, `memory-delete`, `rename-symbol`, `code-action`, `code-format`, `rollback-checkpoint`, or `http-request` (which permits arbitrary methods — `web-fetch` is the read-only equivalent).
+
+An advisor inspects and reports; it is never also the thing that edits. Where findings must be recorded, the Project Dashboard owns that single write path and sanitises the model's output before it reaches disk. The advisors also set `autoUpdateExcluded: true`, so the agent auto-updater cannot paraphrase their "advisory, not authoritative" framing away on its cadence. Because `getSkillsForAgent` silently drops unrecognised ids, `tests/runtime/core.test.ts` asserts that every pinned id resolves and that no mutating skill is granted.
+
+None of the advisors gates anything: an open finding never blocks a commit, a promotion, or a release. Their output is a prompt for human judgement, and each prompt names the review a consequential finding needs — qualified counsel in the relevant jurisdiction, an ethics or DPO review, or finance/commercial sign-off. They are explicitly **not a substitute for professional advice**.
 
 ### 10. Context-Window Overflow Guard
 

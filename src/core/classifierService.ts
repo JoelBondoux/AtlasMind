@@ -161,6 +161,10 @@ const FB_ROUTING: Array<{ id: RoutingNeedId; pattern: RegExp }> = [
   { id: 'seo', pattern: /\b(?:seo|search.engine|meta.(?:tag|description|title)|sitemap|robots\.txt|canonical|schema\.org|json.ld|structured.data|open.graph|og:|twitter.card|core.web.vitals|lcp|cls\b|inp\b|discoverab|ranking|crawl(?:able|er|ing)?|index(?:able|ing)|rich.results?|featured.snippet|answer.engine|aeo|hreflang|backlink|serp)\b/i },
   { id: 'release', pattern: /\b(?:release|version|publish|semver|changelog)\b/i },
   { id: 'testing', pattern: /\b(?:test|unit.test|e2e|coverage)\b/i },
+  // Oversight needs — narrow by design; see COMMON_ROUTING_HEURISTICS in orchestrator.ts.
+  { id: 'legal', pattern: /\b(?:legal|licen[cs]e|licen[cs]ing|gdpr|ccpa|hipaa|copyright|trademark|indemnit|liabilit|terms.of.service|eula|data.protection|regulator)\w*\b/i },
+  { id: 'ethics', pattern: /\b(?:ethic|dark.pattern|fairness|bias|discriminat|manipulat|deceptive|informed.consent|responsible.ai|harmful)\w*\b/i },
+  { id: 'commercial', pattern: /\b(?:commercial|monetis|monetiz|pricing|revenue|business.model|competitor|vendor.lock|upsell|churn|go-to-market|profitab)\w*\b/i },
 ];
 
 function regexFallback(prompt: string, hasImageAttachment: boolean): ClassificationResult {

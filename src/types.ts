@@ -1444,6 +1444,88 @@ export interface DocumentsConfig {
   updatedAt?: string;
 }
 
+// ── Risk oversight ────────────────────────────────────────────────
+
+/** Which oversight advisor owns a finding. Maps 1:1 to the `*-oversight` agent ids. */
+export type RiskDomain = 'ethics' | 'legal' | 'commercial';
+
+/** How likely the exposure is to actually materialise. */
+export type RiskLikelihood = 'low' | 'medium' | 'high';
+
+/** How badly it lands if it does. */
+export type RiskImpact = 'low' | 'medium' | 'high';
+
+/**
+ * Lifecycle of a finding. Findings are never deleted — they transition — so the
+ * register stays a complete record of what was raised and what was decided.
+ * `accepted` means consciously owned by a human, which is a decision, not a gap.
+ */
+export type RiskStatus = 'open' | 'accepted' | 'mitigated' | 'closed' | 'dismissed';
+
+/** How confident the advisor was; `low` findings are shown but scored gently. */
+export type RiskConfidence = 'low' | 'medium' | 'high';
+
+/**
+ * One recorded oversight finding.
+ *
+ * Produced by an oversight advisor and then sanitised at the boundary before it is
+ * persisted — model output is untrusted input like any other. `evidence` holds
+ * workspace-relative paths the advisor cited; path-traversal is rejected on save.
+ */
+export interface RiskFinding {
+  id: string;
+  domain: RiskDomain;
+  title: string;
+  detail: string;
+  likelihood: RiskLikelihood;
+  impact: RiskImpact;
+  confidence: RiskConfidence;
+  status: RiskStatus;
+  /** Workspace-relative paths cited as evidence. Traversal is rejected on save. */
+  evidence: string[];
+  /** Suggested next step, and the human review it needs. */
+  recommendation?: string;
+  /** ISO timestamp this finding was first raised. */
+  raisedAt: string;
+  /** ISO timestamp of the most recent change to this finding. */
+  updatedAt?: string;
+  /** Free-text note recorded when a human accepted, dismissed, or mitigated it. */
+  statusNote?: string;
+}
+
+/** When each domain was last analysed, so the dashboard can show staleness. */
+export interface RiskDomainRun {
+  domain: RiskDomain;
+  ranAt: string;
+  /** Number of findings the run produced (after sanitisation). */
+  findingCount: number;
+}
+
+export interface RiskOversightConfig {
+  version: 1;
+  /** The full register: open *and* resolved findings. Nothing is dropped on resolve. */
+  findings: RiskFinding[];
+  /** Most recent analysis run per domain. */
+  runs: RiskDomainRun[];
+  updatedAt?: string;
+}
+
+/**
+ * One append-only audit record of a risk-register change, persisted newest first to
+ * `project_memory/operations/risk-oversight-history.json`.
+ */
+export interface RiskOversightHistoryEntry {
+  id: string;
+  kind: 'analysis-run' | 'status-change' | 'finding-added' | (string & {});
+  summary: string;
+  domain?: RiskDomain;
+  /** The finding this record refers to, when it is about a single finding. */
+  entityId?: string;
+  /** git user that made the change (name <email>), when resolvable. */
+  actor?: string;
+  ranAt: string;
+}
+
 // ── Delivery / Promotion execution ───────────────────────────────
 
 /** Whether a preflight check is evaluated by AtlasMind or attested by a human. */

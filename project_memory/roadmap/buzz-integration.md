@@ -126,6 +126,19 @@ preference order:
 
 - A `BuzzClient` core service (built on `buzz-sdk`, subscribes over the relay WS) reads channel
   messages, `@mentions`, and thread activity.
+- **Presence has two halves — don't confuse them.**
+  - **OS-presence half (shipped, general):** `atlasmind.presence.keepAwake` (+ `keepDisplayAwake`,
+    `acPowerOnly`, `maxAwakeMinutes`) keeps the *machine* awake so a connected Buzz presence isn't
+    killed by system sleep. It lives in the cross-cutting `PresenceManager` core service — **not** in
+    `buzz.*` — because Mission Loop and Remote Control need the exact same wake lock. When a live
+    `BuzzClient` subscription exists, it registers a keep-awake reason (`hold('buzz')` / `release('buzz')`),
+    deny-by-default (only effective if the user enabled `presence.keepAwake`). Keeping the box awake is
+    **necessary but not sufficient** for "stays in contact."
+  - **Connection-presence half (still owed at Tier 3):** the wake lock does nothing if the WebSocket
+    silently drops. `BuzzClient` must additionally provide: (1) a **heartbeat/keep-alive** with a
+    liveness timeout; (2) **exponential-backoff auto-reconnect** (jittered, capped, re-running NIP-42
+    auth); (3) **presence re-announce** — re-subscribe tracked filters and re-announce the agent after
+    every reconnect. Only with **both** halves is the agent genuinely staying in contact.
 - **Derive, don't mirror.** Map inbound events → `FollowUp` / `Assignment` / Director history (and,
   opt-in, Planner tasks / `ProjectRunHistory`), each keeping a **pointer back to the Buzz thread**.
   Raw conversation history is **never** copied into SSOT — Buzz stays the message system-of-record.

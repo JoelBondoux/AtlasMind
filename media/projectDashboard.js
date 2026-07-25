@@ -30,6 +30,10 @@
     editingDoc: null,
     gapBusy: false,
     gapStatus: '',
+    riskBusy: false,
+    riskStatus: '',
+    /** '' = all, otherwise a domain id, a status, or a `likelihood:impact` matrix cell. */
+    riskFilter: '',
     activeDetails: {
       commits: '',
       runs: '',
@@ -100,6 +104,18 @@
 
     if (message.type === 'gapAnalysisStatus') {
       state.gapStatus = typeof message.payload === 'string' ? message.payload : '';
+      render();
+      return;
+    }
+
+    if (message.type === 'riskBusy') {
+      state.riskBusy = !!message.payload;
+      render();
+      return;
+    }
+
+    if (message.type === 'riskStatus') {
+      state.riskStatus = typeof message.payload === 'string' ? message.payload : '';
       render();
       return;
     }
@@ -202,6 +218,30 @@
     }
     if (action === 'prompt') {
       vscode.postMessage({ type: 'openPrompt', payload: { prompt: payload, sourcePage: state.activePage } });
+      return;
+    }
+    if (action === 'risk-run') {
+      // Each run is a real, costed model call, so reflect busy immediately rather
+      // than waiting for the round-trip — otherwise a slow start invites double-clicks.
+      if (state.riskBusy) { return; }
+      state.riskBusy = true;
+      state.riskStatus = 'Starting oversight review…';
+      render();
+      vscode.postMessage({ type: 'runRiskAnalysis', payload: { domain: payload } });
+      return;
+    }
+    if (action === 'risk-filter') {
+      state.riskFilter = payload || '';
+      render();
+      return;
+    }
+    if (action === 'risk-status') {
+      const sep = payload.indexOf('|');
+      if (sep === -1) { return; }
+      vscode.postMessage({
+        type: 'setRiskFindingStatus',
+        payload: { findingId: payload.slice(0, sep), status: payload.slice(sep + 1) },
+      });
       return;
     }
     if (action === 'file') {
@@ -1021,6 +1061,7 @@
         ['security', 'Security'],
         ['privacy', 'Privacy'],
         ['delivery', 'Delivery'],
+        ['risk', 'Risk'],
         ['director', 'Director'],
         ['documents', 'Documents'],
       ];
@@ -1066,6 +1107,7 @@
         ${renderPrivacy(snapshot)}
         ${renderDelivery(snapshot)}
         ${renderDirector(snapshot)}
+        ${renderRisk(snapshot)}
         ${renderDocuments(snapshot)}
         ${renderPromotionModal()}
       `;
@@ -2154,6 +2196,223 @@
       case 'weekly': return 'Weekly';
       default: return 'Manual';
     }
+  }
+
+  // ── Risk oversight ─────────────────────────────────────────────────────────
+
+  const RISK_LEVELS = ['low', 'medium', 'high'];
+  const RISK_STATUS_LABEL = {
+    open: 'Open',
+    accepted: 'Accepted',
+    mitigated: 'Mitigated',
+    closed: 'Closed',
+    dismissed: 'Dismissed',
+  };
+
+  /**
+   * Likelihood x impact heatmap — the canonical risk visual.
+   *
+   * Impact runs up the y-axis and likelihood along the x, so the top-right cell is
+   * the worst case. Each populated cell is a button that filters the register below;
+   * clicking the active cell clears the filter.
+   */
+  function renderRiskMatrix(matrix) {
+    const counts = matrix || {};
+    const rows = [...RISK_LEVELS].reverse().map(impact => {
+      const cells = RISK_LEVELS.map(likelihood => {
+        const key = likelihood + ':' + impact;
+        const count = counts[key] || 0;
+        // Severity band drives the cell colour: 2 = low, 4 = moderate, 6 = high, 9 = severe.
+        const severity = (RISK_LEVELS.indexOf(likelihood) + 1) * (RISK_LEVELS.indexOf(impact) + 1);
+        const band = severity >= 6 ? 'severe' : severity >= 4 ? 'high' : severity >= 2 ? 'moderate' : 'low';
+        const isActive = state.riskFilter === key;
+        const label = count + ' finding' + (count === 1 ? '' : 's') + ', ' + likelihood + ' likelihood, ' + impact + ' impact';
+        if (count === 0) {
+          return '<div class="risk-cell risk-cell--' + band + ' is-empty" role="gridcell" aria-label="' + escapeAttr(label) + '"><span class="risk-cell-count">·</span></div>';
+        }
+        return '<button type="button" class="risk-cell risk-cell--' + band + (isActive ? ' is-active' : '')
+          + '" role="gridcell" data-action="risk-filter" data-payload="' + escapeAttr(isActive ? '' : key) + '"'
+          + ' title="' + escapeAttr(label) + '" aria-label="' + escapeAttr(label) + '">'
+          + '<span class="risk-cell-count">' + count + '</span></button>';
+      }).join('');
+      return '<div class="risk-matrix-row"><span class="risk-axis-label">' + escapeHtml(impact) + '</span>' + cells + '</div>';
+    }).join('');
+
+    return `
+      <article class="panel-card">
+        <h3>Risk matrix</h3>
+        <p class="section-copy">Open findings by likelihood and impact. Select a cell to filter the register.</p>
+        <div class="risk-matrix" role="grid" aria-label="Risk matrix: impact by likelihood">
+          ${rows}
+          <div class="risk-matrix-row risk-matrix-foot">
+            <span class="risk-axis-label"></span>
+            ${RISK_LEVELS.map(level => '<span class="risk-axis-label">' + escapeHtml(level) + '</span>').join('')}
+          </div>
+        </div>
+        <div class="risk-axis-caption"><span>Impact ↑</span><span>Likelihood →</span></div>
+      </article>
+    `;
+  }
+
+  function renderRiskFinding(finding) {
+    const sev = escapeAttr(finding.likelihood + '-' + finding.impact);
+    const evidence = Array.isArray(finding.evidence) ? finding.evidence : [];
+    const isOpen = finding.status === 'open';
+    return `
+      <article class="risk-finding risk-finding--${escapeAttr(finding.status)}" data-sev="${sev}">
+        <div class="row-head">
+          <strong>${escapeHtml(finding.title)}</strong>
+          <span class="risk-tag risk-tag--${escapeAttr(finding.domain)}">${escapeHtml(finding.domain)}</span>
+        </div>
+        <div class="tag-row">
+          <span class="meta-pill">Likelihood ${escapeHtml(finding.likelihood)}</span>
+          <span class="meta-pill">Impact ${escapeHtml(finding.impact)}</span>
+          <span class="meta-pill">Confidence ${escapeHtml(finding.confidence)}</span>
+          <span class="meta-pill">${escapeHtml(RISK_STATUS_LABEL[finding.status] || finding.status)}</span>
+        </div>
+        ${finding.detail ? `<p class="section-copy">${escapeHtml(finding.detail)}</p>` : ''}
+        ${finding.recommendation ? `<p class="section-copy"><strong>Recommended:</strong> ${escapeHtml(finding.recommendation)}</p>` : ''}
+        ${finding.statusNote ? `<p class="section-copy"><em>${escapeHtml(finding.statusNote)}</em></p>` : ''}
+        ${evidence.length > 0 ? `
+          <div class="tag-row">
+            ${evidence.map(item => `<button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(item)}" title="Open ${escapeAttr(item)}">${escapeHtml(item)}</button>`).join('')}
+          </div>
+        ` : ''}
+        <div class="tag-row">
+          ${isOpen ? `
+            <button type="button" class="action-link" data-action="risk-status" data-payload="${escapeAttr(finding.id + '|accepted')}" title="Record that a human has consciously accepted this risk">Accept</button>
+            <button type="button" class="action-link" data-action="risk-status" data-payload="${escapeAttr(finding.id + '|mitigated')}" title="Mark as mitigated">Mitigated</button>
+            <button type="button" class="action-link" data-action="risk-status" data-payload="${escapeAttr(finding.id + '|dismissed')}" title="Dismiss — not a real concern here">Dismiss</button>
+          ` : `
+            <button type="button" class="action-link" data-action="risk-status" data-payload="${escapeAttr(finding.id + '|open')}" title="Reopen this finding">Reopen</button>
+          `}
+          <button type="button" class="action-link" data-action="prompt" data-payload="${escapeAttr('Investigate this recorded ' + finding.domain + ' oversight finding in the current workspace: "' + finding.title + '". ' + (finding.detail || '') + ' Verify whether it still applies, and if it does, propose the smallest concrete change that addresses it. Do not treat this as legal, ethical, or financial advice.')}" title="Ask Atlas to investigate this finding">Investigate</button>
+        </div>
+      </article>
+    `;
+  }
+
+  function renderRisk(snapshot) {
+    const active = state.activePage === 'risk';
+    const wrap = (inner) => '<section class="page-section ' + (active ? 'active' : '') + '">' + inner + '</section>';
+    const risk = snapshot.risk;
+    if (!risk) { return wrap('<div class="dashboard-empty">Risk data unavailable.</div>'); }
+
+    const domainCards = risk.domains.map(domain => {
+      const never = !domain.lastRun;
+      const tone = never ? 'neutral' : domain.stale ? 'warn' : domain.openCount > 0 ? 'accent' : 'good';
+      const when = never
+        ? 'Never run'
+        : (domain.daysSinceRun === 0 ? 'Today' : domain.daysSinceRun + ' day(s) ago');
+      return `
+        <article class="panel-card">
+          <div class="row-head">
+            <strong>${escapeHtml(domain.label)}</strong>
+            <span class="risk-tag risk-tag--${escapeAttr(domain.domain)}">${escapeHtml(domain.openCount + ' open')}</span>
+          </div>
+          ${renderMetricPill('Last reviewed', when, { tone: tone })}
+          <button type="button" class="action-link primary" data-action="risk-run" data-payload="${escapeAttr(domain.domain)}"${state.riskBusy ? ' disabled' : ''} title="Run the ${escapeAttr(domain.label)} Oversight advisor over this workspace">
+            ${state.riskBusy ? 'Running…' : 'Run ' + escapeHtml(domain.label) + ' review'}
+          </button>
+        </article>
+      `;
+    }).join('');
+
+    // Filter can be a domain, a status, or a `likelihood:impact` matrix cell.
+    const filter = state.riskFilter;
+    const findings = (risk.findings || []).filter(finding => {
+      if (!filter) { return true; }
+      if (filter.indexOf(':') !== -1) {
+        return finding.status === 'open' && (finding.likelihood + ':' + finding.impact) === filter;
+      }
+      if (RISK_STATUS_LABEL[filter]) { return finding.status === filter; }
+      return finding.domain === filter;
+    });
+    // Open first, then by severity descending, so the worst is always at the top.
+    const sorted = findings.slice().sort((a, b) => {
+      if ((a.status === 'open') !== (b.status === 'open')) { return a.status === 'open' ? -1 : 1; }
+      const weight = f => (RISK_LEVELS.indexOf(f.likelihood) + 1) * (RISK_LEVELS.indexOf(f.impact) + 1);
+      return weight(b) - weight(a);
+    });
+
+    const statusLine = state.riskStatus
+      ? `<p class="section-copy"><em>${escapeHtml(state.riskStatus)}</em></p>`
+      : '';
+
+    if (!risk.assessed) {
+      return wrap(`
+        <article class="panel-card">
+          <h3>Risk oversight</h3>
+          <p class="section-copy">
+            Risk has not been assessed yet. AtlasMind ships three read-only advisors —
+            Ethics, Legal, and Commercial — that inspect this workspace and record what they find.
+            Nothing is assessed until you run one, and an unassessed project is unknown, not safe:
+            risk is left out of the operational score entirely until there is evidence to weigh.
+          </p>
+          <p class="section-copy">
+            <strong>These advisors are not a substitute for professional advice.</strong> They surface
+            concerns for human judgement — qualified counsel for legal exposure, an ethics or DPO
+            review for human impact, and finance or commercial sign-off for business commitments.
+          </p>
+          ${statusLine}
+          <div class="tag-row">
+            <button type="button" class="action-link primary" data-action="risk-run" data-payload="all"${state.riskBusy ? ' disabled' : ''} title="Run all three oversight advisors, one after another">
+              ${state.riskBusy ? 'Running…' : 'Run all three reviews'}
+            </button>
+          </div>
+        </article>
+        <section class="panel-grid">${domainCards}</section>
+      `);
+    }
+
+    return wrap(`
+      <article class="panel-card">
+        <div class="row-head">
+          <h3>Risk oversight</h3>
+          <span class="list-meta">${escapeHtml(risk.filePath)}</span>
+        </div>
+        <p class="section-copy">${escapeHtml(risk.summary)}</p>
+        <p class="section-copy">
+          <strong>Advisory only — not professional advice.</strong> Findings are prompts for human
+          judgement, not clearance to proceed, and nothing here blocks a commit or a release.
+        </p>
+        ${statusLine}
+        <div class="tag-row">
+          ${renderMetricPill('Risk score', String(risk.score) + '/100', { tone: risk.score >= 80 ? 'good' : risk.score >= 55 ? 'accent' : 'warn', meter: risk.score })}
+          ${renderMetricPill('Open', String(risk.openCount), { tone: risk.openCount === 0 ? 'good' : 'warn' })}
+          ${renderMetricPill('Accepted', String(risk.acceptedCount), { tone: 'neutral' })}
+          ${renderMetricPill('Resolved', String(risk.resolvedCount), { tone: 'good' })}
+        </div>
+        <div class="tag-row">
+          <button type="button" class="action-link primary" data-action="risk-run" data-payload="all"${state.riskBusy ? ' disabled' : ''} title="Re-run all three oversight advisors">
+            ${state.riskBusy ? 'Running…' : 'Re-run all reviews'}
+          </button>
+          <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(risk.summaryPath)}" title="Open the readable markdown mirror">Open runbook</button>
+        </div>
+      </article>
+
+      <section class="panel-grid">${domainCards}</section>
+
+      <section class="panel-grid">
+        ${renderRiskMatrix(risk.matrix)}
+        ${renderChartCard('riskRuns', 'Assessment cadence', 'Oversight runs recorded per day.', risk.trend || [])}
+      </section>
+
+      <article class="panel-card">
+        <div class="row-head">
+          <h3>Register</h3>
+          <span class="list-meta">${escapeHtml(String(sorted.length))} of ${escapeHtml(String((risk.findings || []).length))} shown</span>
+        </div>
+        <div class="tag-row">
+          <button type="button" class="action-link${filter === '' ? ' primary' : ''}" data-action="risk-filter" data-payload="">All</button>
+          ${['ethics', 'legal', 'commercial'].map(domain => `<button type="button" class="action-link${filter === domain ? ' primary' : ''}" data-action="risk-filter" data-payload="${escapeAttr(domain)}">${escapeHtml(domain)}</button>`).join('')}
+          ${['open', 'accepted', 'mitigated', 'dismissed'].map(status => `<button type="button" class="action-link${filter === status ? ' primary' : ''}" data-action="risk-filter" data-payload="${escapeAttr(status)}">${escapeHtml(RISK_STATUS_LABEL[status])}</button>`).join('')}
+        </div>
+        ${sorted.length === 0
+          ? `<div class="dashboard-empty">${escapeHtml((risk.findings || []).length === 0 ? 'No findings recorded. Nothing was flagged by the advisors that have run.' : 'No findings match this filter.')}</div>`
+          : sorted.map(renderRiskFinding).join('')}
+      </article>
+    `);
   }
 
   function renderDocuments(snapshot) {

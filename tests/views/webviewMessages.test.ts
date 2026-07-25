@@ -9,7 +9,7 @@ import { isAgentPanelMessage } from '../../src/views/agentManagerPanel.ts';
 import { isSpecialistIntegrationsMessage } from '../../src/views/specialistIntegrationsPanel.ts';
 import { isChatPanelMessage } from '../../src/views/chatPanel.ts';
 import { isCostDashboardMessage } from '../../src/views/costDashboardPanel.ts';
-import { isProjectDashboardMessage, chooseDeployedVersionRef } from '../../src/views/projectDashboardPanel.ts';
+import { isProjectDashboardMessage, chooseDeployedVersionRef, normalizeDashboardPromptRequest } from '../../src/views/projectDashboardPanel.ts';
 import { isProjectIdeationMessage } from '../../src/views/projectIdeationPanel.ts';
 
 describe('validatePanelMessage', () => {
@@ -568,6 +568,69 @@ describe('parseEditableProjectPlan', () => {
 
   it('rejects invalid plan drafts', () => {
     expect(parseEditableProjectPlan('Goal', 'run-1', '{"subTasks":"bad"}')).toBeUndefined();
+  });
+});
+
+describe('isProjectDashboardMessage — risk oversight', () => {
+  it('accepts a run for a known domain or for all', () => {
+    expect(isProjectDashboardMessage({ type: 'runRiskAnalysis', payload: { domain: 'ethics' } })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'runRiskAnalysis', payload: { domain: 'legal' } })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'runRiskAnalysis', payload: { domain: 'commercial' } })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'runRiskAnalysis', payload: { domain: 'all' } })).toBe(true);
+  });
+
+  it('rejects a run for an unknown domain', () => {
+    // A risk run costs a real model call, so an unrecognised domain is refused
+    // outright rather than coerced to a default.
+    expect(isProjectDashboardMessage({ type: 'runRiskAnalysis', payload: { domain: 'security' } })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'runRiskAnalysis', payload: { domain: '' } })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'runRiskAnalysis', payload: {} })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'runRiskAnalysis', payload: null })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'runRiskAnalysis' })).toBe(false);
+  });
+
+  it('accepts a status change to any recorded lifecycle state', () => {
+    for (const status of ['open', 'accepted', 'mitigated', 'closed', 'dismissed']) {
+      expect(isProjectDashboardMessage({
+        type: 'setRiskFindingStatus',
+        payload: { findingId: 'legal-gpl', status },
+      }), status).toBe(true);
+    }
+    expect(isProjectDashboardMessage({
+      type: 'setRiskFindingStatus',
+      payload: { findingId: 'legal-gpl', status: 'accepted', note: 'Owned by the board' },
+    })).toBe(true);
+  });
+
+  it('rejects a status change with an unknown status, blank id, or bad note', () => {
+    expect(isProjectDashboardMessage({ type: 'setRiskFindingStatus', payload: { findingId: 'x', status: 'deleted' } })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'setRiskFindingStatus', payload: { findingId: '  ', status: 'open' } })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'setRiskFindingStatus', payload: { status: 'open' } })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'setRiskFindingStatus', payload: { findingId: 'x', status: 'open', note: 42 } })).toBe(false);
+  });
+
+  it('accepts a risk filter string', () => {
+    expect(isProjectDashboardMessage({ type: 'setRiskFilter', payload: 'high:high' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'setRiskFilter', payload: '' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'setRiskFilter', payload: 7 })).toBe(false);
+  });
+
+  it('preserves sourcePage for every page in the nav, including privacy and risk', () => {
+    // Regression: `privacy` shipped in the webview nav but was missing from the
+    // page-id allowlist, so "Ask Atlas" raised from that page silently lost its
+    // origin. Asserted on the normaliser because isProjectDashboardMessage returns
+    // true either way — it cannot observe whether sourcePage survived.
+    for (const sourcePage of ['risk', 'privacy', 'overview', 'score', 'repo', 'runtime', 'testing', 'ssot', 'roadmap', 'gapAnalysis', 'security', 'delivery', 'director', 'documents', 'ideation']) {
+      expect(
+        normalizeDashboardPromptRequest({ prompt: 'Look at this', sourcePage }),
+        sourcePage,
+      ).toEqual({ prompt: 'Look at this', sourcePage });
+    }
+  });
+
+  it('drops an unknown sourcePage instead of passing it through', () => {
+    expect(normalizeDashboardPromptRequest({ prompt: 'Look at this', sourcePage: 'not-a-page' }))
+      .toEqual({ prompt: 'Look at this' });
   });
 });
 

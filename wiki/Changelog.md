@@ -6,8 +6,20 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
-## v0.139.0 — Buzz (buzz.xyz) integration, Tier 1
+## v0.140.0 — Ethics, Legal, and Commercial oversight + the Risk dashboard
 
+- **Three new oversight advisors.** **Ethics Oversight** (user harm, fairness and bias, consent, dark patterns, transparency), **Legal Oversight** (dependency licence compatibility, IP, GDPR/CCPA, liability, terms of service), and **Commercial Oversight** (monetisation and viability, vendor cost and lock-in, contractual obligations, competitor positioning, go-to-market). They ask what the engineering specialists don't: *should we build this?*, *are we allowed to?*, *does this make commercial sense?*
+- **Advisory, never authoritative.** Every prompt is explicit that it is **not professional advice**. The advisors surface concerns for human judgement and name the review a consequential finding needs — qualified counsel in the relevant jurisdiction, an ethics or DPO review, finance or commercial sign-off. They certify nothing, and no finding blocks a commit or a release.
+- **Read-only by construction.** These are the first built-ins with a restricted skill allowlist: they read files, search, and inspect git history and diagnostics, but hold no file-write, commit, push, or terminal access. An advisor inspects and reports; it is not also the thing that edits.
+- **New Project Dashboard → Risk page.** Run an advisor (or all three, one after another) and the findings are recorded to `project_memory/operations/risk-oversight.json` with a readable markdown mirror and an append-only audit trail. Includes a likelihood × impact **risk matrix** whose cells filter the register, an assessment-cadence chart, and per-domain freshness. Findings are never deleted — you accept, mitigate, dismiss, or reopen them — so the register stays a complete record of what was raised and what was decided.
+- **Risk feeds the operational score, but only once assessed.** An unassessed project is *unknown*, not safe, so risk stays out of the score entirely until an advisor has run — installing this release does not move your existing health number. Findings are weighted by likelihood × impact, discounted by confidence, and decayed as an assessment goes stale.
+- **Routing fixes.** Ordinary prompts no longer misroute: adding these agents surfaced two pre-existing scoring flaws (English function words like "the" counted toward relevance, and pinned skills leaked tool vocabulary into routing). Both are fixed, which also corrects older misroutes — "Read the file and tell me what is in it" went to the Security Reviewer and now goes to the default assistant.
+
+---
+
+## v0.139.0 — Keep-awake presence + Buzz (buzz.xyz) integration, Tier 1
+
+- **Keep this computer awake so the agent stays online.** New `atlasmind.presence.keepAwake` setting (and **AtlasMind: Toggle Keep Computer Awake** command + status-bar indicator) holds an OS wake lock so a long Mission Loop run, a Remote Control gateway session, or a connected Buzz presence isn't killed by system sleep. Cross-platform (Windows / macOS / Linux) via a spawned OS helper — a VS Code extension can't use Electron's `powerSaveBlocker`. Deny-by-default and battery-safe: off unless you opt in, auto-suspends on battery (`presence.acPowerOnly`), lets the screen sleep unless you ask otherwise (`presence.keepDisplayAwake`), and auto-releases after a safety backstop (`presence.maxAwakeMinutes`).
 - **Foundation for [Buzz](https://buzz.xyz).** Groundwork to bring Block's open-source, Nostr-based workspace for humans + AI agents (a self-sovereign Slack + GitHub alternative) into AtlasMind's Project Director and comms workflow.
 - **Buzz identities on contacts.** Project Director contacts can carry a Buzz channel (npub / @handle / #channel) with an `https`-only deep link — no unverified native URI scheme is launched.
 - **Forward-compatible connector.** Director comms now recognises Buzz-style tool names (`post_to_channel`, `send_dm`, `buzz_*`), so the moment a Buzz comms tool is connected, the existing guarded `{modal:true}` dispatch works with no further code.

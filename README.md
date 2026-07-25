@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.139.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.140.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -53,7 +53,7 @@ AtlasMind is built for indie developers, freelancers, and small teams who want t
 | Secure by default | ✅ | <span title="Copilot has security features but not full sandboxing or approval gating.">⚠️</span> | <span title="Claude Code has security features but not full sandboxing or approval gating.">⚠️</span> | <span title="Cline has strong approval controls, but not AtlasMind's full security guardrail stack.">⚠️</span> | <span title="Cursor has security features but not full sandboxing or approval gating.">⚠️</span> |
 | Configurable testing methodology system | ✅ | ❌ | ❌ | ❌ | ❌ |
 
-- **Multi-agent orchestration**: 15 built-in specialized agents — debugger, frontend/backend engineers, reviewer, security, SEO, UX, DevOps, and more — plus instant AI-drafted custom agents on demand.
+- **Multi-agent orchestration**: 18 built-in specialized agents — debugger, frontend/backend engineers, reviewer, security, SEO, UX, DevOps, plus ethics/legal/commercial oversight advisors — and instant AI-drafted custom agents on demand.
 - **Multi-provider model routing**: Supports GitHub Copilot, Claude, GPT, Gemini, Azure OpenAI, Bedrock, Mistral, and more. Budget and speed preferences steer selection automatically.
 - **Built-in skills**: 43 pre-built skills including file editing, git, diagnostics, code navigation, test running, debugging, HTTP requests, Docker, web fetch, and more. Skills are grouped by category and support custom folders. Agents use AI-driven auto skill assignment by default.
 - **Long-term project memory (SSOT)**: Decisions, architecture notes, and lessons learned persist in a structured memory folder. A dedicated Memory Agent maintains session context and keeps SSOT snippets fresh as source files evolve.
@@ -140,6 +140,7 @@ Access these from the VS Code Command Palette (`Ctrl+Shift+P`).
 | `AtlasMind: Open Mission Control` | Define, launch, watch, checkpoint, and audit autonomous Mission Loop runs |
 | `AtlasMind: Show Cost Summary` | Quick cost summary in the chat |
 | `AtlasMind: Toggle Autopilot` | Toggle autopilot mode |
+| `AtlasMind: Toggle Keep Computer Awake` | Keep this computer awake (prevent system sleep) while an activity needs the agent online — a Mission Loop run, a Remote Control gateway session, or a Buzz presence; deny-by-default and AC-power-gated |
 | `AtlasMind: Open Voice Panel` | Open TTS/STT voice interaction panel |
 | `AtlasMind: Open Vision Panel` | Open multimodal image analysis panel |
 | `AtlasMind: Manage MCP Servers` | Configure MCP server connections |
@@ -202,7 +203,7 @@ AtlasMind adds a sidebar with the following tree and webview panels:
 
 ## Built-in Agents
 
-AtlasMind ships 15 specialized agents, automatically routed by task type.
+AtlasMind ships 18 specialized agents, automatically routed by task type.
 
 | Agent | Role |
 |---|---|
@@ -212,6 +213,9 @@ AtlasMind ships 15 specialized agents, automatically routed by task type.
 | **Backend Engineer** | APIs, services, databases, and server-side logic |
 | **Code Reviewer** | Code quality, correctness, and improvement feedback |
 | **Security Reviewer** | Threat modelling, vulnerability detection, and remediation |
+| **Ethics Oversight** | User harm, fairness and bias, consent, dark patterns — advisory, read-only |
+| **Legal Oversight** | Licence compatibility, IP, GDPR/CCPA, liability, terms — not legal advice |
+| **Commercial Oversight** | Monetisation, vendor cost, obligations, competitors, go-to-market |
 | **GitHub Operator** | Pull requests, issues, CI/CD workflows, and git housekeeping |
 | **Test Developer** | Unit, integration, E2E, regression tests — test-first by default |
 | **Documentation Writer** | READMEs, API docs, JSDoc/TSDoc, wikis, and changelogs |
@@ -288,6 +292,10 @@ Key settings under `atlasmind.*` in VS Code settings:
 | `buzz.enabled` | `false` | Enable [Buzz](https://buzz.xyz) integration: record Buzz identities/channels on Project Director contacts and reach them via a Buzz deep link (opt-in) |
 | `buzz.relayUrl` | `ws://localhost:3000` | Buzz relay URL (`BUZZ_RELAY_URL`); defaults to a local self-hosted relay |
 | `buzz.allowRemoteRelay` | `false` | Allow a non-local Buzz relay URL (off-machine send); otherwise only loopback/localhost is used |
+| `presence.keepAwake` | `false` | Keep the computer awake (prevent system sleep) while an activity needs the agent online — a Mission Loop run, a Remote Control gateway session, or a Buzz presence; released when the activity ends |
+| `presence.keepDisplayAwake` | `false` | When keep-awake is active, also keep the display on; default lets the screen sleep |
+| `presence.acPowerOnly` | `true` | Only keep awake on AC power; suspended on battery so an unplugged laptop is never drained |
+| `presence.maxAwakeMinutes` | `240` | Safety backstop that auto-releases the wake lock after N minutes (0 = until the activity ends; range 0–1440) |
 | `remote.enabled` | `false` | Allow the web build to remote-control this desktop instance over a localhost WebSocket |
 | `remote.mode` | `localhost` | Transport/auth mode: `localhost` (same-machine token pairing) or `gateway` (SSO-gated Cloudflare Worker + tunnel for cross-machine access) |
 | `remote.port` | `0` | Localhost port for the remote-control server (0 = auto; pin a value in `gateway` mode so the tunnel target stays fixed) |
@@ -334,6 +342,8 @@ See [Funding and Sponsorship](wiki/Funding-and-Sponsorship.md) for details.
 - Project Director (people & follow-ups): `src/core/projectDirectorManager.ts` models the stakeholders, delivery team, responsibilities, human task assignments, and follow-ups around a project, persisted to `project_memory/operations/project-director.json` plus a `project-director.md` mirror (with capped history). It is GDPR-first — it prefers to *reference* people in their system of record (Microsoft 365 / Slack / Google Workspace, each with a data-governance reference) over storing raw PII, flags any locally-stored PII for a one-time consent gate, restricts communication deep-links to a scheme allowlist, and describes channels by kind/label only in the git-tracked mirror. `src/core/directorCommsRunner.ts` adds *opt-in, guarded* outbound messaging: it detects which connected MCP connector can email/schedule/message a contact and maps a composed draft onto that tool, dispatched only after an explicit confirmation (default off; deep-link fallback otherwise). `src/core/followUpScheduler.ts` surfaces a throttled, once-per-day in-editor reminder when follow-ups are overdue/due-soon (notification-only; never auto-sends). Surfaced on the Project Dashboard → **Director** page, a **Project Director** sidebar tree (with an overdue badge), the **AtlasMind: Open Project Director** command, and the `@atlas /director` + `@atlas /followups` chat commands.
 - Document (.md) management: `src/core/documentsManager.ts` models a project's *document filing system* (folder "shelves", optionally narrowed by a glob) and the documents to *keep updated automatically*, persisted to `project_memory/operations/documents.json` plus a human-readable `documents.md` runbook mirror (`fs`-only, unit-testable; webview edits sanitised via `sanitizeDocumentsConfig` with path-traversal/absolute-path rejection). Surfaced on the Project Dashboard → **Documents** page, which tracks each document's freshness (file mtime vs. a recorded review baseline), discovers uncovered markdown, and offers an explicit **Update with Atlas** / **Mark reviewed** action. Safety-first / deny-by-default: AtlasMind never rewrites a document on a timer.
 - Mission Loop (autonomous goal-seeking loop): `src/core/missionRunner.ts` (the outer plan → execute → evaluate loop with the closed parameter envelope and deny-by-default checkpoints), `src/core/goalEvaluator.ts` (validated, untrusted-output progress verdicts), and `src/core/missionRegistry.ts` (audit persistence to `project_memory/operations/missions.json` + a `missions.md` runbook mirror). Defined/launched/watched from the **Mission Control** webview (`src/views/missionControlPanel.ts`) and the `/loop` chat command.
+- Risk oversight: `src/core/riskOversightManager.ts` persists the ethics/legal/commercial risk register raised by the three read-only oversight advisors, at `project_memory/operations/risk-oversight.json` plus a readable `risk-oversight.md` mirror and an append-only `risk-oversight-history.json` audit trail (`fs`-only, unit-tested; model output parsed defensively and sanitised with path-traversal rejection before it touches disk). Surfaced on the Project Dashboard → **Risk** page, which runs the advisors on request, shows a likelihood × impact risk matrix and assessment-cadence chart, and lets you accept, mitigate, dismiss, or reopen each finding. Findings are never deleted — only transitioned — so the register stays a complete record. Advisory only: nothing here blocks a commit or a release, and it is not a substitute for professional advice.
+- Presence / keep-awake: `src/core/presenceManager.ts` keeps the computer awake (prevent system sleep) so a connected Buzz presence, a Remote Control gateway session, or a long Mission Loop run isn't dropped — a `vscode`-free, unit-tested service that spawns an OS-native wake lock (Windows `SetThreadExecutionState` via PowerShell, macOS `caffeinate`, Linux `systemd-inhibit`) since a VS Code extension can't use Electron `powerSaveBlocker`. Deny-by-default (`atlasmind.presence.*`), AC-power-gated, auto-releasing; surfaced as a click-to-stop status-bar item + the **AtlasMind: Toggle Keep Computer Awake** command.
 - Testing strategy: `src/core/testingConfigLoader.ts` (methodology resolution for orchestrated runs) and `src/core/testingScaffolder.ts` (stack-aware framework scaffolding)
 - Routing intelligence: `src/core/executionQuality.ts` (shared output-quality scorer), `src/core/modelEvalHarness.ts` (scored-replay model comparison), and `src/views/modelComparisonPanel.ts` (comparison webview)
 - Webview and sidebar surfaces: `src/views/` (`chatProtocol.ts` and `chatWebviewMarkup.ts` are Node-free so they are shared with the web build)
