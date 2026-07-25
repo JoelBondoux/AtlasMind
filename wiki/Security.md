@@ -79,13 +79,26 @@ Beyond credential redaction, AtlasMind enforces a project **Data Privacy** polic
 
 Classified content may only ever be sent to the **trusted models you select**. Enforcement is layered:
 
-- **Routing gate** — when the assembled context is classified, model selection is restricted to the trusted allow-list (`RoutingConstraints.requireTrustedModel`).
-- **Redaction fail-safe** — if an un-trusted model is selected anyway (a pinned model, a parallel slot, or no trusted model available), classified spans are replaced with `[CONFIDENTIAL]` before dispatch, keyed on the actually-selected model.
+- **Routing gate** — when the assembled context contains a `secret`-tier match (PCI cardholder data, HIPAA PHI), model selection is restricted to the trusted allow-list (`RoutingConstraints.requireTrustedModel`).
+- **Redaction fail-safe** — if an un-trusted model is selected anyway (a pinned model, a parallel slot, an advisory-tier match, or no trusted model available), classified spans are replaced with `[CONFIDENTIAL]` before dispatch, keyed on the actually-selected model.
 - **Tool-read gate** — a `file-read` of a classified path by an un-trusted model is withheld.
 
-**Deny-by-default**: an empty trusted list trusts nothing — enabling the policy with no trusted model redacts classified content for every model until you select one. When confidential content is detected but no trusted model is available, the content is redacted and the user is notified with a shortcut to the Privacy page. The compliance detectors are heuristic aids, **not** a certification of GDPR/HIPAA/PCI-DSS compliance.
+**The gate scans your context, not your request.** It classifies the memory, file evidence, and conversation history assembled for a task, so a hit means "something in the retrieved haystack looked regulated" — not "this task is about personal data". Because of that, the response is tiered:
 
-**Project Director PII consent gate.** The Director tab prefers to *reference* people in their system of record (Microsoft 365 / Slack / Google) over storing raw personal data locally. The first time a save would persist raw PII (a name plus an email/phone), a modal explains the GDPR implications and requires an explicit acknowledgement (workspace-scoped, `atlasmind.projectDirector.piiStorageAcknowledged`); declining aborts the write. On acknowledgement AtlasMind enables the built-in `gdpr-pii` compliance pack so stored personal data is classified confidential and gated by the layers above. The git-tracked `project-director.md` mirror describes channels by kind/label only, so raw addresses never enter a diff.
+| Tier | Packs / rules | Response |
+|---|---|---|
+| `secret` | PCI-DSS, HIPAA, custom rules marked secret | Hard gate — routing restricted to trusted models |
+| `confidential` / `proprietary` | GDPR, CCPA, custom rules at those levels | Advisory — routing unchanged, matched spans redacted |
+
+Nothing leaks under either tier; the difference is whether a task is re-routed or simply has the matched spans removed. Advisory matches deliberately do *not* change your model, so one heuristic detector firing somewhere in a large context bundle can't silently downgrade an unrelated task. Progress notices name the detector **and** the context slice it fired in, so you can tell a real catch from a false positive.
+
+**Precision is part of the safety model.** A detector that fires on ordinary source is not a conservative default — it trains you to switch the policy off, and then nothing is protected. The built-in detectors are anchored on cues ordinary code does not contain (an explicit `phone:`/`SWIFT:` label, a `+` country code, a clinical construction) and reject the structurally impossible: reserved IP ranges (loopback, private, CGNAT, TEST-NET, multicast) and four-part version strings are not IP addresses; role mailboxes (`noreply@`, `support@`, CI senders) and `example.com`-style reserved domains are not personal data. For project-specific data, a targeted custom rule beats a broad pattern every time.
+
+**Deny-by-default**: an empty trusted list trusts nothing — enabling the policy with no trusted model redacts classified content for every model until you select one. When regulated content is detected but no trusted model is available, the content is redacted and the user is notified with a shortcut to the Privacy page. The compliance detectors are heuristic aids, **not** a certification of GDPR/HIPAA/PCI-DSS compliance.
+
+**Project Director PII consent gate.** The Director tab prefers to *reference* people in their system of record (Microsoft 365 / Slack / Google) over storing raw personal data locally. The first time a save would persist raw PII (a name plus an email/phone), a modal explains the GDPR implications and requires an explicit acknowledgement (workspace-scoped, `atlasmind.projectDirector.piiStorageAcknowledged`); declining aborts the write. On acknowledgement AtlasMind enables the built-in `gdpr-pii` compliance pack so stored personal data is classified confidential and gated by the layers above.
+
+Because that acknowledgement is narrow ("store these contact details") but enabling the policy is workspace-wide, the modal states the consequence up front — from then on every task's assembled context is scanned — and if the master switch actually had to be turned on you are told afterwards and offered the Privacy page to review it. A scope change you can't see is one you can't undo. The git-tracked `project-director.md` mirror describes channels by kind/label only, so raw addresses never enter a diff.
 
 ### 5. Terminal Allow-List
 

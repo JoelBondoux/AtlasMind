@@ -6,6 +6,16 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.140.1 — Privacy routing no longer fires on ordinary code
+
+- **Non-PII work was being classified as regulated data.** The Data Privacy detectors scan the whole context assembled for a task — source, logs, memory, chat history — not your request, and several matched almost anything. Against a corpus of realistic non-PII repository content, **17 of 21 samples** were flagged: SVG path data and build timing tables read as phone numbers, `127.0.0.1` and `0.0.0.0` as personal IP addresses, `noreply@` commit trailers as personal email, the word `ENVIRONMENT` as a bank identifier, and "the diagnostic output shows a null deref" as protected health information. Every detector is now anchored on a cue ordinary source doesn't contain (`phone:`, `SWIFT:`, a `+` country code, a clinical construction) or validated structurally — reserved IP ranges and four-part version strings are no longer IP addresses; role mailboxes and `example.com` placeholders are no longer people. Same corpus: **0 of 23** flagged, with every true-positive case still detected.
+- **One false positive no longer downgrades your model.** A single detector firing anywhere in the context bundle used to restrict the whole task to your trusted-model list — which, if that list holds only local models, silently removed every frontier model with no visible cause. The gate is now tiered: **PCI cardholder data and HIPAA PHI** still hard-gate to trusted models, while **GDPR/CCPA and custom confidential rules** are advisory — routing is left alone and the matched spans are redacted instead. Nothing leaks under either tier.
+- **Privacy notices now say where a match came from.** Instead of "confidential content detected", you get `email address in memory "Stakeholders"` or `IP address in file src/net/probe.ts`, so a false positive is something you can find and fix.
+- **Consenting to store one contact no longer silently enables workspace-wide scanning.** The Project Director PII modal now states that enabling the GDPR detectors applies to the whole workspace, and if the master switch had to be turned on you're told, with a shortcut to the Privacy page to review it.
+- **Regression guard.** A benign source-repository corpus that must stay unclassified now ships as a test, alongside recall cases so tightening precision can't silently blind a pack.
+
+---
+
 ## v0.140.0 — Ethics, Legal, and Commercial oversight + the Risk dashboard
 
 - **Three new oversight advisors.** **Ethics Oversight** (user harm, fairness and bias, consent, dark patterns, transparency), **Legal Oversight** (dependency licence compatibility, IP, GDPR/CCPA, liability, terms of service), and **Commercial Oversight** (monetisation and viability, vendor cost and lock-in, contractual obligations, competitor positioning, go-to-market). They ask what the engineering specialists don't: *should we build this?*, *are we allowed to?*, *does this make commercial sense?*

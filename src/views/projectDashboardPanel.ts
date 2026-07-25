@@ -1949,6 +1949,13 @@ export class ProjectDashboardPanel {
    * and enable the built-in `gdpr-pii` classification pack so the stored PII is
    * covered by the existing redaction boundary. Returns true when it is OK to
    * persist. Modelled on `remoteControlServer.ensureWorkspaceApproval`.
+   *
+   * The consent asked for here is narrow — "store these contact details" — but
+   * turning the Data Privacy policy on for the first time is workspace-wide:
+   * every later task has its assembled context scanned. The modal therefore
+   * states that consequence up front, and if the master switch actually had to
+   * be flipped the user is told afterwards and offered the page to review it.
+   * A scope change the operator cannot see is a scope change they cannot undo.
    */
   private async ensurePiiConsent(config: ProjectDirectorConfig): Promise<boolean> {
     if (!configStoresRawPii(config)) {
@@ -1964,33 +1971,63 @@ export class ProjectDashboardPanel {
       + 'Under the GDPR you are the data controller: keep it minimal, store only what you need, and remove it on request. '
       + 'AtlasMind classifies stored personal data as confidential so it is never sent to an un-trusted model. '
       + 'Where possible, prefer referencing people in Microsoft 365 / Slack over storing raw details locally.',
-      { modal: true },
+      {
+        modal: true,
+        detail: 'To do that, AtlasMind will enable the "GDPR — Personal Data" detectors in the project Data Privacy policy. '
+          + 'That policy applies to the whole workspace: from now on the context assembled for each task is scanned, and anything '
+          + 'it matches is redacted before reaching a model you have not marked trusted. You can review or turn this off at any '
+          + 'time on the Privacy page.',
+      },
       'Store personal data',
     );
     if (choice !== 'Store personal data') {
       return false;
     }
     await context?.workspaceState?.update(PROJECT_DIRECTOR_PII_ACK_KEY, true);
-    await this.enableGdprPiiPack();
+    const { policyTurnedOn } = await this.enableGdprPiiPack();
+    if (policyTurnedOn) {
+      void vscode.window.showInformationMessage(
+        'Data Privacy is now on for this workspace: task context is scanned for personal data and redacted for un-trusted models.',
+        'Review on Privacy page',
+      ).then(async (action) => {
+        if (action === 'Review on Privacy page') {
+          await this.postMessage({ type: 'navigate', payload: 'privacy' });
+        }
+      });
+    }
     return true;
   }
 
-  /** Enable the built-in gdpr-pii compliance pack so stored Director PII is classified. */
-  private async enableGdprPiiPack(): Promise<void> {
+  /**
+   * Enable the built-in gdpr-pii compliance pack so stored Director PII is
+   * classified. Reports whether the workspace-wide master switch had to be
+   * turned on, so the caller can disclose that rather than changing the scope
+   * of the policy silently.
+   */
+  private async enableGdprPiiPack(): Promise<{ policyTurnedOn: boolean }> {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!workspaceRoot) {
-      return;
+      return { policyTurnedOn: false };
     }
     try {
       const current = readDataPrivacyConfig(workspaceRoot) ?? defaultDataPrivacyConfig();
-      if (current.compliancePacks.includes('gdpr-pii')) {
-        return;
+      const policyTurnedOn = current.enabled !== true;
+      if (current.compliancePacks.includes('gdpr-pii') && !policyTurnedOn) {
+        return { policyTurnedOn: false };
       }
-      const next = { ...current, enabled: true, compliancePacks: [...current.compliancePacks, 'gdpr-pii'] };
+      const next = {
+        ...current,
+        enabled: true,
+        compliancePacks: current.compliancePacks.includes('gdpr-pii')
+          ? current.compliancePacks
+          : [...current.compliancePacks, 'gdpr-pii'],
+      };
       await writeDataPrivacyConfig(workspaceRoot, next);
       this.atlas.dataPrivacyManager?.setConfig(next);
+      return { policyTurnedOn };
     } catch {
       // Best-effort; the Director save still proceeds.
+      return { policyTurnedOn: false };
     }
   }
 
