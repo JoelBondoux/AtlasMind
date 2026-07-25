@@ -591,8 +591,8 @@ function buildBody(servers: McpServerState[], target?: McpPanelTarget): string {
     </div>
     <div class="hero-badges" aria-label="MCP summary">
       <button type="button" class="hero-badge hero-badge-button" data-hero-page-target="servers" data-search-query="" title="Open the configured server list.">${servers.length} configured</button>
-      <button type="button" class="hero-badge hero-badge-button" data-hero-page-target="servers" data-search-query="connected" title="Filter the server list to connected MCP servers.">${connectedCount} connected</button>
-      <button type="button" class="hero-badge hero-badge-button" data-hero-page-target="servers" data-search-query="enabled" title="Filter the server list to enabled MCP servers.">${enabledCount} enabled</button>
+      <button type="button" class="hero-badge hero-badge-button" data-hero-page-target="servers" data-search-query="status:connected" title="Filter the server list to connected MCP servers.">${connectedCount} connected</button>
+      <button type="button" class="hero-badge hero-badge-button" data-hero-page-target="servers" data-search-query="state:enabled" title="Filter the server list to enabled MCP servers.">${enabledCount} enabled</button>
     </div>
   </div>
 
@@ -993,7 +993,12 @@ function renderServerCard(state: McpServerState): string {
     : `http: <code>${escapeHtml(config.url ?? '')}</code>`;
 
   return `
-  <div class="server-card" data-server-search="${escapeHtml([config.name, status, config.transport, toolSummary, config.url ?? config.command ?? ''].join(' ').toLowerCase())}">
+  ${/* The hero badges filter by stuffing a term into this haystack, and both
+        were broken: "connected" is a substring of "disconnected", so that
+        filter matched the servers it was meant to exclude, and "enabled" was
+        never in the haystack at all so it matched nothing. Prefixed tokens
+        cannot collide as substrings. */ ''}
+  <div class="server-card" data-server-search="${escapeHtml([config.name, status, `status:${status}`, `state:${config.enabled ? 'enabled' : 'disabled'}`, config.transport, toolSummary, config.url ?? config.command ?? ''].join(' ').toLowerCase())}">
     <div class="server-header">
       <span class="status-dot ${statusClass}" title="${escapeHtml(statusLabel)}"></span>
       <strong>${escapeHtml(config.name)}</strong>

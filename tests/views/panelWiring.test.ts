@@ -329,6 +329,31 @@ describe('codicon usage across panels', () => {
   });
 });
 
+describe('mcp hero badge filters', () => {
+  const source = readFileSync(path.join(VIEWS_DIR, 'mcpPanel.ts'), 'utf8');
+
+  it('filters on tokens that cannot collide as substrings', () => {
+    // "connected" is a substring of "disconnected", so the connected filter
+    // matched the servers it was meant to exclude; "enabled" was never in the
+    // search haystack at all, so that badge matched nothing.
+    expect(source).toContain('data-search-query="status:connected"');
+    expect(source).toContain('data-search-query="state:enabled"');
+    expect(source).toContain('`status:${status}`');
+    expect(source).toContain("`state:${config.enabled ? 'enabled' : 'disabled'}`");
+  });
+});
+
+describe('ideation inspector', () => {
+  const script = readFileSync(path.join(process.cwd(), 'media', 'projectIdeation.js'), 'utf8');
+
+  it('updates the score readout while the slider moves', () => {
+    // The readout was rendered once and only caught up on the next full
+    // re-render, so dragging gave no numeric feedback.
+    expect(script).toContain("target.getAttribute('type') === 'range'");
+    expect(script).toContain("field.querySelector('.stat-detail')");
+  });
+});
+
 describe('chat panel controls', () => {
   const script = readFileSync(path.join(process.cwd(), 'media', 'chatPanel.js'), 'utf8');
 

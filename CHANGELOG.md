@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.141.4] - 2026-07-25
+
+### Fixed
+- **Both MCP hero-badge filters were broken, in opposite ways.** They filter by stuffing a term into the server search box, which substring-matches a per-card haystack. `connected` is a substring of `disconnected`, so the “connected” filter showed exactly the servers it was meant to exclude; and `enabled` was never in the haystack at all, so that badge matched nothing. Each card now carries prefixed `status:` and `state:` tokens, which cannot collide as substrings.
+- **The Ideation inspector’s score sliders gave no feedback while dragging.** Each renders a numeric readout beside it, but nothing updated the readout on input — the number only caught up on the next full re-render.
+
 ## [0.141.3] - 2026-07-25
 
 ### Fixed

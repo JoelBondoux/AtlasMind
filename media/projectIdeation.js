@@ -289,6 +289,16 @@
     if (!(target instanceof HTMLElement)) {
       return;
     }
+    // The inspector's score sliders render a numeric readout beside them, but
+    // nothing updated it while dragging — the number only caught up on the next
+    // full re-render, so the slider gave no live feedback at all.
+    if (target.getAttribute('type') === 'range') {
+      const field = target.closest('.ideation-score-field');
+      const readout = field ? field.querySelector('.stat-detail') : null;
+      if (readout) {
+        readout.textContent = String(target.value);
+      }
+    }
     if (target.id === 'ideationTitleInput') {
       updateSelectedCardField('title', target.value);
       return;
