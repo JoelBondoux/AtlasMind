@@ -1172,51 +1172,6 @@ export class ProjectRunCenterPanel {
             </div>
           </div>
 
-          <section class="routines-card-section">
-            <article class="panel-card panel-card-routines">
-              <p class="section-kicker">Project routines</p>
-              <h2>Ship</h2>
-              <p class="section-copy">Run a saved routine — tests, commit, push, deploy. Add <code>.md</code> files to <code>project_memory/routines/</code> to define routines, or use <code>/ship</code> in chat.</p>
-              <div id="routineList" class="routine-list"></div>
-              <div id="routineProgress" class="routine-progress"></div>
-            </article>
-          </section>
-
-          <section class="hero-grid">
-            <article class="hero-card">
-              <p class="dashboard-kicker">Autonomous delivery</p>
-              <h2>Review-first orchestration</h2>
-              <p class="section-copy">Use the same planner, scheduler, and run history pipeline that powers <code>/project</code>, but with an operator-facing surface for refining the draft, making approval decisions, and seeing exactly what Atlas is doing while it runs.</p>
-              <div class="hero-meta">
-                <span id="heroLiveStatus" class="meta-pill">Idle</span>
-                <span id="heroApprovalMode" class="meta-pill">Batch approval off</span>
-                <span id="heroRunCount" class="meta-pill">0 tracked runs</span>
-              </div>
-            </article>
-
-            <article class="score-card">
-              <p class="dashboard-kicker">Current posture</p>
-              <div class="posture-grid">
-                <div class="metric-pill">
-                  <span class="metric-label"><span class="posture-dot tone-neutral" id="metricSelectedStatusDot"></span>Selected run</span>
-                  <strong id="metricSelectedStatus">No run selected</strong>
-                </div>
-                <div class="metric-pill">
-                  <span class="metric-label"><span class="posture-dot tone-neutral" id="metricSelectedProgressDot"></span>Run progress</span>
-                  <strong id="metricSelectedProgress">0/0 subtasks</strong>
-                </div>
-                <div class="metric-pill">
-                  <span class="metric-label"><span class="posture-dot tone-neutral" id="metricSelectedImpactDot"></span>Change scope</span>
-                  <strong id="metricSelectedImpact">No recorded changes</strong>
-                </div>
-                <div class="metric-pill">
-                  <span class="metric-label"><span class="posture-dot tone-neutral" id="metricPreviewStatusDot"></span>Preview</span>
-                  <strong id="metricPreviewStatus">No preview loaded</strong>
-                </div>
-              </div>
-            </article>
-          </section>
-
           <div id="workflowStepper" class="workflow-stepper" aria-label="Current workflow phase">
             <div class="step-item" data-step="draft">
               <div class="step-dot"></div>
@@ -1385,6 +1340,41 @@ export class ProjectRunCenterPanel {
             </article>
           </section>
 
+          <section class="hero-grid">
+            <article class="hero-card">
+              <p class="dashboard-kicker">Autonomous delivery</p>
+              <h2>Review-first orchestration</h2>
+              <p class="section-copy">Use the same planner, scheduler, and run history pipeline that powers <code>/project</code>, but with an operator-facing surface for refining the draft, making approval decisions, and seeing exactly what Atlas is doing while it runs.</p>
+              <div class="hero-meta">
+                <span id="heroLiveStatus" class="meta-pill">Idle</span>
+                <span id="heroApprovalMode" class="meta-pill">Batch approval off</span>
+                <span id="heroRunCount" class="meta-pill">0 tracked runs</span>
+              </div>
+            </article>
+
+            <article class="score-card">
+              <p class="dashboard-kicker">Current posture</p>
+              <div class="posture-grid">
+                <div class="metric-pill">
+                  <span class="metric-label"><span class="posture-dot tone-neutral" id="metricSelectedStatusDot"></span>Selected run</span>
+                  <strong id="metricSelectedStatus">No run selected</strong>
+                </div>
+                <div class="metric-pill">
+                  <span class="metric-label"><span class="posture-dot tone-neutral" id="metricSelectedProgressDot"></span>Run progress</span>
+                  <strong id="metricSelectedProgress">0/0 subtasks</strong>
+                </div>
+                <div class="metric-pill">
+                  <span class="metric-label"><span class="posture-dot tone-neutral" id="metricSelectedImpactDot"></span>Change scope</span>
+                  <strong id="metricSelectedImpact">No recorded changes</strong>
+                </div>
+                <div class="metric-pill">
+                  <span class="metric-label"><span class="posture-dot tone-neutral" id="metricPreviewStatusDot"></span>Preview</span>
+                  <strong id="metricPreviewStatus">No preview loaded</strong>
+                </div>
+              </div>
+            </article>
+          </section>
+
           <section class="panel-grid">
             <article class="list-card">
               <div class="panel-header-row">
@@ -1439,6 +1429,21 @@ export class ProjectRunCenterPanel {
                   <div id="artifactList" class="artifact-list"></div>
                 </section>
               </div>
+            </article>
+          </section>
+
+          <!-- Running a saved routine is a separate errand from drafting a run,
+               so it closes the page collapsed rather than opening it. It used to
+               sit directly under the topbar, above the goal input. -->
+          <section class="routines-card-section">
+            <article class="panel-card panel-card-routines">
+              <details class="routines-details">
+              <summary><span class="section-kicker">Project routines</span> — saved multi-step tasks</summary>
+              <h2>Ship</h2>
+              <p class="section-copy">Run a saved routine — tests, commit, push, deploy. Add <code>.md</code> files to <code>project_memory/routines/</code> to define routines, or use <code>/ship</code> in chat.</p>
+              <div id="routineList" class="routine-list"></div>
+              <div id="routineProgress" class="routine-progress"></div>
+              </details>
             </article>
           </section>
         </div>
@@ -1780,6 +1785,37 @@ export class ProjectRunCenterPanel {
         .collapsible-shell summary::-webkit-details-marker {
           display: none;
         }
+
+        /* The native disclosure triangle was removed twice — list-style: none
+           and the -webkit marker — with nothing put back, so a collapsible
+           section gave no sign it could be opened. */
+        .collapsible-shell summary > :first-child::before,
+        .routines-details summary::before {
+          content: "\\25B8";
+          display: inline-block;
+          margin-right: 8px;
+          color: var(--run-muted, var(--vscode-descriptionForeground));
+          transition: transform 140ms ease;
+        }
+
+        .collapsible-shell[open] summary > :first-child::before,
+        .routines-details[open] summary::before {
+          transform: rotate(90deg);
+        }
+
+        /* Running a saved routine is a separate errand from drafting a run, so
+           the runner closes the page collapsed. */
+        .routines-details summary {
+          list-style: none;
+          cursor: pointer;
+          padding: 4px 0 8px;
+          font-size: 12px;
+          color: var(--run-muted, var(--vscode-descriptionForeground));
+        }
+
+        .routines-details summary::-webkit-details-marker { display: none; }
+        .routines-details summary:hover { color: var(--vscode-foreground); }
+        .routines-details summary .section-kicker { display: inline; }
 
         .editor-shell-flat,
         .table-shell-flat {
@@ -3103,7 +3139,13 @@ function buildScript(): string {
       return haystack.includes(normalizedSearch);
     });
     if (visibleRuns.length === 0) {
-      runsList.innerHTML = renderEmptyCard('No project runs recorded yet', 'The run history will appear here after you preview or execute a project run.');
+      // Distinguish "nothing recorded" from "nothing matches the search" —
+      // filtering every run out used to report an empty history, which reads
+      // as data loss rather than an active filter.
+      const hasAnyRuns = Array.isArray(runs) && runs.length > 0;
+      runsList.innerHTML = hasAnyRuns
+        ? renderEmptyCard('No runs match this search', 'No recorded run matches "' + escapeHtml(clientState.search) + '". Clear the search box to see all ' + runs.length + ' run' + (runs.length === 1 ? '' : 's') + '.')
+        : renderEmptyCard('No project runs recorded yet', 'The run history will appear here after you preview or execute a project run.');
       return;
     }
     runsList.innerHTML = visibleRuns.map(run => {

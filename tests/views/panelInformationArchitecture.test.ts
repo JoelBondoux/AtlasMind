@@ -176,6 +176,44 @@ describe('cost dashboard order', () => {
   });
 });
 
+describe('run center order', () => {
+  const source = read('projectRunCenterPanel.ts');
+  const bodyStart = source.indexOf('<div class="run-center-shell">');
+  const body = source.slice(bodyStart, source.indexOf('extraCss', bodyStart));
+  const at = (needle: string) => {
+    const index = body.indexOf(needle);
+    expect(index, `"${needle}" not found in the body`).toBeGreaterThan(-1);
+    return index;
+  };
+
+  it('puts the goal input near the top instead of below four screens of chrome', () => {
+    // #goalInput is the panel's primary input; it used to sit below the routine
+    // runner, a 34-line hero grid and the stepper.
+    expect(at('id="goalInput"')).toBeLessThan(at('class="hero-grid"'));
+    expect(at('id="goalInput"')).toBeLessThan(at('routines-card-section'));
+  });
+
+  it('leads with the stepper that names the current phase', () => {
+    expect(at('id="workflowStepper"')).toBeLessThan(at('id="goalInput"'));
+  });
+
+  it('closes with the routine runner, collapsed', () => {
+    expect(at('routines-card-section')).toBeGreaterThan(at('class="panel-grid"'));
+    expect(source).toContain('routines-details');
+  });
+
+  it('gives collapsible sections a visible disclosure cue', () => {
+    // .collapsible-shell removed the native marker twice — list-style: none and
+    // the -webkit pseudo-element — and put nothing back.
+    expect(source).toMatch(/\.collapsible-shell summary > :first-child::before/);
+    expect(source).toContain('.collapsible-shell[open] summary > :first-child::before');
+  });
+
+  it('separates an empty history from an empty search result', () => {
+    expect(source).toContain('No runs match this search');
+  });
+});
+
 describe('ideation workspace order', () => {
   const script = readFileSync(path.join(process.cwd(), 'media', 'projectIdeation.js'), 'utf8');
   const renderStart = script.indexOf('root.innerHTML =');

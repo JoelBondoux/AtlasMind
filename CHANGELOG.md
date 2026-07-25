@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.141.1] - 2026-07-25
+
+### Changed
+- **The Project Run Center buried its own primary input.** `#goalInput` — the box you type a goal into — sat below the saved-routine runner, a 34-line hero grid and the workflow stepper: roughly four screens of chrome before the thing the panel exists for. The order now follows the job it describes: the stepper that names the current phase, then the goal input and plan/execution workspace, then posture metrics as context, then run history. The routine runner is a separate errand and closes the page inside a collapsed `<details>`. Verified as a pure permutation of the existing markup.
+
+### Fixed
+- Collapsible sections in the Run Center removed the native disclosure triangle **twice** — `list-style: none` and `::-webkit-details-marker` — without putting anything back, so a section that could be expanded gave no sign of it. They now carry a rotating chevron.
+- Filtering the run history to nothing reported “No project runs recorded yet”, which reads as data loss rather than an active filter. An empty search result now says so and names how many runs are hidden.
+
 ## [0.141.0] - 2026-07-25
 
 ### Added
