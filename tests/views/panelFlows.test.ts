@@ -3102,11 +3102,34 @@ describe('project dashboard render invariants', () => {
     expect(dashboardJs).toMatch(/signal-card [^"`]*\bstatic\b/);
   });
 
-  it('gives stat / action / recommendation / score-component cards a static fallback', () => {
+  it('gives stat / recommendation / score-component cards a static fallback', () => {
+    // Every card renderer must have a non-interactive branch, so a card with no
+    // resolvable action renders genuinely inert rather than looking clickable.
+    // (`renderActionCard` and its `action-card static` branch were removed with
+    // the Overview quick-action grid; the recommendation card is now the only
+    // producer of `.action-card`, and it keeps its own static fallback.)
     expect(dashboardJs).toContain('${cls} static');
-    expect(dashboardJs).toContain('action-card static');
     expect(dashboardJs).toContain('score-recommendation-item static');
     expect(dashboardJs).toContain('score-component-row static');
+  });
+
+  it('closes Overview with score recommendations rather than a shortcut grid', () => {
+    // The twelve quick-action cards each duplicated a destination already on
+    // screen — a tab, the hero score ring, a stat card on the same page, or the
+    // sidebar Quick Links — so Overview answered "where would you like to go?"
+    // instead of "how are we doing?".
+    expect(dashboardJs).toContain('renderOverviewNextActions');
+    expect(dashboardJs).not.toContain('renderActionCard');
+    expect(dashboardJs).not.toContain('quickActions');
+  });
+
+  it('states where an action card actually goes', () => {
+    // The removed cards took their kicker from an inert `pageTarget`, so
+    // "Open Chat View" announced itself as "runtime" while opening a different
+    // panel. Destination text is now derived from the action that will run.
+    expect(dashboardJs).toContain('resolveRecommendationAction');
+    expect(dashboardJs).toContain('card-destination');
+    expect(dashboardJs).toContain("destination: 'Ask Atlas'");
   });
 
   it('resolves the Security governance signals to their concrete files', () => {

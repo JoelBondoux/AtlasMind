@@ -14,6 +14,7 @@ import {
   probeClaudeCli,
 } from '../providers/index.js';
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
+import { PANEL_NAV_JS } from './panelNav.js';
 import {
   COPILOT_MULTIPLIER_DOCS_URL,
   MULTIPLIER_CACHE_STALE_MS,
@@ -376,6 +377,21 @@ export class ModelProviderPanel {
         .action-card, .summary-card, .provider-card { border: 1px solid var(--atlas-border); border-radius: 16px; padding: 16px; background: linear-gradient(180deg, var(--atlas-surface), var(--vscode-editor-background)); }
         .action-card { display: flex; flex-direction: column; gap: 6px; text-align: left; }
         .action-primary { border-color: color-mix(in srgb, var(--atlas-accent) 42%, var(--atlas-border)); }
+        /* Was undefined anywhere, so it silently borrowed the shell's primary
+           fill and a *secondary* action rendered as the loudest control on the
+           card. Now an explicit outline treatment. */
+        .action-secondary {
+          background: transparent;
+          border: 1px solid var(--atlas-border);
+          border-radius: 8px;
+          color: var(--atlas-muted);
+          padding: 6px 12px;
+        }
+        .action-secondary:hover:not(:disabled),
+        .action-secondary:focus-visible {
+          border-color: color-mix(in srgb, var(--atlas-accent) 48%, var(--atlas-border));
+          color: var(--vscode-foreground);
+        }
         .action-title { font-weight: 700; }
         .action-copy, .summary-card p:last-child { color: var(--atlas-muted); }
         .summary-card h3 { margin: 0; font-size: 1.8rem; }
@@ -412,6 +428,8 @@ export class ModelProviderPanel {
       `,
       scriptContent:
       `
+        ${PANEL_NAV_JS}
+
         const vscode = acquireVsCodeApi();
         const navButtons = Array.from(document.querySelectorAll('[data-page-target]'));
         const pages = Array.from(document.querySelectorAll('.panel-page'));
@@ -420,24 +438,18 @@ export class ModelProviderPanel {
         const providerCards = Array.from(document.querySelectorAll('.provider-card'));
         let activeStatusFilter = '';
 
+        // Tab semantics, roving tabindex and arrow-key navigation come from the
+        // shared controller. State persistence stays panel-specific.
+        const panelNav = createPanelNav({
+          tablist: '.panel-nav',
+          onActivate: pageId => {
+            const state = vscode.getState() ?? {};
+            vscode.setState({ ...state, pageId, statusFilter: activeStatusFilter });
+          },
+        });
+
         function activatePage(pageId) {
-          navButtons.forEach(button => {
-            if (!(button instanceof HTMLButtonElement)) {
-              return;
-            }
-            const isActive = button.dataset.pageTarget === pageId;
-            button.classList.toggle('active', isActive);
-          });
-          pages.forEach(page => {
-            if (!(page instanceof HTMLElement)) {
-              return;
-            }
-            const isActive = page.id === 'page-' + pageId;
-            page.classList.toggle('active', isActive);
-            page.hidden = !isActive;
-          });
-          const state = vscode.getState() ?? {};
-          vscode.setState({ ...state, pageId, statusFilter: activeStatusFilter });
+          panelNav.activate(pageId);
         }
 
         function matchesStatusFilter(card) {
@@ -786,7 +798,10 @@ function getSubscriptionDetailsHtml(providerId: ProviderId, atlas: AtlasMindCont
     return `
       <div class="provider-detail-list">
         <p class="provider-detail-label">Subscription plan</p>
-        <p class="provider-detail-empty">No plan configured — click <strong>$(credit-card)</strong> to set your tier.</p>
+        <!-- Named the control rather than showing "$(credit-card)": codicon
+             syntax is interpreted by tree items, the status bar and QuickPicks,
+             but not in webview HTML, where it rendered as literal text. -->
+        <p class="provider-detail-empty">No plan configured — use <strong>Configure plan</strong> to set your tier.</p>
       </div>`;
   }
 

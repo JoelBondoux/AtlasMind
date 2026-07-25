@@ -7,6 +7,15 @@
   const refreshButton = document.getElementById('dashboard-refresh');
   const versionStrip = document.getElementById('dashboard-version-strip');
   const noProjectBanner = document.getElementById('no-project-banner');
+  const statusRegion = document.getElementById('dashboard-status');
+
+  // Targeted announcement, replacing the aria-live that used to wrap the whole
+  // dashboard and re-read all 14 pages on every render.
+  function announce(message) {
+    if (statusRegion) {
+      statusRegion.textContent = message;
+    }
+  }
 
   noProjectBanner?.addEventListener('click', event => {
     const target = event.target instanceof HTMLElement ? event.target.closest('[data-action]') : null;
@@ -20,9 +29,90 @@
     }
   });
 
+  // ── Dashboard navigation model ────────────────────────────────────────────
+  //
+  // One ordered source of truth for the tabs. The pages used to be listed in
+  // three places in three different orders, and the list documented as
+  // authoritative was the one that was wrong.
+  //
+  // The order follows the sentence a manager actually reads: where do we stand
+  // → what is the work and who is on it → is the code sound → is it safe → can
+  // we ship, and is the record straight. Before this the order was
+  // archaeological — it recorded the sequence features shipped, which put
+  // Roadmap behind four engineer pages and stranded Gap Analysis eight tabs
+  // away from the Overview card that advertises it.
+  const PAGE_GROUPS = [
+    {
+      id: 'stand',
+      label: 'Where we stand',
+      pages: [
+        ['overview', 'Overview'],
+        ['score', 'Score'],
+        ['gapAnalysis', 'Gap Analysis'],
+      ],
+    },
+    {
+      id: 'work',
+      label: 'The work',
+      pages: [
+        ['roadmap', 'Roadmap'],
+        ['director', 'Director'],
+        ['runtime', 'Runtime'],
+      ],
+    },
+    {
+      id: 'code',
+      label: 'The code',
+      pages: [
+        ['repo', 'Repo'],
+        ['testing', 'Testing'],
+      ],
+    },
+    {
+      id: 'safe',
+      label: 'Is it safe',
+      pages: [
+        ['security', 'Security'],
+        ['privacy', 'Privacy'],
+        ['risk', 'Risk'],
+      ],
+    },
+    {
+      id: 'ship',
+      label: 'Ship & record',
+      pages: [
+        ['delivery', 'Delivery'],
+        ['documents', 'Documents'],
+        ['ssot', 'SSOT'],
+      ],
+    },
+  ];
+
+  // Mirrors RISK_STALE_DAYS in projectDashboardPanel.ts — an assessment older
+  // than this stops counting as current assurance.
+  const RISK_STALE_DAYS = 90;
+
+  const NAV_PAGES = PAGE_GROUPS.reduce((all, group) => all.concat(group.pages), []);
+  const NAV_PAGE_IDS = NAV_PAGES.map(entry => entry[0]);
+  const DEFAULT_PAGE = 'overview';
+
+  // `activePage` arrives from click payloads and from host `navigate` messages.
+  // 'ideation' is a valid DashboardPageId for prompt attribution but has no
+  // page here (it is a separate panel), so an unvalidated id could leave every
+  // section inactive and render a blank dashboard.
+  function normalizePageId(value) {
+    return NAV_PAGE_IDS.indexOf(value) === -1 ? DEFAULT_PAGE : value;
+  }
+
+  // Opening tag for a page panel. Centralised so the tab/panel ARIA wiring
+  // cannot drift out of sync with the nav.
+  function pageSectionOpen(id) {
+    return `<section id="panel-${id}" class="page-section ${state.activePage === id ? 'active' : ''}" role="tabpanel" aria-labelledby="tab-${id}">`;
+  }
+
   const state = {
     snapshot: undefined,
-    activePage: 'overview',
+    activePage: DEFAULT_PAGE,
     timescale: 30,
     editingRoadmapId: '',
     roadmapDraftText: '',
@@ -65,8 +155,51 @@
     directorComposeKey: '',
   };
 
+  // Set when a tab activation should keep keyboard focus on the nav across the
+  // innerHTML swap that destroys it, and when switching pages should reset the
+  // scroll position instead of restoring the previous page's.
+  let focusTabAfterRender = '';
+  let resetScrollAfterRender = false;
+
   refreshButton?.addEventListener('click', () => {
     vscode.postMessage({ type: 'refresh' });
+  });
+
+  // WAI-ARIA tabs keyboard support. The container declared role="tablist" but
+  // had no keydown listener at all, so reaching the last tab took 14 Tab
+  // presses and arrow keys did nothing.
+  root?.addEventListener('keydown', event => {
+    const tab = event.target instanceof HTMLElement ? event.target.closest('[role="tab"]') : null;
+    if (!(tab instanceof HTMLElement)) {
+      return;
+    }
+    const keys = ['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp', 'Home', 'End'];
+    if (keys.indexOf(event.key) === -1) {
+      return;
+    }
+    event.preventDefault();
+
+    const current = NAV_PAGE_IDS.indexOf(state.activePage);
+    const last = NAV_PAGE_IDS.length - 1;
+    let next;
+    if (event.key === 'Home') {
+      next = 0;
+    } else if (event.key === 'End') {
+      next = last;
+    } else if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+      next = current >= last ? 0 : current + 1;
+    } else {
+      next = current <= 0 ? last : current - 1;
+    }
+
+    const target = NAV_PAGE_IDS[next];
+    if (!target || target === state.activePage) {
+      return;
+    }
+    state.activePage = target;
+    focusTabAfterRender = target;
+    resetScrollAfterRender = true;
+    render();
   });
 
   window.addEventListener('message', event => {
@@ -85,7 +218,7 @@
     }
 
     if (message.type === 'navigate') {
-      state.activePage = typeof message.payload === 'string' ? message.payload : 'overview';
+      state.activePage = normalizePageId(typeof message.payload === 'string' ? message.payload : DEFAULT_PAGE);
       render();
       return;
     }
@@ -104,6 +237,7 @@
 
     if (message.type === 'gapAnalysisStatus') {
       state.gapStatus = typeof message.payload === 'string' ? message.payload : '';
+      announce(state.gapStatus);
       render();
       return;
     }
@@ -116,6 +250,7 @@
 
     if (message.type === 'riskStatus') {
       state.riskStatus = typeof message.payload === 'string' ? message.payload : '';
+      announce(state.riskStatus);
       render();
       return;
     }
@@ -158,12 +293,14 @@
 
     if (message.type === 'rollbackResult') {
       state.rollbackNotice = (message.payload && message.payload.summary) || '';
+      announce(state.rollbackNotice);
       render();
       return;
     }
 
     if (message.type === 'healthTestResult') {
       state.healthNotice = (message.payload && message.payload.summary) || '';
+      announce(state.healthNotice);
       render();
       return;
     }
@@ -193,7 +330,18 @@
     const action = target.dataset.action;
     const payload = target.dataset.payload || '';
     if (action === 'page') {
-      state.activePage = payload;
+      const next = normalizePageId(payload);
+      const changed = next !== state.activePage;
+      state.activePage = next;
+      // Keep focus on the tab across the re-render that replaces it, so arrow
+      // keys keep working after a click and keyboard users are not dumped back
+      // to the top of the document.
+      focusTabAfterRender = target.getAttribute('role') === 'tab' ? next : '';
+      if (changed) {
+        // A newly revealed page should scroll to its own top rather than
+        // inheriting the previous page's scroll offset.
+        resetScrollAfterRender = true;
+      }
       render();
       return;
     }
@@ -1049,23 +1197,6 @@
         versionStrip.innerHTML = renderVersionStrip(snapshot);
       }
 
-      const pages = [
-        ['overview', 'Overview'],
-        ['score', 'Score'],
-        ['repo', 'Repo'],
-        ['runtime', 'Runtime'],
-        ['testing', 'Testing'],
-        ['ssot', 'SSOT'],
-        ['roadmap', 'Roadmap'],
-        ['gapAnalysis', 'Gap Analysis'],
-        ['security', 'Security'],
-        ['privacy', 'Privacy'],
-        ['delivery', 'Delivery'],
-        ['risk', 'Risk'],
-        ['director', 'Director'],
-        ['documents', 'Documents'],
-      ];
-
       root.innerHTML = `
         <section class="hero-grid">
           <article class="hero-card">
@@ -1087,28 +1218,23 @@
         </section>
 
         <section class="toolbar-row">
-          <div class="page-nav" role="tablist" aria-label="Dashboard sections">
-            ${pages.map(([id, label]) => `<button type="button" data-action="page" data-payload="${id}" class="${state.activePage === id ? 'active' : ''}">${escapeHtml(label)}</button>`).join('')}
-          </div>
-          <div class="timescale-switch" role="group" aria-label="Chart timescale">
-            ${[7, 30, 90].map(days => `<button type="button" data-action="timescale" data-payload="${days}" class="${state.timescale === days ? 'active' : ''}">${days}D</button>`).join('')}
-          </div>
+          ${renderNav(snapshot)}
         </section>
 
         ${renderOverview(snapshot)}
         ${renderScore(snapshot)}
-        ${renderRepo(snapshot)}
-        ${renderRuntime(snapshot)}
-        ${renderTesting(snapshot)}
-        ${renderSsot(snapshot)}
-        ${renderRoadmap(snapshot)}
         ${renderGapAnalysis(snapshot)}
+        ${renderRoadmap(snapshot)}
+        ${renderDirector(snapshot)}
+        ${renderRuntime(snapshot)}
+        ${renderRepo(snapshot)}
+        ${renderTesting(snapshot)}
         ${renderSecurity(snapshot)}
         ${renderPrivacy(snapshot)}
-        ${renderDelivery(snapshot)}
-        ${renderDirector(snapshot)}
         ${renderRisk(snapshot)}
+        ${renderDelivery(snapshot)}
         ${renderDocuments(snapshot)}
+        ${renderSsot(snapshot)}
         ${renderPromotionModal()}
       `;
 
@@ -1134,17 +1260,135 @@
         el.indeterminate = true;
       });
 
+      // The nav is rebuilt with everything else, so a tab activated by keyboard
+      // loses focus mid-interaction. Put it back on the now-selected tab.
+      if (focusTabAfterRender) {
+        const tabEl = document.getElementById(`tab-${focusTabAfterRender}`);
+        focusTabAfterRender = '';
+        if (tabEl) {
+          // preventScroll so the explicit scroll handling below stays authoritative.
+          tabEl.focus({ preventScroll: true });
+        }
+      }
+
       // Restore scroll positions captured before the innerHTML swap.
       document.querySelectorAll('[data-scroll-key]').forEach(el => {
         const saved = innerScroll[el.getAttribute('data-scroll-key')];
         if (typeof saved === 'number') { el.scrollTop = saved; }
       });
-      if (pageScrollY > 0) {
+      if (resetScrollAfterRender) {
+        resetScrollAfterRender = false;
+        window.scrollTo(0, 0);
+      } else if (pageScrollY > 0) {
         window.scrollTo(0, pageScrollY);
       }
+
+      // Meters, rings and bars are driven from here rather than from CSS —
+      // see applyValueAnimations() for why a plain transition cannot work
+      // against a wholesale innerHTML swap.
+      applyValueAnimations();
     } catch (error) {
       renderError(error instanceof Error ? error.message : String(error));
     }
+  }
+
+  // Attention badges. Every number here is already in the snapshot on the same
+  // render pass — without them a manager has to open all 14 tabs to find out
+  // which one is red.
+  //
+  // Only genuinely actionable state earns a badge. Counting things that are
+  // merely present (total roadmap items, total tests) would make every tab
+  // permanently badged, which conveys nothing.
+  function computeNavBadges(snapshot) {
+    const badges = {};
+    const set = (page, count, tone, title) => {
+      if (count > 0) {
+        badges[page] = { count, tone, title };
+      }
+    };
+
+    const gap = snapshot.gapAnalysis;
+    if (gap && Array.isArray(gap.items)) {
+      const open = gap.items.filter(item => !item.resolved && item.type !== 'praise');
+      const p1 = open.filter(item => item.priority === 'P1').length;
+      set('gapAnalysis', open.length, p1 > 0 ? 'critical' : 'warn',
+        `${open.length} open gap${open.length === 1 ? '' : 's'}${p1 > 0 ? `, ${p1} at P1` : ''}`);
+    }
+
+    if (snapshot.risk && snapshot.risk.openCount > 0) {
+      set('risk', snapshot.risk.openCount, 'warn',
+        `${snapshot.risk.openCount} open risk finding${snapshot.risk.openCount === 1 ? '' : 's'}`);
+    }
+
+    if (snapshot.director && snapshot.director.overdueCount > 0) {
+      set('director', snapshot.director.overdueCount, 'critical',
+        `${snapshot.director.overdueCount} overdue follow-up${snapshot.director.overdueCount === 1 ? '' : 's'}`);
+    }
+
+    const docs = snapshot.documents;
+    if (docs) {
+      const stale = (docs.reviewDueCount || 0) + (docs.missingCount || 0);
+      set('documents', stale, docs.missingCount > 0 ? 'critical' : 'warn',
+        `${docs.reviewDueCount || 0} due for review, ${docs.missingCount || 0} missing`);
+    }
+
+    if (snapshot.ssot && snapshot.ssot.blockedEntries > 0) {
+      set('ssot', snapshot.ssot.blockedEntries, 'critical',
+        `${snapshot.ssot.blockedEntries} blocked memory entr${snapshot.ssot.blockedEntries === 1 ? 'y' : 'ies'}`);
+    }
+
+    const repo = snapshot.repo;
+    if (repo) {
+      const pending = (repo.staged || 0) + (repo.modified || 0) + (repo.untracked || 0);
+      set('repo', pending, 'accent', `${pending} pending file change${pending === 1 ? '' : 's'}`);
+    }
+
+    const runtime = snapshot.runtime;
+    if (runtime && runtime.totalProviders > 0) {
+      const unhealthy = runtime.totalProviders - runtime.healthyProviders;
+      set('runtime', unhealthy, 'warn', `${unhealthy} provider${unhealthy === 1 ? '' : 's'} unhealthy`);
+    }
+
+    const delivery = snapshot.delivery;
+    if (delivery && Array.isArray(delivery.artifacts)) {
+      const attention = delivery.artifacts.filter(artifact => artifact.needsAttention).length;
+      set('delivery', attention, 'warn', `${attention} artifact${attention === 1 ? ' needs' : 's need'} attention`);
+    }
+
+    return badges;
+  }
+
+  function renderNav(snapshot) {
+    const badges = computeNavBadges(snapshot);
+    const groups = PAGE_GROUPS.map(group => {
+      const tabs = group.pages.map(entry => {
+        const id = entry[0];
+        const label = entry[1];
+        const isActive = state.activePage === id;
+        const badge = badges[id];
+        // aria-label carries the badge meaning in words; the visual badge is a
+        // bare number and is hidden from assistive tech to avoid "Risk 3".
+        const accessibleName = badge ? `${label} — ${badge.title}` : label;
+        return `
+          <button type="button" role="tab" id="tab-${id}"
+            aria-controls="panel-${id}" aria-selected="${isActive ? 'true' : 'false'}"
+            tabindex="${isActive ? '0' : '-1'}"
+            aria-label="${escapeAttr(accessibleName)}"
+            ${badge ? `title="${escapeAttr(badge.title)}"` : ''}
+            data-action="page" data-payload="${escapeAttr(id)}"
+            class="nav-tab${isActive ? ' active' : ''}">
+            <span class="nav-tab-label">${escapeHtml(label)}</span>
+            ${badge ? `<span class="nav-badge nav-badge-${escapeAttr(badge.tone)}" aria-hidden="true">${escapeHtml(String(badge.count))}</span>` : ''}
+          </button>`;
+      }).join('');
+      return `
+        <div class="nav-group" role="presentation">
+          <span class="nav-group-label" id="navgrp-${group.id}">${escapeHtml(group.label)}</span>
+          <div class="nav-group-tabs" role="presentation">${tabs}</div>
+        </div>`;
+    }).join('');
+
+    return `<div class="page-nav" role="tablist" aria-label="Dashboard sections">${groups}</div>`;
   }
 
   function renderError(message) {
@@ -1205,18 +1449,17 @@
       });
     }
     return `
-      <section class="page-section ${state.activePage === 'overview' ? 'active' : ''}">
+      ${pageSectionOpen('overview')}
         <div class="stats-grid">
           ${stats.map(stat => renderStatCard(stat)).join('')}
         </div>
+        ${renderChartRange('Activity over time')}
         <div class="chart-grid">
-          ${renderChartCard('commits', 'Commit Activity', 'Recent git commit velocity across the selected time window.', snapshot.charts.commits)}
-          ${renderChartCard('runs', 'Run Activity', 'Autonomous run updates recorded in Project Run History.', snapshot.charts.runs)}
-          ${renderChartCard('memory', 'SSOT Activity', 'Indexed memory update cadence across the current SSOT root.', snapshot.charts.memory)}
+          ${renderChartCard('commits', 'Commit Activity', 'Recent git commit velocity across the selected time window.', snapshot.charts.commits, 'overview')}
+          ${renderChartCard('runs', 'Run Activity', 'Autonomous run updates recorded in Project Run History.', snapshot.charts.runs, 'overview')}
+          ${renderChartCard('memory', 'SSOT Activity', 'Indexed memory update cadence across the current SSOT root.', snapshot.charts.memory, 'overview')}
         </div>
-        <div class="action-grid">
-          ${snapshot.quickActions.map(action => renderActionCard(action)).join('')}
-        </div>
+        ${renderOverviewNextActions(snapshot)}
       </section>
     `;
   }
@@ -1231,7 +1474,7 @@
     })).filter(group => group.items.length > 0);
 
     return `
-      <section class="page-section ${state.activePage === 'gapAnalysis' ? 'active' : ''}">
+      ${pageSectionOpen('gapAnalysis')}
         ${renderPageIntro({
           kicker: 'Gap analysis',
           title: 'What still needs attention',
@@ -1247,6 +1490,16 @@
             <p class="section-kicker">Gap Analysis</p>
             <h3>Prioritized gaps, concerns, and strengths</h3>
             <div class="stat-detail">${gap.completed ? `Last run: ${escapeHtml(gap.lastRun || '')}` : 'Preliminary signal-based findings are shown below. Run the full analysis for a richer report.'}</div>
+            ${renderDistributionBar('gap-priority', [
+              { label: 'P1', value: openItems.filter(item => item.priority === 'P1').length, tone: 'critical' },
+              { label: 'P2', value: openItems.filter(item => item.priority === 'P2').length, tone: 'warn' },
+              { label: 'P3', value: openItems.filter(item => item.priority === 'P3').length, tone: 'accent' },
+              { label: 'Resolved', value: gap.items.filter(item => item.resolved).length, tone: 'good' },
+            ], {
+              title: 'Severity mix',
+              caption: `${openItems.length} open`,
+              emptyLabel: 'Nothing outstanding — run the analysis to look again.',
+            })}
             ${state.gapStatus ? `<div class="tag-row"><span class="tag ${state.gapBusy ? 'tag-warn' : 'tag-good'}">${escapeHtml(state.gapStatus)}</span></div>` : ''}
             <div class="tag-row">
               ${grouped.length > 0 ? grouped.map(group => `<button type="button" class="action-link" data-action="gap-group" data-payload="${escapeAttr(group.priority)}">Resolve ${escapeHtml(group.priority)} (${group.items.length})</button>`).join('') : ''}
@@ -1322,7 +1575,7 @@
       title: component.detail,
     }));
     return `
-      <section class="page-section ${state.activePage === 'score' ? 'active' : ''}">
+      ${pageSectionOpen('score')}
         ${renderPageIntro({
           kicker: 'Operational score',
           title: `${snapshot.healthScore}/100 — where the project stands`,
@@ -1385,7 +1638,7 @@
     const changed = r.modified + r.staged + r.untracked;
     const scm = { command: 'workbench.view.scm', hint: 'Open Source Control' };
     return `
-      <section class="page-section ${state.activePage === 'repo' ? 'active' : ''}">
+      ${pageSectionOpen('repo')}
         ${renderPageIntro({
           kicker: 'Repository',
           title: 'Working tree at a glance',
@@ -1410,6 +1663,22 @@
               ${renderMetricPill('Untracked files', String(r.untracked), { tone: r.untracked ? 'warn' : undefined, action: scm })}
               ${renderMetricPill('Local branches', String(r.branchCount), { tone: 'accent' })}
             </div>
+            ${renderDistributionBar('repo-tree', [
+              { label: 'Staged', value: r.staged, tone: 'good' },
+              { label: 'Modified', value: r.modified, tone: 'warn' },
+              { label: 'Untracked', value: r.untracked, tone: 'accent' },
+            ], {
+              title: 'Change shape',
+              caption: `${changed} file${changed === 1 ? '' : 's'}`,
+              emptyLabel: 'Working tree is clean — nothing staged, modified, or untracked.',
+            })}
+            ${renderDistributionBar('repo-drift', [
+              { label: 'Ahead', value: r.ahead, tone: 'accent' },
+              { label: 'Behind', value: r.behind, tone: 'warn' },
+            ], {
+              title: 'Divergence from upstream',
+              emptyLabel: 'In step with the upstream branch.',
+            })}
             <div class="tag-row">
               <button type="button" class="action-link" data-action="command" data-payload="workbench.view.scm">⎇ Open Source Control</button>
             </div>
@@ -1419,13 +1688,13 @@
             <h3>Latest changes</h3>
             <div class="stack-list">
               ${r.commits.length > 0 ? r.commits.map(commit => `
-                <div class="recent-item">
+                <button type="button" class="recent-item" data-action="command" data-payload="workbench.view.scm" title="Open Source Control">
                   <div class="row-head">
                     <strong>${escapeHtml(commit.subject)}</strong>
                     <span class="tag mono">${escapeHtml(commit.shortHash)}</span>
                   </div>
                   <div class="list-meta">${escapeHtml(commit.author)} • ${escapeHtml(commit.committedRelative)}</div>
-                </div>`).join('') : '<div class="dashboard-empty">No commit history available.</div>'}
+                </button>`).join('') : '<div class="dashboard-empty">No commit history available.</div>'}
             </div>
           </article>
         </div>
@@ -1452,9 +1721,13 @@
               ${renderSignalCard('Repo cleanliness', !r.dirty, r.dirty ? 'Local changes are still pending review or commit.' : 'Working tree is clean right now.', { command: 'workbench.view.scm', hint: 'Open Source Control' })}
               ${renderSignalCard('Branch drift', r.behind === 0, r.behind === 0 ? 'Current branch is not behind its upstream.' : `${r.behind} upstream commit(s) are still missing locally.`, { command: 'workbench.view.scm', hint: 'Open Source Control' })}
               ${renderSignalCard('Change size', changed <= 12, `${changed} file(s) currently differ from HEAD.`, { command: 'workbench.view.scm', hint: 'Review changes' })}
-              ${renderSignalCard('Commit cadence', snapshot.charts.commits.some(point => point.value > 0), 'Chart activity reflects recent local commit history.', { page: 'overview', hint: 'View activity charts' })}
+              ${renderSignalCard('Commit cadence', snapshot.charts.commits.some(point => point.value > 0), 'See the commit velocity chart below for the selected window.', { command: 'workbench.view.scm', hint: 'Open Source Control' })}
             </div>
           </article>
+        </div>
+        ${renderChartRange('Commit history')}
+        <div class="chart-grid">
+          ${renderChartCard('commits', 'Commit velocity', 'Commits per day on this repository. Compare against the previous window to see whether the project is speeding up or stalling.', snapshot.charts.commits, 'repo')}
         </div>
       </section>
     `;
@@ -1464,7 +1737,7 @@
     const rt = snapshot.runtime;
     const providersHealthy = rt.healthyProviders === rt.totalProviders && rt.totalProviders > 0;
     return `
-      <section class="page-section ${state.activePage === 'runtime' ? 'active' : ''}">
+      ${pageSectionOpen('runtime')}
         ${renderPageIntro({
           kicker: 'Atlas runtime',
           title: 'What Atlas can do right now',
@@ -1505,6 +1778,16 @@
               ${renderMetricPill('Output tokens', formatNumber(rt.totalOutputTokens))}
               ${renderMetricPill('Autopilot', rt.autopilot ? 'Enabled' : 'Disabled', { tone: rt.autopilot ? 'warn' : 'good', action: { command: 'atlasmind.toggleAutopilot', hint: 'Toggle Autopilot' } })}
             </div>
+            ${renderDistributionBar('runtime-tokens', [
+              { label: 'Input', value: rt.totalInputTokens, tone: 'accent' },
+              { label: 'Output', value: rt.totalOutputTokens, tone: 'good' },
+            ], {
+              title: 'Token split',
+              caption: rt.totalRequests > 0
+                ? `${formatNumber(Math.round((rt.totalInputTokens + rt.totalOutputTokens) / rt.totalRequests))} avg per request`
+                : '',
+              emptyLabel: 'No token usage recorded yet.',
+            })}
             <div class="tag-row">
               <button type="button" class="action-link" data-action="command" data-payload="atlasmind.toggleAutopilot">⚡ Toggle Autopilot</button>
               <button type="button" class="action-link" data-action="command" data-payload="atlasmind.openChatView">💬 Open chat</button>
@@ -1513,6 +1796,16 @@
           <article class="panel-card">
             <p class="section-kicker">TDD compliance</p>
             <h3>Recent project-run posture</h3>
+            ${renderDistributionBar('runtime-tdd', [
+              { label: 'Verified', value: rt.tdd.verified, tone: 'good' },
+              { label: 'Blocked', value: rt.tdd.blocked, tone: 'critical' },
+              { label: 'Missing evidence', value: rt.tdd.missing, tone: 'warn' },
+              { label: 'N/A', value: rt.tdd.notApplicable, tone: 'muted' },
+            ], {
+              title: 'Subtask evidence',
+              caption: `${rt.tdd.evaluatedSubtasks} evaluated`,
+              emptyLabel: 'No subtasks have been evaluated for TDD evidence yet.',
+            })}
             <div class="signal-grid">
               ${renderSignalCard('TDD summary', rt.tdd.tone === 'good', rt.tdd.summary, { command: 'atlasmind.openProjectRunCenter', hint: 'Open Run Center' })}
               ${renderSignalCard('Verified subtasks', rt.tdd.verified > 0, `${rt.tdd.verified} verified subtask(s) recorded.`, { command: 'atlasmind.openProjectRunCenter', hint: 'Open Run Center' })}
@@ -1612,6 +1905,11 @@
     })).filter(group => group.items.length > 0);
 
     const testCount = testing.tests.length || testing.totalCases;
+    // coveragePercent is a display string like "82%", not a number — parse it
+    // before it can drive a meter, and leave the meter off entirely when no
+    // coverage report has been generated.
+    const coverageParsed = parseFloat(String(testing.coveragePercent || ''));
+    const coveragePercentValue = Number.isFinite(coverageParsed) ? Math.max(0, Math.min(100, coverageParsed)) : null;
     const testingStats = [
       { id: 'fw', label: 'Framework', value: testing.frameworkLabel, detail: 'Detected from scripts and dependencies.', tone: 'accent', command: 'atlasmind.openSettingsTesting' },
       { id: 'policy', label: 'Testing policy', value: testing.testingPolicyLabel || 'Red-Green TDD', detail: testing.testingPolicyDetail || 'Default Atlas tests-first policy.', tone: 'accent', command: 'atlasmind.openSettingsTesting' },
@@ -1621,7 +1919,7 @@
       { id: 'verify', label: 'Verification', value: testing.verificationEnabled ? 'On' : 'Off', detail: (testing.verificationScripts || []).join(', ') || 'No scripts configured', tone: testing.verificationEnabled ? 'good' : 'warn', command: 'atlasmind.openSettingsSafety' },
     ];
     return `
-      <section class="page-section ${state.activePage === 'testing' ? 'active' : ''}">
+      ${pageSectionOpen('testing')}
         ${renderPageIntro({
           kicker: 'Testing intelligence',
           title: 'How this project proves itself',
@@ -1637,6 +1935,34 @@
         <div class="stats-grid">
           ${testingStats.map(stat => renderStatCard(stat)).join('')}
         </div>
+
+        <article class="panel-card">
+          <p class="section-kicker">Test shape</p>
+          <h3>Pyramid and coverage</h3>
+          <div class="stat-detail">A healthy suite is broad at the unit level and narrow at the end-to-end level. An inverted shape — mostly e2e, few unit tests — is slow to run and brittle to change.</div>
+          <div class="panel-grid" style="margin-top: 12px;">
+            ${renderDistributionBar('testing-pyramid', [
+              { label: 'Unit', value: testing.unitFiles, tone: 'good' },
+              { label: 'Integration', value: testing.integrationFiles, tone: 'accent' },
+              { label: 'End-to-end', value: testing.e2eFiles, tone: 'warn' },
+              { label: 'Other', value: Math.max(0, testing.totalFiles - testing.unitFiles - testing.integrationFiles - testing.e2eFiles), tone: 'muted' },
+            ], {
+              title: 'Test files by level',
+              caption: `${testing.totalFiles} file${testing.totalFiles === 1 ? '' : 's'}`,
+              emptyLabel: 'No test files discovered yet.',
+            })}
+            <div class="mini-grid">
+              ${renderMetricPill('Coverage', testing.coveragePercent || 'Not generated', {
+                tone: coveragePercentValue === null ? 'warn' : coveragePercentValue >= 80 ? 'good' : coveragePercentValue >= 50 ? 'accent' : 'warn',
+                meterKey: 'testing-coverage',
+                ...(coveragePercentValue === null ? {} : { meter: coveragePercentValue }),
+                action: { command: 'atlasmind.openSettingsTesting', hint: 'Testing settings' },
+              })}
+              ${renderMetricPill('Suites', String(testing.totalSuites), { tone: 'accent' })}
+              ${renderMetricPill('Avg cases / file', String(testing.averageCasesPerFile), { tone: 'accent' })}
+            </div>
+          </div>
+        </article>
 
         <div class="panel-grid">
           <article class="panel-card">
@@ -1656,8 +1982,8 @@
             </div>
             <div class="stack-list" style="margin-top: 14px;">
               ${groupedTests.length > 0 ? groupedTests.map(group => `
-                <div class="recent-item">
-                  <div class="row-head">
+                <div class="test-group">
+                  <div class="row-head test-group-head">
                     <strong>${escapeHtml(group.label)}</strong>
                     <span class="tag">${escapeHtml(String(group.items.length))}</span>
                   </div>
@@ -1877,7 +2203,7 @@
     const ssot = snapshot.ssot;
     const recentFileTarget = ssot.recentFiles[0] ? ssot.recentFiles[0].path : `${ssot.path}/project_soul.md`;
     return `
-      <section class="page-section ${state.activePage === 'ssot' ? 'active' : ''}">
+      ${pageSectionOpen('ssot')}
         ${renderPageIntro({
           kicker: 'Single source of truth',
           title: 'Project memory health',
@@ -1908,10 +2234,23 @@
           <article class="panel-card">
             <p class="section-kicker">Coverage</p>
             <h3>Directory footprint</h3>
+            ${renderDistributionBar('ssot-entries', [
+              { label: 'Clean', value: Math.max(0, ssot.totalEntries - ssot.warnedEntries - ssot.blockedEntries), tone: 'good' },
+              { label: 'Warned', value: ssot.warnedEntries, tone: 'warn' },
+              { label: 'Blocked', value: ssot.blockedEntries, tone: 'critical' },
+            ], {
+              title: 'Entry health',
+              caption: `${ssot.totalEntries} indexed`,
+              emptyLabel: 'No indexed entries yet.',
+            })}
             <div class="coverage-list">
               ${snapshot.ssot.coverage.map(entry => renderCoverageRow(entry, snapshot.ssot.totalFilesOnDisk)).join('')}
             </div>
           </article>
+        </div>
+        ${renderChartRange('Memory write history')}
+        <div class="chart-grid">
+          ${renderChartCard('memory', 'SSOT update cadence', 'Indexed memory writes per day. A flat line here is the leading indicator that documentation is drifting behind the code.', snapshot.charts.memory, 'ssot')}
         </div>
         <article class="panel-card">
           <p class="section-kicker">Project-to-SSOT delta</p>
@@ -1945,8 +2284,20 @@
 
   function renderRoadmap(snapshot) {
     const roadmap = snapshot.roadmap || { items: [], nextSuggestedWork: [], completedCount: 0, outstandingCount: 0, filePath: 'project_memory/roadmap/improvement-plan.md' };
+    const roadmapDone = roadmap.items.length > 0
+      ? Math.round((roadmap.completedCount / roadmap.items.length) * 100)
+      : null;
+    // What KIND of work is queued, not just how much. `focus` is already read
+    // for per-item tag colouring, so the classification is free.
+    const FOCUS_TONES = { security: 'critical', architecture: 'accent', delivery: 'warn', feature: 'good', documentation: 'muted' };
+    const outstanding = roadmap.items.filter(item => !item.completed);
+    const focusMix = Object.keys(FOCUS_TONES).map(focus => ({
+      label: focus.charAt(0).toUpperCase() + focus.slice(1),
+      value: outstanding.filter(item => item.focus === focus).length,
+      tone: FOCUS_TONES[focus],
+    }));
     return `
-      <section class="page-section ${state.activePage === 'roadmap' ? 'active' : ''}">
+      ${pageSectionOpen('roadmap')}
         ${renderMvpSection(roadmap)}
         <div class="panel-grid">
           <article class="panel-card">
@@ -1955,8 +2306,17 @@
             <div class="mini-grid">
               ${renderMetricPill('Total items', String(roadmap.items.length))}
               ${renderMetricPill('Outstanding', String(roadmap.outstandingCount))}
-              ${renderMetricPill('Completed', String(roadmap.completedCount))}
+              ${renderMetricPill('Completed', `${roadmap.completedCount}${roadmapDone === null ? '' : ` · ${roadmapDone}%`}`, {
+                tone: roadmapDone !== null && roadmapDone >= 50 ? 'good' : 'accent',
+                meterKey: 'roadmap-complete',
+                ...(roadmapDone === null ? {} : { meter: roadmapDone }),
+              })}
             </div>
+            ${renderDistributionBar('roadmap-focus', focusMix, {
+              title: 'Backlog focus mix',
+              caption: `${roadmap.outstandingCount} outstanding`,
+              emptyLabel: 'Nothing outstanding in the backlog.',
+            })}
             <div class="stat-detail">Reorder items to influence Atlas’s default next-work weighting. Security, architecture, and delivery risk are still factored in before execution.</div>
             <div class="tag-row">
               <button type="button" class="action-link" data-action="roadmap-add" data-payload="new">Add item</button>
@@ -2041,7 +2401,7 @@
               ${renderMetricPill('To MVP', `${mvp.progressPercent}%`)}
             </div>
             <div class="mvp-progress" role="progressbar" aria-valuenow="${mvp.progressPercent}" aria-valuemin="0" aria-valuemax="100" aria-label="Progress to MVP">
-              <div class="mvp-progress-fill" style="width:${Math.max(0, Math.min(100, mvp.progressPercent))}%"></div>
+              <div class="mvp-progress-fill" data-anim-key="mvp-progress" data-anim-to="${Math.max(0, Math.min(100, mvp.progressPercent))}%" style="width:0%"></div>
             </div>
             ${renderMvpTrack(route)}
             ${!mvp.hasTaggedItems ? '<div class="list-meta">These are suggested foundations. Use “Mark MVP” on a backlog item below to define your own MVP path.</div>' : ''}
@@ -2293,8 +2653,7 @@
   }
 
   function renderRisk(snapshot) {
-    const active = state.activePage === 'risk';
-    const wrap = (inner) => '<section class="page-section ' + (active ? 'active' : '') + '">' + inner + '</section>';
+    const wrap = (inner) => pageSectionOpen('risk') + inner + '</section>';
     const risk = snapshot.risk;
     if (!risk) { return wrap('<div class="dashboard-empty">Risk data unavailable.</div>'); }
 
@@ -2304,13 +2663,23 @@
       const when = never
         ? 'Never run'
         : (domain.daysSinceRun === 0 ? 'Today' : domain.daysSinceRun + ' day(s) ago');
+      // Assurance decays toward the staleness cliff instead of flipping at it,
+      // so "our legal review is going stale" is visible before day 90.
+      const assurance = never
+        ? 0
+        : Math.max(0, 100 - Math.min(100, ((domain.daysSinceRun || 0) / RISK_STALE_DAYS) * 100));
       return `
         <article class="panel-card">
           <div class="row-head">
             <strong>${escapeHtml(domain.label)}</strong>
             <span class="risk-tag risk-tag--${escapeAttr(domain.domain)}">${escapeHtml(domain.openCount + ' open')}</span>
           </div>
-          ${renderMetricPill('Last reviewed', when, { tone: tone })}
+          ${renderMetricPill('Last reviewed', when, {
+            tone: tone,
+            meter: assurance,
+            meterKey: `risk-assurance:${domain.domain}`,
+          })}
+          <div class="list-meta">${escapeHtml(never ? 'No assurance recorded yet.' : `${Math.round(assurance)}% of the ${RISK_STALE_DAYS}-day assurance window remaining.`)}</div>
           <button type="button" class="action-link primary" data-action="risk-run" data-payload="${escapeAttr(domain.domain)}"${state.riskBusy ? ' disabled' : ''} title="Run the ${escapeAttr(domain.label)} Oversight advisor over this workspace">
             ${state.riskBusy ? 'Running…' : 'Run ' + escapeHtml(domain.label) + ' review'}
           </button>
@@ -2393,6 +2762,7 @@
 
       <section class="panel-grid">${domainCards}</section>
 
+      ${renderChartRange('Risk over time')}
       <section class="panel-grid">
         ${renderRiskMatrix(risk.matrix)}
         ${renderChartCard('riskRuns', 'Assessment cadence', 'Oversight runs recorded per day.', risk.trend || [])}
@@ -2439,7 +2809,7 @@
     const emptyState = !docs.configured && filing.length === 0 && autoUpdate.length === 0 && !editing;
 
     return `
-      <section class="page-section ${state.activePage === 'documents' ? 'active' : ''}">
+      ${pageSectionOpen('documents')}
         ${renderPageIntro({
           kicker: 'Documents',
           title: 'Document filing system & auto-maintenance',
@@ -2485,6 +2855,16 @@
                 <button type="button" class="action-link" data-action="documents-add-auto">+ Track document</button>
               </div>
               <div class="stat-detail">AtlasMind flags these when they drift from what they should track and offers an assisted update. It never edits them on a timer.</div>
+              ${renderDistributionBar('documents-freshness', [
+                { label: 'Fresh', value: autoUpdate.filter(entry => entry.status === 'fresh').length, tone: 'good' },
+                { label: 'Review due', value: autoUpdate.filter(entry => entry.status === 'review-due').length, tone: 'warn' },
+                { label: 'Missing', value: autoUpdate.filter(entry => entry.status === 'missing').length, tone: 'critical' },
+                { label: 'Unknown', value: autoUpdate.filter(entry => entry.status === 'unknown').length, tone: 'muted' },
+              ], {
+                title: 'Documentation freshness',
+                caption: `${autoUpdate.length} tracked`,
+                emptyLabel: '',
+              })}
               <div class="stack-list">
                 ${editing && editing.kind === 'auto' && editing.id === 'new' ? renderDocAutoEditor(null) : ''}
                 ${autoUpdate.length > 0
@@ -2721,7 +3101,7 @@
       present ? { file: filePath, hint: `Open ${label}` } : { prompt: createPrompt, hint: 'Create with Atlas' },
     );
     return `
-      <section class="page-section ${state.activePage === 'security' ? 'active' : ''}">
+      ${pageSectionOpen('security')}
         ${renderPageIntro({
           kicker: 'Security posture',
           title: 'Guardrails, governance, and review controls',
@@ -2752,6 +3132,13 @@
           <article class="panel-card">
             <p class="section-kicker">Repository controls</p>
             <h3>Governance assets</h3>
+            <div class="mini-grid" style="margin-bottom: 4px;">
+              ${renderMetricPill('Governance completeness', `${assetsPresent}/4`, {
+                tone: assetsPresent === 4 ? 'good' : assetsPresent >= 2 ? 'warn' : 'critical',
+                meterKey: 'security-governance',
+                meter: (assetsPresent / 4) * 100,
+              })}
+            </div>
             <div class="signal-grid">
               ${fileSignal('SECURITY.md', sec.securityPolicyPresent, 'Security policy present — open to review.', 'No repository security policy. Atlas can draft one.', 'SECURITY.md', 'Create a SECURITY.md security policy for this repository that documents supported versions and how to report a vulnerability. Make the smallest useful first version and summarize what to refine next.')}
               ${fileSignal('CODEOWNERS', sec.codeownersPresent, 'Ownership rules configured.', 'No CODEOWNERS file. Atlas can scaffold one.', '.github/CODEOWNERS', 'Create a .github/CODEOWNERS file mapping the main areas of this repository to sensible owners based on the project structure, then summarize which globs may need adjusting.')}
@@ -2828,6 +3215,10 @@
             </label>
             <span class="privacy-tree-count">${provider.trustedCount}/${provider.models.length} trusted</span>
           </div>
+          ${provider.models.length > 0 ? `
+            <div class="privacy-tree-meter" role="img" aria-label="${escapeAttr(`${provider.trustedCount} of ${provider.models.length} ${provider.name} models cleared for confidential context`)}">
+              <span data-anim-key="privacy-trust:${escapeAttr(provider.id)}" data-anim-to="${(provider.trustedCount / provider.models.length) * 100}%" style="width:0%"></span>
+            </div>` : ''}
           ${expanded ? `
             <div class="privacy-tree-models">
               ${provider.models.map(model => `
@@ -2855,6 +3246,7 @@
         ${renderMetricPill('Redacted (un-trusted)', String(activity.redactedCount))}
         ${renderMetricPill('Distinct detectors', String(activity.bySource.length))}
       </div>
+      ${renderChartRange('Catch history')}
       ${renderChartCard('privacy-catches', 'Catches over time', 'Daily count of rule/standard matches in task context.', activity.byDay)}
       <div class="privacy-source-bars">
         ${activity.bySource.map(source => {
@@ -2865,7 +3257,7 @@
                 <strong>${escapeHtml(source.label)}</strong>
                 <span class="list-meta">${source.count} · ${escapeHtml(source.sensitivity)}</span>
               </div>
-              <div class="coverage-bar"><span style="width: ${width}%"></span></div>
+              <div class="coverage-bar"><span data-anim-key="privacy-source:${escapeAttr(source.label)}" data-anim-to="${width}%" style="width:0%"></span></div>
             </div>
           `;
         }).join('')}
@@ -2908,7 +3300,7 @@
     const testResult = state.privacyTestResult;
     const sensitivityOptions = ['confidential', 'proprietary', 'secret'];
     return `
-      <section class="page-section ${state.activePage === 'privacy' ? 'active' : ''}">
+      ${pageSectionOpen('privacy')}
         ${renderPageIntro({
           kicker: 'Data privacy',
           title: 'Keep confidential data on trusted models',
@@ -3165,8 +3557,24 @@
 
   function renderDeliveryHistory(history) {
     if (!history || history.length === 0) { return ''; }
+
+    // "Are our releases going green, and how often do we ship?" was previously
+    // answerable only by reading eight text rows. Oldest on the left so the
+    // strip reads left-to-right as time.
+    const strip = [...history].reverse();
+    const succeeded = strip.filter(h => h.succeeded).length;
+    const successRate = Math.round((succeeded / strip.length) * 100);
+
     return `
-      <p class="section-kicker" style="margin-top:6px">Recent promotions</p>
+      <div class="promotion-section-head">
+        <p class="section-kicker" style="margin-top:6px">Recent promotions</p>
+        <span class="release-rate ${successRate === 100 ? 'good' : successRate >= 75 ? 'warn' : 'bad'}">${escapeHtml(String(successRate))}% green · ${escapeHtml(String(strip.length))} recorded</span>
+      </div>
+      <div class="release-strip" role="img" aria-label="${escapeAttr(`${succeeded} of ${strip.length} recent promotions succeeded`)}">
+        ${strip.map(h => `
+          <span class="release-tick ${h.succeeded ? 'ok' : 'fail'}${h.kind === 'rollback' ? ' rollback' : ''}"
+            title="${escapeAttr(`${h.kind === 'rollback' ? 'Rollback of ' : ''}${h.toName || ''}${h.version ? ` v${h.version}` : ''} — ${h.succeeded ? 'succeeded' : 'failed'}, ${relativeLabel(h.ranAt)}`)}"></span>`).join('')}
+      </div>
       <div class="stack-list">
         ${history.slice(0, 8).map(h => `
           <div class="history-row ${h.succeeded ? 'good' : 'bad'}">
@@ -3533,7 +3941,7 @@
 
   function renderDelivery(snapshot) {
     return `
-      <section class="page-section ${state.activePage === 'delivery' ? 'active' : ''}">
+      ${pageSectionOpen('delivery')}
         ${renderStagePipeline(snapshot)}
         <div class="delivery-grid">
           <article class="panel-card">
@@ -3541,7 +3949,13 @@
             <h3>Package shape</h3>
             <div class="mini-grid">
               ${renderMetricPill('Version', snapshot.delivery.packageVersion)}
-              ${renderMetricPill('Dependencies', String(snapshot.delivery.dependencyCount))}
+              ${renderMetricPill('Dependencies', String(snapshot.delivery.dependencyCount), {
+                tone: 'accent',
+                meterKey: 'delivery-deps',
+                meter: (snapshot.delivery.dependencyCount + snapshot.delivery.devDependencyCount) > 0
+                  ? (snapshot.delivery.dependencyCount / (snapshot.delivery.dependencyCount + snapshot.delivery.devDependencyCount)) * 100
+                  : 0,
+              })}
               ${renderMetricPill('Dev dependencies', String(snapshot.delivery.devDependencyCount))}
               ${renderMetricPill('Scripts', String(snapshot.delivery.scriptCount))}
             </div>
@@ -3596,6 +4010,28 @@
                 <h3>Artifact inventory</h3>
                 <span class="artifact-attention-badge ${badgeClass}">${escapeHtml(badgeLabel)}</span>
               </div>
+              ${renderDistributionBar('delivery-artifacts', (function() {
+                // Group by lifecycle phase so "N missing" becomes "the whole
+                // test lifecycle is missing", which is a different conversation.
+                const phases = [];
+                artifacts.forEach(a => {
+                  const phase = a.lifecycle || 'other';
+                  if (phases.indexOf(phase) === -1) { phases.push(phase); }
+                });
+                return phases.map(phase => {
+                  const inPhase = artifacts.filter(a => (a.lifecycle || 'other') === phase);
+                  const missing = inPhase.filter(a => a.needsAttention).length;
+                  return {
+                    label: `${phase.charAt(0).toUpperCase()}${phase.slice(1)}${missing > 0 ? ` (${missing} missing)` : ''}`,
+                    value: inPhase.length,
+                    tone: missing === 0 ? 'good' : missing === inPhase.length ? 'critical' : 'warn',
+                  };
+                });
+              })(), {
+                title: 'Coverage by lifecycle phase',
+                caption: `${artifacts.length} tracked`,
+                emptyLabel: '',
+              })}
               <div class="artifact-list">
                 ${artifacts.length > 0 ? artifacts.map(a => renderArtifactRow(a)).join('') : '<div class="dashboard-empty">No artifact data available.</div>'}
               </div>
@@ -3800,7 +4236,7 @@
       const opts = contactOptions.map(o => '<option value="' + escapeAttr(o.value) + '"' + (o.value === selected ? ' selected' : '') + '>' + escapeHtml(o.label) + '</option>').join('');
       return `
         <div class="history-row">
-          <div><button type="button" class="action-link" data-action="openRun" data-payload="${escapeAttr(run.id)}">${escapeHtml(run.title)}</button> <span class="tag">${escapeHtml(run.status)}</span></div>
+          <div><button type="button" class="action-link" data-action="run" data-payload="${escapeAttr(run.id)}">${escapeHtml(run.title)}</button> <span class="tag">${escapeHtml(run.status)}</span></div>
           <div class="list-meta">${escapeHtml(run.relative)} · Owner:
             <select data-action="director-assign-run" data-run="${escapeAttr(run.id)}">${opts}</select>
           </div>
@@ -3853,10 +4289,83 @@
       </article>`;
   }
 
+  // The stakeholder influence/interest grid — the standard project-management
+  // view of who must be managed closely versus merely kept informed.
+  //
+  // It reuses the Risk page's matrix chrome (.risk-matrix / .risk-cell) rather
+  // than inventing a second grid component. The data model was designed for
+  // this: src/types.ts calls DirectorLevel "the scale used for the stakeholder
+  // influence/interest grid", but it was only ever rendered as a text tag on
+  // each contact card.
+  const DIRECTOR_LEVELS = ['low', 'medium', 'high'];
+  const STAKEHOLDER_STRATEGY = {
+    'high:high': 'Manage closely',
+    'high:medium': 'Keep satisfied',
+    'high:low': 'Keep satisfied',
+    'medium:high': 'Keep informed',
+    'medium:medium': 'Monitor',
+    'medium:low': 'Monitor',
+    'low:high': 'Keep informed',
+    'low:medium': 'Monitor',
+    'low:low': 'Monitor',
+  };
+
+  function renderStakeholderGrid(cfg) {
+    const stakeholders = Array.isArray(cfg.stakeholders) ? cfg.stakeholders : [];
+    if (stakeholders.length === 0) {
+      return '';
+    }
+    const nameOf = (contactId) => {
+      const contact = (cfg.contacts || []).find(c => c.id === contactId);
+      return contact ? contact.name : 'Unnamed';
+    };
+    // Bucket by `interest:influence`; anything outside the known scale is
+    // counted as 'low' rather than silently dropped.
+    const level = (value) => (DIRECTOR_LEVELS.indexOf(value) === -1 ? 'low' : value);
+    const buckets = {};
+    stakeholders.forEach(stakeholder => {
+      const key = `${level(stakeholder.interest)}:${level(stakeholder.influence)}`;
+      (buckets[key] = buckets[key] || []).push(nameOf(stakeholder.contactId));
+    });
+
+    const rows = [...DIRECTOR_LEVELS].reverse().map(influence => {
+      const cells = DIRECTOR_LEVELS.map(interest => {
+        const key = `${interest}:${influence}`;
+        const names = buckets[key] || [];
+        const weight = (DIRECTOR_LEVELS.indexOf(interest) + 1) * (DIRECTOR_LEVELS.indexOf(influence) + 1);
+        const band = weight >= 6 ? 'severe' : weight >= 4 ? 'high' : weight >= 2 ? 'moderate' : 'low';
+        const strategy = STAKEHOLDER_STRATEGY[`${influence}:${interest}`] || 'Monitor';
+        const label = names.length === 0
+          ? `No stakeholders with ${influence} influence and ${interest} interest`
+          : `${strategy}: ${names.join(', ')} — ${influence} influence, ${interest} interest`;
+        if (names.length === 0) {
+          return `<div class="risk-cell risk-cell--${band} is-empty" role="gridcell" aria-label="${escapeAttr(label)}"><span class="risk-cell-count">·</span></div>`;
+        }
+        return `<div class="risk-cell risk-cell--${band}" role="gridcell" title="${escapeAttr(label)}" aria-label="${escapeAttr(label)}"><span class="risk-cell-count">${names.length}</span></div>`;
+      }).join('');
+      return `<div class="risk-matrix-row"><span class="risk-axis-label">${escapeHtml(influence)}</span>${cells}</div>`;
+    }).join('');
+
+    return `
+      <article class="panel-card">
+        <p class="section-kicker">Stakeholders</p>
+        <h3>Influence / interest grid</h3>
+        <p class="section-copy">Where each stakeholder sits determines how much of your attention they need. Top-right is manage-closely; bottom-left is monitor.</p>
+        <div class="risk-matrix" role="grid" aria-label="Stakeholder grid: influence by interest">
+          ${rows}
+          <div class="risk-matrix-row risk-matrix-foot">
+            <span class="risk-axis-label"></span>
+            ${DIRECTOR_LEVELS.map(l => `<span class="risk-axis-label">${escapeHtml(l)}</span>`).join('')}
+          </div>
+        </div>
+        <div class="risk-axis-caption"><span>Influence ↑</span><span>Interest →</span></div>
+      </article>
+    `;
+  }
+
   function renderDirector(snapshot) {
     const d = snapshot.director;
-    const active = state.activePage === 'director';
-    const wrap = (inner) => '<section class="page-section ' + (active ? 'active' : '') + '">' + inner + '</section>';
+    const wrap = (inner) => pageSectionOpen('director') + inner + '</section>';
     if (!d) { return wrap('<div class="dashboard-empty">Director data unavailable.</div>'); }
     const cfg = d.config || emptyDirectorConfig();
     const solo = d.teamMode === 'solo';
@@ -3901,7 +4410,7 @@
           ${renderMetricPill('Team', String(cfg.teamMembers.length))}
           ${renderMetricPill('Open follow-ups', String(cfg.followUps.filter(f => f.status !== 'done' && f.status !== 'cancelled').length), { tone: d.overdueCount > 0 ? 'warn' : 'good' })}
         </div>
-        <div class="timescale-switch" role="group" aria-label="Team mode" style="margin-top:8px">${modeButtons}</div>
+        <div class="segmented" role="group" aria-label="Team mode" style="margin-top:8px">${modeButtons}</div>
         <div class="tag-row">${seedControl}<button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(d.summaryPath)}">Open project-director.md</button></div>
         <div class="tag-row" style="margin-top:8px">
           <button type="button" class="action-link ${cfg.settings.remindersEnabled ? 'primary' : ''}" data-action="director-reminders-toggle" data-payload="">Reminders: ${cfg.settings.remindersEnabled ? 'On' : 'Off'}</button>
@@ -3909,7 +4418,7 @@
         </div>
         <div class="tag-row" style="margin-top:8px">
           <button type="button" class="action-link ${d.outboundEnabled ? 'primary' : ''}" data-action="director-outbound-toggle" data-payload="">Outbound messaging: ${d.outboundEnabled ? 'On' : 'Off'}</button>
-          <button type="button" class="action-link" data-action="openCommand" data-payload="atlasmind.openMcpServers">Manage MCP servers</button>
+          <button type="button" class="action-link" data-action="command" data-payload="atlasmind.openMcpServers">Manage MCP servers</button>
         </div>
         <div class="tag-row">${(d.connectors && d.connectors.length)
           ? d.connectors.map(c => '<span class="tag">' + escapeHtml((DIRECTOR_INTENT_LABEL[c.intent] || c.intent) + ' via ' + c.serverName) + '</span>').join(' ')
@@ -3935,12 +4444,49 @@
         <div class="director-roster">${contactCards}</div>
       </article>`;
 
+    // People-shape at a glance, before the rosters and lists below.
+    const assignments = Array.isArray(cfg.assignments) ? cfg.assignments : [];
+    const followUps = Array.isArray(cfg.followUps) ? cfg.followUps : [];
+    const urgency = d.followUpUrgency || {};
+    const urgencyCount = (kind) => followUps.filter(f => urgency[f.id] === kind).length;
+
+    const shapeCard = (assignments.length > 0 || followUps.length > 0) ? `
+      <article class="panel-card">
+        <p class="section-kicker">At a glance</p>
+        <h3>Where the people work stands</h3>
+        ${renderDistributionBar('director-assignments', [
+          { label: 'Done', value: assignments.filter(a => a.status === 'done').length, tone: 'good' },
+          { label: 'In progress', value: assignments.filter(a => a.status === 'in-progress').length, tone: 'accent' },
+          { label: 'To do', value: assignments.filter(a => a.status === 'todo').length, tone: 'muted' },
+          { label: 'Blocked', value: assignments.filter(a => a.status === 'blocked').length, tone: 'critical' },
+          { label: 'Cancelled', value: assignments.filter(a => a.status === 'cancelled').length, tone: 'muted' },
+        ], {
+          title: 'Assignments',
+          caption: `${assignments.length} tracked`,
+          emptyLabel: 'No assignments recorded yet.',
+        })}
+        ${renderDistributionBar('director-followups', [
+          { label: 'Overdue', value: urgencyCount('overdue'), tone: 'critical' },
+          { label: 'Due soon', value: urgencyCount('due-soon'), tone: 'warn' },
+          { label: 'Upcoming', value: urgencyCount('upcoming'), tone: 'good' },
+        ], {
+          title: 'Follow-up urgency',
+          caption: `${followUps.length} open`,
+          emptyLabel: 'No open follow-ups.',
+        })}
+      </article>` : '';
+
     return wrap(`
       ${intro}
       ${gdprBanner}
       <div class="delivery-grid">
         ${setupCard}
       </div>
+      ${shapeCard || renderStakeholderGrid(cfg) ? `
+        <div class="panel-grid">
+          ${shapeCard}
+          ${renderStakeholderGrid(cfg)}
+        </div>` : ''}
       <div class="review-grid">
         ${rosterCard}
       </div>
@@ -3972,21 +4518,95 @@
       : `<div class="${cls} static">${inner}</div>`;
   }
 
-  function renderActionCard(action) {
-    const attrs = action.command
-      ? `data-action="command" data-payload="${escapeAttr(action.command)}"`
-      : action.filePath
-        ? `data-action="file" data-payload="${escapeAttr(action.filePath)}"`
-        : action.pageTarget
-          ? `data-action="page" data-payload="${escapeAttr(action.pageTarget)}"`
-          : '';
-    const inner = `
-        <p class="card-kicker">${escapeHtml(action.pageTarget || 'action')}</p>
-        <strong>${escapeHtml(action.label)}</strong>
-        <div class="stat-detail">${escapeHtml(action.description)}</div>`;
-    return attrs
-      ? `<button type="button" class="action-card is-actionable" ${attrs}>${inner}</button>`
-      : `<div class="action-card static">${inner}</div>`;
+  // Friendly names for the commands a recommendation can dispatch, so a card can
+  // say where it actually goes. Without this the only honest wording is the
+  // opaque command id.
+  const COMMAND_DESTINATIONS = {
+    'atlasmind.openChatView': 'Chat',
+    'atlasmind.openChatPanel': 'Chat',
+    'atlasmind.openProjectIdeation': 'Ideation',
+    'atlasmind.openProjectRunCenter': 'Run Center',
+    'atlasmind.openModelProviders': 'Model Providers',
+    'atlasmind.openCostDashboard': 'Cost Dashboard',
+    'atlasmind.openAgentPanel': 'Agents',
+    'atlasmind.openMcpServers': 'MCP Servers',
+    'atlasmind.openSettingsSafety': 'Safety Settings',
+    'atlasmind.openSettingsProject': 'Project Settings',
+    'atlasmind.openSettingsTesting': 'Testing Settings',
+    'atlasmind.openToolWebhooks': 'Tool Webhooks',
+    'atlasmind.openVoicePanel': 'Voice',
+    'atlasmind.openVisionPanel': 'Vision',
+    'atlasmind.updateProjectMemory': 'SSOT sync',
+    'atlasmind.toggleAutopilot': 'Autopilot',
+    'workbench.view.scm': 'Source Control',
+  };
+
+  const PAGE_LABELS = NAV_PAGES.reduce((map, entry) => {
+    map[entry[0]] = entry[1];
+    return map;
+  }, {});
+
+  // Resolve a recommendation to its action AND to an honest description of where
+  // clicking takes you. The old quick-action cards labelled themselves from an
+  // inert `pageTarget` field, so "Open Chat View" announced itself as "runtime"
+  // while opening a different panel entirely.
+  function resolveRecommendationAction(item) {
+    if (item.actionPrompt) {
+      return { action: 'prompt', payload: item.actionPrompt, destination: 'Ask Atlas' };
+    }
+    if (item.command) {
+      const name = COMMAND_DESTINATIONS[item.command];
+      return { action: 'command', payload: item.command, destination: name ? `Opens ${name}` : 'Opens panel' };
+    }
+    if (item.filePath) {
+      const base = String(item.filePath).split('/').pop() || item.filePath;
+      return { action: 'file', payload: item.filePath, destination: `Opens ${base}` };
+    }
+    if (item.pageTarget) {
+      const label = PAGE_LABELS[item.pageTarget] || item.pageTarget;
+      return { action: 'page', payload: item.pageTarget, destination: `Opens ${label}` };
+    }
+    return null;
+  }
+
+  // The short-horizon slice of the score recommendations, shown at the foot of
+  // Overview. Replaces a grid of twelve shortcut cards that all duplicated a
+  // destination already on the page.
+  function renderOverviewNextActions(snapshot) {
+    const all = (snapshot.score && snapshot.score.recommendations) || [];
+    // Prefer the quick wins; fall back to longer horizons so the section is not
+    // empty just because the near-term work is already done.
+    const ordered = ['short', 'medium', 'long']
+      .flatMap(horizon => all.filter(item => item.horizon === horizon));
+    const top = ordered.slice(0, 3);
+
+    if (top.length === 0) {
+      return `
+        <article class="panel-card next-actions-empty">
+          <p class="section-kicker">Recommended next</p>
+          <h3>Nothing outstanding</h3>
+          <div class="stat-detail">Every tracked operational signal is currently in good standing. The Score page shows the full breakdown behind that.</div>
+          <div class="tag-row">
+            <button type="button" class="action-link" data-action="page" data-payload="score">See the score breakdown</button>
+          </div>
+        </article>
+      `;
+    }
+
+    return `
+      <section class="next-actions">
+        <div class="next-actions-head">
+          <div>
+            <p class="section-kicker">Recommended next</p>
+            <h3>What would move the score most</h3>
+          </div>
+          <button type="button" class="action-link" data-action="page" data-payload="score">See all ${escapeHtml(String(all.length))} recommendations ›</button>
+        </div>
+        <div class="action-grid">
+          ${top.map(item => renderRecommendationItem(item)).join('')}
+        </div>
+      </section>
+    `;
   }
 
   function renderScoreComponent(component) {
@@ -3999,7 +4619,7 @@
           <strong>${escapeHtml(component.label)}</strong>
           <span class="tag ${component.tone === 'good' ? 'tag-good' : component.tone === 'warn' ? 'tag-warn' : component.tone === 'critical' ? 'tag-critical' : ''}">${escapeHtml(`${component.score}/${component.maxScore}`)}</span>
         </div>
-        <div class="coverage-bar score-component-bar"><span style="width: ${width}%"></span></div>
+        <div class="coverage-bar score-component-bar"><span data-anim-key="score-component:${escapeAttr(component.label)}" data-anim-to="${width}%" style="width:0%"></span></div>
         <div class="stat-detail">${escapeHtml(component.detail)}</div>`;
     return attrs
       ? `<button type="button" class="score-component-row is-actionable" ${attrs}>${inner}</button>`
@@ -4019,52 +4639,142 @@
   }
 
   function renderRecommendationItem(item) {
-    const attrs = item.actionPrompt
-      ? `data-action="prompt" data-payload="${escapeAttr(item.actionPrompt)}"`
-      : item.command
-      ? `data-action="command" data-payload="${escapeAttr(item.command)}"`
-      : item.filePath
-        ? `data-action="file" data-payload="${escapeAttr(item.filePath)}"`
-        : item.pageTarget
-          ? `data-action="page" data-payload="${escapeAttr(item.pageTarget)}"`
-          : '';
+    const resolved = resolveRecommendationAction(item);
     const inner = `
         <p class="card-kicker">${escapeHtml(item.impactLabel)}</p>
         <strong>${escapeHtml(item.title)}</strong>
-        <div class="stat-detail">${escapeHtml(item.detail)}</div>`;
-    return attrs
-      ? `<button type="button" class="action-card score-recommendation-item is-actionable" ${attrs}>${inner}</button>`
+        <div class="stat-detail">${escapeHtml(item.detail)}</div>
+        ${resolved ? `<span class="card-destination">${escapeHtml(resolved.destination)} ›</span>` : ''}`;
+    return resolved
+      ? `<button type="button" class="action-card score-recommendation-item is-actionable" data-action="${resolved.action}" data-payload="${escapeAttr(resolved.payload)}" title="${escapeAttr(resolved.destination)}">${inner}</button>`
       : `<div class="action-card score-recommendation-item static">${inner}</div>`;
   }
 
-  function renderChartCard(id, title, description, series) {
+  // `scope` distinguishes two cards that render the same series on different
+  // pages (commits on Overview and Repo, memory on Overview and SSOT). They
+  // deliberately share `id` so the bar-detail readout stays in sync, but they
+  // must not share an animation memory slot — otherwise whichever page is shown
+  // first records the value and the other never animates when it is opened.
+  // The 7/30/90D range picker.
+  //
+  // It used to sit in the sticky toolbar beside the tabs, sharing their pill
+  // shape and their accent "active" colour — so when the nav wrapped it read as
+  // another row of tabs rather than as a filter. It now lives directly above
+  // the charts it controls, and uses the squared, joined `.segmented` treatment
+  // so it belongs to a different visual family from the nav's separate pills.
+  function renderChartRange(caption) {
+    return `
+      <div class="chart-range-row">
+        <p class="section-kicker">${escapeHtml(caption)}</p>
+        <div class="segmented" role="group" aria-label="Chart range">
+          ${[7, 30, 90].map(days => `<button type="button" data-action="timescale" data-payload="${days}" class="${state.timescale === days ? 'active' : ''}" aria-pressed="${state.timescale === days ? 'true' : 'false'}">${days}D</button>`).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  function renderChartCard(id, title, description, series, scope) {
     const filtered = series.slice(-state.timescale);
     const maxValue = Math.max(1, ...filtered.map(point => point.value));
     const activeDetail = state.activeDetails[id] || (filtered.length > 0 ? `${filtered[filtered.length - 1].label}: ${filtered[filtered.length - 1].value}` : 'No activity recorded.');
+
+    // Headline the period against the one before it. A bare bar chart shows
+    // shape but not direction, which is the first thing a manager asks.
+    const total = filtered.reduce((sum, point) => sum + point.value, 0);
+    const previousWindow = series.slice(-state.timescale * 2, -state.timescale);
+    const previousTotal = previousWindow.reduce((sum, point) => sum + point.value, 0);
+    const hasBaseline = previousWindow.length > 0;
+    const delta = total - previousTotal;
+    const deltaPercent = previousTotal > 0 ? Math.round((delta / previousTotal) * 100) : null;
+    const trendTone = !hasBaseline || delta === 0 ? 'flat' : delta > 0 ? 'up' : 'down';
+    const trendGlyph = trendTone === 'up' ? '▲' : trendTone === 'down' ? '▼' : '■';
+    const trendLabel = !hasBaseline
+      ? 'No prior period to compare'
+      : delta === 0
+        ? `Level vs previous ${state.timescale} days`
+        : `${delta > 0 ? '+' : ''}${delta}${deltaPercent === null ? '' : ` (${delta > 0 ? '+' : ''}${deltaPercent}%)`} vs previous ${state.timescale} days`;
+    const mean = filtered.length > 0 ? total / filtered.length : 0;
+    const meanPercent = Math.max(0, Math.min(100, Math.round((mean / maxValue) * 100)));
+    const peakValue = filtered.length > 0 ? maxValue : 0;
+
+    // Fingerprint the rendered series so the bars only grow when the data (or
+    // the timescale) actually changed — they used to replay on every keystroke
+    // anywhere in the dashboard.
+    const fingerprint = `${state.timescale}:${filtered.length}:${total}:${peakValue}`;
+
     return `
       <article class="chart-card">
-        <div>
-          <p class="chart-kicker">Timeline</p>
-          <h3>${escapeHtml(title)}</h3>
-          <div class="stat-detail">${escapeHtml(description)}</div>
+        <div class="chart-head">
+          <div>
+            <p class="chart-kicker">Timeline · last ${escapeHtml(String(state.timescale))} days</p>
+            <h3>${escapeHtml(title)}</h3>
+            <div class="stat-detail">${escapeHtml(description)}</div>
+          </div>
+          <div class="chart-headline">
+            <span class="chart-total">${escapeHtml(formatNumber(total))}</span>
+            <span class="chart-trend trend-${trendTone}" title="${escapeAttr(trendLabel)}">
+              <span aria-hidden="true">${trendGlyph}</span>
+              <span>${escapeHtml(trendLabel)}</span>
+            </span>
+          </div>
         </div>
         <div class="chart-shell">
           ${filtered.length > 0 ? `
-            <div class="chart-bars" style="--bar-count: ${filtered.length}">
-              ${filtered.map(point => {
-                const height = Math.max(4, Math.round((point.value / maxValue) * 100));
-                const detailPayload = `${id}|${point.label}|${point.value}`;
-                return `
-                  <button type="button" class="chart-bar ${activeDetail.startsWith(point.label) ? 'active' : ''}" data-action="detail" data-payload="${escapeAttr(detailPayload)}" aria-label="${escapeAttr(`${title} ${point.label}: ${point.value}`)}">
-                    <span class="chart-bar-column" style="height: ${height}%"></span>
-                  </button>`;
-              }).join('')}
+            <div class="chart-plot">
+              ${mean > 0 ? `<span class="chart-mean" style="bottom:${meanPercent}%" aria-hidden="true"><span class="chart-mean-label">avg ${escapeHtml(mean >= 10 ? String(Math.round(mean)) : mean.toFixed(1))}</span></span>` : ''}
+              <div class="chart-bars" style="--bar-count: ${filtered.length}" data-anim-key="chart:${escapeAttr(scope || id)}:${escapeAttr(id)}" data-anim-prop="class" data-anim-to="${escapeAttr(fingerprint)}">
+                ${filtered.map((point, index) => {
+                  const height = Math.max(4, Math.round((point.value / maxValue) * 100));
+                  const detailPayload = `${id}|${point.label}|${point.value}`;
+                  const isPeak = point.value > 0 && point.value === peakValue;
+                  return `
+                    <button type="button" class="chart-bar ${activeDetail.startsWith(point.label) ? 'active' : ''}${isPeak ? ' is-peak' : ''}" data-action="detail" data-payload="${escapeAttr(detailPayload)}" style="--bar-index: ${index}" aria-label="${escapeAttr(`${title} ${point.label}: ${point.value}`)}">
+                      <span class="chart-bar-column" style="height: ${height}%"></span>
+                    </button>`;
+                }).join('')}
+              </div>
             </div>
             <div class="chart-axis"><span>${escapeHtml(filtered[0].label)}</span><span>${escapeHtml(filtered[Math.floor(filtered.length / 2)]?.label || filtered[0].label)}</span><span>${escapeHtml(filtered[filtered.length - 1].label)}</span></div>
           ` : '<div class="timeline-empty">No activity recorded for this period.</div>'}
         </div>
         <div class="timeline-detail">${escapeHtml(activeDetail)}</div>
       </article>
+    `;
+  }
+
+  // A labelled, tone-segmented proportion bar. The dashboard was full of
+  // "3 verified · 1 blocked · 2 missing" sentences that carried no magnitude;
+  // this renders the same counts as shape. Segments animate their width in.
+  //
+  // segments: [{ label, value, tone: 'good'|'warn'|'critical'|'accent'|'muted' }]
+  function renderDistributionBar(key, segments, opts) {
+    const options = opts || {};
+    const usable = (segments || []).filter(segment => Number(segment.value) > 0);
+    const total = usable.reduce((sum, segment) => sum + Number(segment.value), 0);
+    if (total <= 0) {
+      return options.emptyLabel
+        ? `<div class="dist-empty">${escapeHtml(options.emptyLabel)}</div>`
+        : '';
+    }
+    const bar = usable.map(segment => {
+      const percent = (Number(segment.value) / total) * 100;
+      return `<span class="dist-seg dist-${escapeAttr(segment.tone || 'accent')}"
+        data-anim-key="dist:${escapeAttr(key)}:${escapeAttr(segment.label)}"
+        data-anim-to="${percent}%" style="width:0%"
+        title="${escapeAttr(`${segment.label}: ${segment.value}`)}"></span>`;
+    }).join('');
+    const legend = usable.map(segment => `
+      <span class="dist-legend-item">
+        <span class="dist-swatch dist-${escapeAttr(segment.tone || 'accent')}" aria-hidden="true"></span>
+        <span class="dist-legend-label">${escapeHtml(segment.label)}</span>
+        <strong>${escapeHtml(formatNumber(segment.value))}</strong>
+      </span>`).join('');
+    return `
+      <div class="dist-block">
+        ${options.title ? `<div class="dist-title"><span>${escapeHtml(options.title)}</span>${options.caption ? `<span class="list-meta">${escapeHtml(options.caption)}</span>` : ''}</div>` : ''}
+        <div class="dist-bar" role="img" aria-label="${escapeAttr(usable.map(s => `${s.label}: ${s.value}`).join(', '))}">${bar}</div>
+        <div class="dist-legend">${legend}</div>
+      </div>
     `;
   }
 
@@ -4101,8 +4811,10 @@
     const options = opts || {};
     const toneClass = options.tone ? ` pill-tone-${escapeAttr(options.tone)}` : '';
     const dot = options.tone ? '<span class="pill-dot"></span>' : '';
-    const meter = typeof options.meter === 'number'
-      ? `<span class="metric-meter"><span style="width:${Math.max(0, Math.min(100, options.meter))}%"></span></span>`
+    // The meter width is driven by applyValueAnimations() rather than being
+    // inlined, so it grows into place instead of appearing pre-filled.
+    const meter = typeof options.meter === 'number' && Number.isFinite(options.meter)
+      ? `<span class="metric-meter"><span data-anim-key="${escapeAttr(options.meterKey || `metric:${label}`)}" data-anim-to="${Math.max(0, Math.min(100, options.meter))}%" style="width:0%"></span></span>`
       : '';
     const inner = `<span class="metric-head">${dot}<span class="metric-label">${escapeHtml(label)}</span></span><span class="metric-value">${escapeHtml(value)}</span>${meter}`;
     const resolved = resolveActionAttrs(options.action);
@@ -4238,12 +4950,108 @@
     const radius = 56;
     const circumference = 2 * Math.PI * radius;
     const dashOffset = circumference - (Math.max(0, Math.min(100, score)) / 100) * circumference;
+    const toneClass = score >= 75 ? ' ring-good' : score >= 50 ? ' ring-warn' : ' ring-critical';
     return `
-      <svg class="score-ring" viewBox="0 0 140 140" role="img" aria-label="Operational health score ${score}">
+      <svg class="score-ring${toneClass}" viewBox="0 0 140 140" role="img" aria-label="Operational health score ${escapeAttr(String(score))} out of 100">
         <circle class="score-ring-track" cx="70" cy="70" r="${radius}"></circle>
-        <circle class="score-ring-progress" cx="70" cy="70" r="${radius}" stroke-dasharray="${circumference}" stroke-dashoffset="${dashOffset}"></circle>
+        <circle class="score-ring-progress" cx="70" cy="70" r="${radius}" stroke-dasharray="${circumference}"
+          data-anim-key="score-ring" data-anim-prop="dashoffset" data-anim-from="${circumference}" data-anim-to="${dashOffset}"
+          stroke-dashoffset="${circumference}"></circle>
       </svg>
     `;
+  }
+
+  // ── Re-render-safe value animation ────────────────────────────────────────
+  //
+  // render() replaces #dashboard-root's innerHTML wholesale, so every node is
+  // freshly parsed and has exactly one computed style. A CSS `transition`
+  // between two values can therefore never interpolate: the score ring, the
+  // metric meters and the MVP progress bar all declared transitions that had
+  // never once played. Conversely @keyframes DO restart on every insert, which
+  // is why the Overview chart re-grew 90 bars whenever an unrelated part of the
+  // dashboard changed.
+  //
+  // Both are fixed here. Animatable elements declare a stable `data-anim-key`
+  // and their target `data-anim-to`; we remember the last value painted per key
+  // and, on the next frame, move only the ones whose value actually changed.
+  // Unrelated re-renders repaint at the final value with no motion at all.
+  //
+  // Elements inside a hidden `.page-section` are deliberately not recorded, so
+  // their meters animate the first time the manager opens that tab.
+  const animMemory = new Map();
+  const reducedMotionQuery = typeof window.matchMedia === 'function'
+    ? window.matchMedia('(prefers-reduced-motion: reduce)')
+    : null;
+
+  function prefersReducedMotion() {
+    return !!(reducedMotionQuery && reducedMotionQuery.matches);
+  }
+
+  // An element only animates when its own page is on screen. `.page-section`
+  // uses display:none, so animating a hidden meter would burn the transition
+  // and leave nothing to see when the tab is finally opened.
+  function isOnScreen(el) {
+    const section = el.closest('.page-section');
+    return !section || section.classList.contains('active');
+  }
+
+  function setAnimValue(el, prop, value) {
+    if (prop === 'dashoffset') {
+      el.style.strokeDashoffset = value;
+    } else if (prop === 'class') {
+      // Keyframe-driven groups (chart bars) carry no inline value; the class
+      // alone gates the animation.
+    } else {
+      el.style[prop] = value;
+    }
+  }
+
+  function applyValueAnimations() {
+    if (!root) {
+      return;
+    }
+    const reduced = prefersReducedMotion();
+    const pending = [];
+
+    root.querySelectorAll('[data-anim-key]').forEach(el => {
+      const key = el.getAttribute('data-anim-key');
+      const prop = el.getAttribute('data-anim-prop') || 'width';
+      const to = el.getAttribute('data-anim-to') || '';
+      const from = el.getAttribute('data-anim-from') || '0%';
+
+      if (!isOnScreen(el)) {
+        // Paint the final value so the layout is correct if it is ever
+        // measured, but leave the memory untouched so opening the tab animates.
+        setAnimValue(el, prop, to);
+        return;
+      }
+
+      const previous = animMemory.get(key);
+      animMemory.set(key, to);
+
+      if (reduced || previous === to) {
+        setAnimValue(el, prop, to);
+        return;
+      }
+
+      setAnimValue(el, prop, previous === undefined ? from : previous);
+      pending.push([el, prop, to]);
+    });
+
+    if (pending.length === 0) {
+      return;
+    }
+
+    // Two frames: the first lets the browser commit the "from" value as a real
+    // computed style, the second starts the transition from it.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        pending.forEach(entry => {
+          entry[0].classList.add('is-animating');
+          setAnimValue(entry[0], entry[1], entry[2]);
+        });
+      });
+    });
   }
 
   function relativeLabel(iso) {

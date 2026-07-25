@@ -53,15 +53,32 @@ export function getWebviewHtmlShell(options: WebviewShellOptions): string {
     table { border-collapse: collapse; width: 100%; margin-top: 0.75em; }
     th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--vscode-widget-border, #444); }
     th { font-weight: 600; }
+    /* Structural defaults apply to every button. */
     button {
-      background: var(--vscode-button-background);
-      color: var(--vscode-button-foreground);
       border: none;
       padding: 4px 12px;
       cursor: pointer;
       border-radius: 2px;
+      font-family: inherit;
     }
-    button:hover { background: var(--vscode-button-hoverBackground); }
+    /* The primary *paint* is scoped to genuinely unclassed buttons.
+       It used to apply to all of them, and "button:hover" at specificity
+       (0,1,1) then beat every single-class variant (0,1,0) no matter what
+       order the panel's own CSS came in. That inverted real state: a chat
+       toggle's "on" tint (a translucent color-mix) rendered *fainter* than its
+       "off" state, which was borrowing this solid fill. It also meant a button
+       given a class with no rule of its own silently looked like a primary
+       action — which is how a destructive "Remove" became the loudest control
+       on the Resource Discovery page.
+       ":not([class])" does not out-specify panel variants; it simply stops
+       matching them, so each panel controls its own surface. Unclassed buttons
+       inside a styled container (e.g. ".segmented button") tie on specificity
+       and resolve in the panel's favour, since extraCss is injected after this. */
+    button:not([class]) {
+      background: var(--vscode-button-background);
+      color: var(--vscode-button-foreground);
+    }
+    button:not([class]):hover { background: var(--vscode-button-hoverBackground); }
     .badge {
       display: inline-block;
       padding: 2px 8px;

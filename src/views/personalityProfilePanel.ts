@@ -193,6 +193,57 @@ const PROFILE_SECTIONS: PersonalitySectionDefinition[] = [
     ],
   },
   {
+    id: 'values',
+    label: 'Values',
+    kicker: 'Compass',
+    description: 'Capture the values Atlas should use when several technically valid answers compete.',
+    summary: 'Values, open-source preference, autonomy balance.',
+    questions: [
+      {
+        id: 'priorityValues',
+        label: 'Priority values',
+        help: 'List the values Atlas should optimize for in order.',
+        placeholder: 'Example: transparency, precision, efficiency, kindness, creativity.',
+      },
+      {
+        id: 'openSourcePreference',
+        label: 'Open-source preference',
+        help: 'Whether Atlas should prefer open-source solutions when practical.',
+        kind: 'select',
+        options: [
+          { value: 'auto', label: 'Auto / prefer open where reasonable' },
+          { value: 'prefer-open', label: 'Prefer open-source' },
+          { value: 'neutral', label: 'Neutral' },
+          { value: 'best-tool', label: 'Use the best tool regardless of license' },
+        ],
+      },
+      {
+        id: 'proprietaryFallback',
+        label: 'Proprietary tool fallback',
+        help: 'How reluctant Atlas should be to suggest proprietary tools.',
+        kind: 'select',
+        options: [
+          { value: 'auto', label: 'Auto / only when materially better' },
+          { value: 'avoid', label: 'Avoid unless necessary' },
+          { value: 'neutral', label: 'Neutral' },
+          { value: 'allowed', label: 'Allowed when useful' },
+        ],
+      },
+      {
+        id: 'autonomyVsInitiative',
+        label: 'User autonomy vs agent initiative',
+        help: 'Which side Atlas should favor when both are viable.',
+        kind: 'select',
+        options: [
+          { value: 'auto', label: 'Auto / preserve user autonomy' },
+          { value: 'user-autonomy', label: 'Favor user autonomy' },
+          { value: 'balanced', label: 'Balanced' },
+          { value: 'agent-initiative', label: 'Favor agent initiative' },
+        ],
+      },
+    ],
+  },
+  {
     id: 'tone',
     label: 'Tone & Voice',
     kicker: 'Communication',
@@ -342,6 +393,50 @@ const PROFILE_SECTIONS: PersonalitySectionDefinition[] = [
     ],
   },
   {
+    id: 'memory',
+    label: 'Memory & Continuity',
+    kicker: 'Continuity',
+    description: 'Tell Atlas what it should retain, what it must never persist, and how it should handle session summaries.',
+    summary: 'Retention rules, session summaries, goal continuity.',
+    questions: [
+      {
+        id: 'rememberLongTerm',
+        label: 'What Atlas should remember long-term',
+        help: 'Describe durable preferences, goals, or architectural facts.',
+        placeholder: 'Example: preferred coding style, active roadmap themes, release hygiene expectations.',
+      },
+      {
+        id: 'neverStore',
+        label: 'What Atlas must never store',
+        help: 'Call out secrets or classes of data that stay out of memory.',
+        placeholder: 'Example: API keys, credentials, personal sensitive data, speculative HR or legal notes.',
+      },
+      {
+        id: 'autoSessionSummaries',
+        label: 'Automatic session summaries',
+        help: 'Whether Atlas should summarize sessions automatically.',
+        kind: 'select',
+        options: [
+          { value: 'auto', label: 'Auto / summarize when meaningful' },
+          { value: 'always', label: 'Always summarize' },
+          { value: 'important-only', label: 'Only major sessions' },
+          { value: 'never', label: 'Never' },
+        ],
+      },
+      {
+        id: 'goalModelPersistence',
+        label: 'Running model of goals and projects',
+        help: 'Should Atlas maintain an ongoing view of your goals?',
+        kind: 'select',
+        options: [
+          { value: 'auto', label: 'Auto / yes when useful' },
+          { value: 'maintain', label: 'Maintain a running model' },
+          { value: 'task-local', label: 'Keep goals task-local' },
+        ],
+      },
+    ],
+  },
+  {
     id: 'boundaries',
     label: 'Boundaries',
     kicker: 'Constraints',
@@ -394,205 +489,6 @@ const PROFILE_SECTIONS: PersonalitySectionDefinition[] = [
           { value: 'neutral', label: 'Strictly neutral' },
           { value: 'empathetic', label: 'Light empathetic framing' },
           { value: 'supportive', label: 'Supportive and warm' },
-        ],
-      },
-    ],
-  },
-  {
-    id: 'operations',
-    label: 'Operations',
-    kicker: 'Workflow',
-    description: 'Blend high-level behavior preferences with live AtlasMind settings. This section is where the profile becomes executable.',
-    summary: 'Workflow defaults plus real routed settings and context limits.',
-    questions: [
-      {
-        id: 'guidanceDepth',
-        label: 'Preferred guidance depth',
-        help: 'Minimal steps vs detailed breakdowns.',
-        kind: 'select',
-        options: [
-          { value: 'auto', label: 'Auto / concise with detail when needed' },
-          { value: 'minimal', label: 'Minimal steps' },
-          { value: 'step-by-step', label: 'Detailed step-by-step' },
-        ],
-      },
-      {
-        id: 'defaultActionBias',
-        label: 'Default action bias',
-        help: 'Should Atlas default to doing, explaining, or asking first?',
-        kind: 'select',
-        options: [
-          { value: 'auto', label: 'Auto / act unless the prompt implies discussion' },
-          { value: 'generate-code', label: 'Generate or change code by default' },
-          { value: 'explain-first', label: 'Explain first' },
-          { value: 'ask-first', label: 'Ask before acting' },
-        ],
-      },
-      {
-        id: 'structureMaintenance',
-        label: 'Project-structure maintenance',
-        help: 'Whether Atlas should proactively keep docs and structure aligned.',
-        kind: 'select',
-        options: [
-          { value: 'auto', label: 'Auto / maintain when required by repo rules' },
-          { value: 'proactive', label: 'Proactively maintain structure' },
-          { value: 'explicit-only', label: 'Wait for explicit instructions' },
-        ],
-      },
-      {
-        id: 'goalHorizon',
-        label: 'Goal horizon',
-        help: 'Should Atlas track long-term direction or stay local to the task?',
-        kind: 'select',
-        options: [
-          { value: 'auto', label: 'Auto / track material long-term goals' },
-          { value: 'task-only', label: 'Focus on current task only' },
-          { value: 'project-aware', label: 'Keep project goals in view' },
-        ],
-      },
-      {
-        id: 'costAwareness',
-        label: 'Cost-awareness behavior',
-        help: 'How visible routing cost and model choices should be.',
-        kind: 'select',
-        options: [
-          { value: 'auto', label: 'Auto / surface when relevant' },
-          { value: 'always-surface', label: 'Surface cost awareness automatically' },
-          { value: 'quiet', label: 'Keep cost discussion quiet unless asked' },
-        ],
-      },
-    ],
-  },
-  {
-    id: 'values',
-    label: 'Values',
-    kicker: 'Compass',
-    description: 'Capture the values Atlas should use when several technically valid answers compete.',
-    summary: 'Values, open-source preference, autonomy balance.',
-    questions: [
-      {
-        id: 'priorityValues',
-        label: 'Priority values',
-        help: 'List the values Atlas should optimize for in order.',
-        placeholder: 'Example: transparency, precision, efficiency, kindness, creativity.',
-      },
-      {
-        id: 'openSourcePreference',
-        label: 'Open-source preference',
-        help: 'Whether Atlas should prefer open-source solutions when practical.',
-        kind: 'select',
-        options: [
-          { value: 'auto', label: 'Auto / prefer open where reasonable' },
-          { value: 'prefer-open', label: 'Prefer open-source' },
-          { value: 'neutral', label: 'Neutral' },
-          { value: 'best-tool', label: 'Use the best tool regardless of license' },
-        ],
-      },
-      {
-        id: 'proprietaryFallback',
-        label: 'Proprietary tool fallback',
-        help: 'How reluctant Atlas should be to suggest proprietary tools.',
-        kind: 'select',
-        options: [
-          { value: 'auto', label: 'Auto / only when materially better' },
-          { value: 'avoid', label: 'Avoid unless necessary' },
-          { value: 'neutral', label: 'Neutral' },
-          { value: 'allowed', label: 'Allowed when useful' },
-        ],
-      },
-      {
-        id: 'autonomyVsInitiative',
-        label: 'User autonomy vs agent initiative',
-        help: 'Which side Atlas should favor when both are viable.',
-        kind: 'select',
-        options: [
-          { value: 'auto', label: 'Auto / preserve user autonomy' },
-          { value: 'user-autonomy', label: 'Favor user autonomy' },
-          { value: 'balanced', label: 'Balanced' },
-          { value: 'agent-initiative', label: 'Favor agent initiative' },
-        ],
-      },
-    ],
-  },
-  {
-    id: 'flavor',
-    label: 'Personal Flavor',
-    kicker: 'Optional',
-    description: 'Add personality color without changing the hard behavioral contract.',
-    summary: 'Humour level, lens, signature, references.',
-    questions: [
-      {
-        id: 'humourLevel',
-        label: 'Sense of humour',
-        help: 'How much personality color is welcome.',
-        kind: 'select',
-        options: [
-          { value: 'auto', label: 'Auto / very light' },
-          { value: 'none', label: 'None' },
-          { value: 'light', label: 'Light' },
-          { value: 'playful', label: 'Playful' },
-        ],
-      },
-      {
-        id: 'metaphoricalLens',
-        label: 'Metaphorical lens',
-        help: 'A framing identity such as mentor, strategist, or engineer.',
-        placeholder: 'Example: engineer, navigator, systems strategist.',
-      },
-      {
-        id: 'signaturePhrase',
-        label: 'Signature phrase or quirk',
-        help: 'Optional recurring phrase or stylistic tick.',
-        placeholder: 'Leave blank to keep Atlas neutral.',
-      },
-      {
-        id: 'culturalReferences',
-        label: 'Allowed cultural domains',
-        help: 'Optional references such as games, sci-fi, or philosophy.',
-        placeholder: 'Example: light sci-fi metaphors only; avoid pop culture references.',
-      },
-    ],
-  },
-  {
-    id: 'memory',
-    label: 'Memory & Continuity',
-    kicker: 'Continuity',
-    description: 'Tell Atlas what it should retain, what it must never persist, and how it should handle session summaries.',
-    summary: 'Retention rules, session summaries, goal continuity.',
-    questions: [
-      {
-        id: 'rememberLongTerm',
-        label: 'What Atlas should remember long-term',
-        help: 'Describe durable preferences, goals, or architectural facts.',
-        placeholder: 'Example: preferred coding style, active roadmap themes, release hygiene expectations.',
-      },
-      {
-        id: 'neverStore',
-        label: 'What Atlas must never store',
-        help: 'Call out secrets or classes of data that stay out of memory.',
-        placeholder: 'Example: API keys, credentials, personal sensitive data, speculative HR or legal notes.',
-      },
-      {
-        id: 'autoSessionSummaries',
-        label: 'Automatic session summaries',
-        help: 'Whether Atlas should summarize sessions automatically.',
-        kind: 'select',
-        options: [
-          { value: 'auto', label: 'Auto / summarize when meaningful' },
-          { value: 'always', label: 'Always summarize' },
-          { value: 'important-only', label: 'Only major sessions' },
-          { value: 'never', label: 'Never' },
-        ],
-      },
-      {
-        id: 'goalModelPersistence',
-        label: 'Running model of goals and projects',
-        help: 'Should Atlas maintain an ongoing view of your goals?',
-        kind: 'select',
-        options: [
-          { value: 'auto', label: 'Auto / yes when useful' },
-          { value: 'maintain', label: 'Maintain a running model' },
-          { value: 'task-local', label: 'Keep goals task-local' },
         ],
       },
     ],
@@ -684,6 +580,110 @@ const PROFILE_SECTIONS: PersonalitySectionDefinition[] = [
         label: 'Response when a request violates constraints',
         help: 'How Atlas should refuse or redirect.',
         placeholder: 'Example: briefly explain the constraint, refuse the unsafe part, and offer the closest safe alternative.',
+      },
+    ],
+  },
+  {
+    id: 'operations',
+    label: 'Operations',
+    kicker: 'Workflow',
+    description: 'Blend high-level behavior preferences with live AtlasMind settings. This section is where the profile becomes executable.',
+    summary: 'Workflow defaults plus real routed settings and context limits.',
+    questions: [
+      {
+        id: 'guidanceDepth',
+        label: 'Preferred guidance depth',
+        help: 'Minimal steps vs detailed breakdowns.',
+        kind: 'select',
+        options: [
+          { value: 'auto', label: 'Auto / concise with detail when needed' },
+          { value: 'minimal', label: 'Minimal steps' },
+          { value: 'step-by-step', label: 'Detailed step-by-step' },
+        ],
+      },
+      {
+        id: 'defaultActionBias',
+        label: 'Default action bias',
+        help: 'Should Atlas default to doing, explaining, or asking first?',
+        kind: 'select',
+        options: [
+          { value: 'auto', label: 'Auto / act unless the prompt implies discussion' },
+          { value: 'generate-code', label: 'Generate or change code by default' },
+          { value: 'explain-first', label: 'Explain first' },
+          { value: 'ask-first', label: 'Ask before acting' },
+        ],
+      },
+      {
+        id: 'structureMaintenance',
+        label: 'Project-structure maintenance',
+        help: 'Whether Atlas should proactively keep docs and structure aligned.',
+        kind: 'select',
+        options: [
+          { value: 'auto', label: 'Auto / maintain when required by repo rules' },
+          { value: 'proactive', label: 'Proactively maintain structure' },
+          { value: 'explicit-only', label: 'Wait for explicit instructions' },
+        ],
+      },
+      {
+        id: 'goalHorizon',
+        label: 'Goal horizon',
+        help: 'Should Atlas track long-term direction or stay local to the task?',
+        kind: 'select',
+        options: [
+          { value: 'auto', label: 'Auto / track material long-term goals' },
+          { value: 'task-only', label: 'Focus on current task only' },
+          { value: 'project-aware', label: 'Keep project goals in view' },
+        ],
+      },
+      {
+        id: 'costAwareness',
+        label: 'Cost-awareness behavior',
+        help: 'How visible routing cost and model choices should be.',
+        kind: 'select',
+        options: [
+          { value: 'auto', label: 'Auto / surface when relevant' },
+          { value: 'always-surface', label: 'Surface cost awareness automatically' },
+          { value: 'quiet', label: 'Keep cost discussion quiet unless asked' },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'flavor',
+    label: 'Personal Flavor',
+    kicker: 'Optional',
+    description: 'Add personality color without changing the hard behavioral contract.',
+    summary: 'Humour level, lens, signature, references.',
+    questions: [
+      {
+        id: 'humourLevel',
+        label: 'Sense of humour',
+        help: 'How much personality color is welcome.',
+        kind: 'select',
+        options: [
+          { value: 'auto', label: 'Auto / very light' },
+          { value: 'none', label: 'None' },
+          { value: 'light', label: 'Light' },
+          { value: 'playful', label: 'Playful' },
+        ],
+      },
+      {
+        id: 'metaphoricalLens',
+        label: 'Metaphorical lens',
+        help: 'A framing identity such as mentor, strategist, or engineer.',
+        placeholder: 'Example: engineer, navigator, systems strategist.',
+      },
+      {
+        id: 'signaturePhrase',
+        label: 'Signature phrase or quirk',
+        help: 'Optional recurring phrase or stylistic tick.',
+        placeholder: 'Leave blank to keep Atlas neutral.',
+      },
+      {
+        id: 'culturalReferences',
+        label: 'Allowed cultural domains',
+        help: 'Optional references such as games, sci-fi, or philosophy.',
+        placeholder: 'Example: light sci-fi metaphors only; avoid pop culture references.',
       },
     ],
   },
@@ -1481,25 +1481,31 @@ export class PersonalityProfilePanel {
         renderLiveSettings();
         renderNav();
         renderForm();
-        document.querySelectorAll('[data-command]').forEach(button => {
-          button.addEventListener('click', event => {
-            const target = event.currentTarget;
-            if (!(target instanceof HTMLElement)) { return; }
-            const command = target.dataset.command;
-            if (!command) { return; }
-            vscode.postMessage({ type: 'openCommand', payload: command });
-          }, { once: true });
-        });
-        document.querySelectorAll('[data-open-file]').forEach(button => {
-          button.addEventListener('click', event => {
-            const target = event.currentTarget;
-            if (!(target instanceof HTMLElement)) { return; }
-            const fileTarget = target.dataset.openFile;
-            if (fileTarget !== 'profileMarkdown' && fileTarget !== 'projectSoul') { return; }
-            vscode.postMessage({ type: 'openProfileFile', payload: fileTarget });
-          }, { once: true });
-        });
       }
+
+      // Delegated once, at the document, rather than re-bound per element on
+      // every render. The previous wiring attached with { once: true }, so the
+      // first click consumed the listener: any control whose element was not
+      // subsequently recreated by a re-render was dead for the rest of the
+      // session. Re-binding on each render also stacked duplicate listeners on
+      // elements that *did* persist, making them fire more than once.
+      document.addEventListener('click', event => {
+        const target = event.target instanceof HTMLElement
+          ? event.target.closest('[data-command], [data-open-file]')
+          : null;
+        if (!(target instanceof HTMLElement)) { return; }
+
+        const command = target.dataset.command;
+        if (command) {
+          vscode.postMessage({ type: 'openCommand', payload: command });
+          return;
+        }
+
+        const fileTarget = target.dataset.openFile;
+        if (fileTarget === 'profileMarkdown' || fileTarget === 'projectSoul') {
+          vscode.postMessage({ type: 'openProfileFile', payload: fileTarget });
+        }
+      });
 
       window.addEventListener('message', event => {
         if (event.data?.type === 'saved') {

@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { getWebviewHtmlShell } from './webviewUtils.js';
+import { PANEL_NAV_JS } from './panelNav.js';
 import type { VoiceManager } from '../voice/voiceManager.js';
 
 /**
@@ -277,7 +278,8 @@ export class VoicePanel {
         .action-title { font-weight: 700; }
         .row { display: flex; gap: 10px; margin: 10px 0; align-items: flex-start; }
         .row-wrap { flex-wrap: wrap; }
-        .primary-btn { font-weight: 600; }
+        .primary-btn { font-weight: 600; background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+        .primary-btn:hover:not(:disabled) { background: var(--vscode-button-hoverBackground); }
         textarea {
           flex: 1;
           resize: vertical;
@@ -362,6 +364,8 @@ function buildScript(): string {
 (function () {
   'use strict';
 
+  ${PANEL_NAV_JS}
+
   const vscode = acquireVsCodeApi();
   const navButtons = Array.from(document.querySelectorAll('[data-page-target]'));
   const pages = Array.from(document.querySelectorAll('.panel-page'));
@@ -372,17 +376,12 @@ function buildScript(): string {
   const supportsInputCapture = typeof mediaDevices?.getUserMedia === 'function';
   const supportsAudioOutputSelection = typeof HTMLMediaElement !== 'undefined' && typeof HTMLMediaElement.prototype.setSinkId === 'function';
 
+  // Tab semantics, roving tabindex and arrow-key navigation come from the
+  // shared controller; this panel's markup and styling are unchanged.
+  const panelNav = createPanelNav({ tablist: '.panel-nav' });
+
   function activatePage(pageId) {
-    navButtons.forEach(button => {
-      if (!(button instanceof HTMLButtonElement)) { return; }
-      button.classList.toggle('active', button.dataset.pageTarget === pageId);
-    });
-    pages.forEach(page => {
-      if (!(page instanceof HTMLElement)) { return; }
-      const active = page.id === 'page-' + pageId;
-      page.classList.toggle('active', active);
-      page.hidden = !active;
-    });
+    panelNav.activate(pageId);
   }
 
   function updateSearch(query) {

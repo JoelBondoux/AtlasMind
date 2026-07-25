@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
+import { DASHBOARD_THEME_CSS } from './dashboardTheme.js';
 import { Planner } from '../core/planner.js';
 import { TaskProfiler } from '../core/taskProfiler.js';
 import { MissionRunner } from '../core/missionRunner.js';
@@ -597,7 +598,12 @@ export class MissionControlPanel {
         payload.options.forEach((option) => {
           const button = document.createElement('button');
           button.type = 'button';
+          // The host sends kind: 'primary' for "Approve & continue" and
+          // "Resume", but only 'danger' was ever read — so the affirmative
+          // action rendered identically to every neutral one, in a decision box
+          // whose whole purpose is to make the intended choice obvious.
           if (option.kind === 'danger') { button.classList.add('danger'); }
+          if (option.kind === 'primary') { button.classList.add('primary'); }
           button.textContent = option.label;
           button.addEventListener('click', () => {
             vscode.postMessage({ type: 'decisionResponse', id: payload.id, choice: option.id });
@@ -689,24 +695,10 @@ export class MissionControlPanel {
     `;
 
     const extraCss = `
-      /* Shared Project Dashboard design system (--dash-* tokens) so Mission
-         Control matches the dashboard pages exactly. */
-      :root {
-        --dash-bg: radial-gradient(circle at top left, color-mix(in srgb, var(--vscode-button-background) 18%, transparent), transparent 40%), linear-gradient(180deg, color-mix(in srgb, var(--vscode-editor-background) 86%, black 14%), var(--vscode-editor-background));
-        --dash-panel: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-editor-background)) 78%, transparent);
-        --dash-panel-strong: color-mix(in srgb, var(--vscode-sideBar-background, var(--vscode-editor-background)) 88%, black 12%);
-        --dash-border: color-mix(in srgb, var(--vscode-widget-border, var(--vscode-panel-border)) 70%, transparent);
-        --dash-accent: var(--vscode-button-background);
-        --dash-accent-strong: color-mix(in srgb, var(--vscode-button-background) 78%, white 22%);
-        --dash-good: var(--vscode-testing-iconPassed, #4bb878);
-        --dash-warn: var(--vscode-testing-iconQueued, #d7a34b);
-        --dash-critical: var(--vscode-testing-iconFailed, #d05f5f);
-        --dash-muted: var(--vscode-descriptionForeground);
-        --dash-heading: "Segoe UI Variable Display", "Aptos Display", "Trebuchet MS", sans-serif;
-        --dash-body: "Segoe UI Variable Text", "Aptos", "Segoe UI", sans-serif;
-        --dash-radius: 20px;
-        --dash-shadow: 0 18px 48px rgba(0, 0, 0, 0.18);
-      }
+      /* Tokens, reduced-motion baseline and shared primitives come from the
+         one source of truth. This block used to be a byte-identical copy of the
+         Project Dashboard s :root, and had already drifted out of date. */
+      ${DASHBOARD_THEME_CSS}
 
       body { padding: 0; background: var(--dash-bg); font-family: var(--dash-body); }
       .mc-shell { min-height: 100vh; box-sizing: border-box; padding: 24px; display: flex; flex-direction: column; gap: 16px; }
@@ -767,6 +759,7 @@ export class MissionControlPanel {
       .decision-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
       .decision-actions button { border-radius: 999px; padding: 7px 14px; font: inherit; font-weight: 600; cursor: pointer; border: 1px solid var(--dash-border); background: color-mix(in srgb, var(--dash-panel) 82%, transparent); color: var(--vscode-foreground); }
       .decision-actions button.danger { border-color: color-mix(in srgb, var(--dash-critical) 60%, var(--dash-border)); background: color-mix(in srgb, var(--dash-critical) 20%, transparent); color: var(--vscode-foreground); }
+      .decision-actions button.primary { border-color: color-mix(in srgb, var(--dash-accent) 70%, var(--dash-border)); background: color-mix(in srgb, var(--dash-accent) 34%, transparent); color: var(--vscode-foreground); font-weight: 700; }
     `;
 
     return getWebviewHtmlShell({

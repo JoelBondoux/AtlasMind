@@ -137,6 +137,13 @@ export class WebsiteStudioPanel {
           return;
         case 'saveConfig':
           this.config = await this.manager.save(input.payload);
+          // Re-render on the page the user is already on. Saving used to update
+          // `this.config` and post a success notice without re-rendering, so
+          // everything derived server-side — counts, status chips, derived
+          // indicators — stayed on screen showing the values from before the
+          // save. `importIntake` directly below always did re-render; this did
+          // not, and the inconsistency is what made the staleness hard to spot.
+          this.render(this.activePage);
           await this.panel.webview.postMessage({
             type: 'notice',
             tone: 'success',
@@ -224,8 +231,14 @@ export function getWebsiteStudioHtml(
         <nav class="studio-nav" aria-label="Website Studio dashboards">
           ${navButton('brief', '1', 'Client brief', activePage)}
           ${navButton('sitemap', '2', 'Sitemap', activePage)}
-          ${navButton('wireframes', '3', 'Wireframes & UI', activePage)}
-          ${navButton('ui-system', '4', 'UI system', activePage)}
+          ${/* The nav renders literal numbered steps, so it promises a linear
+                workflow — but 3 and 4 were inverted against their own content.
+                Each wireframe card tracks a per-page "UI design" stage, and
+                that cannot be done consistently until the shared typography,
+                colour and component decisions exist. The system now precedes
+                the pages that apply it. */ ''}
+          ${navButton('ui-system', '3', 'UI system', activePage)}
+          ${navButton('wireframes', '4', 'Wireframes & UI', activePage)}
           ${navButton('platforms', '5', 'Platforms', activePage)}
           ${navButton('automations', '6', 'n8n automations', activePage)}
           <div class="nav-footer">
@@ -335,7 +348,7 @@ function renderUiSystemPage(config: WebsiteWorkspaceConfig, activePage: WebsiteS
   const design = config.designSystem;
   return `
     <section class="studio-page${activePage === 'ui-system' ? ' active' : ''}" data-page="ui-system">
-      ${pageIntro('UI system dashboard', 'Capture the shared design decisions that turn approved wireframes into a consistent, accessible client design.')}
+      ${pageIntro('UI system dashboard', 'Capture the shared design decisions every page then applies — typography, colour, spacing and components — so the per-page UI design stage has a consistent, accessible client design.')}
       <div class="two-column">
         <article class="panel-card">
           <h2>Direction and typography</h2>

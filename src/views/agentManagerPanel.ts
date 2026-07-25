@@ -3,6 +3,7 @@ import type { AtlasMindContext } from '../extension.js';
 import type { AgentAutoUpdateCadence, AgentDefinition, TestingMethodologyId } from '../types.js';
 import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
+import { PANEL_NAV_JS } from './panelNav.js';
 import { readProjectTestingConfig } from './settingsPanel.js';
 
 // ── Globalstate key for persisted user agents ────────────────────
@@ -476,7 +477,7 @@ export class AgentManagerPanel {
         isEnabled ? 'enabled' : 'disabled',
       ].join(' ').toLowerCase());
 
-      return `<tr data-agent-search="${searchText}">
+      return `<tr data-agent-search="${searchText}" data-row-agent-id="${escapeHtml(agent.id)}" tabindex="0" aria-label="Open ${escapeHtml(agent.name)} in the editor">
         <td><code>${escapeHtml(agent.id)}</code></td>
         <td>${escapeHtml(agent.name)} ${badge}</td>
         <td>${escapeHtml(agent.role)}</td>
@@ -550,7 +551,11 @@ export class AgentManagerPanel {
         testingRolesHtml = `
           <div class="methodology-chips">${chips}</div>
           <div class="hint" style="margin:6px 0 8px">Override the model for each methodology, or leave blank to follow global routing.</div>
-          <input type="hidden" id="testingModelOverridesJson" value="${currentOverridesJson}" />
+          <!-- Kept as the initial value only. saveAgent() rebuilds the override
+               map from the per-methodology inputs rather than reading this
+               field, so editing it by hand has no effect; it exists to seed
+               those inputs on first render. -->
+          <input type="hidden" id="testingModelOverridesJson" value="${currentOverridesJson}" readonly />
           ${overrideInputs}
           <div style="margin-top:8px"><button type="button" class="btn-link" id="open-testing-strategy-link">Configure in Testing Strategy →</button></div>`;
       }
@@ -644,6 +649,8 @@ export class AgentManagerPanel {
     }
 
     const scriptContent = `
+      ${PANEL_NAV_JS}
+
       const vscode = acquireVsCodeApi();
 
       const navButtons = Array.from(document.querySelectorAll('[data-page-target]'));
@@ -652,22 +659,12 @@ export class AgentManagerPanel {
       const searchStatus = document.getElementById('agentSearchStatus');
       const agentRows = Array.from(document.querySelectorAll('tr[data-agent-search]'));
 
+      // Tab semantics, roving tabindex and arrow-key navigation come from the
+      // shared controller; this panel's markup and styling are unchanged.
+      const panelNav = createPanelNav({ tablist: '.panel-nav' });
+
       function activatePage(pageId) {
-        navButtons.forEach(button => {
-          if (!(button instanceof HTMLButtonElement)) {
-            return;
-          }
-          const isActive = button.dataset.pageTarget === pageId;
-          button.classList.toggle('active', isActive);
-        });
-        pages.forEach(page => {
-          if (!(page instanceof HTMLElement)) {
-            return;
-          }
-          const isActive = page.id === 'page-' + pageId;
-          page.classList.toggle('active', isActive);
-          page.hidden = !isActive;
-        });
+        panelNav.activate(pageId);
       }
 
       function updateSearch(query) {
@@ -847,6 +844,35 @@ export class AgentManagerPanel {
         });
       });
 
+      // Directory rows carry "cursor: pointer" and an accent hover, and the
+      // page copy says "Select a row … to open the editor" — but nothing was
+      // listening, so the whole row was a fake affordance and only the inline
+      // Edit button worked. Delegated so it survives re-render, and keyboard
+      // reachable since a <tr> is not natively focusable.
+      const openAgentFromRow = target => {
+        const row = target instanceof HTMLElement ? target.closest('[data-row-agent-id]') : null;
+        if (!(row instanceof HTMLElement)) { return false; }
+        // Clicks that landed on one of the inline controls belong to that
+        // control, not to the row.
+        if (target instanceof HTMLElement && target.closest('button, a, input, select')) { return false; }
+        const id = row.getAttribute('data-row-agent-id');
+        if (!id) { return false; }
+        vscode.postMessage({ type: 'select', payload: { id } });
+        return true;
+      };
+
+      document.addEventListener('click', event => {
+        openAgentFromRow(event.target);
+      });
+
+      document.addEventListener('keydown', event => {
+        if (event.key !== 'Enter' && event.key !== ' ') { return; }
+        const row = event.target instanceof HTMLElement ? event.target.closest('[data-row-agent-id]') : null;
+        if (!row || row !== event.target) { return; }
+        event.preventDefault();
+        openAgentFromRow(event.target);
+      });
+
       document.querySelectorAll('[data-action="delete-agent"]').forEach(button => {
         button.addEventListener('click', () => {
           const id = button.getAttribute('data-agent-id');
@@ -910,7 +936,10 @@ export class AgentManagerPanel {
       .field-grid input[readonly], .field-grid textarea[readonly] { opacity: 0.6; }
       .hint { font-size: 0.82em; color: var(--vscode-descriptionForeground); margin-top: 2px; }
       .req { color: var(--vscode-charts-red, #f48771); }
-      .btn-sm { padding: 2px 8px; font-size: 0.85em; }
+      /* Declares its own fill. The shell's primary paint is scoped to unclassed
+         buttons, so a variant that relied on inheriting it would render bare. */
+      .btn-sm { padding: 2px 8px; font-size: 0.85em; background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+      .btn-sm:hover:not(:disabled) { background: var(--vscode-button-hoverBackground); }
       .btn-danger { background: var(--vscode-errorForeground, #f48771); color: var(--vscode-editor-background); }
       .btn-muted { opacity: 0.4; cursor: not-allowed; }
       .btn-muted-outline { background: transparent; border: 1px solid var(--atlas-border); color: var(--atlas-muted); }

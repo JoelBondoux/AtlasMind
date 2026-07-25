@@ -573,24 +573,26 @@
       }
       const selectedCard = resolveSelectedCard(snapshot);
       const selectedLink = resolveSelectedLink(snapshot);
+      // The board is the point of this panel, and it used to sit below a hero
+      // panel, a four-card process guide and a very tall composer — three
+      // screens of chrome before the whiteboard. It now leads, with the stat
+      // trio reduced to a compact strip in front of it and the staged-workflow
+      // guide moved to the end, collapsed unless the board is still empty.
+      const activeCardCount = snapshot.cards.filter(card => !card.archivedAt).length;
+      const boardIsEmpty = activeCardCount === 0;
+
       root.innerHTML = '' +
         '<div class="ideation-workspace ' + (state.canvasFullscreen ? 'ideation-workspace-canvas-focus' : '') + '">' +
-          '<section class="ideation-hero-grid">' +
-            '<article class="ideation-panel"' + tooltipAttrs('Ideation is a staged workflow: frame the problem, let Atlas scaffold the board, shape the board with cards and links, then decide what to validate or send into execution.') + '>' +
-              '<p class="dashboard-kicker">Dedicated workspace</p>' +
-              '<h2>Multimodal idea shaping</h2>' +
-              '<p class="section-copy">Use the composer for the next Atlas pass, then drop or paste supporting media straight onto the board to keep the idea grounded in artifacts.</p>' +
-            '</article>' +
-            '<div class="ideation-stat-grid">' +
-              renderStat('Active cards', String(snapshot.cards.filter(card => !card.archivedAt).length), 'Active cards on the board. Archived cards are hidden but preserved.', snapshot.cards.filter(card => !card.archivedAt).length > 0 ? 'good' : 'accent') +
-              renderStat('Runs', String(snapshot.runs.length), 'Auditable ideation evolutions captured so far.', 'accent') +
-              renderStat('Queued media', String(snapshot.promptAttachments.length), 'Files, images, and links waiting for the next Atlas pass.', snapshot.promptAttachments.length > 0 ? 'good' : 'accent') +
-            '</div>' +
+          '<section class="ideation-stat-strip"' + tooltipAttrs('Ideation is a staged workflow: frame the problem, let Atlas scaffold the board, shape the board with cards and links, then decide what to validate or send into execution.') + '>' +
+            renderStat('Active cards', String(activeCardCount), 'Active cards on the board. Archived cards are hidden but preserved.', activeCardCount > 0 ? 'good' : 'accent') +
+            renderStat('Runs', String(snapshot.runs.length), 'Auditable ideation evolutions captured so far.', 'accent') +
+            renderStat('Queued media', String(snapshot.promptAttachments.length), 'Files, images, and links waiting for the next Atlas pass.', snapshot.promptAttachments.length > 0 ? 'good' : 'accent') +
           '</section>' +
-          '<section class="ideation-process-section">' + renderProcessGuide(snapshot) + '</section>' +
           '<section class="ideation-main-grid">' +
-            renderComposer(snapshot) +
             renderBoard(snapshot) +
+          '</section>' +
+          '<section class="ideation-composer-section">' +
+            renderComposer(snapshot) +
           '</section>' +
           '<section class="ideation-lower-grid">' +
             renderInspector(snapshot, selectedCard, selectedLink) +
@@ -598,6 +600,12 @@
           '</section>' +
           '<section class="ideation-analytics-section">' +
             renderAnalytics(snapshot) +
+          '</section>' +
+          '<section class="ideation-process-section">' +
+            '<details class="ideation-process-details"' + (boardIsEmpty ? ' open' : '') + '>' +
+              '<summary>How this workspace works' + (boardIsEmpty ? '' : ' — staged workflow') + '</summary>' +
+              renderProcessGuide(snapshot) +
+            '</details>' +
           '</section>' +
         '</div>';
       wireDropzones();

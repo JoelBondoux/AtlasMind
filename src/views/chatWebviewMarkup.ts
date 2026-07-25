@@ -2019,6 +2019,11 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           background: color-mix(in srgb, var(--vscode-sideBar-background, var(--vscode-editor-background)) 78%, transparent);
         }
         .hidden { display: none; }
+        /* Ghost at rest. These are toggles, and they previously declared no
+           background at all, so they borrowed the shell's solid primary fill —
+           meaning an *un*pressed toggle was the loudest thing on the toolbar
+           while its pressed state (a translucent tint below) read as fainter.
+           The signal was exactly inverted. */
         .icon-btn {
           display: inline-flex;
           align-items: center;
@@ -2030,6 +2035,20 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           line-height: 1;
           box-sizing: border-box;
           vertical-align: middle;
+          background: transparent;
+          color: var(--vscode-foreground);
+          border: 1px solid transparent;
+        }
+        .icon-btn:hover:not(:disabled) {
+          background: color-mix(in srgb, var(--vscode-foreground) 10%, transparent);
+          border-color: var(--vscode-widget-border, #444);
+        }
+        /* The pressed state is now the visible one, for every toggle that has
+           not already declared its own. */
+        .icon-btn[aria-pressed="true"] {
+          border-color: color-mix(in srgb, var(--vscode-button-background) 70%, var(--vscode-widget-border, #444));
+          background: color-mix(in srgb, var(--vscode-button-background) 22%, transparent);
+          color: var(--vscode-button-background);
         }
         .icon-btn svg {
           display: block;
@@ -2038,7 +2057,10 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
         .primary-btn {
           padding: 4px 12px;
           font-size: 0.88em;
+          background: var(--vscode-button-background);
+          color: var(--vscode-button-foreground);
         }
+        .primary-btn:hover:not(:disabled) { background: var(--vscode-button-hoverBackground); }
         .danger-btn {
           padding: 4px 12px;
           font-size: 0.88em;

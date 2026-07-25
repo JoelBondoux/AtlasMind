@@ -5,6 +5,7 @@ import type { TaskImageAttachment } from '../types.js';
 import { buildAssistantResponseMetadata, buildWorkstationContext, reconcileAssistantResponse } from '../chat/participant.js';
 import { resolvePickedImageAttachments } from '../chat/imageAttachments.js';
 import { getWebviewHtmlShell } from './webviewUtils.js';
+import { PANEL_NAV_JS } from './panelNav.js';
 
 type VisionPanelMessage =
   | { type: 'attachImages' }
@@ -407,7 +408,8 @@ export class VisionPanel {
         .action-primary { border-color: color-mix(in srgb, var(--atlas-accent) 42%, var(--atlas-border)); }
         .action-title { font-weight: 700; }
         .row { display: flex; gap: 10px; margin: 10px 0; }
-        .primary-btn { font-weight: 600; }
+        .primary-btn { font-weight: 600; background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+        .primary-btn:hover:not(:disabled) { background: var(--vscode-button-hoverBackground); }
         textarea {
           width: 100%;
           resize: vertical;
@@ -565,6 +567,9 @@ function buildScript(): string {
   return `
 (function () {
   'use strict';
+
+  ${PANEL_NAV_JS}
+
   const vscode = acquireVsCodeApi();
   const navButtons = Array.from(document.querySelectorAll('[data-page-target]'));
   const pages = Array.from(document.querySelectorAll('.panel-page'));
@@ -581,17 +586,12 @@ function buildScript(): string {
   const status = document.getElementById('status');
   let responseMarkdown = '';
 
+  // Tab semantics, roving tabindex and arrow-key navigation come from the
+  // shared controller; this panel's markup and styling are unchanged.
+  const panelNav = createPanelNav({ tablist: '.panel-nav' });
+
   function activatePage(pageId) {
-    navButtons.forEach(button => {
-      if (!(button instanceof HTMLButtonElement)) { return; }
-      button.classList.toggle('active', button.dataset.pageTarget === pageId);
-    });
-    pages.forEach(page => {
-      if (!(page instanceof HTMLElement)) { return; }
-      const active = page.id === 'page-' + pageId;
-      page.classList.toggle('active', active);
-      page.hidden = !active;
-    });
+    panelNav.activate(pageId);
   }
 
   function updateSearch(query) {
@@ -668,7 +668,13 @@ function buildScript(): string {
   document.getElementById('open-settings-models')?.addEventListener('click', () => vscode.postMessage({ type: 'openSettingsModels' }));
   if (responseOutput) {
     responseOutput.addEventListener('click', event => {
-      const target = event.target;
+      // closest(), not an instanceof check on event.target: model output
+      // routinely wraps a path in <code>/<strong> inside the anchor, and a
+      // click landing on that inner element left target as the child, so the
+      // link silently did nothing while still looking like a link.
+      const target = event.target instanceof Element
+        ? event.target.closest('a[data-file-ref]')
+        : null;
       if (!(target instanceof HTMLAnchorElement)) {
         return;
       }

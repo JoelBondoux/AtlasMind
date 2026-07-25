@@ -4272,15 +4272,37 @@ const IDEATION_CSS = `
     flex-direction: column;
     gap: 18px;
   }
-  .ideation-hero-grid,
   .ideation-main-grid,
   .ideation-lower-grid {
     display: grid;
     gap: 18px;
   }
-  .ideation-hero-grid {
-    grid-template-columns: 1.25fr 0.75fr;
+  /* Replaces the hero grid (whose rules are gone with its markup): three
+     compact stats in a single row, so the board starts within the first screen
+     instead of below an explainer panel. */
+  .ideation-stat-strip {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
   }
+  /* The staged-workflow guide is reference material once the board exists. */
+  .ideation-process-details > summary {
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--vscode-descriptionForeground);
+    padding: 6px 2px;
+    list-style: none;
+  }
+  .ideation-process-details > summary::-webkit-details-marker { display: none; }
+  .ideation-process-details > summary::before {
+    content: "\\25B8";
+    display: inline-block;
+    margin-right: 8px;
+    transition: transform 140ms ease;
+  }
+  .ideation-process-details[open] > summary::before { transform: rotate(90deg); }
+  .ideation-process-details > summary:hover { color: var(--vscode-foreground); }
   .ideation-main-grid {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -4333,11 +4355,6 @@ const IDEATION_CSS = `
     opacity: 1;
     visibility: visible;
     transform: translateY(0);
-  }
-  .ideation-stat-grid {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 12px;
   }
   .ideation-process-panel {
     display: flex;
@@ -5057,9 +5074,15 @@ const IDEATION_CSS = `
     left: 0;
     background: linear-gradient(90deg, color-mix(in srgb, var(--vscode-button-background) 40%, transparent), transparent);
   }
+  /* Canvas focus mode hides everything that is not the board. The process
+     guide was missing from this list, so it stayed on screen in what is meant
+     to be a full-screen canvas; the composer now has its own section wrapper
+     that has to be hidden alongside the panel itself. */
   body.canvas-focus-mode .ideation-topbar,
-  body.canvas-focus-mode .ideation-hero-grid,
+  body.canvas-focus-mode .ideation-stat-strip,
   body.canvas-focus-mode .ideation-composer-panel,
+  body.canvas-focus-mode .ideation-composer-section,
+  body.canvas-focus-mode .ideation-process-section,
   body.canvas-focus-mode .ideation-lower-grid,
   body.canvas-focus-mode .ideation-analytics-section {
     display: none;
@@ -5097,11 +5120,9 @@ const IDEATION_CSS = `
     height: 100%;
   }
   @media (max-width: 1180px) {
-    .ideation-hero-grid,
     .ideation-process-grid,
     .ideation-main-grid,
     .ideation-lower-grid,
-    .ideation-stat-grid,
     .ideation-workspace-switcher,
     .ideation-constraint-grid,
     .ideation-score-grid,

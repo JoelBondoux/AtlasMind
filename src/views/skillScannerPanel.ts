@@ -8,7 +8,15 @@ type PanelMessage =
   | { type: 'resetRule'; id: string }
   | { type: 'deleteRule'; id: string }
   | { type: 'addRule'; rule: SerializedScanRule }
-  | { type: 'saveAll'; config: ScannerRulesConfig };
+  /**
+   * Resets built-in overrides only. This replaced a `saveAll` message that
+   * carried a whole `ScannerRulesConfig` from the webview: the button labelled
+   * "Reset all built-ins" sent `{ overrides: {}, customRules: [] }`, so it also
+   * silently deleted every custom rule the user had written. It also handed an
+   * unvalidated config straight to `replaceConfig`. The webview now sends no
+   * payload at all and the host decides what "reset built-ins" means.
+   */
+  | { type: 'resetAllBuiltIns' };
 
 /**
  * Webview panel for viewing and editing scanner security rules.
@@ -127,12 +135,16 @@ export class SkillScannerPanel {
         break;
       }
 
-      case 'saveAll': {
+      case 'resetAllBuiltIns': {
+        // Clear the built-in overrides but keep the user's own rules — the
+        // control says "Reset all built-ins", so that is all it may do.
+        const current = this.rulesManager.getConfig();
+        const next: ScannerRulesConfig = { overrides: {}, customRules: current.customRules };
         try {
-          this.rulesManager.replaceConfig(msg.config);
+          this.rulesManager.replaceConfig(next);
         } catch (err) {
           await vscode.window.showErrorMessage(
-            `Could not save scanner config: ${err instanceof Error ? err.message : String(err)}`,
+            `Could not reset built-in rules: ${err instanceof Error ? err.message : String(err)}`,
           );
           return;
         }
@@ -151,6 +163,12 @@ export class SkillScannerPanel {
     const rules = this.rulesManager.getEffectiveRules();
     const cspSource = this.panel.webview.cspSource;
 
+    // Embedded on a data-* attribute rather than inside <script type="application/json">.
+    // <script> is a raw-text element: the HTML parser does not decode character
+    // references inside it, so the previous `escapeHtml(JSON.stringify(rules))`
+    // reached the client still carrying `&quot;` and `JSON.parse` threw on the
+    // panel's very first statement — taking every handler down with it.
+    // Attribute values ARE decoded, so escaping is both safe and lossless here.
     const rulesJson = escapeHtml(JSON.stringify(rules));
 
     const tableRows = rules
@@ -166,11 +184,11 @@ export class SkillScannerPanel {
         <td><code class="pattern-cell" title="${escapeHtml(r.pattern)}">${escapeHtml(r.pattern.length > 50 ? r.pattern.slice(0, 47) + '…' : r.pattern)}</code></td>
         <td class="msg-cell">${escapeHtml(r.message)}</td>
         <td class="actions-cell">
-          <button class="btn-icon" title="${r.enabled ? 'Disable rule' : 'Enable rule'}" onclick="toggleRule(${idx})">${r.enabled ? '$(eye)' : '$(eye-closed)'}</button>
-          <button class="btn-icon" title="Edit rule" onclick="editRule(${idx})">$(edit)</button>
+          <button type="button" class="btn-icon" title="${r.enabled ? 'Disable rule' : 'Enable rule'}" aria-label="${r.enabled ? 'Disable' : 'Enable'} rule ${escapeHtml(r.id)}" data-action="toggle" data-index="${idx}">${r.enabled ? '👁' : '🚫'}</button>
+          <button type="button" class="btn-icon" title="Edit rule" aria-label="Edit rule ${escapeHtml(r.id)}" data-action="edit" data-index="${idx}">✎</button>
           ${r.builtIn
-            ? `<button class="btn-icon reset-btn" title="Reset to default" onclick="resetRule('${escapeHtml(r.id)}')">$(discard)</button>`
-            : `<button class="btn-icon delete-btn" title="Delete custom rule" onclick="deleteRule('${escapeHtml(r.id)}')">$(trash)</button>`
+            ? `<button type="button" class="btn-icon reset-btn" title="Reset to default" aria-label="Reset rule ${escapeHtml(r.id)} to its default" data-action="reset" data-id="${escapeHtml(r.id)}">⟲</button>`
+            : `<button type="button" class="btn-icon delete-btn" title="Delete custom rule" aria-label="Delete custom rule ${escapeHtml(r.id)}" data-action="delete" data-id="${escapeHtml(r.id)}">🗑</button>`
           }
         </td>
       </tr>`,
@@ -178,15 +196,20 @@ export class SkillScannerPanel {
       .join('');
 
     const body = /* html */ `
-<h1>$(shield) Skill Scanner Rules</h1>
+<h1>🛡 Skill Scanner Rules</h1>
 <p style="margin-bottom: 1em; color: var(--vscode-descriptionForeground);">
   Rules marked <strong>✦</strong> are custom. Built-in rules can be disabled or have their severity/message adjusted, but their patterns protect you from known attack vectors — change with care.<br>
   <strong>Error-level</strong> issues block a skill from being enabled. <strong>Warning-level</strong> issues are informational.
 </p>
 
-<div style="display:flex; gap: 8px; margin-bottom: 12px;">
-  <button onclick="addRule()">$(add) Add custom rule</button>
-  <button onclick="resetAllBuiltins()" class="secondary-btn">$(discard) Reset all built-ins</button>
+<div class="toolbar-actions">
+  <button type="button" data-action="add">＋ Add custom rule</button>
+  <button type="button" data-action="reset-all" class="secondary-btn">⟲ Reset all built-ins</button>
+  <span id="reset-all-confirm" class="confirm-strip" hidden>
+    Restore every built-in rule to its shipped severity, message and enabled state? Your custom rules are kept.
+    <button type="button" class="danger-btn" data-action="reset-all-confirm">Reset built-ins</button>
+    <button type="button" data-action="reset-all-cancel">Cancel</button>
+  </span>
 </div>
 
 <table id="rules-table">
@@ -227,8 +250,8 @@ export class SkillScannerPanel {
       <input id="f-message" style="width:100%; margin-top:4px;" placeholder="Describe the issue and how to fix it." />
     </label>
     <div style="display:flex; gap:8px; justify-content:flex-end;">
-      <button onclick="closeModal()">Cancel</button>
-      <button id="modal-save-btn" onclick="saveModal()">Save</button>
+      <button type="button" data-action="modal-cancel">Cancel</button>
+      <button type="button" id="modal-save-btn" data-action="modal-save">Save</button>
     </div>
   </div>
 </div>
@@ -237,17 +260,19 @@ export class SkillScannerPanel {
     const script = /* javascript */ `
 (function() {
   const vscode = acquireVsCodeApi();
-  let rules = JSON.parse(document.getElementById('rules-data').textContent);
+  // Read from a data-* attribute, not from <script type="application/json">.
+  // See the note beside rulesJson in buildHtml() for why the old form threw.
+  let rules = JSON.parse(document.getElementById('rules-data').dataset.rules);
   let editingIdx = -1;
 
-  window.toggleRule = function(idx) {
+  function toggleRule(idx) {
     const rule = rules[idx];
     const updated = { ...rule, enabled: !rule.enabled };
     rules[idx] = updated;
     vscode.postMessage({ type: 'updateRule', rule: updated });
   };
 
-  window.editRule = function(idx) {
+  function editRule(idx) {
     editingIdx = idx;
     const rule = rules[idx];
     const modal = document.getElementById('edit-modal');
@@ -263,7 +288,7 @@ export class SkillScannerPanel {
     modal.style.display = 'flex';
   };
 
-  window.addRule = function() {
+  function addRule() {
     editingIdx = -1;
     const modal = document.getElementById('edit-modal');
     document.getElementById('modal-title').textContent = 'Add Custom Rule';
@@ -278,14 +303,19 @@ export class SkillScannerPanel {
     modal.style.display = 'flex';
   };
 
-  window.saveModal = function() {
+  function saveModal() {
     const id = document.getElementById('f-id').value.trim();
     const severity = document.getElementById('f-severity').value;
     const pattern = document.getElementById('f-pattern').value.trim();
     const message = document.getElementById('f-message').value.trim();
 
+    // Previously posted { type: 'noop' } — a message the host does not handle,
+    // so a blank field simply did nothing with no explanation.
     if (!id || !pattern || !message) {
-      vscode.postMessage({ type: 'noop' }); // nothing
+      const errEl = document.getElementById('pattern-error');
+      const missing = [!id && 'ID', !pattern && 'Pattern', !message && 'Message'].filter(Boolean);
+      errEl.textContent = missing.join(', ') + (missing.length === 1 ? ' is required.' : ' are required.');
+      errEl.style.display = 'block';
       return;
     }
 
@@ -313,40 +343,77 @@ export class SkillScannerPanel {
     closeModal();
   };
 
-  window.closeModal = function() {
+  function closeModal() {
     document.getElementById('edit-modal').style.display = 'none';
   };
 
-  window.resetRule = function(id) {
+  function resetRule(id) {
     vscode.postMessage({ type: 'resetRule', id });
   };
 
-  window.deleteRule = function(id) {
+  function deleteRule(id) {
     vscode.postMessage({ type: 'deleteRule', id });
   };
 
-  window.resetAllBuiltins = function() {
-    vscode.postMessage({ type: 'saveAll', config: { overrides: {}, customRules: [] } });
-  };
+  // Every control is wired here. The panel previously used inline onclick=""
+  // attributes, which the shared shell's CSP (script-src with a nonce and no
+  // 'unsafe-inline') blocks outright — so not one button in this panel worked.
+  document.addEventListener('click', function(event) {
+    const target = event.target instanceof HTMLElement ? event.target.closest('[data-action]') : null;
+    if (!target) { return; }
+    const action = target.dataset.action;
+    const index = Number(target.dataset.index);
+    const id = target.dataset.id || '';
+    const confirmStrip = document.getElementById('reset-all-confirm');
 
-  // Close modal on background click
+    if (action === 'toggle') { toggleRule(index); return; }
+    if (action === 'edit') { editRule(index); return; }
+    if (action === 'reset') { resetRule(id); return; }
+    if (action === 'delete') { deleteRule(id); return; }
+    if (action === 'add') { addRule(); return; }
+    if (action === 'modal-save') { saveModal(); return; }
+    if (action === 'modal-cancel') { closeModal(); return; }
+    // Resetting every built-in is destructive, so it is confirmed in place
+    // rather than firing on the first click.
+    if (action === 'reset-all') { confirmStrip.hidden = false; return; }
+    if (action === 'reset-all-cancel') { confirmStrip.hidden = true; return; }
+    if (action === 'reset-all-confirm') {
+      confirmStrip.hidden = true;
+      vscode.postMessage({ type: 'resetAllBuiltIns' });
+      return;
+    }
+  });
+
+  // Close modal on background click, and on Escape.
   document.getElementById('edit-modal').addEventListener('click', function(e) {
     if (e.target === this) closeModal();
+  });
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') { closeModal(); }
   });
 })();
 `;
 
     const extraCss = /* css */ `
       .rule-disabled td { opacity: 0.45; }
-      .badge-error { background: var(--vscode-inputValidation-errorBackground, #5a1d1d); color: #f48771; }
-      .badge-warning { background: var(--vscode-inputValidation-warningBackground, #352a05); color: #cca700; }
+      /* Themed foreground, not a fixed one: the backgrounds here follow the
+         theme, so salmon-on-pink was the light-mode result of pinning the text. */
+      .badge-error { background: var(--vscode-inputValidation-errorBackground, #5a1d1d); color: var(--vscode-errorForeground, #f48771); border: 1px solid var(--vscode-inputValidation-errorBorder, transparent); }
+      .badge-warning { background: var(--vscode-inputValidation-warningBackground, #352a05); color: var(--vscode-editorWarning-foreground, #cca700); border: 1px solid var(--vscode-inputValidation-warningBorder, transparent); }
       .pattern-cell { font-size: 0.8em; word-break: break-all; }
       .msg-cell { font-size: 0.9em; }
       .actions-cell { white-space: nowrap; }
       .btn-icon { background: transparent; padding: 2px 6px; font-size: 1em; color: var(--vscode-foreground); }
       .btn-icon:hover { background: var(--vscode-button-secondaryHoverBackground, rgba(90,93,94,0.31)); }
-      .reset-btn { color: var(--vscode-charts.blue, #40a6ff); }
+      /* Was var(--vscode-charts.blue) — a dot is not valid in a custom-property
+         name, so the declaration was dropped and only the fallback ever applied. */
+      .reset-btn { color: var(--vscode-charts-blue, #40a6ff); }
       .delete-btn { color: var(--vscode-errorForeground, #f48771); }
+      .toolbar-actions { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; flex-wrap: wrap; }
+      .confirm-strip { display: inline-flex; align-items: center; gap: 8px; font-size: 0.88em; padding: 4px 10px; border-radius: 6px;
+        border: 1px solid var(--vscode-inputValidation-warningBorder, #cca700); background: var(--vscode-inputValidation-warningBackground, #352a05); }
+      .confirm-strip[hidden] { display: none; }
+      .danger-btn { background: var(--vscode-inputValidation-errorBackground, #5a1d1d); color: var(--vscode-errorForeground, #f48771); }
       .secondary-btn { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
       .secondary-btn:hover { background: var(--vscode-button-secondaryHoverBackground); }
       .field-group { display: flex; gap: 12px; margin-bottom: 8px; }
@@ -356,8 +423,10 @@ export class SkillScannerPanel {
         border: 1px solid var(--vscode-input-border, #555); padding: 4px 6px; border-radius: 2px; }
     `;
 
-    // Store rules as JSON in a hidden element to avoid inline injection issues
-    const bodyWithData = `<script id="rules-data" type="application/json">${rulesJson}</script>${body}`;
+    // Rules travel on a data-* attribute of a hidden <div>. An attribute value
+    // is entity-decoded by the parser, so escapeHtml() round-trips cleanly here
+    // — unlike inside <script>, where it did not and JSON.parse threw.
+    const bodyWithData = `<div id="rules-data" hidden data-rules="${rulesJson}"></div>${body}`;
 
     return getWebviewHtmlShell({
       title: 'AtlasMind — Skill Scanner Rules',
@@ -369,10 +438,43 @@ export class SkillScannerPanel {
   }
 }
 
+/**
+ * Validates every inbound webview message against its exact shape.
+ *
+ * This used to accept any object whose `type` was a string, which meant the
+ * `saveAll` branch handed an entirely unvalidated payload to
+ * `replaceConfig()` — a rule set that gates which skills may run. The webview
+ * boundary is untrusted, so each message is now checked field by field and a
+ * malformed one is dropped rather than coerced.
+ */
+function isSerializedScanRule(value: unknown): value is SerializedScanRule {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const rule = value as Record<string, unknown>;
+  return typeof rule['id'] === 'string' && rule['id'].trim().length > 0
+    && (rule['severity'] === 'error' || rule['severity'] === 'warning')
+    && typeof rule['pattern'] === 'string' && rule['pattern'].length > 0
+    && typeof rule['message'] === 'string'
+    && typeof rule['enabled'] === 'boolean'
+    && typeof rule['builtIn'] === 'boolean';
+}
+
 function isPanelMessage(raw: unknown): raw is PanelMessage {
-  return (
-    typeof raw === 'object' &&
-    raw !== null &&
-    typeof (raw as Record<string, unknown>)['type'] === 'string'
-  );
+  if (typeof raw !== 'object' || raw === null) {
+    return false;
+  }
+  const msg = raw as Record<string, unknown>;
+  switch (msg['type']) {
+    case 'updateRule':
+    case 'addRule':
+      return isSerializedScanRule(msg['rule']);
+    case 'resetRule':
+    case 'deleteRule':
+      return typeof msg['id'] === 'string' && msg['id'].trim().length > 0;
+    case 'resetAllBuiltIns':
+      return true;
+    default:
+      return false;
+  }
 }
