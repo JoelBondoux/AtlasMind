@@ -171,6 +171,18 @@ These settings only affect AtlasMind's governance scaffolding for Atlas-built or
 
 Agent Finder definitions are stored in `globalState` and managed from the Resource Discovery tab in Settings (or its sidebar tree, mirroring how MCP servers are persisted), so they are not VS Code settings. The shipped defaults (GitHub Agent Finder, Hugging Face Discover) seed **disabled**.
 
+## Buzz (agentic comms)
+
+Integration with [Buzz](https://buzz.xyz) — the open-source, Nostr-based workspace for humans and AI agents. All settings are deny-by-default; nothing connects to Buzz until you opt in. See `project_memory/roadmap/buzz-integration.md` for the phased roadmap.
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `atlasmind.buzz.enabled` | `boolean` | `false` | Enable Buzz integration: record Buzz identities/channels (npub / @handle / #channel) on Project Director contacts and reach them via a Buzz deep link. Automated outbound posting additionally requires a connected Buzz comms tool and the per-project `outboundEnabled` gate. |
+| `atlasmind.buzz.relayUrl` | `string` | `ws://localhost:3000` | Buzz relay URL (`BUZZ_RELAY_URL`). Defaults to a local self-hosted relay. A remote relay sends project data off-machine and additionally requires `atlasmind.buzz.allowRemoteRelay`. |
+| `atlasmind.buzz.allowRemoteRelay` | `boolean` | `false` | Allow a non-local Buzz relay URL. When `false`, only loopback/localhost relays are used so project data stays on-machine. |
+
+Buzz contact channels and any launchable deep link are sanitised at the webview boundary like every other Director channel — only `https` Buzz workspace links are launchable (Buzz has no verified native URI scheme), and an npub / @handle / #channel is stored as display-only.
+
 ## Orchestrator Tunables
 
 | Setting | Type | Default | Description |

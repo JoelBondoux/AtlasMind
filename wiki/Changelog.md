@@ -6,6 +6,41 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.139.0 — Buzz (buzz.xyz) integration, Tier 1
+
+- **Foundation for [Buzz](https://buzz.xyz).** Groundwork to bring Block's open-source, Nostr-based workspace for humans + AI agents (a self-sovereign Slack + GitHub alternative) into AtlasMind's Project Director and comms workflow.
+- **Buzz identities on contacts.** Project Director contacts can carry a Buzz channel (npub / @handle / #channel) with an `https`-only deep link — no unverified native URI scheme is launched.
+- **Forward-compatible connector.** Director comms now recognises Buzz-style tool names (`post_to_channel`, `send_dm`, `buzz_*`), so the moment a Buzz comms tool is connected, the existing guarded `{modal:true}` dispatch works with no further code.
+- **Deny-by-default + local-first.** New `atlasmind.buzz.enabled` (off), `atlasmind.buzz.relayUrl` (`ws://localhost:3000`), and `atlasmind.buzz.allowRemoteRelay` (off) settings. The full four-tier roadmap lives in `project_memory/roadmap/buzz-integration.md`.
+
+---
+
+## v0.138.0 — Import MCP servers from your other tools
+
+- **"Detected on this machine" on the Advanced Add-Server page.** AtlasMind scans for MCP servers you've already set up in Claude Desktop, Cursor, VS Code, Windsurf, or this repo, and lets you **Prefill the form** or **Import & connect** them in one click. It also shows which launch tools (npx/uvx/docker) are installed and offers env-variable names from your `.env`/`wrangler.toml` as click-to-add chips.
+- **Cached and reusable.** The scan is saved to SSOT and reused on future installs, with a **Rescan** button and auto-refresh when a workspace MCP config changes.
+- **Never touches your secrets.** Only env-variable *names* are cached or shown; on import, secret values are read live from the source file and stored in the OS secret store, never in the cache or the webview.
+- **Stuck on an unknown server?** An "Ask Atlas to help" button hands off to chat to scope a safe setup.
+- **The whole recommended catalogue is now guided (batch 2).** The remaining 21 "manual" servers — AWS, Google Cloud, Cloudflare (+ Workers), Apple/Xcode, MySQL, MongoDB, Elasticsearch, RabbitMQ, Amazon SNS/SQS, SendGrid, CircleCI, Grafana, Prometheus, Jira, Trello, Stripe, and more — became supply-chain-verified guided prefills with safe defaults (AWS/MongoDB read-only, least-privilege credential guidance, browser-OAuth via a pinned bridge for remote services). A few stay opt-in guided-manual (OpenAI web-search, Bark/APNs), and Twilio/Jenkins route to Advanced with full guidance because they require the credential on the command line, which AtlasMind won't auto-store.
+
+---
+
+## v0.137.0 — Guided MCP setup that actually hand-holds
+
+- **13 "manual" MCP servers are now guided.** GitHub, Microsoft Entra ID, Microsoft 365, Shopify, WooCommerce, WordPress, Webflow, Wix, YouTube, Meta Ads, and X auto-fill a verified command and ask only for your credentials; Twitch and LinkedIn stay opt-in community servers (pinned, review-before-connect) but are still fully prefilled.
+- **No more blank Advanced form for beginners.** The wizard now shows "What you'll need", a numbered how-to for getting each credential, a direct "Open credentials page" button, a docs link, and a safety note — plus example placeholders and per-field help. The Advanced form also gained inline help + examples on every field.
+- **Researched and supply-chain-verified.** Each server's setup was checked for a first-party/reputable package that genuinely implements MCP; archived, non-existent, and account-risky packages were deliberately excluded.
+
+---
+
+## v0.136.0 — Documents dashboard tab, roadmap cleanup & MCP setup fix
+
+- **New Documents (.md management) dashboard tab.** Define a *document filing system* (folder "shelves", optionally narrowed by a glob) and the documents to *keep updated automatically*. AtlasMind tracks each tracked document's freshness (file change time vs. a recorded review baseline), discovers uncovered markdown, and offers an explicit **Update with Atlas** / **Mark reviewed** action. Safety-first: it never rewrites a document on a timer, and every path is sanitised (no traversal outside the workspace). Backed by a new `DocumentsManager` persisting `project_memory/operations/documents.json` + a `documents.md` runbook mirror.
+- **Roadmap Dashboard cleaned up.** The backlog no longer duplicates items or lists inappropriate scaffolding — the parser reads only the real backlog region, filters generator boilerplate, and de-duplicates. Drag-to-reorder now shows a clear grab handle with a live drop-target highlight, and "Mark MVP" carries a plain-language tooltip explaining what a Minimum Viable Product is.
+- **MCP Guided Setup no longer dead-ends.** Servers that need details you provide (e.g. GitHub, Microsoft 365) no longer show "just connect" and then fail with a misleading "complete every required field" error — the wizard now routes you to Advanced setup, and names the exact missing field when one genuinely is blank.
+
+---
+
 ## v0.135.0 — Project Director reminders & surfacing (Phase 4)
 
 - **Follow-up reminders that don't nag.** A new in-process scheduler surfaces a throttled, once-per-day in-editor nudge when follow-ups are overdue or due soon, with a one-click "Open Project Director". It is notification-only — it never auto-sends anything on a timer. A startup nudge is on by default; the recurring timer is opt-in. Both toggle from the Director Setup card.

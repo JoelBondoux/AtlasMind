@@ -1,0 +1,116 @@
+{
+  "version": 1,
+  "updatedAt": "2026-07-25T00:53:22.206Z",
+  "project": {
+    "name": "atlasmind",
+    "summary": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry."
+  },
+  "selfContactId": "contact-email-joelbondoux-net-1",
+  "contacts": [
+    {
+      "id": "contact-email-joelbondoux-net-1",
+      "name": "Joel Bondoux",
+      "kind": "person",
+      "links": [
+        {
+          "id": "link-email-joelbondoux-net",
+          "kind": "email",
+          "label": "Email",
+          "handle": "email@joelbondoux.net",
+          "deepLink": "mailto:email@joelbondoux.net",
+          "preferred": true
+        }
+      ],
+      "piiStored": true
+    },
+    {
+      "id": "contact-49699333-dependabot-bot-users-noreply-github-com-2",
+      "name": "dependabot[bot]",
+      "kind": "person",
+      "links": [
+        {
+          "id": "link-49699333-dependabot-bot-users-noreply-github-com",
+          "kind": "email",
+          "label": "Email",
+          "handle": "49699333+dependabot[bot]@users.noreply.github.com",
+          "deepLink": "mailto:49699333+dependabot[bot]@users.noreply.github.com",
+          "preferred": true
+        }
+      ],
+      "piiStored": true
+    },
+    {
+      "id": "contact-198982749-copilot-users-noreply-github-com-3",
+      "name": "copilot-swe-agent[bot]",
+      "kind": "person",
+      "links": [
+        {
+          "id": "link-198982749-copilot-users-noreply-github-com",
+          "kind": "email",
+          "label": "Email",
+          "handle": "198982749+Copilot@users.noreply.github.com",
+          "deepLink": "mailto:198982749+Copilot@users.noreply.github.com",
+          "preferred": true
+        }
+      ],
+      "piiStored": true
+    },
+    {
+      "id": "contact-joelbondoux",
+      "name": "@JoelBondoux",
+      "kind": "person",
+      "ref": {
+        "source": "local",
+        "displayLabel": "@JoelBondoux"
+      },
+      "links": [
+        {
+          "id": "link-joelbondoux",
+          "kind": "github",
+          "label": "GitHub",
+          "handle": "@JoelBondoux"
+        }
+      ],
+      "piiStored": false
+    }
+  ],
+  "stakeholders": [],
+  "teamMembers": [
+    {
+      "id": "tm-contact-email-joelbondoux-net-1",
+      "contactId": "contact-email-joelbondoux-net-1",
+      "discipline": "contributor"
+    },
+    {
+      "id": "tm-contact-49699333-dependabot-bot-users-noreply-github-com-2",
+      "contactId": "contact-49699333-dependabot-bot-users-noreply-github-com-2",
+      "discipline": "contributor"
+    },
+    {
+      "id": "tm-contact-198982749-copilot-users-noreply-github-com-3",
+      "contactId": "contact-198982749-copilot-users-noreply-github-com-3",
+      "discipline": "contributor"
+    },
+    {
+      "id": "tm-contact-joelbondoux",
+      "contactId": "contact-joelbondoux",
+      "discipline": "code-owner"
+    }
+  ],
+  "responsibilities": [
+    {
+      "id": "resp-code-ownership",
+      "area": "Code ownership",
+      "description": "Seeded from .github/CODEOWNERS. Review and refine.",
+      "ownerContactId": "contact-joelbondoux"
+    }
+  ],
+  "assignments": [],
+  "followUps": [],
+  "settings": {
+    "teamMode": "solo",
+    "nudgeOnActivation": true,
+    "remindersEnabled": false,
+    "outboundEnabled": false
+  }
+}

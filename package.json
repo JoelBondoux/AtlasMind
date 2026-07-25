@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.135.4",
+  "version": "0.139.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -229,6 +229,11 @@
         "command": "atlasmind.toggleAutopilot",
         "title": "AtlasMind: Toggle Autopilot",
         "icon": "$(rocket)"
+      },
+      {
+        "command": "atlasmind.togglePresence",
+        "title": "AtlasMind: Toggle Keep Computer Awake",
+        "icon": "$(zap)"
       },
       {
         "command": "atlasmind.skills.addSkill",
@@ -1134,6 +1139,50 @@
           "default": false,
           "description": "Allow ARD Agent Finders that use http:// or localhost (e.g. the ARD conformance demo registry). When false, discovery requires HTTPS and rejects private/loopback addresses to prevent SSRF.",
           "markdownDescription": "Allow ARD Agent Finders that use `http://` or `localhost` — for example the [ARD conformance demo](https://github.com/ards-project/ard-spec) registry.\n\nWhen `false` (default), discovery requires HTTPS and rejects private / loopback / link-local addresses to prevent SSRF. This setting only relaxes the check for finders **you** explicitly marked insecure; followed referral URLs are always screened."
+        },
+        "atlasmind.buzz.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable Buzz (buzz.xyz) integration: record Buzz identities/channels on Project Director contacts and reach them via a Buzz deep link. Off by default; Buzz is an early-stage, self-hosted workspace and nothing connects to it until you opt in.",
+          "markdownDescription": "Enable [Buzz](https://buzz.xyz) integration — the open-source, Nostr-based workspace for humans and AI agents.\n\nWhen on, Project Director contacts can carry a **Buzz** channel (npub / @handle / #channel) and AtlasMind can reach them via a Buzz deep link. Off by default: Buzz is early-stage and self-hosted, so nothing connects until you opt in. Automated outbound posting additionally requires a connected Buzz comms tool and the per-project `outboundEnabled` gate."
+        },
+        "atlasmind.buzz.relayUrl": {
+          "type": "string",
+          "default": "ws://localhost:3000",
+          "description": "Buzz relay URL (BUZZ_RELAY_URL). Defaults to a local self-hosted relay (ws://localhost:3000). A remote relay sends project data off-machine and additionally requires atlasmind.buzz.allowRemoteRelay.",
+          "markdownDescription": "Buzz relay URL — the `BUZZ_RELAY_URL` a connected Buzz surface targets.\n\nDefaults to a **local, self-hosted** relay (`ws://localhost:3000`), matching AtlasMind's local-first, self-sovereign posture. Pointing at a **remote** relay sends project data off-machine, so it is additionally gated behind `atlasmind.buzz.allowRemoteRelay` and the redaction/consent boundary."
+        },
+        "atlasmind.buzz.allowRemoteRelay": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow a non-local Buzz relay URL. When false (default), only loopback/localhost relays are used so project data stays on-machine.",
+          "markdownDescription": "Allow `atlasmind.buzz.relayUrl` to point at a **non-local** (remote) Buzz relay.\n\nWhen `false` (default), only a loopback/localhost relay is used so project data stays on-machine. Set to `true` only when you intend to send project communications to a remote Buzz workspace, and expect the same redaction/consent boundary AtlasMind applies to any off-machine send."
+        },
+        "atlasmind.presence.keepAwake": {
+          "type": "boolean",
+          "default": false,
+          "description": "Keep this computer awake (prevent system sleep) while an AtlasMind activity needs the agent to stay online — a long Mission Loop run, an active Remote Control gateway session, or a connected Buzz presence. Off by default: AtlasMind never holds your machine awake unless you opt in, and the wake lock is released the moment the activity ends.",
+          "markdownDescription": "Keep this computer awake — prevent the OS from sleeping — **while an AtlasMind activity needs the agent to stay online**: a long autonomous **Mission Loop** run, an active **Remote Control** gateway session, or a connected **Buzz** presence.\n\nWhen `false` (default), AtlasMind never holds a wake lock; your normal power settings apply and a background run may be suspended when the machine sleeps. When `true`, AtlasMind acquires an OS keep-awake lock (Windows `SetThreadExecutionState`, macOS `caffeinate`, Linux `systemd-inhibit`) and releases it as soon as it is no longer needed.\n\nThis affects power use. It is additionally constrained by `atlasmind.presence.acPowerOnly` (suspended on battery by default) and auto-released by `atlasmind.presence.maxAwakeMinutes`. The status bar shows when the machine is being held awake; click it to stop."
+        },
+        "atlasmind.presence.keepDisplayAwake": {
+          "type": "boolean",
+          "default": false,
+          "description": "When keep-awake is active, also keep the display on. Off by default: AtlasMind keeps the system awake but lets the screen sleep, which uses less power. Only enable if an activity needs the display on.",
+          "markdownDescription": "When `atlasmind.presence.keepAwake` is holding the system awake, **also keep the display powered on**.\n\nWhen `false` (default), AtlasMind keeps the *system* from sleeping so the agent stays online, but still lets the **screen** turn off — the lower-power option that is enough for headless runs, remote sessions, and Buzz presence. Set to `true` only when an activity genuinely needs the display awake. Has no effect unless `keepAwake` is `true`. (On Linux the system inhibitor already keeps the machine working; display behaviour follows your desktop settings.)"
+        },
+        "atlasmind.presence.acPowerOnly": {
+          "type": "boolean",
+          "default": true,
+          "description": "Only keep the computer awake while it is on AC (mains) power. When true (default), keep-awake is automatically suspended on battery so AtlasMind never drains an unplugged laptop; it resumes when you reconnect power.",
+          "markdownDescription": "Only hold the keep-awake lock while the computer is running on **AC (mains) power**.\n\nWhen `true` (default, safest), `atlasmind.presence.keepAwake` is **automatically suspended on battery** so AtlasMind never keeps an unplugged laptop from sleeping and draining its battery; the lock is re-acquired when you reconnect power. Set to `false` only if you deliberately want a run to hold the machine awake on battery. Has no effect unless `keepAwake` is `true`."
+        },
+        "atlasmind.presence.maxAwakeMinutes": {
+          "type": "number",
+          "default": 240,
+          "minimum": 0,
+          "maximum": 1440,
+          "description": "Safety backstop: automatically release the keep-awake lock after this many minutes, even if an activity is still running (0 = no backstop; hold until the activity ends). Prevents a stuck activity from holding the machine awake indefinitely.",
+          "markdownDescription": "Safety backstop: automatically **release** the keep-awake lock after this many minutes, even if a qualifying activity is still running.\n\nThis bounds the maximum time AtlasMind can hold your machine awake, so a stuck or runaway activity can never keep it awake indefinitely. When the backstop fires, the activity keeps running under your normal power settings (and may be suspended if the machine then sleeps).\n\nExamples:\n- Default balance: `240` (4 hours)\n- Short supervised sessions: `60`\n- No backstop — hold until the activity ends: `0`\n\nHas no effect unless `atlasmind.presence.keepAwake` is `true`."
         },
         "atlasmind.agentAutoUpdateCadence": {
           "type": "string",

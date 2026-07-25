@@ -189,6 +189,20 @@ Agent Finders ship **disabled** and are managed from the Resource Discovery tab 
 
 ---
 
+## Buzz (agentic comms)
+
+Integration with [Buzz](https://buzz.xyz) — the open-source, Nostr-based workspace for humans and AI agents. Deny-by-default; nothing connects until you opt in. See [[Architecture]] and the `project_memory/roadmap/buzz-integration.md` roadmap.
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `atlasmind.buzz.enabled` | boolean | `false` | Enable Buzz integration: record Buzz identities/channels (npub / @handle / #channel) on Project Director contacts and reach them via a Buzz deep link. Automated outbound posting additionally needs a connected Buzz comms tool and the per-project `outboundEnabled` gate. |
+| `atlasmind.buzz.relayUrl` | string | `ws://localhost:3000` | Buzz relay URL (`BUZZ_RELAY_URL`); defaults to a local self-hosted relay. A remote relay sends project data off-machine and additionally requires `atlasmind.buzz.allowRemoteRelay`. |
+| `atlasmind.buzz.allowRemoteRelay` | boolean | `false` | Allow a non-local Buzz relay URL. When `false`, only loopback/localhost relays are used so project data stays on-machine. |
+
+Only `https` Buzz workspace links are launchable (Buzz has no verified native URI scheme); an npub / @handle / #channel is stored as display-only. Channels and deep links are sanitised at the webview boundary like every other Director channel.
+
+---
+
 ## Voice
 
 | Setting | Type | Default | Description |

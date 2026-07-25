@@ -38,7 +38,8 @@ import {
 } from '../core/directorCommsRunner.js';
 import { mcpSkillId } from '../mcp/mcpServerRegistry.js';
 import { classifyToolInvocation } from '../core/toolPolicy.js';
-import type { DataPrivacyActivityEvent, DataPrivacySensitivity, DeliveryConfig, DeploymentStage, PromotionPath, PromotionHistoryEntry, ProjectDirectorConfig, ProjectRunRecord } from '../types.js';
+import { DOCUMENTS_SSOT_PATH, DOCUMENTS_SUMMARY_SSOT_PATH, sanitizeDocumentsConfig, seedDocumentsConfig } from '../core/documentsManager.js';
+import type { DataPrivacyActivityEvent, DataPrivacySensitivity, DeliveryConfig, DeploymentStage, PromotionPath, PromotionHistoryEntry, ProjectDirectorConfig, ProjectRunRecord, DocumentCadence } from '../types.js';
 
 const execFileAsync = promisify(execFile);
 const PROJECT_DASHBOARD_VIEW_TYPE = 'atlasmind.projectDashboard';
@@ -93,6 +94,60 @@ const EXPECTED_SSOT_DIRECTORIES = [
 const ROADMAP_ITEMS_START = '<!-- atlasmind:roadmap-items:start -->';
 const ROADMAP_ITEMS_END = '<!-- atlasmind:roadmap-items:end -->';
 
+// The roadmap import generator (see the `atlasmind-import` block in
+// improvement-plan.md) injects "Project Context" metadata and generic
+// "Prioritisation Notes" scaffolding as checklist lines. These are not
+// actionable backlog items and must be filtered out of the dashboard so the
+// Roadmap page stops listing inappropriate items and duplicating them.
+const ROADMAP_NOISE_PHRASES = new Set<string>([
+  'critical, security, reliability, or production-blocking work',
+  'architectural integrity and changes that unlock safer future work',
+  'user-facing outcomes, milestones, and backlog order in this file',
+  'user-facing outcomes, milestones, and backlog order',
+  'user-facing outcomes, milestones, and backlog order transparency',
+  'delivery hygiene such as tests, ci, release notes, and documentation',
+  'delivery hygiene such as tests, ci, release notes, and docs',
+  'delivery hygiene: tests, ci, release notes, and documentation',
+  'address the highest-risk security, reliability, or correctness gap first',
+  'capture or implement the next architectural decision that reduces future churn',
+  'clarify the next highest-value user or business outcome',
+  'confirm the most leverage-heavy technical slice and keep the stack intentional',
+  'add or update the tests needed to prove the next change safely',
+  'sequence the next milestone so delivery remains measurable',
+  'review the operational or third-party dependencies before scaling scope',
+]);
+
+// "key: value" project-context lines the generator emits (Project, Timeline, …).
+const ROADMAP_METADATA_KEY = /^(project|project type|target audience|timeline|tech stack)\s*:/i;
+
+function normalizeRoadmapText(text: string): string {
+  return text.toLowerCase().replace(/\s+/g, ' ').replace(/[.\s]+$/, '').trim();
+}
+
+// True when a parsed checklist line is import-generator scaffolding rather than a
+// real backlog item, so the dashboard can hide it.
+function isRoadmapNoiseItem(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) {
+    return true;
+  }
+  if (ROADMAP_METADATA_KEY.test(trimmed)) {
+    return true;
+  }
+  return ROADMAP_NOISE_PHRASES.has(normalizeRoadmapText(trimmed));
+}
+
+// The backlog lives between explicit markers; parse only that region when present
+// so "## Project Context" and "## Prioritisation Notes" never leak into the list.
+function extractRoadmapItemsRegion(content: string): string {
+  const start = content.indexOf(ROADMAP_ITEMS_START);
+  const end = content.indexOf(ROADMAP_ITEMS_END);
+  if (start >= 0 && end > start) {
+    return content.slice(start + ROADMAP_ITEMS_START.length, end);
+  }
+  return content;
+}
+
 type ProjectDashboardMessage =
   | { type: 'ready' }
   | { type: 'refresh' }
@@ -125,6 +180,8 @@ type ProjectDashboardMessage =
   | { type: 'testDataPrivacy'; payload: { kind: 'text' | 'path'; value: string } }
   | { type: 'saveDirectorConfig'; payload: import('../types.js').ProjectDirectorConfig }
   | { type: 'seedDirectorFromRepo' }
+  | { type: 'saveDocumentsConfig'; payload: import('../types.js').DocumentsConfig }
+  | { type: 'seedDocumentsFromRepo' }
   | { type: 'copyContact'; payload: string }
   | { type: 'openContactDeepLink'; payload: { contactId: string; linkId: string } }
   | { type: 'assignRunOwner'; payload: { runId: string; contactId: string } }
@@ -161,7 +218,7 @@ interface DashboardStat {
   command?: string;
 }
 
-type DashboardPageId = 'overview' | 'score' | 'repo' | 'runtime' | 'testing' | 'ssot' | 'roadmap' | 'gapAnalysis' | 'security' | 'delivery' | 'director' | 'ideation';
+type DashboardPageId = 'overview' | 'score' | 'repo' | 'runtime' | 'testing' | 'ssot' | 'roadmap' | 'gapAnalysis' | 'security' | 'delivery' | 'director' | 'documents' | 'ideation';
 
 type IdeationCardKind =
   | 'concept'
@@ -775,6 +832,7 @@ interface DashboardSnapshot {
     stages: DashboardStagePipeline;
   };
   director: DashboardDirectorSnapshot;
+  documents: DashboardDocumentsSnapshot;
   score: DashboardScoreBreakdown;
   ideation: DashboardIdeationSnapshot;
   gapAnalysis: DashboardGapAnalysisSnapshot;
@@ -1219,6 +1277,7 @@ export class ProjectDashboardPanel {
     this.atlas.modelsRefresh.event(() => { void this.syncState(); }, null, this.disposables);
     this.atlas.deliveryRefresh?.event(() => { void this.syncState(); }, null, this.disposables);
     this.atlas.projectDirectorRefresh?.event(() => { void this.syncState(); }, null, this.disposables);
+    this.atlas.documentsRefresh?.event(() => { void this.syncState(); }, null, this.disposables);
     this.atlas.projectRunsRefresh.event(() => { void this.syncState(); }, null, this.disposables);
     this.atlas.memoryRefresh.event(() => { void this.syncState(); }, null, this.disposables);
     this.atlas.sessionConversation.onDidChange(() => { void this.syncState(); }, null, this.disposables);
@@ -1383,6 +1442,20 @@ export class ProjectDashboardPanel {
         return;
       case 'seedDirectorFromRepo':
         await this.handleSeedDirector();
+        return;
+      case 'saveDocumentsConfig':
+        {
+          // The webview payload is untrusted: sanitize it (clamp strings, make
+          // paths workspace-relative and traversal-safe) before it touches disk.
+          const clean = sanitizeDocumentsConfig(message.payload);
+          if (clean) {
+            await this.atlas.documentsManager.save(clean);
+            await this.syncState();
+          }
+        }
+        return;
+      case 'seedDocumentsFromRepo':
+        await this.handleSeedDocuments();
         return;
       case 'copyContact':
         await this.handleCopyContact(message.payload);
@@ -1905,6 +1978,22 @@ export class ProjectDashboardPanel {
     await this.syncState();
   }
 
+  private async handleSeedDocuments(): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot || !this.atlas.documentsManager) {
+      return;
+    }
+    // Seed a starter filing system only from paths that actually exist, so the
+    // registry never references documents the project doesn't have.
+    const presentDocFolders = ['docs', 'wiki', 'documentation', 'guides']
+      .filter(folder => existsSync(path.join(workspaceRoot, folder)));
+    const keyDocs = ['README.md', 'CHANGELOG.md', 'CONTRIBUTING.md', 'SECURITY.md']
+      .filter(doc => existsSync(path.join(workspaceRoot, doc)));
+    const seeded = seedDocumentsConfig({ presentDocFolders, keyDocs });
+    await this.atlas.documentsManager.save(seeded);
+    await this.syncState();
+  }
+
   private async handleCopyContact(contactId: string): Promise<void> {
     const contact = this.atlas.projectDirectorManager?.getConfig()?.contacts.find(entry => entry.id === contactId);
     if (!contact) {
@@ -2407,7 +2496,7 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
   }
 
   const candidate = message as Record<string, unknown>;
-  if (candidate['type'] === 'ready' || candidate['type'] === 'refresh' || candidate['type'] === 'runGapAnalysis' || candidate['type'] === 'markDeliveryReviewed' || candidate['type'] === 'reimportDelivery' || candidate['type'] === 'seedDirectorFromRepo') {
+  if (candidate['type'] === 'ready' || candidate['type'] === 'refresh' || candidate['type'] === 'runGapAnalysis' || candidate['type'] === 'markDeliveryReviewed' || candidate['type'] === 'reimportDelivery' || candidate['type'] === 'seedDirectorFromRepo' || candidate['type'] === 'seedDocumentsFromRepo') {
     return true;
   }
 
@@ -2450,6 +2539,11 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return typeof p === 'object' && p !== null && p['version'] === 1
       && Array.isArray(p['contacts']) && Array.isArray(p['stakeholders']) && Array.isArray(p['teamMembers'])
       && Array.isArray(p['responsibilities']) && Array.isArray(p['assignments']) && Array.isArray(p['followUps']);
+  }
+
+  if (candidate['type'] === 'saveDocumentsConfig') {
+    const p = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof p === 'object' && p !== null && p['version'] === 1 && Array.isArray(p['filing']) && Array.isArray(p['autoUpdate']);
   }
 
   if (candidate['type'] === 'openContactDeepLink') {
@@ -2561,7 +2655,7 @@ function normalizeDashboardPromptRequest(payload: unknown): { prompt: string; so
   const sourcePage = candidate['sourcePage'];
   return {
     prompt,
-    ...(sourcePage === 'overview' || sourcePage === 'score' || sourcePage === 'repo' || sourcePage === 'runtime' || sourcePage === 'testing' || sourcePage === 'ssot' || sourcePage === 'roadmap' || sourcePage === 'security' || sourcePage === 'delivery' || sourcePage === 'director' || sourcePage === 'ideation'
+    ...(sourcePage === 'overview' || sourcePage === 'score' || sourcePage === 'repo' || sourcePage === 'runtime' || sourcePage === 'testing' || sourcePage === 'ssot' || sourcePage === 'roadmap' || sourcePage === 'security' || sourcePage === 'delivery' || sourcePage === 'director' || sourcePage === 'documents' || sourcePage === 'ideation'
       ? { sourcePage }
       : {}),
   };
@@ -2599,6 +2693,7 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
   const sessions = atlas.sessionConversation.listSessions();
   const runs = await atlas.projectRunHistory.listRunsAsync(40);
   const directorSnapshot = await collectDirectorSnapshot(atlas, workspaceRoot, gitSnapshot.currentBranch, runs);
+  const documentsSnapshot = await collectDocumentsSnapshot(atlas, workspaceRoot);
   const runtimeTdd = summarizeRuntimeTdd(runs);
   const costSummary = atlas.costTracker.getSummary();
   const memoryEntries = atlas.memoryManager.listEntries();
@@ -2862,6 +2957,7 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
       stages: stagePipeline,
     },
     director: directorSnapshot,
+    documents: documentsSnapshot,
     score: scoreBreakdown,
     ideation: {
       boardPath: buildIdeationRelativePath(ssotPath, activeIdeationWorkspace.boardFile),
@@ -4884,14 +4980,240 @@ function extractMarkdownBulletItems(text: string): string[] {
 }
 
 function parseRoadmapProgress(text: string): { completed: number; total: number } {
-  const items = [...text.matchAll(/^\s*(?:[-*]|\d+\.)\s+(.+?)\s*$/gm)]
-    .map(match => match[1]?.trim() ?? '')
-    .filter(Boolean);
+  const region = extractRoadmapItemsRegion(text);
+  const seen = new Set<string>();
+  let completed = 0;
+  let total = 0;
+  for (const match of region.matchAll(/^\s*(?:[-*]|\d+\.)\s+(.+?)\s*$/gm)) {
+    const raw = match[1]?.trim() ?? '';
+    if (!raw) {
+      continue;
+    }
+    const done = /^(?:✅|\[x\])/i.test(raw);
+    const bare = raw.replace(/^(?:✅|\[(?:x| )\])\s*/i, '').replace(/\s*#mvp\b/ig, '').trim();
+    if (isRoadmapNoiseItem(bare)) {
+      continue;
+    }
+    const key = normalizeRoadmapText(bare);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    total += 1;
+    if (done) {
+      completed += 1;
+    }
+  }
+  return { completed, total };
+}
 
-  const completed = items.filter(item => /^(?:✅|\[x\])/i.test(item)).length;
+// ── Documents (.md management) ────────────────────────────────────
+
+interface DashboardDocumentFilingView {
+  id: string;
+  label: string;
+  path: string;
+  description?: string;
+  pattern?: string;
+  exists: boolean;
+  markdownCount: number;
+}
+
+interface DashboardDocumentAutoView {
+  id: string;
+  path: string;
+  label?: string;
+  sourceHint?: string;
+  cadence: DocumentCadence;
+  lastReviewed?: string;
+  exists: boolean;
+  lastModified?: string;
+  status: 'missing' | 'fresh' | 'review-due' | 'unknown';
+  statusLabel: string;
+  detail: string;
+  updatePrompt: string;
+}
+
+interface DashboardDocumentsSnapshot {
+  filePath: string;
+  summaryPath: string;
+  configured: boolean;
+  filing: DashboardDocumentFilingView[];
+  autoUpdate: DashboardDocumentAutoView[];
+  totalMarkdown: number;
+  markdownCapped: boolean;
+  reviewDueCount: number;
+  missingCount: number;
+  uncovered: string[];
+  summary: string;
+}
+
+const DOC_IGNORE_DIRS = new Set(['node_modules', 'dist', 'out', 'build', 'coverage', 'vendor', '.vscode-test']);
+
+/**
+ * Bounded recursive walk for markdown files, skipping heavy/irrelevant folders
+ * and hidden directories. Capped at `maxFiles` so a huge repo can't stall the
+ * dashboard. Returns workspace-relative POSIX paths plus mtimes for freshness.
+ */
+async function listWorkspaceMarkdown(workspaceRoot: string, maxFiles = 600): Promise<Array<{ rel: string; mtimeMs: number }>> {
+  const out: Array<{ rel: string; mtimeMs: number }> = [];
+  const walk = async (absDir: string, relDir: string): Promise<void> => {
+    if (out.length >= maxFiles) {
+      return;
+    }
+    const entries = await fs.readdir(absDir, { withFileTypes: true }).catch(() => [] as import('node:fs').Dirent[]);
+    for (const entry of entries) {
+      if (out.length >= maxFiles) {
+        return;
+      }
+      const rel = relDir ? `${relDir}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        if (entry.name.startsWith('.') || DOC_IGNORE_DIRS.has(entry.name)) {
+          continue;
+        }
+        await walk(path.join(absDir, entry.name), rel);
+      } else if (entry.isFile() && /\.mdx?$/i.test(entry.name)) {
+        try {
+          const stat = await fs.stat(path.join(absDir, entry.name));
+          out.push({ rel, mtimeMs: stat.mtimeMs });
+        } catch {
+          // Unreadable file — skip it.
+        }
+      }
+    }
+  };
+  await walk(workspaceRoot, '');
+  return out;
+}
+
+async function collectDocumentsSnapshot(atlas: AtlasMindContext, workspaceRoot: string | undefined): Promise<DashboardDocumentsSnapshot> {
+  const filePath = DOCUMENTS_SSOT_PATH;
+  const summaryPath = DOCUMENTS_SUMMARY_SSOT_PATH;
+  const config = atlas.documentsManager?.getConfig();
+  if (!workspaceRoot) {
+    return {
+      filePath, summaryPath,
+      configured: Boolean(config),
+      filing: [], autoUpdate: [],
+      totalMarkdown: 0, markdownCapped: false,
+      reviewDueCount: 0, missingCount: 0,
+      uncovered: [],
+      summary: 'Open a workspace to manage its documents.',
+    };
+  }
+
+  const MAX_MD = 600;
+  const markdown = await listWorkspaceMarkdown(workspaceRoot, MAX_MD);
+  const markdownCapped = markdown.length >= MAX_MD;
+  const totalMarkdown = markdown.length;
+  const now = Date.now();
+
+  const filing: DashboardDocumentFilingView[] = (config?.filing ?? []).map(entry => {
+    const prefix = entry.path.replace(/\/+$/, '');
+    const inFolder = markdown.filter(md => md.rel === prefix || md.rel.startsWith(`${prefix}/`));
+    return {
+      id: entry.id,
+      label: entry.label,
+      path: entry.path,
+      ...(entry.description ? { description: entry.description } : {}),
+      ...(entry.pattern ? { pattern: entry.pattern } : {}),
+      exists: existsSync(path.join(workspaceRoot, entry.path)),
+      markdownCount: inFolder.length,
+    };
+  });
+
+  const autoUpdate: DashboardDocumentAutoView[] = [];
+  for (const entry of config?.autoUpdate ?? []) {
+    let exists = false;
+    let mtimeMs = 0;
+    try {
+      const stat = await fs.stat(path.join(workspaceRoot, entry.path));
+      exists = stat.isFile();
+      mtimeMs = stat.mtimeMs;
+    } catch {
+      exists = false;
+    }
+    let status: DashboardDocumentAutoView['status'];
+    let detail: string;
+    if (!exists) {
+      status = 'missing';
+      detail = `Not found at ${entry.path}.`;
+    } else if (!entry.lastReviewed) {
+      status = 'unknown';
+      detail = 'Not reviewed yet — mark it reviewed once it is current.';
+    } else {
+      const reviewedMs = Date.parse(entry.lastReviewed);
+      const changedSinceReview = Number.isFinite(reviewedMs) && mtimeMs > reviewedMs;
+      const daysSince = Number.isFinite(reviewedMs) ? (now - reviewedMs) / 86_400_000 : Infinity;
+      const overdueWeekly = entry.cadence === 'weekly' && daysSince > 7;
+      if (changedSinceReview) {
+        status = 'review-due';
+        detail = `Changed since last review (${entry.lastReviewed.slice(0, 10)}).`;
+      } else if (overdueWeekly) {
+        status = 'review-due';
+        detail = `Weekly review overdue (last ${entry.lastReviewed.slice(0, 10)}).`;
+      } else {
+        status = 'fresh';
+        detail = `Reviewed ${entry.lastReviewed.slice(0, 10)}; no changes since.`;
+      }
+    }
+    const statusLabel = status === 'missing' ? 'Missing'
+      : status === 'review-due' ? 'Review due'
+      : status === 'fresh' ? 'Up to date'
+      : 'Not reviewed';
+    autoUpdate.push({
+      id: entry.id,
+      path: entry.path,
+      ...(entry.label ? { label: entry.label } : {}),
+      ...(entry.sourceHint ? { sourceHint: entry.sourceHint } : {}),
+      cadence: entry.cadence,
+      ...(entry.lastReviewed ? { lastReviewed: entry.lastReviewed } : {}),
+      exists,
+      ...(exists ? { lastModified: new Date(mtimeMs).toISOString() } : {}),
+      status,
+      statusLabel,
+      detail,
+      updatePrompt: `Review ${entry.path} and update it so it is current${entry.sourceHint ? `. It should track: ${entry.sourceHint}` : ''}. Make the smallest correct edits, preserve the document's structure, and summarize what changed. Do not modify unrelated files.`,
+    });
+  }
+
+  const reviewDueCount = autoUpdate.filter(entry => entry.status === 'review-due').length;
+  const missingCount = autoUpdate.filter(entry => entry.status === 'missing').length;
+
+  // Markdown files not covered by any shelf or tracked file — bounded suggestions.
+  const coveredExact = new Set((config?.autoUpdate ?? []).map(entry => entry.path));
+  const filingPrefixes = (config?.filing ?? []).map(entry => entry.path.replace(/\/+$/, ''));
+  const uncovered = markdown
+    .map(md => md.rel)
+    .filter(rel => !rel.startsWith('project_memory/')) // SSOT memory is managed separately
+    .filter(rel => !coveredExact.has(rel))
+    .filter(rel => !filingPrefixes.some(prefix => rel === prefix || rel.startsWith(`${prefix}/`)))
+    .slice(0, 12);
+
+  const configured = Boolean(config) && (((config?.filing.length ?? 0) > 0) || ((config?.autoUpdate.length ?? 0) > 0));
+  let summary: string;
+  if (!configured) {
+    summary = 'No document filing system defined yet. Seed one from your repo, or add shelves and tracked documents to keep them current.';
+  } else {
+    const parts = [
+      `${filing.length} ${filing.length === 1 ? 'shelf' : 'shelves'}`,
+      `${autoUpdate.length} tracked document${autoUpdate.length === 1 ? '' : 's'}`,
+    ];
+    if (reviewDueCount > 0) {
+      parts.push(`${reviewDueCount} need${reviewDueCount === 1 ? 's' : ''} review`);
+    }
+    if (missingCount > 0) {
+      parts.push(`${missingCount} missing`);
+    }
+    summary = `${parts.join(' · ')}.`;
+  }
+
   return {
-    completed,
-    total: items.length,
+    filePath, summaryPath, configured,
+    filing, autoUpdate,
+    totalMarkdown, markdownCapped,
+    reviewDueCount, missingCount,
+    uncovered, summary,
   };
 }
 
@@ -4923,21 +5245,30 @@ async function collectRoadmapSnapshot(workspaceRoot: string | undefined, ssotPat
 }
 
 function parseDashboardRoadmapItems(content: string): Array<{ id: string; text: string; completed: boolean; isMvp: boolean }> {
-  return [...content.matchAll(/^\s*(?:[-*]|\d+\.)\s+(.+?)\s*$/gm)]
-    .map((match, index) => {
+  const region = extractRoadmapItemsRegion(content);
+  const seen = new Set<string>();
+  return [...region.matchAll(/^\s*(?:[-*]|\d+\.)\s+(.+?)\s*$/gm)]
+    .map(match => {
       const raw = match[1]?.trim() ?? '';
       const completed = /^(?:✅|\[x\])/i.test(raw);
       const withoutCheckbox = raw.replace(/^(?:✅|\[(?:x| )\])\s*/i, '').trim();
       const isMvp = /#mvp\b/i.test(withoutCheckbox);
       const text = withoutCheckbox.replace(/\s*#mvp\b/ig, '').trim();
-      return {
-        id: `roadmap-${index + 1}`,
-        text,
-        completed,
-        isMvp,
-      };
+      return { text, completed, isMvp };
     })
-    .filter(item => item.text.length > 0);
+    // Drop generator scaffolding (Project Context / Prioritisation Notes) …
+    .filter(item => !isRoadmapNoiseItem(item.text))
+    // … and collapse duplicates the generator emitted repeatedly.
+    .filter(item => {
+      const key = normalizeRoadmapText(item.text);
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    })
+    // Assign stable sequential ids only after filtering so ids stay contiguous.
+    .map((item, index) => ({ id: `roadmap-${index + 1}`, ...item }));
 }
 
 function prioritizeDashboardRoadmapItems(items: Array<{ id: string; text: string; completed: boolean; isMvp?: boolean }>): DashboardRoadmapItem[] {
@@ -6908,6 +7239,55 @@ const DASHBOARD_CSS = `
 
   .roadmap-item.is-mvp {
     border-left: 3px solid color-mix(in srgb, var(--dash-accent-strong) 70%, var(--dash-border));
+  }
+
+  .roadmap-item {
+    cursor: grab;
+  }
+
+  .roadmap-item .row-head {
+    align-items: center;
+  }
+
+  .roadmap-item .drag-handle {
+    cursor: grab;
+    color: color-mix(in srgb, var(--dash-fg) 45%, transparent);
+    font-size: 14px;
+    line-height: 1;
+    letter-spacing: -2px;
+    margin-right: 8px;
+    user-select: none;
+    flex: 0 0 auto;
+  }
+
+  .roadmap-item:hover .drag-handle {
+    color: var(--dash-accent-strong);
+  }
+
+  .roadmap-item.dragging {
+    opacity: 0.5;
+    cursor: grabbing;
+  }
+
+  .roadmap-item.drag-over {
+    border-top: 2px solid var(--dash-accent-strong);
+    background: color-mix(in srgb, var(--dash-accent-strong) 10%, transparent);
+  }
+
+  .mvp-help {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    margin-left: 6px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--dash-accent-strong);
+    border: 1px solid color-mix(in srgb, var(--dash-accent-strong) 55%, var(--dash-border));
+    cursor: help;
+    vertical-align: middle;
   }
 
   .mvp-progress {

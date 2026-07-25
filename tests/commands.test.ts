@@ -158,19 +158,100 @@ describe('RECOMMENDED_MCP_SERVERS', () => {
       expect(starter.note.length).toBeGreaterThan(20);
     }
 
-    const newCatalogueIds = [
+    // These catalogue presets are now guided prefills — the wizard fills the
+    // command and asks only for credentials (with a step-by-step how-to), so a
+    // novice never lands in a blank Advanced form.
+    const guidedPrefillIds = [
+      // Batch 1 (platform servers)
+      'mcp-server-github',
+      'mcp-server-entra',
+      'mcp-server-m365',
       'mcp-server-shopify',
+      'mcp-server-woocommerce',
       'mcp-server-wordpress',
       'mcp-server-webflow',
+      'mcp-server-wix',
       'mcp-server-youtube',
-      'mcp-server-twitch',
-      'mcp-server-linkedin',
       'mcp-server-meta',
+      'mcp-server-x',
+      // Batch 2 (cloud / data / devops / comms / payments)
+      'mcp-server-aws',
+      'mcp-server-gcp',
+      'mcp-server-cloudflare',
+      'mcp-server-cloudflare-workers',
+      'mcp-server-appledev',
+      'mcp-server-mysql',
+      'mcp-server-mongodb',
+      'mcp-server-elasticsearch',
+      'mcp-server-rabbitmq',
+      'mcp-server-sqs',
+      'mcp-server-sendgrid',
+      'mcp-server-circleci',
+      'mcp-server-grafana',
+      'mcp-server-prometheus',
+      'mcp-server-jira',
+      'mcp-server-trello',
+      'mcp-server-stripe',
     ];
-
-    for (const id of newCatalogueIds) {
+    for (const id of guidedPrefillIds) {
+      const starter = getRecommendedMcpStarterDetails(id);
       expect(RECOMMENDED_MCP_SERVERS.some(server => server.id === id)).toBe(true);
-      expect(getRecommendedMcpStarterDetails(id).setupMode).toBe('manual');
+      expect(starter.setupMode).toBe('prefill');
+      // A prefill server must give AtlasMind an endpoint it can launch.
+      expect(starter.transport === 'http' ? Boolean(starter.url) : Boolean(starter.command)).toBe(true);
+    }
+
+    // Community / low-adoption servers kept guided-manual (flagged for review) —
+    // still prefilled with a pinned command + inputs so the wizard hand-holds.
+    const guidedManualWithCommand = ['mcp-server-twitch', 'mcp-server-linkedin', 'mcp-server-openai', 'mcp-server-apns'];
+    for (const id of guidedManualWithCommand) {
+      const starter = getRecommendedMcpStarterDetails(id);
+      expect(starter.setupMode).toBe('manual');
+      expect(Boolean(starter.command)).toBe(true);
+      expect((starter.safetyNote ?? '').length).toBeGreaterThan(0);
+    }
+
+    // Servers whose credentials must sit on the command line (no env option):
+    // kept guided-manual WITHOUT a prefilled command so AtlasMind never stores a
+    // secret in config — they route to Advanced with full step-by-step guidance.
+    const guidedManualNoSecretInConfig = ['mcp-server-twilio', 'mcp-server-jenkins'];
+    for (const id of guidedManualNoSecretInConfig) {
+      const starter = getRecommendedMcpStarterDetails(id);
+      expect(starter.setupMode).toBe('manual');
+      expect(Boolean(starter.command)).toBe(false); // no endpoint → routes to Advanced
+      expect((starter.credentialHelpUrl ?? '').length).toBeGreaterThan(0);
+      expect((starter.safetyNote ?? '').length).toBeGreaterThan(0);
+    }
+
+    // Every upgraded server hand-holds: prerequisites + credential steps present.
+    for (const id of [...guidedPrefillIds, ...guidedManualWithCommand, ...guidedManualNoSecretInConfig]) {
+      const starter = getRecommendedMcpStarterDetails(id);
+      expect((starter.prerequisites ?? []).length).toBeGreaterThan(0);
+      expect((starter.credentialSteps ?? []).length).toBeGreaterThan(0);
+    }
+
+    // No recommended input stores a secret as a command-line argument (secrets
+    // must go to SecretStorage via env, per the safety rule).
+    for (const server of RECOMMENDED_MCP_SERVERS) {
+      for (const input of getRecommendedMcpStarterDetails(server.id).inputs ?? []) {
+        if (input.kind === 'secret') {
+          expect(input.target).toBe('env');
+        }
+      }
+    }
+
+    // Spot-check batch-2 safety defaults.
+    expect(getRecommendedMcpStarterDetails('mcp-server-mongodb').args).toContain('--readOnly');
+    expect(getRecommendedMcpStarterDetails('mcp-server-cloudflare').args?.some(a => a.startsWith('mcp-remote'))).toBe(true);
+    const awsReadOnly = getRecommendedMcpStarterDetails('mcp-server-aws').inputs?.find(i => i.key === 'READ_OPERATIONS_ONLY');
+    expect(awsReadOnly?.defaultValue).toBe('true');
+
+    // Every recommended input carries plain-language help text.
+    for (const server of RECOMMENDED_MCP_SERVERS) {
+      for (const input of getRecommendedMcpStarterDetails(server.id).inputs ?? []) {
+        expect(typeof input.help).toBe('string');
+        expect(input.help.length).toBeGreaterThan(0);
+      }
     }
 
     expect(getRecommendedMcpStarterDetails('mcp-server-filesystem')).toMatchObject({
@@ -208,7 +289,20 @@ describe('RECOMMENDED_MCP_SERVERS', () => {
     expect(getRecommendedMcpStarterDetails('mcp-server-git').runtimeInstalls?.linux?.length).toBeGreaterThan(0);
     expect(getRecommendedMcpStarterDetails('mcp-server-gitkraken').runtimeInstalls?.win32?.[0]?.packageId).toBe('GitKraken.cli');
     expect(getRecommendedMcpStarterDetails('mcp-server-gitkraken').runtimeInstalls?.darwin?.[0]?.packageManager).toBe('brew');
-    expect(getRecommendedMcpStarterDetails('mcp-server-github').setupMode).toBe('manual');
-    expect(getRecommendedMcpStarterDetails('mcp-server-m365').setupMode).toBe('manual');
+    // GitHub and M365 are now guided prefills (Docker image / npx package with
+    // step-by-step credential how-to), not blank-form manual setups.
+    expect(getRecommendedMcpStarterDetails('mcp-server-github')).toMatchObject({
+      setupMode: 'prefill',
+      transport: 'stdio',
+      command: 'docker',
+    });
+    expect(getRecommendedMcpStarterDetails('mcp-server-github').runtimeInstalls?.win32?.[0]?.packageId).toBe('Docker.DockerDesktop');
+    expect(getRecommendedMcpStarterDetails('mcp-server-m365')).toMatchObject({
+      setupMode: 'prefill',
+      transport: 'stdio',
+      command: 'npx',
+    });
+    // M365 defaults to read-only for novices (write is an explicit opt-in).
+    expect(getRecommendedMcpStarterDetails('mcp-server-m365').args).toContain('--read-only');
   });
 });

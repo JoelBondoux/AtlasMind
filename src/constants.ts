@@ -43,6 +43,8 @@ export interface RecommendedMcpInput {
 	placeholder?: string;
 	/** Default value shown in the field (e.g. '${workspaceFolder}' for a folder). */
 	defaultValue?: string;
+	/** A realistic example value shown as the field's greyed placeholder (handholding). */
+	example?: string;
 	required?: boolean;
 }
 
@@ -66,7 +68,55 @@ export interface RecommendedMcpStarterDetails {
 	runtimeInstalls?: Partial<Record<SupportedRuntimePlatform, RecommendedMcpRuntimeInstall[]>>;
 	/** Values the guided wizard collects (credentials, folders, connection URLs). */
 	inputs?: RecommendedMcpInput[];
+	/**
+	 * Novice-facing handholding content for the guided-setup wizard. Populated for
+	 * servers that need credentials or manual review so the wizard can render a
+	 * "what you'll need" checklist, a step-by-step credential how-to, a direct
+	 * link to the exact console page, and any safety caveat — instead of dropping
+	 * the user into a blank Advanced form.
+	 */
+	/** "What you'll need" bullets shown before the form (accounts, plans, runtimes). */
+	prerequisites?: string[];
+	/** Ordered, numbered how-to for obtaining the credential(s). */
+	credentialSteps?: string[];
+	/** Deep link to the exact credential/token creation page. */
+	credentialHelpUrl?: string;
+	/** Amber caveat rendered as a callout (telemetry, real spend, beta, third-party trust). */
+	safetyNote?: string;
 }
+
+// Shared runtime-install sets, reused across recommended starters.
+const NODE_RUNTIME_INSTALLS: Partial<Record<SupportedRuntimePlatform, RecommendedMcpRuntimeInstall[]>> = {
+	win32: [{ packageManager: 'winget', packageId: 'OpenJS.NodeJS.LTS', displayName: 'Node.js LTS' }],
+	darwin: [{ packageManager: 'brew', packageId: 'node', displayName: 'Node.js' }],
+	linux: [
+		{ packageManager: 'brew', packageId: 'node', displayName: 'Node.js' },
+		{ packageManager: 'apt-get', packageId: 'nodejs', extraPackages: ['npm'], displayName: 'Node.js and npm' },
+		{ packageManager: 'dnf', packageId: 'nodejs', extraPackages: ['npm'], displayName: 'Node.js and npm' },
+		{ packageManager: 'pacman', packageId: 'nodejs', extraPackages: ['npm'], displayName: 'Node.js and npm' },
+	],
+};
+
+const UV_RUNTIME_INSTALLS: Partial<Record<SupportedRuntimePlatform, RecommendedMcpRuntimeInstall[]>> = {
+	win32: [{ packageManager: 'winget', packageId: 'astral-sh.uv', displayName: 'uv' }],
+	darwin: [{ packageManager: 'brew', packageId: 'uv', displayName: 'uv' }],
+	linux: [
+		{ packageManager: 'brew', packageId: 'uv', displayName: 'uv' },
+		{ packageManager: 'apt-get', packageId: 'uv', displayName: 'uv' },
+		{ packageManager: 'dnf', packageId: 'uv', displayName: 'uv' },
+		{ packageManager: 'pacman', packageId: 'uv', displayName: 'uv' },
+	],
+};
+
+const DOCKER_RUNTIME_INSTALLS: Partial<Record<SupportedRuntimePlatform, RecommendedMcpRuntimeInstall[]>> = {
+	win32: [{ packageManager: 'winget', packageId: 'Docker.DockerDesktop', displayName: 'Docker Desktop' }],
+	darwin: [{ packageManager: 'brew', packageId: 'docker', displayName: 'Docker Desktop' }],
+	linux: [
+		{ packageManager: 'apt-get', packageId: 'docker.io', displayName: 'Docker Engine' },
+		{ packageManager: 'dnf', packageId: 'docker', displayName: 'Docker Engine' },
+		{ packageManager: 'pacman', packageId: 'docker', displayName: 'Docker Engine' },
+	],
+};
 
 const MCP_REGISTRY_URL = 'https://registry.modelcontextprotocol.io/';
 
@@ -713,36 +763,870 @@ export function getRecommendedMcpStarterDetails(serverId: string): RecommendedMc
 			};
 		case 'mcp-server-github':
 			return {
-				setupMode: 'manual',
-				transport: 'http',
-				note: 'Confirmed remote endpoint exists, but AtlasMind does not yet autofill the required OAuth or PAT configuration for the GitHub MCP server.',
+				setupMode: 'prefill',
+				transport: 'stdio',
+				command: 'docker',
+				args: ['run', '-i', '--rm', '-e', 'GITHUB_PERSONAL_ACCESS_TOKEN', 'ghcr.io/github/github-mcp-server'],
+				note: 'Official GitHub MCP server (Docker image ghcr.io/github/github-mcp-server). Paste a fine-grained token below; AtlasMind stores it securely and passes it to the container.',
+				inputs: [
+					{
+						key: 'GITHUB_PERSONAL_ACCESS_TOKEN',
+						label: 'GitHub Personal Access Token',
+						help: 'Authorises the server to read/manage your repos, issues, and PRs. Create a fine-grained token; stored in SecretStorage and passed to the container as an env var.',
+						kind: 'secret',
+						target: 'env',
+						example: 'github_pat_11ABCDE0A0…',
+						required: true,
+					},
+				],
+				prerequisites: [
+					'A GitHub account (any plan).',
+					'Docker installed and running (AtlasMind can install Docker for you).',
+					'A fine-grained personal access token you create in the steps below.',
+				],
+				credentialSteps: [
+					'Sign in to GitHub, then open the token page linked below.',
+					'Name it "AtlasMind MCP" and set an expiry (e.g. 90 days).',
+					'Repository access → choose "Only select repositories" (least privilege).',
+					'Repository permissions → set Contents, Issues, and Pull requests to Read and write.',
+					'Click Generate token and copy it (github_pat_…) — it is shown only once.',
+					'Paste it into the field below.',
+				],
+				credentialHelpUrl: 'https://github.com/settings/personal-access-tokens/new',
+				safetyNote: 'Grant access to "Only select repositories" so the token can only touch what you intend.',
+				runtimeInstalls: DOCKER_RUNTIME_INSTALLS,
 			};
 		case 'mcp-server-entra':
 			return {
-				setupMode: 'manual',
-				transport: 'http',
-				note: 'Confirmed Microsoft enterprise MCP flow exists, but it requires tenant-specific authentication and consent setup before AtlasMind can connect.',
+				setupMode: 'prefill',
+				transport: 'stdio',
+				command: 'npx',
+				args: ['-y', '@merill/lokka'],
+				note: 'Microsoft Entra ID via Lokka (community server maintained by a Microsoft Entra PM). Enter your app-registration details below.',
+				inputs: [
+					{ key: 'TENANT_ID', label: 'Directory (tenant) ID', help: 'Your Entra tenant ID, from the app registration Overview page.', kind: 'text', target: 'env', example: '0a1b2c3d-4e5f-6789-abcd-ef0123456789', required: true },
+					{ key: 'CLIENT_ID', label: 'Application (client) ID', help: 'The app registration client ID, from its Overview page.', kind: 'text', target: 'env', example: '1f2e3d4c-5b6a-7890-cdef-0123456789ab', required: true },
+					{ key: 'CLIENT_SECRET', label: 'Client secret value', help: 'The secret VALUE (not its ID) from Certificates & secrets. Shown only once.', kind: 'secret', target: 'env', example: 'abc8Q~ExAmPle-Secret-Value…', required: true },
+				],
+				prerequisites: [
+					'A Microsoft Entra tenant and an account that can create app registrations.',
+					'A tenant admin to grant admin consent for the Graph permissions.',
+					'Node.js (AtlasMind can install it for you).',
+				],
+				credentialSteps: [
+					'In entra.microsoft.com → Identity → Applications → App registrations → New registration (single tenant), Register.',
+					'On Overview, copy the Directory (tenant) ID and Application (client) ID.',
+					'API permissions → Add → Microsoft Graph → Application permissions → add read-only scopes (User.Read.All, Group.Read.All, Directory.Read.All).',
+					'Click "Grant admin consent" and confirm the green check marks.',
+					'Certificates & secrets → New client secret → copy the Value (shown once).',
+					'Paste the tenant ID, client ID, and secret value below.',
+				],
+				credentialHelpUrl: 'https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade',
+				safetyNote: 'Community package (by a Microsoft Entra PM). Grant read-only Graph scopes to limit what it can do.',
+				runtimeInstalls: NODE_RUNTIME_INSTALLS,
 			};
 		case 'mcp-server-m365':
 			return {
-				setupMode: 'manual',
-				transport: 'http',
-				note: 'Microsoft 365 MCP is exposed through connector and enterprise-specific flows rather than one universal AtlasMind-ready command. Follow the linked documentation for your tenant or connector path.',
+				setupMode: 'prefill',
+				transport: 'stdio',
+				command: 'npx',
+				args: ['-y', '@softeria/ms-365-mcp-server', '--org-mode', '--read-only'],
+				note: 'Microsoft 365 via @softeria/ms-365-mcp-server. Read-only by default; sign in with a one-time browser device code on first connect (no token needed up front). Leave the fields blank unless you use your own Entra app.',
+				inputs: [
+					{ key: 'MS365_MCP_CLIENT_ID', label: 'Custom Entra app (client) ID — optional', help: 'Only if you register your own Entra app instead of Softeria\'s default. Leave blank otherwise.', kind: 'text', target: 'env', example: '11111111-2222-3333-4444-555555555555', required: false },
+					{ key: 'MS365_MCP_TENANT_ID', label: 'Entra tenant ID — optional', help: 'Your tenant ID, or "consumers"/"common". Leave blank to use the default.', kind: 'text', target: 'env', example: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', required: false },
+					{ key: 'MS365_MCP_CLIENT_SECRET', label: 'Custom Entra app secret — optional', help: 'Only needed with a custom Entra app. Leave blank otherwise.', kind: 'secret', target: 'env', example: 'abc8Q~ExAmPle-Secret-Value…', required: false },
+				],
+				prerequisites: [
+					'A Microsoft 365 work/school account (for a personal account, remove --org-mode via Advanced).',
+					'Node.js 18+ (20+ recommended) — AtlasMind can install it.',
+					'A one-time browser sign-in on first connect; your organisation may need to approve it once.',
+				],
+				credentialSteps: [
+					'Add the server with the prefilled command and connect — no token is needed up front.',
+					'Ask the tools to sign in (or run: npx -y @softeria/ms-365-mcp-server --login).',
+					'Open microsoft.com/devicelogin and enter the code shown.',
+					'Sign in and approve the requested permissions; an admin approves once if required.',
+					'Your sign-in is cached by your OS credential store — no token is stored in AtlasMind.',
+				],
+				credentialHelpUrl: 'https://github.com/Softeria/ms-365-mcp-server#authentication',
+				safetyNote: 'Third-party server (Softeria). Runs read-only by default; enable write access via Advanced only when you need it.',
+				runtimeInstalls: NODE_RUNTIME_INSTALLS,
 			};
 		case 'mcp-server-shopify':
+			return {
+				setupMode: 'prefill',
+				transport: 'stdio',
+				command: 'npx',
+				args: ['-y', '@shopify/dev-mcp@latest'],
+				note: 'Official Shopify Dev MCP server — searches Shopify dev docs and the Admin GraphQL schema. No account or token required; connect immediately.',
+				prerequisites: [
+					'Node.js (AtlasMind can install it for you).',
+					'No Shopify account or token needed — it reads public developer docs and schemas only.',
+				],
+				credentialSteps: [
+					'No credential is required — just connect.',
+					'Verify by asking: "search the Shopify Admin GraphQL schema for the product type".',
+				],
+				credentialHelpUrl: 'https://shopify.dev/docs/apps/build/devmcp',
+				safetyNote: 'This is the developer docs/schema server, not a live-store connector. It sends anonymous usage telemetry.',
+				runtimeInstalls: NODE_RUNTIME_INSTALLS,
+			};
 		case 'mcp-server-woocommerce':
+			return {
+				setupMode: 'prefill',
+				transport: 'stdio',
+				command: 'npx',
+				args: ['-y', '@automattic/mcp-wordpress-remote@latest'],
+				note: 'Official Automattic WordPress/WooCommerce MCP server. Enable the MCP feature on your store first, then paste your store URL and REST API keys below.',
+				inputs: [
+					{ key: 'WP_API_URL', label: 'Store MCP endpoint URL', help: 'Your store URL + /wp-json/mcp/mcp-adapter-default-server.', kind: 'url', target: 'env', example: 'https://mystore.com/wp-json/mcp/mcp-adapter-default-server', required: true },
+					{ key: 'WOO_CUSTOMER_KEY', label: 'WooCommerce REST API consumer key', help: 'Starts with ck_. From WooCommerce → Settings → Advanced → REST API.', kind: 'secret', target: 'env', example: 'ck_1a2b3c4d5e6f…', required: true },
+					{ key: 'WOO_CUSTOMER_SECRET', label: 'WooCommerce REST API consumer secret', help: 'Starts with cs_. Shown only once when you create the key.', kind: 'secret', target: 'env', example: 'cs_9f8e7d6c5b4a…', required: true },
+				],
+				prerequisites: [
+					'A WooCommerce 10.3+ store on HTTPS that you administer.',
+					'The MCP feature enabled on the store (WooCommerce → Settings → Advanced → Features → MCP (Beta)).',
+					'Node.js (AtlasMind can install it for you).',
+				],
+				credentialSteps: [
+					'Sign in to wp-admin as an administrator.',
+					'WooCommerce → Settings → Advanced → Features → enable "MCP (Beta)", Save.',
+					'WooCommerce → Settings → Advanced → REST API → Add key.',
+					'Description "AtlasMind MCP", pick an admin user, Permissions = Read (use Read/Write only if you need writes).',
+					'Generate the key and copy ck_… and cs_… (the secret is shown once).',
+					'Endpoint URL = https://YOURDOMAIN/wp-json/mcp/mcp-adapter-default-server.',
+				],
+				credentialHelpUrl: 'https://woocommerce.com/document/woocommerce-rest-api/',
+				safetyNote: 'WooCommerce MCP is Beta and endpoints may change. Prefer a Read-only API key.',
+				runtimeInstalls: NODE_RUNTIME_INSTALLS,
+			};
 		case 'mcp-server-wordpress':
+			return {
+				setupMode: 'prefill',
+				transport: 'stdio',
+				command: 'npx',
+				args: ['-y', '@automattic/mcp-wordpress-remote'],
+				note: 'Official Automattic WordPress MCP server. Install the MCP Adapter plugin on your site, then use an application password below.',
+				inputs: [
+					{ key: 'WP_API_URL', label: 'WordPress MCP endpoint URL', help: 'Your site URL + /wp-json/mcp/mcp-adapter-default-server.', kind: 'url', target: 'env', example: 'https://example.com/wp-json/mcp/mcp-adapter-default-server', required: true },
+					{ key: 'WP_API_USERNAME', label: 'WordPress username', help: 'Your WordPress admin username.', kind: 'text', target: 'env', example: 'jane_admin', required: true },
+					{ key: 'WP_API_PASSWORD', label: 'Application password', help: 'From Users → Profile → Application Passwords. Keep the spaces in the value.', kind: 'secret', target: 'env', example: 'abcd EFGH 1234 wxyz 5678 90AB', required: true },
+					{ key: 'OAUTH_ENABLED', label: 'Use application password', help: 'Keep this "false" to authenticate with the application password above.', kind: 'text', target: 'env', example: 'false', defaultValue: 'false', required: true },
+				],
+				prerequisites: [
+					'A self-hosted WordPress 6.9+ site (on HTTPS) where you are an administrator.',
+					'The official MCP Adapter plugin installed and activated.',
+					'Node.js 22+ — AtlasMind can install it.',
+				],
+				credentialSteps: [
+					'Download mcp-adapter.zip from github.com/WordPress/mcp-adapter/releases/latest.',
+					'wp-admin → Plugins → Add New → Upload Plugin → upload and Activate it.',
+					'Confirm your endpoint: open site + /wp-json/mcp/mcp-adapter-default-server and check it returns JSON (not 404).',
+					'Users → Profile → Application Passwords → name it "AtlasMind" → Add New Application Password.',
+					'Copy the spaced value into the password field (keep the spaces) and enter your username.',
+					'Leave "Use application password" set to false.',
+				],
+				credentialHelpUrl: 'https://wordpress.org/documentation/article/application-passwords/',
+				safetyNote: 'Application passwords require HTTPS. The application-password path is treated as legacy upstream (OAuth is their default) but is fully supported.',
+				runtimeInstalls: NODE_RUNTIME_INSTALLS,
+			};
 		case 'mcp-server-webflow':
+			return {
+				setupMode: 'prefill',
+				transport: 'stdio',
+				command: 'npx',
+				args: ['-y', 'webflow-mcp-server@latest'],
+				note: 'Official Webflow MCP server. Paste a Site API token below.',
+				inputs: [
+					{ key: 'WEBFLOW_TOKEN', label: 'Webflow Site API Token', help: 'Generate under your site\'s Settings → Apps & integrations → API access. Only site admins can create one.', kind: 'secret', target: 'env', example: 'a1b2c3d4e5f6…', required: true },
+				],
+				prerequisites: [
+					'A Webflow account with site-admin access (only admins can mint a token).',
+					'Node.js 22.3+ — AtlasMind can install it.',
+					'Some Data API operations may require a paid Webflow plan.',
+				],
+				credentialSteps: [
+					'Open the Webflow Dashboard → your site → Settings.',
+					'Site settings → Apps & integrations → API access → Generate API token.',
+					'Name it "AtlasMind MCP" and enable only the scopes you need (least privilege).',
+					'Generate and copy the token (shown once).',
+					'Paste it below.',
+				],
+				credentialHelpUrl: 'https://developers.webflow.com/data/docs/getting-started-apps/get-a-site-token',
+				safetyNote: 'Enable only the scopes you actually need. Tokens are limited to 5 per site and expire after 365 days unused.',
+				runtimeInstalls: NODE_RUNTIME_INSTALLS,
+			};
 		case 'mcp-server-wix':
+			return {
+				setupMode: 'prefill',
+				transport: 'stdio',
+				command: 'npx',
+				args: ['-y', '@wix/mcp-remote@latest', 'https://mcp.wix.com/mcp', '--header', 'Authorization:${WIX_API_KEY}', '--header', 'wix-account-id:<WIX_ACCOUNT_ID>'],
+				note: 'Official Wix MCP (via the Wix remote proxy). Enter your Wix API key and Account ID below; the key is stored securely and injected into the request header.',
+				inputs: [
+					{ key: 'WIX_API_KEY', label: 'Wix API key', help: 'Generate under Account Settings → API Keys (owner/co-owner only). Stored in SecretStorage and passed as a request header.', kind: 'secret', target: 'env', example: 'IST.eyJ…', required: true },
+					{ key: '<WIX_ACCOUNT_ID>', label: 'Wix Account ID', help: 'The account UUID shown on the API Keys page.', kind: 'text', target: 'arg', placeholder: '<WIX_ACCOUNT_ID>', example: '11111111-2222-3333-4444-555555555555', required: true },
+				],
+				prerequisites: [
+					'A Wix account where you are the owner or a co-owner (required to create an API key).',
+					'Node.js — AtlasMind can install it.',
+				],
+				credentialSteps: [
+					'Sign in at wix.com as the account owner or a co-owner.',
+					'Open manage.wix.com/account/api-keys.',
+					'Copy your Account ID (a UUID) into the Account ID field.',
+					'Click "Generate API Key", name it, and choose "Specific sites" with the minimum scopes you need.',
+					'Copy the key (shown once) into the API key field.',
+				],
+				credentialHelpUrl: 'https://manage.wix.com/account/api-keys',
+				safetyNote: 'A Wix API key grants account-level access — scope it to specific sites and minimal permissions.',
+				runtimeInstalls: NODE_RUNTIME_INSTALLS,
+			};
 		case 'mcp-server-youtube':
-		case 'mcp-server-twitch':
-		case 'mcp-server-linkedin':
+			return {
+				setupMode: 'prefill',
+				transport: 'stdio',
+				command: 'npx',
+				args: ['-y', '@kirbah/mcp-youtube'],
+				note: 'Community YouTube Data API MCP server (@kirbah/mcp-youtube). Paste a YouTube Data API key below.',
+				inputs: [
+					{ key: 'YOUTUBE_API_KEY', label: 'YouTube Data API key', help: 'A Google Cloud API key with the YouTube Data API v3 enabled.', kind: 'secret', target: 'env', example: 'AIzaSyD-EXAMPLE…', required: true },
+				],
+				prerequisites: [
+					'A free Google account.',
+					'A Google Cloud project with the "YouTube Data API v3" enabled (free, no billing).',
+					'Node.js — AtlasMind can install it.',
+				],
+				credentialSteps: [
+					'Open console.cloud.google.com → create a project (e.g. "AtlasMind YouTube") and select it.',
+					'Enable the YouTube Data API v3 (console.cloud.google.com/apis/library/youtube.googleapis.com).',
+					'APIs & Services → Credentials → Create Credentials → API key.',
+					'Copy the AIza… key.',
+					'Edit the key → API restrictions → restrict it to "YouTube Data API v3" → Save.',
+					'Paste it below.',
+				],
+				credentialHelpUrl: 'https://console.cloud.google.com/apis/credentials',
+				safetyNote: 'Community server (no official YouTube MCP exists). Restrict the API key to the YouTube Data API only.',
+				runtimeInstalls: NODE_RUNTIME_INSTALLS,
+			};
 		case 'mcp-server-meta':
+			return {
+				setupMode: 'prefill',
+				transport: 'stdio',
+				command: 'uvx',
+				args: ['meta-ads-mcp'],
+				note: 'Meta Ads MCP server (meta-ads-mcp, via the Pipeboard broker so no Meta Developer App is required). Paste a Pipeboard token below. Covers Meta ADS only — not organic posts or DMs.',
+				inputs: [
+					{ key: 'PIPEBOARD_API_TOKEN', label: 'Pipeboard API Token', help: 'From pipeboard.co/api-tokens after you connect your Meta/Facebook account there.', kind: 'secret', target: 'env', example: 'pb_9f3c1a2b…', required: true },
+				],
+				prerequisites: [
+					'A Facebook/Meta account that administers at least one Meta Ads account.',
+					'A free Pipeboard account (it brokers the Meta OAuth for you).',
+					'The uv / uvx runtime — AtlasMind can install it.',
+				],
+				credentialSteps: [
+					'Create an account at pipeboard.co.',
+					'Connect your Meta / Facebook account and approve the OAuth prompt.',
+					'Open pipeboard.co/api-tokens and create a token named "AtlasMind".',
+					'Copy the token and paste it below.',
+				],
+				credentialHelpUrl: 'https://pipeboard.co/api-tokens',
+				safetyNote: 'Not Meta-official — access is brokered by Pipeboard (a third party). Write actions can change real ad spend, so review them at the approval gate.',
+				runtimeInstalls: UV_RUNTIME_INSTALLS,
+			};
 		case 'mcp-server-x':
 			return {
+				setupMode: 'prefill',
+				transport: 'stdio',
+				command: 'npx',
+				args: ['-y', '@xdevplatform/xurl', 'mcp', 'https://api.x.com/mcp'],
+				note: 'Official X (Twitter) MCP bridge (@xdevplatform/xurl). Enter your OAuth 2.0 client credentials below; you approve access in the browser on first connect.',
+				inputs: [
+					{ key: 'CLIENT_ID', label: 'X OAuth 2.0 Client ID', help: 'From your X app → Keys and tokens (OAuth 2.0, Confidential client).', kind: 'secret', target: 'env', example: 'eVc3d0hHTFF4…', required: true },
+					{ key: 'CLIENT_SECRET', label: 'X OAuth 2.0 Client Secret', help: 'From the same Keys and tokens page. Shown only once.', kind: 'secret', target: 'env', example: '9kQ2mP7v0s…', required: true },
+				],
+				prerequisites: [
+					'An X account plus a free X developer account.',
+					'An X app with an OAuth 2.0 Confidential client and callback http://localhost:8080/callback.',
+					'A paid/pay-per-use X API plan in Production (the free tier rejects reads).',
+					'Node.js and a browser for the one-time sign-in on first connect.',
+				],
+				credentialSteps: [
+					'Open developer.x.com/en/portal/dashboard and finish the free developer sign-up if prompted.',
+					'Create a Project and an App.',
+					'User authentication settings → Set up → enable OAuth 2.0, Type = Confidential.',
+					'Set the Callback URI to http://localhost:8080/callback and a Website URL, then Save.',
+					'Keys and tokens → copy the OAuth 2.0 Client ID and Client Secret (secret shown once).',
+					'Paste both below. On first connect, approve access in the browser (allow up to a few minutes).',
+				],
+				credentialHelpUrl: 'https://developer.x.com/en/portal/dashboard',
+				safetyNote: 'Reads require a paid X API plan (Production); the free tier will fail. First connect opens a browser for OAuth.',
+				runtimeInstalls: NODE_RUNTIME_INSTALLS,
+			};
+		case 'mcp-server-twitch':
+			return {
+				// Guided-manual: reputable-enough to prefill the form, but flagged for
+				// review (community, low-maintenance) and pinned to a reviewed version.
 				setupMode: 'manual',
-				transport: 'http',
-				note: 'This AtlasMind catalogue preset covers a hosted platform integration that normally requires OAuth, API tokens, or site-specific app credentials. Review the linked vendor docs, then paste the real MCP server command or endpoint for your account before saving.',
+				transport: 'stdio',
+				command: 'npx',
+				args: ['-y', '@mtane0412/twitch-mcp-server@2.0.5'],
+				note: 'Community Twitch MCP server, pinned to a reviewed version. Read-only (public Twitch data). Review before connecting.',
+				inputs: [
+					{ key: 'TWITCH_CLIENT_ID', label: 'Twitch Client ID', help: 'From your app in the Twitch Developer Console.', kind: 'text', target: 'env', example: 'gp762nuuoqcox2yp7bmk9zdjsx', required: true },
+					{ key: 'TWITCH_CLIENT_SECRET', label: 'Twitch Client Secret', help: 'Generate it in the Twitch Developer Console (shown once).', kind: 'secret', target: 'env', example: '39fjr9848fjkdi38fjfk38fj', required: true },
+				],
+				prerequisites: [
+					'A free Twitch account with two-factor authentication enabled (required to register an app).',
+					'A registered application in the Twitch Developer Console.',
+					'Node.js — AtlasMind can install it.',
+				],
+				credentialSteps: [
+					'Open dev.twitch.tv/console/apps and log in (enable 2FA if prompted).',
+					'Click "Register Your Application".',
+					'Use a unique name, OAuth Redirect URL http://localhost, Category "Application Integration", Client Type Confidential, then Create.',
+					'Open the app → Manage → copy the Client ID.',
+					'Click "New Secret" and copy the secret (shown once).',
+					'Paste both below.',
+				],
+				credentialHelpUrl: 'https://dev.twitch.tv/console/apps',
+				safetyNote: 'Community server with low recent maintenance — read-only, so blast radius is small. Review it before connecting.',
+				runtimeInstalls: NODE_RUNTIME_INSTALLS,
+			};
+		case 'mcp-server-linkedin':
+			return {
+				// Guided-manual: community server using LinkedIn's official OAuth API,
+				// pinned to a reviewed version. The token can post as you — review first.
+				setupMode: 'manual',
+				transport: 'stdio',
+				command: 'npx',
+				args: ['-y', '@pegasusheavy/linkedin-mcp@1.4.0'],
+				note: 'Community LinkedIn MCP server (uses LinkedIn\'s official OAuth API), pinned to a reviewed version. The access token can post on your behalf — review before connecting.',
+				inputs: [
+					{ key: 'LINKEDIN_ACCESS_TOKEN', label: 'LinkedIn OAuth access token', help: 'Generated with LinkedIn\'s OAuth token tool for your developer app. Expires roughly every 60 days.', kind: 'secret', target: 'env', example: 'AQVJ8kZ2n5xQw…', required: true },
+				],
+				prerequisites: [
+					'A LinkedIn account and a free LinkedIn Developer app (requires an associated company Page).',
+					'"Sign In with LinkedIn using OpenID Connect" added to the app (plus "Share on LinkedIn" if you want to post).',
+					'Node.js — AtlasMind can install it. Note: the token expires ~every 60 days and must be regenerated.',
+				],
+				credentialSteps: [
+					'Open developer.linkedin.com and create an app (associate a Page and logo).',
+					'Products → add "Sign In with LinkedIn using OpenID Connect" (and "Share on LinkedIn" to post).',
+					'Auth tab → confirm scopes (openid, profile, email, and w_member_social to post).',
+					'Docs and tools → OAuth 2.0 token generator → pick your app and the scopes.',
+					'Approve on the consent screen and copy the generated access token.',
+					'Paste it below (repeat roughly every 60 days when it expires).',
+				],
+				credentialHelpUrl: 'https://www.linkedin.com/developers/apps',
+				safetyNote: 'Community server. With the posting scope the token can publish as you — grant only the scopes you need and review before connecting.',
+				runtimeInstalls: NODE_RUNTIME_INSTALLS,
+			};
+		case 'mcp-server-aws':
+			return {
+				setupMode: 'prefill',
+				transport: 'stdio',
+				command: 'uvx',
+				args: ['awslabs.aws-api-mcp-server@latest'],
+				note: 'Official AWS Labs AWS API MCP server. Read-only by default; enter least-privilege IAM credentials below.',
+				inputs: [
+					{ key: 'AWS_REGION', label: 'AWS Region', help: 'The region your resources live in.', kind: 'text', target: 'env', example: 'us-east-1', required: true },
+					{ key: 'AWS_ACCESS_KEY_ID', label: 'AWS Access Key ID', help: 'From an IAM user with least-privilege (start with ReadOnlyAccess).', kind: 'secret', target: 'env', example: 'AKIAIOSFODNN7EXAMPLE', required: true },
+					{ key: 'AWS_SECRET_ACCESS_KEY', label: 'AWS Secret Access Key', help: 'Shown only once when you create the access key.', kind: 'secret', target: 'env', example: 'wJalrXUtnFEMI/K7MDENG/…', required: true },
+					{ key: 'AWS_SESSION_TOKEN', label: 'AWS Session Token (optional)', help: 'Only for temporary/SSO credentials.', kind: 'secret', target: 'env', example: 'FQoGZXIvYXdz…', required: false },
+					{ key: 'READ_OPERATIONS_ONLY', label: 'Read-only mode (recommended)', help: 'Keep "true" so the server cannot mutate AWS resources.', kind: 'text', target: 'env', example: 'true', defaultValue: 'true', required: true },
+				],
+				prerequisites: [
+					'The uv / uvx runtime (AtlasMind can install it; it provisions Python).',
+					'A least-privilege IAM user (start with ReadOnlyAccess) — never your root account.',
+				],
+				credentialSteps: [
+					'IAM → Users → Create user "atlasmind-mcp".',
+					'Attach the ReadOnlyAccess policy (add more only if you need writes).',
+					'Security credentials → Create access key → "Application running outside AWS".',
+					'Copy the Access Key ID and Secret (shown once) and set your Region below.',
+					'Leave "Read-only mode" set to true.',
+				],
+				credentialHelpUrl: 'https://console.aws.amazon.com/iam/home#/users',
+				safetyNote: 'Executes real AWS API calls with your credentials. Use a least-privilege IAM user and keep read-only mode on — turning it off allows mutating operations.',
+				runtimeInstalls: UV_RUNTIME_INSTALLS,
+			};
+		case 'mcp-server-gcp':
+			return {
+				setupMode: 'prefill',
+				transport: 'stdio',
+				command: 'npx',
+				args: ['-y', '@google-cloud/gcloud-mcp'],
+				note: 'Google Cloud gcloud MCP server (official npm scope, preview). Uses your existing gcloud CLI sign-in — no token to paste.',
+				inputs: [
+					{ key: 'CLOUDSDK_CORE_PROJECT', label: 'GCP project ID (optional)', help: 'Pins a project; otherwise your active gcloud project is used.', kind: 'text', target: 'env', example: 'my-project-123456', required: false },
+				],
+				prerequisites: [
+					'Node.js (AtlasMind can install it).',
+					'The Google Cloud CLI installed and signed in (gcloud init) — AtlasMind cannot auto-install gcloud.',
+					'A least-privilege account (service-account impersonation recommended).',
+				],
+				credentialSteps: [
+					'Install the Google Cloud CLI and run: gcloud init (sign in, pick a project).',
+					'Verify with: gcloud auth list and gcloud config list.',
+					'(Recommended) impersonate a least-privilege service account.',
+					'Optionally enter a project ID below. No token is pasted.',
+				],
+				credentialHelpUrl: 'https://cloud.google.com/sdk/docs/authorizing',
+				safetyNote: 'Runs real gcloud commands and inherits the FULL permissions of your signed-in account — it can create, modify, and delete resources and incur cost. It is not read-only; require approval for mutating commands and prefer a scoped service account. Preview project, not covered by Google Cloud ToS.',
+				runtimeInstalls: NODE_RUNTIME_INSTALLS,
+			};
+		case 'mcp-server-cloudflare':
+			return {
+				setupMode: 'prefill',
+				transport: 'stdio',
+				command: 'npx',
+				args: ['-y', 'mcp-remote@0.1.38', 'https://mcp.cloudflare.com/mcp'],
+				note: 'Official Cloudflare MCP (remote) via the mcp-remote bridge. No key to paste — you approve access in your browser on first connect.',
+				prerequisites: [
+					'Node.js (AtlasMind can install it).',
+					'A Cloudflare account (free is fine).',
+					'A default browser for the one-time sign-in on first connect.',
+				],
+				credentialSteps: [
+					'Connect — a browser tab "Authorize Cloudflare" opens.',
+					'Pick your account and grant the least-privilege scopes you need.',
+					'Approve, then return to VS Code — the sign-in is cached by the bridge (~/.mcp-auth).',
+				],
+				credentialHelpUrl: 'https://developers.cloudflare.com/agents/model-context-protocol/cloudflare/servers-for-cloudflare/',
+				safetyNote: 'Full Cloudflare API — write/Code-Mode tools can make destructive changes across DNS, WAF, Workers, and Zero Trust. Grant least-privilege scopes at consent and keep approval on for config-changing actions. The bridge (mcp-remote, community) caches the OAuth token unencrypted at ~/.mcp-auth; run only on a trusted machine.',
+				runtimeInstalls: NODE_RUNTIME_INSTALLS,
+			};
+		case 'mcp-server-cloudflare-workers':
+			return {
+				setupMode: 'prefill',
+				transport: 'stdio',
+				command: 'npx',
+				args: ['-y', 'mcp-remote@0.1.38', 'https://bindings.mcp.cloudflare.com/mcp'],
+				note: 'Official Cloudflare Workers Bindings MCP (remote) via the mcp-remote bridge. Browser OAuth on first connect — no key to paste.',
+				prerequisites: [
+					'Node.js (AtlasMind can install it).',
+					'A Cloudflare account with the Workers/KV/R2/D1 you want to manage.',
+					'A default browser for the one-time sign-in.',
+				],
+				credentialSteps: [
+					'Connect — a Cloudflare sign-in opens in your browser.',
+					'Pick the account whose Workers resources you want and Allow.',
+					'Return to VS Code. Revoke later in the Cloudflare dashboard and delete ~/.mcp-auth.',
+				],
+				credentialHelpUrl: 'https://dash.cloudflare.com/',
+				safetyNote: 'Tools create/modify/DELETE real KV, R2, D1, Hyperdrive, and Workers. Treat write/delete as approval-required. The mcp-remote bridge caches the OAuth token unencrypted at ~/.mcp-auth.',
+				runtimeInstalls: NODE_RUNTIME_INSTALLS,
+			};
+		case 'mcp-server-appledev':
+			return {
+				setupMode: 'prefill',
+				transport: 'stdio',
+				command: 'npx',
+				args: ['-y', 'xcodebuildmcp@2.7.0', 'mcp'],
+				note: 'XcodeBuildMCP (Sentry-maintained) — build/run/test Apple projects and simulators. macOS + Xcode only; no credentials.',
+				inputs: [],
+				prerequisites: [
+					'macOS with Xcode 16+ (opened once, license accepted) — this server will NOT run on Windows or Linux.',
+					'Xcode Command Line Tools (xcode-select --install) and an iOS Simulator runtime.',
+					'Node.js (AtlasMind can install it).',
+				],
+				credentialSteps: [
+					'No credential — one-time Mac prep only.',
+					'Install/launch Xcode; run: xcode-select --install.',
+					'If prompted: sudo xcodebuild -license accept.',
+					'Confirm at least one simulator exists, then connect.',
+				],
+				credentialHelpUrl: 'https://www.xcodebuildmcp.com/docs/getting-started',
+				safetyNote: 'macOS-only — it will not start on this platform if you are on Windows/Linux. Powerful local tool (runs xcodebuild, boots/erases simulators, installs/launches apps) — treat build/run/erase like local shell execution and gate behind approval.',
+				runtimeInstalls: NODE_RUNTIME_INSTALLS,
+			};
+		case 'mcp-server-apns':
+			return {
+				// Guided-manual: low-adoption single-maintainer wrapper around a live push channel.
+				setupMode: 'manual',
+				transport: 'stdio',
+				command: 'npx',
+				args: ['-y', '@metrovoc/bark-mcp-server@1.2.0'],
+				note: 'Apple push notifications via the community Bark MCP server (pinned). Pushes only to your own Bark devices. Review before connecting.',
+				inputs: [
+					{ key: 'BARK_KEY', label: 'Bark device key', help: 'The code after the last / in your Bark app URL (https://api.day.app/XXXX).', kind: 'secret', target: 'env', example: '5vTk9wQ8mN1pXyZ2abcdEF', required: true },
+					{ key: 'BARK_SERVER_URL', label: 'Bark server URL (self-host only)', help: 'Leave blank to use the default api.day.app.', kind: 'url', target: 'env', example: 'https://api.day.app', required: false },
+				],
+				prerequisites: [
+					'The free "Bark - Custom Notifications" iOS app with notifications allowed.',
+					'Node.js (AtlasMind can install it).',
+				],
+				credentialSteps: [
+					'Install the Bark iOS app and allow notifications.',
+					'Copy the code after the last / in your https://api.day.app/XXXX URL.',
+					'Paste it as the device key; leave the server URL blank unless self-hosting.',
+				],
+				credentialHelpUrl: 'https://github.com/Finb/Bark/blob/master/docs/en-us/tutorial.md',
+				safetyNote: 'Community server (single maintainer, low adoption). The device key is a bearer capability; default content transits public api.day.app — enable Bark E2E encryption or self-host for sensitive pushes.',
+				runtimeInstalls: NODE_RUNTIME_INSTALLS,
+			};
+		case 'mcp-server-mysql':
+			return {
+				setupMode: 'prefill',
+				transport: 'stdio',
+				command: 'npx',
+				args: ['-y', '@benborla29/mcp-server-mysql'],
+				note: 'MySQL MCP server (@benborla29). Read-only by default; enter a least-privilege SELECT-only connection below.',
+				inputs: [
+					{ key: 'MYSQL_HOST', label: 'MySQL host', help: 'Hostname or IP of your MySQL server.', kind: 'text', target: 'env', example: '127.0.0.1', required: true },
+					{ key: 'MYSQL_PORT', label: 'MySQL port', help: 'Defaults to 3306.', kind: 'text', target: 'env', example: '3306', required: false },
+					{ key: 'MYSQL_USER', label: 'MySQL username', help: 'A least-privilege (SELECT-only) user is recommended.', kind: 'text', target: 'env', example: 'atlas_readonly', required: true },
+					{ key: 'MYSQL_PASS', label: 'MySQL password', help: 'Stored securely in SecretStorage.', kind: 'secret', target: 'env', example: 'S0me-Strong-Passw0rd', required: true },
+					{ key: 'MYSQL_DB', label: 'Database name', help: 'Optional; scopes the connection to one database.', kind: 'text', target: 'env', example: 'mydb', required: false },
+				],
+				prerequisites: [
+					'Node.js (AtlasMind can install it).',
+					'A reachable MySQL 8.0+ / MariaDB and a SELECT-only user (recommended).',
+				],
+				credentialSteps: [
+					"In a MySQL client as admin: CREATE USER 'atlas_readonly'@'%' IDENTIFIED BY '…';",
+					'GRANT SELECT ON your_db.* TO \'atlas_readonly\'@\'%\'; then FLUSH PRIVILEGES;',
+					'Enter the host, user, password, and (optionally) database below.',
+				],
+				credentialHelpUrl: 'https://dev.mysql.com/doc/refman/8.0/en/creating-accounts.html',
+				safetyNote: 'Read-only by default. Use a least-privilege SELECT-only account (not root), and prefer SSL/TLS for non-local databases — query results flow to the model.',
+				runtimeInstalls: NODE_RUNTIME_INSTALLS,
+			};
+		case 'mcp-server-mongodb':
+			return {
+				setupMode: 'prefill',
+				transport: 'stdio',
+				command: 'npx',
+				args: ['-y', 'mongodb-mcp-server@latest', '--readOnly'],
+				note: 'Official MongoDB MCP server, read-only by default. Paste your connection string below.',
+				inputs: [
+					{ key: 'MDB_MCP_CONNECTION_STRING', label: 'MongoDB connection string', help: 'From Atlas → Connect → Drivers, or mongodb://localhost:27017/db. Includes the password.', kind: 'secret', target: 'env', example: 'mongodb+srv://user:pass@cluster0.abc.mongodb.net/mydb', required: true },
+					{ key: 'MDB_MCP_API_CLIENT_ID', label: 'Atlas Service Account Client ID (optional)', help: 'Only for Atlas admin tools.', kind: 'text', target: 'env', example: 'mdb_sa_id_0123…', required: false },
+					{ key: 'MDB_MCP_API_CLIENT_SECRET', label: 'Atlas Service Account Secret (optional)', help: 'Only for Atlas admin tools.', kind: 'secret', target: 'env', example: 'mdb_sa_sk_a1b2…', required: false },
+				],
+				prerequisites: [
+					'Node.js 20.19+ (AtlasMind can install it).',
+					'A reachable MongoDB (Atlas, self-hosted, or local) and a least-privilege DB user.',
+					'For Atlas: your machine IP on the Network Access allow-list.',
+				],
+				credentialSteps: [
+					'Atlas → Clusters → Connect → Drivers → create a DB user (copy the password).',
+					'Copy the connection string, replace <password>, and append /yourDatabase.',
+					'Atlas → Network Access → Add Current IP, then paste the string below.',
+					'Local instead: mongodb://localhost:27017/yourDatabase.',
+				],
+				credentialHelpUrl: 'https://www.mongodb.com/docs/guides/atlas/connection-string/',
+				safetyNote: 'Keep --readOnly on unless you deliberately need writes. The connection string embeds a password — stored as a secret and passed via env, never on the command line. Use a least-privilege DB user.',
+				runtimeInstalls: NODE_RUNTIME_INSTALLS,
+			};
+		case 'mcp-server-elasticsearch':
+			return {
+				setupMode: 'prefill',
+				transport: 'stdio',
+				command: 'docker',
+				args: ['run', '-i', '--rm', '-e', 'ES_URL', '-e', 'ES_API_KEY', 'docker.elastic.co/mcp/elasticsearch', 'stdio'],
+				note: 'Official Elastic MCP server (Docker). Enter your cluster URL and a read-only API key below.',
+				inputs: [
+					{ key: 'ES_URL', label: 'Elasticsearch cluster URL', help: 'Your cluster endpoint (Cloud uses :443).', kind: 'url', target: 'env', example: 'https://my-deployment.es.us-central1.gcp.cloud.es.io:443', required: true },
+					{ key: 'ES_API_KEY', label: 'Elasticsearch API key (encoded)', help: 'Create in Kibana → Security → API keys, restricted to read-only. Use the Encoded value.', kind: 'secret', target: 'env', example: 'VnVhQ2ZHY0JDZGJr…==', required: true },
+				],
+				prerequisites: [
+					'Docker installed AND running (launch Docker Desktop on Windows/macOS).',
+					'A reachable Elasticsearch 8.x/9.x cluster over HTTPS and Kibana access to create the key.',
+				],
+				credentialSteps: [
+					'Kibana → Stack Management → Security → API keys → Create API key.',
+					'Enable "Control security privileges" and restrict it to read-only on the indices you need; set an expiration.',
+					'Switch the format to Encoded and copy it into the API key field.',
+					'Copy your cluster endpoint into the URL field.',
+				],
+				credentialHelpUrl: 'https://www.elastic.co/docs/deploy-manage/api-keys/elasticsearch-api-keys',
+				safetyNote: 'Scope the API key tightly (read-only, specific indices, with an expiry). The secret is injected via a valueless Docker -e flag, never in argv. This official server is in maintenance (critical fixes only) — plan to migrate to Elastic Agent Builder later.',
+				runtimeInstalls: DOCKER_RUNTIME_INSTALLS,
+			};
+		case 'mcp-server-rabbitmq':
+			return {
+				setupMode: 'prefill',
+				transport: 'stdio',
+				command: 'uvx',
+				args: ['amq-mcp-server-rabbitmq@latest'],
+				note: 'RabbitMQ MCP server (AWS Amazon MQ org). Read-only by default. Connect first, then give broker credentials to the connect tool in chat.',
+				inputs: [],
+				prerequisites: [
+					'The uv / uvx runtime (AtlasMind can install it).',
+					'Network access to your broker (AMQPS 5671 + Management API 15671/15672) with the Management plugin enabled.',
+					'A least-privilege (monitoring/management) broker user.',
+				],
+				credentialSteps: [
+					'Connect the server — no credentials are needed to start it.',
+					'Gather your broker hostname, username, and password (a read-only user is best).',
+					'In chat, ask: "Connect to my RabbitMQ broker at <host> as <user> with password <pass> over TLS on 5671."',
+				],
+				credentialHelpUrl: 'https://www.rabbitmq.com/docs/management',
+				safetyNote: 'Read-only unless you add --allow-mutative-tools (create/delete/purge/publish are destructive on a live broker). Because credentials are given to a tool in chat, they pass through the model context — keep them out of persisted memory/logs. Install exactly amq-mcp-server-rabbitmq (avoid look-alikes).',
+				runtimeInstalls: UV_RUNTIME_INSTALLS,
+			};
+		case 'mcp-server-sqs':
+			return {
+				setupMode: 'prefill',
+				transport: 'stdio',
+				command: 'uvx',
+				args: ['awslabs.amazon-sns-sqs-mcp-server@latest'],
+				note: 'Official AWS Labs SNS/SQS MCP server. Safe-by-default (no resource creation). Enter read-only IAM credentials below.',
+				inputs: [
+					{ key: 'AWS_ACCESS_KEY_ID', label: 'AWS Access Key ID', help: 'From an IAM user with SQS/SNS read-only access.', kind: 'secret', target: 'env', example: 'AKIAIOSFODNN7EXAMPLE', required: true },
+					{ key: 'AWS_SECRET_ACCESS_KEY', label: 'AWS Secret Access Key', help: 'Shown only once when you create the key.', kind: 'secret', target: 'env', example: 'wJalrXUtnFEMI/K7MDENG/…', required: true },
+					{ key: 'AWS_REGION', label: 'AWS Region', help: 'The region your queues live in.', kind: 'text', target: 'env', example: 'us-east-1', required: true },
+					{ key: 'AWS_SESSION_TOKEN', label: 'AWS Session Token (temp/SSO only)', help: 'Only for temporary credentials.', kind: 'secret', target: 'env', example: 'FwoGZXIvYXdz…', required: false },
+				],
+				prerequisites: [
+					'The uv / uvx runtime (AtlasMind can install it).',
+					'An IAM user/role with AmazonSQSReadOnlyAccess + AmazonSNSReadOnlyAccess.',
+				],
+				credentialSteps: [
+					'IAM → Create user "atlasmind-sqs-mcp" (programmatic access).',
+					'Attach AmazonSQSReadOnlyAccess and AmazonSNSReadOnlyAccess.',
+					'Create an access key ("Application running outside AWS") and copy both parts.',
+					'Set your Region; leave the session token blank.',
+				],
+				credentialHelpUrl: 'https://console.aws.amazon.com/iam/home#/users',
+				safetyNote: 'Safe-by-default — no resource-creation tools unless you opt into --allow-resource-creation. Pair with read-only IAM. Prefer temporary SSO/STS credentials over long-lived keys.',
+				runtimeInstalls: UV_RUNTIME_INSTALLS,
+			};
+		case 'mcp-server-twilio':
+			return {
+				// Guided-manual: Twilio's MCP takes credentials as a positional CLI
+				// argument (no env option), which AtlasMind will not auto-store in
+				// config. We guide the user to add it themselves in Advanced setup.
+				setupMode: 'manual',
+				transport: 'stdio',
+				note: 'Official Twilio (alpha) MCP server. It requires your credentials on the command line, so AtlasMind guides you to add it in Advanced setup rather than auto-storing a secret.',
+				prerequisites: [
+					'Node.js 18+ / npm 9+ (AtlasMind can install Node).',
+					'A Twilio account (trial is fine) and a Standard API Key you create below.',
+					'A Twilio phone number with SMS/Voice if you plan to send.',
+				],
+				credentialSteps: [
+					'console.twilio.com → copy your Account SID (starts AC…).',
+					'Account → API keys & tokens → Create API key → type Standard → copy the Key SID (SK…) and Secret (shown once).',
+					'Open Advanced setup and add a stdio server: command npx, args: -y @twilio-alpha/mcp@0.7.0 ACxxxx/SKxxxx:your-secret',
+					'Save. Note the secret is part of the command (Twilio has no env option).',
+				],
+				credentialHelpUrl: 'https://www.twilio.com/docs/iam/api-keys/keys-in-console',
+				safetyNote: 'Execution server — real API calls send SMS/place calls and cost money. Use a revocable Standard API Key (never the primary Auth Token). Because Twilio takes the secret as a CLI argument, it can appear in OS process listings; only add it on a trusted machine and route sends through approval.',
+				runtimeInstalls: NODE_RUNTIME_INSTALLS,
+			};
+		case 'mcp-server-sendgrid':
+			return {
+				setupMode: 'prefill',
+				transport: 'stdio',
+				command: 'npx',
+				args: ['-y', '@codespar/mcp-sendgrid@0.2.2'],
+				note: 'SendGrid MCP server (@codespar, pinned). Paste a restricted "Mail Send" API key below.',
+				inputs: [
+					{ key: 'SENDGRID_API_KEY', label: 'SendGrid API Key', help: 'A Restricted Access key with only "Mail Send" enabled.', kind: 'secret', target: 'env', example: 'SG.AbCdEf012345.mNoPqRs…', required: true },
+					{ key: 'SENDGRID_FROM_EMAIL', label: 'Default From address (optional)', help: 'A verified sender identity.', kind: 'text', target: 'env', example: 'alerts@yourdomain.com', required: false },
+				],
+				prerequisites: [
+					'Node.js (AtlasMind can install it).',
+					'A SendGrid account with a verified sender identity.',
+					'An API key with at least Mail Send.',
+				],
+				credentialSteps: [
+					'app.sendgrid.com → Settings → API Keys → Create API Key.',
+					'Choose Restricted Access and set only "Mail Send" to Full Access.',
+					'Create & View, then copy the SG. key (shown once) into the field.',
+					'Optionally verify a From address under Sender Authentication.',
+				],
+				credentialHelpUrl: 'https://app.sendgrid.com/settings/api_keys',
+				safetyNote: 'Sending costs money and affects sender reputation. Use a Restricted "Mail Send"-only key (other tools will 403 until broadened — intentional). Community package, version-pinned; confirm the exact name @codespar/mcp-sendgrid (email-MCP impersonations exist).',
+				runtimeInstalls: NODE_RUNTIME_INSTALLS,
+			};
+		case 'mcp-server-jenkins':
+			return {
+				// Guided-manual: mcp-jenkins takes the API token as a CLI argument (no
+				// env option), which AtlasMind will not auto-store. Guide to Advanced.
+				setupMode: 'manual',
+				transport: 'stdio',
+				note: 'Jenkins MCP server (mcp-jenkins). It takes the API token on the command line, so AtlasMind guides you to add it in Advanced setup rather than auto-storing a secret.',
+				prerequisites: [
+					'The uv / uvx runtime (AtlasMind can install it).',
+					'A reachable Jenkins with the standard REST API.',
+					'A least-privilege Jenkins user with an API token.',
+				],
+				credentialSteps: [
+					'Jenkins → your name (top-right) → Security → API Token → Add new Token → Generate → copy it.',
+					'Open Advanced setup and add a stdio server: command uvx, args: mcp-jenkins --jenkins-url=https://your-jenkins --jenkins-username=you --jenkins-password=YOUR_TOKEN',
+					'Add --read-only to that command to keep it inspect-only (recommended).',
+					'Save. The token is part of the command (mcp-jenkins has no env option).',
+				],
+				credentialHelpUrl: 'https://www.jenkins.io/doc/book/system-administration/authenticating-scripted-clients/',
+				safetyNote: 'The token inherits your Jenkins permissions — use a least-privilege user, not admin. It exposes build triggers and run_groovy_script (arbitrary Groovy = full controller RCE) — prefer --read-only and require approval for build/script tools. The token appears on the command line, so only add it on a trusted machine.',
+				runtimeInstalls: UV_RUNTIME_INSTALLS,
+			};
+		case 'mcp-server-circleci':
+			return {
+				setupMode: 'prefill',
+				transport: 'stdio',
+				command: 'npx',
+				args: ['-y', '@circleci/mcp-server-circleci@0.19.0'],
+				note: 'Official CircleCI MCP server (pinned to the security-patched 0.19.0). Paste a personal API token below.',
+				inputs: [
+					{ key: 'CIRCLECI_TOKEN', label: 'CircleCI Personal API Token', help: 'Create one at app.circleci.com → Personal API Tokens.', kind: 'secret', target: 'env', example: 'CCIPAT_7Kd3f9…', required: true },
+					{ key: 'CIRCLECI_BASE_URL', label: 'CircleCI Base URL (self-hosted only)', help: 'Leave blank for CircleCI cloud.', kind: 'text', target: 'env', example: 'https://circleci.example.com', required: false },
+				],
+				prerequisites: [
+					'Node.js (AtlasMind can install it).',
+					'A CircleCI account (cloud or self-hosted Server).',
+				],
+				credentialSteps: [
+					'app.circleci.com → Personal API Tokens → Create New Token.',
+					'Name it, click Add API Token, and copy it (CCIPAT_…, shown once).',
+					'Paste it below.',
+				],
+				credentialHelpUrl: 'https://app.circleci.com/settings/user/tokens',
+				safetyNote: 'The token inherits your full account permissions; tools can trigger/rerun/rollback pipelines (i.e. deploy) and read logs that may contain secrets. Treat it as a password and revoke if exposed. The upstream repo is deprecated but this version is security-patched (GHSA-8xjg-jpfh-5257).',
+				runtimeInstalls: NODE_RUNTIME_INSTALLS,
+			};
+		case 'mcp-server-grafana':
+			return {
+				setupMode: 'prefill',
+				transport: 'stdio',
+				command: 'uvx',
+				args: ['mcp-grafana'],
+				note: 'Official Grafana MCP server. Enter your Grafana URL and a Viewer service-account token below.',
+				inputs: [
+					{ key: 'GRAFANA_URL', label: 'Grafana URL', help: 'Your Grafana base URL (Cloud or self-hosted).', kind: 'url', target: 'env', example: 'https://myorg.grafana.net', required: true },
+					{ key: 'GRAFANA_SERVICE_ACCOUNT_TOKEN', label: 'Service Account Token', help: 'Create a Viewer-role service account token (starts glsa_).', kind: 'secret', target: 'env', example: 'glsa_AbCd1234…', required: true },
+				],
+				prerequisites: [
+					'The uv / uvx runtime (AtlasMind can install it).',
+					'A reachable Grafana (Cloud or self-hosted v9+).',
+					'Permission to create a service account + token (Admin/Org Admin).',
+				],
+				credentialSteps: [
+					'Grafana → Administration → Users and access → Service accounts → Add service account.',
+					'Give it the Viewer role (for read-only), then Add service account token → Generate.',
+					'Copy the glsa_ token (shown once) and your base URL into the fields below.',
+				],
+				credentialHelpUrl: 'https://grafana.com/docs/grafana/latest/administration/service-accounts/',
+				safetyNote: 'The token grants Grafana API access at its assigned role — use Viewer for read-only and set an expiration. Stored in SecretStorage and passed via env.',
+				runtimeInstalls: UV_RUNTIME_INSTALLS,
+			};
+		case 'mcp-server-prometheus':
+			return {
+				setupMode: 'prefill',
+				transport: 'stdio',
+				command: 'docker',
+				args: ['run', '-i', '--rm', '--add-host=host.docker.internal:host-gateway', '-e', 'PROMETHEUS_MCP_SERVER_PROMETHEUS_URL', 'ghcr.io/tjhop/prometheus-mcp-server:latest'],
+				note: 'Official Prometheus MCP server (Docker). Enter your Prometheus URL below — no auth needed for a local, unauthenticated instance.',
+				inputs: [
+					{ key: 'PROMETHEUS_MCP_SERVER_PROMETHEUS_URL', label: 'Prometheus server URL', help: 'For a local instance use host.docker.internal (not localhost) so the container can reach it.', kind: 'url', target: 'env', example: 'http://host.docker.internal:9090', required: true },
+				],
+				prerequisites: [
+					'Docker installed AND running (launch Docker Desktop on Windows/macOS).',
+					'A reachable Prometheus (local default http://localhost:9090 — verify in a browser first).',
+				],
+				credentialSteps: [
+					'Confirm Prometheus loads at http://localhost:9090.',
+					'Enter http://host.docker.internal:9090 (inside the container, localhost means the container itself).',
+					'If no login is required, save and connect.',
+				],
+				credentialHelpUrl: 'https://github.com/prometheus/prometheus-mcp/blob/main/examples/http-config.yml',
+				safetyNote: 'Read/query access to metrics — names and labels can leak infrastructure detail, so keep redaction on. Never add --dangerous.enable-tsdb-admin-tools. Authenticated/hosted Prometheus needs a mounted config file with this official server; for token/basic-auth use the community pab1it0/prometheus-mcp-server instead.',
+				runtimeInstalls: DOCKER_RUNTIME_INSTALLS,
+			};
+		case 'mcp-server-jira':
+			return {
+				setupMode: 'prefill',
+				transport: 'stdio',
+				command: 'npx',
+				args: ['-y', 'mcp-remote@latest', 'https://mcp.atlassian.com/v1/mcp/authv2'],
+				note: 'Official Atlassian (Jira/Rovo) MCP via the mcp-remote bridge. Browser sign-in on first connect — no token to paste. Atlassian Cloud only.',
+				prerequisites: [
+					'An Atlassian Cloud site with Jira (not Server/Data Center).',
+					'Node.js (AtlasMind can install it).',
+					'A default browser for the one-time consent.',
+				],
+				credentialSteps: [
+					'Connect — mcp-remote opens Atlassian sign-in in your browser.',
+					'Review the consent (it acts with YOUR Jira permissions) and Accept.',
+					'Return to VS Code. Revoke later via id.atlassian.com → Connected apps and delete ~/.mcp-auth.',
+				],
+				credentialHelpUrl: 'https://support.atlassian.com/atlassian-rovo-mcp-server/docs/setting-up-ides/',
+				safetyNote: 'Read-write — it can create, edit, comment on, and transition Jira issues, scoped to your permissions. Review agent actions on approved sessions. The mcp-remote bridge is a community package caching the OAuth token at ~/.mcp-auth.',
+				runtimeInstalls: NODE_RUNTIME_INSTALLS,
+			};
+		case 'mcp-server-trello':
+			return {
+				setupMode: 'prefill',
+				transport: 'stdio',
+				command: 'npx',
+				args: ['-y', 'mcp-remote@0.1.38', 'https://mcp.trello.com/v1'],
+				note: 'Official Trello MCP (Atlassian) via the mcp-remote bridge. Browser sign-in on first connect — no key to paste.',
+				prerequisites: [
+					'A Trello account (MCP is enabled by default on Premium/Enterprise; may be unavailable on Free or restricted by an admin).',
+					'Node.js (AtlasMind can install it) and a default browser.',
+				],
+				credentialSteps: [
+					'Connect — mcp-remote opens Atlassian/Trello sign-in in your browser.',
+					'Pick the one Workspace to connect and Accept.',
+					'Return to VS Code. Revoke later via Atlassian connected-apps and delete ~/.mcp-auth.',
+				],
+				credentialHelpUrl: 'https://support.atlassian.com/trello/docs/connect-trello-to-ai-assistants-with-trello-mcp/',
+				safetyNote: 'Read-write within the approved workspace — it can create, move, and comment on cards. Approve only a workspace you are comfortable letting the AI modify.',
+				runtimeInstalls: NODE_RUNTIME_INSTALLS,
+			};
+		case 'mcp-server-stripe':
+			return {
+				setupMode: 'prefill',
+				transport: 'stdio',
+				command: 'npx',
+				args: ['-y', '@stripe/mcp'],
+				note: 'Official Stripe MCP server. Paste a Restricted API Key (rk_…) below — use Test mode to start.',
+				inputs: [
+					{ key: 'STRIPE_SECRET_KEY', label: 'Stripe Restricted API Key', help: 'A restricted key (rk_…), least-privilege — never a full secret key (sk_…).', kind: 'secret', target: 'env', example: 'rk_test_51Nabc…', required: true },
+				],
+				prerequisites: [
+					'Node.js (AtlasMind can install it).',
+					'A Stripe account (free); Test mode is enough to start.',
+				],
+				credentialSteps: [
+					'dashboard.stripe.com/apikeys → confirm Test mode is ON.',
+					'Restricted keys → Create restricted key → set least-privilege (Read where needed, Write only for required actions).',
+					'Create, reveal, and copy the rk_test_ key (shown once) into the field.',
+				],
+				credentialHelpUrl: 'https://dashboard.stripe.com/apikeys',
+				safetyNote: 'Use a Restricted key (rk_…), never a full secret key (sk_…). Keep Test mode + read-mostly until trusted — a Write-scoped LIVE key can move real money. The key is stored in SecretStorage and passed via env, never in the command.',
+				runtimeInstalls: NODE_RUNTIME_INSTALLS,
+			};
+		case 'mcp-server-openai':
+			return {
+				// Guided-manual: no first-party OpenAI MCP server; leading community
+				// option is narrow-scope + billable credential. Flag for review.
+				setupMode: 'manual',
+				transport: 'stdio',
+				command: 'uvx',
+				args: ['openai-websearch-mcp==0.4.3'],
+				note: 'OpenAI web-search via a community MCP server (pinned). Adds live web search only — AtlasMind already calls OpenAI models directly. Review before connecting.',
+				inputs: [
+					{ key: 'OPENAI_API_KEY', label: 'OpenAI API key', help: 'A dedicated, project-scoped key. Billable and account-wide unless scoped.', kind: 'secret', target: 'env', example: 'sk-proj-…', required: true },
+					{ key: 'OPENAI_DEFAULT_MODEL', label: 'OpenAI model (optional)', help: 'Defaults to the server default.', kind: 'text', target: 'env', example: 'gpt-5-mini', required: false },
+				],
+				prerequisites: [
+					'The uv / uvx runtime (AtlasMind can install it).',
+					'An OpenAI account with active billing and a project-scoped API key.',
+				],
+				credentialSteps: [
+					'platform.openai.com → set up Billing first.',
+					'API keys → Create new secret key → name it "AtlasMind".',
+					'Copy the sk- value (shown once) and paste it below.',
+				],
+				credentialHelpUrl: 'https://platform.openai.com/api-keys',
+				safetyNote: 'No official OpenAI MCP server exists; this is a community, AI-generated package covering web search only, pinned by version. The API key is billable and account-wide unless scoped — create a dedicated key. Typosquats exist; the exact name is openai-websearch-mcp.',
+				runtimeInstalls: UV_RUNTIME_INSTALLS,
 			};
 		default:
 			return {

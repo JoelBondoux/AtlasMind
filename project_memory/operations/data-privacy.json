@@ -1,8 +1,10 @@
 {
   "version": 1,
-  "enabled": false,
+  "enabled": true,
   "rules": [],
-  "compliancePacks": [],
+  "compliancePacks": [
+    "gdpr-pii"
+  ],
   "trustedModelIds": [],
-  "updatedAt": "2026-06-18T18:53:26.324Z"
+  "updatedAt": "2026-07-25T00:53:17.524Z"
 }

@@ -8,6 +8,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { pathToFileURL } from 'url';
 import { sanitizeTerminalOutput } from './utils/terminalOutput.js';
+import { PresenceManager } from './core/presenceManager.js';
 import type { ProjectMemoryFreshnessStatus } from './bootstrap/bootstrapper.js';
 import type { SessionConversation, SessionPolicySnapshot } from './chat/sessionConversation.js';
 import type { VoiceManager } from './voice/voiceManager.js';
@@ -30,6 +31,7 @@ import type { ProjectRunHistory } from './core/projectRunHistory.js';
 import type { RoutineRegistry } from './core/routineRegistry.js';
 import type { DeliveryManager } from './core/deliveryManager.js';
 import type { ProjectDirectorManager } from './core/projectDirectorManager.js';
+import type { DocumentsManager } from './core/documentsManager.js';
 import type { MissionRegistry } from './core/missionRegistry.js';
 import { getConfiguredLocalEndpoints, type ProviderRegistry } from './providers/index.js';
 import { getModelInfoUrl, getProviderInfoUrl, lookupCatalog } from './providers/modelCatalog.js';
@@ -212,6 +214,10 @@ export interface AtlasMindContext {
   projectDirectorManager: ProjectDirectorManager;
   /** Fires when project-director.json changes on disk, so the dashboard can re-sync. */
   projectDirectorRefresh: vscode.EventEmitter<void>;
+  /** Document filing system + the docs kept updated automatically. */
+  documentsManager: DocumentsManager;
+  /** Fires when documents.json changes on disk, so the dashboard can re-sync. */
+  documentsRefresh: vscode.EventEmitter<void>;
   /** Audit trail + persistence for autonomous Mission Loop runs. */
   missionRegistry: MissionRegistry;
   rollbackLastCheckpoint(): Promise<{ ok: boolean; summary: string; restoredPaths: string[] }>;
@@ -1569,6 +1575,7 @@ async function bootstrapAtlasMind(
       routineRegistryModule,
       deliveryManagerModule,
       projectDirectorManagerModule,
+      documentsManagerModule,
       followUpSchedulerModule,
       missionRegistryModule,
       dataPrivacyModule,
@@ -1603,6 +1610,7 @@ async function bootstrapAtlasMind(
       import('./core/routineRegistry.js'),
       import('./core/deliveryManager.js'),
       import('./core/projectDirectorManager.js'),
+      import('./core/documentsManager.js'),
       import('./core/followUpScheduler.js'),
       import('./core/missionRegistry.js'),
       import('./core/dataPrivacyManager.js'),
@@ -1655,6 +1663,7 @@ async function bootstrapAtlasMind(
       RoutineRegistry: routineRegistryModule.RoutineRegistry,
       DeliveryManager: deliveryManagerModule.DeliveryManager,
       ProjectDirectorManager: projectDirectorManagerModule.ProjectDirectorManager,
+      DocumentsManager: documentsManagerModule.DocumentsManager,
       FollowUpScheduler: followUpSchedulerModule.FollowUpScheduler,
       MissionRegistry: missionRegistryModule.MissionRegistry,
       DataPrivacyManager: dataPrivacyModule.DataPrivacyManager,
@@ -1681,6 +1690,7 @@ async function bootstrapAtlasMind(
     const discoveryRefresh = new vscode.EventEmitter<void>();
     const deliveryRefresh = new vscode.EventEmitter<void>();
     const projectDirectorRefresh = new vscode.EventEmitter<void>();
+    const documentsRefresh = new vscode.EventEmitter<void>();
     const scannerRulesManager = new startupModules.ScannerRulesManager(context.globalState);
     const toolWebhookDispatcher = new startupModules.ToolWebhookDispatcher(context, outputChannel);
     const voiceManager = new startupModules.VoiceManager(context.secrets, undefined, {
@@ -1724,6 +1734,19 @@ async function bootstrapAtlasMind(
       directorWatcher.onDidCreate(reloadDirector);
       directorWatcher.onDidDelete(reloadDirector);
       context.subscriptions.push(directorWatcher);
+    }
+    const documentsManager = new startupModules.DocumentsManager(workspaceRootPath);
+    if (workspaceRootPath) {
+      // Keep the Documents dashboard current when documents.json changes outside
+      // the dashboard editor (hand edits, a teammate's change via git pull).
+      const documentsWatcher = vscode.workspace.createFileSystemWatcher(
+        new vscode.RelativePattern(workspaceRootPath, 'project_memory/operations/documents.json'),
+      );
+      const reloadDocuments = () => { documentsManager.reload(); documentsRefresh.fire(); };
+      documentsWatcher.onDidChange(reloadDocuments);
+      documentsWatcher.onDidCreate(reloadDocuments);
+      documentsWatcher.onDidDelete(reloadDocuments);
+      context.subscriptions.push(documentsWatcher);
     }
     // Follow-up reminders (notification-only, deny-by-default). Nudges once per
     // day when follow-ups are due/overdue, opening the Director tab on click. The
@@ -2381,6 +2404,8 @@ async function bootstrapAtlasMind(
       deliveryRefresh,
       projectDirectorManager,
       projectDirectorRefresh,
+      documentsManager,
+      documentsRefresh,
       missionRegistry,
       rollbackLastCheckpoint: async () => {
         if (!checkpointManager) {
@@ -2627,9 +2652,77 @@ async function bootstrapAtlasMind(
     await setMemoryNeedsUpdateContext(false);
   }
 
+  // ── Presence / keep-awake ──────────────────────────────────────────────────
+  // Cross-platform OS wake lock so a connected Buzz presence, a Remote Control
+  // gateway session, or a long Mission Loop run is not killed by system sleep.
+  // Deny-by-default: holds nothing unless atlasmind.presence.keepAwake is on
+  // (or an activity calls hold()), AC-power-gated, and auto-releasing.
+  const readPresenceConfig = () => {
+    const cfg = vscode.workspace.getConfiguration('atlasmind');
+    return {
+      keepAwake: cfg.get<boolean>('presence.keepAwake', false),
+      keepDisplayAwake: cfg.get<boolean>('presence.keepDisplayAwake', false),
+      acPowerOnly: cfg.get<boolean>('presence.acPowerOnly', true),
+      maxAwakeMinutes: cfg.get<number>('presence.maxAwakeMinutes', 240),
+    };
+  };
+  const presenceManager = new PresenceManager({
+    onLog: (message) => outputChannel.appendLine(`[presence] ${message}`),
+  });
+  const presenceStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 48);
+  presenceStatusBar.command = 'atlasmind.togglePresence';
+  let presenceUnavailableNotified = false;
+  const updatePresenceStatusBar = (state = presenceManager.getState()): void => {
+    if (state.active) {
+      const displaySuffix = state.displayHeld ? ' (display on)' : '';
+      const expires = state.expiresAt
+        ? ` Auto-releases at ${new Date(state.expiresAt).toLocaleTimeString()}.`
+        : '';
+      presenceStatusBar.text = `$(zap) Atlas: Awake${displaySuffix}`;
+      presenceStatusBar.tooltip = `AtlasMind is keeping this computer awake so the agent stays online (${state.reasons.join(', ')}).${expires} Click to stop.`;
+      presenceStatusBar.backgroundColor = undefined;
+      presenceStatusBar.show();
+    } else if (state.suspended === 'battery') {
+      presenceStatusBar.text = '$(zap) Atlas: Awake (paused — battery)';
+      presenceStatusBar.tooltip = 'Keep-awake is paused because this device is on battery power (atlasmind.presence.acPowerOnly). It resumes automatically when you reconnect power. Click to change.';
+      presenceStatusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+      presenceStatusBar.show();
+    } else {
+      presenceStatusBar.hide();
+    }
+    if (state.suspended === 'unsupported' && state.reasons.length > 0 && !presenceUnavailableNotified) {
+      presenceUnavailableNotified = true;
+      void vscode.window.showWarningMessage('AtlasMind could not keep this computer awake: no supported keep-awake helper is available on this system. Adjust your OS power settings to prevent sleep while you need the agent online.');
+    }
+  };
+  presenceManager.applyConfig(readPresenceConfig());
+  updatePresenceStatusBar();
+  context.subscriptions.push(
+    presenceStatusBar,
+    presenceManager,
+    presenceManager.onDidChange((state) => updatePresenceStatusBar(state)),
+    vscode.commands.registerCommand('atlasmind.togglePresence', async () => {
+      const cfg = vscode.workspace.getConfiguration('atlasmind');
+      const next = !cfg.get<boolean>('presence.keepAwake', false);
+      await cfg.update('presence.keepAwake', next, vscode.ConfigurationTarget.Global);
+      void vscode.window.showInformationMessage(next
+        ? 'AtlasMind will keep this computer awake while an activity needs the agent online.'
+        : 'AtlasMind will no longer keep this computer awake.');
+    }),
+  );
+
   context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(event => {
     if (!atlasContext) {
       return;
+    }
+    if (
+      event.affectsConfiguration('atlasmind.presence.keepAwake') ||
+      event.affectsConfiguration('atlasmind.presence.keepDisplayAwake') ||
+      event.affectsConfiguration('atlasmind.presence.acPowerOnly') ||
+      event.affectsConfiguration('atlasmind.presence.maxAwakeMinutes')
+    ) {
+      presenceManager.applyConfig(readPresenceConfig());
+      updatePresenceStatusBar();
     }
     if (event.affectsConfiguration('atlasmind.feedbackRoutingWeight')) {
       atlasContext.modelRouter.setFeedbackWeight(getConfiguredFeedbackRoutingWeight());

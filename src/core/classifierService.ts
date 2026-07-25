@@ -23,11 +23,14 @@ export type RoutingNeedId =
   | 'architecture'
   | 'backend'
   | 'build'
+  | 'commercial'
   | 'debugging'
   | 'devops'
   | 'docs'
+  | 'ethics'
   | 'frontend'
   | 'git'
+  | 'legal'
   | 'package'
   | 'performance'
   | 'release'
@@ -89,8 +92,8 @@ const SPECIALIST_DOMAIN_VALUES: readonly SpecialistDomain[] = [
 ];
 
 const ROUTING_NEED_VALUES: readonly RoutingNeedId[] = [
-  'architecture', 'backend', 'build', 'debugging', 'devops', 'docs',
-  'frontend', 'git', 'package', 'performance', 'release', 'review', 'security', 'seo', 'testing',
+  'architecture', 'backend', 'build', 'commercial', 'debugging', 'devops', 'docs', 'ethics',
+  'frontend', 'git', 'legal', 'package', 'performance', 'release', 'review', 'security', 'seo', 'testing',
 ];
 
 const UI_COMMAND_VALUES: readonly UiCommandId[] = [
@@ -107,7 +110,7 @@ const CLASSIFIER_SYSTEM_PROMPT = `You are a routing classifier for an AI coding 
 Schema (all fields required):
 {
   "specialistDomain": "<one of: media-generation | visual-analysis | voice | research | robotics | simulation | null>",
-  "routingNeeds": ["<zero or more of: architecture | backend | build | debugging | devops | docs | frontend | git | package | performance | release | review | security | seo | testing>"],
+  "routingNeeds": ["<zero or more of: architecture | backend | build | commercial | debugging | devops | docs | ethics | frontend | git | legal | package | performance | release | review | security | seo | testing>"],
   "modality": "<one of: code | vision | text | mixed>",
   "reasoning": "<one of: high | medium | low>",
   "workspaceBias": "<one of: investigate | act | none>",
@@ -116,7 +119,7 @@ Schema (all fields required):
 
 Definitions:
 - specialistDomain: non-null only if the prompt is PRIMARILY about that specialist workflow (e.g. generating an image, running a voice pipeline, deep web research, robotics control, simulation modelling). Most coding prompts are null.
-- routingNeeds: engineering sub-domains that would benefit a specialist agent. Can be multiple. Empty array if none apply. Use "seo" for search engine optimisation, meta tags, structured data/Schema.org, sitemaps, Core Web Vitals as ranking signals, Answer Engine Optimisation, Open Graph/social metadata, or platform discoverability (Marketplace, npm, GitHub).
+- routingNeeds: engineering sub-domains that would benefit a specialist agent. Can be multiple. Empty array if none apply. Use "seo" for search engine optimisation, meta tags, structured data/Schema.org, sitemaps, Core Web Vitals as ranking signals, Answer Engine Optimisation, Open Graph/social metadata, or platform discoverability (Marketplace, npm, GitHub). Use "legal" for software licensing and licence compatibility, intellectual property, privacy regulation (GDPR/CCPA), liability, terms of service, or regulated-data handling. Use "ethics" for user harm, fairness and bias, consent, dark patterns, transparency, or the ethical duty behind an accessibility or data-collection decision. Use "commercial" for pricing and monetisation, vendor cost and lock-in, contractual or customer obligations, competitor positioning, or go-to-market impact. These three are advisory-oversight needs: use them when the question is about whether something *should* be done rather than how to build it.
 - modality: "code" if the main content involves source code or software artefacts; "vision" if it involves images/screenshots; "mixed" if both; "text" for everything else.
 - reasoning: "high" for architecture, design, security audit, root-cause, complex trade-offs; "medium" for explain/implement/fix/build; "low" for short factual or simple lookup. Simple git operations (commit, push, pull, stash, checkout) are always "low" even when the conversation has covered complex topics.
 - workspaceBias: "investigate" if the prompt asks about a bug, broken behavior, or unknown state that requires reading files/logs; "act" if the prompt asks to make a concrete change, commit, deploy, or fix something; "none" for questions, explanations, or advice-only.
