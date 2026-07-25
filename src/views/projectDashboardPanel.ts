@@ -8115,19 +8115,19 @@ const DASHBOARD_CSS = `
 
   .tag-good {
     border-color: color-mix(in srgb, var(--dash-good) 65%, var(--dash-border));
-    color: color-mix(in srgb, var(--dash-good) 85%, white 15%);
+    color: color-mix(in srgb, var(--dash-good) 85%, var(--tint-away) 15%);
     background: color-mix(in srgb, var(--dash-good) 16%, transparent);
   }
 
   .tag-warn {
     border-color: color-mix(in srgb, var(--dash-warn) 65%, var(--dash-border));
-    color: color-mix(in srgb, var(--dash-warn) 86%, white 14%);
+    color: color-mix(in srgb, var(--dash-warn) 86%, var(--tint-away) 14%);
     background: color-mix(in srgb, var(--dash-warn) 14%, transparent);
   }
 
   .tag-critical {
     border-color: color-mix(in srgb, var(--dash-critical) 70%, var(--dash-border));
-    color: color-mix(in srgb, var(--dash-critical) 86%, white 14%);
+    color: color-mix(in srgb, var(--dash-critical) 86%, var(--tint-away) 14%);
     background: color-mix(in srgb, var(--dash-critical) 14%, transparent);
   }
 
@@ -8140,7 +8140,7 @@ const DASHBOARD_CSS = `
 
   .tag-mvp {
     border-color: color-mix(in srgb, var(--dash-accent-strong) 70%, var(--dash-border));
-    color: color-mix(in srgb, var(--dash-accent-strong) 88%, white 12%);
+    color: color-mix(in srgb, var(--dash-accent-strong) 88%, var(--tint-away) 12%);
     background: color-mix(in srgb, var(--dash-accent-strong) 18%, transparent);
     font-weight: 600;
     letter-spacing: 0.04em;
@@ -8270,13 +8270,13 @@ const DASHBOARD_CSS = `
   .mvp-node.done .mvp-node-dot {
     border-color: color-mix(in srgb, var(--dash-good) 70%, var(--dash-border));
     background: color-mix(in srgb, var(--dash-good) 22%, transparent);
-    color: color-mix(in srgb, var(--dash-good) 90%, white 10%);
+    color: color-mix(in srgb, var(--dash-good) 90%, var(--tint-away) 10%);
   }
 
   .mvp-node.active .mvp-node-dot {
     border-color: var(--dash-accent-strong);
     background: color-mix(in srgb, var(--dash-accent-strong) 22%, transparent);
-    color: color-mix(in srgb, var(--dash-accent-strong) 92%, white 8%);
+    color: color-mix(in srgb, var(--dash-accent-strong) 92%, var(--tint-away) 8%);
     box-shadow: 0 0 0 4px color-mix(in srgb, var(--dash-accent-strong) 18%, transparent);
   }
 
@@ -8306,7 +8306,7 @@ const DASHBOARD_CSS = `
     font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    color: color-mix(in srgb, var(--dash-accent-strong) 86%, white 14%);
+    color: color-mix(in srgb, var(--dash-accent-strong) 86%, var(--tint-away) 14%);
   }
 
   /* ── Shared design-refresh primitives ─────────────────────────────── */
@@ -8380,7 +8380,7 @@ const DASHBOARD_CSS = `
     margin-top: 8px;
     font-size: 11px;
     font-weight: 600;
-    color: color-mix(in srgb, var(--dash-accent-strong) 86%, white 14%);
+    color: color-mix(in srgb, var(--dash-accent-strong) 86%, var(--tint-away) 14%);
   }
 
   /* Page intro band — plain-English orientation at the top of each page */
@@ -8807,7 +8807,7 @@ const DASHBOARD_CSS = `
   }
 
   .artifact-attention-badge.good {
-    color: color-mix(in srgb, var(--dash-good) 90%, white);
+    color: color-mix(in srgb, var(--dash-good) 90%, var(--tint-away));
     background: color-mix(in srgb, var(--dash-good) 14%, transparent);
     border-color: color-mix(in srgb, var(--dash-good) 36%, transparent);
   }
@@ -9095,7 +9095,7 @@ const DASHBOARD_CSS = `
     font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.12em;
-    color: color-mix(in srgb, var(--vscode-foreground) 66%, white 34%);
+    color: color-mix(in srgb, var(--vscode-foreground) 66%, var(--tint-away) 34%);
   }
 
   .ideation-card strong {
@@ -9105,7 +9105,7 @@ const DASHBOARD_CSS = `
 
   .ideation-card p {
     margin: 0;
-    color: color-mix(in srgb, var(--vscode-foreground) 74%, white 26%);
+    color: color-mix(in srgb, var(--vscode-foreground) 74%, var(--tint-away) 26%);
     font-size: 13px;
     line-height: 1.45;
   }

@@ -1170,7 +1170,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
         .chat-content {
           word-break: break-word;
           line-height: 1.62;
-          color: color-mix(in srgb, var(--vscode-foreground) 96%, white 4%);
+          color: color-mix(in srgb, var(--vscode-foreground) 96%, var(--tint-away) 4%);
         }
         .chat-content > :first-child {
           margin-top: 0;
@@ -1336,7 +1336,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
         .chat-markdown-table th {
           font-weight: 700;
           white-space: nowrap;
-          color: color-mix(in srgb, var(--vscode-foreground) 94%, white 6%);
+          color: color-mix(in srgb, var(--vscode-foreground) 94%, var(--tint-away) 6%);
           background: color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 90%, white 10%);
         }
         .chat-markdown-table tbody tr:nth-child(even) td {

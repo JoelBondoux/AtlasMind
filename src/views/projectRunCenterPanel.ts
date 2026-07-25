@@ -1913,23 +1913,23 @@ export class ProjectRunCenterPanel {
 
         .tone-good {
           background: color-mix(in srgb, var(--run-good) 22%, transparent);
-          color: color-mix(in srgb, var(--run-good) 84%, white 16%);
+          color: color-mix(in srgb, var(--run-good) 84%, var(--tint-away) 16%);
         }
 
         .tone-warn {
           background: color-mix(in srgb, var(--run-warn) 22%, transparent);
-          color: color-mix(in srgb, var(--run-warn) 84%, white 16%);
+          color: color-mix(in srgb, var(--run-warn) 84%, var(--tint-away) 16%);
         }
 
         .tone-critical {
           background: color-mix(in srgb, var(--run-critical) 20%, transparent);
-          color: color-mix(in srgb, var(--run-critical) 84%, white 16%);
+          color: color-mix(in srgb, var(--run-critical) 84%, var(--tint-away) 16%);
         }
 
         .tone-accent,
         .tone-neutral {
           background: color-mix(in srgb, var(--run-accent) 18%, transparent);
-          color: color-mix(in srgb, var(--run-accent) 76%, white 24%);
+          color: color-mix(in srgb, var(--run-accent) 76%, var(--tint-away) 24%);
         }
 
         .posture-grid .metric-label {
@@ -2253,7 +2253,7 @@ export class ProjectRunCenterPanel {
         }
 
         .step-item.is-active .step-label {
-          color: color-mix(in srgb, var(--run-accent) 90%, white 10%);
+          color: color-mix(in srgb, var(--run-accent) 90%, var(--tint-away) 10%);
           font-weight: 700;
         }
 
@@ -2385,7 +2385,7 @@ export class ProjectRunCenterPanel {
 
         .subtask-retry-hint {
           font-size: 11px;
-          color: color-mix(in srgb, var(--run-warn) 88%, white 12%);
+          color: color-mix(in srgb, var(--run-warn) 88%, var(--tint-away) 12%);
           white-space: nowrap;
         }
 

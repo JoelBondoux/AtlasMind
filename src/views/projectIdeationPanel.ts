@@ -4602,27 +4602,27 @@ const IDEATION_CSS = `
     position: relative;
   }
   .ideation-relation-legend-item.relation-supports {
-    color: color-mix(in srgb, #6bb2d7 70%, white 14%);
+    color: color-mix(in srgb, #6bb2d7 70%, var(--tint-away) 14%);
   }
   .ideation-relation-legend-item.relation-causal {
-    color: color-mix(in srgb, #4ea8de 78%, white 16%);
+    color: color-mix(in srgb, #4ea8de 78%, var(--tint-away) 16%);
   }
   .ideation-relation-legend-item.relation-causal .ideation-relation-legend-line,
   .ideation-relation-legend-item.relation-opportunity .ideation-relation-legend-line {
     border-top-style: solid;
   }
   .ideation-relation-legend-item.relation-dependency {
-    color: color-mix(in srgb, #d4a373 76%, white 16%);
+    color: color-mix(in srgb, #d4a373 76%, var(--tint-away) 16%);
   }
   .ideation-relation-legend-item.relation-dependency .ideation-relation-legend-line,
   .ideation-relation-legend-item.relation-contradiction .ideation-relation-legend-line {
     border-top-style: solid;
   }
   .ideation-relation-legend-item.relation-contradiction {
-    color: color-mix(in srgb, #d97787 82%, white 16%);
+    color: color-mix(in srgb, #d97787 82%, var(--tint-away) 16%);
   }
   .ideation-relation-legend-item.relation-opportunity {
-    color: color-mix(in srgb, #52b788 76%, white 16%);
+    color: color-mix(in srgb, #52b788 76%, var(--tint-away) 16%);
   }
   .ideation-board-world {
     position: absolute;
@@ -4674,7 +4674,7 @@ const IDEATION_CSS = `
   .ideation-board-flow-arrow::after {
     content: '->';
     margin-left: 8px;
-    color: color-mix(in srgb, #52b788 72%, white 18%);
+    color: color-mix(in srgb, #52b788 72%, var(--tint-away) 18%);
   }
   .ideation-connections {
     position: absolute;
@@ -4688,7 +4688,7 @@ const IDEATION_CSS = `
     fill: none;
     stroke: color-mix(in srgb, var(--vscode-button-background) 60%, white 20%);
     stroke-width: 2.2;
-    color: color-mix(in srgb, var(--vscode-button-background) 60%, white 20%);
+    color: color-mix(in srgb, var(--vscode-button-background) 60%, var(--tint-away) 20%);
     stroke-linecap: round;
     stroke-linejoin: round;
     transition: opacity 120ms ease, filter 120ms ease, stroke-width 120ms ease;
@@ -4701,21 +4701,21 @@ const IDEATION_CSS = `
   }
   .ideation-link-group.relation-supports .ideation-link {
     stroke: color-mix(in srgb, #6bb2d7 70%, white 14%);
-    color: color-mix(in srgb, #6bb2d7 70%, white 14%);
+    color: color-mix(in srgb, #6bb2d7 70%, var(--tint-away) 14%);
   }
   .ideation-link-label.relation-supports {
     fill: color-mix(in srgb, #6bb2d7 70%, white 14%);
   }
   .ideation-link-group.relation-causal .ideation-link {
     stroke: color-mix(in srgb, #4ea8de 78%, white 16%);
-    color: color-mix(in srgb, #4ea8de 78%, white 16%);
+    color: color-mix(in srgb, #4ea8de 78%, var(--tint-away) 16%);
   }
   .ideation-link-label.relation-causal {
     fill: color-mix(in srgb, #4ea8de 78%, white 16%);
   }
   .ideation-link-group.relation-dependency .ideation-link {
     stroke: color-mix(in srgb, #d4a373 76%, white 16%);
-    color: color-mix(in srgb, #d4a373 76%, white 16%);
+    color: color-mix(in srgb, #d4a373 76%, var(--tint-away) 16%);
     stroke-width: 2.2;
   }
   .ideation-link-label.relation-dependency {
@@ -4723,7 +4723,7 @@ const IDEATION_CSS = `
   }
   .ideation-link-group.relation-contradiction .ideation-link {
     stroke: color-mix(in srgb, #d97787 82%, white 16%);
-    color: color-mix(in srgb, #d97787 82%, white 16%);
+    color: color-mix(in srgb, #d97787 82%, var(--tint-away) 16%);
     stroke-width: 2.3;
   }
   .ideation-link-label.relation-contradiction {
@@ -4731,7 +4731,7 @@ const IDEATION_CSS = `
   }
   .ideation-link-group.relation-opportunity .ideation-link {
     stroke: color-mix(in srgb, #52b788 76%, white 16%);
-    color: color-mix(in srgb, #52b788 76%, white 16%);
+    color: color-mix(in srgb, #52b788 76%, var(--tint-away) 16%);
   }
   .ideation-link-label.relation-opportunity {
     fill: color-mix(in srgb, #52b788 76%, white 16%);
@@ -4744,7 +4744,7 @@ const IDEATION_CSS = `
   }
   .ideation-link-group.selected .ideation-link {
     stroke: color-mix(in srgb, var(--vscode-focusBorder, var(--vscode-button-background)) 80%, white 20%);
-    color: color-mix(in srgb, var(--vscode-focusBorder, var(--vscode-button-background)) 80%, white 20%);
+    color: color-mix(in srgb, var(--vscode-focusBorder, var(--vscode-button-background)) 80%, var(--tint-away) 20%);
     stroke-width: 2.9;
   }
   .ideation-link-group.muted .ideation-link,
@@ -4881,7 +4881,7 @@ const IDEATION_CSS = `
   .focused .ideation-card-indicator-right,
   .selected .ideation-card-indicator-right {
     border-color: color-mix(in srgb, #3a9a5b 42%, var(--vscode-widget-border, #444));
-    color: color-mix(in srgb, #3a9a5b 78%, white 22%);
+    color: color-mix(in srgb, #3a9a5b 78%, var(--tint-away) 22%);
   }
   .ideation-card-compact .ideation-card-body,
   .ideation-card-minimal .ideation-card-body {
@@ -4936,11 +4936,11 @@ const IDEATION_CSS = `
   }
   .tag-good {
     border-color: color-mix(in srgb, #3a9a5b 64%, white 16%);
-    color: color-mix(in srgb, #3a9a5b 78%, white 22%);
+    color: color-mix(in srgb, #3a9a5b 78%, var(--tint-away) 22%);
   }
   .tag-warn {
     border-color: color-mix(in srgb, #d29a2a 64%, white 16%);
-    color: color-mix(in srgb, #d29a2a 82%, white 18%);
+    color: color-mix(in srgb, #d29a2a 82%, var(--tint-away) 18%);
   }
   .ideation-card-sun { background: linear-gradient(180deg, color-mix(in srgb, #e9c46a 16%, var(--vscode-editorWidget-background)) 0%, color-mix(in srgb, var(--vscode-editorWidget-background) 92%, transparent) 100%); }
   .ideation-card-sea { background: linear-gradient(180deg, color-mix(in srgb, #4ea8de 16%, var(--vscode-editorWidget-background)) 0%, color-mix(in srgb, var(--vscode-editorWidget-background) 92%, transparent) 100%); }

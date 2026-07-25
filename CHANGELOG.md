@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.141.2] - 2026-07-25
+
+### Fixed
+- **Panel accent text was built for a dark theme and washed out on a light one.** Panel CSS repeatedly lightens an accent for legibility — `color-mix(in srgb, var(--accent) 80%, white 20%)` — which moves the colour away from a dark page and *toward* a light one, dropping contrast exactly where it is needed. VS Code exposes the active theme as a `vscode-light` / `vscode-dark` / `vscode-high-contrast` class on the webview body, and **nothing in the codebase used it**. The shared shell now defines `--tint-away` (white on dark, black on light) and `--tint-toward`, and the 35 text colour-mixes across the Dashboard, Ideation, Run Center and Chat mix toward those instead of a literal — so an accent always moves away from the page background whichever theme is active.
+- Skill Scanner severity badges pinned salmon and amber text over themed validation backgrounds, which is legible on dark and low-contrast on light; they now use the matching themed foregrounds.
+- Three CSS custom properties were used but never defined (`--atlas-panel-fg`, `--panel-border` ×5, `--dash-fg`). An undefined custom property invalidates the whole declaration, so those rules were silently vanishing rather than failing loudly.
+- Project Dashboard attention badges pinned a fixed text colour (`#1c1400`, `#fff`) over a solid tone fill — any fixed value is wrong in one of the two themes. They now use a translucent tint of the tone with the tone itself as text.
+
 ## [0.141.1] - 2026-07-25
 
 ### Changed

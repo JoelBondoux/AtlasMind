@@ -39,6 +39,23 @@ export function getWebviewHtmlShell(options: WebviewShellOptions): string {
       max-width: 100%;
       overflow-x: hidden;
     }
+    /* Theme-direction tint.
+       Panel CSS repeatedly lightens an accent for legibility — e.g.
+       "color-mix(in srgb, var(--accent) 80%, white 20%)". That is correct on a
+       dark theme and backwards on a light one, where the same rule washes the
+       text out against a white page. VS Code puts "vscode-light" /
+       "vscode-dark" / "vscode-high-contrast" on the webview body, so mixing
+       toward "var(--tint-away)" instead of a literal moves the colour *away*
+       from the page background in whichever theme is active.
+       "--tint-toward" is the opposite direction, for tinting surfaces. */
+    :root {
+      --tint-away: white;
+      --tint-toward: black;
+    }
+    body.vscode-light {
+      --tint-away: black;
+      --tint-toward: white;
+    }
     body {
       margin: 0;
       font-family: var(--vscode-font-family, system-ui, sans-serif);

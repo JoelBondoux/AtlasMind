@@ -163,20 +163,39 @@ describe('theme safety', () => {
       }
     }
 
-    // Pre-existing offenders, frozen so the check guards against *new* ones
-    // without demanding two unrelated panels be restyled in the same pass.
-    // Ideation's card-kind accents and the ARD/charts badges are legible on a
-    // dark theme and washed out on a light one; they are on the list for the
-    // theme pass. Anything not on this baseline is a regression.
+    // Two badge rules remain: white/near-black text on a themed chart colour,
+    // where the pairing is legible in both themes and changing it would be a
+    // restyle rather than a fix.
     const BASELINE = new Set([
       'src/views/settingsPanel.ts → color: #fff',
       'src/views/settingsPanel.ts → color: #1a1a1a',
     ]);
-    const isIdeationAccent = (entry: string) =>
-      entry.startsWith('src/views/projectIdeationPanel.ts → color: color-mix(');
 
-    const regressions = offenders.filter(entry => !BASELINE.has(entry) && !isIdeationAccent(entry));
+    const regressions = offenders.filter(entry => !BASELINE.has(entry));
     expect(regressions, `fixed text colour on a themed background: ${regressions.join(' | ')}`).toEqual([]);
+  });
+
+  it('tints text away from the page background rather than always lightening', () => {
+    // `color-mix(..., white 20%)` on a text colour is correct on a dark theme
+    // and backwards on a light one, where it washes the text out against the
+    // page. `var(--tint-away)` resolves to white on dark and black on light,
+    // so the accent always moves away from the background.
+    const shell = readFileSync(path.join(VIEWS_DIR, 'webviewUtils.ts'), 'utf8');
+    expect(shell).toContain('--tint-away: white');
+    expect(shell).toContain('body.vscode-light');
+    expect(shell).toMatch(/body\.vscode-light\s*\{[^}]*--tint-away:\s*black/);
+
+    const EXEMPT = new Set(['src/views/personalityProfilePanel.ts']);
+    const offenders: string[] = [];
+    for (const { file, text } of allWebviewSources) {
+      if (EXEMPT.has(file)) { continue; }
+      for (const match of text.matchAll(/(^|[\s;{])color:\s*color-mix\([^;]*/gm)) {
+        if (/\b(white|black)\b/.test(match[0])) {
+          offenders.push(`${file} → ${match[0].trim().slice(0, 70)}`);
+        }
+      }
+    }
+    expect(offenders, `text colour-mix still pinned to a literal: ${offenders.join(' | ')}`).toEqual([]);
   });
 
   it('defines every custom property it uses', () => {
