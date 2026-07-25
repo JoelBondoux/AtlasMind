@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.141.5] - 2026-07-25
+
+### Changed
+- **The chat status line moved to where the things it narrates actually are.** `#status` sat at the very top of the panel while the thinking indicator, the streaming reply and the send state are all pinned to the bottom — on a tall transcript it was scrolled off-screen entirely. It now sits directly above the composer and carries `role="status"`, so its updates are announced rather than silently repainted.
+
+### Removed
+- Dead chat search markup (`#composerSearch`, `#searchInput`, `#searchResults`). Search mode itself works — through controls created dynamically over the prompt input — but this static block was leftover from an earlier design and had no reference anywhere in the panel script.
+
 ## [0.141.4] - 2026-07-25
 
 ### Fixed

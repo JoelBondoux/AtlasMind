@@ -176,6 +176,35 @@ describe('cost dashboard order', () => {
   });
 });
 
+describe('chat panel order', () => {
+  const source = read('chatWebviewMarkup.ts');
+  const at = (needle: string) => {
+    const index = source.indexOf(needle);
+    expect(index, `"${needle}" not found`).toBeGreaterThan(-1);
+    return index;
+  };
+
+  it('puts the status line where the things it narrates actually are', () => {
+    // #status sat at the top of the panel while the thinking indicator, the
+    // streaming reply and the send state are all pinned to the bottom — on a
+    // tall transcript it was scrolled off-screen entirely.
+    expect(at('id="status"')).toBeGreaterThan(at('id="transcript"'));
+    expect(at('id="status"')).toBeLessThan(at('class="composer-shell"'));
+  });
+
+  it('announces status changes to assistive tech', () => {
+    expect(source).toMatch(/id="status"[^>]*role="status"/);
+  });
+
+  it('ships no dead search markup', () => {
+    // #composerSearch / #searchInput / #searchResults were never referenced by
+    // the script — search mode works through dynamically created controls over
+    // the prompt input. The static block was leftover from an earlier design.
+    expect(source).not.toContain('id="composerSearch"');
+    expect(source).not.toContain('id="searchInput"');
+  });
+});
+
 describe('run center order', () => {
   const source = read('projectRunCenterPanel.ts');
   const bodyStart = source.indexOf('<div class="run-center-shell">');

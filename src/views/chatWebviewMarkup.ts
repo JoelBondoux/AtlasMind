@@ -75,7 +75,6 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
                 <h2 id="panelTitle">AtlasMind Chat</h2>
                 <p id="panelSubtitle" class="panel-subtitle">Persistent workspace chat threads with direct access to recent autonomous runs.</p>
               </section>
-              <div id="status" class="status-label">Ready.</div>
               <section id="aiInstructionNudge" class="ai-instruction-nudge hidden" aria-live="polite">
                 <div class="ai-instruction-nudge-body">
                   <span class="ai-instruction-nudge-icon">&#9432;</span>
@@ -103,6 +102,11 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
                 <div id="imageLightboxCaption" class="media-lightbox-caption"></div>
               </div>
             </div>
+            <!-- Sits directly above the composer: everything it narrates -- the
+                 thinking indicator, the streaming reply, the send state -- is pinned
+                 to the bottom of the panel, while this used to sit at the very top,
+                 off-screen on a tall transcript. -->
+            <div id="status" class="status-label" role="status" aria-live="polite">Ready.</div>
             <section class="composer-shell">
               <div class="row toolbar-row composer-tools">
                 <div class="attach-row">
@@ -160,10 +164,6 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
                 <span class="pending-run-review-chevron" aria-hidden="true">▾</span>
               </div>
               <div id="pendingRunReviewFlyout" class="pending-run-review-flyout hidden"></div>
-              <div id="composerSearch" class="composer-search hidden">
-                <input id="searchInput" type="text" placeholder="Search session (supports glob patterns)..." />
-                <div id="searchResults" class="search-results"></div>
-              </div>
               <textarea id="promptInput" rows="3" placeholder="Ask AtlasMind to plan, explain, inspect, or implement something…"></textarea>
               <div class="row toolbar-row composer-row">
                 <div class="send-group">
