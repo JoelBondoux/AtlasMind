@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.141.3] - 2026-07-25
+
+### Fixed
+- **The chat font-size buttons forgot their setting every time the panel reopened.** `adjustChatFontScale` wrote only to `vscode.setState`, which dies with the webview. The host already handled a `saveFontScale` message and already seeded the scale from `globalState` on load — the webview simply never told it.
+- **The chat model dropdown could not be dismissed by clicking away.** Its close-on-outside-click handler was registered when the *message rendered*, not when the menu opened, and removed itself on the first document click — which in practice happened long before the menu was ever used. It is now armed on open, released on close, and also closes on Escape.
+
 ## [0.141.2] - 2026-07-25
 
 ### Fixed

@@ -329,6 +329,25 @@ describe('codicon usage across panels', () => {
   });
 });
 
+describe('chat panel controls', () => {
+  const script = readFileSync(path.join(process.cwd(), 'media', 'chatPanel.js'), 'utf8');
+
+  it('persists the font scale to the host, not just to webview state', () => {
+    // vscode.setState dies with the webview. The host already handles
+    // 'saveFontScale' and seeds the scale from globalState on load, so without
+    // this the A- / A+ buttons reset every time the panel was reopened.
+    expect(script).toContain("type: 'saveFontScale'");
+  });
+
+  it('arms close-on-outside-click when the model menu opens', () => {
+    // It used to be registered at render time with a self-removing handler, so
+    // the first click anywhere consumed it — usually before the menu had ever
+    // been opened, leaving the dropdown stuck open afterwards.
+    expect(script).toContain('closeOnOutsideClick');
+    expect(script).toMatch(/if \(willOpen\) \{\s*document\.addEventListener\('click', closeOnOutsideClick/);
+  });
+});
+
 describe('tool webhook panel', () => {
   const source = readFileSync(path.join(VIEWS_DIR, 'toolWebhookPanel.ts'), 'utf8');
 
