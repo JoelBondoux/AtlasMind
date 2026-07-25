@@ -38,7 +38,22 @@ import {
 } from '../core/directorCommsRunner.js';
 import { mcpSkillId } from '../mcp/mcpServerRegistry.js';
 import { classifyToolInvocation } from '../core/toolPolicy.js';
-import type { DataPrivacyActivityEvent, DataPrivacySensitivity, DeliveryConfig, DeploymentStage, PromotionPath, PromotionHistoryEntry, ProjectDirectorConfig, ProjectRunRecord } from '../types.js';
+import { DOCUMENTS_SSOT_PATH, DOCUMENTS_SUMMARY_SSOT_PATH, sanitizeDocumentsConfig, seedDocumentsConfig } from '../core/documentsManager.js';
+import {
+  RISK_SSOT_PATH,
+  RISK_SUMMARY_SSOT_PATH,
+  RISK_DOMAINS,
+  appendRiskOversightHistory,
+  readRiskOversightHistory,
+  openFindings,
+  hasBeenAssessed,
+  findingWeight,
+  riskMatrixCounts,
+  mergeDomainFindings,
+  parseRiskFindings,
+  sanitizeRiskFindings,
+} from '../core/riskOversightManager.js';
+import type { DataPrivacyActivityEvent, DataPrivacySensitivity, DeliveryConfig, DeploymentStage, PromotionPath, PromotionHistoryEntry, ProjectDirectorConfig, ProjectRunRecord, DocumentCadence, RiskDomain, RiskFinding, RiskOversightConfig, RiskOversightHistoryEntry, RiskStatus } from '../types.js';
 
 const execFileAsync = promisify(execFile);
 const PROJECT_DASHBOARD_VIEW_TYPE = 'atlasmind.projectDashboard';
@@ -93,6 +108,60 @@ const EXPECTED_SSOT_DIRECTORIES = [
 const ROADMAP_ITEMS_START = '<!-- atlasmind:roadmap-items:start -->';
 const ROADMAP_ITEMS_END = '<!-- atlasmind:roadmap-items:end -->';
 
+// The roadmap import generator (see the `atlasmind-import` block in
+// improvement-plan.md) injects "Project Context" metadata and generic
+// "Prioritisation Notes" scaffolding as checklist lines. These are not
+// actionable backlog items and must be filtered out of the dashboard so the
+// Roadmap page stops listing inappropriate items and duplicating them.
+const ROADMAP_NOISE_PHRASES = new Set<string>([
+  'critical, security, reliability, or production-blocking work',
+  'architectural integrity and changes that unlock safer future work',
+  'user-facing outcomes, milestones, and backlog order in this file',
+  'user-facing outcomes, milestones, and backlog order',
+  'user-facing outcomes, milestones, and backlog order transparency',
+  'delivery hygiene such as tests, ci, release notes, and documentation',
+  'delivery hygiene such as tests, ci, release notes, and docs',
+  'delivery hygiene: tests, ci, release notes, and documentation',
+  'address the highest-risk security, reliability, or correctness gap first',
+  'capture or implement the next architectural decision that reduces future churn',
+  'clarify the next highest-value user or business outcome',
+  'confirm the most leverage-heavy technical slice and keep the stack intentional',
+  'add or update the tests needed to prove the next change safely',
+  'sequence the next milestone so delivery remains measurable',
+  'review the operational or third-party dependencies before scaling scope',
+]);
+
+// "key: value" project-context lines the generator emits (Project, Timeline, …).
+const ROADMAP_METADATA_KEY = /^(project|project type|target audience|timeline|tech stack)\s*:/i;
+
+function normalizeRoadmapText(text: string): string {
+  return text.toLowerCase().replace(/\s+/g, ' ').replace(/[.\s]+$/, '').trim();
+}
+
+// True when a parsed checklist line is import-generator scaffolding rather than a
+// real backlog item, so the dashboard can hide it.
+function isRoadmapNoiseItem(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) {
+    return true;
+  }
+  if (ROADMAP_METADATA_KEY.test(trimmed)) {
+    return true;
+  }
+  return ROADMAP_NOISE_PHRASES.has(normalizeRoadmapText(trimmed));
+}
+
+// The backlog lives between explicit markers; parse only that region when present
+// so "## Project Context" and "## Prioritisation Notes" never leak into the list.
+function extractRoadmapItemsRegion(content: string): string {
+  const start = content.indexOf(ROADMAP_ITEMS_START);
+  const end = content.indexOf(ROADMAP_ITEMS_END);
+  if (start >= 0 && end > start) {
+    return content.slice(start + ROADMAP_ITEMS_START.length, end);
+  }
+  return content;
+}
+
 type ProjectDashboardMessage =
   | { type: 'ready' }
   | { type: 'refresh' }
@@ -125,6 +194,11 @@ type ProjectDashboardMessage =
   | { type: 'testDataPrivacy'; payload: { kind: 'text' | 'path'; value: string } }
   | { type: 'saveDirectorConfig'; payload: import('../types.js').ProjectDirectorConfig }
   | { type: 'seedDirectorFromRepo' }
+  | { type: 'saveDocumentsConfig'; payload: import('../types.js').DocumentsConfig }
+  | { type: 'seedDocumentsFromRepo' }
+  | { type: 'runRiskAnalysis'; payload: { domain: import('../types.js').RiskDomain | 'all' } }
+  | { type: 'setRiskFindingStatus'; payload: { findingId: string; status: import('../types.js').RiskStatus; note?: string } }
+  | { type: 'setRiskFilter'; payload: string }
   | { type: 'copyContact'; payload: string }
   | { type: 'openContactDeepLink'; payload: { contactId: string; linkId: string } }
   | { type: 'assignRunOwner'; payload: { runId: string; contactId: string } }
@@ -141,6 +215,8 @@ type DashboardWebviewMessage =
   | { type: 'ideationResponseChunk'; payload: string }
   | { type: 'gapAnalysisBusy'; payload: boolean }
   | { type: 'gapAnalysisStatus'; payload: string }
+  | { type: 'riskBusy'; payload: boolean }
+  | { type: 'riskStatus'; payload: string }
   | { type: 'dataPrivacyTestResult'; payload: { ok: boolean; summary: string; labels: string[] } }
   | { type: 'promotionPlan'; payload: { plan: import('../types.js').PromotionPlan; mode: 'execute' | 'runbook' } }
   | { type: 'promotionProgress'; payload: { stepId: string; label: string; index: number; total: number; status: string; output?: string } }
@@ -161,7 +237,21 @@ interface DashboardStat {
   command?: string;
 }
 
-type DashboardPageId = 'overview' | 'score' | 'repo' | 'runtime' | 'testing' | 'ssot' | 'roadmap' | 'gapAnalysis' | 'security' | 'delivery' | 'director' | 'ideation';
+/**
+ * Every dashboard page id, in nav order.
+ *
+ * Single source of truth: the union below is derived from it and
+ * {@link normalizeDashboardPromptRequest} validates against it, so adding a page
+ * cannot leave one of them behind. It previously could — `privacy` shipped in the
+ * webview nav but was missing from both, which silently dropped `sourcePage` on
+ * every "Ask Atlas" raised from that page.
+ */
+const DASHBOARD_PAGE_IDS = [
+  'overview', 'score', 'repo', 'runtime', 'testing', 'ssot', 'roadmap', 'gapAnalysis',
+  'security', 'privacy', 'risk', 'delivery', 'director', 'documents', 'ideation',
+] as const;
+
+type DashboardPageId = typeof DASHBOARD_PAGE_IDS[number];
 
 type IdeationCardKind =
   | 'concept'
@@ -775,6 +865,8 @@ interface DashboardSnapshot {
     stages: DashboardStagePipeline;
   };
   director: DashboardDirectorSnapshot;
+  documents: DashboardDocumentsSnapshot;
+  risk: DashboardRiskSnapshot;
   score: DashboardScoreBreakdown;
   ideation: DashboardIdeationSnapshot;
   gapAnalysis: DashboardGapAnalysisSnapshot;
@@ -1219,6 +1311,8 @@ export class ProjectDashboardPanel {
     this.atlas.modelsRefresh.event(() => { void this.syncState(); }, null, this.disposables);
     this.atlas.deliveryRefresh?.event(() => { void this.syncState(); }, null, this.disposables);
     this.atlas.projectDirectorRefresh?.event(() => { void this.syncState(); }, null, this.disposables);
+    this.atlas.documentsRefresh?.event(() => { void this.syncState(); }, null, this.disposables);
+    this.atlas.riskOversightRefresh?.event(() => { void this.syncState(); }, null, this.disposables);
     this.atlas.projectRunsRefresh.event(() => { void this.syncState(); }, null, this.disposables);
     this.atlas.memoryRefresh.event(() => { void this.syncState(); }, null, this.disposables);
     this.atlas.sessionConversation.onDidChange(() => { void this.syncState(); }, null, this.disposables);
@@ -1383,6 +1477,29 @@ export class ProjectDashboardPanel {
         return;
       case 'seedDirectorFromRepo':
         await this.handleSeedDirector();
+        return;
+      case 'runRiskAnalysis':
+        await this.handleRunRiskAnalysis(message.payload.domain);
+        return;
+      case 'setRiskFindingStatus':
+        await this.handleSetRiskFindingStatus(message.payload);
+        return;
+      case 'setRiskFilter':
+        // View-only state; the webview owns it. Nothing to persist.
+        return;
+      case 'saveDocumentsConfig':
+        {
+          // The webview payload is untrusted: sanitize it (clamp strings, make
+          // paths workspace-relative and traversal-safe) before it touches disk.
+          const clean = sanitizeDocumentsConfig(message.payload);
+          if (clean) {
+            await this.atlas.documentsManager.save(clean);
+            await this.syncState();
+          }
+        }
+        return;
+      case 'seedDocumentsFromRepo':
+        await this.handleSeedDocuments();
         return;
       case 'copyContact':
         await this.handleCopyContact(message.payload);
@@ -1832,6 +1949,13 @@ export class ProjectDashboardPanel {
    * and enable the built-in `gdpr-pii` classification pack so the stored PII is
    * covered by the existing redaction boundary. Returns true when it is OK to
    * persist. Modelled on `remoteControlServer.ensureWorkspaceApproval`.
+   *
+   * The consent asked for here is narrow — "store these contact details" — but
+   * turning the Data Privacy policy on for the first time is workspace-wide:
+   * every later task has its assembled context scanned. The modal therefore
+   * states that consequence up front, and if the master switch actually had to
+   * be flipped the user is told afterwards and offered the page to review it.
+   * A scope change the operator cannot see is a scope change they cannot undo.
    */
   private async ensurePiiConsent(config: ProjectDirectorConfig): Promise<boolean> {
     if (!configStoresRawPii(config)) {
@@ -1847,33 +1971,63 @@ export class ProjectDashboardPanel {
       + 'Under the GDPR you are the data controller: keep it minimal, store only what you need, and remove it on request. '
       + 'AtlasMind classifies stored personal data as confidential so it is never sent to an un-trusted model. '
       + 'Where possible, prefer referencing people in Microsoft 365 / Slack over storing raw details locally.',
-      { modal: true },
+      {
+        modal: true,
+        detail: 'To do that, AtlasMind will enable the "GDPR — Personal Data" detectors in the project Data Privacy policy. '
+          + 'That policy applies to the whole workspace: from now on the context assembled for each task is scanned, and anything '
+          + 'it matches is redacted before reaching a model you have not marked trusted. You can review or turn this off at any '
+          + 'time on the Privacy page.',
+      },
       'Store personal data',
     );
     if (choice !== 'Store personal data') {
       return false;
     }
     await context?.workspaceState?.update(PROJECT_DIRECTOR_PII_ACK_KEY, true);
-    await this.enableGdprPiiPack();
+    const { policyTurnedOn } = await this.enableGdprPiiPack();
+    if (policyTurnedOn) {
+      void vscode.window.showInformationMessage(
+        'Data Privacy is now on for this workspace: task context is scanned for personal data and redacted for un-trusted models.',
+        'Review on Privacy page',
+      ).then(async (action) => {
+        if (action === 'Review on Privacy page') {
+          await this.postMessage({ type: 'navigate', payload: 'privacy' });
+        }
+      });
+    }
     return true;
   }
 
-  /** Enable the built-in gdpr-pii compliance pack so stored Director PII is classified. */
-  private async enableGdprPiiPack(): Promise<void> {
+  /**
+   * Enable the built-in gdpr-pii compliance pack so stored Director PII is
+   * classified. Reports whether the workspace-wide master switch had to be
+   * turned on, so the caller can disclose that rather than changing the scope
+   * of the policy silently.
+   */
+  private async enableGdprPiiPack(): Promise<{ policyTurnedOn: boolean }> {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!workspaceRoot) {
-      return;
+      return { policyTurnedOn: false };
     }
     try {
       const current = readDataPrivacyConfig(workspaceRoot) ?? defaultDataPrivacyConfig();
-      if (current.compliancePacks.includes('gdpr-pii')) {
-        return;
+      const policyTurnedOn = current.enabled !== true;
+      if (current.compliancePacks.includes('gdpr-pii') && !policyTurnedOn) {
+        return { policyTurnedOn: false };
       }
-      const next = { ...current, enabled: true, compliancePacks: [...current.compliancePacks, 'gdpr-pii'] };
+      const next = {
+        ...current,
+        enabled: true,
+        compliancePacks: current.compliancePacks.includes('gdpr-pii')
+          ? current.compliancePacks
+          : [...current.compliancePacks, 'gdpr-pii'],
+      };
       await writeDataPrivacyConfig(workspaceRoot, next);
       this.atlas.dataPrivacyManager?.setConfig(next);
+      return { policyTurnedOn };
     } catch {
       // Best-effort; the Director save still proceeds.
+      return { policyTurnedOn: false };
     }
   }
 
@@ -1902,6 +2056,157 @@ export class ProjectDashboardPanel {
       return;
     }
     await this.atlas.projectDirectorManager.save(config);
+    await this.syncState();
+  }
+
+  private async handleSeedDocuments(): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot || !this.atlas.documentsManager) {
+      return;
+    }
+    // Seed a starter filing system only from paths that actually exist, so the
+    // registry never references documents the project doesn't have.
+    const presentDocFolders = ['docs', 'wiki', 'documentation', 'guides']
+      .filter(folder => existsSync(path.join(workspaceRoot, folder)));
+    const keyDocs = ['README.md', 'CHANGELOG.md', 'CONTRIBUTING.md', 'SECURITY.md']
+      .filter(doc => existsSync(path.join(workspaceRoot, doc)));
+    const seeded = seedDocumentsConfig({ presentDocFolders, keyDocs });
+    await this.atlas.documentsManager.save(seeded);
+    await this.syncState();
+  }
+
+  /**
+   * Run one or all oversight advisors and record what they find.
+   *
+   * The agent is *pinned* via `processTaskWithAgent` rather than routed, so the Risk
+   * page always consults the advisor the user asked for. Each advisor is read-only
+   * (its skills are an allowlist), which is why persistence happens here instead:
+   * the model returns JSON, this method sanitises it and owns the single write path.
+   *
+   * "All" runs sequentially, not concurrently — three parallel model calls is a
+   * surprising cost spike from one click, and sequential progress is legible.
+   */
+  private async handleRunRiskAnalysis(domain: RiskDomain | 'all'): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot || !this.atlas.riskOversightManager) {
+      return;
+    }
+    const domains: RiskDomain[] = domain === 'all' ? [...RISK_DOMAINS] : [domain];
+
+    await this.postMessage({ type: 'riskBusy', payload: true });
+    try {
+      const configuration = vscode.workspace.getConfiguration('atlasmind');
+      let config = this.atlas.riskOversightManager.getConfig() ?? await this.atlas.riskOversightManager.ensureSeeded();
+
+      for (const [index, current] of domains.entries()) {
+        const agent = this.atlas.agentRegistry.get(`${current}-oversight`);
+        if (!agent) {
+          await this.postMessage({ type: 'riskStatus', payload: `The ${current} oversight advisor is not available.` });
+          continue;
+        }
+        const position = domains.length > 1 ? ` (${index + 1}/${domains.length})` : '';
+        await this.postMessage({ type: 'riskStatus', payload: `${agent.name} is reviewing the workspace${position}...` });
+
+        let streamedText = '';
+        let result;
+        try {
+          result = await this.atlas.orchestrator.processTaskWithAgent(
+            {
+              id: `risk-${current}-${Date.now()}`,
+              userMessage: buildRiskAnalysisPrompt(current),
+              context: { riskAnalysisMode: 'json' },
+              constraints: {
+                budget: toDashboardBudgetMode(configuration.get<string>('budgetMode')),
+                speed: toDashboardSpeedMode(configuration.get<string>('speedMode')),
+              },
+              timestamp: new Date().toISOString(),
+            },
+            agent,
+            chunk => { streamedText += chunk ?? ''; },
+            progress => { void this.postMessage({ type: 'riskStatus', payload: `${agent.name}: ${progress}` }); },
+          );
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          await this.postMessage({ type: 'riskStatus', payload: `${agent.name} failed: ${detail}` });
+          continue;
+        }
+
+        // Model output is untrusted: parse defensively, then sanitise before persisting.
+        const reconciled = reconcileAssistantResponse(streamedText, result.response);
+        const raw = parseRiskFindings(reconciled.transcriptText);
+        const incoming = sanitizeRiskFindings(raw)
+          .map(finding => ({ ...finding, domain: current }));
+
+        config = {
+          ...config,
+          findings: mergeDomainFindings(config.findings, incoming, current),
+          runs: [
+            ...config.runs.filter(run => run.domain !== current),
+            { domain: current, ranAt: new Date().toISOString(), findingCount: incoming.length },
+          ],
+        };
+        await this.atlas.riskOversightManager.save(config);
+        await appendRiskOversightHistory(workspaceRoot, {
+          id: `run-${current}-${new Date().toISOString()}`,
+          kind: 'analysis-run',
+          summary: `${agent.name} reviewed the workspace and reported ${incoming.length} finding${incoming.length === 1 ? '' : 's'}.`,
+          domain: current,
+          ranAt: new Date().toISOString(),
+        });
+
+        await this.postMessage({
+          type: 'riskStatus',
+          payload: incoming.length === 0
+            // A clean result and an unparseable one look the same to the user, so say which.
+            ? `${agent.name} reported no findings${raw.length > 0 ? ' that could be recorded' : ''}.`
+            : `${agent.name} recorded ${incoming.length} finding${incoming.length === 1 ? '' : 's'}.`,
+        });
+        await this.syncState();
+      }
+    } finally {
+      await this.postMessage({ type: 'riskBusy', payload: false });
+    }
+  }
+
+  /**
+   * Record a human decision about a finding. Findings are never deleted — a status
+   * change is the only way one leaves the open set — so the register keeps a complete
+   * account of what was raised and what was decided.
+   */
+  private async handleSetRiskFindingStatus(payload: { findingId: string; status: RiskStatus; note?: string }): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const manager = this.atlas.riskOversightManager;
+    const config = manager?.getConfig();
+    if (!manager || !config) {
+      return;
+    }
+    const finding = config.findings.find(entry => entry.id === payload.findingId);
+    if (!finding || finding.status === payload.status) {
+      return;
+    }
+    const note = payload.note?.trim().slice(0, 2000);
+    const updated: RiskOversightConfig = {
+      ...config,
+      findings: config.findings.map(entry => entry.id === payload.findingId
+        ? {
+          ...entry,
+          status: payload.status,
+          updatedAt: new Date().toISOString(),
+          ...(note ? { statusNote: note } : {}),
+        }
+        : entry),
+    };
+    await manager.save(updated);
+    if (workspaceRoot) {
+      await appendRiskOversightHistory(workspaceRoot, {
+        id: `status-${payload.findingId}-${new Date().toISOString()}`,
+        kind: 'status-change',
+        summary: `"${finding.title}" moved from ${finding.status} to ${payload.status}.`,
+        domain: finding.domain,
+        entityId: payload.findingId,
+        ranAt: new Date().toISOString(),
+      });
+    }
     await this.syncState();
   }
 
@@ -2407,7 +2712,7 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
   }
 
   const candidate = message as Record<string, unknown>;
-  if (candidate['type'] === 'ready' || candidate['type'] === 'refresh' || candidate['type'] === 'runGapAnalysis' || candidate['type'] === 'markDeliveryReviewed' || candidate['type'] === 'reimportDelivery' || candidate['type'] === 'seedDirectorFromRepo') {
+  if (candidate['type'] === 'ready' || candidate['type'] === 'refresh' || candidate['type'] === 'runGapAnalysis' || candidate['type'] === 'markDeliveryReviewed' || candidate['type'] === 'reimportDelivery' || candidate['type'] === 'seedDirectorFromRepo' || candidate['type'] === 'seedDocumentsFromRepo') {
     return true;
   }
 
@@ -2450,6 +2755,38 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return typeof p === 'object' && p !== null && p['version'] === 1
       && Array.isArray(p['contacts']) && Array.isArray(p['stakeholders']) && Array.isArray(p['teamMembers'])
       && Array.isArray(p['responsibilities']) && Array.isArray(p['assignments']) && Array.isArray(p['followUps']);
+  }
+
+  if (candidate['type'] === 'saveDocumentsConfig') {
+    const p = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof p === 'object' && p !== null && p['version'] === 1 && Array.isArray(p['filing']) && Array.isArray(p['autoUpdate']);
+  }
+
+  // Risk messages trigger a paid model call and mutate the persisted register, so the
+  // domain and status are checked against their closed sets here rather than being
+  // coerced later — an unrecognised value is rejected outright, not defaulted.
+  if (candidate['type'] === 'runRiskAnalysis') {
+    const p = candidate['payload'] as Record<string, unknown> | undefined;
+    if (typeof p !== 'object' || p === null) {
+      return false;
+    }
+    const domain = p['domain'];
+    return domain === 'all' || (typeof domain === 'string' && (RISK_DOMAINS as readonly string[]).includes(domain));
+  }
+
+  if (candidate['type'] === 'setRiskFindingStatus') {
+    const p = candidate['payload'] as Record<string, unknown> | undefined;
+    if (typeof p !== 'object' || p === null) {
+      return false;
+    }
+    const validStatuses = ['open', 'accepted', 'mitigated', 'closed', 'dismissed'];
+    return typeof p['findingId'] === 'string' && p['findingId'].trim().length > 0
+      && typeof p['status'] === 'string' && validStatuses.includes(p['status'])
+      && (p['note'] === undefined || typeof p['note'] === 'string');
+  }
+
+  if (candidate['type'] === 'setRiskFilter') {
+    return typeof candidate['payload'] === 'string';
   }
 
   if (candidate['type'] === 'openContactDeepLink') {
@@ -2545,7 +2882,8 @@ function isDashboardRoadmapSavePayload(payload: unknown): payload is DashboardRo
   return Array.isArray(items) && items.every(item => typeof item === 'object' && item !== null && typeof (item as { text?: unknown }).text === 'string');
 }
 
-function normalizeDashboardPromptRequest(payload: unknown): { prompt: string; sourcePage?: DashboardPageId } | undefined {
+/** Exported for tests: the page-id allowlist is easy to leave a new page out of. */
+export function normalizeDashboardPromptRequest(payload: unknown): { prompt: string; sourcePage?: DashboardPageId } | undefined {
   if (typeof payload === 'string') {
     const prompt = payload.trim();
     return prompt.length > 0 ? { prompt } : undefined;
@@ -2561,8 +2899,8 @@ function normalizeDashboardPromptRequest(payload: unknown): { prompt: string; so
   const sourcePage = candidate['sourcePage'];
   return {
     prompt,
-    ...(sourcePage === 'overview' || sourcePage === 'score' || sourcePage === 'repo' || sourcePage === 'runtime' || sourcePage === 'testing' || sourcePage === 'ssot' || sourcePage === 'roadmap' || sourcePage === 'security' || sourcePage === 'delivery' || sourcePage === 'director' || sourcePage === 'ideation'
-      ? { sourcePage }
+    ...(typeof sourcePage === 'string' && (DASHBOARD_PAGE_IDS as readonly string[]).includes(sourcePage)
+      ? { sourcePage: sourcePage as DashboardPageId }
       : {}),
   };
 }
@@ -2599,6 +2937,8 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
   const sessions = atlas.sessionConversation.listSessions();
   const runs = await atlas.projectRunHistory.listRunsAsync(40);
   const directorSnapshot = await collectDirectorSnapshot(atlas, workspaceRoot, gitSnapshot.currentBranch, runs);
+  const documentsSnapshot = await collectDocumentsSnapshot(atlas, workspaceRoot);
+  const riskSnapshot = collectRiskSnapshot(atlas, workspaceRoot);
   const runtimeTdd = summarizeRuntimeTdd(runs);
   const costSummary = atlas.costTracker.getSummary();
   const memoryEntries = atlas.memoryManager.listEntries();
@@ -2650,6 +2990,7 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
     ciSignals,
     reviewReadiness,
     outcomeCompleteness,
+    risk: riskSnapshot,
   });
   const repoLabel = workspaceRoot && gitSnapshot.currentBranch !== 'Not a git repository'
     ? `${workspaceRootLabel} • ${gitSnapshot.currentBranch}`
@@ -2669,11 +3010,20 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
     { label: 'SSOT Entry', description: 'Open the most recently touched SSOT document.', filePath: ssotOpenTarget, pageTarget: 'ssot' as DashboardPageId },
   ].filter(action => typeof action.filePath !== 'undefined' ? action.filePath.trim().length > 0 : true);
 
+  // Normalise to /100 from the components actually present rather than assuming the
+  // maxScores happen to sum to 100. They did by convention, but nothing enforced it,
+  // and the UI hard-codes "/100" in the ring, the headline, and the >=85/>=65 bands.
+  // Deriving the denominator keeps those correct while categories come and go — the
+  // risk component in particular is absent until a project has been assessed.
+  const earnedScore = scoreBreakdown.components.reduce((total, component) => total + component.score, 0);
+  const availableScore = scoreBreakdown.components.reduce((total, component) => total + component.maxScore, 0);
+  const normalizedHealthScore = availableScore > 0 ? Math.round((earnedScore / availableScore) * 100) : 0;
+
   const stats: DashboardStat[] = [
     {
       id: 'health',
       label: 'Operational Health',
-      value: `${scoreBreakdown.components.reduce((total, component) => total + component.score, 0)}`,
+      value: `${normalizedHealthScore}`,
       detail: `Composite score across ${scoreBreakdown.components.length} operational dimensions, including ${outcomeCompleteness.score}% outcome completeness.`,
       tone: blockedEntries > 0 || autopilot ? 'warn' : outcomeCompleteness.score >= 75 ? 'good' : 'accent',
       pageTarget: 'score',
@@ -2862,6 +3212,8 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
       stages: stagePipeline,
     },
     director: directorSnapshot,
+    documents: documentsSnapshot,
+    risk: riskSnapshot,
     score: scoreBreakdown,
     ideation: {
       boardPath: buildIdeationRelativePath(ssotPath, activeIdeationWorkspace.boardFile),
@@ -4884,14 +5236,419 @@ function extractMarkdownBulletItems(text: string): string[] {
 }
 
 function parseRoadmapProgress(text: string): { completed: number; total: number } {
-  const items = [...text.matchAll(/^\s*(?:[-*]|\d+\.)\s+(.+?)\s*$/gm)]
-    .map(match => match[1]?.trim() ?? '')
-    .filter(Boolean);
+  const region = extractRoadmapItemsRegion(text);
+  const seen = new Set<string>();
+  let completed = 0;
+  let total = 0;
+  for (const match of region.matchAll(/^\s*(?:[-*]|\d+\.)\s+(.+?)\s*$/gm)) {
+    const raw = match[1]?.trim() ?? '';
+    if (!raw) {
+      continue;
+    }
+    const done = /^(?:✅|\[x\])/i.test(raw);
+    const bare = raw.replace(/^(?:✅|\[(?:x| )\])\s*/i, '').replace(/\s*#mvp\b/ig, '').trim();
+    if (isRoadmapNoiseItem(bare)) {
+      continue;
+    }
+    const key = normalizeRoadmapText(bare);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    total += 1;
+    if (done) {
+      completed += 1;
+    }
+  }
+  return { completed, total };
+}
 
-  const completed = items.filter(item => /^(?:✅|\[x\])/i.test(item)).length;
+// ── Documents (.md management) ────────────────────────────────────
+
+interface DashboardDocumentFilingView {
+  id: string;
+  label: string;
+  path: string;
+  description?: string;
+  pattern?: string;
+  exists: boolean;
+  markdownCount: number;
+}
+
+interface DashboardDocumentAutoView {
+  id: string;
+  path: string;
+  label?: string;
+  sourceHint?: string;
+  cadence: DocumentCadence;
+  lastReviewed?: string;
+  exists: boolean;
+  lastModified?: string;
+  status: 'missing' | 'fresh' | 'review-due' | 'unknown';
+  statusLabel: string;
+  detail: string;
+  updatePrompt: string;
+}
+
+interface DashboardDocumentsSnapshot {
+  filePath: string;
+  summaryPath: string;
+  configured: boolean;
+  filing: DashboardDocumentFilingView[];
+  autoUpdate: DashboardDocumentAutoView[];
+  totalMarkdown: number;
+  markdownCapped: boolean;
+  reviewDueCount: number;
+  missingCount: number;
+  uncovered: string[];
+  summary: string;
+}
+
+// ── Risk oversight snapshot ──────────────────────────────────────────────────
+
+interface DashboardRiskDomainView {
+  domain: RiskDomain;
+  label: string;
+  agentId: string;
+  /** ISO date of the last run, or undefined when never analysed. */
+  lastRun?: string;
+  /** Whole days since the last run; undefined when never analysed. */
+  daysSinceRun?: number;
+  openCount: number;
+  stale: boolean;
+}
+
+interface DashboardRiskSnapshot {
+  filePath: string;
+  summaryPath: string;
+  /** False until at least one advisor has actually run — drives "not yet assessed". */
+  assessed: boolean;
+  domains: DashboardRiskDomainView[];
+  findings: RiskFinding[];
+  openCount: number;
+  acceptedCount: number;
+  resolvedCount: number;
+  /** Counts keyed `likelihood:impact`, for the risk matrix. */
+  matrix: Record<string, number>;
+  /** 0-100, higher is better. Undefined until assessed. */
+  score?: number;
+  /** Open findings over time, for the trend chart. */
+  trend: DashboardSeriesPoint[];
+  history: RiskOversightHistoryEntry[];
+  summary: string;
+}
+
+/** An assessment older than this stops counting as current assurance. */
+const RISK_STALE_DAYS = 90;
+
+const RISK_DOMAIN_BRIEF: Record<RiskDomain, string> = {
+  ethics: 'user harm, fairness and bias, consent, dark patterns, transparency about automated behaviour, accessibility as an ethical duty, and the human impact of the product\'s data and design decisions',
+  legal: 'dependency and third-party licence compatibility and obligations, intellectual property and attribution, privacy regulation such as GDPR and CCPA, liability and warranty language, terms of service, and the handling of regulated or personal data',
+  commercial: 'monetisation and business viability, vendor cost and lock-in exposure, contractual and customer obligations, competitor positioning, and go-to-market or customer impact',
+};
+
+/**
+ * Prompt for a dashboard-triggered oversight run.
+ *
+ * Asks for prose *and* a machine-readable block: the page records the JSON, while the
+ * prose keeps the run legible in the transcript. The parser tolerates the model
+ * ignoring this contract entirely (see `parseRiskFindings`), so the instruction is a
+ * request, not an assumption.
+ */
+function buildRiskAnalysisPrompt(domain: RiskDomain): string {
+  return [
+    `Review this workspace for ${domain} risk: ${RISK_DOMAIN_BRIEF[domain]}.`,
+    '',
+    'Inspect the repository before asserting anything — read the files that would actually',
+    'evidence a concern, and cite them. Distinguish what you observed here from general',
+    'principle, and say when you could not determine something rather than assuming.',
+    'Rank by likelihood and impact, and report a clean result when the project looks sound;',
+    'flagging everything is the same as flagging nothing.',
+    '',
+    'Then end your reply with a single fenced JSON block in exactly this shape:',
+    '',
+    '```json',
+    '{"findings":[{',
+    `  "title": "short specific title",`,
+    '  "detail": "what the concern is and what you saw",',
+    '  "likelihood": "low|medium|high",',
+    '  "impact": "low|medium|high",',
+    '  "confidence": "low|medium|high",',
+    '  "evidence": ["workspace-relative/path.ts"],',
+    '  "recommendation": "the next step, and the human review it needs"',
+    '}]}',
+    '```',
+    '',
+    'Use an empty array when there is nothing material to report. Evidence paths must be',
+    'workspace-relative. Do not include any other JSON block in your reply.',
+  ].join('\n');
+}
+
+const RISK_DOMAIN_LABEL: Record<RiskDomain, string> = {
+  ethics: 'Ethics',
+  legal: 'Legal',
+  commercial: 'Commercial',
+};
+
+/**
+ * Convert the persisted register into the view model the Risk page renders.
+ *
+ * Deliberately reports `assessed: false` rather than a zero score when nothing has
+ * been analysed: an unassessed project is unknown, not safe, and the page must not
+ * imply otherwise.
+ */
+function collectRiskSnapshot(atlas: AtlasMindContext, workspaceRoot: string | undefined): DashboardRiskSnapshot {
+  const config = atlas.riskOversightManager?.getConfig();
+  const history = workspaceRoot ? readRiskOversightHistory(workspaceRoot).slice(0, 50) : [];
+  const findings = config?.findings ?? [];
+  const open = config ? openFindings(config) : [];
+  const accepted = findings.filter(finding => finding.status === 'accepted');
+  const resolved = findings.filter(finding => finding.status === 'mitigated' || finding.status === 'closed' || finding.status === 'dismissed');
+  const assessed = hasBeenAssessed(config);
+  const now = Date.now();
+
+  const domains: DashboardRiskDomainView[] = RISK_DOMAINS.map(domain => {
+    const run = config?.runs.find(entry => entry.domain === domain);
+    const parsed = run ? Date.parse(run.ranAt) : Number.NaN;
+    const daysSinceRun = Number.isNaN(parsed) ? undefined : Math.floor((now - parsed) / 86_400_000);
+    return {
+      domain,
+      label: RISK_DOMAIN_LABEL[domain],
+      agentId: `${domain}-oversight`,
+      ...(run ? { lastRun: run.ranAt } : {}),
+      ...(daysSinceRun === undefined ? {} : { daysSinceRun }),
+      openCount: open.filter(finding => finding.domain === domain).length,
+      stale: daysSinceRun === undefined ? true : daysSinceRun > RISK_STALE_DAYS,
+    };
+  });
+
+  const summary = !assessed
+    ? 'Risk has not been assessed yet. Run an oversight advisor to build the register.'
+    : open.length === 0
+      ? `No open findings across ${domains.filter(entry => entry.lastRun).length} assessed domain(s).`
+      : `${open.length} open finding${open.length === 1 ? '' : 's'} across ${new Set(open.map(finding => finding.domain)).size} domain(s).`;
+
   return {
-    completed,
-    total: items.length,
+    filePath: RISK_SSOT_PATH,
+    summaryPath: RISK_SUMMARY_SSOT_PATH,
+    assessed,
+    domains,
+    findings,
+    openCount: open.length,
+    acceptedCount: accepted.length,
+    resolvedCount: resolved.length,
+    matrix: riskMatrixCounts(open),
+    ...(assessed ? { score: computeRiskScore(config!) } : {}),
+    trend: buildRiskTrend(history),
+    history,
+    summary,
+  };
+}
+
+/**
+ * Risk health as 0-100, higher is better. Starts at 100 and deducts weighted open
+ * findings, then applies a staleness decay so an old assessment stops reading as
+ * current assurance. `accepted` findings are excluded — a consciously owned risk is
+ * a decision, not an unmanaged gap.
+ */
+function computeRiskScore(config: RiskOversightConfig): number {
+  const open = openFindings(config);
+  const burden = open.reduce((total, finding) => total + findingWeight(finding), 0);
+  // 9 is a single worst-case finding (high/high/high confidence); ~4 of those floor the score.
+  const fromFindings = Math.max(0, 100 - Math.round((burden / 36) * 100));
+
+  const now = Date.now();
+  const assessedDomains = RISK_DOMAINS.filter(domain => config.runs.some(run => run.domain === domain));
+  if (assessedDomains.length === 0) {
+    return fromFindings;
+  }
+  // Coverage: an unassessed domain is unknown risk, so it cannot count as assurance.
+  const coverage = assessedDomains.length / RISK_DOMAINS.length;
+  // Staleness: linear decay to 0.5 at twice the stale threshold.
+  const oldestDays = Math.max(...assessedDomains.map(domain => {
+    const run = config.runs.find(entry => entry.domain === domain)!;
+    const parsed = Date.parse(run.ranAt);
+    return Number.isNaN(parsed) ? RISK_STALE_DAYS * 2 : Math.floor((now - parsed) / 86_400_000);
+  }));
+  const freshness = oldestDays <= RISK_STALE_DAYS
+    ? 1
+    : Math.max(0.5, 1 - ((oldestDays - RISK_STALE_DAYS) / (RISK_STALE_DAYS * 2)) * 0.5);
+
+  return Math.max(0, Math.min(100, Math.round(fromFindings * coverage * freshness)));
+}
+
+/** Analysis-run counts per day, so the Risk page can show assessment cadence. */
+function buildRiskTrend(history: RiskOversightHistoryEntry[]): DashboardSeriesPoint[] {
+  const runs = history.filter(entry => entry.kind === 'analysis-run');
+  return buildDailySeries(runs.map(entry => entry.ranAt), SERIES_DAY_RANGE);
+}
+
+const DOC_IGNORE_DIRS = new Set(['node_modules', 'dist', 'out', 'build', 'coverage', 'vendor', '.vscode-test']);
+
+/**
+ * Bounded recursive walk for markdown files, skipping heavy/irrelevant folders
+ * and hidden directories. Capped at `maxFiles` so a huge repo can't stall the
+ * dashboard. Returns workspace-relative POSIX paths plus mtimes for freshness.
+ */
+async function listWorkspaceMarkdown(workspaceRoot: string, maxFiles = 600): Promise<Array<{ rel: string; mtimeMs: number }>> {
+  const out: Array<{ rel: string; mtimeMs: number }> = [];
+  const walk = async (absDir: string, relDir: string): Promise<void> => {
+    if (out.length >= maxFiles) {
+      return;
+    }
+    const entries = await fs.readdir(absDir, { withFileTypes: true }).catch(() => [] as import('node:fs').Dirent[]);
+    for (const entry of entries) {
+      if (out.length >= maxFiles) {
+        return;
+      }
+      const rel = relDir ? `${relDir}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        if (entry.name.startsWith('.') || DOC_IGNORE_DIRS.has(entry.name)) {
+          continue;
+        }
+        await walk(path.join(absDir, entry.name), rel);
+      } else if (entry.isFile() && /\.mdx?$/i.test(entry.name)) {
+        try {
+          const stat = await fs.stat(path.join(absDir, entry.name));
+          out.push({ rel, mtimeMs: stat.mtimeMs });
+        } catch {
+          // Unreadable file — skip it.
+        }
+      }
+    }
+  };
+  await walk(workspaceRoot, '');
+  return out;
+}
+
+async function collectDocumentsSnapshot(atlas: AtlasMindContext, workspaceRoot: string | undefined): Promise<DashboardDocumentsSnapshot> {
+  const filePath = DOCUMENTS_SSOT_PATH;
+  const summaryPath = DOCUMENTS_SUMMARY_SSOT_PATH;
+  const config = atlas.documentsManager?.getConfig();
+  if (!workspaceRoot) {
+    return {
+      filePath, summaryPath,
+      configured: Boolean(config),
+      filing: [], autoUpdate: [],
+      totalMarkdown: 0, markdownCapped: false,
+      reviewDueCount: 0, missingCount: 0,
+      uncovered: [],
+      summary: 'Open a workspace to manage its documents.',
+    };
+  }
+
+  const MAX_MD = 600;
+  const markdown = await listWorkspaceMarkdown(workspaceRoot, MAX_MD);
+  const markdownCapped = markdown.length >= MAX_MD;
+  const totalMarkdown = markdown.length;
+  const now = Date.now();
+
+  const filing: DashboardDocumentFilingView[] = (config?.filing ?? []).map(entry => {
+    const prefix = entry.path.replace(/\/+$/, '');
+    const inFolder = markdown.filter(md => md.rel === prefix || md.rel.startsWith(`${prefix}/`));
+    return {
+      id: entry.id,
+      label: entry.label,
+      path: entry.path,
+      ...(entry.description ? { description: entry.description } : {}),
+      ...(entry.pattern ? { pattern: entry.pattern } : {}),
+      exists: existsSync(path.join(workspaceRoot, entry.path)),
+      markdownCount: inFolder.length,
+    };
+  });
+
+  const autoUpdate: DashboardDocumentAutoView[] = [];
+  for (const entry of config?.autoUpdate ?? []) {
+    let exists = false;
+    let mtimeMs = 0;
+    try {
+      const stat = await fs.stat(path.join(workspaceRoot, entry.path));
+      exists = stat.isFile();
+      mtimeMs = stat.mtimeMs;
+    } catch {
+      exists = false;
+    }
+    let status: DashboardDocumentAutoView['status'];
+    let detail: string;
+    if (!exists) {
+      status = 'missing';
+      detail = `Not found at ${entry.path}.`;
+    } else if (!entry.lastReviewed) {
+      status = 'unknown';
+      detail = 'Not reviewed yet — mark it reviewed once it is current.';
+    } else {
+      const reviewedMs = Date.parse(entry.lastReviewed);
+      const changedSinceReview = Number.isFinite(reviewedMs) && mtimeMs > reviewedMs;
+      const daysSince = Number.isFinite(reviewedMs) ? (now - reviewedMs) / 86_400_000 : Infinity;
+      const overdueWeekly = entry.cadence === 'weekly' && daysSince > 7;
+      if (changedSinceReview) {
+        status = 'review-due';
+        detail = `Changed since last review (${entry.lastReviewed.slice(0, 10)}).`;
+      } else if (overdueWeekly) {
+        status = 'review-due';
+        detail = `Weekly review overdue (last ${entry.lastReviewed.slice(0, 10)}).`;
+      } else {
+        status = 'fresh';
+        detail = `Reviewed ${entry.lastReviewed.slice(0, 10)}; no changes since.`;
+      }
+    }
+    const statusLabel = status === 'missing' ? 'Missing'
+      : status === 'review-due' ? 'Review due'
+      : status === 'fresh' ? 'Up to date'
+      : 'Not reviewed';
+    autoUpdate.push({
+      id: entry.id,
+      path: entry.path,
+      ...(entry.label ? { label: entry.label } : {}),
+      ...(entry.sourceHint ? { sourceHint: entry.sourceHint } : {}),
+      cadence: entry.cadence,
+      ...(entry.lastReviewed ? { lastReviewed: entry.lastReviewed } : {}),
+      exists,
+      ...(exists ? { lastModified: new Date(mtimeMs).toISOString() } : {}),
+      status,
+      statusLabel,
+      detail,
+      updatePrompt: `Review ${entry.path} and update it so it is current${entry.sourceHint ? `. It should track: ${entry.sourceHint}` : ''}. Make the smallest correct edits, preserve the document's structure, and summarize what changed. Do not modify unrelated files.`,
+    });
+  }
+
+  const reviewDueCount = autoUpdate.filter(entry => entry.status === 'review-due').length;
+  const missingCount = autoUpdate.filter(entry => entry.status === 'missing').length;
+
+  // Markdown files not covered by any shelf or tracked file — bounded suggestions.
+  const coveredExact = new Set((config?.autoUpdate ?? []).map(entry => entry.path));
+  const filingPrefixes = (config?.filing ?? []).map(entry => entry.path.replace(/\/+$/, ''));
+  const uncovered = markdown
+    .map(md => md.rel)
+    .filter(rel => !rel.startsWith('project_memory/')) // SSOT memory is managed separately
+    .filter(rel => !coveredExact.has(rel))
+    .filter(rel => !filingPrefixes.some(prefix => rel === prefix || rel.startsWith(`${prefix}/`)))
+    .slice(0, 12);
+
+  const configured = Boolean(config) && (((config?.filing.length ?? 0) > 0) || ((config?.autoUpdate.length ?? 0) > 0));
+  let summary: string;
+  if (!configured) {
+    summary = 'No document filing system defined yet. Seed one from your repo, or add shelves and tracked documents to keep them current.';
+  } else {
+    const parts = [
+      `${filing.length} ${filing.length === 1 ? 'shelf' : 'shelves'}`,
+      `${autoUpdate.length} tracked document${autoUpdate.length === 1 ? '' : 's'}`,
+    ];
+    if (reviewDueCount > 0) {
+      parts.push(`${reviewDueCount} need${reviewDueCount === 1 ? 's' : ''} review`);
+    }
+    if (missingCount > 0) {
+      parts.push(`${missingCount} missing`);
+    }
+    summary = `${parts.join(' · ')}.`;
+  }
+
+  return {
+    filePath, summaryPath, configured,
+    filing, autoUpdate,
+    totalMarkdown, markdownCapped,
+    reviewDueCount, missingCount,
+    uncovered, summary,
   };
 }
 
@@ -4923,21 +5680,30 @@ async function collectRoadmapSnapshot(workspaceRoot: string | undefined, ssotPat
 }
 
 function parseDashboardRoadmapItems(content: string): Array<{ id: string; text: string; completed: boolean; isMvp: boolean }> {
-  return [...content.matchAll(/^\s*(?:[-*]|\d+\.)\s+(.+?)\s*$/gm)]
-    .map((match, index) => {
+  const region = extractRoadmapItemsRegion(content);
+  const seen = new Set<string>();
+  return [...region.matchAll(/^\s*(?:[-*]|\d+\.)\s+(.+?)\s*$/gm)]
+    .map(match => {
       const raw = match[1]?.trim() ?? '';
       const completed = /^(?:✅|\[x\])/i.test(raw);
       const withoutCheckbox = raw.replace(/^(?:✅|\[(?:x| )\])\s*/i, '').trim();
       const isMvp = /#mvp\b/i.test(withoutCheckbox);
       const text = withoutCheckbox.replace(/\s*#mvp\b/ig, '').trim();
-      return {
-        id: `roadmap-${index + 1}`,
-        text,
-        completed,
-        isMvp,
-      };
+      return { text, completed, isMvp };
     })
-    .filter(item => item.text.length > 0);
+    // Drop generator scaffolding (Project Context / Prioritisation Notes) …
+    .filter(item => !isRoadmapNoiseItem(item.text))
+    // … and collapse duplicates the generator emitted repeatedly.
+    .filter(item => {
+      const key = normalizeRoadmapText(item.text);
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    })
+    // Assign stable sequential ids only after filtering so ids stay contiguous.
+    .map((item, index) => ({ id: `roadmap-${index + 1}`, ...item }));
 }
 
 function prioritizeDashboardRoadmapItems(items: Array<{ id: string; text: string; completed: boolean; isMvp?: boolean }>): DashboardRoadmapItem[] {
@@ -5153,7 +5919,12 @@ function serializeDashboardRoadmapDocument(existing: string, items: Array<{ text
   ].filter(Boolean).join('\n');
 }
 
-function buildScoreBreakdown(input: {
+/**
+ * Exported for tests. The component list carries a normalisation invariant (the
+ * headline score is derived from the maxScores present, not a hard-coded 100) and
+ * a safety one (risk is absent until assessed) that are worth pinning directly.
+ */
+export function buildScoreBreakdown(input: {
   ssotPath: string;
   securityPolicyPresent: boolean;
   codeownersPresent: boolean;
@@ -5172,6 +5943,7 @@ function buildScoreBreakdown(input: {
   ciSignals: Array<{ label: string; ok: boolean }>;
   reviewReadiness: Array<{ label: string; ok: boolean }>;
   outcomeCompleteness: DashboardOutcomeCompleteness;
+  risk: DashboardRiskSnapshot;
 }): DashboardScoreBreakdown {
   const components: DashboardScoreComponent[] = [
     {
@@ -5245,6 +6017,24 @@ function buildScoreBreakdown(input: {
       pageTarget: 'score',
     },
   ];
+
+  // Risk contributes only once an oversight advisor has actually run. Before that the
+  // exposure is unknown, not zero — scoring it as 0/15 would silently drop every
+  // existing project's health number for a risk nobody has been told about, and
+  // scoring it as 15/15 would be false assurance. Omitting it entirely leaves the
+  // normalised total untouched until there is evidence to weigh.
+  if (input.risk.assessed && input.risk.score !== undefined) {
+    const riskScore = input.risk.score;
+    components.push({
+      id: 'risk',
+      label: 'Risk oversight',
+      score: Math.round((riskScore / 100) * 15),
+      maxScore: 15,
+      detail: input.risk.summary,
+      tone: riskScore >= 80 ? 'good' : riskScore >= 55 ? 'accent' : riskScore >= 30 ? 'warn' : 'critical',
+      pageTarget: 'risk',
+    });
+  }
 
   const recommendations: DashboardScoreRecommendation[] = [];
 
@@ -6910,6 +7700,55 @@ const DASHBOARD_CSS = `
     border-left: 3px solid color-mix(in srgb, var(--dash-accent-strong) 70%, var(--dash-border));
   }
 
+  .roadmap-item {
+    cursor: grab;
+  }
+
+  .roadmap-item .row-head {
+    align-items: center;
+  }
+
+  .roadmap-item .drag-handle {
+    cursor: grab;
+    color: color-mix(in srgb, var(--dash-fg) 45%, transparent);
+    font-size: 14px;
+    line-height: 1;
+    letter-spacing: -2px;
+    margin-right: 8px;
+    user-select: none;
+    flex: 0 0 auto;
+  }
+
+  .roadmap-item:hover .drag-handle {
+    color: var(--dash-accent-strong);
+  }
+
+  .roadmap-item.dragging {
+    opacity: 0.5;
+    cursor: grabbing;
+  }
+
+  .roadmap-item.drag-over {
+    border-top: 2px solid var(--dash-accent-strong);
+    background: color-mix(in srgb, var(--dash-accent-strong) 10%, transparent);
+  }
+
+  .mvp-help {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    margin-left: 6px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--dash-accent-strong);
+    border: 1px solid color-mix(in srgb, var(--dash-accent-strong) 55%, var(--dash-border));
+    cursor: help;
+    vertical-align: middle;
+  }
+
   .mvp-progress {
     height: 10px;
     border-radius: 999px;
@@ -7164,6 +8003,112 @@ const DASHBOARD_CSS = `
     display: grid;
     gap: 6px;
   }
+
+  /* ── Risk matrix ──────────────────────────────────────────────
+     Likelihood x impact heatmap. Colours are derived from the existing
+     good/warn/critical theme tokens so it tracks the VS Code theme, and every
+     cell also carries its count as text — the band is never the only signal. */
+  .risk-matrix {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 12px 0 6px;
+  }
+
+  .risk-matrix-row {
+    display: grid;
+    grid-template-columns: 72px repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    align-items: stretch;
+  }
+
+  .risk-axis-label {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    text-transform: capitalize;
+    color: var(--dash-muted);
+  }
+
+  .risk-matrix-row .risk-axis-label:first-child {
+    justify-content: flex-end;
+    padding-right: 8px;
+  }
+
+  .risk-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 46px;
+    border-radius: 8px;
+    border: 1px solid var(--dash-border);
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--vscode-foreground);
+    background: color-mix(in srgb, var(--dash-border) 25%, transparent);
+    cursor: pointer;
+    transition: transform 120ms ease, border-color 120ms ease;
+  }
+
+  .risk-cell.is-empty {
+    cursor: default;
+    color: var(--dash-muted);
+    font-weight: 400;
+  }
+
+  .risk-cell--low { background: color-mix(in srgb, var(--dash-good) 16%, transparent); }
+  .risk-cell--moderate { background: color-mix(in srgb, var(--dash-warn) 16%, transparent); }
+  .risk-cell--high { background: color-mix(in srgb, var(--dash-warn) 32%, transparent); }
+  .risk-cell--severe { background: color-mix(in srgb, var(--dash-critical) 34%, transparent); }
+
+  button.risk-cell:hover { transform: translateY(-1px); }
+  button.risk-cell:focus-visible { outline: 2px solid var(--dash-accent); outline-offset: 2px; }
+
+  .risk-cell.is-active {
+    border-color: var(--dash-accent);
+    box-shadow: inset 0 0 0 1px var(--dash-accent);
+  }
+
+  .risk-axis-caption {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--dash-muted);
+  }
+
+  .risk-finding {
+    display: grid;
+    gap: 8px;
+    padding: 12px;
+    border: 1px solid var(--dash-border);
+    border-radius: 10px;
+    margin-top: 10px;
+  }
+
+  /* Resolved findings stay visible but recede — they are history, not noise. */
+  .risk-finding--accepted,
+  .risk-finding--mitigated,
+  .risk-finding--closed,
+  .risk-finding--dismissed {
+    opacity: 0.72;
+  }
+
+  .risk-finding--open { border-color: color-mix(in srgb, var(--dash-warn) 40%, var(--dash-border)); }
+
+  .risk-tag {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--dash-border);
+    color: var(--dash-muted);
+  }
+
+  .risk-tag--ethics { border-color: color-mix(in srgb, var(--dash-accent) 50%, var(--dash-border)); }
+  .risk-tag--legal { border-color: color-mix(in srgb, var(--dash-critical) 45%, var(--dash-border)); }
+  .risk-tag--commercial { border-color: color-mix(in srgb, var(--dash-good) 45%, var(--dash-border)); }
 
   .coverage-bar {
     height: 10px;

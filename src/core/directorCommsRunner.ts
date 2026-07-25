@@ -43,7 +43,7 @@ export interface CommsDraft {
 const INTENT_PATTERNS: Array<{ intent: DirectorCommsIntent; patterns: RegExp[] }> = [
   { intent: 'email', patterns: [/send[_-]?mail/i, /send[_-]?email/i, /mail[_-]?send/i, /(send|forward|reply)[_a-z]*?(mail|email|draft)/i, /(create|send)[_a-z]*?draft/i] },
   { intent: 'schedule', patterns: [/create[_-]?event/i, /(create|schedule|add|update)[_a-z]*?(event|meeting|appointment)/i, /calendar[_-]?event/i] },
-  { intent: 'message', patterns: [/post[_-]?message/i, /(post|send)[_a-z]*?(message|chat)/i, /conversations?[_-]?add[_-]?message/i, /chat[_-]?post/i] },
+  { intent: 'message', patterns: [/post[_-]?message/i, /(post|send)[_a-z]*?(message|chat)/i, /conversations?[_-]?add[_-]?message/i, /chat[_-]?post/i, /post[_-]?to[_-]?channel/i, /send[_-]?dm/i, /direct[_-]?message/i, /buzz[_-]?(post|send|message|channel|dm)/i] },
 ];
 
 /** Classify a tool name into the communication intent it can perform, if any. */

@@ -12,6 +12,7 @@ import * as vscode from 'vscode';
 import { RECOMMENDED_MCP_SERVERS, getRecommendedMcpStarterDetails } from '../constants.js';
 import type { RecommendedMcpStarterDetails } from '../constants.js';
 import { checkStarterRuntime, runRuntimeInstallPlan } from '../mcp/mcpRuntime.js';
+import { McpEnvironmentScanner, resolveImportedServer } from '../mcp/mcpEnvironmentScanner.js';
 import { getWebviewHtmlShell, escapeHtml } from './webviewUtils.js';
 import type { McpServerRegistry, DetectedMcpServer } from '../mcp/mcpServerRegistry.js';
 import type { McpServerConfig, McpServerState } from '../types.js';
@@ -33,7 +34,11 @@ type PanelMessage =
   | { type: 'connectDetected'; payload: { index: number } }
   | { type: 'checkPrerequisites'; payload: { serverId: string } }
   | { type: 'installPrerequisite'; payload: { serverId: string } }
-  | { type: 'wizardConnect'; payload: WizardConnectPayload };
+  | { type: 'wizardConnect'; payload: WizardConnectPayload }
+  // Environment scan (config import + PATH/env discovery)
+  | { type: 'rescanMcpEnvironment' }
+  | { type: 'importDetectedServer'; payload: { sourcePath: string; name: string; connect: boolean } }
+  | { type: 'askAtlasConfigureMcp'; payload: { name: string } };
 
 interface AddServerPayload {
   editServerId?: string;
@@ -68,6 +73,8 @@ export class McpPanel {
   private currentTarget: McpPanelTarget | undefined;
   /** Cache of the most recent environment scan, referenced by index from the webview. */
   private lastDetected: DetectedMcpServer[] = [];
+  /** Discovers imported MCP configs + PATH/env signals; cached in SSOT. */
+  private readonly envScanner: McpEnvironmentScanner;
 
   public static createOrShow(
     context: vscode.ExtensionContext,
@@ -106,6 +113,7 @@ export class McpPanel {
   ) {
     this.panel = panel;
     this.currentTarget = target;
+    this.envScanner = new McpEnvironmentScanner(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath);
     this.panel.webview.html = this.buildHtml();
 
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
@@ -115,6 +123,25 @@ export class McpPanel {
       null,
       this.disposables,
     );
+
+    // Run a first scan if none is cached yet, then re-render with the results.
+    if (!this.envScanner.getCached()) {
+      void this.envScanner.scan().then(() => { this.panel.webview.html = this.buildHtml(); }).catch(() => { /* best-effort */ });
+    }
+
+    // Auto-refresh the scan when a workspace MCP config file changes (home-dir
+    // configs are picked up on the next explicit Rescan).
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (workspaceRoot) {
+      const watcher = vscode.workspace.createFileSystemWatcher(
+        new vscode.RelativePattern(workspaceRoot, '{.vscode/mcp.json,.cursor/mcp.json,.mcp.json,mcp.json}'),
+      );
+      const reScan = () => { void this.envScanner.scan().then(() => { this.panel.webview.html = this.buildHtml(); }).catch(() => { /* best-effort */ }); };
+      watcher.onDidChange(reScan);
+      watcher.onDidCreate(reScan);
+      watcher.onDidDelete(reScan);
+      this.disposables.push(watcher);
+    }
   }
 
   /** Re-render with fresh registry state. */
@@ -292,9 +319,73 @@ export class McpPanel {
       case 'wizardConnect':
         await this.handleWizardConnect(message.payload);
         return;
+      case 'rescanMcpEnvironment':
+        await this.handleRescanEnvironment();
+        return;
+      case 'importDetectedServer':
+        await this.handleImportDetectedServer(message.payload);
+        return;
+      case 'askAtlasConfigureMcp':
+        await this.handleAskAtlasConfigureMcp(message.payload.name);
+        return;
     }
 
     this.panel.webview.html = this.buildHtml();
+  }
+
+  // ── Environment scan handlers ────────────────────────────────
+
+  private async handleRescanEnvironment(): Promise<void> {
+    await this.panel.webview.postMessage({ type: 'status', payload: { kind: 'info', text: 'Rescanning your machine and workspace for MCP setups…' } });
+    await this.envScanner.scan();
+    this.panel.webview.html = this.buildHtml();
+  }
+
+  private async handleImportDetectedServer(payload: { sourcePath: string; name: string; connect: boolean }): Promise<void> {
+    const resolved = resolveImportedServer(payload.sourcePath, payload.name);
+    if (!resolved) {
+      this.currentTarget = { page: 'advanced', statusKind: 'error', statusMessage: `AtlasMind could not read "${payload.name}" from ${payload.sourcePath}.` };
+      this.panel.webview.html = this.buildHtml();
+      return;
+    }
+    const config: Omit<McpServerConfig, 'id'> = { ...resolved.config, enabled: payload.connect };
+    const id = this.registry.addServer(config);
+    if (Object.keys(resolved.secrets).length > 0) {
+      // Secret values re-read live from the source file → SecretStorage only.
+      await this.registry.setServerSecrets(id, resolved.secrets);
+    }
+    if (payload.connect) {
+      await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: `AtlasMind: connecting ${config.name}`, cancellable: false },
+        async () => { await this.registry.connectServer(id); },
+      );
+    }
+    const state = this.registry.listServers().find(server => server.config.id === id);
+    const connected = state?.status === 'connected';
+    this.currentTarget = {
+      page: connected || !payload.connect ? 'servers' : 'advanced',
+      statusKind: connected ? 'success' : payload.connect ? 'warning' : 'success',
+      statusMessage: payload.connect
+        ? (connected
+          ? `Imported ${config.name} from your existing config and connected (${state?.tools.length ?? 0} tool${state?.tools.length === 1 ? '' : 's'}).`
+          : `Imported ${config.name}, but the connection did not complete yet.${state?.error ? ` Last error: ${state.error}` : ''}`)
+        : `Imported ${config.name} from your existing config (not connected yet).`,
+    };
+    this.onRefresh();
+    this.panel.webview.html = this.buildHtml();
+  }
+
+  private async handleAskAtlasConfigureMcp(name: string): Promise<void> {
+    const clean = name.trim().slice(0, 120) || 'this MCP server';
+    const prompt = [
+      `Help me set up the "${clean}" MCP server in AtlasMind's Advanced "Add MCP server" form.`,
+      'Tell me, specifically and safely:',
+      '1. The exact transport (stdio or HTTP), command, and arguments to use — prefer an official/reputable package.',
+      '2. Which credentials I need, where to create them (link the exact console page), and the least-privilege scopes.',
+      '3. Which values are secret (so I store them in SecretStorage) vs. plain env vars.',
+      'Flag any supply-chain risk and cite the source docs. Keep it to what I can paste into the form.',
+    ].join('\n');
+    await vscode.commands.executeCommand('atlasmind.openChatPanel', { draftPrompt: prompt, sendMode: 'new-session' });
   }
 
   // ── Guided setup wizard handlers ─────────────────────────────
@@ -386,11 +477,49 @@ export class McpPanel {
     const server = RECOMMENDED_MCP_SERVERS.find(entry => entry.id === payload.serverId);
     if (!server) { return; }
     const starter = getRecommendedMcpStarterDetails(payload.serverId);
-    const built = buildWizardServerConfig(server.name, starter, payload.inputs ?? {});
+    const inputs = payload.inputs ?? {};
+
+    // Diagnose the two distinct failure modes separately instead of always
+    // blaming "required fields" — the previous message dead-ended manual-setup
+    // starters that show no fields at all.
+    const missingRequired = (starter.inputs ?? [])
+      .filter(input => input.required && !(inputs[input.key] ?? '').trim())
+      .map(input => input.label);
+    const hasEndpoint = starter.transport === 'http' ? Boolean(starter.url) : Boolean(starter.command);
+
+    // (a) Nothing to fill AND nothing AtlasMind can auto-fill → genuine manual setup.
+    if (!hasEndpoint && missingRequired.length === 0) {
+      await this.panel.webview.postMessage({
+        type: 'wizardStatus',
+        payload: {
+          kind: 'error',
+          text: `AtlasMind can’t auto-configure ${server.name} — it needs a command or endpoint URL that you supply. Open Advanced setup to enter the connection details manually.`,
+        },
+      });
+      return;
+    }
+
+    // (b) The user left one or more required fields blank → name them.
+    if (missingRequired.length > 0) {
+      const fieldList = missingRequired.map(label => `“${label}”`).join(', ');
+      await this.panel.webview.postMessage({
+        type: 'wizardStatus',
+        payload: {
+          kind: 'error',
+          text: `Please fill in the required field${missingRequired.length === 1 ? '' : 's'} ${fieldList} before connecting.`,
+        },
+      });
+      return;
+    }
+
+    const built = buildWizardServerConfig(server.name, starter, inputs);
     if (!built) {
       await this.panel.webview.postMessage({
         type: 'wizardStatus',
-        payload: { kind: 'error', text: 'Some required details are missing. Please complete every required field.' },
+        payload: {
+          kind: 'error',
+          text: `AtlasMind couldn’t build a valid configuration for ${server.name}. Open Advanced setup to enter the connection details manually.`,
+        },
       });
       return;
     }
@@ -433,7 +562,7 @@ export class McpPanel {
       cspSource: this.panel.webview.cspSource,
       extraCss: MCP_EXTRA_CSS,
       bodyContent: buildBody(servers, this.currentTarget),
-      scriptContent: buildMcpScript(this.currentTarget, servers),
+      scriptContent: buildMcpScript(this.currentTarget, servers, this.envScanner.getCached()),
     });
   }
 }
@@ -588,6 +717,8 @@ function buildBody(servers: McpServerState[], target?: McpPanelTarget): string {
           <h3 id="wiz-config-name"></h3>
           <p id="wiz-config-desc" class="muted"></p>
           <div id="wiz-config-badges" class="badge-row" aria-live="polite"></div>
+          <div id="wiz-safety" class="wiz-safety" hidden></div>
+          <div id="wiz-guided"></div>
           <div id="wiz-prereq" class="status-banner status-info" aria-live="polite">Checking prerequisites…</div>
           <div id="wiz-prereq-actions" class="actions"></div>
           <form id="wiz-config-form">
@@ -597,6 +728,7 @@ function buildBody(servers: McpServerState[], target?: McpPanelTarget): string {
             </div>
             <div class="actions">
               <button type="submit" id="wiz-connect-btn">Connect</button>
+              <button type="button" id="wiz-advanced-btn" class="btn-small" hidden>Open Advanced setup</button>
             </div>
           </form>
         </section>
@@ -609,6 +741,7 @@ function buildBody(servers: McpServerState[], target?: McpPanelTarget): string {
           <p>Pick a recommended starter or type your own endpoint. Use this when you need full control over the command, arguments, or environment.</p>
         </div>
         <section class="content-card">
+          <div id="mcp-scan" class="mcp-scan"></div>
           <div class="preset-shell">
             <div class="field-row">
               <label for="recommendedServerPreset">Start from a recommended server</label>
@@ -646,14 +779,17 @@ function buildBody(servers: McpServerState[], target?: McpPanelTarget): string {
         <div class="field-row">
           <label for="cmdField">Command</label>
           <input id="cmdField" type="text" placeholder="npx" />
+          <p class="field-help muted">The program that launches the server: <code>npx</code> (Node), <code>uvx</code> (Python/uv), <code>docker</code>, or a full path. AtlasMind finds it on your PATH.</p>
         </div>
         <div class="field-row">
           <label for="argsField">Args (space-separated)</label>
           <input id="argsField" type="text" placeholder="-y @modelcontextprotocol/server-filesystem ." />
+          <p class="field-help muted">Arguments passed to the command. <code>\${workspaceFolder}</code> and <code>\${userHome}</code> are expanded; other <code>\${VARS}</code> pass through for the server to expand. Example: <code>-y @modelcontextprotocol/server-filesystem \${workspaceFolder}</code></p>
         </div>
         <div class="field-row">
           <label for="envField">Env vars (JSON)</label>
           <input id="envField" type="text" placeholder='{"NODE_ENV":"production"}' />
+          <p class="field-help muted">Environment variables as a JSON object, e.g. <code>{"GITHUB_PERSONAL_ACCESS_TOKEN":"github_pat_…"}</code>. Prefer the Guided Setup for credentials — it stores secrets in the OS secret store instead of your settings.</p>
         </div>
       </div>
 
@@ -661,6 +797,7 @@ function buildBody(servers: McpServerState[], target?: McpPanelTarget): string {
         <div class="field-row">
           <label for="urlField">URL</label>
           <input id="urlField" type="url" placeholder="http://localhost:3000/mcp" />
+          <p class="field-help muted">The server's Streamable-HTTP / SSE endpoint. Must be <code>http://</code> or <code>https://</code>. A bare URL only — endpoints that need an Authorization header aren't supported here yet, so use a local stdio bridge for those.</p>
         </div>
       </div>
 
@@ -722,6 +859,7 @@ interface WizardInputMeta {
   kind: 'text' | 'secret' | 'folder' | 'url';
   target: 'env' | 'arg';
   defaultValue: string;
+  example: string;
   required: boolean;
 }
 
@@ -743,6 +881,10 @@ function buildRecommendedPresetData(): Array<{
   args: string;
   url: string;
   inputs: WizardInputMeta[];
+  prerequisites: string[];
+  credentialSteps: string[];
+  credentialHelpUrl: string;
+  safetyNote: string;
 }> {
   return RECOMMENDED_MCP_SERVERS.map(server => {
     const starter = getRecommendedMcpStarterDetails(server.id);
@@ -771,8 +913,14 @@ function buildRecommendedPresetData(): Array<{
         kind: input.kind,
         target: input.target,
         defaultValue: input.defaultValue ?? '',
+        example: input.example ?? '',
         required: Boolean(input.required),
       })),
+      // Novice handholding content for the guided-setup wizard.
+      prerequisites: starter.prerequisites ?? [],
+      credentialSteps: starter.credentialSteps ?? [],
+      credentialHelpUrl: starter.credentialHelpUrl ?? '',
+      safetyNote: starter.safetyNote ?? '',
     };
   });
 }
@@ -979,6 +1127,46 @@ const MCP_EXTRA_CSS = `
   .provenance-archived { border-color: color-mix(in srgb, #9e9e9e 65%, var(--atlas-border)); }
   .preset-links { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 8px; }
   .preset-links a { color: var(--atlas-accent); }
+  /* Guided-setup handholding: "what you'll need" + credential how-to. */
+  .wiz-safety {
+    margin: 8px 0 12px; padding: 8px 12px; border-radius: 6px; font-size: 0.9em;
+    color: var(--vscode-inputValidation-warningForeground, inherit);
+    background: color-mix(in srgb, #ff9800 14%, transparent);
+    border: 1px solid color-mix(in srgb, #ff9800 55%, var(--atlas-border));
+  }
+  .wiz-guided-card {
+    margin: 0 0 12px; padding: 10px 14px; border-radius: 8px;
+    background: color-mix(in srgb, var(--atlas-accent) 6%, transparent);
+    border: 1px solid var(--atlas-border);
+  }
+  .wiz-guided-title { margin: 0 0 6px; font-weight: 600; font-size: 0.92em; }
+  .wiz-guided-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; font-size: 0.9em; }
+  .wiz-guided-steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 5px; font-size: 0.9em; }
+  .wiz-guided-steps li { padding-left: 2px; }
+  .wiz-guided-links { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; }
+  .wiz-guided-link {
+    color: var(--atlas-accent); font-size: 0.9em; text-decoration: none; font-weight: 500;
+  }
+  .wiz-guided-link.primary {
+    padding: 4px 10px; border-radius: 6px; background: var(--vscode-button-background, #0e639c);
+    color: var(--vscode-button-foreground, #fff);
+  }
+  .wiz-guided-link.primary:hover { background: var(--vscode-button-hoverBackground, #1177bb); }
+  /* Environment scan (import from other tools + PATH/env hints). */
+  .mcp-scan { margin-bottom: 16px; padding: 12px 14px; border-radius: 8px; border: 1px solid var(--atlas-border); background: color-mix(in srgb, var(--atlas-accent) 5%, transparent); }
+  .mcp-scan-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+  .mcp-scan-when { font-size: 0.82em; }
+  .mcp-scan-sub { font-size: 0.9em; margin: 8px 0 6px; }
+  .mcp-scan-card { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 8px 10px; margin: 6px 0; border-radius: 6px; border: 1px solid var(--atlas-border); background: var(--vscode-editor-background, transparent); }
+  .mcp-scan-detail { margin-top: 2px; }
+  .mcp-scan-detail code { font-size: 0.82em; word-break: break-all; }
+  .mcp-scan-env { font-size: 0.8em; margin-top: 2px; }
+  .mcp-scan-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .mcp-scan-launchers { font-size: 0.82em; margin: 8px 0 4px; }
+  .mcp-scan-envhints { font-size: 0.82em; margin: 6px 0; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .mcp-env-chip { font-size: 0.82em; padding: 1px 8px; border-radius: 999px; cursor: pointer; border: 1px solid var(--atlas-border); background: color-mix(in srgb, var(--atlas-accent) 10%, transparent); color: inherit; font-family: var(--vscode-editor-font-family, monospace); }
+  .mcp-env-chip:hover { background: color-mix(in srgb, var(--atlas-accent) 20%, transparent); }
+  .mcp-scan-ask { margin: 8px 0 0; }
   .status-banner {
     margin: 10px 0 14px;
     padding: 10px 12px;
@@ -1043,7 +1231,8 @@ function serializeForInlineScript(value: unknown): string {
     .replace(/&/g, '\\u0026');
 }
 
-function buildMcpScript(target?: McpPanelTarget, servers: McpServerState[] = []): string {
+function buildMcpScript(target?: McpPanelTarget, servers: McpServerState[] = [], scan?: import('../types.js').McpEnvironmentScan): string {
+  const mcpEnvironmentScan = serializeForInlineScript(scan ?? null);
   const recommendedServers = serializeForInlineScript(buildRecommendedPresetData());
   const existingServers = serializeForInlineScript(servers.map(server => ({
     id: server.config.id,
@@ -1063,6 +1252,7 @@ function buildMcpScript(target?: McpPanelTarget, servers: McpServerState[] = [])
   const vscode = acquireVsCodeApi();
   const recommendedServers = ${recommendedServers};
   const existingServers = ${existingServers};
+  const mcpEnvironmentScan = ${mcpEnvironmentScan};
   const initialPage = ${initialPage};
   const initialRecommendedServerId = ${initialRecommendedServerId};
   const navButtons = Array.from(document.querySelectorAll('[data-page-target]'));
@@ -1533,14 +1723,18 @@ function buildMcpScript(target?: McpPanelTarget, servers: McpServerState[] = [])
     badges.appendChild(provenance);
   }
 
-  function renderWizardInputs(server) {
+  function renderWizardInputs(server, autoConfigurable) {
     const container = document.getElementById('wiz-inputs');
     if (!(container instanceof HTMLElement)) { return; }
     container.innerHTML = '';
     if (!server.inputs || server.inputs.length === 0) {
       const note = document.createElement('p');
       note.className = 'muted';
-      note.textContent = 'No extra details needed — just connect.';
+      // Be honest about what will happen on Connect: a starter with no fields and
+      // no command/URL cannot be auto-configured — say so instead of implying it can.
+      note.textContent = autoConfigurable
+        ? 'No extra details needed — just connect.'
+        : server.name + ' can’t be auto-configured here. It needs a command or endpoint URL you provide — use Open Advanced setup to enter the connection details manually.';
       container.appendChild(note);
       return;
     }
@@ -1557,6 +1751,7 @@ function buildMcpScript(target?: McpPanelTarget, servers: McpServerState[] = [])
       field.type = input.kind === 'secret' ? 'password' : (input.kind === 'url' ? 'url' : 'text');
       field.autocomplete = 'off';
       if (input.defaultValue) { field.value = input.defaultValue; }
+      if (input.example) { field.placeholder = input.example; }
       row.appendChild(field);
       if (input.help) {
         const help = document.createElement('p');
@@ -1588,14 +1783,118 @@ function buildMcpScript(target?: McpPanelTarget, servers: McpServerState[] = [])
       docsEl.hidden = !server.docsUrl;
     }
     renderWizardBadges(server);
-    renderWizardInputs(server);
+    // A starter can be connected from the wizard whenever AtlasMind knows its
+    // endpoint (a command for stdio, or a URL for http) — including guided-manual
+    // community servers, which are prefilled but flagged for review. Only starters
+    // with no endpoint at all (the generic custom fallback) route to Advanced.
+    const hasEndpoint = server.transport === 'http' ? Boolean(server.url) : Boolean(server.command);
+    const autoConfigurable = hasEndpoint;
+    // Guided-manual = prefilled but flagged community server (setupMode 'manual'
+    // yet has a command). It still connects; only the framing differs.
+    const guidedManual = autoConfigurable && server.setupMode === 'manual';
+    renderWizardGuided(server);
+    renderWizardInputs(server, autoConfigurable);
+    const connectBtn = document.getElementById('wiz-connect-btn');
+    if (connectBtn instanceof HTMLButtonElement) {
+      connectBtn.hidden = !autoConfigurable;
+      connectBtn.disabled = false;
+      connectBtn.textContent = guidedManual ? 'Add & connect' : 'Connect';
+    }
+    const advancedBtn = document.getElementById('wiz-advanced-btn');
+    if (advancedBtn instanceof HTMLButtonElement) { advancedBtn.hidden = autoConfigurable; }
     const prereq = document.getElementById('wiz-prereq');
     if (prereq instanceof HTMLElement) { prereq.textContent = 'Checking prerequisites…'; prereq.className = 'status-banner status-info'; }
     const actions = document.getElementById('wiz-prereq-actions');
     if (actions instanceof HTMLElement) { actions.innerHTML = ''; }
     showWizardStep('wiz-configure');
-    setWizardStatus('Review the details below. AtlasMind will connect once everything is ready.', 'info');
+    setWizardStatus(
+      !autoConfigurable
+        ? server.name + ' needs manual setup. Use Open Advanced setup to enter the command or endpoint URL.'
+        : guidedManual
+          ? 'Community server — review the steps below, then add and connect.'
+          : 'Follow the steps below to get your credentials, then connect.',
+      autoConfigurable ? (guidedManual ? 'warning' : 'info') : 'warning',
+    );
     vscode.postMessage({ type: 'checkPrerequisites', payload: { serverId } });
+  }
+
+  // Render the "what you'll need" + step-by-step credential how-to + links for a
+  // recommended server so novices are never dropped into a blank form.
+  function renderWizardGuided(server) {
+    const safety = document.getElementById('wiz-safety');
+    if (safety instanceof HTMLElement) {
+      if (server.safetyNote) {
+        safety.textContent = '⚠ ' + server.safetyNote;
+        safety.hidden = false;
+      } else {
+        safety.textContent = '';
+        safety.hidden = true;
+      }
+    }
+    const guided = document.getElementById('wiz-guided');
+    if (!(guided instanceof HTMLElement)) { return; }
+    guided.innerHTML = '';
+
+    const prereqs = Array.isArray(server.prerequisites) ? server.prerequisites : [];
+    const steps = Array.isArray(server.credentialSteps) ? server.credentialSteps : [];
+
+    if (prereqs.length > 0) {
+      const card = document.createElement('div');
+      card.className = 'wiz-guided-card';
+      const h = document.createElement('p');
+      h.className = 'wiz-guided-title';
+      h.textContent = 'What you’ll need';
+      card.appendChild(h);
+      const ul = document.createElement('ul');
+      ul.className = 'wiz-guided-list';
+      prereqs.forEach(item => {
+        const li = document.createElement('li');
+        li.textContent = item;
+        ul.appendChild(li);
+      });
+      card.appendChild(ul);
+      guided.appendChild(card);
+    }
+
+    if (steps.length > 0) {
+      const card = document.createElement('div');
+      card.className = 'wiz-guided-card';
+      const h = document.createElement('p');
+      h.className = 'wiz-guided-title';
+      h.textContent = 'How to get set up';
+      card.appendChild(h);
+      const ol = document.createElement('ol');
+      ol.className = 'wiz-guided-steps';
+      steps.forEach(step => {
+        const li = document.createElement('li');
+        li.textContent = step;
+        ol.appendChild(li);
+      });
+      card.appendChild(ol);
+      // Action links: credentials page + docs.
+      const links = document.createElement('div');
+      links.className = 'wiz-guided-links';
+      if (server.credentialHelpUrl) {
+        const a = document.createElement('a');
+        a.href = server.credentialHelpUrl;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        a.className = 'wiz-guided-link primary';
+        a.textContent = 'Open credentials page ↗';
+        links.appendChild(a);
+      }
+      if (server.docsUrl) {
+        const a = document.createElement('a');
+        a.href = server.docsUrl;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        a.className = 'wiz-guided-link';
+        a.textContent = 'Documentation ↗';
+        links.appendChild(a);
+      }
+      if (links.childNodes.length > 0) { card.appendChild(links); }
+      guided.appendChild(card);
+    }
   }
 
   function renderScanResults(results) {
@@ -1697,6 +1996,16 @@ function buildMcpScript(target?: McpPanelTarget, servers: McpServerState[] = [])
 
   document.getElementById('wiz-advanced-link')?.addEventListener('click', () => activatePage('advanced'));
 
+  // From the configure step, carry the chosen starter into the Advanced form so
+  // the user doesn't retype the name/transport before adding the missing endpoint.
+  document.getElementById('wiz-advanced-btn')?.addEventListener('click', () => {
+    activatePage('advanced');
+    if (wizardServerId) {
+      if (presetSelect instanceof HTMLSelectElement) { presetSelect.value = wizardServerId; }
+      applyRecommendedPreset(wizardServerId);
+    }
+  });
+
   document.querySelectorAll('[data-wiz-back]').forEach(button => {
     if (button instanceof HTMLElement) {
       button.addEventListener('click', () => {
@@ -1757,8 +2066,214 @@ function buildMcpScript(target?: McpPanelTarget, servers: McpServerState[] = [])
     vscode.postMessage({ type: 'wizardConnect', payload: { serverId: wizardServerId, inputs } });
   });
 
+  // ── Environment scan: import from other tools + PATH/env hints ──
+  function renderMcpScan() {
+    const host = document.getElementById('mcp-scan');
+    if (!(host instanceof HTMLElement)) { return; }
+    host.innerHTML = '';
+    const scan = mcpEnvironmentScan;
+
+    const head = document.createElement('div');
+    head.className = 'mcp-scan-head';
+    const title = document.createElement('strong');
+    title.textContent = 'Detected on this machine';
+    head.appendChild(title);
+    const rescan = document.createElement('button');
+    rescan.type = 'button';
+    rescan.className = 'btn-small';
+    rescan.dataset.scanAction = 'rescan';
+    rescan.textContent = scan ? 'Rescan' : 'Scan my machine';
+    head.appendChild(rescan);
+    if (scan && scan.scannedAt) {
+      const when = document.createElement('span');
+      when.className = 'muted mcp-scan-when';
+      let stamp = scan.scannedAt;
+      try { stamp = new Date(scan.scannedAt).toLocaleString(); } catch (e) { /* keep ISO */ }
+      when.textContent = 'last scanned ' + stamp;
+      head.appendChild(when);
+    }
+    host.appendChild(head);
+
+    if (!scan) {
+      const p = document.createElement('p');
+      p.className = 'muted';
+      p.textContent = 'Scan your machine to import MCP servers you already use in Claude Desktop, Cursor, VS Code, or this repo — and to see which launch tools are installed.';
+      host.appendChild(p);
+      return;
+    }
+
+    const imported = Array.isArray(scan.importedServers) ? scan.importedServers : [];
+    if (imported.length > 0) {
+      const sub = document.createElement('p');
+      sub.className = 'mcp-scan-sub';
+      sub.textContent = 'Servers found in your other tools — prefill the form or import directly:';
+      host.appendChild(sub);
+      imported.forEach(server => {
+        const card = document.createElement('div');
+        card.className = 'mcp-scan-card';
+        const info = document.createElement('div');
+        const name = document.createElement('strong');
+        name.textContent = server.name;
+        const src = document.createElement('span');
+        src.className = 'muted';
+        src.textContent = ' · ' + server.source;
+        info.appendChild(name);
+        info.appendChild(src);
+        const detail = document.createElement('div');
+        detail.className = 'mcp-scan-detail';
+        const code = document.createElement('code');
+        code.textContent = server.transport === 'http'
+          ? (server.url || '')
+          : ((server.command || '') + ' ' + (Array.isArray(server.args) ? server.args.join(' ') : '')).trim();
+        detail.appendChild(code);
+        info.appendChild(detail);
+        if (Array.isArray(server.envKeys) && server.envKeys.length > 0) {
+          const env = document.createElement('div');
+          env.className = 'muted mcp-scan-env';
+          env.textContent = 'env: ' + server.envKeys.join(', ') + ((server.secretEnvKeys && server.secretEnvKeys.length) ? ' (secrets stored securely on import)' : '');
+          info.appendChild(env);
+        }
+        card.appendChild(info);
+        const actions = document.createElement('div');
+        actions.className = 'mcp-scan-actions';
+        const prefill = document.createElement('button');
+        prefill.type = 'button';
+        prefill.className = 'btn-small';
+        prefill.dataset.scanAction = 'prefill';
+        prefill.dataset.source = server.sourcePath;
+        prefill.dataset.name = server.name;
+        prefill.textContent = 'Prefill form';
+        actions.appendChild(prefill);
+        const importBtn = document.createElement('button');
+        importBtn.type = 'button';
+        importBtn.className = 'btn-small';
+        importBtn.dataset.scanAction = 'import';
+        importBtn.dataset.source = server.sourcePath;
+        importBtn.dataset.name = server.name;
+        importBtn.textContent = 'Import & connect';
+        actions.appendChild(importBtn);
+        card.appendChild(actions);
+        host.appendChild(card);
+      });
+    }
+
+    const launchers = scan.launchers || {};
+    const present = Object.keys(launchers).filter(k => launchers[k]);
+    const launchLine = document.createElement('p');
+    launchLine.className = 'muted mcp-scan-launchers';
+    launchLine.textContent = present.length > 0
+      ? ('Launch tools on your PATH: ' + present.join(', '))
+      : 'No MCP launch tools (npx, uvx, docker…) detected on your PATH.';
+    host.appendChild(launchLine);
+
+    const envNames = Array.isArray(scan.envVarNames) ? scan.envVarNames : [];
+    if (envNames.length > 0) {
+      const envWrap = document.createElement('div');
+      envWrap.className = 'mcp-scan-envhints';
+      const label = document.createElement('span');
+      label.className = 'muted';
+      label.textContent = 'Env var names in this workspace (click to add — values not included): ';
+      envWrap.appendChild(label);
+      envNames.forEach(nm => {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'mcp-env-chip';
+        chip.dataset.scanAction = 'env-name';
+        chip.dataset.envName = nm;
+        chip.textContent = nm;
+        envWrap.appendChild(chip);
+      });
+      host.appendChild(envWrap);
+    }
+
+    const ask = document.createElement('p');
+    ask.className = 'mcp-scan-ask';
+    const askBtn = document.createElement('button');
+    askBtn.type = 'button';
+    askBtn.className = 'link-button';
+    askBtn.dataset.scanAction = 'ask-atlas';
+    askBtn.textContent = 'Not sure how to configure a server? Ask Atlas to help';
+    ask.appendChild(askBtn);
+    host.appendChild(ask);
+  }
+
+  function prefillFromImport(sourcePath, name) {
+    const imported = (mcpEnvironmentScan && Array.isArray(mcpEnvironmentScan.importedServers)) ? mcpEnvironmentScan.importedServers : [];
+    const server = imported.find(s => s.sourcePath === sourcePath && s.name === name);
+    if (!server) { return; }
+    const nameField = document.getElementById('serverName');
+    const cmdField = document.getElementById('cmdField');
+    const argsField = document.getElementById('argsField');
+    const envField = document.getElementById('envField');
+    const urlField = document.getElementById('urlField');
+    const transportStdio = document.getElementById('transportStdio');
+    const transportHttp = document.getElementById('transportHttp');
+    if (presetSelect instanceof HTMLSelectElement) { presetSelect.value = ''; }
+    if (nameField instanceof HTMLInputElement) { nameField.value = server.name || ''; }
+    if (cmdField instanceof HTMLInputElement) { cmdField.value = server.command || ''; }
+    if (argsField instanceof HTMLInputElement) { argsField.value = Array.isArray(server.args) ? server.args.join(' ') : ''; }
+    if (urlField instanceof HTMLInputElement) { urlField.value = server.url || ''; }
+    // Env KEYS only — secret values are never copied into the visible form.
+    if (envField instanceof HTMLInputElement) {
+      const keys = Array.isArray(server.envKeys) ? server.envKeys : [];
+      const obj = {};
+      keys.forEach(k => { obj[k] = ''; });
+      envField.value = keys.length > 0 ? JSON.stringify(obj) : '';
+    }
+    if (transportStdio instanceof HTMLInputElement) { transportStdio.checked = server.transport === 'stdio'; }
+    if (transportHttp instanceof HTMLInputElement) { transportHttp.checked = server.transport === 'http'; }
+    setTransportMode(server.transport === 'stdio');
+    updateSubmitButton();
+    setStatus('Prefilled from ' + server.source + '. Secret values are not copied here — use "Import & connect" to bring them across securely, or paste them yourself.', 'info');
+  }
+
+  function addEnvName(name) {
+    if (!name) { return; }
+    const envField = document.getElementById('envField');
+    if (!(envField instanceof HTMLInputElement)) { return; }
+    let obj = {};
+    const raw = envField.value.trim();
+    if (raw) { try { obj = JSON.parse(raw); } catch (e) { obj = {}; } }
+    if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) { obj = {}; }
+    if (!(name in obj)) { obj[name] = ''; }
+    envField.value = JSON.stringify(obj);
+  }
+
+  document.getElementById('mcp-scan')?.addEventListener('click', event => {
+    const target = event.target instanceof HTMLElement ? event.target.closest('[data-scan-action]') : null;
+    if (!(target instanceof HTMLElement)) { return; }
+    const action = target.dataset.scanAction;
+    if (action === 'rescan') {
+      if (target instanceof HTMLButtonElement) { target.disabled = true; target.textContent = 'Scanning…'; }
+      vscode.postMessage({ type: 'rescanMcpEnvironment' });
+      return;
+    }
+    if (action === 'prefill') {
+      prefillFromImport(target.dataset.source || '', target.dataset.name || '');
+      return;
+    }
+    if (action === 'import') {
+      if (target instanceof HTMLButtonElement) { target.disabled = true; target.textContent = 'Importing…'; }
+      setStatus('Importing and connecting the detected server…', 'info');
+      vscode.postMessage({ type: 'importDetectedServer', payload: { sourcePath: target.dataset.source || '', name: target.dataset.name || '', connect: true } });
+      return;
+    }
+    if (action === 'env-name') {
+      addEnvName(target.dataset.envName || '');
+      return;
+    }
+    if (action === 'ask-atlas') {
+      const nameField = document.getElementById('serverName');
+      const typed = (nameField instanceof HTMLInputElement && nameField.value.trim()) ? nameField.value.trim() : '';
+      const preset = (presetSelect instanceof HTMLSelectElement && presetSelect.value) ? presetSelect.value : '';
+      vscode.postMessage({ type: 'askAtlasConfigureMcp', payload: { name: typed || preset || 'a custom MCP server' } });
+      return;
+    }
+  });
+
   setTransportMode(Boolean((document.getElementById('transportStdio') || {}).checked));
   updateSubmitButton();
+  renderMcpScan();
   if (initialRecommendedServerId) {
     if (initialPage === 'add') {
       openWizardConfigure(initialRecommendedServerId);
@@ -1843,6 +2358,23 @@ export function validatePanelMessage(raw: unknown): PanelMessage | null {
         }
       }
       return { type: 'wizardConnect', payload: { serverId: pp['serverId'] as string, inputs } };
+    }
+    case 'rescanMcpEnvironment':
+      return { type: 'rescanMcpEnvironment' };
+    case 'importDetectedServer': {
+      const p = msg['payload'];
+      if (typeof p !== 'object' || p === null) { return null; }
+      const pp = p as Record<string, unknown>;
+      if (typeof pp['sourcePath'] !== 'string' || !pp['sourcePath']) { return null; }
+      if (typeof pp['name'] !== 'string' || !pp['name']) { return null; }
+      return { type: 'importDetectedServer', payload: { sourcePath: pp['sourcePath'], name: pp['name'], connect: pp['connect'] === true } };
+    }
+    case 'askAtlasConfigureMcp': {
+      const p = msg['payload'];
+      if (typeof p !== 'object' || p === null) { return null; }
+      const name = (p as Record<string, unknown>)['name'];
+      if (typeof name !== 'string' || !name) { return null; }
+      return { type: 'askAtlasConfigureMcp', payload: { name } };
     }
     default:
       return null;

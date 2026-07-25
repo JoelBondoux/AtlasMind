@@ -1,5 +1,8 @@
 (function () {
   const vscode = acquireVsCodeApi();
+  // Plain-language explainer surfaced as a tooltip on every "Mark MVP" control so
+  // novice developers understand what tagging an item actually does.
+  const MVP_HELP_TEXT = 'Mark MVP — MVP stands for Minimum Viable Product: the smallest set of features needed for a first usable release. Tagging an item adds it to the "Road to MVP" plan above and tells Atlas to prioritise it.';
   const root = document.getElementById('dashboard-root');
   const refreshButton = document.getElementById('dashboard-refresh');
   const versionStrip = document.getElementById('dashboard-version-strip');
@@ -24,8 +27,13 @@
     editingRoadmapId: '',
     roadmapDraftText: '',
     draggedRoadmapId: '',
+    editingDoc: null,
     gapBusy: false,
     gapStatus: '',
+    riskBusy: false,
+    riskStatus: '',
+    /** '' = all, otherwise a domain id, a status, or a `likelihood:impact` matrix cell. */
+    riskFilter: '',
     activeDetails: {
       commits: '',
       runs: '',
@@ -96,6 +104,18 @@
 
     if (message.type === 'gapAnalysisStatus') {
       state.gapStatus = typeof message.payload === 'string' ? message.payload : '';
+      render();
+      return;
+    }
+
+    if (message.type === 'riskBusy') {
+      state.riskBusy = !!message.payload;
+      render();
+      return;
+    }
+
+    if (message.type === 'riskStatus') {
+      state.riskStatus = typeof message.payload === 'string' ? message.payload : '';
       render();
       return;
     }
@@ -200,6 +220,30 @@
       vscode.postMessage({ type: 'openPrompt', payload: { prompt: payload, sourcePage: state.activePage } });
       return;
     }
+    if (action === 'risk-run') {
+      // Each run is a real, costed model call, so reflect busy immediately rather
+      // than waiting for the round-trip — otherwise a slow start invites double-clicks.
+      if (state.riskBusy) { return; }
+      state.riskBusy = true;
+      state.riskStatus = 'Starting oversight review…';
+      render();
+      vscode.postMessage({ type: 'runRiskAnalysis', payload: { domain: payload } });
+      return;
+    }
+    if (action === 'risk-filter') {
+      state.riskFilter = payload || '';
+      render();
+      return;
+    }
+    if (action === 'risk-status') {
+      const sep = payload.indexOf('|');
+      if (sep === -1) { return; }
+      vscode.postMessage({
+        type: 'setRiskFindingStatus',
+        payload: { findingId: payload.slice(0, sep), status: payload.slice(sep + 1) },
+      });
+      return;
+    }
     if (action === 'file') {
       vscode.postMessage({ type: 'openFile', payload });
       return;
@@ -261,6 +305,81 @@
     }
     if (action === 'roadmap-mvp-add') {
       persistRoadmapItems(getRoadmapItems().map(item => item.id === payload ? { ...item, isMvp: true } : item));
+      return;
+    }
+    if (action === 'documents-seed') {
+      vscode.postMessage({ type: 'seedDocumentsFromRepo' });
+      return;
+    }
+    if (action === 'documents-add-filing') {
+      state.activePage = 'documents';
+      state.editingDoc = { kind: 'filing', id: 'new' };
+      render();
+      return;
+    }
+    if (action === 'documents-edit-filing') {
+      state.activePage = 'documents';
+      state.editingDoc = { kind: 'filing', id: payload };
+      render();
+      return;
+    }
+    if (action === 'documents-add-auto') {
+      state.activePage = 'documents';
+      state.editingDoc = { kind: 'auto', id: 'new' };
+      render();
+      return;
+    }
+    if (action === 'documents-edit-auto') {
+      state.activePage = 'documents';
+      state.editingDoc = { kind: 'auto', id: payload };
+      render();
+      return;
+    }
+    if (action === 'documents-cancel') {
+      state.editingDoc = null;
+      render();
+      return;
+    }
+    if (action === 'documents-save-filing') {
+      saveDocFilingDraft();
+      return;
+    }
+    if (action === 'documents-save-auto') {
+      saveDocAutoDraft();
+      return;
+    }
+    if (action === 'documents-delete-filing') {
+      const config = currentDocumentsConfig();
+      config.filing = config.filing.filter(entry => entry.id !== payload);
+      state.editingDoc = null;
+      persistDocumentsConfig(config);
+      return;
+    }
+    if (action === 'documents-delete-auto') {
+      const config = currentDocumentsConfig();
+      config.autoUpdate = config.autoUpdate.filter(entry => entry.id !== payload);
+      state.editingDoc = null;
+      persistDocumentsConfig(config);
+      return;
+    }
+    if (action === 'documents-mark-reviewed') {
+      const config = currentDocumentsConfig();
+      const iso = new Date().toISOString();
+      config.autoUpdate = config.autoUpdate.map(entry => entry.id === payload ? { ...entry, lastReviewed: iso } : entry);
+      persistDocumentsConfig(config);
+      return;
+    }
+    if (action === 'documents-track-uncovered') {
+      const config = currentDocumentsConfig();
+      if (!config.autoUpdate.some(entry => entry.path === payload)) {
+        config.autoUpdate = [...config.autoUpdate, {
+          id: createDocId('doc', payload),
+          path: payload,
+          label: payload.split('/').pop(),
+          cadence: 'on-change',
+        }];
+      }
+      persistDocumentsConfig(config);
       return;
     }
     if (action === 'gap-run') {
@@ -805,12 +924,19 @@
     }
   });
 
+  function clearRoadmapDropMarkers() {
+    root?.querySelectorAll('.roadmap-item.drag-over, .roadmap-item.dragging').forEach(el => {
+      el.classList.remove('drag-over', 'dragging');
+    });
+  }
+
   root?.addEventListener('dragstart', event => {
     const target = event.target instanceof HTMLElement ? event.target.closest('[data-roadmap-id]') : null;
     if (!(target instanceof HTMLElement)) {
       return;
     }
     state.draggedRoadmapId = target.dataset.roadmapId || '';
+    target.classList.add('dragging');
     if (event.dataTransfer) {
       event.dataTransfer.effectAllowed = 'move';
       event.dataTransfer.setData('text/plain', state.draggedRoadmapId);
@@ -823,6 +949,25 @@
       return;
     }
     event.preventDefault();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = 'move';
+    }
+    // Highlight only the current drop target so the landing spot is obvious.
+    if (target.dataset.roadmapId !== state.draggedRoadmapId) {
+      root.querySelectorAll('.roadmap-item.drag-over').forEach(el => {
+        if (el !== target) {
+          el.classList.remove('drag-over');
+        }
+      });
+      target.classList.add('drag-over');
+    }
+  });
+
+  root?.addEventListener('dragleave', event => {
+    const target = event.target instanceof HTMLElement ? event.target.closest('[data-roadmap-id]') : null;
+    if (target instanceof HTMLElement && !target.contains(event.relatedTarget instanceof Node ? event.relatedTarget : null)) {
+      target.classList.remove('drag-over');
+    }
   });
 
   root?.addEventListener('drop', event => {
@@ -831,11 +976,13 @@
       return;
     }
     event.preventDefault();
+    clearRoadmapDropMarkers();
     moveRoadmapItem(state.draggedRoadmapId, target.dataset.roadmapId || '');
     state.draggedRoadmapId = '';
   });
 
   root?.addEventListener('dragend', () => {
+    clearRoadmapDropMarkers();
     state.draggedRoadmapId = '';
   });
 
@@ -914,7 +1061,9 @@
         ['security', 'Security'],
         ['privacy', 'Privacy'],
         ['delivery', 'Delivery'],
+        ['risk', 'Risk'],
         ['director', 'Director'],
+        ['documents', 'Documents'],
       ];
 
       root.innerHTML = `
@@ -958,6 +1107,8 @@
         ${renderPrivacy(snapshot)}
         ${renderDelivery(snapshot)}
         ${renderDirector(snapshot)}
+        ${renderRisk(snapshot)}
+        ${renderDocuments(snapshot)}
         ${renderPromotionModal()}
       `;
 
@@ -1829,7 +1980,8 @@
         </div>
         <article class="list-card">
           <p class="section-kicker">Editable queue</p>
-          <h3>Drag to reorder, then edit or delete individual items</h3>
+          <h3>Prioritized backlog</h3>
+          <div class="list-meta">Grab the <span aria-hidden="true">⠿</span> handle on the left of any item and drag it up or down — items higher in the list get more weight in Atlas's next-work decisions. Use the buttons on each item to mark it for the MVP, complete it, edit, or delete.</div>
           <div class="stack-list roadmap-list">
             ${state.editingRoadmapId === 'new' ? renderRoadmapEditor('new') : ''}
             ${roadmap.items.length > 0 ? roadmap.items.map(item => renderRoadmapItem(item)).join('') : '<div class="dashboard-empty">No roadmap items yet. Add the first one above.</div>'}
@@ -1843,18 +1995,22 @@
     if (state.editingRoadmapId === item.id) {
       return renderRoadmapEditor(item.id);
     }
+    const mvpTooltip = item.isMvp
+      ? 'Remove this item from the MVP path. MVP = Minimum Viable Product: the smallest set of work needed for a first usable release.'
+      : MVP_HELP_TEXT;
     return `
       <div class="recent-item roadmap-item ${item.isMvp ? 'is-mvp' : ''}" draggable="true" data-roadmap-id="${escapeAttr(item.id)}">
         <div class="row-head">
+          <span class="drag-handle" title="Drag to reorder — position sets Atlas's default priority" aria-hidden="true">⠿</span>
           <strong>${escapeHtml(item.text)}</strong>
           <span class="tag-group">
-            ${item.isMvp ? '<span class="tag tag-mvp">MVP</span>' : ''}
+            ${item.isMvp ? '<span class="tag tag-mvp" title="This item is on your Minimum Viable Product path">MVP</span>' : ''}
             <span class="tag ${item.completed ? 'tag-good' : item.focus === 'security' ? 'tag-critical' : item.focus === 'architecture' ? 'tag-warn' : ''}">${escapeHtml(item.completed ? 'done' : item.focus)}</span>
           </span>
         </div>
         <div class="list-meta">${escapeHtml(item.priorityReason)}</div>
         <div class="tag-row">
-          <button type="button" class="action-link" data-action="roadmap-mvp-toggle" data-payload="${escapeAttr(item.id)}">${item.isMvp ? 'Unmark MVP' : 'Mark MVP'}</button>
+          <button type="button" class="action-link" data-action="roadmap-mvp-toggle" data-payload="${escapeAttr(item.id)}" title="${escapeAttr(mvpTooltip)}">${item.isMvp ? 'Unmark MVP' : 'Mark MVP'}</button>
           <button type="button" class="action-link" data-action="roadmap-toggle" data-payload="${escapeAttr(item.id)}">${item.completed ? 'Mark active' : 'Mark done'}</button>
           <button type="button" class="action-link" data-action="roadmap-edit" data-payload="${escapeAttr(item.id)}">Edit</button>
           <button type="button" class="action-link" data-action="roadmap-delete" data-payload="${escapeAttr(item.id)}">Delete</button>
@@ -1875,7 +2031,7 @@
       <div class="panel-grid mvp-grid">
         <article class="panel-card mvp-card">
           <p class="section-kicker">Road to MVP</p>
-          <h3>Minimum viable product</h3>
+          <h3>Minimum viable product <span class="mvp-help" title="${escapeAttr(MVP_HELP_TEXT)}" aria-label="What is an MVP?">ⓘ</span></h3>
           <div class="stat-detail">${escapeHtml(mvp.summary || '')}</div>
           ${hasPath ? `
             <div class="mini-grid">
@@ -2029,6 +2185,530 @@
   function createRoadmapItemId(text) {
     const normalized = String(text || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
     return `roadmap-${normalized || Date.now()}`;
+  }
+
+  // ── Documents (.md management) ──────────────────────────────────
+
+  function docCadenceLabel(cadence) {
+    switch (cadence) {
+      case 'on-change': return 'On change';
+      case 'on-release': return 'On release';
+      case 'weekly': return 'Weekly';
+      default: return 'Manual';
+    }
+  }
+
+  // ── Risk oversight ─────────────────────────────────────────────────────────
+
+  const RISK_LEVELS = ['low', 'medium', 'high'];
+  const RISK_STATUS_LABEL = {
+    open: 'Open',
+    accepted: 'Accepted',
+    mitigated: 'Mitigated',
+    closed: 'Closed',
+    dismissed: 'Dismissed',
+  };
+
+  /**
+   * Likelihood x impact heatmap — the canonical risk visual.
+   *
+   * Impact runs up the y-axis and likelihood along the x, so the top-right cell is
+   * the worst case. Each populated cell is a button that filters the register below;
+   * clicking the active cell clears the filter.
+   */
+  function renderRiskMatrix(matrix) {
+    const counts = matrix || {};
+    const rows = [...RISK_LEVELS].reverse().map(impact => {
+      const cells = RISK_LEVELS.map(likelihood => {
+        const key = likelihood + ':' + impact;
+        const count = counts[key] || 0;
+        // Severity band drives the cell colour: 2 = low, 4 = moderate, 6 = high, 9 = severe.
+        const severity = (RISK_LEVELS.indexOf(likelihood) + 1) * (RISK_LEVELS.indexOf(impact) + 1);
+        const band = severity >= 6 ? 'severe' : severity >= 4 ? 'high' : severity >= 2 ? 'moderate' : 'low';
+        const isActive = state.riskFilter === key;
+        const label = count + ' finding' + (count === 1 ? '' : 's') + ', ' + likelihood + ' likelihood, ' + impact + ' impact';
+        if (count === 0) {
+          return '<div class="risk-cell risk-cell--' + band + ' is-empty" role="gridcell" aria-label="' + escapeAttr(label) + '"><span class="risk-cell-count">·</span></div>';
+        }
+        return '<button type="button" class="risk-cell risk-cell--' + band + (isActive ? ' is-active' : '')
+          + '" role="gridcell" data-action="risk-filter" data-payload="' + escapeAttr(isActive ? '' : key) + '"'
+          + ' title="' + escapeAttr(label) + '" aria-label="' + escapeAttr(label) + '">'
+          + '<span class="risk-cell-count">' + count + '</span></button>';
+      }).join('');
+      return '<div class="risk-matrix-row"><span class="risk-axis-label">' + escapeHtml(impact) + '</span>' + cells + '</div>';
+    }).join('');
+
+    return `
+      <article class="panel-card">
+        <h3>Risk matrix</h3>
+        <p class="section-copy">Open findings by likelihood and impact. Select a cell to filter the register.</p>
+        <div class="risk-matrix" role="grid" aria-label="Risk matrix: impact by likelihood">
+          ${rows}
+          <div class="risk-matrix-row risk-matrix-foot">
+            <span class="risk-axis-label"></span>
+            ${RISK_LEVELS.map(level => '<span class="risk-axis-label">' + escapeHtml(level) + '</span>').join('')}
+          </div>
+        </div>
+        <div class="risk-axis-caption"><span>Impact ↑</span><span>Likelihood →</span></div>
+      </article>
+    `;
+  }
+
+  function renderRiskFinding(finding) {
+    const sev = escapeAttr(finding.likelihood + '-' + finding.impact);
+    const evidence = Array.isArray(finding.evidence) ? finding.evidence : [];
+    const isOpen = finding.status === 'open';
+    return `
+      <article class="risk-finding risk-finding--${escapeAttr(finding.status)}" data-sev="${sev}">
+        <div class="row-head">
+          <strong>${escapeHtml(finding.title)}</strong>
+          <span class="risk-tag risk-tag--${escapeAttr(finding.domain)}">${escapeHtml(finding.domain)}</span>
+        </div>
+        <div class="tag-row">
+          <span class="meta-pill">Likelihood ${escapeHtml(finding.likelihood)}</span>
+          <span class="meta-pill">Impact ${escapeHtml(finding.impact)}</span>
+          <span class="meta-pill">Confidence ${escapeHtml(finding.confidence)}</span>
+          <span class="meta-pill">${escapeHtml(RISK_STATUS_LABEL[finding.status] || finding.status)}</span>
+        </div>
+        ${finding.detail ? `<p class="section-copy">${escapeHtml(finding.detail)}</p>` : ''}
+        ${finding.recommendation ? `<p class="section-copy"><strong>Recommended:</strong> ${escapeHtml(finding.recommendation)}</p>` : ''}
+        ${finding.statusNote ? `<p class="section-copy"><em>${escapeHtml(finding.statusNote)}</em></p>` : ''}
+        ${evidence.length > 0 ? `
+          <div class="tag-row">
+            ${evidence.map(item => `<button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(item)}" title="Open ${escapeAttr(item)}">${escapeHtml(item)}</button>`).join('')}
+          </div>
+        ` : ''}
+        <div class="tag-row">
+          ${isOpen ? `
+            <button type="button" class="action-link" data-action="risk-status" data-payload="${escapeAttr(finding.id + '|accepted')}" title="Record that a human has consciously accepted this risk">Accept</button>
+            <button type="button" class="action-link" data-action="risk-status" data-payload="${escapeAttr(finding.id + '|mitigated')}" title="Mark as mitigated">Mitigated</button>
+            <button type="button" class="action-link" data-action="risk-status" data-payload="${escapeAttr(finding.id + '|dismissed')}" title="Dismiss — not a real concern here">Dismiss</button>
+          ` : `
+            <button type="button" class="action-link" data-action="risk-status" data-payload="${escapeAttr(finding.id + '|open')}" title="Reopen this finding">Reopen</button>
+          `}
+          <button type="button" class="action-link" data-action="prompt" data-payload="${escapeAttr('Investigate this recorded ' + finding.domain + ' oversight finding in the current workspace: "' + finding.title + '". ' + (finding.detail || '') + ' Verify whether it still applies, and if it does, propose the smallest concrete change that addresses it. Do not treat this as legal, ethical, or financial advice.')}" title="Ask Atlas to investigate this finding">Investigate</button>
+        </div>
+      </article>
+    `;
+  }
+
+  function renderRisk(snapshot) {
+    const active = state.activePage === 'risk';
+    const wrap = (inner) => '<section class="page-section ' + (active ? 'active' : '') + '">' + inner + '</section>';
+    const risk = snapshot.risk;
+    if (!risk) { return wrap('<div class="dashboard-empty">Risk data unavailable.</div>'); }
+
+    const domainCards = risk.domains.map(domain => {
+      const never = !domain.lastRun;
+      const tone = never ? 'neutral' : domain.stale ? 'warn' : domain.openCount > 0 ? 'accent' : 'good';
+      const when = never
+        ? 'Never run'
+        : (domain.daysSinceRun === 0 ? 'Today' : domain.daysSinceRun + ' day(s) ago');
+      return `
+        <article class="panel-card">
+          <div class="row-head">
+            <strong>${escapeHtml(domain.label)}</strong>
+            <span class="risk-tag risk-tag--${escapeAttr(domain.domain)}">${escapeHtml(domain.openCount + ' open')}</span>
+          </div>
+          ${renderMetricPill('Last reviewed', when, { tone: tone })}
+          <button type="button" class="action-link primary" data-action="risk-run" data-payload="${escapeAttr(domain.domain)}"${state.riskBusy ? ' disabled' : ''} title="Run the ${escapeAttr(domain.label)} Oversight advisor over this workspace">
+            ${state.riskBusy ? 'Running…' : 'Run ' + escapeHtml(domain.label) + ' review'}
+          </button>
+        </article>
+      `;
+    }).join('');
+
+    // Filter can be a domain, a status, or a `likelihood:impact` matrix cell.
+    const filter = state.riskFilter;
+    const findings = (risk.findings || []).filter(finding => {
+      if (!filter) { return true; }
+      if (filter.indexOf(':') !== -1) {
+        return finding.status === 'open' && (finding.likelihood + ':' + finding.impact) === filter;
+      }
+      if (RISK_STATUS_LABEL[filter]) { return finding.status === filter; }
+      return finding.domain === filter;
+    });
+    // Open first, then by severity descending, so the worst is always at the top.
+    const sorted = findings.slice().sort((a, b) => {
+      if ((a.status === 'open') !== (b.status === 'open')) { return a.status === 'open' ? -1 : 1; }
+      const weight = f => (RISK_LEVELS.indexOf(f.likelihood) + 1) * (RISK_LEVELS.indexOf(f.impact) + 1);
+      return weight(b) - weight(a);
+    });
+
+    const statusLine = state.riskStatus
+      ? `<p class="section-copy"><em>${escapeHtml(state.riskStatus)}</em></p>`
+      : '';
+
+    if (!risk.assessed) {
+      return wrap(`
+        <article class="panel-card">
+          <h3>Risk oversight</h3>
+          <p class="section-copy">
+            Risk has not been assessed yet. AtlasMind ships three read-only advisors —
+            Ethics, Legal, and Commercial — that inspect this workspace and record what they find.
+            Nothing is assessed until you run one, and an unassessed project is unknown, not safe:
+            risk is left out of the operational score entirely until there is evidence to weigh.
+          </p>
+          <p class="section-copy">
+            <strong>These advisors are not a substitute for professional advice.</strong> They surface
+            concerns for human judgement — qualified counsel for legal exposure, an ethics or DPO
+            review for human impact, and finance or commercial sign-off for business commitments.
+          </p>
+          ${statusLine}
+          <div class="tag-row">
+            <button type="button" class="action-link primary" data-action="risk-run" data-payload="all"${state.riskBusy ? ' disabled' : ''} title="Run all three oversight advisors, one after another">
+              ${state.riskBusy ? 'Running…' : 'Run all three reviews'}
+            </button>
+          </div>
+        </article>
+        <section class="panel-grid">${domainCards}</section>
+      `);
+    }
+
+    return wrap(`
+      <article class="panel-card">
+        <div class="row-head">
+          <h3>Risk oversight</h3>
+          <span class="list-meta">${escapeHtml(risk.filePath)}</span>
+        </div>
+        <p class="section-copy">${escapeHtml(risk.summary)}</p>
+        <p class="section-copy">
+          <strong>Advisory only — not professional advice.</strong> Findings are prompts for human
+          judgement, not clearance to proceed, and nothing here blocks a commit or a release.
+        </p>
+        ${statusLine}
+        <div class="tag-row">
+          ${renderMetricPill('Risk score', String(risk.score) + '/100', { tone: risk.score >= 80 ? 'good' : risk.score >= 55 ? 'accent' : 'warn', meter: risk.score })}
+          ${renderMetricPill('Open', String(risk.openCount), { tone: risk.openCount === 0 ? 'good' : 'warn' })}
+          ${renderMetricPill('Accepted', String(risk.acceptedCount), { tone: 'neutral' })}
+          ${renderMetricPill('Resolved', String(risk.resolvedCount), { tone: 'good' })}
+        </div>
+        <div class="tag-row">
+          <button type="button" class="action-link primary" data-action="risk-run" data-payload="all"${state.riskBusy ? ' disabled' : ''} title="Re-run all three oversight advisors">
+            ${state.riskBusy ? 'Running…' : 'Re-run all reviews'}
+          </button>
+          <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(risk.summaryPath)}" title="Open the readable markdown mirror">Open runbook</button>
+        </div>
+      </article>
+
+      <section class="panel-grid">${domainCards}</section>
+
+      <section class="panel-grid">
+        ${renderRiskMatrix(risk.matrix)}
+        ${renderChartCard('riskRuns', 'Assessment cadence', 'Oversight runs recorded per day.', risk.trend || [])}
+      </section>
+
+      <article class="panel-card">
+        <div class="row-head">
+          <h3>Register</h3>
+          <span class="list-meta">${escapeHtml(String(sorted.length))} of ${escapeHtml(String((risk.findings || []).length))} shown</span>
+        </div>
+        <div class="tag-row">
+          <button type="button" class="action-link${filter === '' ? ' primary' : ''}" data-action="risk-filter" data-payload="">All</button>
+          ${['ethics', 'legal', 'commercial'].map(domain => `<button type="button" class="action-link${filter === domain ? ' primary' : ''}" data-action="risk-filter" data-payload="${escapeAttr(domain)}">${escapeHtml(domain)}</button>`).join('')}
+          ${['open', 'accepted', 'mitigated', 'dismissed'].map(status => `<button type="button" class="action-link${filter === status ? ' primary' : ''}" data-action="risk-filter" data-payload="${escapeAttr(status)}">${escapeHtml(RISK_STATUS_LABEL[status])}</button>`).join('')}
+        </div>
+        ${sorted.length === 0
+          ? `<div class="dashboard-empty">${escapeHtml((risk.findings || []).length === 0 ? 'No findings recorded. Nothing was flagged by the advisors that have run.' : 'No findings match this filter.')}</div>`
+          : sorted.map(renderRiskFinding).join('')}
+      </article>
+    `);
+  }
+
+  function renderDocuments(snapshot) {
+    const docs = snapshot.documents || {
+      configured: false, filing: [], autoUpdate: [], uncovered: [],
+      totalMarkdown: 0, markdownCapped: false, reviewDueCount: 0, missingCount: 0,
+      filePath: 'project_memory/operations/documents.json',
+      summaryPath: 'project_memory/operations/documents.md', summary: '',
+    };
+    const filing = Array.isArray(docs.filing) ? docs.filing : [];
+    const autoUpdate = Array.isArray(docs.autoUpdate) ? docs.autoUpdate : [];
+    const uncovered = Array.isArray(docs.uncovered) ? docs.uncovered : [];
+    const editing = state.editingDoc;
+
+    const chips = [
+      { label: `${docs.totalMarkdown}${docs.markdownCapped ? '+' : ''} markdown file${docs.totalMarkdown === 1 ? '' : 's'}`, tone: 'accent' },
+    ];
+    if (docs.reviewDueCount > 0) { chips.push({ label: `${docs.reviewDueCount} need review`, tone: 'warn' }); }
+    if (docs.missingCount > 0) { chips.push({ label: `${docs.missingCount} missing`, tone: 'critical' }); }
+    if (docs.reviewDueCount === 0 && docs.missingCount === 0 && autoUpdate.length > 0) {
+      chips.push({ label: 'All tracked docs current', tone: 'good' });
+    }
+
+    const emptyState = !docs.configured && filing.length === 0 && autoUpdate.length === 0 && !editing;
+
+    return `
+      <section class="page-section ${state.activePage === 'documents' ? 'active' : ''}">
+        ${renderPageIntro({
+          kicker: 'Documents',
+          title: 'Document filing system & auto-maintenance',
+          summary: docs.summary || 'Define where your documents live and which ones AtlasMind should help keep current. AtlasMind never rewrites a file on its own — it flags staleness and offers an assisted update you trigger.',
+          chips,
+          ...(docs.configured ? { action: { file: docs.summaryPath, hint: 'Open documents.md' }, actionLabel: 'Open runbook' } : {}),
+        })}
+        ${emptyState ? `
+          <article class="panel-card">
+            <p class="section-kicker">Get started</p>
+            <h3>No filing system yet</h3>
+            <div class="stat-detail">Seed a starter filing system from folders and key docs already in your repo (README, CHANGELOG, docs/, wiki/…), then refine it. Nothing is overwritten — this just records where documents live and which ones to keep current.</div>
+            <div class="tag-row">
+              <button type="button" class="action-link primary" data-action="documents-seed">Seed from repo</button>
+              <button type="button" class="action-link" data-action="documents-add-filing">Add a shelf</button>
+              <button type="button" class="action-link" data-action="documents-add-auto">Track a document</button>
+            </div>
+          </article>
+        ` : `
+          <div class="panel-grid">
+            <article class="list-card">
+              <div class="promotion-section-head">
+                <div>
+                  <p class="section-kicker">Filing system</p>
+                  <h3>Document shelves</h3>
+                </div>
+                <button type="button" class="action-link" data-action="documents-add-filing">+ Add shelf</button>
+              </div>
+              <div class="stat-detail">Each shelf is a folder (optionally narrowed by a glob) that groups related documents.</div>
+              <div class="stack-list">
+                ${editing && editing.kind === 'filing' && editing.id === 'new' ? renderDocFilingEditor(null) : ''}
+                ${filing.length > 0
+                  ? filing.map(entry => renderDocFilingItem(entry, editing)).join('')
+                  : (editing && editing.kind === 'filing' ? '' : '<div class="dashboard-empty">No shelves yet. Add one to describe where documents live.</div>')}
+              </div>
+            </article>
+            <article class="list-card">
+              <div class="promotion-section-head">
+                <div>
+                  <p class="section-kicker">Kept updated automatically</p>
+                  <h3>Tracked documents</h3>
+                </div>
+                <button type="button" class="action-link" data-action="documents-add-auto">+ Track document</button>
+              </div>
+              <div class="stat-detail">AtlasMind flags these when they drift from what they should track and offers an assisted update. It never edits them on a timer.</div>
+              <div class="stack-list">
+                ${editing && editing.kind === 'auto' && editing.id === 'new' ? renderDocAutoEditor(null) : ''}
+                ${autoUpdate.length > 0
+                  ? autoUpdate.map(entry => renderDocAutoItem(entry, editing)).join('')
+                  : (editing && editing.kind === 'auto' ? '' : '<div class="dashboard-empty">No tracked documents yet. Add one to keep it current.</div>')}
+              </div>
+            </article>
+          </div>
+          ${uncovered.length > 0 ? `
+            <article class="list-card">
+              <p class="section-kicker">Discovered</p>
+              <h3>Markdown not yet filed or tracked</h3>
+              <div class="stat-detail">These markdown files aren't covered by a shelf or tracked for updates. Add the ones that matter.</div>
+              <div class="stack-list">
+                ${uncovered.map(rel => `
+                  <div class="recent-item">
+                    <div class="row-head">
+                      <strong>${escapeHtml(rel)}</strong>
+                      <span class="tag-group">
+                        <button type="button" class="action-link" data-action="documents-track-uncovered" data-payload="${escapeAttr(rel)}">Track</button>
+                        <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(rel)}">Open</button>
+                      </span>
+                    </div>
+                  </div>`).join('')}
+              </div>
+            </article>
+          ` : ''}
+        `}
+      </section>
+    `;
+  }
+
+  function renderDocFilingItem(entry, editing) {
+    if (editing && editing.kind === 'filing' && editing.id === entry.id) {
+      return renderDocFilingEditor(entry);
+    }
+    const pathLabel = entry.path + (entry.pattern ? '/' + entry.pattern : '');
+    return `
+      <div class="recent-item">
+        <div class="row-head">
+          <strong>${escapeHtml(entry.label)}</strong>
+          <span class="tag-group">
+            <span class="tag ${entry.exists ? 'tag-good' : 'tag-critical'}">${entry.exists ? escapeHtml(entry.markdownCount + ' md') : 'missing'}</span>
+          </span>
+        </div>
+        <div class="list-meta"><code>${escapeHtml(pathLabel)}</code></div>
+        ${entry.description ? `<div class="list-meta">${escapeHtml(entry.description)}</div>` : ''}
+        <div class="tag-row">
+          <button type="button" class="action-link" data-action="documents-edit-filing" data-payload="${escapeAttr(entry.id)}">Edit</button>
+          <button type="button" class="action-link danger" data-action="documents-delete-filing" data-payload="${escapeAttr(entry.id)}">Delete</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderDocFilingEditor(entry) {
+    const e = entry || {};
+    const isNew = !entry;
+    return `
+      <div class="panel-card stage-editor" id="doc-filing-editor">
+        <p class="section-kicker">${isNew ? 'Add shelf' : 'Edit shelf'}</p>
+        <div class="stage-edit-grid">
+          <label class="stage-edit-field"><span>Folder path (workspace-relative) *</span><input type="text" data-doc-field="path" value="${escapeAttr(e.path || '')}" placeholder="docs" /></label>
+          <label class="stage-edit-field"><span>Label</span><input type="text" data-doc-field="label" value="${escapeAttr(e.label || '')}" placeholder="Docs" /></label>
+          <label class="stage-edit-field"><span>Glob (optional)</span><input type="text" data-doc-field="pattern" value="${escapeAttr(e.pattern || '')}" placeholder="**/*.md" /></label>
+          <label class="stage-edit-field" style="grid-column:1 / -1;"><span>Description</span><input type="text" data-doc-field="description" value="${escapeAttr(e.description || '')}" placeholder="What lives on this shelf" /></label>
+        </div>
+        <div class="stage-edit-actions">
+          <button type="button" class="action-link primary" data-action="documents-save-filing">Save shelf</button>
+          <button type="button" class="action-link" data-action="documents-cancel">Cancel</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderDocAutoItem(entry, editing) {
+    if (editing && editing.kind === 'auto' && editing.id === entry.id) {
+      return renderDocAutoEditor(entry);
+    }
+    const tone = entry.status === 'missing' ? 'tag-critical'
+      : entry.status === 'review-due' ? 'tag-warn'
+      : entry.status === 'fresh' ? 'tag-good'
+      : '';
+    return `
+      <div class="recent-item">
+        <div class="row-head">
+          <strong>${escapeHtml(entry.label || entry.path)}</strong>
+          <span class="tag-group">
+            <span class="tag ${tone}">${escapeHtml(entry.statusLabel)}</span>
+            <span class="tag">${escapeHtml(docCadenceLabel(entry.cadence))}</span>
+          </span>
+        </div>
+        <div class="list-meta"><code>${escapeHtml(entry.path)}</code></div>
+        <div class="list-meta">${escapeHtml(entry.detail)}</div>
+        ${entry.sourceHint ? `<div class="list-meta">Tracks: ${escapeHtml(entry.sourceHint)}</div>` : ''}
+        <div class="tag-row">
+          <button type="button" class="action-link primary" data-action="prompt" data-payload="${escapeAttr(entry.updatePrompt)}" title="Open an Atlas chat to update this document">Update with Atlas</button>
+          <button type="button" class="action-link" data-action="documents-mark-reviewed" data-payload="${escapeAttr(entry.id)}" title="Record that this document is current as of now">Mark reviewed</button>
+          ${entry.exists ? `<button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(entry.path)}">Open</button>` : ''}
+          <button type="button" class="action-link" data-action="documents-edit-auto" data-payload="${escapeAttr(entry.id)}">Edit</button>
+          <button type="button" class="action-link danger" data-action="documents-delete-auto" data-payload="${escapeAttr(entry.id)}">Delete</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderDocAutoEditor(entry) {
+    const e = entry || {};
+    const isNew = !entry;
+    const cadences = [
+      ['on-change', 'When related code/config changes'],
+      ['on-release', 'On every release'],
+      ['weekly', 'Weekly'],
+      ['manual', 'Manually (no reminder)'],
+    ];
+    const current = e.cadence || 'on-change';
+    return `
+      <div class="panel-card stage-editor" id="doc-auto-editor">
+        <p class="section-kicker">${isNew ? 'Track a document' : 'Edit tracked document'}</p>
+        <div class="stage-edit-grid">
+          <label class="stage-edit-field"><span>File path (workspace-relative) *</span><input type="text" data-doc-field="path" value="${escapeAttr(e.path || '')}" placeholder="README.md" /></label>
+          <label class="stage-edit-field"><span>Label</span><input type="text" data-doc-field="label" value="${escapeAttr(e.label || '')}" placeholder="Readme" /></label>
+          <label class="stage-edit-field"><span>Update cadence</span><select data-doc-field="cadence">${cadences.map(pair => `<option value="${pair[0]}" ${pair[0] === current ? 'selected' : ''}>${escapeHtml(pair[1])}</option>`).join('')}</select></label>
+          <label class="stage-edit-field" style="grid-column:1 / -1;"><span>Should track (what keeps it current)</span><input type="text" data-doc-field="sourceHint" value="${escapeAttr(e.sourceHint || '')}" placeholder="e.g. feature list, config options, version banner" /></label>
+        </div>
+        <div class="stage-edit-actions">
+          <button type="button" class="action-link primary" data-action="documents-save-auto">Save</button>
+          <button type="button" class="action-link" data-action="documents-cancel">Cancel</button>
+        </div>
+      </div>
+    `;
+  }
+
+  // Reconstruct a clean DocumentsConfig from the enriched snapshot views so
+  // client-side mutations post back only the persisted fields (the extension
+  // sanitises again before writing to disk).
+  function currentDocumentsConfig() {
+    const docs = state.snapshot && state.snapshot.documents ? state.snapshot.documents : {};
+    const filing = Array.isArray(docs.filing) ? docs.filing.map(f => ({
+      id: f.id,
+      label: f.label,
+      path: f.path,
+      ...(f.description ? { description: f.description } : {}),
+      ...(f.pattern ? { pattern: f.pattern } : {}),
+    })) : [];
+    const autoUpdate = Array.isArray(docs.autoUpdate) ? docs.autoUpdate.map(a => ({
+      id: a.id,
+      path: a.path,
+      ...(a.label ? { label: a.label } : {}),
+      ...(a.sourceHint ? { sourceHint: a.sourceHint } : {}),
+      cadence: a.cadence || 'manual',
+      ...(a.lastReviewed ? { lastReviewed: a.lastReviewed } : {}),
+    })) : [];
+    return { version: 1, filing, autoUpdate };
+  }
+
+  function persistDocumentsConfig(config) {
+    vscode.postMessage({
+      type: 'saveDocumentsConfig',
+      payload: {
+        version: 1,
+        filing: Array.isArray(config.filing) ? config.filing : [],
+        autoUpdate: Array.isArray(config.autoUpdate) ? config.autoUpdate : [],
+      },
+    });
+  }
+
+  function createDocId(kind, pathValue) {
+    const slug = String(pathValue || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    return (kind === 'filing' ? 'filing-' : 'doc-') + (slug || Date.now());
+  }
+
+  function readDocField(rootId, field) {
+    const rootEl = document.getElementById(rootId);
+    if (!rootEl) { return ''; }
+    const el = rootEl.querySelector('[data-doc-field="' + field + '"]');
+    return el ? String(el.value || '').trim() : '';
+  }
+
+  function saveDocFilingDraft() {
+    const editing = state.editingDoc;
+    const cleanPath = readDocField('doc-filing-editor', 'path');
+    if (!cleanPath) { return; }
+    const entry = {
+      id: (editing && editing.id !== 'new') ? editing.id : createDocId('filing', cleanPath),
+      label: readDocField('doc-filing-editor', 'label') || cleanPath,
+      path: cleanPath,
+    };
+    const description = readDocField('doc-filing-editor', 'description');
+    const pattern = readDocField('doc-filing-editor', 'pattern');
+    if (description) { entry.description = description; }
+    if (pattern) { entry.pattern = pattern; }
+    const config = currentDocumentsConfig();
+    config.filing = (editing && editing.id !== 'new')
+      ? config.filing.map(f => f.id === editing.id ? entry : f)
+      : [...config.filing, entry];
+    state.editingDoc = null;
+    persistDocumentsConfig(config);
+  }
+
+  function saveDocAutoDraft() {
+    const editing = state.editingDoc;
+    const cleanPath = readDocField('doc-auto-editor', 'path');
+    if (!cleanPath) { return; }
+    const existing = (editing && editing.id !== 'new')
+      ? currentDocumentsConfig().autoUpdate.find(a => a.id === editing.id)
+      : undefined;
+    const entry = {
+      id: (editing && editing.id !== 'new') ? editing.id : createDocId('doc', cleanPath),
+      path: cleanPath,
+      cadence: readDocField('doc-auto-editor', 'cadence') || 'on-change',
+    };
+    const label = readDocField('doc-auto-editor', 'label');
+    const sourceHint = readDocField('doc-auto-editor', 'sourceHint');
+    if (label) { entry.label = label; }
+    if (sourceHint) { entry.sourceHint = sourceHint; }
+    // Preserve the review baseline across edits.
+    if (existing && existing.lastReviewed) { entry.lastReviewed = existing.lastReviewed; }
+    const config = currentDocumentsConfig();
+    config.autoUpdate = (editing && editing.id !== 'new')
+      ? config.autoUpdate.map(a => a.id === editing.id ? entry : a)
+      : [...config.autoUpdate, entry];
+    state.editingDoc = null;
+    persistDocumentsConfig(config);
   }
 
   function renderSecurity(snapshot) {
@@ -2935,6 +3615,9 @@
     if (kind === 'sms') { return 'sms:' + h; }
     if (kind === 'github') { return 'https://github.com/' + h.replace(/^@/, ''); }
     if (kind === 'linkedin') { return h.indexOf('http') === 0 ? h : 'https://www.linkedin.com/in/' + h.replace(/^@/, ''); }
+    // Buzz: only deep-link when a full https workspace URL was pasted. An npub /
+    // @handle / #channel is display-only (Buzz has no verified native URI scheme).
+    if (kind === 'buzz') { return h.indexOf('http') === 0 ? h : ''; }
     return '';
   }
   function directorIsPiiLink(kind) { return kind === 'email' || kind === 'phone' || kind === 'sms'; }
@@ -3005,7 +3688,7 @@
   }
 
   function renderDirectorContactEditor(cfg, contact, isNew) {
-    const kinds = ['email', 'slack', 'teams', 'phone', 'github', 'linkedin', 'other'].map(k => ({ value: k, label: k }));
+    const kinds = ['email', 'slack', 'teams', 'buzz', 'phone', 'github', 'linkedin', 'other'].map(k => ({ value: k, label: k }));
     const cats = ['sponsor', 'client', 'user-representative', 'regulator', 'vendor', 'partner', 'internal', 'other'].map(k => ({ value: k, label: k }));
     const levels = ['high', 'medium', 'low'].map(k => ({ value: k, label: k }));
     const primary = (contact.links && contact.links[0]) || { kind: 'email', label: '', handle: '' };

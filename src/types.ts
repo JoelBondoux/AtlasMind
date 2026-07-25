@@ -1401,6 +1401,131 @@ export interface DeliveryConfig {
   updatedAt?: string;
 }
 
+// ── Document (.md) management ─────────────────────────────────────
+
+/** How often an auto-maintained document is expected to be re-reviewed. */
+export type DocumentCadence = 'on-change' | 'on-release' | 'weekly' | 'manual';
+
+/**
+ * One shelf in the project's document filing system — a workspace-relative
+ * folder (optionally narrowed by a glob) that groups related documents.
+ */
+export interface DocumentFilingEntry {
+  id: string;
+  label: string;
+  /** Workspace-relative folder (or file). Path-traversal is rejected on save. */
+  path: string;
+  description?: string;
+  /** Optional glob within the folder, e.g. `**\/*.md`. */
+  pattern?: string;
+}
+
+/**
+ * A document the user wants kept current. AtlasMind never rewrites it on a timer
+ * (deny-by-default); it tracks freshness and offers an assisted update. `sourceHint`
+ * records what the file should track and `lastReviewed` is the confirmation baseline.
+ */
+export interface DocumentAutoUpdateEntry {
+  id: string;
+  /** Workspace-relative file to keep updated. Path-traversal is rejected on save. */
+  path: string;
+  label?: string;
+  /** What this file should stay in sync with / when it should change. */
+  sourceHint?: string;
+  cadence: DocumentCadence;
+  /** ISO date the file was last confirmed current (by the user or an Atlas run). */
+  lastReviewed?: string;
+}
+
+export interface DocumentsConfig {
+  version: 1;
+  filing: DocumentFilingEntry[];
+  autoUpdate: DocumentAutoUpdateEntry[];
+  updatedAt?: string;
+}
+
+// ── Risk oversight ────────────────────────────────────────────────
+
+/** Which oversight advisor owns a finding. Maps 1:1 to the `*-oversight` agent ids. */
+export type RiskDomain = 'ethics' | 'legal' | 'commercial';
+
+/** How likely the exposure is to actually materialise. */
+export type RiskLikelihood = 'low' | 'medium' | 'high';
+
+/** How badly it lands if it does. */
+export type RiskImpact = 'low' | 'medium' | 'high';
+
+/**
+ * Lifecycle of a finding. Findings are never deleted — they transition — so the
+ * register stays a complete record of what was raised and what was decided.
+ * `accepted` means consciously owned by a human, which is a decision, not a gap.
+ */
+export type RiskStatus = 'open' | 'accepted' | 'mitigated' | 'closed' | 'dismissed';
+
+/** How confident the advisor was; `low` findings are shown but scored gently. */
+export type RiskConfidence = 'low' | 'medium' | 'high';
+
+/**
+ * One recorded oversight finding.
+ *
+ * Produced by an oversight advisor and then sanitised at the boundary before it is
+ * persisted — model output is untrusted input like any other. `evidence` holds
+ * workspace-relative paths the advisor cited; path-traversal is rejected on save.
+ */
+export interface RiskFinding {
+  id: string;
+  domain: RiskDomain;
+  title: string;
+  detail: string;
+  likelihood: RiskLikelihood;
+  impact: RiskImpact;
+  confidence: RiskConfidence;
+  status: RiskStatus;
+  /** Workspace-relative paths cited as evidence. Traversal is rejected on save. */
+  evidence: string[];
+  /** Suggested next step, and the human review it needs. */
+  recommendation?: string;
+  /** ISO timestamp this finding was first raised. */
+  raisedAt: string;
+  /** ISO timestamp of the most recent change to this finding. */
+  updatedAt?: string;
+  /** Free-text note recorded when a human accepted, dismissed, or mitigated it. */
+  statusNote?: string;
+}
+
+/** When each domain was last analysed, so the dashboard can show staleness. */
+export interface RiskDomainRun {
+  domain: RiskDomain;
+  ranAt: string;
+  /** Number of findings the run produced (after sanitisation). */
+  findingCount: number;
+}
+
+export interface RiskOversightConfig {
+  version: 1;
+  /** The full register: open *and* resolved findings. Nothing is dropped on resolve. */
+  findings: RiskFinding[];
+  /** Most recent analysis run per domain. */
+  runs: RiskDomainRun[];
+  updatedAt?: string;
+}
+
+/**
+ * One append-only audit record of a risk-register change, persisted newest first to
+ * `project_memory/operations/risk-oversight-history.json`.
+ */
+export interface RiskOversightHistoryEntry {
+  id: string;
+  kind: 'analysis-run' | 'status-change' | 'finding-added' | (string & {});
+  summary: string;
+  domain?: RiskDomain;
+  /** The finding this record refers to, when it is about a single finding. */
+  entityId?: string;
+  /** git user that made the change (name <email>), when resolvable. */
+  actor?: string;
+  ranAt: string;
+}
+
 // ── Delivery / Promotion execution ───────────────────────────────
 
 /** Whether a preflight check is evaluated by AtlasMind or attested by a human. */
@@ -1540,6 +1665,7 @@ export type CommunicationChannelKind =
   | 'email'
   | 'slack'
   | 'teams'
+  | 'buzz'
   | 'phone'
   | 'sms'
   | 'meet'
@@ -1556,8 +1682,13 @@ export type CommunicationChannelKind =
  * connected directory, rather than hoarding raw personal data locally.
  */
 export interface DirectoryRef {
-  /** Which system of record owns this identity. `local` = stored in AtlasMind only. */
-  source: 'm365' | 'slack' | 'google' | 'local' | (string & {});
+  /**
+   * Which system of record owns this identity. `local` = stored in AtlasMind
+   * only. `buzz` = the identity lives in Buzz (a self-sovereign Nostr keypair) —
+   * AtlasMind references it, Buzz owns it. AtlasMind never mints or runs its own
+   * identity/directory system; it points at the owning system of record.
+   */
+  source: 'm365' | 'slack' | 'google' | 'buzz' | 'local' | (string & {});
   /** Stable external id (Entra object id, Slack user id, …). Not PII on its own. */
   externalId?: string;
   /** Non-PII display label where possible, e.g. "Design Lead", "#project-x". */
@@ -2537,6 +2668,51 @@ export interface McpServerConfig {
   url?: string;                // e.g. "http://localhost:3000/mcp"
   /** Whether the server should be connected on extension activation. */
   enabled: boolean;
+}
+
+// ── MCP environment scan (config import + PATH/env discovery) ─────
+
+/**
+ * A server definition discovered in another tool's MCP config file (Claude
+ * Desktop, Cursor, VS Code, Windsurf, a repo `.mcp.json`, …). Only NON-SECRET
+ * metadata is captured here — env var *names* are recorded, never their values.
+ * Actual credential values are re-read from the source file on demand at connect
+ * time and routed to SecretStorage, so no secret is ever cached or shown.
+ */
+export interface ImportedMcpServer {
+  name: string;
+  /** Human-readable source label, e.g. "Claude Desktop" or ".vscode/mcp.json". */
+  source: string;
+  /** Absolute path of the source config file (used to re-read values on import). */
+  sourcePath: string;
+  transport: 'stdio' | 'http';
+  command?: string;
+  args?: string[];
+  url?: string;
+  /** Env var NAMES only (values never captured). */
+  envKeys: string[];
+  /** Subset of envKeys whose names look like secrets (token/key/secret/…). */
+  secretEnvKeys: string[];
+}
+
+/**
+ * Cached result of scanning the machine + workspace for MCP setup signals. Safe
+ * to persist to SSOT: contains no secret values (only names, paths, and launcher
+ * availability).
+ */
+export interface McpEnvironmentScan {
+  version: 1;
+  scannedAt: string;
+  /** Which launch runtimes are on PATH (npx, uvx, docker, python, wrangler, …). */
+  launchers: Record<string, boolean>;
+  /** Servers found in other tools' MCP config files, ready to import. */
+  importedServers: ImportedMcpServer[];
+  /** Env var NAMES discovered in dotenv/wrangler files (names only, never values). */
+  envVarNames: string[];
+  /** Plain-language project signals, e.g. "wrangler.toml present". */
+  projectSignals: string[];
+  /** Config files that were checked and whether each existed. */
+  sources: Array<{ label: string; path: string; exists: boolean }>;
 }
 
 /** Live connection status of a single MCP server. */

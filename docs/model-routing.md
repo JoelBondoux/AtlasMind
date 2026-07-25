@@ -172,11 +172,16 @@ dwarfs every learned bias, so a cheap model that keeps failing keeps winning.
 
 ## Data Privacy trusted-model gate
 
-When a project Data Privacy policy is enabled (`project_memory/operations/data-privacy.json`), the Orchestrator classifies the assembled context (memory, live evidence, attached/workstation context, and evidence file paths) **before** model selection. If anything is classified as confidential, proprietary, or regulated:
+When a project Data Privacy policy is enabled (`project_memory/operations/data-privacy.json`), the Orchestrator classifies the assembled context (memory, live evidence, attached/workstation context, and evidence file paths) **before** model selection.
 
-1. `RoutingConstraints.requireTrustedModel` is set and the agent's candidate `allowedModels` are intersected with the policy's **trusted** model IDs, so step 4 of the selection algorithm can only choose a user-selected model. This flows through all failover/escalation paths because the gated allow-list is applied to the working `agent` object.
-2. If no trusted model is available, routing is left unchanged and the **redaction fail-safe** takes over: `buildMessages()` replaces classified spans with `[CONFIDENTIAL]` for the actually-selected model, and the user is notified (with a shortcut to the Project Dashboard → Privacy page) so they can assign one.
-3. Confidential **file reads** surfaced mid-task are gated independently: a `file-read` tool result whose path matches a `path` rule is withheld from an un-trusted model.
+The gate scans the assembled **context**, not the user's request — a hit means "something in the retrieved haystack looked regulated", not "this task is about personal data". The response is therefore tiered by the match's `sensitivity`:
+
+1. **`secret`** (PCI-DSS cardholder data, HIPAA PHI) — **hard gate**. `RoutingConstraints.requireTrustedModel` is set and the agent's candidate `allowedModels` are intersected with the policy's **trusted** model IDs, so step 4 of the selection algorithm can only choose a user-selected model. This flows through all failover/escalation paths because the gated allow-list is applied to the working `agent` object.
+2. **`confidential` / `proprietary`** (GDPR, CCPA, and custom rules at those levels) — **advisory**. Routing is left to the router and the redaction boundary removes the matched spans for whichever model is chosen. Nothing leaks either way: the task keeps its normal model and loses the matched spans, instead of being silently downgraded because one heuristic detector fired somewhere in a large context bundle.
+3. If a `secret` match has no trusted model available, routing is left unchanged and the **redaction fail-safe** takes over: `buildMessages()` replaces classified spans with `[CONFIDENTIAL]` for the actually-selected model, and the user is notified (with a shortcut to the Project Dashboard → Privacy page) so they can assign one.
+4. Confidential **file reads** surfaced mid-task are gated independently: a `file-read` tool result whose path matches a `path` rule is withheld from an un-trusted model.
+
+The tier rule is the exported pure helper `selectHardGatingMatches()`. Progress notices name both the detector and the context slice it fired in (`"email address in memory \"Stakeholders\""`), so a false positive is diagnosable rather than an unexplained model change.
 
 Deny-by-default: an empty trusted list trusts nothing. See [DataPrivacyManager](architecture.md#dataprivacymanager-srccoredataprivacymanagerts). Detector packs for GDPR/HIPAA/PCI-DSS/CCPA/Financial are heuristic aids, not a compliance certification.
 

@@ -312,7 +312,7 @@ const ASSIGNMENT_PRIORITIES: AssignmentPriority[] = ['high', 'medium', 'low'];
 const FOLLOWUP_STATUSES: FollowUpStatus[] = ['open', 'done', 'snoozed', 'cancelled'];
 const FOLLOWUP_CADENCES: FollowUpCadence[] = ['once', 'daily', 'weekly', 'biweekly', 'monthly'];
 const TEAM_MODES: ProjectTeamMode[] = ['solo', 'team', 'auto'];
-const DIRECTORY_SOURCES = ['m365', 'slack', 'google', 'local'];
+const DIRECTORY_SOURCES = ['m365', 'slack', 'google', 'buzz', 'local'];
 const CONTACT_KINDS = ['person', 'group', 'org'];
 const LINKED_KINDS = ['stakeholder', 'teamMember', 'assignment', 'responsibility', 'run', 'none'];
 /** Deep-link schemes AtlasMind will launch. `http:` is intentionally excluded. */

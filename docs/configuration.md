@@ -171,6 +171,31 @@ These settings only affect AtlasMind's governance scaffolding for Atlas-built or
 
 Agent Finder definitions are stored in `globalState` and managed from the Resource Discovery tab in Settings (or its sidebar tree, mirroring how MCP servers are persisted), so they are not VS Code settings. The shipped defaults (GitHub Agent Finder, Hugging Face Discover) seed **disabled**.
 
+## Buzz (agentic comms)
+
+Integration with [Buzz](https://buzz.xyz) — the open-source, Nostr-based workspace for humans and AI agents. All settings are deny-by-default; nothing connects to Buzz until you opt in. See `project_memory/roadmap/buzz-integration.md` for the phased roadmap.
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `atlasmind.buzz.enabled` | `boolean` | `false` | Enable Buzz integration: record Buzz identities/channels (npub / @handle / #channel) on Project Director contacts and reach them via a Buzz deep link. Automated outbound posting additionally requires a connected Buzz comms tool and the per-project `outboundEnabled` gate. |
+| `atlasmind.buzz.relayUrl` | `string` | `ws://localhost:3000` | Buzz relay URL (`BUZZ_RELAY_URL`). Defaults to a local self-hosted relay. A remote relay sends project data off-machine and additionally requires `atlasmind.buzz.allowRemoteRelay`. |
+| `atlasmind.buzz.allowRemoteRelay` | `boolean` | `false` | Allow a non-local Buzz relay URL. When `false`, only loopback/localhost relays are used so project data stays on-machine. |
+
+Buzz contact channels and any launchable deep link are sanitised at the webview boundary like every other Director channel — only `https` Buzz workspace links are launchable (Buzz has no verified native URI scheme), and an npub / @handle / #channel is stored as display-only.
+
+## Presence & Power (keep-awake)
+
+Keep this computer awake so an AtlasMind activity that must stay online — a long Mission Loop run, an active Remote Control gateway session, or a connected Buzz presence — is not killed by system sleep. Backed by the `PresenceManager` core service, which acquires an OS-native wake lock (Windows `SetThreadExecutionState`, macOS `caffeinate`, Linux `systemd-inhibit`) and releases it the moment it is no longer needed. All settings are deny-by-default.
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `atlasmind.presence.keepAwake` | `boolean` | `false` | Keep the computer awake while an activity needs the agent online (Mission Loop run / Remote Control gateway / Buzz presence). The wake lock is acquired only while needed and released when the activity ends. |
+| `atlasmind.presence.keepDisplayAwake` | `boolean` | `false` | When keep-awake is active, also keep the display on. Default lets the screen sleep (lower power) while the system stays awake. Has no effect unless `keepAwake` is `true`. |
+| `atlasmind.presence.acPowerOnly` | `boolean` | `true` | Only keep awake on AC (mains) power; automatically suspended on battery so an unplugged laptop is never drained, and resumed when power is reconnected. |
+| `atlasmind.presence.maxAwakeMinutes` | `number` | `240` | Safety backstop that auto-releases the wake lock after N minutes even if an activity is still running (0 = hold until the activity ends). Range 0–1440. |
+
+A status-bar indicator shows when the machine is being held awake (and when it is paused on battery); click it, or run **AtlasMind: Toggle Keep Computer Awake** (`atlasmind.togglePresence`), to stop. A VS Code extension cannot use Electron's `powerSaveBlocker`, so the lock is a spawned OS helper tied to the extension-host lifetime; no untrusted input is ever passed to it.
+
 ## Orchestrator Tunables
 
 | Setting | Type | Default | Description |

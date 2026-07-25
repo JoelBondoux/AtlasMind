@@ -15,6 +15,22 @@
  * model but do not guarantee exhaustive detection. Patterns are paired with a
  * validator where a cheap one exists (Luhn for card numbers, mod-97 for IBANs)
  * to suppress obvious false positives.
+ *
+ * PRECISION IS A SAFETY PROPERTY. These detectors run over the *whole assembled
+ * task context* — retrieved memory, file evidence, and conversation history —
+ * not over the user's request. In a source repository that corpus is full of
+ * numbers, IP-shaped version strings, role mailboxes, and capitalised
+ * identifiers. A detector that fires on ordinary code does real damage: it
+ * silently restricts model routing, redacts useful context, and floods the
+ * Privacy dashboard with meaningless "catches" until the operator switches the
+ * whole policy off — at which point genuine regulated data is protected by
+ * nothing. Every detector below is therefore anchored on a cue that ordinary
+ * code does not contain (an explicit `phone:`/`SWIFT:` label, a `+` country
+ * code, a clinical context) or is paired with a validator that rejects the
+ * structurally-impossible (reserved IP ranges, role and example-domain
+ * mailboxes). Prefer a missed heuristic hit over a detector that cries wolf;
+ * targeted custom `DataPrivacyRule`s cover project-specific data far better
+ * than a broad pattern ever will.
  */
 
 import type { DataPrivacySensitivity } from '../types.js';
@@ -67,6 +83,76 @@ export function passesLuhn(value: string): boolean {
   return sum % 10 === 0;
 }
 
+/**
+ * Local parts that identify a role or automated sender rather than a person.
+ * `noreply@`, `support@`, and CI mailboxes are not personal data, and they
+ * appear in almost every `package.json`, licence header, and commit trailer.
+ */
+const ROLE_EMAIL_LOCALS = /^(?:no-?reply|do-?not-?reply|postmaster|mailer-daemon|webmaster|hostmaster|abuse|support|info|admin|administrator|help|hello|contact|sales|marketing|billing|security|team|dev|devnull|root|notifications?|alerts?|automated|bot|ci|build|jenkins|git)$/i;
+
+/** Reserved / documentation domains (RFC 2606, RFC 6761) — never a real person. */
+const RESERVED_EMAIL_DOMAINS = /(?:^|\.)(?:example\.(?:com|net|org)|example|test|invalid|localhost|local|localdomain)$/i;
+
+/**
+ * True when an address plausibly identifies a natural person. Rejects role
+ * mailboxes and reserved/example domains, which are the dominant source of
+ * email false positives in a source repository.
+ */
+export function isPersonalEmail(match: string): boolean {
+  const at = match.lastIndexOf('@');
+  if (at === -1) {
+    return false;
+  }
+  return !ROLE_EMAIL_LOCALS.test(match.slice(0, at)) && !RESERVED_EMAIL_DOMAINS.test(match.slice(at + 1));
+}
+
+/**
+ * True when a dotted quad is a routable public address. Loopback, private,
+ * link-local, CGNAT, benchmark, documentation (TEST-NET), multicast and
+ * reserved ranges are excluded: they identify no subscriber, so they are not
+ * personal data, and they are exactly the addresses that appear in bind
+ * configs, netmasks, and compose files. Ranges are narrowed to their real CIDR
+ * so genuinely public space is never silently under-detected.
+ */
+export function isPublicIpv4(match: string): boolean {
+  const parts = match.split('.').map(Number);
+  if (parts.length !== 4 || parts.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) {
+    return false;
+  }
+  const [a, b, c] = parts as [number, number, number, number];
+  if (a === 0 || a === 10 || a === 127) {
+    return false; // this-network, private, loopback
+  }
+  if (a === 172 && b >= 16 && b <= 31) {
+    return false; // private
+  }
+  if (a === 192 && b === 168) {
+    return false; // private
+  }
+  if (a === 169 && b === 254) {
+    return false; // link-local
+  }
+  if (a === 100 && b >= 64 && b <= 127) {
+    return false; // carrier-grade NAT
+  }
+  if (a === 192 && b === 0 && (c === 0 || c === 2)) {
+    return false; // IETF protocol assignments / TEST-NET-1
+  }
+  if (a === 198 && (b === 18 || b === 19)) {
+    return false; // benchmarking
+  }
+  if (a === 198 && b === 51 && c === 100) {
+    return false; // TEST-NET-2
+  }
+  if (a === 203 && b === 0 && c === 113) {
+    return false; // TEST-NET-3
+  }
+  if (a >= 224) {
+    return false; // multicast, reserved, broadcast
+  }
+  return true;
+}
+
 /** ISO 13616 IBAN mod-97 checksum. */
 export function passesIbanChecksum(value: string): boolean {
   const compact = value.replace(/\s+/g, '').toUpperCase();
@@ -91,20 +177,35 @@ const EMAIL_DETECTOR: ComplianceDetector = {
   id: 'email',
   label: 'email address',
   pattern: /\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b/g,
+  validate: isPersonalEmail,
 };
 
 const PHONE_DETECTOR: ComplianceDetector = {
   id: 'phone',
   label: 'phone number',
-  // International or grouped national numbers; require at least 9 digits total.
-  pattern: /(?:\+\d{1,3}[\s.\-]?)?(?:\(\d{1,4}\)[\s.\-]?)?\d{2,4}(?:[\s.\-]\d{2,4}){2,4}/g,
-  validate: (m) => (m.replace(/\D/g, '').length >= 9 && m.replace(/\D/g, '').length <= 15),
+  // A bare run of digit groups is indistinguishable from coordinates, timing
+  // tables, or SVG path data, so a number must carry a phone cue: either an
+  // explicit label ("phone:", "mobile") or a leading `+` country code. Grouped
+  // national numbers with neither are deliberately not matched — a targeted
+  // custom rule is the right tool for a project that stores them unlabelled.
+  pattern: new RegExp([
+    /\b(?:phone|telephone|tel|mobile|cell|fax|whatsapp)\b[\s:#.=-]{0,4}\+?\(?\d{1,4}\)?(?:[\s.-]?\d{2,4}){2,4}/.source,
+    /\+\d{1,3}(?:[\s.-]?\d{2,4}){2,5}/.source,
+  ].join('|'), 'gi'),
+  validate: (m) => {
+    const digits = m.replace(/\D/g, '').length;
+    return digits >= 9 && digits <= 15;
+  },
 };
 
 const IPV4_DETECTOR: ComplianceDetector = {
   id: 'ipv4',
   label: 'IP address',
-  pattern: /\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b/g,
+  // The lookbehinds drop four-part version strings ("FileVersion 1.0.0.1",
+  // "v1.0.0.1", `AssemblyVersion("2.1.0.9")`), which are otherwise valid dotted
+  // quads; `isPublicIpv4` then drops every non-routable range.
+  pattern: /(?<!(?:version|revision|release|build|assembly|schema|sdk|driver|firmware|package)\W{0,4})(?<!\bv\W?)\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b/gi,
+  validate: isPublicIpv4,
 };
 
 const IBAN_DETECTOR: ComplianceDetector = {
@@ -118,7 +219,7 @@ export const COMPLIANCE_PACKS: CompliancePack[] = [
   {
     id: 'gdpr-pii',
     label: 'GDPR — Personal Data',
-    description: 'EU personal data: email, phone, IP address, postal address, national ID, and dates of birth.',
+    description: 'EU personal data: personal email addresses, labelled or international phone numbers, public IP addresses, postal addresses, and dates of birth.',
     sensitivity: 'confidential',
     detectors: [
       EMAIL_DETECTOR,
@@ -146,7 +247,11 @@ export const COMPLIANCE_PACKS: CompliancePack[] = [
       {
         id: 'medical-terms',
         label: 'medical / diagnosis term',
-        pattern: /\b(?:diagnos(?:is|ed|tic)|prognosis|prescription|prescribed|medication|patient\s+(?:id|name|record)|medical\s+record|health\s+plan|treatment\s+plan|icd-?10|mrn)\b/gi,
+        // "diagnosis" / "diagnostic" are core debugging vocabulary, so the bare
+        // stem is not a PHI signal — it only counts in a clinical construction
+        // ("clinical diagnosis", "diagnosed with"). The remaining terms have no
+        // ordinary software meaning.
+        pattern: /\b(?:prognosis|prescription|prescribed|medication|patient\s+(?:id|name|record)|medical\s+record|health\s+plan|treatment\s+plan|icd-?10|mrn|(?:clinical|medical|patient)\s+diagnos\w+|diagnos(?:is|ed)\s+(?:with|of)\b)/gi,
       },
       {
         id: 'mrn',
@@ -177,7 +282,7 @@ export const COMPLIANCE_PACKS: CompliancePack[] = [
   {
     id: 'ccpa',
     label: 'CCPA / CPRA — Consumer Data',
-    description: 'California consumer data: PII plus device and advertising identifiers.',
+    description: 'California consumer data: the GDPR contact detectors plus device and advertising identifiers.',
     sensitivity: 'confidential',
     detectors: [
       EMAIL_DETECTOR,
@@ -193,19 +298,20 @@ export const COMPLIANCE_PACKS: CompliancePack[] = [
   {
     id: 'financial',
     label: 'Financial — Banking',
-    description: 'Bank identifiers: IBAN (checksum-validated) and SWIFT/BIC codes.',
+    description: 'Bank identifiers: IBAN (checksum-validated) and labelled SWIFT/BIC codes.',
     sensitivity: 'proprietary',
     detectors: [
       IBAN_DETECTOR,
       {
         id: 'swift-bic',
         label: 'SWIFT/BIC code',
-        pattern: /\b[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}(?:[A-Z0-9]{3})?\b/g,
-        // Require it not to be a plain English word run; SWIFT codes embed an
-        // ISO country code in positions 5-6, so reject all-letter 8-char runs
-        // that look like words by demanding at least one digit somewhere or the
-        // optional branch suffix.
-        validate: (m) => /\d/.test(m) || m.length === 11,
+        // A bare 8/11-character upper-case token is not a usable signal: it
+        // matches any capitalised identifier or heading of that length
+        // ("ENVIRONMENT", "DEVELOPMENT", "RELEASE1"). The code must be
+        // introduced by a SWIFT/BIC cue; `validate` then requires the code
+        // itself to be upper-case, since the cue is matched case-insensitively.
+        pattern: /\b(?:swift|bic)(?:\s+code)?\b\s*[:#=]?\s*[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}(?:[A-Z0-9]{3})?\b/gi,
+        validate: (m) => /[A-Z]{6}[A-Z0-9]{2}(?:[A-Z0-9]{3})?$/.test(m.trim()),
       },
     ],
   },

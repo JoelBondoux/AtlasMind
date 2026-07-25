@@ -6,6 +6,63 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.140.1 — Privacy routing no longer fires on ordinary code
+
+- **Non-PII work was being classified as regulated data.** The Data Privacy detectors scan the whole context assembled for a task — source, logs, memory, chat history — not your request, and several matched almost anything. Against a corpus of realistic non-PII repository content, **17 of 21 samples** were flagged: SVG path data and build timing tables read as phone numbers, `127.0.0.1` and `0.0.0.0` as personal IP addresses, `noreply@` commit trailers as personal email, the word `ENVIRONMENT` as a bank identifier, and "the diagnostic output shows a null deref" as protected health information. Every detector is now anchored on a cue ordinary source doesn't contain (`phone:`, `SWIFT:`, a `+` country code, a clinical construction) or validated structurally — reserved IP ranges and four-part version strings are no longer IP addresses; role mailboxes and `example.com` placeholders are no longer people. Same corpus: **0 of 23** flagged, with every true-positive case still detected.
+- **One false positive no longer downgrades your model.** A single detector firing anywhere in the context bundle used to restrict the whole task to your trusted-model list — which, if that list holds only local models, silently removed every frontier model with no visible cause. The gate is now tiered: **PCI cardholder data and HIPAA PHI** still hard-gate to trusted models, while **GDPR/CCPA and custom confidential rules** are advisory — routing is left alone and the matched spans are redacted instead. Nothing leaks under either tier.
+- **Privacy notices now say where a match came from.** Instead of "confidential content detected", you get `email address in memory "Stakeholders"` or `IP address in file src/net/probe.ts`, so a false positive is something you can find and fix.
+- **Consenting to store one contact no longer silently enables workspace-wide scanning.** The Project Director PII modal now states that enabling the GDPR detectors applies to the whole workspace, and if the master switch had to be turned on you're told, with a shortcut to the Privacy page to review it.
+- **Regression guard.** A benign source-repository corpus that must stay unclassified now ships as a test, alongside recall cases so tightening precision can't silently blind a pack.
+
+---
+
+## v0.140.0 — Ethics, Legal, and Commercial oversight + the Risk dashboard
+
+- **Three new oversight advisors.** **Ethics Oversight** (user harm, fairness and bias, consent, dark patterns, transparency), **Legal Oversight** (dependency licence compatibility, IP, GDPR/CCPA, liability, terms of service), and **Commercial Oversight** (monetisation and viability, vendor cost and lock-in, contractual obligations, competitor positioning, go-to-market). They ask what the engineering specialists don't: *should we build this?*, *are we allowed to?*, *does this make commercial sense?*
+- **Advisory, never authoritative.** Every prompt is explicit that it is **not professional advice**. The advisors surface concerns for human judgement and name the review a consequential finding needs — qualified counsel in the relevant jurisdiction, an ethics or DPO review, finance or commercial sign-off. They certify nothing, and no finding blocks a commit or a release.
+- **Read-only by construction.** These are the first built-ins with a restricted skill allowlist: they read files, search, and inspect git history and diagnostics, but hold no file-write, commit, push, or terminal access. An advisor inspects and reports; it is not also the thing that edits.
+- **New Project Dashboard → Risk page.** Run an advisor (or all three, one after another) and the findings are recorded to `project_memory/operations/risk-oversight.json` with a readable markdown mirror and an append-only audit trail. Includes a likelihood × impact **risk matrix** whose cells filter the register, an assessment-cadence chart, and per-domain freshness. Findings are never deleted — you accept, mitigate, dismiss, or reopen them — so the register stays a complete record of what was raised and what was decided.
+- **Risk feeds the operational score, but only once assessed.** An unassessed project is *unknown*, not safe, so risk stays out of the score entirely until an advisor has run — installing this release does not move your existing health number. Findings are weighted by likelihood × impact, discounted by confidence, and decayed as an assessment goes stale.
+- **Routing fixes.** Ordinary prompts no longer misroute: adding these agents surfaced two pre-existing scoring flaws (English function words like "the" counted toward relevance, and pinned skills leaked tool vocabulary into routing). Both are fixed, which also corrects older misroutes — "Read the file and tell me what is in it" went to the Security Reviewer and now goes to the default assistant.
+
+---
+
+## v0.139.0 — Keep-awake presence + Buzz (buzz.xyz) integration, Tier 1
+
+- **Keep this computer awake so the agent stays online.** New `atlasmind.presence.keepAwake` setting (and **AtlasMind: Toggle Keep Computer Awake** command + status-bar indicator) holds an OS wake lock so a long Mission Loop run, a Remote Control gateway session, or a connected Buzz presence isn't killed by system sleep. Cross-platform (Windows / macOS / Linux) via a spawned OS helper — a VS Code extension can't use Electron's `powerSaveBlocker`. Deny-by-default and battery-safe: off unless you opt in, auto-suspends on battery (`presence.acPowerOnly`), lets the screen sleep unless you ask otherwise (`presence.keepDisplayAwake`), and auto-releases after a safety backstop (`presence.maxAwakeMinutes`).
+- **Foundation for [Buzz](https://buzz.xyz).** Groundwork to bring Block's open-source, Nostr-based workspace for humans + AI agents (a self-sovereign Slack + GitHub alternative) into AtlasMind's Project Director and comms workflow.
+- **Buzz identities on contacts.** Project Director contacts can carry a Buzz channel (npub / @handle / #channel) with an `https`-only deep link — no unverified native URI scheme is launched.
+- **Forward-compatible connector.** Director comms now recognises Buzz-style tool names (`post_to_channel`, `send_dm`, `buzz_*`), so the moment a Buzz comms tool is connected, the existing guarded `{modal:true}` dispatch works with no further code.
+- **Deny-by-default + local-first.** New `atlasmind.buzz.enabled` (off), `atlasmind.buzz.relayUrl` (`ws://localhost:3000`), and `atlasmind.buzz.allowRemoteRelay` (off) settings. The full four-tier roadmap lives in `project_memory/roadmap/buzz-integration.md`.
+
+---
+
+## v0.138.0 — Import MCP servers from your other tools
+
+- **"Detected on this machine" on the Advanced Add-Server page.** AtlasMind scans for MCP servers you've already set up in Claude Desktop, Cursor, VS Code, Windsurf, or this repo, and lets you **Prefill the form** or **Import & connect** them in one click. It also shows which launch tools (npx/uvx/docker) are installed and offers env-variable names from your `.env`/`wrangler.toml` as click-to-add chips.
+- **Cached and reusable.** The scan is saved to SSOT and reused on future installs, with a **Rescan** button and auto-refresh when a workspace MCP config changes.
+- **Never touches your secrets.** Only env-variable *names* are cached or shown; on import, secret values are read live from the source file and stored in the OS secret store, never in the cache or the webview.
+- **Stuck on an unknown server?** An "Ask Atlas to help" button hands off to chat to scope a safe setup.
+- **The whole recommended catalogue is now guided (batch 2).** The remaining 21 "manual" servers — AWS, Google Cloud, Cloudflare (+ Workers), Apple/Xcode, MySQL, MongoDB, Elasticsearch, RabbitMQ, Amazon SNS/SQS, SendGrid, CircleCI, Grafana, Prometheus, Jira, Trello, Stripe, and more — became supply-chain-verified guided prefills with safe defaults (AWS/MongoDB read-only, least-privilege credential guidance, browser-OAuth via a pinned bridge for remote services). A few stay opt-in guided-manual (OpenAI web-search, Bark/APNs), and Twilio/Jenkins route to Advanced with full guidance because they require the credential on the command line, which AtlasMind won't auto-store.
+
+---
+
+## v0.137.0 — Guided MCP setup that actually hand-holds
+
+- **13 "manual" MCP servers are now guided.** GitHub, Microsoft Entra ID, Microsoft 365, Shopify, WooCommerce, WordPress, Webflow, Wix, YouTube, Meta Ads, and X auto-fill a verified command and ask only for your credentials; Twitch and LinkedIn stay opt-in community servers (pinned, review-before-connect) but are still fully prefilled.
+- **No more blank Advanced form for beginners.** The wizard now shows "What you'll need", a numbered how-to for getting each credential, a direct "Open credentials page" button, a docs link, and a safety note — plus example placeholders and per-field help. The Advanced form also gained inline help + examples on every field.
+- **Researched and supply-chain-verified.** Each server's setup was checked for a first-party/reputable package that genuinely implements MCP; archived, non-existent, and account-risky packages were deliberately excluded.
+
+---
+
+## v0.136.0 — Documents dashboard tab, roadmap cleanup & MCP setup fix
+
+- **New Documents (.md management) dashboard tab.** Define a *document filing system* (folder "shelves", optionally narrowed by a glob) and the documents to *keep updated automatically*. AtlasMind tracks each tracked document's freshness (file change time vs. a recorded review baseline), discovers uncovered markdown, and offers an explicit **Update with Atlas** / **Mark reviewed** action. Safety-first: it never rewrites a document on a timer, and every path is sanitised (no traversal outside the workspace). Backed by a new `DocumentsManager` persisting `project_memory/operations/documents.json` + a `documents.md` runbook mirror.
+- **Roadmap Dashboard cleaned up.** The backlog no longer duplicates items or lists inappropriate scaffolding — the parser reads only the real backlog region, filters generator boilerplate, and de-duplicates. Drag-to-reorder now shows a clear grab handle with a live drop-target highlight, and "Mark MVP" carries a plain-language tooltip explaining what a Minimum Viable Product is.
+- **MCP Guided Setup no longer dead-ends.** Servers that need details you provide (e.g. GitHub, Microsoft 365) no longer show "just connect" and then fail with a misleading "complete every required field" error — the wizard now routes you to Advanced setup, and names the exact missing field when one genuinely is blank.
+
+---
+
 ## v0.135.0 — Project Director reminders & surfacing (Phase 4)
 
 - **Follow-up reminders that don't nag.** A new in-process scheduler surfaces a throttled, once-per-day in-editor nudge when follow-ups are overdue or due soon, with a one-click "Open Project Director". It is notification-only — it never auto-sends anything on a timer. A startup nudge is on by default; the recurring timer is opt-in. Both toggle from the Director Setup card.

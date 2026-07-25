@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.134.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.140.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -53,7 +53,7 @@ AtlasMind is built for indie developers, freelancers, and small teams who want t
 | Secure by default | ✅ | <span title="Copilot has security features but not full sandboxing or approval gating.">⚠️</span> | <span title="Claude Code has security features but not full sandboxing or approval gating.">⚠️</span> | <span title="Cline has strong approval controls, but not AtlasMind's full security guardrail stack.">⚠️</span> | <span title="Cursor has security features but not full sandboxing or approval gating.">⚠️</span> |
 | Configurable testing methodology system | ✅ | ❌ | ❌ | ❌ | ❌ |
 
-- **Multi-agent orchestration**: 15 built-in specialized agents — debugger, frontend/backend engineers, reviewer, security, SEO, UX, DevOps, and more — plus instant AI-drafted custom agents on demand.
+- **Multi-agent orchestration**: 18 built-in specialized agents — debugger, frontend/backend engineers, reviewer, security, SEO, UX, DevOps, plus ethics/legal/commercial oversight advisors — and instant AI-drafted custom agents on demand.
 - **Multi-provider model routing**: Supports GitHub Copilot, Claude, GPT, Gemini, Azure OpenAI, Bedrock, Mistral, and more. Budget and speed preferences steer selection automatically.
 - **Built-in skills**: 43 pre-built skills including file editing, git, diagnostics, code navigation, test running, debugging, HTTP requests, Docker, web fetch, and more. Skills are grouped by category and support custom folders. Agents use AI-driven auto skill assignment by default.
 - **Long-term project memory (SSOT)**: Decisions, architecture notes, and lessons learned persist in a structured memory folder. A dedicated Memory Agent maintains session context and keeps SSOT snippets fresh as source files evolve.
@@ -199,7 +199,7 @@ AtlasMind adds a sidebar with the following tree and webview panels:
 
 ## Built-in Agents
 
-AtlasMind ships 15 specialized agents, automatically routed by task type.
+AtlasMind ships 18 specialized agents, automatically routed by task type.
 
 | Agent | Role |
 |---|---|

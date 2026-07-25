@@ -25,6 +25,12 @@ describe('classifyToolIntent', () => {
     expect(classifyToolIntent('create_event')).toBe('schedule');
     expect(classifyToolIntent('post_message')).toBe('message');
     expect(classifyToolIntent('slack_post_message')).toBe('message');
+    // Buzz-style comms tool names (forward-compatible: a Buzz comms tool, once
+    // connected, flows through the existing guarded message dispatch).
+    expect(classifyToolIntent('buzz_post_message')).toBe('message');
+    expect(classifyToolIntent('post_to_channel')).toBe('message');
+    expect(classifyToolIntent('send_dm')).toBe('message');
+    expect(classifyToolIntent('direct_message')).toBe('message');
     expect(classifyToolIntent('list_files')).toBeUndefined();
     expect(classifyToolIntent('get_me')).toBeUndefined();
   });

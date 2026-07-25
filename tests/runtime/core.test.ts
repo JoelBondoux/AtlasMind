@@ -298,3 +298,136 @@ describe('createAtlasRuntime', () => {
     expect(runtime.agentRegistry.get(result.agentId)?.systemPrompt).toContain('smallest failing test');
   });
 });
+
+// ── Oversight advisors ───────────────────────────────────────────────────────
+
+const OVERSIGHT_IDS = ['ethics-oversight', 'legal-oversight', 'commercial-oversight'] as const;
+
+/** Skills that would let an advisor change the workspace; none may be granted. */
+const MUTATING_SKILL_IDS = [
+  'file-write', 'file-edit', 'file-delete', 'file-move',
+  'git-commit', 'git-push', 'git-apply-patch', 'rollback-checkpoint',
+  'terminal-run', 'docker-cli', 'npm-scripts', 'test-run',
+  'memory-write', 'memory-delete', 'rename-symbol', 'code-action', 'code-format',
+  'http-request',
+];
+
+function makeOversightRuntime() {
+  return createAtlasRuntime({
+    memoryStore: {
+      queryRelevant: async () => [],
+      getWarnedEntries: () => [],
+      getBlockedEntries: () => [],
+      redactSnippet: entry => entry.snippet,
+    },
+    costTracker: {
+      record: () => undefined,
+      getDailyBudgetStatus: () => undefined,
+    },
+    skillContext: makeSkillContext(),
+    providerAdapters: [{
+      providerId: 'local',
+      complete: async () => ({
+        content: 'Advisory findings',
+        model: 'local/echo-1',
+        inputTokens: 10,
+        outputTokens: 5,
+        finishReason: 'stop' as const,
+      }),
+      listModels: async () => ['local/echo-1'],
+      healthCheck: async () => true,
+    } as never],
+  });
+}
+
+describe('oversight advisors', () => {
+  it('registers all three as built-in agents', () => {
+    const runtime = makeOversightRuntime();
+    expect(runtime.agentRegistry.get('ethics-oversight')).toMatchObject({ name: 'Ethics Oversight', builtIn: true });
+    expect(runtime.agentRegistry.get('legal-oversight')).toMatchObject({ name: 'Legal Oversight', builtIn: true });
+    expect(runtime.agentRegistry.get('commercial-oversight')).toMatchObject({ name: 'Commercial Oversight', builtIn: true });
+  });
+
+  it('pins a read-only skill set that grants no mutating skill', () => {
+    const runtime = makeOversightRuntime();
+    for (const id of OVERSIGHT_IDS) {
+      const agent = runtime.agentRegistry.get(id);
+      expect(agent, id).toBeDefined();
+      // An empty list would mean "all enabled skills" (see SkillsRegistry.getSkillsForAgent),
+      // which is the opposite of the intent here.
+      expect(agent!.skills.length, id).toBeGreaterThan(0);
+      for (const mutating of MUTATING_SKILL_IDS) {
+        expect(agent!.skills, `${id} must not be granted ${mutating}`).not.toContain(mutating);
+      }
+    }
+  });
+
+  it('pins only skill ids that actually resolve', () => {
+    // getSkillsForAgent silently drops unknown ids, so a typo would quietly reduce an
+    // advisor's capability rather than fail. Resolving every id proves the pin is real.
+    const runtime = makeOversightRuntime();
+    for (const id of OVERSIGHT_IDS) {
+      const agent = runtime.agentRegistry.get(id)!;
+      const resolved = runtime.skillsRegistry.getSkillsForAgent(agent);
+      expect(resolved.map(skill => skill.id).sort(), id).toEqual([...agent.skills].sort());
+      expect(resolved.length, id).toBeLessThan(runtime.skillsRegistry.listSkills().length);
+    }
+  });
+
+  it('excludes the advisors from the agent auto-update cadence', () => {
+    // These prompts carry the "advisory, not authoritative" framing; an LLM rewrite on a
+    // cadence could paraphrase that away, so drift must be switched off at the source.
+    const runtime = makeOversightRuntime();
+    for (const id of OVERSIGHT_IDS) {
+      expect(runtime.agentRegistry.get(id)?.autoUpdateExcluded, id).toBe(true);
+    }
+  });
+
+  it('states the not-a-substitute-for-professional-advice boundary in each prompt', () => {
+    const runtime = makeOversightRuntime();
+    expect(runtime.agentRegistry.get('legal-oversight')?.systemPrompt)
+      .toContain('You are not a lawyer, you do not provide legal advice');
+    expect(runtime.agentRegistry.get('ethics-oversight')?.systemPrompt)
+      .toContain('It is not an ethics approval');
+    expect(runtime.agentRegistry.get('commercial-oversight')?.systemPrompt)
+      .toContain('it is not a forecast, a valuation, or a commitment');
+  });
+
+  it.each([
+    ['legal-oversight', 'Is the MIT licence on this dependency compatible with shipping our extension commercially?'],
+    ['legal-oversight', 'Do we need a GDPR data processing agreement for storing user emails?'],
+    ['ethics-oversight', 'Does this onboarding flow use dark patterns to push users into the paid tier?'],
+    ['commercial-oversight', 'Should we charge per-seat or per-workspace, and how do competitors price this?'],
+  ])('routes an oversight prompt to %s', async (expected, userMessage) => {
+    const runtime = makeOversightRuntime();
+    const result = await runtime.orchestrator.processTask({
+      id: `oversight-${expected}`,
+      userMessage,
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+    expect(result.agentId).toBe(expected);
+  });
+
+  it.each([
+    'Read the file and tell me what is in it.',
+    'Search the workspace for the login function.',
+    'Show me the git log for the last week.',
+    'Hello, can you help me?',
+  ])('does not hijack the ordinary request: %s', async userMessage => {
+    // The advisors are the only built-ins that pin skills, which previously gave them
+    // skill-id and skill-description tokens that no `skills: []` agent could score
+    // against. Guards that regression — it made "Hello, can you help me?" route to
+    // ethics-oversight.
+    const runtime = makeOversightRuntime();
+    const result = await runtime.orchestrator.processTask({
+      id: 'oversight-negative',
+      userMessage,
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+    expect(result.agentId).not.toMatch(/-oversight$/);
+  });
+});

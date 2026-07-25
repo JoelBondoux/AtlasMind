@@ -189,6 +189,35 @@ Agent Finders ship **disabled** and are managed from the Resource Discovery tab 
 
 ---
 
+## Buzz (agentic comms)
+
+Integration with [Buzz](https://buzz.xyz) — the open-source, Nostr-based workspace for humans and AI agents. Deny-by-default; nothing connects until you opt in. See [[Architecture]] and the `project_memory/roadmap/buzz-integration.md` roadmap.
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `atlasmind.buzz.enabled` | boolean | `false` | Enable Buzz integration: record Buzz identities/channels (npub / @handle / #channel) on Project Director contacts and reach them via a Buzz deep link. Automated outbound posting additionally needs a connected Buzz comms tool and the per-project `outboundEnabled` gate. |
+| `atlasmind.buzz.relayUrl` | string | `ws://localhost:3000` | Buzz relay URL (`BUZZ_RELAY_URL`); defaults to a local self-hosted relay. A remote relay sends project data off-machine and additionally requires `atlasmind.buzz.allowRemoteRelay`. |
+| `atlasmind.buzz.allowRemoteRelay` | boolean | `false` | Allow a non-local Buzz relay URL. When `false`, only loopback/localhost relays are used so project data stays on-machine. |
+
+Only `https` Buzz workspace links are launchable (Buzz has no verified native URI scheme); an npub / @handle / #channel is stored as display-only. Channels and deep links are sanitised at the webview boundary like every other Director channel.
+
+---
+
+## Presence & Power (keep-awake)
+
+Keep this computer awake so an activity that must stay online — a long Mission Loop run, a Remote Control gateway session, or a connected Buzz presence — isn't killed by system sleep. Backed by the `PresenceManager` core service, which spawns an OS-native wake lock (Windows `SetThreadExecutionState`, macOS `caffeinate`, Linux `systemd-inhibit`) since a VS Code extension can't use Electron's `powerSaveBlocker`. Deny-by-default.
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `atlasmind.presence.keepAwake` | boolean | `false` | Keep the computer awake while an activity needs the agent online (Mission Loop / Remote Control gateway / Buzz presence). Lock acquired only while needed and released when the activity ends. |
+| `atlasmind.presence.keepDisplayAwake` | boolean | `false` | Also keep the display on when keep-awake is active. Default lets the screen sleep (lower power). No effect unless `keepAwake` is `true`. |
+| `atlasmind.presence.acPowerOnly` | boolean | `true` | Only keep awake on AC (mains) power; auto-suspended on battery so an unplugged laptop is never drained, and resumed when power returns. |
+| `atlasmind.presence.maxAwakeMinutes` | number | `240` | Safety backstop that auto-releases the wake lock after N minutes even if the activity is still running (0 = until it ends; range 0–1440). |
+
+A status-bar indicator shows when the machine is held awake (and when it's paused on battery); click it, or run **AtlasMind: Toggle Keep Computer Awake** (`atlasmind.togglePresence`), to stop. No untrusted input is ever passed to the spawned OS helper.
+
+---
+
 ## Voice
 
 | Setting | Type | Default | Description |

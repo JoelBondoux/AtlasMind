@@ -57,7 +57,7 @@ describe('DataPrivacyManager — term & regex rules', () => {
 describe('DataPrivacyManager — compliance packs', () => {
   it('flags an email when GDPR is enabled', () => {
     const mgr = new DataPrivacyManager(configWith({ compliancePacks: ['gdpr-pii'] }));
-    const result = mgr.classifyText('reach me at john@example.com');
+    const result = mgr.classifyText('reach me at john.smith@acme-corp.co.uk');
     expect(result.hasClassified).toBe(true);
     expect(result.matches[0].label).toContain('email');
   });
@@ -66,6 +66,49 @@ describe('DataPrivacyManager — compliance packs', () => {
     const mgr = new DataPrivacyManager(configWith({ compliancePacks: ['pci-dss'] }));
     expect(mgr.classifyText('order ref 4111111111111112').hasClassified).toBe(false);
     expect(mgr.classifyText('card 4111 1111 1111 1111').hasClassified).toBe(true);
+  });
+
+  it('does not flag role mailboxes or reserved domains as personal data', () => {
+    const mgr = new DataPrivacyManager(configWith({ compliancePacks: ['gdpr-pii'] }));
+    expect(mgr.classifyText('Co-Authored-By: Claude <noreply@anthropic.com>').hasClassified).toBe(false);
+    expect(mgr.classifyText('"author": "jane@example.com"').hasClassified).toBe(false);
+  });
+
+  /**
+   * The end-to-end guard for the regression that made the gate fire on ordinary
+   * work: with every pack enabled, a corpus of plain source, logs, and prose
+   * must stay unclassified. `classifyText` is what the orchestrator's routing
+   * gate calls, so a hit here is a task silently gated.
+   */
+  it('leaves an ordinary source-repository corpus unclassified with every pack enabled', () => {
+    const mgr = new DataPrivacyManager(
+      configWith({ compliancePacks: ['gdpr-pii', 'hipaa-phi', 'pci-dss', 'ccpa', 'financial'] }),
+    );
+    const corpus = [
+      'server.listen(3000, "127.0.0.1") // bind loopback',
+      'ports: - "0.0.0.0:8080:8080"',
+      'netmask 255.255.255.0 for the bridge network',
+      'FileVersion 1.0.0.1 shipped; AssemblyVersion("2.1.0.9")',
+      'd="M 100 200 300 400 150 250"',
+      '2026-07-25 10 requests handled in 45ms',
+      'Co-Authored-By: Claude <noreply@anthropic.com>',
+      '// Copyright (c) 2026 support@company.dev',
+      'Set the ENVIRONMENT variable before running DEVELOPMENT builds.',
+      'The diagnostic output shows a null deref; this is the diagnosis.',
+      'Please review the orchestration process.',
+    ].join('\n');
+    const result = mgr.classifyText(corpus);
+    expect(result.matches.map((m) => `${m.source} (${m.label})`)).toEqual([]);
+    expect(result.hasClassified).toBe(false);
+  });
+
+  it('assigns the hard-gating "secret" tier only to cardholder data and PHI', () => {
+    const mgr = new DataPrivacyManager(
+      configWith({ compliancePacks: ['gdpr-pii', 'hipaa-phi', 'pci-dss'] }),
+    );
+    expect(mgr.classifyText('reach me at jane.doe@acme-corp.co.uk').matches[0].sensitivity).toBe('confidential');
+    expect(mgr.classifyText('card 4111 1111 1111 1111').matches[0].sensitivity).toBe('secret');
+    expect(mgr.classifyText('patient record 88213').matches[0].sensitivity).toBe('secret');
   });
 });
 
@@ -78,17 +121,17 @@ describe('DataPrivacyManager — redaction fail-safe', () => {
 
   it('redacts classified content for an un-trusted model', () => {
     const mgr = new DataPrivacyManager(cfg);
-    const out = mgr.redactForModel('ProjectX contact: john@example.com', 'anthropic/claude');
+    const out = mgr.redactForModel('ProjectX contact: john.smith@acme-corp.co.uk', 'anthropic/claude');
     expect(out.text).not.toContain('ProjectX');
-    expect(out.text).not.toContain('john@example.com');
+    expect(out.text).not.toContain('john.smith@acme-corp.co.uk');
     expect(out.text).toContain(REDACTION_PLACEHOLDER);
     expect(out.redactedCount).toBeGreaterThan(0);
   });
 
   it('passes classified content through unchanged for a trusted model', () => {
     const mgr = new DataPrivacyManager(cfg);
-    const out = mgr.redactForModel('ProjectX contact: john@example.com', 'local/llama');
-    expect(out.text).toBe('ProjectX contact: john@example.com');
+    const out = mgr.redactForModel('ProjectX contact: john.smith@acme-corp.co.uk', 'local/llama');
+    expect(out.text).toBe('ProjectX contact: john.smith@acme-corp.co.uk');
     expect(out.redactedCount).toBe(0);
   });
 });

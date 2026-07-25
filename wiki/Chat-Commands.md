@@ -291,6 +291,7 @@ These are also available from the Command Palette (`Ctrl+Shift+P`):
 | `AtlasMind: Focus Chat View` | Reveals the embedded Atlas chat workspace inside the AtlasMind sidebar container |
 | `AtlasMind: Open Chat Panel` | Opens a dedicated AtlasMind conversation panel outside the built-in VS Code Chat view. Shortcut: `Ctrl+Alt+I` (`Cmd+Alt+I` on macOS) |
 | `AtlasMind: Toggle Autopilot` | Enables or disables the session-wide tool approval bypass without reloading the extension |
+| `AtlasMind: Toggle Keep Computer Awake` | Toggles `atlasmind.presence.keepAwake` — keep this computer awake (prevent system sleep) while an activity needs the agent online (Mission Loop / Remote Control gateway / Buzz presence). Deny-by-default, AC-power-gated, and auto-releasing |
 | `AtlasMind: Manage Model Providers` | Add routed provider credentials, configure Azure/Bedrock/local providers, refresh models, health checks |
 | `AtlasMind: Dismiss Provider Notifications` | Clears the Models view auto-paused badge for the current session without re-enabling paused providers |
 | `AtlasMind: Specialist Integrations` | Store search, voice, image, and video provider credentials on dedicated non-routing surfaces |

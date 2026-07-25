@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { validateToolArguments } from '../../src/core/orchestrator.ts';
-import type { SkillDefinition } from '../../src/types.ts';
+import { validateToolArguments, selectHardGatingMatches } from '../../src/core/orchestrator.ts';
+import type { DataPrivacyMatch, SkillDefinition } from '../../src/types.ts';
 
 function makeSkill(parameters: Record<string, unknown>): SkillDefinition {
   return {
@@ -93,5 +93,41 @@ describe('validateToolArguments', () => {
       properties: { path: { type: 'string' } },
     });
     expect(validateToolArguments(skill, { path: '/foo.ts', extra: 42 })).toBeUndefined();
+  });
+});
+
+/**
+ * The Data Privacy gate's two-tier response. The gate scans the assembled task
+ * *context*, not the user's request, so a heuristic hit means "something in the
+ * retrieved haystack looked regulated" — not "this task concerns personal
+ * data". Only the `secret` tier may override model routing on that basis;
+ * everything else is handled by the redaction boundary, which removes the
+ * matched spans without silently re-routing an unrelated task.
+ */
+describe('selectHardGatingMatches', () => {
+  const match = (sensitivity: DataPrivacyMatch['sensitivity'], source: string): DataPrivacyMatch =>
+    ({ source, label: source, sensitivity });
+
+  it('hard-gates on cardholder data and PHI', () => {
+    const matches = [match('secret', 'pack:pci-dss:card-pan'), match('secret', 'pack:hipaa-phi:mrn')];
+    expect(selectHardGatingMatches(matches)).toHaveLength(2);
+  });
+
+  it('does not hard-gate on confidential or proprietary matches alone', () => {
+    const matches = [match('confidential', 'pack:gdpr-pii:email'), match('proprietary', 'rule:internal')];
+    expect(selectHardGatingMatches(matches)).toEqual([]);
+  });
+
+  it('hard-gates on the secret subset when tiers are mixed', () => {
+    const matches = [
+      match('confidential', 'pack:gdpr-pii:email'),
+      match('secret', 'pack:pci-dss:card-pan'),
+      match('proprietary', 'rule:internal'),
+    ];
+    expect(selectHardGatingMatches(matches).map((m) => m.source)).toEqual(['pack:pci-dss:card-pan']);
+  });
+
+  it('returns nothing for an empty match list', () => {
+    expect(selectHardGatingMatches([])).toEqual([]);
   });
 });
