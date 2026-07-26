@@ -1758,6 +1758,18 @@ describe('panel refresh flows', () => {
             budgetCostUsd: 0,
             timestamp: '2026-04-06T10:00:00.000Z',
           },
+          {
+            taskId: 't2',
+            agentId: 'a2',
+            model: 'local/ollama::qwen2.5-coder:7b',
+            providerId: 'local',
+            billingCategory: 'free',
+            inputTokens: 1_000,
+            outputTokens: 500,
+            costUsd: 0,
+            budgetCostUsd: 0,
+            timestamp: '2026-04-06T10:05:00.000Z',
+          },
         ]),
         getDailyBudgetStatus: vi.fn().mockReturnValue({
           limitUsd: 5,
@@ -1774,7 +1786,7 @@ describe('panel refresh flows', () => {
     const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
     expect(html).toContain('cost-dashboard-timescale');
     expect(html).toContain('cost-dashboard-exclude-subscriptions');
-    expect(html).toContain('chart-overlay-controls');
+    expect(html).toContain('chart-timescale-disclosure');
     expect(html).toContain('chart-style-controls');
     expect(html).toContain('Included usage visible');
     expect(html).toContain('MTD');
@@ -1787,6 +1799,10 @@ describe('panel refresh flows', () => {
     expect(html).toContain('Feedback');
     expect(html).toContain('Approval Rate');
     expect(html).toContain('Message Cost');
+    expect(html).toContain('Estimated Total Saved');
+    expect(html).toContain('Comparable cloud model');
+    expect(html).toContain('local/ollama::qwen2.5-coder:7b');
+    expect(html).toContain('Gemini 2.5 Flash');
     expect(html).toContain('data-sort-key="model"');
     // Design refresh: summary cards carry tone status dots, and the budgeted
     // "Today's Spend" card shows a pressure meter.

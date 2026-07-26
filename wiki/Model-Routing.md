@@ -237,7 +237,7 @@ score = (cheapness × budgetWeight) + (speedProxy × speedWeight)
 
 The outcome grade is evidence-backed for normal AtlasMind turns. It scores the final recovered response together with expected tool use, tool success/failure counts, verification, TDD status, and incomplete-delivery signals. Hard errors, empty output, and truncation remain deterministic low grades; clean prose alone is not automatically perfect, while clean verified execution can reach 1.0. The explicit Model Comparison harness has no workspace execution artifacts, so it keeps a separate coarse completion-integrity grade plus its optional answer-quality judge.
 
-The Cost Dashboard now surfaces the same signals before routing applies them: recent request rows show the linked response's vote, and the dashboard includes a per-model approval table with thumbs totals and filtered spend for rated models.
+The Cost Dashboard now surfaces the same signals before routing applies them: recent request rows show the linked response's vote, and the dashboard includes a per-model approval table with thumbs totals and filtered spend for rated models. It also estimates local-model savings per exact model: genuine local usage is grouped by input/output tokens, mapped through an explainable parameter-size/model-family heuristic to a catalog-backed budget, mid-tier, or premium cloud reference, and totalled. The result is labelled as potential cost avoidance rather than a realized discount.
 
 ### 3. Weighting
 

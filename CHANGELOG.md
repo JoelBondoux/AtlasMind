@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.145.3] - 2026-07-26
+
+### Added
+- **The chat composer status now names the model serving the active request.** Routing and failover updates are reflected beside live progress just above the input, so the operator can see the current model without opening response details.
+- **Local-model savings are estimated per model and totalled.** The Cost Dashboard groups genuinely local requests by model, maps each model to an explainable catalog-backed cloud reference, shows token/request usage and potential savings for every comparison, and reports the combined estimate.
+
+### Fixed
+- **The Cost Dashboard time-period selector no longer occupies or obscures the chart.** It is now a compact open/close disclosure in a toolbar above the plot; opening it expands the toolbar instead of covering line-chart peaks.
+- **Free cloud requests are no longer counted as local-model savings.** Only records attributed to the local provider or a `local/` model id enter the estimate.
+- **The README “What’s new” section now describes everything added since the last Marketplace publication.** Its v0.145.3 summary names v0.145.0 as the published baseline and includes the v0.145.1 security-review foundation and v0.145.2 guarded-commit timeout fix alongside the current model/cost UI work.
+
 ## [0.145.2] - 2026-07-26
 
 ### Fixed

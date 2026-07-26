@@ -6,6 +6,13 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.145.3 — Visible model choice and local savings
+
+- **README release highlights are cumulative from the last Marketplace publication (v0.145.0)** rather than presenting only the latest source patch; they also cover the security-review data foundation and guarded-commit timeout fix from v0.145.1–v0.145.2.
+- **The composer status names the model serving the active request**, including routing failovers, while progress remains visible above the chat input.
+- **Local-model savings are now model-specific and totalled.** The Cost Dashboard compares each locally-hosted model's token usage with an explainable catalog-backed cloud reference and excludes free cloud traffic.
+- **The time-period selector is compact and collapsible.** Its menu expands a toolbar above the chart instead of permanently occupying the plot or covering line-chart peaks.
+
 ## v0.145.2 — Git commit hook timeout fix
 
 - **Repository pre-commit hooks can finish before AtlasMind decides the commit failed.** The dedicated `git-commit` skill now gives the Git subprocess 120 seconds and its orchestration wrapper 125 seconds instead of inheriting the generic 15-second tool timeout. The five-second grace lets a process-level timeout return cleanly before the outer deadline. Commit messages remain typed argument values, so spaces are never re-parsed as paths.

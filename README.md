@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.145.2</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.145.3</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,16 +64,15 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.145.2
+## What's new in 0.145.3
 
-This release makes AtlasMind's agents easier to understand, shape, and trust, and keeps repository quality hooks from being mistaken for failed Git commits.
+Since the last Marketplace publication, **v0.145.0**, source builds have added:
 
-- **Guarded commits can finish.** AtlasMind now gives repository pre-commit hooks up to 120 seconds to compile, lint, and test before reporting a timeout.
-- **Agents are finally easy to find.** A dedicated Agents page now lives in Settings, with a direct path from the Settings overview.
-- **Agent management feels focused.** Search, filters, and the selected agent now share one calmer workspace, with advanced options grouped out of the way until you need them.
-- **The safety baseline is visible.** You can read the global guardrails that apply to every routed agent directly from the Agents page.
-- **Custom agents can have a clearer definition of done.** Set observable completion expectations and identify responses that should trigger one more attempt to finish.
-- **Personality Profile is closer to the work.** Open it from Settings Overview or Models & Integrations when you want to adjust how Atlas communicates and collaborates.
+- **See the active model while Atlas works.** The status line immediately above the chat input follows routing and failover changes during a request.
+- **See potential local-model savings.** Each local model is compared with an explainable cloud reference using its actual input/output token volume, then the estimates are totalled.
+- **Choose a cost window without covering the chart.** The time-period choices now open from a compact disclosure above the plot and close after selection.
+- **Repository quality hooks get time to finish.** Git commits now allow bounded pre-commit compile, lint, and test hooks up to 120 seconds instead of failing at the generic 15-second tool deadline.
+- **Security oversight has a shared data foundation.** New review-area, severity, exploitability, confidence, finding, run, configuration, and history types establish one consistent contract for ethics, legal, and commercial security-review records.
 
 ---
 

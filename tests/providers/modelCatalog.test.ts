@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { getModelInfoUrl, getProviderInfoUrl, lookupCatalog } from '../../src/providers/modelCatalog.js';
+import {
+  getComparableCloudReference,
+  getModelInfoUrl,
+  getProviderInfoUrl,
+  lookupCatalog,
+} from '../../src/providers/modelCatalog.js';
 
 describe('lookupCatalog', () => {
   // ── Anthropic ────────────────────────────────────────────────
@@ -274,6 +279,13 @@ describe('lookupCatalog', () => {
   it('returns undefined for unknown model', () => {
     const entry = lookupCatalog('openai', 'totally-unknown-model-xyz');
     expect(entry).toBeUndefined();
+  });
+
+  it('selects explainable cloud references for local model savings estimates', () => {
+    expect(getComparableCloudReference('local/ollama::qwen2.5-coder:7b').label).toBe('Budget');
+    expect(getComparableCloudReference('local/lm-studio::codestral-22b').label).toBe('Mid-tier');
+    expect(getComparableCloudReference('local/ollama::llama3.3:70b').label).toBe('Premium');
+    expect(getComparableCloudReference('local/deepseek-r1').label).toBe('Premium');
   });
 
   it('uses the NVIDIA model catalog page for provider and model info links', () => {

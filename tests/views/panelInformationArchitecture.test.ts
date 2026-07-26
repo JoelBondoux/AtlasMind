@@ -171,8 +171,15 @@ describe('cost dashboard order', () => {
     expect(guardAt).toBeGreaterThan(-1);
     expect(guardAt).toBeLessThan(styleAt);
     expect(timescaleAt).toBeGreaterThan(styleAt);
-    // The timescale block must not be inside the conditional.
-    expect(stage.slice(guardAt, timescaleAt)).toContain("` : ''}");
+    // The timescale disclosure must not be inside the conditional.
+    expect(stage.slice(guardAt, timescaleAt)).toContain("` : '<span></span>'}");
+    expect(stage).toContain('class="chart-timescale-disclosure"');
+    expect(stage).toContain('<summary aria-label="Select daily spend time period">');
+  });
+
+  it('keeps chart controls in a toolbar outside the cost plot', () => {
+    const stage = body.slice(position('class="daily-chart-stage"'));
+    expect(stage.indexOf('class="chart-toolbar"')).toBeLessThan(stage.indexOf('${dailyChart}'));
   });
 });
 
@@ -194,6 +201,12 @@ describe('chat panel order', () => {
 
   it('announces status changes to assistive tech', () => {
     expect(source).toMatch(/id="status"[^>]*role="status"/);
+  });
+
+  it('adds the actively routed model to the composer status text', () => {
+    const script = read('../../media/chatPanel.js');
+    expect(script).toContain("currentStatusText + ' · Model: ' + currentStatusModel");
+    expect(script).toContain('setCurrentStatusModel(isBusy ? activeModels[activeModels.length - 1] : undefined)');
   });
 
   it('ships no dead search markup', () => {

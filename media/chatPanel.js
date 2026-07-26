@@ -24,6 +24,20 @@
   const stopPrompt = document.getElementById('stopPrompt');
   const sendMode = document.getElementById('sendMode');
   let isSearchMode = false;
+  let currentStatusText = 'Ready.';
+  let currentStatusModel = undefined;
+
+  function setStatusText(text) {
+    currentStatusText = typeof text === 'string' ? text : '';
+    status.textContent = currentStatusModel
+      ? currentStatusText + ' · Model: ' + currentStatusModel
+      : currentStatusText;
+  }
+
+  function setCurrentStatusModel(model) {
+    currentStatusModel = typeof model === 'string' && model.length > 0 ? model : undefined;
+    setStatusText(currentStatusText);
+  }
 
       function parseToolExecutionMessage(message) {
         if (typeof message !== 'string' || !message.startsWith('[TOOL_EXEC]')) {
@@ -134,12 +148,12 @@
       }
       const query = promptInput.value.trim();
       if (!query) {
-        status.textContent = 'Enter text to search this session.';
+        setStatusText('Enter text to search this session.');
         return;
       }
 
       lastSearchQuery = query;
-      status.textContent = 'Searching this session…';
+      setStatusText('Searching this session…');
       currentSearchIndex = 0;
       clearSearchHighlights();
       searchResults = collectSearchMatches(query);
@@ -175,7 +189,7 @@
           currentSearchIndex = 0;
           clearSearchHighlights();
         }
-        status.textContent = isSearchMode ? 'Search mode enabled. Enter text and press Search.' : 'Ready.';
+        setStatusText(isSearchMode ? 'Search mode enabled. Enter text and press Search.' : 'Ready.');
         if (promptInput) {
           promptInput.focus();
         }
@@ -3695,6 +3709,8 @@
       var state = message.payload || {};
       latestState = state;
       isBusy = Boolean(state.busy);
+      var activeModels = Array.isArray(state.streamingModels) ? state.streamingModels : [];
+      setCurrentStatusModel(isBusy ? activeModels[activeModels.length - 1] : undefined);
       if (typeof state.chatFontScale === 'number' && state.chatFontScale !== chatFontScale) {
         chatFontScale = normalizeChatFontScale(state.chatFontScale);
         applyChatFontScale();
@@ -3708,7 +3724,7 @@
       if (typeof state.composerDraft === 'string' && state.composerDraft.length > 0) {
         promptInput.value = state.composerDraft;
         resetPromptHistoryNavigation(state.composerDraft);
-        status.textContent = 'Loaded a Project Dashboard prompt. Review it, then send when ready.';
+        setStatusText('Loaded a Project Dashboard prompt. Review it, then send when ready.');
         focusPromptInputAtEnd({ force: true });
       }
       var standaloneRuns = renderSessions(state.sessions, state.selectedSessionId, state.projectRuns, state.selectedRunId || (state.selectedRun ? state.selectedRun.id : undefined), state.busySessionId);
@@ -3780,9 +3796,9 @@
       const toolExecData = parseToolExecutionMessage(payload);
       if (toolExecData) {
         const displayText = (toolExecData.humanReadable || ('Tool round ' + toolExecData.data.round)).trim();
-        status.textContent = displayText;
+        setStatusText(displayText);
       } else {
-        status.textContent = payload;
+        setStatusText(payload);
       }
       return;
     }
@@ -3864,6 +3880,9 @@
     },
     getStatusElement: function () {
       return status;
+    },
+    setStatusText: function (text) {
+      setStatusText(text);
     },
     getTranscriptElement: function () {
       return transcript;
@@ -4059,11 +4078,16 @@ function renderTranscriptWithSearch() {
     nextBtn.disabled = searchResults.length <= 1;
   }
 
-  var statusElement = bridge && bridge.getStatusElement ? bridge.getStatusElement() : document.getElementById('status');
-  if (statusElement && lastSearchQuery) {
-    statusElement.textContent = searchResults.length > 0
-      ? 'Showing result ' + (currentSearchIndex + 1) + ' of ' + searchResults.length + ' for "' + lastSearchQuery + '".'
-      : 'No matches found for "' + lastSearchQuery + '".';
+  var searchStatusText = searchResults.length > 0
+    ? 'Showing result ' + (currentSearchIndex + 1) + ' of ' + searchResults.length + ' for "' + lastSearchQuery + '".'
+    : 'No matches found for "' + lastSearchQuery + '".';
+  if (bridge && bridge.setStatusText && lastSearchQuery) {
+    bridge.setStatusText(searchStatusText);
+  } else {
+    var statusElement = bridge && bridge.getStatusElement ? bridge.getStatusElement() : document.getElementById('status');
+    if (statusElement && lastSearchQuery) {
+      statusElement.textContent = searchStatusText;
+    }
   }
 }
 

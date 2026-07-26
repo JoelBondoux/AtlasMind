@@ -1665,6 +1665,10 @@ export interface SavingsReferenceTier {
   outputPricePer1k: number;
 }
 
+export interface ComparableCloudReference extends SavingsReferenceTier {
+  rationale: string;
+}
+
 /**
  * Returns the three canonical cloud pricing tiers used to estimate local-model
  * cost savings in the Cost Dashboard. Rates are read live from the catalog so
@@ -1690,6 +1694,51 @@ export function getSavingsReferenceTiers(): SavingsReferenceTier[] {
       outputPricePer1k: entry?.outputPricePer1k ?? spec.fallbackOut,
     };
   });
+}
+
+/**
+ * Pick one conservative cloud reference for a locally-hosted model.
+ *
+ * Local runtimes do not expose a portable quality score, so the comparison is
+ * intentionally explainable: parameter counts in the model id select a tier;
+ * well-known reasoning/large-model markers select premium; coder and vision
+ * models select mid-tier; otherwise the mid-tier reference is used.
+ */
+export function getComparableCloudReference(localModelId: string): ComparableCloudReference {
+  const tiers = getSavingsReferenceTiers();
+  const normalized = localModelId.toLowerCase();
+  const parameterMatch = normalized.match(/(?:^|[/:_.-])(\d+(?:\.\d+)?)b(?:$|[/:_.-])/);
+  const parametersBillions = parameterMatch ? Number(parameterMatch[1]) : undefined;
+
+  let tierIndex = 1;
+  let rationale = 'Mid-tier reference used because the local model does not advertise a portable size or quality score.';
+
+  if (parametersBillions !== undefined && Number.isFinite(parametersBillions)) {
+    if (parametersBillions <= 8) {
+      tierIndex = 0;
+      rationale = `${parametersBillions}B parameter model mapped to the budget cloud tier.`;
+    } else if (parametersBillions >= 65) {
+      tierIndex = 2;
+      rationale = `${parametersBillions}B parameter model mapped to the premium cloud tier.`;
+    } else {
+      tierIndex = 1;
+      rationale = `${parametersBillions}B parameter model mapped to the mid-tier cloud reference.`;
+    }
+  } else if (/(?:deepseek[-_.]?r1|reason(?:ing|er)?|qwq|large|max)/.test(normalized)) {
+    tierIndex = 2;
+    rationale = 'Reasoning or large-model marker mapped to the premium cloud tier.';
+  } else if (/(?:coder|code|vision|vl|instruct)/.test(normalized)) {
+    tierIndex = 1;
+    rationale = 'Specialized coder, vision, or instruct marker mapped to the mid-tier cloud reference.';
+  }
+
+  const reference = tiers[tierIndex] ?? tiers[0] ?? {
+    label: 'Budget',
+    name: 'Cloud model',
+    inputPricePer1k: 0,
+    outputPricePer1k: 0,
+  };
+  return { ...reference, rationale };
 }
 
 const PROVIDER_INFO_URLS: Record<string, string> = {
