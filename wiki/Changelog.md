@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.145.4 — Security review register foundation
+
+- **Security reviews now have durable, consistent records.** A new `SecurityReviewManager` persists findings and runs for secrets, runtime boundaries, dependencies, and permissions to JSON, a readable Markdown mirror, and capped audit history.
+- **Review scoring reflects uncertainty.** Severity, exploitability, confidence, coverage, and 45-day freshness contribute to the score, so an unreviewed area cannot count as assurance.
+- **The data boundary is defensive.** Malformed model output records no findings, values are bounded, unresolved findings default to open, and cited paths cannot escape the workspace. This is a persistence foundation, not an automated scanner, dashboard feature, or release gate.
+
 ## v0.145.3 — Visible model choice and local savings
 
 - **README release highlights are cumulative from the last Marketplace publication (v0.145.0)** rather than presenting only the latest source patch; they also cover the security-review data foundation and guarded-commit timeout fix from v0.145.1–v0.145.2.

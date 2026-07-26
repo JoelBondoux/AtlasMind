@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "filing": [
+    {
+      "id": "filing-docs",
+      "label": "docs",
+      "path": "docs",
+      "description": "Documents filed under docs.",
+      "pattern": "**/*.md"
+    },
+    {
+      "id": "filing-wiki",
+      "label": "wiki",
+      "path": "wiki",
+      "description": "Documents filed under wiki.",
+      "pattern": "**/*.md"
+    }
+  ],
+  "autoUpdate": [
+    {
+      "id": "doc-readme-md",
+      "path": "README.md",
+      "label": "README",
+      "sourceHint": "Keep in step with feature, config, and version changes.",
+      "cadence": "on-change"
+    },
+    {
+      "id": "doc-changelog-md",
+      "path": "CHANGELOG.md",
+      "label": "CHANGELOG",
+      "sourceHint": "Keep in step with feature, config, and version changes.",
+      "cadence": "on-release"
+    },
+    {
+      "id": "doc-contributing-md",
+      "path": "CONTRIBUTING.md",
+      "label": "CONTRIBUTING",
+      "sourceHint": "Keep in step with feature, config, and version changes.",
+      "cadence": "on-change"
+    },
+    {
+      "id": "doc-security-md",
+      "path": "SECURITY.md",
+      "label": "SECURITY",
+      "sourceHint": "Keep in step with feature, config, and version changes.",
+      "cadence": "on-change"
+    }
+  ],
+  "updatedAt": "2026-07-26T15:12:52.888Z"
+}

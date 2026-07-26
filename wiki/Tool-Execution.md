@@ -45,6 +45,8 @@ The three oversight advisors (`ethics-oversight`, `legal-oversight`, `commercial
 
 The reasoning is separation of duties. An advisor that reviews whether something *should* ship should not also be the thing that changes it. Where an advisor's findings need to be recorded, the Project Dashboard owns that write path and sanitises the model's output at the boundary first.
 
+The separate `SecurityReviewManager` follows the same authority boundary: it can persist already-produced, sanitized findings for secrets, runtime boundaries, dependencies, and permissions, but it does not invoke an agent, grant tools, execute remediation, or gate delivery. Future UI wiring must keep review invocation inside the normal approval and tool-policy pipeline.
+
 ## Approval Modes
 
 The `atlasmind.toolApprovalMode` setting controls when AtlasMind asks for confirmation:

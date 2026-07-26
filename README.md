@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.145.3</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.145.4</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,15 +64,12 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.145.3
+## What's new in 0.145.4
 
-Since the last Marketplace publication, **v0.145.0**, source builds have added:
+Since the last Marketplace publication, **v0.145.3**, source builds have added:
 
-- **See the active model while Atlas works.** The status line immediately above the chat input follows routing and failover changes during a request.
-- **See potential local-model savings.** Each local model is compared with an explainable cloud reference using its actual input/output token volume, then the estimates are totalled.
-- **Choose a cost window without covering the chart.** The time-period choices now open from a compact disclosure above the plot and close after selection.
-- **Repository quality hooks get time to finish.** Git commits now allow bounded pre-commit compile, lint, and test hooks up to 120 seconds instead of failing at the generic 15-second tool deadline.
-- **Security oversight has a shared data foundation.** New review-area, severity, exploitability, confidence, finding, run, configuration, and history types establish one consistent contract for ethics, legal, and commercial security-review records.
+- **Security reviews can be recorded consistently.** A new service provides the persistence, audit history, freshness, and scoring foundation for reviews of secrets, runtime boundaries, dependencies, and permissions.
+- **Review evidence is handled defensively.** Malformed model output is ignored safely, cited paths cannot escape the workspace, and unresolved findings cannot be silently marked closed. This release supplies the data layer for future dashboard wiring; it does not add an automated vulnerability scanner or a release gate.
 
 ---
 
@@ -256,7 +253,7 @@ The README keeps the map short; implementation details and data flows belong in 
 
 | Path | Responsibility |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, and project services |
+| `src/core/` | Orchestration, routing, planning, safety and security registers, cost, and project services |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Provider adapters, catalogs, health, and local-model discovery |
 | `src/skills/` | Built-in tools and skill handlers |

@@ -1,0 +1,3 @@
+Natural-language request "address this project dashboard recommendation stabilize the working tree review the current branch drift and local modifications resolve the smallest meaningful repo hygiene issue in one pass if possible otherwise leave the workspace with a clear first cleanup step and summarize what changed" previously resolved to "mcp:10311106-01ee-4950-bc3c-72610ccad026:git_commit_composer". Likely cues: git composer, commit, commit git composer, git commit, git commit git composer, commit changes.
+Last successful tool result:
+{"data":{"custom_instructions":"","direction":"auto","directory":"."},"summary":"Opened Git Commit Composer"}

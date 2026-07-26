@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.145.4] - 2026-07-26
+
+### Added
+- **Security reviews now have a durable register service ready for dashboard integration.** `SecurityReviewManager` persists findings and review runs across secrets, runtime boundaries, dependencies, and permissions to JSON, a human-readable Markdown mirror, and a capped audit history.
+- **Security-review scoring accounts for evidence, coverage, and freshness.** Open findings are weighted by severity, exploitability, and confidence; unreviewed areas cannot count as assurance, and reviews decay after 45 days.
+
+### Security
+- **Security-review records treat model output and cited paths as untrusted.** Malformed structured output safely produces no findings, strings and enums are bounded, unknown statuses remain open, and absolute or traversal paths are rejected. The register records evidence and decisions only; it does not scan for vulnerabilities or gate commits, promotions, or releases.
+
 ## [0.145.3] - 2026-07-26
 
 ### Added
