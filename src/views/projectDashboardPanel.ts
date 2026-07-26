@@ -11,6 +11,7 @@ import { buildAssistantResponseMetadata, buildWorkstationContext, reconcileAssis
 import { resolvePickedImageAttachments } from '../chat/imageAttachments.js';
 import { collectTestingDashboardSnapshot, writeProjectTestingConfig, type TestingDashboardSnapshot } from './settingsPanel.js';
 import { getWebviewHtmlShell } from './webviewUtils.js';
+import { DASHBOARD_THEME_CSS } from './dashboardTheme.js';
 import { DataPrivacyManager, readDataPrivacyConfig, writeDataPrivacyConfig, defaultDataPrivacyConfig } from '../core/dataPrivacyManager.js';
 import { COMPLIANCE_PACKS } from '../core/compliancePacks.js';
 import { getProviderDataGovernance } from '../core/providerDataGovernance.js';
@@ -238,17 +239,28 @@ interface DashboardStat {
 }
 
 /**
- * Every dashboard page id, in nav order.
+ * Every id that may appear as a prompt's `sourcePage`, listed in nav order.
  *
- * Single source of truth: the union below is derived from it and
+ * Single source of truth for *validation*: the union below is derived from it and
  * {@link normalizeDashboardPromptRequest} validates against it, so adding a page
  * cannot leave one of them behind. It previously could — `privacy` shipped in the
  * webview nav but was missing from both, which silently dropped `sourcePage` on
  * every "Ask Atlas" raised from that page.
+ *
+ * The nav's own order and grouping live in `PAGE_GROUPS` in
+ * `media/projectDashboard.js`, which is what actually renders the tabs. This
+ * list is kept in the same order for readability, but the two are not
+ * mechanically coupled — the webview normalises any unknown id back to
+ * `overview` rather than trusting it.
+ *
+ * `ideation` is deliberately last and has no tab: ideation is a separate panel,
+ * and this id exists only so prompts raised there route to
+ * `openIdeationPromptInChat`. It used to be indistinguishable from a real page,
+ * so `createOrShow(..., 'ideation')` type-checked and rendered a blank dashboard.
  */
 const DASHBOARD_PAGE_IDS = [
-  'overview', 'score', 'repo', 'runtime', 'testing', 'ssot', 'roadmap', 'gapAnalysis',
-  'security', 'privacy', 'risk', 'delivery', 'director', 'documents', 'ideation',
+  'overview', 'score', 'gapAnalysis', 'roadmap', 'director', 'runtime', 'repo', 'testing',
+  'security', 'privacy', 'risk', 'delivery', 'documents', 'ssot', 'ideation',
 ] as const;
 
 type DashboardPageId = typeof DASHBOARD_PAGE_IDS[number];
@@ -871,13 +883,14 @@ interface DashboardSnapshot {
   ideation: DashboardIdeationSnapshot;
   gapAnalysis: DashboardGapAnalysisSnapshot;
   privacy: DashboardPrivacySnapshot;
-  quickActions: Array<{
-    label: string;
-    description: string;
-    pageTarget: DashboardPageId;
-    command?: string;
-    filePath?: string;
-  }>;
+  // There is deliberately no `quickActions` here. Overview used to end with a
+  // grid of twelve equally-weighted shortcut cards, every one of which
+  // duplicated a destination already on screen — a tab, the hero score ring, a
+  // stat card on the same page, or the sidebar Quick Links. It was a second
+  // navigation system competing with the first, on the page that should answer
+  // "how are we doing?" rather than "where would you like to go?". Overview now
+  // closes with the short-horizon entries from `score.recommendations`, which
+  // are derived from real state and already carry their own action.
 }
 
 interface DashboardPrivacyModelNode {
@@ -2696,9 +2709,15 @@ export class ProjectDashboardPanel {
               <button id="dashboard-refresh" class="dashboard-button dashboard-button-ghost" type="button">Refresh</button>
             </div>
           </div>
-          <div id="dashboard-root" class="dashboard-root" aria-live="polite">
+          <!-- No aria-live here. render() replaces this entire subtree on every
+               state change, so a live region on the root made a screen reader
+               re-announce the whole dashboard on each keystroke and checkbox
+               toggle. Transient status is announced through #dashboard-status
+               instead. -->
+          <div id="dashboard-root" class="dashboard-root">
             <div class="dashboard-loading">Loading dashboard signals…</div>
           </div>
+          <div id="dashboard-status" class="visually-hidden" role="status" aria-live="polite"></div>
         </div>
       `,
       extraCss: DASHBOARD_CSS,
@@ -2956,7 +2975,6 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
   const prTemplatePresent = await fileExists(workspaceRoot ? path.join(workspaceRoot, '.github', 'pull_request_template.md') : undefined);
   const issueTemplateCount = await countIssueTemplates(workspaceRoot);
   const autopilot = atlas.toolApprovalManager.isAutopilot();
-  const ssotOpenTarget = ssotSnapshot.recentFiles[0]?.path ?? `${ssotPath}/project_soul.md`;
   const ciSignals = [
     { label: 'Compile script', ok: packageSnapshot.keyScripts.includes('compile') },
     { label: 'Lint script', ok: packageSnapshot.keyScripts.includes('lint') },
@@ -2971,6 +2989,9 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
   ];
   const outcomeCompleteness = await collectOutcomeCompleteness(workspaceRoot, ssotPath, runs, ciSignals);
   const ssotDelta = await collectSsotDelta(workspaceRoot, ssotPath, agents.length, memoryEntries, securityPolicyPresent, blockedEntries);
+  // Built before the score rather than inline in the snapshot below: the score
+  // now has a Data privacy component, so both need the same single evaluation.
+  const privacySnapshot = await buildPrivacySnapshot(atlas);
   const scoreBreakdown = buildScoreBreakdown({
     ssotPath,
     securityPolicyPresent,
@@ -2991,30 +3012,19 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
     reviewReadiness,
     outcomeCompleteness,
     risk: riskSnapshot,
+    privacy: privacySnapshot,
   });
   const repoLabel = workspaceRoot && gitSnapshot.currentBranch !== 'Not a git repository'
     ? `${workspaceRootLabel} • ${gitSnapshot.currentBranch}`
     : workspaceRootLabel;
-  const quickActions: DashboardSnapshot['quickActions'] = [
-    { label: 'Score Breakdown', description: 'Inspect the operational score, outcome completeness, and horizon-based recommendations.', pageTarget: 'score' as DashboardPageId },
-    { label: 'Open Chat View', description: 'Jump into the embedded Atlas workspace.', command: 'atlasmind.openChatView', pageTarget: 'runtime' as DashboardPageId },
-    { label: 'Ideation Whiteboard', description: 'Open the dedicated project ideation dashboard.', command: 'atlasmind.openProjectIdeation', pageTarget: 'runtime' as DashboardPageId },
-    { label: 'Project Run Center', description: 'Inspect recent autonomous runs and approval state.', command: 'atlasmind.openProjectRunCenter', pageTarget: 'runtime' as DashboardPageId },
-    { label: 'Model Providers', description: 'Check routed model health and configuration.', command: 'atlasmind.openModelProviders', pageTarget: 'runtime' as DashboardPageId },
-    { label: 'Roadmap Backlog', description: 'Review and reorder the developer roadmap Atlas uses for next-work decisions.', pageTarget: 'roadmap' as DashboardPageId },
-    { label: 'Testing Explorer', description: 'Browse suites, individual tests, and source-linked test details.', pageTarget: 'testing' as DashboardPageId },
-    { label: 'Safety Settings', description: 'Review approvals, verification, and terminal policy.', command: 'atlasmind.openSettingsSafety', pageTarget: 'security' as DashboardPageId },
-    { label: 'Project Settings', description: 'Adjust project-run thresholds and governance defaults.', command: 'atlasmind.openSettingsProject', pageTarget: 'delivery' as DashboardPageId },
-    { label: 'Security Policy', description: 'Open the repository security policy.', filePath: 'SECURITY.md', pageTarget: 'security' as DashboardPageId },
-    { label: 'Workflow File', description: 'Inspect the primary CI workflow.', filePath: workflowSnapshot[0]?.path, pageTarget: 'delivery' as DashboardPageId },
-    { label: 'SSOT Entry', description: 'Open the most recently touched SSOT document.', filePath: ssotOpenTarget, pageTarget: 'ssot' as DashboardPageId },
-  ].filter(action => typeof action.filePath !== 'undefined' ? action.filePath.trim().length > 0 : true);
 
   // Normalise to /100 from the components actually present rather than assuming the
   // maxScores happen to sum to 100. They did by convention, but nothing enforced it,
   // and the UI hard-codes "/100" in the ring, the headline, and the >=85/>=65 bands.
-  // Deriving the denominator keeps those correct while categories come and go — the
-  // risk component in particular is absent until a project has been assessed.
+  // Deriving the denominator keeps those correct as categories change. Every
+  // component is now unconditional, so the denominator is fixed at 127 — but it
+  // stays derived rather than hard-coded, because the last time a category was
+  // conditional this is the line that kept the ring honest.
   const earnedScore = scoreBreakdown.components.reduce((total, component) => total + component.score, 0);
   const availableScore = scoreBreakdown.components.reduce((total, component) => total + component.maxScore, 0);
   const normalizedHealthScore = availableScore > 0 ? Math.round((earnedScore / availableScore) * 100) : 0;
@@ -3229,8 +3239,7 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
       updatedRelative: formatRelativeDate(ideationBoard.updatedAt),
     },
     gapAnalysis,
-    privacy: await buildPrivacySnapshot(atlas),
-    quickActions,
+    privacy: privacySnapshot,
   };
 }
 
@@ -5316,6 +5325,14 @@ interface DashboardRiskDomainView {
   daysSinceRun?: number;
   openCount: number;
   stale: boolean;
+  /**
+   * What this advisor actually reviews, taken from its own agent definition.
+   *
+   * A clean result is only meaningful if you can see what was looked for — "no
+   * concerns" reads as "nothing was checked" otherwise. Sourced from the
+   * registry rather than restated here so the two cannot drift.
+   */
+  coverage?: string;
 }
 
 interface DashboardRiskSnapshot {
@@ -5411,10 +5428,19 @@ function collectRiskSnapshot(atlas: AtlasMindContext, workspaceRoot: string | un
     const run = config?.runs.find(entry => entry.domain === domain);
     const parsed = run ? Date.parse(run.ranAt) : Number.NaN;
     const daysSinceRun = Number.isNaN(parsed) ? undefined : Math.floor((now - parsed) / 86_400_000);
+    const agentId = `${domain}-oversight`;
+    // The advisor's own description is the authoritative statement of what it
+    // reviews; the sentence about being advisory belongs on the page intro, not
+    // on every card, so only the first sentence is carried across.
+    // Optional *call*, not just optional access: this is descriptive enrichment,
+    // and a registry that cannot answer must never take the whole dashboard
+    // snapshot down with it.
+    const coverage = atlas.agentRegistry?.get?.(agentId)?.description?.split(/(?<=\.)\s+/)[0];
     return {
       domain,
       label: RISK_DOMAIN_LABEL[domain],
-      agentId: `${domain}-oversight`,
+      agentId,
+      ...(coverage ? { coverage } : {}),
       ...(run ? { lastRun: run.ranAt } : {}),
       ...(daysSinceRun === undefined ? {} : { daysSinceRun }),
       openCount: open.filter(finding => finding.domain === domain).length,
@@ -5944,6 +5970,7 @@ export function buildScoreBreakdown(input: {
   reviewReadiness: Array<{ label: string; ok: boolean }>;
   outcomeCompleteness: DashboardOutcomeCompleteness;
   risk: DashboardRiskSnapshot;
+  privacy: DashboardPrivacySnapshot;
 }): DashboardScoreBreakdown {
   const components: DashboardScoreComponent[] = [
     {
@@ -6018,25 +6045,84 @@ export function buildScoreBreakdown(input: {
     },
   ];
 
-  // Risk contributes only once an oversight advisor has actually run. Before that the
-  // exposure is unknown, not zero — scoring it as 0/15 would silently drop every
-  // existing project's health number for a risk nobody has been told about, and
-  // scoring it as 15/15 would be false assurance. Omitting it entirely leaves the
-  // normalised total untouched until there is evidence to weigh.
-  if (input.risk.assessed && input.risk.score !== undefined) {
-    const riskScore = input.risk.score;
-    components.push({
-      id: 'risk',
-      label: 'Risk oversight',
-      score: Math.round((riskScore / 100) * 15),
-      maxScore: 15,
-      detail: input.risk.summary,
-      tone: riskScore >= 80 ? 'good' : riskScore >= 55 ? 'accent' : riskScore >= 30 ? 'warn' : 'critical',
+  // Risk and Privacy are always present, so an area nobody has looked at costs
+  // points rather than quietly leaving the denominator.
+  //
+  // This reverses an earlier decision. Risk used to be omitted until an advisor
+  // had run, on the reasoning that an unassessed exposure is *unknown* rather
+  // than zero, and that scoring it 0/15 would silently drop every project's
+  // health number. That protected the number at the cost of the thing the number
+  // is for: with the component absent, a project that has never been assessed
+  // scores identically to one assessed and found clean, which is the one
+  // comparison the score most needs to make.
+  //
+  // The "unknown, not failing" concern is real and is handled in presentation
+  // rather than by omission: an unassessed area scores 0 but is toned `warn`,
+  // not `critical`, and its detail says the points are *unclaimed* and names the
+  // action that claims them. A recommendation is raised alongside it.
+  const riskAssessed = input.risk.assessed && input.risk.score !== undefined;
+  const riskScore = riskAssessed ? input.risk.score! : 0;
+  components.push({
+    id: 'risk',
+    label: 'Risk oversight',
+    score: riskAssessed ? Math.round((riskScore / 100) * 15) : 0,
+    maxScore: 15,
+    detail: riskAssessed
+      ? input.risk.summary
+      : 'Not yet assessed — 15 points unclaimed. Run the ethics, legal and commercial advisors to claim them; an unassessed project is unknown, not safe.',
+    tone: !riskAssessed
+      ? 'warn'
+      : riskScore >= 80 ? 'good' : riskScore >= 55 ? 'accent' : riskScore >= 30 ? 'warn' : 'critical',
+    pageTarget: 'risk',
+  });
+
+  // Privacy: the data boundary between this workspace and an un-trusted model.
+  // Scored on whether the gate is on, whether anything actually classifies, and
+  // whether the model estate has been curated — not on how many matches fired,
+  // which measures the project's content rather than its posture.
+  const privacyEnabled = input.privacy.enabled;
+  const privacyHasRules = input.privacy.compliancePacks.length > 0
+    || input.privacy.rules.some(rule => rule.enabled);
+  const privacyHasTrustedModels = input.privacy.trustedModelIds.length > 0;
+  const privacyConfigured = privacyEnabled || privacyHasRules || privacyHasTrustedModels;
+  const privacyScore = (privacyEnabled ? 5 : 0)
+    + (privacyHasRules ? 4 : 0)
+    + (privacyHasTrustedModels ? 3 : 0);
+  components.push({
+    id: 'privacy',
+    label: 'Data privacy',
+    score: privacyScore,
+    maxScore: 12,
+    detail: !privacyConfigured
+      ? 'Not yet configured — 12 points unclaimed. Turn the gate on and choose the compliance packs that match your data to claim them.'
+      : `${privacyEnabled ? 'Gate on' : 'Gate off'} • ${input.privacy.compliancePacks.length} compliance pack(s), ${input.privacy.rules.filter(rule => rule.enabled).length} active rule(s), ${input.privacy.trustedModelIds.length} trusted model(s).`,
+    tone: !privacyConfigured ? 'warn' : privacyScore >= 10 ? 'good' : privacyScore >= 6 ? 'accent' : 'warn',
+    pageTarget: 'privacy',
+  });
+
+  const recommendations: DashboardScoreRecommendation[] = [];
+
+  // An unclaimed area costs more than most things a project can fix, so these
+  // lead — and they say what the points are worth, because a score that drops
+  // without explaining itself is just noise.
+  if (!riskAssessed) {
+    recommendations.push({
+      horizon: 'short',
+      title: 'Assess risk oversight',
+      detail: 'Ethics, legal and commercial exposure has never been reviewed on this project. The score counts that as unclaimed rather than clean, so 15 points are currently withheld.',
+      impactLabel: '+15 pts',
       pageTarget: 'risk',
     });
   }
-
-  const recommendations: DashboardScoreRecommendation[] = [];
+  if (!privacyConfigured) {
+    recommendations.push({
+      horizon: 'short',
+      title: 'Configure the data privacy gate',
+      detail: 'Nothing currently classifies workspace content before it reaches a model. Turn the gate on and select the compliance packs that match the data this project handles.',
+      impactLabel: '+12 pts',
+      pageTarget: 'privacy',
+    });
+  }
 
   if (input.blockedEntries > 0) {
     recommendations.push({
@@ -6966,22 +7052,10 @@ function toWorkspaceRelative(workspaceRoot: string, absolutePath: string): strin
 }
 
 const DASHBOARD_CSS = `
-  :root {
-    --dash-bg: radial-gradient(circle at top left, color-mix(in srgb, var(--vscode-button-background) 18%, transparent), transparent 40%), linear-gradient(180deg, color-mix(in srgb, var(--vscode-editor-background) 86%, black 14%), var(--vscode-editor-background));
-    --dash-panel: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-editor-background)) 78%, transparent);
-    --dash-panel-strong: color-mix(in srgb, var(--vscode-sideBar-background, var(--vscode-editor-background)) 88%, black 12%);
-    --dash-border: color-mix(in srgb, var(--vscode-widget-border, var(--vscode-panel-border)) 70%, transparent);
-    --dash-accent: var(--vscode-button-background);
-    --dash-accent-strong: color-mix(in srgb, var(--vscode-button-background) 78%, white 22%);
-    --dash-good: var(--vscode-testing-iconPassed, #4bb878);
-    --dash-warn: var(--vscode-testing-iconQueued, #d7a34b);
-    --dash-critical: var(--vscode-testing-iconFailed, #d05f5f);
-    --dash-muted: var(--vscode-descriptionForeground);
-    --dash-heading: "Segoe UI Variable Display", "Aptos Display", "Trebuchet MS", sans-serif;
-    --dash-body: "Segoe UI Variable Text", "Aptos", "Segoe UI", sans-serif;
-    --dash-radius: 20px;
-    --dash-shadow: 0 18px 48px rgba(0, 0, 0, 0.18);
-  }
+  /* Tokens, the reduced-motion baseline and the shared control primitives
+     live in dashboardTheme.ts so every AtlasMind panel draws on one
+     definition. The dashboard-specific rules below layer on top. */
+  ${DASHBOARD_THEME_CSS}
 
   body {
     padding: 0;
@@ -7223,8 +7297,14 @@ const DASHBOARD_CSS = `
     stroke-linecap: round;
     transform: rotate(-90deg);
     transform-origin: 50% 50%;
-    transition: stroke-dashoffset 420ms ease;
+    transition: stroke-dashoffset var(--dash-dur-entry) var(--dash-ease), stroke var(--dash-dur-value) ease;
   }
+
+  /* Score is the one number the hero exists to convey — carry it in the ring
+     colour too, not only in the digits underneath. */
+  .score-ring.ring-good .score-ring-progress { stroke: var(--dash-good); }
+  .score-ring.ring-warn .score-ring-progress { stroke: var(--dash-warn); }
+  .score-ring.ring-critical .score-ring-progress { stroke: var(--dash-critical); }
 
   .score-value {
     text-align: center;
@@ -7239,23 +7319,111 @@ const DASHBOARD_CSS = `
     font-size: 13px;
   }
 
+  /* Sticky so switching tabs on the long pages (Delivery, Director, Testing)
+     does not mean scrolling back to the top first. */
   .toolbar-row {
+    position: sticky;
+    top: 0;
+    z-index: 20;
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: flex-end;
     gap: 16px;
+    flex-wrap: wrap;
+    padding: 10px 0 12px;
+    margin-bottom: 2px;
+    background: linear-gradient(180deg, var(--vscode-editor-background) 78%, color-mix(in srgb, var(--vscode-editor-background) 60%, transparent));
+    backdrop-filter: blur(6px);
+    border-bottom: 1px solid color-mix(in srgb, var(--dash-border) 55%, transparent);
+  }
+
+  /* ── Section navigation ───────────────────────────────────────────────
+     Fourteen identical pills in one wrapping row read as a wall. The tabs are
+     clustered into five labelled groups that follow a manager's reading order,
+     and each cluster wraps as a unit so a group is never split across rows. */
+  .page-nav {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 6px 18px;
+    flex: 1 1 auto;
+  }
+
+  .nav-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .nav-group + .nav-group {
+    padding-left: 18px;
+    border-left: 1px solid color-mix(in srgb, var(--dash-border) 70%, transparent);
+  }
+
+  .nav-group-label {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: color-mix(in srgb, var(--dash-muted) 88%, transparent);
+    padding-left: 4px;
+  }
+
+  .nav-group-tabs {
+    display: flex;
+    gap: 6px;
+  }
+
+  /* ── Recommended next (Overview footer) ───────────────────────────────
+     Replaces a grid of twelve shortcut cards, every one of which duplicated a
+     destination already reachable from the tabs, the hero score ring, a stat
+     card on the same page, or the sidebar. */
+  .next-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .next-actions-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 12px;
     flex-wrap: wrap;
   }
 
-  .page-nav,
-  .timescale-switch {
-    display: inline-flex;
-    gap: 8px;
+  .next-actions-head h3 { margin: 2px 0 0; }
+  .next-actions-head .section-kicker { margin: 0; }
+
+  /* An honest statement of where a card goes. The cards this replaced labelled
+     themselves from an inert pageTarget, so "Open Chat View" announced itself
+     as "runtime" while opening a different panel. */
+  .card-destination {
+    display: inline-block;
+    margin-top: 8px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: color-mix(in srgb, var(--dash-accent-strong) 88%, var(--vscode-foreground));
+  }
+
+  .next-actions-empty h3 { margin: 2px 0 6px; }
+
+  /* Caption + control, sitting immediately above the charts it filters. */
+  .chart-range-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
     flex-wrap: wrap;
+    margin-top: 2px;
+  }
+
+  .chart-range-row .section-kicker {
+    margin: 0;
   }
 
   .page-nav button,
-  .timescale-switch button,
   .action-link {
     border-radius: 999px;
     border: 1px solid var(--dash-border);
@@ -7266,13 +7434,98 @@ const DASHBOARD_CSS = `
     font-weight: 600;
   }
 
-  .page-nav button.active,
-  .timescale-switch button.active,
+  .nav-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    white-space: nowrap;
+    transition: background var(--dash-dur-fast) var(--dash-ease), border-color var(--dash-dur-fast) var(--dash-ease), color var(--dash-dur-fast) var(--dash-ease);
+  }
+
   .action-link:hover,
   .action-link:focus-visible {
     background: color-mix(in srgb, var(--dash-accent) 84%, transparent);
     border-color: color-mix(in srgb, var(--dash-accent) 80%, white 20%);
   }
+
+  .nav-tab:hover {
+    border-color: color-mix(in srgb, var(--dash-accent) 60%, var(--dash-border));
+    background: color-mix(in srgb, var(--dash-panel) 96%, transparent);
+  }
+
+  /* The selected tab used to differ only by background colour, and it shared
+     that exact rule with .action-link:hover — so a hovered link elsewhere on
+     the page read as the active tab. Selection now also carries weight, a
+     ring and an underline marker, none of which are colour-dependent. */
+  .page-nav button[aria-selected="true"] {
+    background: color-mix(in srgb, var(--dash-accent) 84%, transparent);
+    border-color: color-mix(in srgb, var(--dash-accent) 80%, white 20%);
+    color: var(--vscode-button-foreground, var(--vscode-foreground));
+    font-weight: 700;
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--dash-accent-strong) 55%, transparent), 0 6px 16px color-mix(in srgb, var(--dash-accent) 26%, transparent);
+  }
+
+  .page-nav button[aria-selected="true"]::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: -5px;
+    width: 16px;
+    height: 2px;
+    border-radius: 2px;
+    transform: translateX(-50%);
+    background: var(--dash-accent-strong);
+  }
+
+  .nav-tab { position: relative; }
+
+  /* Keyboard focus had no styled ring on the nav at all. */
+  .page-nav button:focus-visible {
+    outline: 2px solid var(--dash-accent-strong);
+    outline-offset: 2px;
+  }
+
+  /* Attention badges. Tone is doubled by shape/weight so the signal survives
+     a colour-vision difference or a high-contrast theme. */
+  .nav-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 17px;
+    height: 17px;
+    padding: 0 5px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    background: color-mix(in srgb, var(--dash-muted) 40%, transparent);
+    color: var(--vscode-foreground);
+  }
+
+  /* Tinted fill + the tone colour as text, rather than a solid fill with a
+     hard-coded foreground. A solid fill forces a fixed text colour, and any
+     fixed value is wrong in one of the two themes — #1c1400 on the warn badge
+     read as black text. A translucent tint of the tone over the panel surface
+     keeps the badge legible whichever way the theme goes. */
+  .nav-badge-critical {
+    background: color-mix(in srgb, var(--dash-critical) 24%, transparent);
+    color: var(--dash-critical);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--dash-critical) 45%, transparent);
+  }
+
+  .nav-badge-warn {
+    background: color-mix(in srgb, var(--dash-warn) 24%, transparent);
+    color: var(--dash-warn);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--dash-warn) 45%, transparent);
+  }
+
+  .nav-badge-accent {
+    background: color-mix(in srgb, var(--dash-accent-strong) 22%, transparent);
+    color: var(--dash-accent-strong);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--dash-accent-strong) 40%, transparent);
+  }
+
 
   .stats-grid,
   .chart-grid,
@@ -7393,6 +7646,24 @@ const DASHBOARD_CSS = `
   .privacy-tree-count { opacity: 0.7; font-size: 0.8em; white-space: nowrap; }
   .privacy-tree-models { display: flex; flex-direction: column; gap: 4px; margin: 6px 0 2px 22px; }
   .privacy-tree-model { display: flex; align-items: center; gap: 6px; padding: 2px 0; cursor: pointer; }
+
+  /* How much of each provider's estate is cleared for confidential context,
+     without having to expand the provider. */
+  .privacy-tree-meter {
+    height: 4px;
+    margin: 2px 0 0 26px;
+    border-radius: 999px;
+    overflow: hidden;
+    background: color-mix(in srgb, var(--dash-border) 55%, transparent);
+  }
+
+  .privacy-tree-meter > span {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+    background: var(--dash-good);
+    transition: width var(--dash-dur-value) var(--dash-ease);
+  }
   .privacy-tree-model.on .privacy-tree-model-name { font-weight: 600; }
   .privacy-source-bars { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
   .privacy-governance {
@@ -7486,7 +7757,7 @@ const DASHBOARD_CSS = `
 
   .chart-shell {
     position: relative;
-    min-height: 190px;
+    min-height: 208px;
     display: grid;
     align-items: end;
   }
@@ -7496,8 +7767,7 @@ const DASHBOARD_CSS = `
     grid-template-columns: repeat(var(--bar-count), minmax(0, 1fr));
     gap: 6px;
     align-items: end;
-    height: 190px;
-    padding-top: 18px;
+    height: 100%;
   }
 
   .chart-bar {
@@ -7516,9 +7786,229 @@ const DASHBOARD_CSS = `
     min-height: 4px;
     background: linear-gradient(180deg, color-mix(in srgb, var(--dash-accent) 96%, white 4%), color-mix(in srgb, var(--dash-accent) 44%, transparent));
     transform-origin: bottom;
-    animation: dashBarRise 520ms ease forwards;
     opacity: 0.88;
   }
+
+  /* The rise is gated on .is-animating, which applyValueAnimations() adds only
+     when the series or the timescale actually changed. It used to be
+     unconditional, so up to 90 bars replayed on every unrelated re-render. */
+  .chart-bars.is-animating .chart-bar-column {
+    animation: dashBarRise var(--dash-dur-entry) var(--dash-ease) backwards;
+    animation-delay: calc(var(--bar-index, 0) * 6ms);
+  }
+
+  .chart-bar.is-peak .chart-bar-column {
+    background: linear-gradient(180deg, color-mix(in srgb, var(--dash-good) 88%, white 12%), color-mix(in srgb, var(--dash-good) 40%, transparent));
+    opacity: 1;
+  }
+
+  /* Headroom is a margin, not padding, so the mean line's percentage bottom
+     resolves against exactly the same box the bar heights are measured in. */
+  .chart-plot {
+    position: relative;
+    height: 190px;
+    margin-top: 18px;
+  }
+
+  /* Mean line: gives every bar a reference without adding a second series. */
+  .chart-mean {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 0;
+    border-top: 1px dashed color-mix(in srgb, var(--dash-muted) 55%, transparent);
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .chart-mean-label {
+    position: absolute;
+    right: 0;
+    top: -8px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: var(--dash-muted);
+    background: color-mix(in srgb, var(--dash-panel-strong) 88%, transparent);
+    border-radius: 6px;
+    padding: 1px 5px;
+  }
+
+  .chart-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .chart-headline {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    text-align: right;
+  }
+
+  .chart-total {
+    font-family: var(--dash-heading);
+    font-size: 26px;
+    font-weight: 700;
+    line-height: 1.1;
+  }
+
+  .chart-trend {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--dash-muted);
+  }
+
+  .chart-trend.trend-up { color: var(--dash-good); }
+  .chart-trend.trend-down { color: var(--dash-warn); }
+
+  /* ── Distribution bar ─────────────────────────────────────────────────
+     Segmented proportion bar + legend. Replaces the "3 verified · 1 blocked"
+     sentences that carried counts but no magnitude. */
+  .dist-block {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+
+  .dist-title {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .dist-bar {
+    display: flex;
+    height: 12px;
+    border-radius: 999px;
+    overflow: hidden;
+    background: color-mix(in srgb, var(--dash-border) 45%, transparent);
+  }
+
+  .dist-seg {
+    display: block;
+    height: 100%;
+    min-width: 2px;
+    transition: width var(--dash-dur-value) var(--dash-ease);
+  }
+
+  .dist-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+  }
+
+  .dist-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    color: var(--dash-muted);
+  }
+
+  .dist-legend-item strong {
+    color: var(--vscode-foreground);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .dist-swatch {
+    width: 9px;
+    height: 9px;
+    border-radius: 3px;
+    flex: none;
+  }
+
+  .dist-empty {
+    font-size: 12px;
+    color: var(--dash-muted);
+  }
+
+  /* What an advisor reviews, so a clean result is legible as "checked and
+     clear" rather than "never looked". Opens itself when a domain has run and
+     found nothing, which is exactly when the question arises. */
+  .risk-coverage {
+    margin-top: 6px;
+  }
+
+  .risk-coverage > summary {
+    cursor: pointer;
+    list-style: none;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--dash-muted);
+    padding: 2px 0;
+  }
+
+  .risk-coverage > summary::-webkit-details-marker { display: none; }
+
+  .risk-coverage > summary::before {
+    content: "\\25B8";
+    display: inline-block;
+    margin-right: 6px;
+    transition: transform var(--dash-dur-fast) var(--dash-ease);
+  }
+
+  .risk-coverage[open] > summary::before { transform: rotate(90deg); }
+  .risk-coverage > summary:hover { color: var(--vscode-foreground); }
+  .risk-coverage .stat-detail { margin: 4px 0 0; }
+
+  /* ── Release strip ────────────────────────────────────────────────────
+     One tick per recorded promotion, oldest left. Turns "read eight rows" into
+     "glance at the run of green". */
+  .release-strip {
+    display: flex;
+    gap: 3px;
+    align-items: flex-end;
+    margin: 2px 0 10px;
+    min-height: 22px;
+  }
+
+  .release-tick {
+    flex: 1 1 6px;
+    max-width: 22px;
+    height: 18px;
+    border-radius: 4px;
+    background: var(--dash-good);
+  }
+
+  .release-tick.fail {
+    background: var(--dash-critical);
+    height: 22px;
+  }
+
+  /* Rollbacks are notched so they are distinguishable without relying on hue. */
+  .release-tick.rollback {
+    background: repeating-linear-gradient(135deg, var(--dash-warn) 0 3px, color-mix(in srgb, var(--dash-warn) 55%, transparent) 3px 6px);
+  }
+
+  .release-rate {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    padding: 2px 9px;
+    border-radius: 999px;
+    border: 1px solid var(--dash-border);
+  }
+
+  .release-rate.good { color: var(--dash-good); border-color: color-mix(in srgb, var(--dash-good) 50%, var(--dash-border)); }
+  .release-rate.warn { color: var(--dash-warn); border-color: color-mix(in srgb, var(--dash-warn) 50%, var(--dash-border)); }
+  .release-rate.bad { color: var(--dash-critical); border-color: color-mix(in srgb, var(--dash-critical) 50%, var(--dash-border)); }
+
+  .dist-good { background: var(--dash-good); }
+  .dist-warn { background: var(--dash-warn); }
+  .dist-critical { background: var(--dash-critical); }
+  .dist-accent { background: var(--dash-accent-strong); }
+  .dist-muted { background: color-mix(in srgb, var(--dash-muted) 45%, transparent); }
 
   .chart-bar.active .chart-bar-column,
   .chart-bar:hover .chart-bar-column,
@@ -7539,12 +8029,23 @@ const DASHBOARD_CSS = `
     padding: 12px 14px;
   }
 
-  .action-card,
-  .recent-item,
+  /* .action-card and .recent-item are deliberately absent here. They render as
+     both real buttons and inert <div>s, and this blanket rule used to hand a
+     hand-cursor to every one of them — overriding the scoped rule above and
+     making ~15 dead cards across Repo, Roadmap, Testing, Gap Analysis and
+     Documents look clickable. They get their cursor from the
+     "button.x, .x.is-actionable" rule instead. */
   .workflow-card,
   .review-card,
   .branch-card {
     cursor: pointer;
+  }
+
+  /* Belt and braces: if a static variant ever ends up inside a container that
+     sets a pointer cursor, it still reads as inert. */
+  .recent-item:not(.is-actionable):not(button),
+  .action-card.static {
+    cursor: default;
   }
 
   .action-card {
@@ -7617,11 +8118,72 @@ const DASHBOARD_CSS = `
     padding: 12px 14px;
   }
 
+  /* An at-rest marker for the clickable variant. The identical card chrome is
+     used for both live and inert rows, so before this the only thing telling
+     them apart was the hover lift — which the user only discovers after
+     committing to a click. */
+  button.recent-item,
+  .recent-item.is-actionable,
+  button.branch-card,
+  button.artifact-row {
+    position: relative;
+    padding-right: 30px;
+  }
+
+  button.recent-item::after,
+  .recent-item.is-actionable::after,
+  button.branch-card::after,
+  button.artifact-row::after {
+    content: "›";
+    position: absolute;
+    top: 12px;
+    right: 13px;
+    font-size: 15px;
+    line-height: 1;
+    color: color-mix(in srgb, var(--dash-accent-strong) 78%, transparent);
+    opacity: 0.55;
+    transition: opacity var(--dash-dur-fast) var(--dash-ease), transform var(--dash-dur-fast) var(--dash-ease);
+  }
+
+  button.recent-item:hover::after,
+  button.recent-item:focus-visible::after,
+  .recent-item.is-actionable:hover::after,
+  .recent-item.is-actionable:focus-visible::after,
+  button.branch-card:hover::after,
+  button.branch-card:focus-visible::after,
+  button.artifact-row:hover::after,
+  button.artifact-row:focus-visible::after {
+    opacity: 1;
+    transform: translateX(2px);
+  }
+
   .row-head {
     display: flex;
     justify-content: space-between;
     gap: 12px;
     align-items: flex-start;
+  }
+
+  /* The Testing browser's category wrapper used to reuse .recent-item, so an
+     inert card sat directly around live ones with identical chrome. It is a
+     grouping element, not a card — style it as a heading instead. */
+  .test-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .test-group-head {
+    padding: 2px 2px 0;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--dash-muted);
+  }
+
+  .test-group-head strong {
+    font-size: 11px;
+    letter-spacing: inherit;
   }
 
   .hero-grid > *,
@@ -7665,19 +8227,19 @@ const DASHBOARD_CSS = `
 
   .tag-good {
     border-color: color-mix(in srgb, var(--dash-good) 65%, var(--dash-border));
-    color: color-mix(in srgb, var(--dash-good) 85%, white 15%);
+    color: color-mix(in srgb, var(--dash-good) 85%, var(--tint-away) 15%);
     background: color-mix(in srgb, var(--dash-good) 16%, transparent);
   }
 
   .tag-warn {
     border-color: color-mix(in srgb, var(--dash-warn) 65%, var(--dash-border));
-    color: color-mix(in srgb, var(--dash-warn) 86%, white 14%);
+    color: color-mix(in srgb, var(--dash-warn) 86%, var(--tint-away) 14%);
     background: color-mix(in srgb, var(--dash-warn) 14%, transparent);
   }
 
   .tag-critical {
     border-color: color-mix(in srgb, var(--dash-critical) 70%, var(--dash-border));
-    color: color-mix(in srgb, var(--dash-critical) 86%, white 14%);
+    color: color-mix(in srgb, var(--dash-critical) 86%, var(--tint-away) 14%);
     background: color-mix(in srgb, var(--dash-critical) 14%, transparent);
   }
 
@@ -7690,7 +8252,7 @@ const DASHBOARD_CSS = `
 
   .tag-mvp {
     border-color: color-mix(in srgb, var(--dash-accent-strong) 70%, var(--dash-border));
-    color: color-mix(in srgb, var(--dash-accent-strong) 88%, white 12%);
+    color: color-mix(in srgb, var(--dash-accent-strong) 88%, var(--tint-away) 12%);
     background: color-mix(in srgb, var(--dash-accent-strong) 18%, transparent);
     font-weight: 600;
     letter-spacing: 0.04em;
@@ -7710,7 +8272,10 @@ const DASHBOARD_CSS = `
 
   .roadmap-item .drag-handle {
     cursor: grab;
-    color: color-mix(in srgb, var(--dash-fg) 45%, transparent);
+    /* Was var(--dash-fg), which is not defined — the whole declaration was
+       invalid at computed-value time, so the handle inherited body colour and
+       never read as a de-emphasised affordance. */
+    color: color-mix(in srgb, var(--vscode-foreground) 45%, transparent);
     font-size: 14px;
     line-height: 1;
     letter-spacing: -2px;
@@ -7761,7 +8326,7 @@ const DASHBOARD_CSS = `
     height: 100%;
     border-radius: 999px;
     background: var(--dash-accent-strong);
-    transition: width 420ms ease;
+    transition: width var(--dash-dur-value) var(--dash-ease);
   }
 
   .mvp-track {
@@ -7817,13 +8382,13 @@ const DASHBOARD_CSS = `
   .mvp-node.done .mvp-node-dot {
     border-color: color-mix(in srgb, var(--dash-good) 70%, var(--dash-border));
     background: color-mix(in srgb, var(--dash-good) 22%, transparent);
-    color: color-mix(in srgb, var(--dash-good) 90%, white 10%);
+    color: color-mix(in srgb, var(--dash-good) 90%, var(--tint-away) 10%);
   }
 
   .mvp-node.active .mvp-node-dot {
     border-color: var(--dash-accent-strong);
     background: color-mix(in srgb, var(--dash-accent-strong) 22%, transparent);
-    color: color-mix(in srgb, var(--dash-accent-strong) 92%, white 8%);
+    color: color-mix(in srgb, var(--dash-accent-strong) 92%, var(--tint-away) 8%);
     box-shadow: 0 0 0 4px color-mix(in srgb, var(--dash-accent-strong) 18%, transparent);
   }
 
@@ -7853,7 +8418,7 @@ const DASHBOARD_CSS = `
     font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    color: color-mix(in srgb, var(--dash-accent-strong) 86%, white 14%);
+    color: color-mix(in srgb, var(--dash-accent-strong) 86%, var(--tint-away) 14%);
   }
 
   /* ── Shared design-refresh primitives ─────────────────────────────── */
@@ -7892,7 +8457,7 @@ const DASHBOARD_CSS = `
     height: 100%;
     border-radius: 999px;
     background: var(--dash-accent-strong);
-    transition: width 420ms ease;
+    transition: width var(--dash-dur-value) var(--dash-ease);
   }
 
   button.metric-pill:hover,
@@ -7927,7 +8492,7 @@ const DASHBOARD_CSS = `
     margin-top: 8px;
     font-size: 11px;
     font-weight: 600;
-    color: color-mix(in srgb, var(--dash-accent-strong) 86%, white 14%);
+    color: color-mix(in srgb, var(--dash-accent-strong) 86%, var(--tint-away) 14%);
   }
 
   /* Page intro band — plain-English orientation at the top of each page */
@@ -8122,6 +8687,7 @@ const DASHBOARD_CSS = `
     height: 100%;
     border-radius: inherit;
     background: linear-gradient(90deg, color-mix(in srgb, var(--dash-accent) 94%, white 6%), color-mix(in srgb, var(--dash-good) 70%, var(--dash-accent)));
+    transition: width var(--dash-dur-value) var(--dash-ease);
   }
 
   .delta-header {
@@ -8281,7 +8847,9 @@ const DASHBOARD_CSS = `
   .artifact-name {
     font-size: 12px;
     font-weight: 600;
-    font-family: var(--dash-mono);
+    /* Was var(--dash-mono), which is not defined — artifact paths rendered in
+       the body font instead of monospace. */
+    font-family: var(--vscode-editor-font-family, monospace);
   }
 
   .artifact-desc {
@@ -8351,7 +8919,7 @@ const DASHBOARD_CSS = `
   }
 
   .artifact-attention-badge.good {
-    color: color-mix(in srgb, var(--dash-good) 90%, white);
+    color: color-mix(in srgb, var(--dash-good) 90%, var(--tint-away));
     background: color-mix(in srgb, var(--dash-good) 14%, transparent);
     border-color: color-mix(in srgb, var(--dash-good) 36%, transparent);
   }
@@ -8639,7 +9207,7 @@ const DASHBOARD_CSS = `
     font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.12em;
-    color: color-mix(in srgb, var(--vscode-foreground) 66%, white 34%);
+    color: color-mix(in srgb, var(--vscode-foreground) 66%, var(--tint-away) 34%);
   }
 
   .ideation-card strong {
@@ -8649,7 +9217,7 @@ const DASHBOARD_CSS = `
 
   .ideation-card p {
     margin: 0;
-    color: color-mix(in srgb, var(--vscode-foreground) 74%, white 26%);
+    color: color-mix(in srgb, var(--vscode-foreground) 74%, var(--tint-away) 26%);
     font-size: 13px;
     line-height: 1.45;
   }
@@ -8752,15 +9320,21 @@ const DASHBOARD_CSS = `
     .ideation-shell { grid-template-columns: 1fr; }
   }
 
-    .score-summary-grid,
-    .score-recommendation-grid,
+  /* This block used to be malformed: two orphaned selectors sat directly above the
+     at-rule, so the parser read \`@media\` as the third item of a selector prelude,
+     treated the whole thing as an invalid qualified rule and discarded it — the
+     820px breakpoint never applied. The stray \`.score-outcome-card .mini-grid\`
+     declaration that trailed it then leaked to every viewport, pinning the Score
+     page's outcome grid to one column at all widths. */
   @media (max-width: 820px) {
     .dashboard-shell { padding: 16px; }
     .stats-grid,
     .signal-grid { grid-template-columns: 1fr; }
+    .score-summary-grid,
+    .score-recommendation-grid,
+    .score-outcome-card .mini-grid { grid-template-columns: 1fr; }
   }
 
-    .score-outcome-card .mini-grid { grid-template-columns: 1fr; }
   @keyframes dashBarRise {
     from { transform: scaleY(0.2); opacity: 0.25; }
     to { transform: scaleY(1); opacity: 0.92; }
@@ -8893,4 +9467,68 @@ const DASHBOARD_CSS = `
   .promo-step-out { font-family: var(--vscode-editor-font-family, monospace); font-size: 0.82em; color: var(--vscode-descriptionForeground); margin: 2px 0 0 18px; white-space: pre-wrap; word-break: break-word; }
   .promo-result.good > h4 { color: var(--vscode-charts-green, #89d185); }
   .promo-result.bad > h4 { color: var(--vscode-errorForeground, #f14c4c); }
+
+  /* ── Reduced motion ───────────────────────────────────────────────────
+     The stylesheet had no prefers-reduced-motion handling at all. Every
+     animation degrades to a plain state change; nothing is hidden, only the
+     movement is removed. applyValueAnimations() also short-circuits on the
+     same signal, so reduced-motion users never pay the class churn either. */
+  @media (prefers-reduced-motion: reduce) {
+    .chart-bars.is-animating .chart-bar-column {
+      animation: none;
+    }
+    .score-ring-progress,
+    .metric-meter > span,
+    .coverage-bar > span,
+    .mvp-progress-fill,
+    .dist-seg,
+    .nav-tab,
+    .stat-card,
+    .chart-bar,
+    .action-card,
+    .recent-item,
+    .signal-card,
+    .risk-cell,
+    .artifact-row,
+    .ideation-card,
+    button.recent-item::after,
+    .recent-item.is-actionable::after,
+    button.branch-card::after,
+    button.artifact-row::after {
+      transition: none;
+    }
+    .stat-card.is-actionable:hover,
+    .stat-card.is-actionable:focus-visible,
+    .action-card.is-actionable:hover,
+    .action-card.is-actionable:focus-visible,
+    button.recent-item:hover,
+    button.recent-item:focus-visible,
+    .recent-item.is-actionable:hover,
+    .recent-item.is-actionable:focus-visible,
+    .branch-card:hover,
+    .branch-card:focus-visible,
+    .workflow-card:hover,
+    .workflow-card:focus-visible,
+    .review-card:hover,
+    .review-card:focus-visible,
+    button.risk-cell:hover,
+    button.risk-cell:focus-visible,
+    .signal-card.is-actionable:hover,
+    .signal-card.is-actionable:focus-visible,
+    .score-component-row.is-actionable:hover,
+    .score-component-row.is-actionable:focus-visible,
+    .ideation-card:hover {
+      transform: none;
+    }
+    button.recent-item:hover::after,
+    button.recent-item:focus-visible::after,
+    .recent-item.is-actionable:hover::after,
+    .recent-item.is-actionable:focus-visible::after,
+    button.branch-card:hover::after,
+    button.branch-card:focus-visible::after,
+    button.artifact-row:hover::after,
+    button.artifact-row:focus-visible::after {
+      transform: none;
+    }
+  }
 `;

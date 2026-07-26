@@ -62,7 +62,6 @@ For headless workflows, the CLI now rejects malformed flags instead of treating 
 | [[Security]] | Security model, boundaries, vulnerability reporting |
 | [[Contributing]] | Dev setup, coding conventions, PR checklist |
 | [[FAQ]] | Common questions and troubleshooting |
-| [[Comparison]] | How AtlasMind compares to Claude Code, Cursor, Copilot, Aider, and Open Hands |
 | [[Changelog]] | Version history and release notes |
 
 ---

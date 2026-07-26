@@ -87,6 +87,15 @@ describe('applyVerificationGuard', () => {
     expect(guarded.verdict).toBe('achieved');
   });
 
+  it('downgrades achieved when the evaluator lists outstanding work', () => {
+    const guarded = applyVerificationGuard(
+      { verdict: 'achieved', confidence: 0.95, remaining: ['wire the final handler'], nextFocus: '', rationale: 'nearly done' },
+      baseInput({ tddStatus: 'verified' }),
+    );
+    expect(guarded.verdict).toBe('progressing');
+    expect(guarded.confidence).toBeLessThanOrEqual(0.5);
+  });
+
   it('does not touch non-achieved verdicts', () => {
     const v = { verdict: 'stalled' as const, confidence: 0.2, remaining: [], nextFocus: '', rationale: 'r' };
     expect(applyVerificationGuard(v, baseInput({ tddStatus: 'blocked' }))).toEqual(v);
@@ -96,6 +105,18 @@ describe('applyVerificationGuard', () => {
 // ── GoalEvaluator.evaluate ───────────────────────────────────────
 
 describe('GoalEvaluator.evaluate', () => {
+  it('shows the evaluator an explicit evidence and criteria rubric', async () => {
+    let systemPrompt = '';
+    const evaluator = new GoalEvaluator(async (system) => {
+      systemPrompt = system;
+      return '{"verdict":"progressing","confidence":0.6,"remaining":[],"nextFocus":"tests","rationale":"r"}';
+    });
+    await evaluator.evaluate(baseInput({ successCriteria: ['Focused tests pass'] }));
+    expect(systemPrompt).toContain('Evaluation rubric');
+    expect(systemPrompt).toContain('every supplied success criterion');
+    expect(systemPrompt).toContain('Execution evidence');
+  });
+
   it('returns a validated verdict from the completion function', async () => {
     const evaluator = new GoalEvaluator(async () =>
       '{"verdict":"progressing","confidence":0.6,"remaining":["finish tests"],"nextFocus":"tests","rationale":"r"}',

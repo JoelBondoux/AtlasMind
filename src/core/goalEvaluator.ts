@@ -79,6 +79,13 @@ function buildEvaluatorSystemPrompt(): string {
     '  "nextFocus": "the single most valuable thing to do next",',
     '  "rationale": "one or two sentences citing the evidence"',
     '}',
+    'Evaluation rubric (apply every row independently before choosing a verdict):',
+    '1. Goal coverage — the stated goal is fully delivered, not merely started.',
+    '2. Criteria coverage — every supplied success criterion is satisfied by cited evidence; one unmet criterion prevents "achieved".',
+    '3. Execution evidence — claimed file changes, tool actions, and outcomes appear in the supplied iteration evidence.',
+    '4. Verification — behaviour-changing work has a relevant passing test, build, or validation signal.',
+    '5. Completeness — no concrete work remains and no unresolved blocker is hidden inside a success summary.',
+    '6. Calibration — confidence reflects evidence quality; missing or ambiguous evidence lowers confidence.',
     'Rules:',
     '- "achieved" means the goal is fully satisfied AND, where behaviour changed, there is passing verification evidence (tests/build). Code written without passing verification is "progressing", never "achieved".',
     '- "progressing" means real, measurable forward movement was made this iteration.',
@@ -171,6 +178,14 @@ export function parseGoalVerdict(raw: string): GoalVerdict | undefined {
 export function applyVerificationGuard(verdict: GoalVerdict, input: GoalEvaluationInput): GoalVerdict {
   if (verdict.verdict !== 'achieved') {
     return verdict;
+  }
+  if (verdict.remaining.length > 0) {
+    return {
+      ...verdict,
+      verdict: 'progressing',
+      confidence: Math.min(verdict.confidence, 0.5),
+      rationale: `${verdict.rationale} [Downgraded: the evaluator listed outstanding work.]`.trim(),
+    };
   }
   const changed = (input.changedFiles ?? []).length > 0;
   const unverified = input.tddStatus === 'blocked' || input.tddStatus === 'missing';

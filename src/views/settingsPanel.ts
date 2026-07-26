@@ -12,6 +12,7 @@ import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
 import { scanAiInstructionFiles, syncAiInstructionFiles } from '../utils/aiInstructionSync.js';
 import { syncTestingProtocols } from '../utils/testingProtocolSync.js';
 import { scaffoldTestingFramework } from '../core/testingScaffolder.js';
+import { IMMUTABLE_GUARDRAILS } from '../core/orchestrator.js';
 import type { ArdDiscoveredResource, ArdDiscoveryEndpoint } from '../types.js';
 import { getDisplayCurrency, getExchangeRate } from '../core/currencyFormatter.js';
 import { isLocalSyncStale, LOCAL_MODEL_SYNC_CACHE_KEY, syncLocalModels, type LocalModelSyncResult } from '../providers/localModelSync.js';
@@ -189,7 +190,21 @@ interface LocalModelRecommendationPayload {
   installedModels: InstalledLocalModelItem[];
 }
 
-export const SETTINGS_PAGE_IDS = ['overview', 'chat', 'models', 'safety', 'testing', 'project', 'loop', 'experimental', 'ai-instructions', 'discovery'] as const;
+/**
+ * Every settings page, in nav order.
+ *
+ * The order is grouped in the sequence someone actually configures the
+ * extension: what it can do (Capabilities), how it talks to you (Interaction),
+ * what it is allowed to do (Guardrails), how far it may run alone (Autonomy),
+ * then opt-in extras. The previous order was the sequence the pages were added
+ * — Resource Discovery, which is how you *add* a capability, sat last, four
+ * pages away from Models & Integrations, and AI Instructions sat between
+ * Experimental and Resource Discovery rather than beside Chat.
+ *
+ * The nav markup below is grouped to match; this list is the canonical order
+ * and the source of `SettingsPageId`.
+ */
+export const SETTINGS_PAGE_IDS = ['overview', 'agents', 'models', 'discovery', 'chat', 'ai-instructions', 'safety', 'testing', 'project', 'loop', 'experimental'] as const;
 export type SettingsPageId = (typeof SETTINGS_PAGE_IDS)[number];
 export interface SettingsPanelTarget {
   page?: SettingsPageId;
@@ -243,6 +258,8 @@ type SettingsMessage =
   | { type: 'purgeProjectMemory' }
   | { type: 'openChatView' }
   | { type: 'openChatPanel' }
+  | { type: 'openAgentPanel' }
+  | { type: 'openPersonalityProfile' }
   | { type: 'openModelProviders' }
   | { type: 'openSpecialistIntegrations' }
   | { type: 'openProjectRunCenter' }
@@ -921,6 +938,14 @@ export class SettingsPanel {
 
       case 'openChatPanel':
         await vscode.commands.executeCommand('atlasmind.openChatPanel');
+        return;
+
+      case 'openAgentPanel':
+        await vscode.commands.executeCommand('atlasmind.openAgentPanel');
+        return;
+
+      case 'openPersonalityProfile':
+        await vscode.commands.executeCommand('atlasmind.openPersonalityProfile');
         return;
 
       case 'openProjectRunCenter':
@@ -1651,6 +1676,12 @@ export class SettingsPanel {
 
   private getHtml(): string {
     const configuration = vscode.workspace.getConfiguration('atlasmind');
+    const registeredAgents = this.atlasContext?.agentRegistry?.listAgents() ?? [];
+    const enabledAgentCount = registeredAgents.filter(agent =>
+      this.atlasContext?.agentRegistry?.isEnabled(agent.id) ?? true,
+    ).length;
+    const customAgentCount = registeredAgents.filter(agent => !agent.builtIn).length;
+    const builtInAgentCount = registeredAgents.length - customAgentCount;
     const selectedBudget = getBudgetMode(configuration.get<string>('budgetMode'));
     const selectedSpeed = getSpeedMode(configuration.get<string>('speedMode'));
     const feedbackRoutingWeight = getRangedNumber(configuration.get<number>('feedbackRoutingWeight'), 1, 0, 2, 2);
@@ -1759,16 +1790,32 @@ export class SettingsPanel {
 
       <div class="settings-layout">
         <nav class="settings-nav" aria-label="AtlasMind settings sections" role="tablist" aria-orientation="vertical">
-          <button type="button" class="nav-link ${initialPage === 'overview' ? 'active' : ''}" id="tab-overview" data-page-target="overview" data-search="overview quick actions budget speed cost limits currency display currency embedded chat detached chat project run center vscode chat" role="tab" aria-selected="${initialPage === 'overview' ? 'true' : 'false'}" aria-controls="page-overview" ${initialPage === 'overview' ? '' : 'tabindex="-1"'}>Overview</button>
-          <button type="button" class="nav-link ${initialPage === 'chat' ? 'active' : ''}" id="tab-chat" data-page-target="chat" data-search="chat sidebar sessions import project carry-forward turns context max chars" role="tab" aria-selected="${initialPage === 'chat' ? 'true' : 'false'}" aria-controls="page-chat" ${initialPage === 'chat' ? '' : 'tabindex="-1"'}>Chat & Sidebar</button>
-          <button type="button" class="nav-link ${initialPage === 'models' ? 'active' : ''}" id="tab-models" data-page-target="models" data-search="models integrations providers local endpoint local endpoints ollama lm studio azure bedrock voice vision exa specialist" role="tab" aria-selected="${initialPage === 'models' ? 'true' : 'false'}" aria-controls="page-models" ${initialPage === 'models' ? '' : 'tabindex="-1"'}>Models & Integrations</button>
-          <button type="button" class="nav-link ${initialPage === 'safety' ? 'active' : ''}" id="tab-safety" data-page-target="safety" data-search="safety verification approvals tool approval terminal write scripts timeout max tool iterations loop limit" role="tab" aria-selected="${initialPage === 'safety' ? 'true' : 'false'}" aria-controls="page-safety" ${initialPage === 'safety' ? '' : 'tabindex="-1"'}>Safety & Verification</button>
-          <button type="button" class="nav-link ${initialPage === 'testing' ? 'active' : ''}" id="tab-testing" data-page-target="testing" data-search="testing methodology tdd bdd unit integration e2e mutation property snapshot contract performance security visual exploratory test strategy agent override model" role="tab" aria-selected="${initialPage === 'testing' ? 'true' : 'false'}" aria-controls="page-testing" ${initialPage === 'testing' ? '' : 'tabindex="-1"'}>Testing</button>
-          <button type="button" class="nav-link ${initialPage === 'project' ? 'active' : ''}" id="tab-project" data-page-target="project" data-search="project runs approval threshold estimated files changed file references report folder dependency monitoring dependabot renovate governance updates" role="tab" aria-selected="${initialPage === 'project' ? 'true' : 'false'}" aria-controls="page-project" ${initialPage === 'project' ? '' : 'tabindex="-1"'}>Project Runs</button>
-          <button type="button" class="nav-link ${initialPage === 'loop' ? 'active' : ''}" id="tab-loop" data-page-target="loop" data-search="mission loop autonomous goal seeking iterations cost cap token cap time cap no progress checkpoint approval budget fraction discovery confidence threshold envelope" role="tab" aria-selected="${initialPage === 'loop' ? 'true' : 'false'}" aria-controls="page-loop" ${initialPage === 'loop' ? '' : 'tabindex="-1"'}>Mission Loop</button>
-          <button type="button" class="nav-link ${initialPage === 'experimental' ? 'active' : ''}" id="tab-experimental" data-page-target="experimental" data-search="experimental skill learning generated drafts" role="tab" aria-selected="${initialPage === 'experimental' ? 'true' : 'false'}" aria-controls="page-experimental" ${initialPage === 'experimental' ? '' : 'tabindex="-1"'}>Experimental</button>
-          <button type="button" class="nav-link ${initialPage === 'ai-instructions' ? 'active' : ''}" id="tab-ai-instructions" data-page-target="ai-instructions" data-search="ai instructions sync copilot claude cursor cline continue codex gemini windsurf aider import instruction sets" role="tab" aria-selected="${initialPage === 'ai-instructions' ? 'true' : 'false'}" aria-controls="page-ai-instructions" ${initialPage === 'ai-instructions' ? '' : 'tabindex="-1"'}>AI Instructions</button>
-          <button type="button" class="nav-link ${initialPage === 'discovery' ? 'active' : ''}" id="tab-discovery" data-page-target="discovery" data-search="resource discovery ard agent finders mcp servers agents skills apis search install publish catalog manifest registry" role="tab" aria-selected="${initialPage === 'discovery' ? 'true' : 'false'}" aria-controls="page-discovery" ${initialPage === 'discovery' ? '' : 'tabindex="-1"'}>Resource Discovery</button>
+          <button type="button" class="nav-link ${initialPage === 'overview' ? 'active' : ''}" id="tab-overview" data-page-target="overview" data-search="overview quick actions budget speed cost limits currency display currency personality profile role tone memory posture embedded chat detached chat project run center vscode chat" role="tab" aria-selected="${initialPage === 'overview' ? 'true' : 'false'}" aria-controls="page-overview" ${initialPage === 'overview' ? '' : 'tabindex="-1"'}>Overview</button>
+          <div class="nav-group" role="presentation">
+            <span class="nav-group-label" aria-hidden="true">Capabilities</span>
+            <button type="button" class="nav-link ${initialPage === 'agents' ? 'active' : ''}" id="tab-agents" data-page-target="agents" data-search="agents manage agents built-in custom roles prompts instructions rubrics completion criteria global immutable guardrails safety policy skills models budget auto-update automation" role="tab" aria-selected="${initialPage === 'agents' ? 'true' : 'false'}" aria-controls="page-agents" ${initialPage === 'agents' ? '' : 'tabindex="-1"'}>Agents</button>
+            <button type="button" class="nav-link ${initialPage === 'models' ? 'active' : ''}" id="tab-models" data-page-target="models" data-search="models integrations providers local endpoint local endpoints ollama lm studio azure bedrock personality profile role tone memory posture voice vision exa specialist" role="tab" aria-selected="${initialPage === 'models' ? 'true' : 'false'}" aria-controls="page-models" ${initialPage === 'models' ? '' : 'tabindex="-1"'}>Models & Integrations</button>
+            <button type="button" class="nav-link ${initialPage === 'discovery' ? 'active' : ''}" id="tab-discovery" data-page-target="discovery" data-search="resource discovery ard agent finders mcp servers agents skills apis search install publish catalog manifest registry" role="tab" aria-selected="${initialPage === 'discovery' ? 'true' : 'false'}" aria-controls="page-discovery" ${initialPage === 'discovery' ? '' : 'tabindex="-1"'}>Resource Discovery</button>
+          </div>
+          <div class="nav-group" role="presentation">
+            <span class="nav-group-label" aria-hidden="true">Interaction</span>
+            <button type="button" class="nav-link ${initialPage === 'chat' ? 'active' : ''}" id="tab-chat" data-page-target="chat" data-search="chat sidebar sessions import project carry-forward turns context max chars" role="tab" aria-selected="${initialPage === 'chat' ? 'true' : 'false'}" aria-controls="page-chat" ${initialPage === 'chat' ? '' : 'tabindex="-1"'}>Chat & Sidebar</button>
+            <button type="button" class="nav-link ${initialPage === 'ai-instructions' ? 'active' : ''}" id="tab-ai-instructions" data-page-target="ai-instructions" data-search="ai instructions sync copilot claude cursor cline continue codex gemini windsurf aider import instruction sets" role="tab" aria-selected="${initialPage === 'ai-instructions' ? 'true' : 'false'}" aria-controls="page-ai-instructions" ${initialPage === 'ai-instructions' ? '' : 'tabindex="-1"'}>AI Instructions</button>
+          </div>
+          <div class="nav-group" role="presentation">
+            <span class="nav-group-label" aria-hidden="true">Guardrails</span>
+            <button type="button" class="nav-link ${initialPage === 'safety' ? 'active' : ''}" id="tab-safety" data-page-target="safety" data-search="safety verification approvals tool approval terminal write scripts timeout max tool iterations loop limit" role="tab" aria-selected="${initialPage === 'safety' ? 'true' : 'false'}" aria-controls="page-safety" ${initialPage === 'safety' ? '' : 'tabindex="-1"'}>Safety & Verification</button>
+            <button type="button" class="nav-link ${initialPage === 'testing' ? 'active' : ''}" id="tab-testing" data-page-target="testing" data-search="testing methodology tdd bdd unit integration e2e mutation property snapshot contract performance security visual exploratory test strategy agent override model" role="tab" aria-selected="${initialPage === 'testing' ? 'true' : 'false'}" aria-controls="page-testing" ${initialPage === 'testing' ? '' : 'tabindex="-1"'}>Testing</button>
+          </div>
+          <div class="nav-group" role="presentation">
+            <span class="nav-group-label" aria-hidden="true">Autonomy</span>
+            <button type="button" class="nav-link ${initialPage === 'project' ? 'active' : ''}" id="tab-project" data-page-target="project" data-search="project runs approval threshold estimated files changed file references report folder dependency monitoring dependabot renovate governance updates" role="tab" aria-selected="${initialPage === 'project' ? 'true' : 'false'}" aria-controls="page-project" ${initialPage === 'project' ? '' : 'tabindex="-1"'}>Project Runs</button>
+            <button type="button" class="nav-link ${initialPage === 'loop' ? 'active' : ''}" id="tab-loop" data-page-target="loop" data-search="mission loop autonomous goal seeking iterations cost cap token cap time cap no progress checkpoint approval budget fraction discovery confidence threshold envelope" role="tab" aria-selected="${initialPage === 'loop' ? 'true' : 'false'}" aria-controls="page-loop" ${initialPage === 'loop' ? '' : 'tabindex="-1"'}>Mission Loop</button>
+          </div>
+          <div class="nav-group" role="presentation">
+            <span class="nav-group-label" aria-hidden="true">Advanced</span>
+            <button type="button" class="nav-link ${initialPage === 'experimental' ? 'active' : ''}" id="tab-experimental" data-page-target="experimental" data-search="experimental skill learning generated drafts" role="tab" aria-selected="${initialPage === 'experimental' ? 'true' : 'false'}" aria-controls="page-experimental" ${initialPage === 'experimental' ? '' : 'tabindex="-1"'}>Experimental</button>
+          </div>
         </nav>
 
         <main class="settings-main">
@@ -1791,6 +1838,14 @@ export class SettingsPanel {
               <button id="openProjectRunCenter" class="action-card">
                 <span class="action-title">Project Run Center</span>
                 <span class="action-copy">Review batch progress, approvals, pauses, and resumptions.</span>
+              </button>
+              <button id="openAgentManagerOverview" class="action-card">
+                <span class="action-title">Manage Agents</span>
+                <span class="action-copy">Inspect built-ins, create custom agents, and tune prompts, completion criteria, skills, and routing limits.</span>
+              </button>
+              <button id="openPersonalityProfileOverview" class="action-card">
+                <span class="action-title">Personality Profile</span>
+                <span class="action-copy">Shape Atlas's role, tone, memory posture, and project-specific working preferences.</span>
               </button>
               <button id="openCompareModels" class="action-card">
                 <span class="action-title">Compare Models</span>
@@ -1868,6 +1923,73 @@ export class SettingsPanel {
                   <input id="feedbackRoutingWeight" type="number" min="0" max="2" step="0.05" value="${feedbackRoutingWeight}" />
                   <p class="info-note">Set <code>0</code> to ignore thumbs history in routing. Higher values amplify the bias, but AtlasMind still caps the effect so votes cannot override hard capability or provider-health checks.</p>
                 </div>
+              </article>
+            </div>
+          </section>
+
+          <section id="page-agents" class="settings-page ${initialPage === 'agents' ? 'active fallback-visible' : ''}" role="tabpanel" aria-labelledby="tab-agents" tabindex="0">
+            <div class="page-header">
+              <p class="page-kicker">Agents</p>
+              <h2>Agent definitions and operating policy</h2>
+              <p>Review the specialists AtlasMind can route to, create custom agents, and control the instructions and completion criteria applied to each one.</p>
+            </div>
+
+            <div class="stats-grid">
+              <article class="stat-card">
+                <span class="stat-label">Registered</span>
+                <span class="stat-value">${registeredAgents.length}</span>
+                <div class="stat-meta">All built-in and custom definitions.</div>
+              </article>
+              <article class="stat-card">
+                <span class="stat-label">Available</span>
+                <span class="stat-value">${enabledAgentCount}</span>
+                <div class="stat-meta">Enabled for routing and orchestration.</div>
+              </article>
+              <article class="stat-card">
+                <span class="stat-label">Built-in</span>
+                <span class="stat-value">${builtInAgentCount}</span>
+                <div class="stat-meta">Protected identity and factory defaults.</div>
+              </article>
+              <article class="stat-card">
+                <span class="stat-label">Custom</span>
+                <span class="stat-value">${customAgentCount}</span>
+                <div class="stat-meta">Definitions you fully control.</div>
+              </article>
+            </div>
+
+            <div class="page-grid two-up">
+              <article class="settings-card">
+                <div class="card-header">
+                  <p class="card-kicker">Agent workspace</p>
+                  <h3>Manage definitions</h3>
+                </div>
+                <p class="card-copy">Open the dedicated workspace to search agents and edit identity, instructions, rubrics, skills, model limits, testing roles, and maintenance policy in one place.</p>
+                <button id="openAgentManager">Manage Agents</button>
+              </article>
+
+              <article class="settings-card">
+                <div class="card-header">
+                  <p class="card-kicker">Related configuration</p>
+                  <h3>Models and testing</h3>
+                </div>
+                <p class="card-copy">Model providers and project testing methodologies remain separate because they apply across agents. Agent-specific assignments link back to those surfaces.</p>
+                <div class="button-stack">
+                  <button id="openAgentModelProviders">Manage Model Providers</button>
+                  <button id="openAgentTestingSettings" class="secondary-button" data-settings-page="testing">Open Testing Settings</button>
+                </div>
+              </article>
+
+              <article class="settings-card agent-policy-card" id="globalAgentGuardrailsCard">
+                <div class="card-header">
+                  <p class="card-kicker">Runtime policy</p>
+                  <h3>Global guardrails</h3>
+                </div>
+                <p class="card-copy">This authoritative, non-overrideable block is included in every routed agent's effective system instructions. It takes priority over agent definitions, user instructions, retrieved content, workspace files, and tool output.</p>
+                <div class="info-band">
+                  <strong>Read-only by design.</strong> Agents and workspace content cannot weaken these rules. Changing them requires changing and rebuilding AtlasMind.
+                </div>
+                <pre id="globalAgentGuardrails" class="guardrail-block" tabindex="0" aria-label="Global immutable guardrails">${escapeHtml(IMMUTABLE_GUARDRAILS)}</pre>
+                <p class="info-note">Runtime source: <code>IMMUTABLE_GUARDRAILS</code> in <code>src/core/orchestrator.ts</code>. This view is rendered from that source of truth rather than a separate summary.</p>
               </article>
             </div>
           </section>
@@ -1964,6 +2086,7 @@ export class SettingsPanel {
                 <div class="button-stack">
                   <button id="openModelProviders">Manage Model Providers</button>
                   <button id="openSpecialistIntegrations">Open Specialist Integrations</button>
+                  <button id="openPersonalityProfileModels">Personality Profile</button>
                   <button id="openVoicePanel">Voice Panel</button>
                   <button id="openVisionPanel">Vision Panel</button>
                 </div>
@@ -2524,6 +2647,29 @@ export class SettingsPanel {
           color: var(--atlas-panel-muted);
           font-size: 0.92rem;
         }
+        /* Ten identical pills in one flat column gave no sense of what belonged
+           with what. Grouping is decorative only — the tabs themselves are
+           unchanged, and the captions are aria-hidden because every tab name is
+           already self-describing. */
+        .nav-group {
+          display: grid;
+          gap: 4px;
+        }
+        .nav-group + .nav-group,
+        .nav-link + .nav-group {
+          margin-top: 10px;
+          padding-top: 10px;
+          border-top: 1px solid color-mix(in srgb, var(--atlas-panel-border) 60%, transparent);
+        }
+        .nav-group-label {
+          font-size: 9px;
+          font-weight: 700;
+          letter-spacing: 0.11em;
+          text-transform: uppercase;
+          color: var(--vscode-descriptionForeground);
+          padding: 0 4px 2px;
+        }
+
         .settings-nav {
           position: sticky;
           top: 20px;
@@ -2642,6 +2788,26 @@ export class SettingsPanel {
           border-color: var(--vscode-inputValidation-errorBorder, #d13438);
           background: color-mix(in srgb, var(--vscode-inputValidation-errorBorder, #d13438) 8%, var(--atlas-panel-surface));
         }
+        .agent-policy-card {
+          grid-column: 1 / -1;
+        }
+        .guardrail-block {
+          margin: 14px 0 0;
+          max-width: 100%;
+          padding: 16px;
+          overflow: auto;
+          white-space: pre-wrap;
+          overflow-wrap: anywhere;
+          word-break: break-word;
+          border: 1px solid var(--atlas-panel-border);
+          border-radius: 12px;
+          color: var(--vscode-editor-foreground);
+          background: var(--vscode-textCodeBlock-background, var(--vscode-editor-background));
+          font-family: var(--vscode-editor-font-family, monospace);
+          font-size: 0.88rem;
+          line-height: 1.55;
+          user-select: text;
+        }
         .field-grid {
           display: grid;
           grid-template-columns: minmax(220px, 280px) minmax(260px, 1fr);
@@ -2686,6 +2852,34 @@ export class SettingsPanel {
         .field-stack label {
           font-weight: 500;
         }
+        /* Both of these were undefined anywhere in the panel and relied on the
+           shell's blanket "button" fill. That made the *destructive* "Remove"
+           in the Agent Finder table the loudest control on the page — louder
+           than the Search submit beside it. */
+        .primary-button {
+          border: 1px solid transparent;
+          border-radius: 10px;
+          background: var(--vscode-button-background);
+          color: var(--vscode-button-foreground);
+          padding: 8px 14px;
+          font-weight: 600;
+        }
+        .primary-button:hover:not(:disabled) { background: var(--vscode-button-hoverBackground); }
+
+        /* A quiet, destructive-toned text action — the weight a "Remove" in a
+           table row should carry. Mirrors mcpPanel.ts's .link-button. */
+        .link-button {
+          background: none;
+          border: none;
+          padding: 0;
+          font: inherit;
+          cursor: pointer;
+          color: var(--vscode-errorForeground, #f48771);
+          text-decoration: underline;
+        }
+        .link-button:hover { opacity: 0.8; }
+        .link-button:focus-visible { outline: 2px solid var(--atlas-panel-accent); outline-offset: 2px; }
+
         .secondary-button {
           border: 1px solid var(--atlas-panel-border);
           border-radius: 10px;
@@ -2843,7 +3037,7 @@ export class SettingsPanel {
           padding: 7px 14px;
           border: none;
           background: transparent;
-          color: var(--atlas-panel-fg);
+          color: var(--vscode-foreground);
           font: inherit;
           font-size: 0.92rem;
           text-align: left;
@@ -3169,14 +3363,14 @@ export class SettingsPanel {
           align-items: center;
           padding: 3px 10px;
           border-radius: 999px;
-          border: 1px solid var(--panel-border);
+          border: 1px solid var(--atlas-panel-border);
           font-size: 0.78rem;
           background: color-mix(in srgb, var(--accent-soft) 65%, transparent);
         }
-        .catalogue-badge.official { border-color: color-mix(in srgb, #4caf50 55%, var(--panel-border)); }
-        .catalogue-badge.community { border-color: color-mix(in srgb, #03a9f4 55%, var(--panel-border)); }
-        .catalogue-badge.registry { border-color: color-mix(in srgb, #ff9800 55%, var(--panel-border)); }
-        .catalogue-badge.archived { border-color: color-mix(in srgb, #9e9e9e 65%, var(--panel-border)); }
+        .catalogue-badge.official { border-color: color-mix(in srgb, #4caf50 55%, var(--atlas-panel-border)); }
+        .catalogue-badge.community { border-color: color-mix(in srgb, #03a9f4 55%, var(--atlas-panel-border)); }
+        .catalogue-badge.registry { border-color: color-mix(in srgb, #ff9800 55%, var(--atlas-panel-border)); }
+        .catalogue-badge.archived { border-color: color-mix(in srgb, #9e9e9e 65%, var(--atlas-panel-border)); }
         .sr-only {
           position: absolute;
           width: 1px;
@@ -3456,7 +3650,7 @@ export class SettingsPanel {
         const pages = Array.from(document.querySelectorAll('.settings-page'));
         const searchInput = document.getElementById('settingsSearch');
         const searchStatus = document.getElementById('searchStatus');
-        const knownPages = new Set(['overview', 'chat', 'models', 'safety', 'testing', 'project', 'loop', 'experimental', 'ai-instructions', 'discovery']);
+        const knownPages = new Set(${JSON.stringify(SETTINGS_PAGE_IDS)});
 
         function focusSection(sectionId) {
           if (typeof sectionId !== 'string' || sectionId.trim().length === 0) {
@@ -3612,6 +3806,11 @@ export class SettingsPanel {
           bindCommandButton('openChatView', 'openChatView');
           bindCommandButton('openChatPanel', 'openChatPanel');
           bindCommandButton('openChat', 'openChat');
+          bindCommandButton('openAgentManagerOverview', 'openAgentPanel');
+          bindCommandButton('openAgentManager', 'openAgentPanel');
+          bindCommandButton('openAgentModelProviders', 'openModelProviders');
+          bindCommandButton('openPersonalityProfileOverview', 'openPersonalityProfile');
+          bindCommandButton('openPersonalityProfileModels', 'openPersonalityProfile');
           bindCommandButton('openModelProviders', 'openModelProviders');
           bindCommandButton('openSpecialistIntegrations', 'openSpecialistIntegrations');
           bindCommandButton('openProjectRunCenter', 'openProjectRunCenter');
@@ -3679,17 +3878,22 @@ export class SettingsPanel {
             }
           })();
 
-          document.querySelectorAll('[data-open-file]').forEach(element => {
-            if (!(element instanceof HTMLButtonElement)) {
+          // Delegated, not bound per element at load. The AI-instruction file
+          // buttons are injected into #aiInstructionList by innerHTML *after* a
+          // scan returns, so a one-shot querySelectorAll at startup never saw
+          // them and every one of those paths was unclickable.
+          document.addEventListener('click', event => {
+            const element = event.target instanceof HTMLElement
+              ? event.target.closest('[data-open-file]')
+              : null;
+            if (!(element instanceof HTMLElement)) {
               return;
             }
-            element.addEventListener('click', () => {
-              const relativePath = element.dataset.openFile;
-              if (typeof relativePath !== 'string' || relativePath.trim().length === 0) {
-                return;
-              }
-              vscode.postMessage({ type: 'openWorkspaceFile', payload: relativePath });
-            });
+            const relativePath = element.dataset.openFile;
+            if (typeof relativePath !== 'string' || relativePath.trim().length === 0) {
+              return;
+            }
+            vscode.postMessage({ type: 'openWorkspaceFile', payload: relativePath });
           });
 
           document.querySelectorAll('[data-settings-page]').forEach(element => {
@@ -5638,6 +5842,8 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
     message.type === 'purgeProjectMemory' ||
     message.type === 'openChatView' ||
     message.type === 'openChatPanel' ||
+    message.type === 'openAgentPanel' ||
+    message.type === 'openPersonalityProfile' ||
     message.type === 'openModelProviders' ||
     message.type === 'openSpecialistIntegrations' ||
     message.type === 'openProjectRunCenter' ||

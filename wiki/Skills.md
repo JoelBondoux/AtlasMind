@@ -1,6 +1,8 @@
 # Skills
 
-AtlasMind ships with **42 built-in skills** that agents can call during execution. You can also import custom skills or connect MCP servers for unlimited extensibility.
+AtlasMind ships with **43 built-in skills** that agents can call during execution. You can also import custom skills or connect MCP servers for unlimited extensibility.
+
+Skill names, descriptions, and JSON Schemas are supplied to the routed model as callable tools, while the shared agent operating contract governs how they are used: execute requested actions directly, validate parameters and trust boundaries, treat results as authoritative, adapt after recoverable failures, and never claim a failed or denied call succeeded. The execution rubric then checks whether the selected tools produced enough evidence and verification to support the final answer.
 
 ## Built-in Skills
 
@@ -60,6 +62,12 @@ AtlasMind ships with **42 built-in skills** that agents can call during executio
 | `http-request` | Make an HTTP request with configurable method (GET/POST/PUT/PATCH/DELETE), headers, and body; same SSRF protection as web-fetch; useful for REST API and webhook testing |
 | `exa-search` | Search the web using the EXA AI search API; requires EXA API key stored in Specialist Integrations panel |
 | `discover-resources` | Read-only [[Resource Discovery]] (ARD) search across enabled Agent Finders for MCP servers, agents, skills, and APIs; surfaces ranked candidates for the user to install and never installs anything itself (requires `atlasmind.ard.enabled`) |
+
+### Reference Guidance
+
+| Skill | Description |
+|-------|-------------|
+| `specialist-guidance` | Loads one focused checklist for technical SEO, structured data, content discoverability, platform listings, accessibility, responsive layout, interaction design, or UI implementation. It is `read/low` because it returns bundled text only; detailed guidance is disclosed only when relevant and requires current primary-source verification for time-sensitive rules. |
 
 ### Memory
 

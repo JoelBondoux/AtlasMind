@@ -30,8 +30,7 @@ const UPDATE_SYSTEM_PROMPT = [
 
 /**
  * Automatically refreshes agent system prompts and descriptions on a configurable
- * cadence. Agents with autoUpdateExcluded=true are skipped; built-in agents are
- * treated the same as user-defined agents and their updates are persisted as overrides.
+ * cadence. Built-in agents and agents with autoUpdateExcluded=true are skipped.
  * All updates are fire-and-forget safe — the original agent is returned on any error.
  */
 export class AgentAutoUpdater {
@@ -49,6 +48,7 @@ export class AgentAutoUpdater {
   isDue(agent: AgentDefinition): boolean {
     const cadence = this.getCadence();
     if (cadence === 'never') { return false; }
+    if (agent.builtIn) { return false; }
     if (agent.autoUpdateExcluded) { return false; }
     if (cadence === 'every-use') { return true; }
     if (!agent.lastAutoUpdated) { return true; }

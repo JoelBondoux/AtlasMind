@@ -142,7 +142,9 @@ import { CostDashboardPanel } from '../../src/views/costDashboardPanel.ts';
 import { ProjectDashboardPanel } from '../../src/views/projectDashboardPanel.ts';
 import { MissionControlPanel, parseMissionControlMessage } from '../../src/views/missionControlPanel.ts';
 import { ProjectIdeationPanel } from '../../src/views/projectIdeationPanel.ts';
-import { SettingsPanel } from '../../src/views/settingsPanel.ts';
+import { SETTINGS_PAGE_IDS, SettingsPanel } from '../../src/views/settingsPanel.ts';
+import { IMMUTABLE_GUARDRAILS } from '../../src/core/orchestrator.ts';
+import { escapeHtml } from '../../src/views/webviewUtils.ts';
 import { McpPanel, buildWizardServerConfig, validatePanelMessage } from '../../src/views/mcpPanel.ts';
 import { getRecommendedMcpStarterDetails } from '../../src/constants.ts';
 import * as providerIndex from '../../src/providers/index.ts';
@@ -353,6 +355,7 @@ describe('panel refresh flows', () => {
     } as never);
 
     const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
+    expect(html).toContain('data-page-target="agents"');
     expect(html).toContain('data-page-target="models"');
     expect(html).toContain('data-page-target="testing"');
     expect(html).toContain('.settings-page.fallback-visible {');
@@ -360,6 +363,52 @@ describe('panel refresh flows', () => {
     expect(html).not.toContain('.settings-page:target');
     expect(html).toContain('box-sizing: border-box;');
     expect(html).toContain('overflow-wrap: anywhere;');
+  });
+
+  it('makes agent management discoverable from Settings and routes to the dedicated workspace', async () => {
+    SettingsPanel.createOrShow({
+      extensionUri: { fsPath: '/ext', path: '/ext' },
+      extension: { packageJSON: { version: '0.145.0' } },
+    } as never, { page: 'agents' }, {
+      agentRegistry: {
+        listAgents: vi.fn().mockReturnValue([
+          { id: 'reviewer', name: 'Reviewer', role: 'reviewer', builtIn: true },
+          { id: 'custom', name: 'Custom', role: 'assistant', builtIn: false },
+        ]),
+        isEnabled: vi.fn().mockReturnValue(true),
+      },
+    } as never);
+
+    const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
+    expect(html).toContain('id="tab-agents" data-page-target="agents"');
+    expect(html).toContain('id="page-agents" class="settings-page active fallback-visible"');
+    expect(html).toContain('id="openAgentManager"');
+    expect(html).toContain("bindCommandButton('openAgentManager', 'openAgentPanel')");
+    expect(html).toContain(`const knownPages = new Set(${JSON.stringify(SETTINGS_PAGE_IDS)});`);
+    expect(html).toContain('id="globalAgentGuardrailsCard"');
+    expect(html).toContain('id="globalAgentGuardrails"');
+    expect(html).toContain(escapeHtml(IMMUTABLE_GUARDRAILS));
+    expect(html).toContain('Read-only by design.');
+    expect(html).toContain('This view is rendered from that source of truth rather than a separate summary.');
+
+    await mocks.state.webviewMessageHandler?.({ type: 'openAgentPanel' });
+    expect(mocks.executeCommand).toHaveBeenCalledWith('atlasmind.openAgentPanel');
+  });
+
+  it('opens Personality Profile from both Settings Overview and Models', async () => {
+    SettingsPanel.createOrShow({
+      extensionUri: { fsPath: '/ext', path: '/ext' },
+      extension: { packageJSON: { version: '0.145.0' } },
+    } as never);
+
+    const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
+    expect(html).toContain('id="openPersonalityProfileOverview"');
+    expect(html).toContain('id="openPersonalityProfileModels"');
+    expect(html).toContain("bindCommandButton('openPersonalityProfileOverview', 'openPersonalityProfile')");
+    expect(html).toContain("bindCommandButton('openPersonalityProfileModels', 'openPersonalityProfile')");
+
+    await mocks.state.webviewMessageHandler?.({ type: 'openPersonalityProfile' });
+    expect(mocks.executeCommand).toHaveBeenCalledWith('atlasmind.openPersonalityProfile');
   });
 
   it('renders recommended MCP starters inside the Add Server workspace', () => {
@@ -1524,7 +1573,7 @@ describe('panel refresh flows', () => {
     }
   });
 
-  it('renders the agent manager with CSP-safe button bindings for agent actions', () => {
+  it('renders the agent manager as a searchable master-detail workspace', () => {
     AgentManagerPanel.createOrShow(
       {
         extensionUri: { fsPath: '/ext', path: '/ext' },
@@ -1532,17 +1581,24 @@ describe('panel refresh flows', () => {
       } as never,
       {
         agentRegistry: {
-          listAgents: vi.fn().mockReturnValue([
-            {
-              id: 'reviewer',
-              name: 'Reviewer',
-              role: 'code reviewer',
-              description: 'Reviews code changes.',
-              systemPrompt: 'Review code carefully.',
-              skills: ['fileRead'],
-              builtIn: false,
-            },
-          ]),
+          listAgents: vi.fn().mockReturnValue([{
+            id: 'reviewer',
+            name: 'Reviewer',
+            role: 'code reviewer',
+            description: 'Reviews code changes.',
+            systemPrompt: 'Review code carefully.',
+            skills: ['fileRead'],
+            builtIn: false,
+          }]),
+          get: vi.fn().mockReturnValue({
+            id: 'reviewer',
+            name: 'Reviewer',
+            role: 'code reviewer',
+            description: 'Reviews code changes.',
+            systemPrompt: 'Review code carefully.',
+            skills: ['fileRead'],
+            builtIn: false,
+          }),
           isEnabled: vi.fn().mockReturnValue(true),
           getDisabledIds: vi.fn().mockReturnValue([]),
         },
@@ -1554,12 +1610,22 @@ describe('panel refresh flows', () => {
 
     const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
     expect(html).toContain('id="new-agent"');
-    expect(html).toContain('id="directory-auto-update-cadence"');
-    expect(html).toContain('atlasmind.agentAutoUpdateCadence');
+    expect(html).toContain('class="agent-workspace"');
+    expect(html).toContain('class="agent-sidebar"');
+    expect(html).toContain('id="agent-auto-update-cadence"');
+    expect(html).toContain('id="agentCompletionRubric"');
+    expect(html).toContain('id="agentIncompletePatterns"');
+    expect(html).not.toContain('id="page-overview"');
+    expect(html).not.toContain('id="page-directory"');
+    expect(html).not.toContain('id="page-editor"');
     expect(html).toContain('data-action="select-agent"');
     expect(html).toContain('data-action="toggle-agent"');
     expect(html).toContain('data-action="delete-agent"');
     expect(html).not.toContain('onclick=');
+
+    const scriptMatch = html.match(/<script[^>]*>([\s\S]*?)<\/script>/);
+    expect(scriptMatch).toBeTruthy();
+    expect(() => new Function(scriptMatch![1])).not.toThrow();
   });
 
   it('updates agent auto-update cadence from the Agent Directory control', async () => {
@@ -1599,6 +1665,70 @@ describe('panel refresh flows', () => {
     // propagates the write.
     const html = mocks.createWebviewPanel.mock.results.at(-1)?.value.webview.html as string;
     expect(html).toContain('value="weekly" selected');
+  });
+
+  it('persists bounded completion criteria for custom agents', async () => {
+    const existing = {
+      id: 'reviewer',
+      name: 'Reviewer',
+      role: 'code reviewer',
+      description: 'Reviews changes.',
+      systemPrompt: 'Review carefully.',
+      skills: ['fileRead'],
+      builtIn: false,
+    };
+    const register = vi.fn();
+
+    AgentManagerPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+        globalState: { get: vi.fn().mockReturnValue([]), update: vi.fn() },
+      } as never,
+      {
+        agentRegistry: {
+          listAgents: vi.fn().mockReturnValue([existing]),
+          isEnabled: vi.fn().mockReturnValue(true),
+          getDisabledIds: vi.fn().mockReturnValue([]),
+          get: vi.fn().mockReturnValue(existing),
+          register,
+          enable: vi.fn(),
+        },
+        skillsRegistry: {
+          listSkills: vi.fn().mockReturnValue([]),
+        },
+        agentsRefresh: { fire: vi.fn() },
+        assessAgentSkills: vi.fn(),
+        extensionContext: {
+          globalState: { get: vi.fn().mockReturnValue([]), update: vi.fn() },
+        },
+      } as never,
+    );
+
+    await mocks.state.webviewMessageHandler?.({
+      type: 'save',
+      payload: {
+        id: 'reviewer',
+        name: 'Reviewer',
+        role: 'code reviewer',
+        description: 'Reviews changes.',
+        systemPrompt: 'Review carefully.',
+        allowedModels: '',
+        costLimitUsd: '',
+        skills: '',
+        autoUpdateExcluded: false,
+        skillsAutoManaged: true,
+        testingModelOverridesJson: '{}',
+        completionRubric: 'Cite the inspected files.\nReport verification results.',
+        incompletePatterns: '\\bTODO\\b',
+      },
+    });
+
+    expect(register).toHaveBeenCalledWith(expect.objectContaining({
+      completionCriteria: {
+        rubric: ['Cite the inspected files.', 'Report verification results.'],
+        incompletePatterns: ['\\bTODO\\b'],
+      },
+    }));
   });
 
   it('renders the cost dashboard with timescale and subscription controls', () => {
@@ -3102,11 +3232,34 @@ describe('project dashboard render invariants', () => {
     expect(dashboardJs).toMatch(/signal-card [^"`]*\bstatic\b/);
   });
 
-  it('gives stat / action / recommendation / score-component cards a static fallback', () => {
+  it('gives stat / recommendation / score-component cards a static fallback', () => {
+    // Every card renderer must have a non-interactive branch, so a card with no
+    // resolvable action renders genuinely inert rather than looking clickable.
+    // (`renderActionCard` and its `action-card static` branch were removed with
+    // the Overview quick-action grid; the recommendation card is now the only
+    // producer of `.action-card`, and it keeps its own static fallback.)
     expect(dashboardJs).toContain('${cls} static');
-    expect(dashboardJs).toContain('action-card static');
     expect(dashboardJs).toContain('score-recommendation-item static');
     expect(dashboardJs).toContain('score-component-row static');
+  });
+
+  it('closes Overview with score recommendations rather than a shortcut grid', () => {
+    // The twelve quick-action cards each duplicated a destination already on
+    // screen — a tab, the hero score ring, a stat card on the same page, or the
+    // sidebar Quick Links — so Overview answered "where would you like to go?"
+    // instead of "how are we doing?".
+    expect(dashboardJs).toContain('renderOverviewNextActions');
+    expect(dashboardJs).not.toContain('renderActionCard');
+    expect(dashboardJs).not.toContain('quickActions');
+  });
+
+  it('states where an action card actually goes', () => {
+    // The removed cards took their kicker from an inert `pageTarget`, so
+    // "Open Chat View" announced itself as "runtime" while opening a different
+    // panel. Destination text is now derived from the action that will run.
+    expect(dashboardJs).toContain('resolveRecommendationAction');
+    expect(dashboardJs).toContain('card-destination');
+    expect(dashboardJs).toContain("destination: 'Ask Atlas'");
   });
 
   it('resolves the Security governance signals to their concrete files', () => {

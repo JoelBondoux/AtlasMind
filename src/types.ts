@@ -372,11 +372,18 @@ export interface AgentDefinition {
   /** When true, skill assignments are managed automatically based on the agent's role and context. */
   skillsAutoManaged?: boolean;
   /**
-   * Optional criteria the orchestrator uses to gate task completion.
-   * When present, the orchestrator will reprompt the agent if the final response
-   * matches any `incompletePatterns` before reporting the task as done.
+   * Optional, agent-specific definition of done. The rubric is shown to the
+   * agent alongside AtlasMind's shared execution rubric. The orchestrator also
+   * reprompts once when a final response matches an `incompletePatterns` entry.
    */
   completionCriteria?: {
+    /**
+     * Concrete, observable requirements for this agent's work. Keep each item
+     * independently assessable (for example, "Cite the failing and passing test
+     * command"), rather than using broad aspirations such as "produce quality
+     * work".
+     */
+    rubric?: string[];
     /**
      * Regex source strings (case-insensitive). If the final agent response matches
      * any of these, the orchestrator injects one re-prompt asking the agent to
@@ -2159,6 +2166,8 @@ export interface SubTaskExecutionArtifacts {
   output: string;
   outputPreview: string;
   toolCallCount: number;
+  /** Number of tool calls whose raw result was classified as a failure. */
+  failedToolCallCount?: number;
   toolCalls: ToolExecutionArtifact[];
   verificationSummary?: string;
   tddStatus?: 'verified' | 'blocked' | 'missing' | 'not-applicable';

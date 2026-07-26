@@ -137,6 +137,13 @@ export class WebsiteStudioPanel {
           return;
         case 'saveConfig':
           this.config = await this.manager.save(input.payload);
+          // Re-render on the page the user is already on. Saving used to update
+          // `this.config` and post a success notice without re-rendering, so
+          // everything derived server-side — counts, status chips, derived
+          // indicators — stayed on screen showing the values from before the
+          // save. `importIntake` directly below always did re-render; this did
+          // not, and the inconsistency is what made the staleness hard to spot.
+          this.render(this.activePage);
           await this.panel.webview.postMessage({
             type: 'notice',
             tone: 'success',
@@ -224,8 +231,14 @@ export function getWebsiteStudioHtml(
         <nav class="studio-nav" aria-label="Website Studio dashboards">
           ${navButton('brief', '1', 'Client brief', activePage)}
           ${navButton('sitemap', '2', 'Sitemap', activePage)}
-          ${navButton('wireframes', '3', 'Wireframes & UI', activePage)}
-          ${navButton('ui-system', '4', 'UI system', activePage)}
+          ${/* The nav renders literal numbered steps, so it promises a linear
+                workflow — but 3 and 4 were inverted against their own content.
+                Each wireframe card tracks a per-page "UI design" stage, and
+                that cannot be done consistently until the shared typography,
+                colour and component decisions exist. The system now precedes
+                the pages that apply it. */ ''}
+          ${navButton('ui-system', '3', 'UI system', activePage)}
+          ${navButton('wireframes', '4', 'Wireframes & UI', activePage)}
           ${navButton('platforms', '5', 'Platforms', activePage)}
           ${navButton('automations', '6', 'n8n automations', activePage)}
           <div class="nav-footer">
@@ -335,7 +348,7 @@ function renderUiSystemPage(config: WebsiteWorkspaceConfig, activePage: WebsiteS
   const design = config.designSystem;
   return `
     <section class="studio-page${activePage === 'ui-system' ? ' active' : ''}" data-page="ui-system">
-      ${pageIntro('UI system dashboard', 'Capture the shared design decisions that turn approved wireframes into a consistent, accessible client design.')}
+      ${pageIntro('UI system dashboard', 'Capture the shared design decisions every page then applies — typography, colour, spacing and components — so the per-page UI design stage has a consistent, accessible client design.')}
       <div class="two-column">
         <article class="panel-card">
           <h2>Direction and typography</h2>
@@ -356,9 +369,9 @@ function renderUiSystemPage(config: WebsiteWorkspaceConfig, activePage: WebsiteS
           ${field('Corner style', 'design-cornerStyle', design.cornerStyle)}
           ${listTextarea('Component notes', 'design-componentNotes', design.componentNotes, 'Navigation, buttons, cards, forms…')}
           <div class="token-preview">
-            <span style="background:${escapeHtml(design.primaryColor)}"></span>
-            <span style="background:${escapeHtml(design.secondaryColor)}"></span>
-            <span style="background:${escapeHtml(design.accentColor)}"></span>
+            <span data-token-swatch="design-primaryColor" style="background:${escapeHtml(design.primaryColor)}"></span>
+            <span data-token-swatch="design-secondaryColor" style="background:${escapeHtml(design.secondaryColor)}"></span>
+            <span data-token-swatch="design-accentColor" style="background:${escapeHtml(design.accentColor)}"></span>
             <strong>Shared UI decisions</strong>
           </div>
         </article>
@@ -976,10 +989,34 @@ const WEBSITE_STUDIO_SCRIPT = `
     }
   });
 
-  qsa('[data-color-for]').forEach(picker => picker.addEventListener('input', () => {
-    const target = document.getElementById(picker.dataset.colorFor);
-    if (target) target.value = picker.value;
-  }));
+  // Colour editing used to be one-way and partial: moving the picker wrote into
+  // its paired hex field, typing a hex did not move the picker back, and the
+  // swatches above were server-rendered so neither updated them until a save
+  // and re-render.
+  function paintSwatch(id, value) {
+    const swatch = document.querySelector('[data-token-swatch="' + id + '"]');
+    if (swatch) swatch.style.background = value;
+  }
+
+  qsa('[data-color-for]').forEach(picker => {
+    const id = picker.dataset.colorFor;
+    const target = document.getElementById(id);
+    picker.addEventListener('input', () => {
+      if (target) target.value = picker.value;
+      paintSwatch(id, picker.value);
+    });
+    if (target) {
+      target.addEventListener('input', () => {
+        const value = target.value.trim();
+        // Only a complete hex can drive the native picker; anything else is
+        // still mid-typing, so the swatch waits rather than flickering.
+        if (/^#[0-9a-fA-F]{6}$/.test(value)) {
+          picker.value = value;
+          paintSwatch(id, value);
+        }
+      });
+    }
+  });
 
   window.addEventListener('message', event => {
     if (event.data?.type === 'notice') notice(event.data.message, event.data.tone);

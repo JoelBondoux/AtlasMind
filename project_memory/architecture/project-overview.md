@@ -311,7 +311,6 @@ See [Funding and Sponsorship](wiki/Funding-and-Sponsorship.md) for details.
 - [SSOT Memory System](docs/ssot-memory.md)
 - [Configuration Reference](docs/configuration.md)
 - [Roadmap](docs/roadmap.md)
-- [Comparison Matrix](wiki/Comparison.md)
 - [Funding and Sponsorship](wiki/Funding-and-Sponsorship.md)
 
 ---

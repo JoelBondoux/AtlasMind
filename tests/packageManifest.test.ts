@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import manifest from '../package.json';
 
@@ -57,33 +57,22 @@ describe('package manifest', () => {
     expect(readme).toContain(`Current source version: ${manifest.version}`);
   });
 
-  it('includes Cline in the comparison charts', () => {
+  it('keeps the README sales-led and free of competitor comparison charts', () => {
     const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
-    const comparison = readFileSync(new URL('../wiki/Comparison.md', import.meta.url), 'utf8');
 
-    expect(readme).toContain('| Feature | AtlasMind | Copilot | Claude Code | Cline | Cursor |');
-    expect(comparison).toContain('| Cline |');
+    expect(readme).toContain('Your AI delivery team, inside VS Code.');
+    expect(readme).toContain("## What's new in 0.145.0");
+    expect(readme).not.toContain('| Feature | AtlasMind | Copilot');
+    expect(readme).not.toContain('wiki/Comparison.md');
   });
 
-  it('keeps the MCP support rows aligned across the comparison charts', () => {
-    const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
-    const comparison = readFileSync(new URL('../wiki/Comparison.md', import.meta.url), 'utf8');
+  it('keeps the wiki comparison page and navigation removed', () => {
+    const home = readFileSync(new URL('../wiki/Home.md', import.meta.url), 'utf8');
+    const sidebar = readFileSync(new URL('../wiki/_Sidebar.md', import.meta.url), 'utf8');
 
-    expect(readme).toContain('| Extensible with MCP servers | ✅ | ✅ | ✅ | ✅ | ✅ |');
-    // Wiki now has 8-column sectioned tables (Windsurf and Continue added, OpenHands dropped).
-    // The MCP row lists AtlasMind first (✅ stdio + HTTP/SSE) and Aider last (❌).
-    expect(comparison).toContain('| MCP server integration | ✅ stdio + HTTP/SSE |');
-    expect(comparison).toContain('| ❌ |');  // Aider has no MCP
-  });
-
-  it('keeps the Cline and open-source tool comparison details explicit', () => {
-    const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
-    const comparison = readFileSync(new URL('../wiki/Comparison.md', import.meta.url), 'utf8');
-
-    expect(readme).toContain('Cline supports OpenAI-compatible providers and configurable endpoints.');
-    // Wiki now has 8-column sectioned tables (Windsurf and Continue added, OpenHands dropped)
-    expect(comparison).toContain('| Open source | ✅ MIT |');  // AtlasMind MIT
-    expect(comparison).toContain('✅ Apache 2.0');             // Cline / Continue / Aider Apache
+    expect(existsSync(new URL('../wiki/Comparison.md', import.meta.url))).toBe(false);
+    expect(home).not.toContain('[[Comparison]]');
+    expect(sidebar).not.toContain('[[Comparison]]');
   });
 
   it('wires the configure-provider walkthrough step to the provider command', () => {

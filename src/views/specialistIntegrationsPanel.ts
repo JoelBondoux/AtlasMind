@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
+import { PANEL_NAV_JS } from './panelNav.js';
 
 type SpecialistSurfaceCommand = 'atlasmind.openVoicePanel' | 'atlasmind.openVisionPanel';
 
@@ -161,8 +162,6 @@ export class SpecialistIntegrationsPanel {
 
     const configuredCount = cards.filter(card => card.configured).length;
     const catalogCards = cards.map(card => card.html).join('');
-    const liveCards = cards.filter(card => card.page === 'live').map(card => card.html).join('');
-    const futureCards = cards.filter(card => card.page === 'future').map(card => card.html).join('');
 
     return getWebviewHtmlShell({
       title: 'Specialist Integrations',
@@ -176,8 +175,8 @@ export class SpecialistIntegrationsPanel {
           <p class="hero-copy">Keep search, voice, image, and video services off the routed chat-provider list while still giving them a dedicated setup surface and a clear path into the right AtlasMind workflow.</p>
         </div>
         <div class="hero-badges" aria-label="Integration summary">
-          <button type="button" class="hero-badge hero-badge-button" data-hero-page-target="catalog" data-status-filter="configured" title="Show specialist providers with stored credentials.">${configuredCount} configured</button>
-          <button type="button" class="hero-badge hero-badge-button" data-hero-page-target="catalog" data-status-filter="pending" title="Show specialist providers that still need credentials.">${SPECIALIST_PROVIDERS.length - configuredCount} awaiting setup</button>
+          <button type="button" class="hero-badge hero-badge-button" data-hero-page-target="integrations" data-status-filter="configured" title="Show specialist providers with stored credentials.">${configuredCount} configured</button>
+          <button type="button" class="hero-badge hero-badge-button" data-hero-page-target="integrations" data-status-filter="pending" title="Show specialist providers that still need credentials.">${SPECIALIST_PROVIDERS.length - configuredCount} awaiting setup</button>
           <span class="hero-badge" data-tooltip="AtlasMind stores specialist API keys in VS Code SecretStorage so voice, search, image, and video credentials stay out of workspace files." tabindex="0">SecretStorage-backed</span>
         </div>
       </div>
@@ -191,9 +190,7 @@ export class SpecialistIntegrationsPanel {
       <div class="panel-layout">
         <nav class="panel-nav" aria-label="Specialist integration sections" role="tablist" aria-orientation="vertical">
           <button type="button" class="nav-link active" data-page-target="overview" data-search="overview specialist settings voice vision search media">Overview</button>
-          <button type="button" class="nav-link" data-page-target="catalog" data-search="catalog all specialist providers configured pending credentials voice vision search image video">All Integrations</button>
-          <button type="button" class="nav-link" data-page-target="live" data-search="live search exa voice elevenlabs image stability video runway voice panel vision panel">Live surfaces</button>
-          <button type="button" class="nav-link" data-page-target="future" data-search="future meta ludus reka aleph alpha upcoming adapters">Future adapters</button>
+          <button type="button" class="nav-link" data-page-target="integrations" data-search="catalog all specialist providers configured pending credentials voice vision search image video">Integrations</button>
         </nav>
 
         <main class="panel-main">
@@ -238,37 +235,25 @@ export class SpecialistIntegrationsPanel {
             </div>
           </section>
 
-          <section id="page-catalog" class="panel-page" hidden>
+          <!-- One page, filtered. This was three: "All Integrations" was a
+               verbatim concatenation of "Live surfaces" and "Future adapters",
+               so every provider card existed in the DOM twice and three of the
+               four tabs showed the same eight cards. -->
+          <section id="page-integrations" class="panel-page" hidden>
             <div class="page-header">
-              <p class="page-kicker">All Integrations</p>
+              <p class="page-kicker">Integrations</p>
               <h2>Specialist credential catalog</h2>
-              <p>See every specialist adapter in one place, then use the summary chips above to isolate configured or waiting integrations.</p>
+              <p>Every specialist adapter in one place. Filter by whether it already maps to an AtlasMind workflow, and use the summary chips above to isolate configured or waiting integrations.</p>
+            </div>
+            <div class="segmented" role="group" aria-label="Filter integrations by surface">
+              <button type="button" data-surface-filter="" class="active" aria-pressed="true">All</button>
+              <button type="button" data-surface-filter="live" aria-pressed="false">Live surfaces</button>
+              <button type="button" data-surface-filter="future" aria-pressed="false">Future adapters</button>
             </div>
             <div class="card-grid catalog-grid">
               ${catalogCards}
             </div>
-          </section>
-
-          <section id="page-live" class="panel-page" hidden>
-            <div class="page-header">
-              <p class="page-kicker">Live surfaces</p>
-              <h2>Available workflows</h2>
-              <p>These providers either already map to a concrete AtlasMind panel or represent near-term specialist workflows.</p>
-            </div>
-            <div class="card-grid">
-              ${liveCards}
-            </div>
-          </section>
-
-          <section id="page-future" class="panel-page" hidden>
-            <div class="page-header">
-              <p class="page-kicker">Future adapters</p>
-              <h2>Tracked but not routed</h2>
-              <p>These integrations stay visible so they can be managed intentionally without being mistaken for routed chat backends.</p>
-            </div>
-            <div class="card-grid">
-              ${futureCards}
-            </div>
+            <p id="integrationsEmpty" class="search-status" hidden>No integrations match the current filter.</p>
           </section>
         </main>
       </div>
@@ -289,7 +274,48 @@ export class SpecialistIntegrationsPanel {
         .hero-copy, .page-header p:last-child, .integration-copy, .search-status { color: var(--atlas-muted); }
         .hero-badges { display: flex; flex-wrap: wrap; gap: 10px; align-content: flex-start; justify-content: flex-end; }
         .hero-badge { position: relative; border: 1px solid var(--atlas-border); border-radius: 999px; padding: 6px 12px; background: color-mix(in srgb, var(--atlas-accent) 16%, transparent); }
+        /* Mirrors the shared .segmented primitive in dashboardTheme.ts, written
+           against this panel's own --atlas-* tokens because the panel does not
+           adopt the shared theme yet. Squared and joined, so it reads as a
+           filter rather than as another row of nav pills. */
+        .segmented {
+          display: inline-flex;
+          border: 1px solid var(--atlas-border);
+          border-radius: 9px;
+          overflow: hidden;
+          background: color-mix(in srgb, var(--atlas-surface, transparent) 55%, transparent);
+          margin-bottom: 14px;
+        }
+        .segmented button {
+          border: 0;
+          border-radius: 0;
+          background: transparent;
+          color: var(--atlas-muted);
+          padding: 5px 13px;
+          font-size: 11px;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .segmented button + button { border-left: 1px solid var(--atlas-border); }
+        .segmented button:hover { color: var(--vscode-foreground); }
+        .segmented button.active {
+          background: color-mix(in srgb, var(--atlas-accent) 26%, transparent);
+          color: var(--vscode-foreground);
+          font-weight: 700;
+        }
+        .segmented button:focus-visible { outline: 2px solid var(--atlas-accent); outline-offset: -2px; }
+
         .hero-badge-button { color: inherit; font: inherit; cursor: pointer; }
+        /* Three pills sit side by side with identical shape and fill, but only
+           two are buttons — the clickable ones now carry a visible at-rest cue
+           and an obvious active state, so the filter can be seen and cleared. */
+        .hero-badge-button::after { content: " \\25BE"; opacity: 0.55; font-size: 0.85em; }
+        .hero-badge-button.is-filtering {
+          background: color-mix(in srgb, var(--atlas-accent) 38%, transparent);
+          border-color: color-mix(in srgb, var(--atlas-accent) 60%, var(--atlas-border));
+          font-weight: 700;
+        }
+        .hero-badge-button.is-filtering::after { content: " ✕"; opacity: 0.9; }
         .hero-badge-button:hover, .hero-badge-button:focus-visible { outline: 2px solid var(--atlas-accent); outline-offset: 2px; }
         .hero-badge[data-tooltip]::after {
           content: attr(data-tooltip);
@@ -352,6 +378,8 @@ export class SpecialistIntegrationsPanel {
       `,
       scriptContent:
       `
+        ${PANEL_NAV_JS}
+
         const vscode = acquireVsCodeApi();
         const navButtons = Array.from(document.querySelectorAll('[data-page-target]'));
         const pages = Array.from(document.querySelectorAll('.panel-page'));
@@ -360,24 +388,19 @@ export class SpecialistIntegrationsPanel {
         const cards = Array.from(document.querySelectorAll('.integration-card'));
         let activeStatusFilter = '';
 
+        // Tab semantics, roving tabindex and arrow-key navigation come from the
+        // shared controller. State persistence stays panel-specific and rides
+        // along via onActivate.
+        const panelNav = createPanelNav({
+          tablist: '.panel-nav',
+          onActivate: pageId => {
+            const state = vscode.getState() ?? {};
+            vscode.setState({ ...state, pageId, statusFilter: activeStatusFilter });
+          },
+        });
+
         function activatePage(pageId) {
-          navButtons.forEach(button => {
-            if (!(button instanceof HTMLButtonElement)) {
-              return;
-            }
-            const isActive = button.dataset.pageTarget === pageId;
-            button.classList.toggle('active', isActive);
-          });
-          pages.forEach(page => {
-            if (!(page instanceof HTMLElement)) {
-              return;
-            }
-            const isActive = page.id === 'page-' + pageId;
-            page.classList.toggle('active', isActive);
-            page.hidden = !isActive;
-          });
-          const state = vscode.getState() ?? {};
-          vscode.setState({ ...state, pageId, statusFilter: activeStatusFilter });
+          panelNav.activate(pageId);
         }
 
         function matchesStatusFilter(card) {
@@ -386,6 +409,33 @@ export class SpecialistIntegrationsPanel {
           }
           return card.dataset.status === activeStatusFilter;
         }
+
+        // Live/future used to be two extra tabs that re-rendered the same cards.
+        // They are a filter over the single catalog now.
+        let activeSurfaceFilter = '';
+
+        function matchesSurfaceFilter(card) {
+          if (!(card instanceof HTMLElement) || activeSurfaceFilter.length === 0) {
+            return true;
+          }
+          return card.dataset.surface === activeSurfaceFilter;
+        }
+
+        document.querySelectorAll('[data-surface-filter]').forEach(button => {
+          if (!(button instanceof HTMLButtonElement)) {
+            return;
+          }
+          button.addEventListener('click', () => {
+            activeSurfaceFilter = button.dataset.surfaceFilter ?? '';
+            document.querySelectorAll('[data-surface-filter]').forEach(peer => {
+              if (!(peer instanceof HTMLElement)) { return; }
+              const isActive = (peer.dataset.surfaceFilter ?? '') === activeSurfaceFilter;
+              peer.classList.toggle('active', isActive);
+              peer.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+            });
+            updateSearch(searchInput instanceof HTMLInputElement ? searchInput.value : '');
+          });
+        });
 
         function updateSearch(query) {
           const normalized = typeof query === 'string' ? query.trim().toLowerCase() : '';
@@ -404,13 +454,17 @@ export class SpecialistIntegrationsPanel {
             }
             const haystack = (card.dataset.search ?? '').toLowerCase();
             const matchesSearch = normalized.length === 0 || haystack.includes(normalized);
-            const matchesStatus = matchesStatusFilter(card);
+            const matchesStatus = matchesStatusFilter(card) && matchesSurfaceFilter(card);
             card.classList.toggle('hidden-by-search', !matchesSearch);
             card.classList.toggle('hidden-by-status', !matchesStatus);
             if (matchesSearch && matchesStatus) {
               visibleCards += 1;
             }
           });
+          const emptyNotice = document.getElementById('integrationsEmpty');
+          if (emptyNotice instanceof HTMLElement) {
+            emptyNotice.hidden = visibleCards > 0;
+          }
           if (searchStatus instanceof HTMLElement) {
             const statusLabel = activeStatusFilter.length > 0 ? ' matching that status' : '';
             if (normalized.length === 0 && activeStatusFilter.length === 0) {
@@ -441,19 +495,38 @@ export class SpecialistIntegrationsPanel {
           button.addEventListener('click', () => activatePage(button.dataset.pageTarget ?? 'overview'));
         });
 
+        // Reflect the active filter on the badges so it is visible, and so the
+        // way to clear it is discoverable.
+        const syncStatusBadges = () => {
+          document.querySelectorAll('[data-status-filter]').forEach(badge => {
+            if (!(badge instanceof HTMLElement)) { return; }
+            const isActive = (badge.dataset.statusFilter ?? '') === activeStatusFilter && activeStatusFilter.length > 0;
+            badge.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+            badge.classList.toggle('is-filtering', isActive);
+          });
+        };
+
         document.querySelectorAll('[data-hero-page-target]').forEach(button => {
           if (!(button instanceof HTMLButtonElement)) {
             return;
           }
           button.addEventListener('click', () => {
-            activeStatusFilter = button.dataset.statusFilter ?? '';
+            // Toggle, don't just set. activeStatusFilter could previously only
+            // ever be switched *on* — the only assignments were a badge's own
+            // data-status-filter and the restored state — so once a user
+            // filtered by "configured" there was no way back to the full list
+            // short of reloading the panel.
+            const requested = button.dataset.statusFilter ?? '';
+            activeStatusFilter = activeStatusFilter === requested ? '' : requested;
             activatePage(button.dataset.heroPageTarget ?? 'catalog');
+            syncStatusBadges();
             updateSearch(searchInput instanceof HTMLInputElement ? searchInput.value : '');
           });
         });
 
         const savedState = vscode.getState();
         activeStatusFilter = typeof savedState?.statusFilter === 'string' ? savedState.statusFilter : '';
+        syncStatusBadges();
         activatePage(typeof savedState?.pageId === 'string' ? savedState.pageId : 'overview');
         if (searchInput instanceof HTMLInputElement) {
           const initialQuery = typeof savedState?.searchQuery === 'string' ? savedState.searchQuery : '';
@@ -600,7 +673,7 @@ function renderSpecialistCard(
     page,
     configured,
     html: `
-      <article class="integration-card" data-search="${search}" data-status="${statusClass}">
+      <article class="integration-card" data-search="${search}" data-status="${statusClass}" data-surface="${page}">
         <div class="integration-topline">
           <div>
             <p class="card-kicker">${escapeHtml(provider.category)}</p>

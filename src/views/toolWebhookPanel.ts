@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import type { AtlasMindContext } from '../extension.js';
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
+import { PANEL_NAV_JS } from './panelNav.js';
 
 const EVENT_VALUES = ['tool.started', 'tool.completed', 'tool.failed', 'tool.test'] as const;
 type ToolWebhookEventName = (typeof EVENT_VALUES)[number];
@@ -267,6 +268,21 @@ export class ToolWebhookPanel {
                 <button type="button" id="clearToken">Clear Token</button>
                 <button type="button" id="refresh">Refresh</button>
               </div>
+              <!-- An inline field rather than window.prompt(): VS Code webviews
+                   do not implement prompt(), so the old control returned
+                   undefined and silently did nothing. type="password" keeps the
+                   secret off-screen; it is posted to the host and stored in
+                   SecretStorage, never rendered back into this markup. -->
+              <div id="tokenEntry" class="token-entry" hidden>
+                <label for="tokenInput">Bearer token</label>
+                <input type="password" id="tokenInput" autocomplete="off" spellcheck="false"
+                  placeholder="Paste the bearer token for outbound webhook delivery" />
+                <div class="button-row">
+                  <button type="button" id="saveToken">Save token</button>
+                  <button type="button" id="cancelToken">Cancel</button>
+                </div>
+                <p id="tokenEntryError" class="token-entry-error" hidden>Enter a token, or choose Cancel.</p>
+              </div>
             </section>
           </section>
 
@@ -367,6 +383,28 @@ export class ToolWebhookPanel {
           flex-wrap: wrap;
           gap: 8px;
         }
+        .token-entry {
+          display: grid;
+          gap: 8px;
+          margin-top: 12px;
+          padding: 12px;
+          border: 1px solid var(--atlas-border, var(--vscode-widget-border));
+          border-radius: 8px;
+          background: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-editor-background)) 80%, transparent);
+        }
+        .token-entry[hidden] { display: none; }
+        .token-entry label { font-size: 0.86em; color: var(--vscode-descriptionForeground); }
+        .token-entry input {
+          width: 100%;
+          background: var(--vscode-input-background);
+          color: var(--vscode-input-foreground);
+          border: 1px solid var(--vscode-input-border, var(--atlas-border));
+          padding: 6px 9px;
+          border-radius: 4px;
+          font-family: var(--vscode-editor-font-family, monospace);
+        }
+        .token-entry-error { margin: 0; font-size: 0.84em; color: var(--vscode-errorForeground, #f48771); }
+        .token-entry-error[hidden] { display: none; }
         tr[data-history-search].hidden-by-search { display: none; }
         .nav-link:hover, .nav-link:focus-visible, .action-card:hover, .action-card:focus-visible, .button-row button:focus-visible { outline: 2px solid var(--atlas-accent); outline-offset: 2px; }
         @media (max-width: 920px) {
@@ -380,6 +418,8 @@ export class ToolWebhookPanel {
       `,
       scriptContent:
       `
+        ${PANEL_NAV_JS}
+
         const vscode = acquireVsCodeApi();
 
         const navButtons = Array.from(document.querySelectorAll('[data-page-target]'));
@@ -388,22 +428,12 @@ export class ToolWebhookPanel {
         const searchStatus = document.getElementById('webhookSearchStatus');
         const historyRows = Array.from(document.querySelectorAll('tr[data-history-search]'));
 
+        // Tab semantics, roving tabindex and arrow-key navigation come from the
+        // shared controller; this panel's markup and styling are unchanged.
+        const panelNav = createPanelNav({ tablist: '.panel-nav' });
+
         function activatePage(pageId) {
-          navButtons.forEach(button => {
-            if (!(button instanceof HTMLButtonElement)) {
-              return;
-            }
-            const isActive = button.dataset.pageTarget === pageId;
-            button.classList.toggle('active', isActive);
-          });
-          pages.forEach(page => {
-            if (!(page instanceof HTMLElement)) {
-              return;
-            }
-            const isActive = page.id === 'page-' + pageId;
-            page.classList.toggle('active', isActive);
-            page.hidden = !isActive;
-          });
+          panelNav.activate(pageId);
         }
 
         function updateSearch(query) {
@@ -504,14 +534,50 @@ export class ToolWebhookPanel {
           element.addEventListener('change', emitEvents);
         });
 
+        // window.prompt() is not implemented in VS Code webviews — the previous
+        // handler called it, got undefined back, and posted nothing. The token
+        // is collected in an inline field instead.
         const setToken = document.getElementById('setToken');
-        if (setToken) {
-          setToken.addEventListener('click', async () => {
-            const value = window.prompt('Enter bearer token for webhook authentication. Leave blank to cancel.', '');
-            if (value === null) {
+        const tokenEntry = document.getElementById('tokenEntry');
+        const tokenInput = document.getElementById('tokenInput');
+        const tokenEntryError = document.getElementById('tokenEntryError');
+        const saveToken = document.getElementById('saveToken');
+        const cancelToken = document.getElementById('cancelToken');
+
+        const closeTokenEntry = () => {
+          if (!tokenEntry) { return; }
+          tokenEntry.hidden = true;
+          if (tokenInput) { tokenInput.value = ''; }
+          if (tokenEntryError) { tokenEntryError.hidden = true; }
+        };
+
+        if (setToken && tokenEntry) {
+          setToken.addEventListener('click', () => {
+            tokenEntry.hidden = !tokenEntry.hidden;
+            if (!tokenEntry.hidden && tokenInput) { tokenInput.focus(); }
+          });
+        }
+
+        if (saveToken) {
+          saveToken.addEventListener('click', () => {
+            const value = tokenInput ? tokenInput.value.trim() : '';
+            if (!value) {
+              if (tokenEntryError) { tokenEntryError.hidden = false; }
               return;
             }
             vscode.postMessage({ type: 'setToken', payload: value });
+            closeTokenEntry();
+          });
+        }
+
+        if (cancelToken) {
+          cancelToken.addEventListener('click', closeTokenEntry);
+        }
+
+        if (tokenInput) {
+          tokenInput.addEventListener('keydown', event => {
+            if (event.key === 'Enter') { event.preventDefault(); saveToken?.click(); }
+            if (event.key === 'Escape') { closeTokenEntry(); }
           });
         }
 

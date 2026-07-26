@@ -388,6 +388,11 @@
     chatFontScale = nextScale;
     applyChatFontScale();
     persistUiState();
+    // persistUiState() only writes vscode.setState, which dies with the webview.
+    // The host already handles 'saveFontScale' and seeds chatFontScale from
+    // globalState on load — the webview just never told it, so the A-/A+ buttons
+    // reset every time the panel was reopened.
+    vscode.postMessage({ type: 'saveFontScale', payload: nextScale });
   }
 
   function isTranscriptNearBottom() {
@@ -1900,13 +1905,32 @@
             }
             badgeWrap.appendChild(list);
 
+            // Close-on-outside-click is armed when the menu opens, not when the
+            // message renders. The previous version registered at render time
+            // and unbound itself on the first document click anywhere — which
+            // in practice happened long before the menu was ever opened, so the
+            // dropdown then stayed open until the badge was clicked again.
+            var closeOnOutsideClick = function () {
+              list.classList.remove('open');
+            };
+
             badge.addEventListener('click', function (e) {
               e.stopPropagation();
-              list.classList.toggle('open');
+              var willOpen = !list.classList.contains('open');
+              list.classList.toggle('open', willOpen);
+              if (willOpen) {
+                document.addEventListener('click', closeOnOutsideClick, { once: true });
+              } else {
+                document.removeEventListener('click', closeOnOutsideClick);
+              }
             });
-            document.addEventListener('click', function closeList() {
-              list.classList.remove('open');
-              document.removeEventListener('click', closeList);
+
+            list.addEventListener('keydown', function (e) {
+              if (e.key === 'Escape') {
+                list.classList.remove('open');
+                document.removeEventListener('click', closeOnOutsideClick);
+                badge.focus();
+              }
             });
           }
 
@@ -3038,9 +3062,18 @@
         var href = linkMatch ? linkMatch[2] : '';
         var link = document.createElement('a');
         link.textContent = linkMatch ? linkMatch[1] : raw;
-        link.href = sanitizeLinkHref(href);
+        var safeHref = sanitizeLinkHref(href);
+        link.href = safeHref;
         link.target = '_blank';
         link.rel = 'noreferrer noopener';
+        // A rejected scheme is rewritten to '#', but the anchor still rendered
+        // link-coloured and underlined — indistinguishable from a working link
+        // that simply did nothing. Mark it so it reads as inert and says why.
+        if (safeHref === '#' && String(href || '').trim() !== '#') {
+          link.classList.add('blocked-link');
+          link.title = 'This link was blocked: only http, https, mailto and workspace-relative paths are allowed.';
+          link.removeAttribute('target');
+        }
         container.appendChild(link);
         continue;
       }

@@ -184,9 +184,11 @@ export class CostDashboardPanel {
     const feedbackOverview = this.buildFeedbackOverview(filteredRecords, feedbackSummary);
     const feedbackWeight = getFeedbackRoutingWeight();
 
-    const summaryCards = this.buildSummaryCards(summary, budget);
-    const summaryCardCount = budget ? 9 : 8;
+    const summaryCards = this.buildSummaryCards(summary, budget);
     const dailyChart = this.buildDailyChart(dailyData);
+    // No spend recorded means no chart to style or re-window, so the chart
+    // controls are withheld rather than floating over an empty stage.
+    const hasDailySpend = dailyData.some(day => day.costUsd > 0);
     const modelBreakdown = this.buildModelBreakdown(filteredRecords);
     const localSavings = this.buildLocalSavings(filteredRecords);
     const recentTable = this.buildRecentTable(records);
@@ -228,11 +230,20 @@ export class CostDashboardPanel {
           </div>
         </div>
 
-        <section class="summary-ribbon" style="--summary-columns: ${summaryCardCount};">
+        ${/* The budget HUD used to sit *inside* the Daily Spend card, below a
+              section header and behind the whole summary ribbon. "Am I about to
+              be blocked?" is the one question on this page that forces a
+              decision, so it is now the first thing under the topbar, full
+              width. */ ''}
+        ${budget ? `<section class="budget-strip">${this.buildBudgetBar(budget)}</section>` : ''}
+
+        ${/* Live in-flight spend is the only thing actively moving the budget,
+              so it sits directly beneath it. */ ''}
+        ${this.buildCurrentLoops()}
+
+        <section class="summary-ribbon">
           ${summaryCards}
         </section>
-
-        ${this.buildCurrentLoops()}
 
         <section class="cost-spotlight-grid">
           <article class="panel-card panel-card-hero">
@@ -248,11 +259,17 @@ export class CostDashboardPanel {
                 ${budget ? `<span class="meta-pill ${budget.blocked ? 'meta-pill-danger' : ''}">Budget ${escapeHtml(budget.blocked ? 'blocked' : 'tracking')}</span>` : ''}
               </div>
             </div>
-            ${budget ? this.buildBudgetBar(budget) : ''}
             <div class="daily-chart-stage" data-active-chart-style="line">
-              <div class="chart-style-controls" role="group" aria-label="Daily spend chart style">
-                ${chartStyleButtons}
-              </div>
+              ${/* The line/bar switch is withheld when the window has no spend —
+                    there is no chart to restyle. The timescale strip is NOT:
+                    the records feeding this chart are themselves scoped by the
+                    selected timescale, so an empty window is exactly when the
+                    user needs to widen it. Hiding it would trap them. */ ''}
+              ${hasDailySpend ? `
+                <div class="chart-style-controls" role="group" aria-label="Daily spend chart style">
+                  ${chartStyleButtons}
+                </div>
+              ` : ''}
               <div id="cost-dashboard-timescale" class="chart-overlay-controls" role="group" aria-label="Daily spend timescale">
                 ${timescaleButtons}
               </div>
@@ -276,7 +293,19 @@ export class CostDashboardPanel {
           </article>
         </section>
 
-        ${localSavings}
+        ${/* Recent Requests is the primary drill-down from every number above
+              it — "what did I actually spend that on?" — so it precedes the
+              two interpretive panels rather than sitting below them. */ ''}
+        <section class="panel-card">
+          <div class="panel-header-row">
+            <div>
+              <p class="section-kicker">Recent activity</p>
+              <h2>Recent Requests</h2>
+              <p class="section-copy">Message-level request costs, with deep links back to chat responses when the transcript entry still exists.</p>
+            </div>
+          </div>
+          ${recentTable}
+        </section>
 
         <section class="panel-card">
           <div class="panel-header-row">
@@ -289,16 +318,9 @@ export class CostDashboardPanel {
           ${feedbackOverview}
         </section>
 
-        <section class="panel-card">
-          <div class="panel-header-row">
-            <div>
-              <p class="section-kicker">Recent activity</p>
-              <h2>Recent Requests</h2>
-              <p class="section-copy">Message-level request costs, with deep links back to chat responses when the transcript entry still exists.</p>
-            </div>
-          </div>
-          ${recentTable}
-        </section>
+        ${/* An estimate rather than a measurement, so it closes the page
+              instead of interrupting the middle of it. */ ''}
+        ${localSavings}
       </div>
     `;
 
@@ -510,7 +532,10 @@ export class CostDashboardPanel {
         .dashboard-button-solid { background: linear-gradient(135deg, color-mix(in srgb, var(--vscode-button-background) 94%, white 6%), color-mix(in srgb, var(--vscode-button-background) 70%, black 14%)); color: var(--vscode-button-foreground); border-color: color-mix(in srgb, var(--vscode-button-background) 65%, white 8%); }
         .dashboard-button-solid.active { box-shadow: 0 0 0 1px color-mix(in srgb, var(--vscode-focusBorder, var(--vscode-button-background)) 50%, transparent); }
         .dashboard-button-danger { background: color-mix(in srgb, var(--vscode-inputValidation-errorBackground, #7a2f31) 78%, black 22%); color: var(--vscode-inputValidation-errorForeground, #fff); border-color: color-mix(in srgb, var(--vscode-inputValidation-errorBorder, #be1100) 78%, transparent); }
-        .summary-ribbon { display: grid; grid-template-columns: repeat(var(--summary-columns), minmax(144px, 1fr)); gap: 12px; overflow-x: auto; padding-bottom: 2px; }
+        .summary-ribbon { display: flex; flex-wrap: wrap; gap: 18px; padding-bottom: 2px; }
+        .summary-group { display: flex; flex-direction: column; gap: 6px; flex: 1 1 240px; min-width: 0; }
+        .summary-group-label { margin: 0; font-size: 9px; font-weight: 700; letter-spacing: 0.11em; text-transform: uppercase; color: var(--vscode-descriptionForeground); padding-left: 2px; }
+        .summary-group-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
         .summary-card { min-width: 0; padding: 14px 16px; border-radius: 18px; border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 80%, transparent); background: linear-gradient(180deg, color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 92%, white 3%), color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 96%, black 4%)); box-shadow: 0 18px 30px rgba(0, 0, 0, 0.12); }
         .summary-label { margin: 0; font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--vscode-descriptionForeground); }
         .summary-card-head { display: flex; align-items: center; gap: 8px; }
@@ -551,7 +576,14 @@ export class CostDashboardPanel {
         .loop-track-fill.safe { background: linear-gradient(90deg, #36cfc9, #4ec9b0); }
         .loop-track-fill.warn { background: linear-gradient(90deg, #f5a623, #ffcb6b); }
         .loop-track-fill.over { background: linear-gradient(90deg, #f36b6b, #f44747); }
-        .budget-hud { margin-bottom: 16px; padding: 14px; border-radius: 18px; background: color-mix(in srgb, var(--vscode-editor-background) 64%, transparent); border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 72%, transparent); }
+        .budget-hud { margin-bottom: 0; padding: 14px; border-radius: 18px; background: color-mix(in srgb, var(--vscode-editor-background) 64%, transparent); border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 72%, transparent); }
+        /* Promoted out of the Daily Spend card to full width. Its border takes
+           the budget's tone so "about to be blocked" is legible before reading
+           a single number. */
+        .budget-strip { display: block; }
+        .budget-strip .budget-hud { border-width: 1px; }
+        .budget-strip:has(.budget-track-fill.warn) .budget-hud { border-color: color-mix(in srgb, var(--vscode-charts-yellow, #d7ba7d) 55%, var(--vscode-widget-border, #444)); }
+        .budget-strip:has(.budget-track-fill.over) .budget-hud { border-color: color-mix(in srgb, var(--vscode-errorForeground, #f48771) 60%, var(--vscode-widget-border, #444)); background: color-mix(in srgb, var(--vscode-errorForeground, #f48771) 7%, color-mix(in srgb, var(--vscode-editor-background) 64%, transparent)); }
         .budget-hud-top { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
         .budget-label-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
         .budget-edit-btn { border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 80%, transparent); border-radius: 999px; background: color-mix(in srgb, var(--vscode-editorWidget-background) 90%, transparent); color: var(--vscode-descriptionForeground); padding: 2px 10px; font: inherit; font-size: 0.72rem; cursor: pointer; }
@@ -730,8 +762,7 @@ export class CostDashboardPanel {
     const todayCostUsd = budget?.todayCostUsd ?? 0;
     const pct = budget ? Math.min(100, (budget.todayCostUsd / budget.limitUsd) * 100) : 0;
     const budgetClass = budget ? (pct >= 100 ? 'warning' : pct >= 80 ? 'warning' : 'ok') : '';
-    const budgetTone = budget ? (pct >= 100 ? 'critical' : pct >= 80 ? 'warn' : 'good') : 'accent';
-    const budgetMeterClass = pct >= 100 ? 'over' : pct >= 80 ? 'warn' : 'safe';
+    const budgetTone = budget ? (pct >= 100 ? 'critical' : pct >= 80 ? 'warn' : 'good') : 'accent';
     const savingsTone = (value: number): SummaryTone => (value > 0 ? 'good' : 'accent');
 
     const cards: SummaryCard[] = [
@@ -743,21 +774,48 @@ export class CostDashboardPanel {
       { label: 'Total Requests', value: String(summary.totalRequests), detail: 'Requests in current window', countTo: summary.totalRequests, countFormat: 'integer', tone: 'accent' },
       { label: 'Input Tokens', value: formatTokens(summary.totalInputTokens), detail: 'Prompt-side token volume', countTo: summary.totalInputTokens, countFormat: 'tokens', tone: 'accent' },
       { label: 'Output Tokens', value: formatTokens(summary.totalOutputTokens), detail: 'Response-side token volume', countTo: summary.totalOutputTokens, countFormat: 'tokens', tone: 'accent' },
-      { label: "Today's Spend", value: formatCurrency(todayCostUsd, 4), detail: budget ? `${pct.toFixed(0)}% of the daily limit` : 'Current day budget pressure', cls: budgetClass, countTo: todayCostUsd, countFormat: 'currency-4', tone: budgetTone, ...(budget ? { meter: pct, meterClass: budgetMeterClass } : {}) },
     ];
 
-    if (budget) {
-      cards.push({ label: 'Daily Limit', value: formatCurrency(budget.limitUsd, 2), detail: 'Configured spending ceiling', countTo: budget.limitUsd, countFormat: 'currency-2', tone: 'accent' });
+    // Today's spend and the daily limit are the promoted budget strip's whole
+    // subject — it shows today's cost, the projection, the percentage and the
+    // remaining headroom. Repeating them as cards here would be the same
+    // duplication the MCP Overview had. They are kept only when there is no
+    // budget configured, since then the strip does not render at all.
+    if (!budget) {
+      cards.push({ label: "Today's Spend", value: formatCurrency(todayCostUsd, 4), detail: 'Current day spend — set a daily limit to track budget pressure', cls: budgetClass, countTo: todayCostUsd, countFormat: 'currency-4', tone: budgetTone });
     }
 
-    return cards.map(card => `
+    const renderCard = (card: SummaryCard): string => `
       <article class="summary-card">
         <div class="summary-card-head"><span class="pill-dot tone-${escapeHtml(card.tone)}"></span><p class="summary-label">${escapeHtml(card.label)}</p></div>
         <div class="summary-value ${escapeHtml(card.cls ?? '')}" data-count-to="${escapeHtml(String(card.countTo))}" data-count-format="${escapeHtml(card.countFormat)}">${escapeHtml(card.value)}</div>
         ${typeof card.meter === 'number' ? `<div class="summary-meter"><span class="${escapeHtml(card.meterClass ?? 'safe')}" style="width:${Math.max(0, Math.min(100, card.meter)).toFixed(0)}%"></span></div>` : ''}
         <p class="summary-detail">${escapeHtml(card.detail)}</p>
       </article>
-    `).join('');
+    `;
+
+    // Ten equal-weight cards in one horizontally-scrolling ribbon gave no sense
+    // of which number answered which question. Three labelled clusters: what it
+    // cost, what we avoided spending, how much went through.
+    const GROUPS: Array<{ label: string; labels: string[] }> = [
+      { label: 'Spend', labels: ['Total Spend', 'Budgeted Spend', 'Included Subscriptions', "Today's Spend"] },
+      { label: 'Efficiency', labels: ['Compression Savings', 'Cache Savings'] },
+      { label: 'Volume', labels: ['Total Requests', 'Input Tokens', 'Output Tokens'] },
+    ];
+
+    const byLabel = new Map(cards.map(card => [card.label, card]));
+    return GROUPS.map(group => {
+      const members = group.labels.map(label => byLabel.get(label)).filter((card): card is SummaryCard => card !== undefined);
+      if (members.length === 0) {
+        return '';
+      }
+      return `
+        <section class="summary-group">
+          <p class="summary-group-label">${escapeHtml(group.label)}</p>
+          <div class="summary-group-cards">${members.map(renderCard).join('')}</div>
+        </section>
+      `;
+    }).join('');
   }
 
   private buildBudgetBar(budget: NonNullable<ReturnType<CostTracker['getDailyBudgetStatus']>>): string {

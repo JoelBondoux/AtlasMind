@@ -24,6 +24,7 @@ export function classifyToolInvocation(
     case 'memory-query':
     case 'git-status':
     case 'git-diff':
+    case 'specialist-guidance':
       return { category: toolName.startsWith('git-') ? 'git-read' : 'read', risk: 'low', summary: `run ${toolName}` };
 
     case 'file-write':

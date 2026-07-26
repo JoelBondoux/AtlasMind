@@ -14,6 +14,7 @@ import type { RecommendedMcpStarterDetails } from '../constants.js';
 import { checkStarterRuntime, runRuntimeInstallPlan } from '../mcp/mcpRuntime.js';
 import { McpEnvironmentScanner, resolveImportedServer } from '../mcp/mcpEnvironmentScanner.js';
 import { getWebviewHtmlShell, escapeHtml } from './webviewUtils.js';
+import { PANEL_NAV_JS } from './panelNav.js';
 import type { McpServerRegistry, DetectedMcpServer } from '../mcp/mcpServerRegistry.js';
 import type { McpServerConfig, McpServerState } from '../types.js';
 
@@ -590,8 +591,8 @@ function buildBody(servers: McpServerState[], target?: McpPanelTarget): string {
     </div>
     <div class="hero-badges" aria-label="MCP summary">
       <button type="button" class="hero-badge hero-badge-button" data-hero-page-target="servers" data-search-query="" title="Open the configured server list.">${servers.length} configured</button>
-      <button type="button" class="hero-badge hero-badge-button" data-hero-page-target="servers" data-search-query="connected" title="Filter the server list to connected MCP servers.">${connectedCount} connected</button>
-      <button type="button" class="hero-badge hero-badge-button" data-hero-page-target="servers" data-search-query="enabled" title="Filter the server list to enabled MCP servers.">${enabledCount} enabled</button>
+      <button type="button" class="hero-badge hero-badge-button" data-hero-page-target="servers" data-search-query="status:connected" title="Filter the server list to connected MCP servers.">${connectedCount} connected</button>
+      <button type="button" class="hero-badge hero-badge-button" data-hero-page-target="servers" data-search-query="state:enabled" title="Filter the server list to enabled MCP servers.">${enabledCount} enabled</button>
     </div>
   </div>
 
@@ -603,10 +604,10 @@ function buildBody(servers: McpServerState[], target?: McpPanelTarget): string {
 
   <div class="panel-layout">
     <nav class="panel-nav" aria-label="MCP server sections" role="tablist" aria-orientation="vertical">
-      <button type="button" class="nav-link active" data-page-target="overview" data-search="overview safety settings agents server skills what is mcp">Overview</button>
-      <button type="button" class="nav-link" data-page-target="servers" data-search="servers configured connected disconnected tools stdio http">Configured Servers</button>
+      <button type="button" class="nav-link active" data-page-target="servers" data-search="servers configured connected disconnected tools stdio http">Configured Servers</button>
       <button type="button" class="nav-link" data-page-target="add" data-search="add server guided setup wizard scan computer browse category connect credentials">Guided Setup</button>
       <button type="button" class="nav-link" data-page-target="advanced" data-search="advanced manual stdio http env args url command custom endpoint">Advanced</button>
+      <button type="button" class="nav-link" data-page-target="overview" data-search="overview safety settings agents server skills what is mcp">About MCP</button>
     </nav>
 
     <main class="panel-main">
@@ -643,23 +644,11 @@ function buildBody(servers: McpServerState[], target?: McpPanelTarget): string {
             <span class="action-copy">Search Agentic Resource Discovery finders for MCP servers and other resources to install.</span>
           </button>
         </div>
-        <div class="summary-grid">
-          <article class="summary-card">
-            <p class="card-kicker">Servers</p>
-            <h3>${servers.length}</h3>
-            <p>MCP endpoints currently registered with AtlasMind.</p>
-          </article>
-          <article class="summary-card">
-            <p class="card-kicker">Connected</p>
-            <h3>${connectedCount}</h3>
-            <p>Servers currently connected and exposing tools.</p>
-          </article>
-          <article class="summary-card">
-            <p class="card-kicker">Enabled</p>
-            <h3>${enabledCount}</h3>
-            <p>Servers enabled for AtlasMind to connect when available.</p>
-          </article>
-        </div>
+        ${/* The summary grid that stood here restated the three hero badges
+              verbatim — the same three numbers twice on one screen, clickable
+              in the hero and inert here. The hero badges are the live version,
+              so this page keeps only what is unique to it: what MCP is and how
+              to get started. */ ''}
       </section>
 
       <section id="page-servers" class="panel-page" hidden>
@@ -1004,7 +993,12 @@ function renderServerCard(state: McpServerState): string {
     : `http: <code>${escapeHtml(config.url ?? '')}</code>`;
 
   return `
-  <div class="server-card" data-server-search="${escapeHtml([config.name, status, config.transport, toolSummary, config.url ?? config.command ?? ''].join(' ').toLowerCase())}">
+  ${/* The hero badges filter by stuffing a term into this haystack, and both
+        were broken: "connected" is a substring of "disconnected", so that
+        filter matched the servers it was meant to exclude, and "enabled" was
+        never in the haystack at all so it matched nothing. Prefixed tokens
+        cannot collide as substrings. */ ''}
+  <div class="server-card" data-server-search="${escapeHtml([config.name, status, `status:${status}`, `state:${config.enabled ? 'enabled' : 'disabled'}`, config.transport, toolSummary, config.url ?? config.command ?? ''].join(' ').toLowerCase())}">
     <div class="server-header">
       <span class="status-dot ${statusClass}" title="${escapeHtml(statusLabel)}"></span>
       <strong>${escapeHtml(config.name)}</strong>
@@ -1043,6 +1037,11 @@ const MCP_EXTRA_CSS = `
   .hero-badge { border: 1px solid var(--atlas-border); border-radius: 999px; padding: 6px 12px; background: color-mix(in srgb, var(--atlas-accent) 16%, transparent); }
   .hero-badge-button { color: inherit; font: inherit; cursor: pointer; }
   .hero-badge-button:hover, .hero-badge-button:focus-visible { outline: 2px solid var(--atlas-accent); outline-offset: 2px; }
+  /* Clickable badges sit beside inert ones with identical shape, border and
+     fill; only hover distinguished them. The caret is an at-rest cue that a
+     badge filters something. */
+  .hero-badge-button::after { content: " \\25BE"; opacity: 0.55; font-size: 0.85em; }
+  .hero-badge-button:hover::after, .hero-badge-button:focus-visible::after { opacity: 1; }
   .search-shell { display: grid; gap: 6px; margin: 0 0 18px; }
   .search-label { font-weight: 600; }
   .search-shell input { width: 100%; box-sizing: border-box; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, var(--atlas-border)); padding: 10px 12px; border-radius: 12px; }
@@ -1244,11 +1243,13 @@ function buildMcpScript(target?: McpPanelTarget, servers: McpServerState[] = [],
     url: server.config.url ?? '',
     enabled: server.config.enabled,
   })));
-  const initialPage = JSON.stringify(target?.page ?? 'overview');
+  const initialPage = JSON.stringify(target?.page ?? 'servers');
   const initialRecommendedServerId = JSON.stringify(target?.recommendedServerId ?? '');
 
   return `
 (function() {
+  ${PANEL_NAV_JS}
+
   const vscode = acquireVsCodeApi();
   const recommendedServers = ${recommendedServers};
   const existingServers = ${existingServers};
@@ -1271,17 +1272,12 @@ function buildMcpScript(target?: McpPanelTarget, servers: McpServerState[] = [],
   const cancelEditButton = document.getElementById('cancelEditServer');
   let activeEditServerId = '';
 
+  // Tab semantics, roving tabindex and arrow-key navigation come from the
+  // shared controller; this panel's markup and styling are unchanged.
+  const panelNav = createPanelNav({ tablist: '.panel-nav' });
+
   function activatePage(pageId) {
-    navButtons.forEach(button => {
-      if (!(button instanceof HTMLButtonElement)) { return; }
-      button.classList.toggle('active', button.dataset.pageTarget === pageId);
-    });
-    pages.forEach(page => {
-      if (!(page instanceof HTMLElement)) { return; }
-      const active = page.id === 'page-' + pageId;
-      page.classList.toggle('active', active);
-      page.hidden = !active;
-    });
+    panelNav.activate(pageId);
   }
 
   function updateSearch(query) {
@@ -1947,17 +1943,33 @@ function buildMcpScript(target?: McpPanelTarget, servers: McpServerState[] = [],
     const connectBtn = document.getElementById('wiz-connect-btn');
     if (!(prereq instanceof HTMLElement)) { return; }
     if (actions instanceof HTMLElement) { actions.innerHTML = ''; }
-    if (connectBtn instanceof HTMLButtonElement) { connectBtn.disabled = false; connectBtn.textContent = 'Connect'; }
+    // Deny by default. This line used to read "disabled = false" unconditionally
+    // and nothing below re-disabled it, so the prerequisite check reported a
+    // missing runtime in the banner while leaving Connect fully armed — a gate
+    // that displayed its verdict but never enforced it. Connect is now re-armed
+    // only on an explicit 'ready'.
+    if (connectBtn instanceof HTMLButtonElement) {
+      connectBtn.disabled = true;
+      connectBtn.textContent = 'Connect';
+      connectBtn.title = '';
+    }
 
     if (payload.status === 'ready') {
       prereq.textContent = 'All prerequisites are ready.';
       prereq.className = 'status-banner status-success';
+      if (connectBtn instanceof HTMLButtonElement) { connectBtn.disabled = false; }
       return;
     }
 
     if (payload.status === 'installable') {
       prereq.textContent = (payload.declined ? 'Installation was cancelled. ' : '') + 'This server needs ' + (payload.displayName || 'a runtime') + ', which is not installed yet.';
       prereq.className = 'status-banner status-warning';
+      // Say why Connect is unavailable on the control itself; the banner alone
+      // left a disabled button looking broken rather than blocked.
+      if (connectBtn instanceof HTMLButtonElement) {
+        connectBtn.textContent = 'Install ' + (payload.displayName || 'the runtime') + ' first';
+        connectBtn.title = 'AtlasMind could not find ' + (payload.displayName || 'the required runtime') + ' on this machine. Install it here, or use Advanced setup to configure the server by hand.';
+      }
       if (actions instanceof HTMLElement) {
         const install = document.createElement('button');
         install.type = 'button';
@@ -1978,6 +1990,10 @@ function buildMcpScript(target?: McpPanelTarget, servers: McpServerState[] = [],
     // manual
     prereq.textContent = payload.message || 'This server needs manual setup before it can connect.';
     prereq.className = 'status-banner status-warning';
+    if (connectBtn instanceof HTMLButtonElement) {
+      connectBtn.textContent = 'Manual setup required';
+      connectBtn.title = 'This server cannot be configured automatically. Use “Open Advanced setup” to finish it by hand.';
+    }
   }
 
   document.getElementById('wiz-scan-btn')?.addEventListener('click', () => {

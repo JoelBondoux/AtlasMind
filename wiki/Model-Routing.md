@@ -235,6 +235,8 @@ score = (cheapness × budgetWeight) + (speedProxy × speedWeight)
 | **Outcome bias** | Decaying EWMA of graded execution quality, bucketed per reasoning tier — nudges toward models that perform well |
 | **Struggle penalty** | Persistent, decaying **de-weight** for a model that repeatedly fails *this kind of task* — see [Model-Struggle Memory](#model-struggle-memory) |
 
+The outcome grade is evidence-backed for normal AtlasMind turns. It scores the final recovered response together with expected tool use, tool success/failure counts, verification, TDD status, and incomplete-delivery signals. Hard errors, empty output, and truncation remain deterministic low grades; clean prose alone is not automatically perfect, while clean verified execution can reach 1.0. The explicit Model Comparison harness has no workspace execution artifacts, so it keeps a separate coarse completion-integrity grade plus its optional answer-quality judge.
+
 The Cost Dashboard now surfaces the same signals before routing applies them: recent request rows show the linked response's vote, and the dashboard includes a per-model approval table with thumbs totals and filtered spend for rated models.
 
 ### 3. Weighting

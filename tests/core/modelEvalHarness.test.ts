@@ -4,6 +4,7 @@ import {
   compareModelsOnPrompt,
   parseModelJudgeVerdicts,
 } from '../../src/core/modelEvalHarness.ts';
+import { gradeExecutionQuality } from '../../src/core/executionQuality.ts';
 import type { CompletionResponse } from '../../src/providers/adapter.ts';
 
 function completion(content: string, finishReason: CompletionResponse['finishReason'] = 'stop'): CompletionResponse {
@@ -114,6 +115,26 @@ describe('compareModelsOnPrompt', () => {
     expect(results).toHaveLength(2);
     expect(results.every(r => r.judgeScore === undefined)).toBe(true);
     expect(results.every(r => r.quality === 1)).toBe(true);
+  });
+});
+
+describe('gradeExecutionQuality', () => {
+  it('uses execution evidence to distinguish clean-looking outcomes', () => {
+    const clean = completion('Completed the requested change.');
+    expect(gradeExecutionQuality(clean)).toBe(1);
+    expect(gradeExecutionQuality(clean, { expectedToolUse: true, toolCallCount: 0 })).toBe(0.55);
+    expect(gradeExecutionQuality(clean, { toolCallCount: 2, failedToolCallCount: 0 })).toBe(0.9);
+    expect(gradeExecutionQuality(clean, {
+      toolCallCount: 2,
+      failedToolCallCount: 0,
+      verificationSummary: 'PASS: focused tests passed',
+    })).toBe(1);
+    expect(gradeExecutionQuality(clean, {
+      toolCallCount: 2,
+      failedToolCallCount: 1,
+      verificationSummary: 'FAIL: exit code 1',
+    })).toBe(0.3);
+    expect(gradeExecutionQuality(clean, { incompleteDelivery: true })).toBe(0.45);
   });
 });
 

@@ -289,6 +289,16 @@
     if (!(target instanceof HTMLElement)) {
       return;
     }
+    // The inspector's score sliders render a numeric readout beside them, but
+    // nothing updated it while dragging — the number only caught up on the next
+    // full re-render, so the slider gave no live feedback at all.
+    if (target.getAttribute('type') === 'range') {
+      const field = target.closest('.ideation-score-field');
+      const readout = field ? field.querySelector('.stat-detail') : null;
+      if (readout) {
+        readout.textContent = String(target.value);
+      }
+    }
     if (target.id === 'ideationTitleInput') {
       updateSelectedCardField('title', target.value);
       return;
@@ -424,6 +434,15 @@
     }
     const handle = event.target instanceof Element ? event.target.closest('[data-drag-card-id]') : null;
     if (!(handle instanceof Element) || state.editingCardId) {
+      return;
+    }
+    // In a projected lens the board layout is derived: projectCardsForLens
+    // renders copies at computed column/row coordinates while the stored card
+    // keeps its own x/y. Dragging read the *stored* origin, so the first
+    // pointer move teleported the card to somewhere unrelated — and any drop
+    // would have been overwritten by the next projection anyway. Positions are
+    // only the user's to set on the free-form board.
+    if (isProjectedLens(state.boardLens)) {
       return;
     }
     const cardId = handle.getAttribute('data-drag-card-id') || '';
@@ -573,24 +592,26 @@
       }
       const selectedCard = resolveSelectedCard(snapshot);
       const selectedLink = resolveSelectedLink(snapshot);
+      // The board is the point of this panel, and it used to sit below a hero
+      // panel, a four-card process guide and a very tall composer — three
+      // screens of chrome before the whiteboard. It now leads, with the stat
+      // trio reduced to a compact strip in front of it and the staged-workflow
+      // guide moved to the end, collapsed unless the board is still empty.
+      const activeCardCount = snapshot.cards.filter(card => !card.archivedAt).length;
+      const boardIsEmpty = activeCardCount === 0;
+
       root.innerHTML = '' +
         '<div class="ideation-workspace ' + (state.canvasFullscreen ? 'ideation-workspace-canvas-focus' : '') + '">' +
-          '<section class="ideation-hero-grid">' +
-            '<article class="ideation-panel"' + tooltipAttrs('Ideation is a staged workflow: frame the problem, let Atlas scaffold the board, shape the board with cards and links, then decide what to validate or send into execution.') + '>' +
-              '<p class="dashboard-kicker">Dedicated workspace</p>' +
-              '<h2>Multimodal idea shaping</h2>' +
-              '<p class="section-copy">Use the composer for the next Atlas pass, then drop or paste supporting media straight onto the board to keep the idea grounded in artifacts.</p>' +
-            '</article>' +
-            '<div class="ideation-stat-grid">' +
-              renderStat('Active cards', String(snapshot.cards.filter(card => !card.archivedAt).length), 'Active cards on the board. Archived cards are hidden but preserved.', snapshot.cards.filter(card => !card.archivedAt).length > 0 ? 'good' : 'accent') +
-              renderStat('Runs', String(snapshot.runs.length), 'Auditable ideation evolutions captured so far.', 'accent') +
-              renderStat('Queued media', String(snapshot.promptAttachments.length), 'Files, images, and links waiting for the next Atlas pass.', snapshot.promptAttachments.length > 0 ? 'good' : 'accent') +
-            '</div>' +
+          '<section class="ideation-stat-strip"' + tooltipAttrs('Ideation is a staged workflow: frame the problem, let Atlas scaffold the board, shape the board with cards and links, then decide what to validate or send into execution.') + '>' +
+            renderStat('Active cards', String(activeCardCount), 'Active cards on the board. Archived cards are hidden but preserved.', activeCardCount > 0 ? 'good' : 'accent') +
+            renderStat('Runs', String(snapshot.runs.length), 'Auditable ideation evolutions captured so far.', 'accent') +
+            renderStat('Queued media', String(snapshot.promptAttachments.length), 'Files, images, and links waiting for the next Atlas pass.', snapshot.promptAttachments.length > 0 ? 'good' : 'accent') +
           '</section>' +
-          '<section class="ideation-process-section">' + renderProcessGuide(snapshot) + '</section>' +
           '<section class="ideation-main-grid">' +
-            renderComposer(snapshot) +
             renderBoard(snapshot) +
+          '</section>' +
+          '<section class="ideation-composer-section">' +
+            renderComposer(snapshot) +
           '</section>' +
           '<section class="ideation-lower-grid">' +
             renderInspector(snapshot, selectedCard, selectedLink) +
@@ -598,6 +619,12 @@
           '</section>' +
           '<section class="ideation-analytics-section">' +
             renderAnalytics(snapshot) +
+          '</section>' +
+          '<section class="ideation-process-section">' +
+            '<details class="ideation-process-details"' + (boardIsEmpty ? ' open' : '') + '>' +
+              '<summary>How this workspace works' + (boardIsEmpty ? '' : ' — staged workflow') + '</summary>' +
+              renderProcessGuide(snapshot) +
+            '</details>' +
           '</section>' +
         '</div>';
       wireDropzones();
@@ -754,7 +781,7 @@
           '<div class="ideation-edge-glow ideation-edge-glow-right" data-edge="right"></div>' +
           '<div class="ideation-edge-glow ideation-edge-glow-bottom" data-edge="bottom"></div>' +
           '<div class="ideation-edge-glow ideation-edge-glow-left" data-edge="left"></div>' +
-          '<div id="ideationBoardStage" class="ideation-board-stage ideation-board-stage-' + lod + '" tabindex="0">' +
+          '<div id="ideationBoardStage" class="ideation-board-stage ideation-board-stage-' + lod + (isProjectedLens(state.boardLens) ? ' ideation-board-projected' : '') + '" tabindex="0">' +
             '<div id="ideationBoardWorld" class="ideation-board-world" style="transform: translate(calc(-50% + ' + state.viewportX + 'px), calc(-50% + ' + state.viewportY + 'px)) scale(' + state.zoom + ');">' +
               renderBoardLanes() +
               '<svg class="ideation-connections" viewBox="0 0 ' + BOARD_WORLD_WIDTH + ' ' + BOARD_WORLD_HEIGHT + '" preserveAspectRatio="none" aria-hidden="true">' + renderIdeationConnections({ cards: viewCards, connections: visibleConnections }, lod) + '</svg>' +
@@ -3026,8 +3053,17 @@
     return connection.relation === state.relationFilter;
   }
 
+  /**
+   * True when the lens computes card positions rather than using the stored
+   * ones. Card dragging is disabled in these lenses — the layout is derived,
+   * so a moved card would snap straight back on the next projection.
+   */
+  function isProjectedLens(lens) {
+    return lens !== 'default' && lens !== 'archived';
+  }
+
   function projectCardsForLens(cards, lens) {
-    if (lens === 'default' || lens === 'archived') {
+    if (!isProjectedLens(lens)) {
       return cards;
     }
     if (lens === 'focus-network') {

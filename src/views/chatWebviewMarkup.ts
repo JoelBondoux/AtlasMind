@@ -75,7 +75,6 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
                 <h2 id="panelTitle">AtlasMind Chat</h2>
                 <p id="panelSubtitle" class="panel-subtitle">Persistent workspace chat threads with direct access to recent autonomous runs.</p>
               </section>
-              <div id="status" class="status-label">Ready.</div>
               <section id="aiInstructionNudge" class="ai-instruction-nudge hidden" aria-live="polite">
                 <div class="ai-instruction-nudge-body">
                   <span class="ai-instruction-nudge-icon">&#9432;</span>
@@ -103,6 +102,11 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
                 <div id="imageLightboxCaption" class="media-lightbox-caption"></div>
               </div>
             </div>
+            <!-- Sits directly above the composer: everything it narrates -- the
+                 thinking indicator, the streaming reply, the send state -- is pinned
+                 to the bottom of the panel, while this used to sit at the very top,
+                 off-screen on a tall transcript. -->
+            <div id="status" class="status-label" role="status" aria-live="polite">Ready.</div>
             <section class="composer-shell">
               <div class="row toolbar-row composer-tools">
                 <div class="attach-row">
@@ -110,14 +114,6 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
                     <svg class="search-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                       <circle cx="7" cy="7" r="5.5"/>
                       <line x1="11.5" y1="11.5" x2="15" y2="15"/>
-                    </svg>
-                  </button>
-                  <button id="toggleDictation" class="icon-btn compact-icon-btn mic-btn" type="button" title="Start speech input" aria-label="Start speech input" aria-pressed="false">
-                    <svg class="mic-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <path d="M8 2.25a1.75 1.75 0 0 1 1.75 1.75v4a1.75 1.75 0 1 1-3.5 0V4A1.75 1.75 0 0 1 8 2.25z"/>
-                      <path d="M4.75 7.75a3.25 3.25 0 0 0 6.5 0"/>
-                      <path d="M8 11v2.75"/>
-                      <path d="M5.5 13.75h5"/>
                     </svg>
                   </button>
                   <button id="attachFiles" class="icon-btn compact-icon-btn" title="Add files" aria-label="Add files">+</button>
@@ -160,10 +156,6 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
                 <span class="pending-run-review-chevron" aria-hidden="true">▾</span>
               </div>
               <div id="pendingRunReviewFlyout" class="pending-run-review-flyout hidden"></div>
-              <div id="composerSearch" class="composer-search hidden">
-                <input id="searchInput" type="text" placeholder="Search session (supports glob patterns)..." />
-                <div id="searchResults" class="search-results"></div>
-              </div>
               <textarea id="promptInput" rows="3" placeholder="Ask AtlasMind to plan, explain, inspect, or implement something…"></textarea>
               <div class="row toolbar-row composer-row">
                 <div class="send-group">
@@ -888,26 +880,29 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           font-size: 0.82rem;
           line-height: 1;
         }
-        .mic-btn.listening {
-          border-color: color-mix(in srgb, var(--vscode-focusBorder, var(--vscode-button-background)) 70%, var(--vscode-widget-border, #444));
-          background: color-mix(in srgb, var(--vscode-button-background) 18%, transparent);
-          color: var(--vscode-button-background);
-          box-shadow: 0 0 0 1px color-mix(in srgb, var(--vscode-button-background) 30%, transparent);
-        }
-        .mic-btn.listening .mic-icon {
-          animation: atlasmic-pulse 1.1s ease-in-out infinite;
-        }
-        .mic-btn:disabled {
-          opacity: 0.55;
-        }
         .autopilot-btn[aria-pressed="true"] {
           border-color: color-mix(in srgb, var(--vscode-charts-yellow, #d7ba7d) 70%, var(--vscode-widget-border, #444));
           background: color-mix(in srgb, var(--vscode-charts-yellow, #d7ba7d) 18%, transparent);
           color: var(--vscode-charts-yellow, #d7ba7d);
           box-shadow: 0 0 0 1px color-mix(in srgb, var(--vscode-charts-yellow, #d7ba7d) 30%, transparent);
         }
+        /* A link whose scheme was rejected is rewritten to '#'; without this it
+           still looked like a working link that merely did nothing. */
+        .chat-content a.blocked-link {
+          color: var(--vscode-descriptionForeground);
+          text-decoration: line-through;
+          cursor: not-allowed;
+        }
         .open-file-chip {
           cursor: pointer;
+        }
+        /* The chip already computed which file is the active editor and then
+           had nowhere to show it — ".active" was applied with no rule behind
+           it, so every open file looked identical. */
+        .open-file-chip.active {
+          border-color: color-mix(in srgb, var(--vscode-focusBorder, var(--vscode-button-background)) 60%, var(--vscode-widget-border, #444));
+          background: color-mix(in srgb, var(--vscode-button-background) 14%, transparent);
+          font-weight: 600;
         }
         .drop-hint {
           margin: 2px 0 4px;
@@ -1170,7 +1165,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
         .chat-content {
           word-break: break-word;
           line-height: 1.62;
-          color: color-mix(in srgb, var(--vscode-foreground) 96%, white 4%);
+          color: color-mix(in srgb, var(--vscode-foreground) 96%, var(--tint-away) 4%);
         }
         .chat-content > :first-child {
           margin-top: 0;
@@ -1336,7 +1331,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
         .chat-markdown-table th {
           font-weight: 700;
           white-space: nowrap;
-          color: color-mix(in srgb, var(--vscode-foreground) 94%, white 6%);
+          color: color-mix(in srgb, var(--vscode-foreground) 94%, var(--tint-away) 6%);
           background: color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 90%, white 10%);
         }
         .chat-markdown-table tbody tr:nth-child(even) td {
@@ -2019,6 +2014,11 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           background: color-mix(in srgb, var(--vscode-sideBar-background, var(--vscode-editor-background)) 78%, transparent);
         }
         .hidden { display: none; }
+        /* Ghost at rest. These are toggles, and they previously declared no
+           background at all, so they borrowed the shell's solid primary fill —
+           meaning an *un*pressed toggle was the loudest thing on the toolbar
+           while its pressed state (a translucent tint below) read as fainter.
+           The signal was exactly inverted. */
         .icon-btn {
           display: inline-flex;
           align-items: center;
@@ -2030,6 +2030,20 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           line-height: 1;
           box-sizing: border-box;
           vertical-align: middle;
+          background: transparent;
+          color: var(--vscode-foreground);
+          border: 1px solid transparent;
+        }
+        .icon-btn:hover:not(:disabled) {
+          background: color-mix(in srgb, var(--vscode-foreground) 10%, transparent);
+          border-color: var(--vscode-widget-border, #444);
+        }
+        /* The pressed state is now the visible one, for every toggle that has
+           not already declared its own. */
+        .icon-btn[aria-pressed="true"] {
+          border-color: color-mix(in srgb, var(--vscode-button-background) 70%, var(--vscode-widget-border, #444));
+          background: color-mix(in srgb, var(--vscode-button-background) 22%, transparent);
+          color: var(--vscode-button-background);
         }
         .icon-btn svg {
           display: block;
@@ -2038,17 +2052,16 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
         .primary-btn {
           padding: 4px 12px;
           font-size: 0.88em;
+          background: var(--vscode-button-background);
+          color: var(--vscode-button-foreground);
         }
+        .primary-btn:hover:not(:disabled) { background: var(--vscode-button-hoverBackground); }
         .danger-btn {
           padding: 4px 12px;
           font-size: 0.88em;
           border: 1px solid color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) 40%, var(--vscode-widget-border, #444));
           background: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) 12%, transparent);
           color: var(--vscode-errorForeground, #f14c4c);
-        }
-        @keyframes atlasmic-pulse {
-          0%, 100% { transform: scale(1); opacity: 1; }
-          50% { transform: scale(1.08); opacity: 0.7; }
         }
 
         /* ---- AI instruction nudge ---- */

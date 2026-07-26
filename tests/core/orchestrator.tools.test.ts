@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { describe, expect, it, vi } from 'vitest';
-import { Orchestrator, appendTddBlockedCaveat, appendVerificationCaveat, budgetForCorrection, buildProjectSessionContextBundle, classifySubTaskFailure, collapseDuplicatedTrailingBlock, detectVerificationContradiction, isUserCorrectionTurn, resolveProviderIdForModel, responseClaimsSuccessWithoutCaveat, shouldBiasTowardWorkspaceInvestigation, TOOL_EXECUTION_FAILURE_PREFIX, verificationIndicatesFailure } from '../../src/core/orchestrator.ts';
+import { Orchestrator, appendTddBlockedCaveat, appendVerificationCaveat, budgetForCorrection, buildProjectSessionContextBundle, classifySubTaskFailure, collapseDuplicatedTrailingBlock, detectVerificationContradiction, isUserCorrectionTurn, looksLikeIncompleteDelivery, resolveProviderIdForModel, responseClaimsSuccessWithoutCaveat, shouldBiasTowardWorkspaceInvestigation, TOOL_EXECUTION_FAILURE_PREFIX, verificationIndicatesFailure } from '../../src/core/orchestrator.ts';
 import { MAX_TOOL_ITERATIONS } from '../../src/constants.ts';
 import { AgentRegistry } from '../../src/core/agentRegistry.ts';
 import { SkillsRegistry } from '../../src/core/skillsRegistry.ts';
@@ -226,6 +226,15 @@ describe('classifySubTaskFailure', () => {
 
   it('does not flag a short past-tense summary as a preamble', () => {
     expect(classifySubTaskFailure('Let me know if you need anything else.')).toBeUndefined();
+  });
+});
+
+describe('agent completion patterns', () => {
+  it('matches bounded patterns and ignores unsafe regex constructs', () => {
+    expect(looksLikeIncompleteDelivery('This is awaiting manual wiring.', ['awaiting manual wiring'])).toBe(true);
+    expect(looksLikeIncompleteDelivery('aaaaaaaaaaaaaaaa!', ['(a+)+$'])).toBe(false);
+    expect(looksLikeIncompleteDelivery('anything', ['(?=anything)'])).toBe(false);
+    expect(looksLikeIncompleteDelivery('anything', ['[invalid'])).toBe(false);
   });
 });
 
@@ -2489,6 +2498,56 @@ describe('Orchestrator agentic loop', () => {
     expect(firstRequest?.messages[0]?.content).toContain('Workspace investigation hint:');
     expect(firstRequest?.messages[0]?.content).toContain('Prefer evidence from the current workspace over generic product-support or feedback-triage language');
     expect(firstRequest?.messages[0]?.content).toContain('If tools are available, do not reply with a plan to search or inspect later');
+  });
+
+  it('injects the operating contract and rubric into specialists and enforces agent completion criteria', async () => {
+    const provider = makeMockProvider([
+      {
+        content: 'The implementation is ready, but awaiting manual wiring.',
+        model: 'local/echo-1',
+        inputTokens: 20,
+        outputTokens: 10,
+        finishReason: 'stop',
+      },
+      {
+        content: 'Implemented and verified the focused UI behavior.',
+        model: 'local/echo-1',
+        inputTokens: 22,
+        outputTokens: 9,
+        finishReason: 'stop',
+      },
+    ]);
+    const orchestrator = makeOrchestrator(provider, [], makeSkillContext(), undefined, [{
+      id: 'focused-ui-specialist',
+      name: 'Focused UI Specialist',
+      role: 'frontend specialist',
+      description: 'Handles UI behavior.',
+      systemPrompt: 'Inspect the current UI implementation and make focused changes.',
+      skills: [],
+      primaryRoutingNeeds: ['frontend'],
+      completionCriteria: {
+        rubric: ['Confirm the affected interaction with a focused regression check.'],
+        incompletePatterns: ['awaiting manual wiring'],
+      },
+    }]);
+
+    const result = await orchestrator.processTask({
+      id: 'task-specialist-contract',
+      userMessage: 'Review the UI behavior in this panel.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(result.agentId).toBe('focused-ui-specialist');
+    expect(provider.complete).toHaveBeenCalledTimes(2);
+    const firstRequest = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as CompletionRequest | undefined;
+    expect(firstRequest?.messages[0]?.content).toContain('AtlasMind operating contract:');
+    expect(firstRequest?.messages[0]?.content).toContain('AtlasMind execution rubric');
+    expect(firstRequest?.messages[0]?.content).toContain('Confirm the affected interaction with a focused regression check.');
+    const retryRequest = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[1]?.[0] as CompletionRequest | undefined;
+    expect(retryRequest?.messages.at(-1)?.content).toContain('Your response signals that some work is incomplete or unverified.');
+    expect(result.response).toBe('Implemented and verified the focused UI behavior.');
   });
 
   it('re-prompts for tool use when an action-oriented workspace request gets only advisory prose', async () => {

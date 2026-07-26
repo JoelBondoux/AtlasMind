@@ -4171,7 +4171,6 @@ const IDEATION_CSS = `
     flex-direction: column;
     gap: 18px;
   }
-  .ideation-topbar,
   .row-head,
   .ideation-toolbar,
   .ideation-composer-actions,
@@ -4264,6 +4263,32 @@ const IDEATION_CSS = `
     flex-direction: column;
     gap: 18px;
   }
+  /* The hero title bar every other dashboard shares. Ideation's topbar had been
+     lumped in with the generic flex rows (gap 10, centre-aligned), so it read
+     as a toolbar rather than as the page's title, and the panel lost its only
+     visual anchor when the hero explainer grid was retired. Mirrors
+     .dashboard-topbar in projectDashboardPanel.ts. */
+  .ideation-topbar {
+    display: flex;
+    justify-content: space-between;
+    gap: 24px;
+    align-items: flex-start;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+  }
+
+  .ideation-topbar h1 {
+    margin: 0;
+    font-size: clamp(30px, 4vw, 44px);
+    letter-spacing: -0.02em;
+  }
+
+  .ideation-topbar .section-copy {
+    margin: 10px 0 0;
+    max-width: 780px;
+    font-size: 14px;
+  }
+
   .ideation-process-section {
     margin-top: -2px;
   }
@@ -4272,15 +4297,37 @@ const IDEATION_CSS = `
     flex-direction: column;
     gap: 18px;
   }
-  .ideation-hero-grid,
   .ideation-main-grid,
   .ideation-lower-grid {
     display: grid;
     gap: 18px;
   }
-  .ideation-hero-grid {
-    grid-template-columns: 1.25fr 0.75fr;
+  /* Replaces the hero grid (whose rules are gone with its markup): three
+     compact stats in a single row, so the board starts within the first screen
+     instead of below an explainer panel. */
+  .ideation-stat-strip {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
   }
+  /* The staged-workflow guide is reference material once the board exists. */
+  .ideation-process-details > summary {
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--vscode-descriptionForeground);
+    padding: 6px 2px;
+    list-style: none;
+  }
+  .ideation-process-details > summary::-webkit-details-marker { display: none; }
+  .ideation-process-details > summary::before {
+    content: "\\25B8";
+    display: inline-block;
+    margin-right: 8px;
+    transition: transform 140ms ease;
+  }
+  .ideation-process-details[open] > summary::before { transform: rotate(90deg); }
+  .ideation-process-details > summary:hover { color: var(--vscode-foreground); }
   .ideation-main-grid {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -4333,11 +4380,6 @@ const IDEATION_CSS = `
     opacity: 1;
     visibility: visible;
     transform: translateY(0);
-  }
-  .ideation-stat-grid {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 12px;
   }
   .ideation-process-panel {
     display: flex;
@@ -4585,27 +4627,27 @@ const IDEATION_CSS = `
     position: relative;
   }
   .ideation-relation-legend-item.relation-supports {
-    color: color-mix(in srgb, #6bb2d7 70%, white 14%);
+    color: color-mix(in srgb, #6bb2d7 70%, var(--tint-away) 14%);
   }
   .ideation-relation-legend-item.relation-causal {
-    color: color-mix(in srgb, #4ea8de 78%, white 16%);
+    color: color-mix(in srgb, #4ea8de 78%, var(--tint-away) 16%);
   }
   .ideation-relation-legend-item.relation-causal .ideation-relation-legend-line,
   .ideation-relation-legend-item.relation-opportunity .ideation-relation-legend-line {
     border-top-style: solid;
   }
   .ideation-relation-legend-item.relation-dependency {
-    color: color-mix(in srgb, #d4a373 76%, white 16%);
+    color: color-mix(in srgb, #d4a373 76%, var(--tint-away) 16%);
   }
   .ideation-relation-legend-item.relation-dependency .ideation-relation-legend-line,
   .ideation-relation-legend-item.relation-contradiction .ideation-relation-legend-line {
     border-top-style: solid;
   }
   .ideation-relation-legend-item.relation-contradiction {
-    color: color-mix(in srgb, #d97787 82%, white 16%);
+    color: color-mix(in srgb, #d97787 82%, var(--tint-away) 16%);
   }
   .ideation-relation-legend-item.relation-opportunity {
-    color: color-mix(in srgb, #52b788 76%, white 16%);
+    color: color-mix(in srgb, #52b788 76%, var(--tint-away) 16%);
   }
   .ideation-board-world {
     position: absolute;
@@ -4657,7 +4699,7 @@ const IDEATION_CSS = `
   .ideation-board-flow-arrow::after {
     content: '->';
     margin-left: 8px;
-    color: color-mix(in srgb, #52b788 72%, white 18%);
+    color: color-mix(in srgb, #52b788 72%, var(--tint-away) 18%);
   }
   .ideation-connections {
     position: absolute;
@@ -4671,7 +4713,7 @@ const IDEATION_CSS = `
     fill: none;
     stroke: color-mix(in srgb, var(--vscode-button-background) 60%, white 20%);
     stroke-width: 2.2;
-    color: color-mix(in srgb, var(--vscode-button-background) 60%, white 20%);
+    color: color-mix(in srgb, var(--vscode-button-background) 60%, var(--tint-away) 20%);
     stroke-linecap: round;
     stroke-linejoin: round;
     transition: opacity 120ms ease, filter 120ms ease, stroke-width 120ms ease;
@@ -4684,21 +4726,21 @@ const IDEATION_CSS = `
   }
   .ideation-link-group.relation-supports .ideation-link {
     stroke: color-mix(in srgb, #6bb2d7 70%, white 14%);
-    color: color-mix(in srgb, #6bb2d7 70%, white 14%);
+    color: color-mix(in srgb, #6bb2d7 70%, var(--tint-away) 14%);
   }
   .ideation-link-label.relation-supports {
     fill: color-mix(in srgb, #6bb2d7 70%, white 14%);
   }
   .ideation-link-group.relation-causal .ideation-link {
     stroke: color-mix(in srgb, #4ea8de 78%, white 16%);
-    color: color-mix(in srgb, #4ea8de 78%, white 16%);
+    color: color-mix(in srgb, #4ea8de 78%, var(--tint-away) 16%);
   }
   .ideation-link-label.relation-causal {
     fill: color-mix(in srgb, #4ea8de 78%, white 16%);
   }
   .ideation-link-group.relation-dependency .ideation-link {
     stroke: color-mix(in srgb, #d4a373 76%, white 16%);
-    color: color-mix(in srgb, #d4a373 76%, white 16%);
+    color: color-mix(in srgb, #d4a373 76%, var(--tint-away) 16%);
     stroke-width: 2.2;
   }
   .ideation-link-label.relation-dependency {
@@ -4706,7 +4748,7 @@ const IDEATION_CSS = `
   }
   .ideation-link-group.relation-contradiction .ideation-link {
     stroke: color-mix(in srgb, #d97787 82%, white 16%);
-    color: color-mix(in srgb, #d97787 82%, white 16%);
+    color: color-mix(in srgb, #d97787 82%, var(--tint-away) 16%);
     stroke-width: 2.3;
   }
   .ideation-link-label.relation-contradiction {
@@ -4714,7 +4756,7 @@ const IDEATION_CSS = `
   }
   .ideation-link-group.relation-opportunity .ideation-link {
     stroke: color-mix(in srgb, #52b788 76%, white 16%);
-    color: color-mix(in srgb, #52b788 76%, white 16%);
+    color: color-mix(in srgb, #52b788 76%, var(--tint-away) 16%);
   }
   .ideation-link-label.relation-opportunity {
     fill: color-mix(in srgb, #52b788 76%, white 16%);
@@ -4727,7 +4769,7 @@ const IDEATION_CSS = `
   }
   .ideation-link-group.selected .ideation-link {
     stroke: color-mix(in srgb, var(--vscode-focusBorder, var(--vscode-button-background)) 80%, white 20%);
-    color: color-mix(in srgb, var(--vscode-focusBorder, var(--vscode-button-background)) 80%, white 20%);
+    color: color-mix(in srgb, var(--vscode-focusBorder, var(--vscode-button-background)) 80%, var(--tint-away) 20%);
     stroke-width: 2.9;
   }
   .ideation-link-group.muted .ideation-link,
@@ -4823,6 +4865,13 @@ const IDEATION_CSS = `
     gap: 8px;
     cursor: grab;
   }
+  /* A projected lens computes card positions, so dragging is disabled there.
+     Without this the handle still offered a grab cursor for a drag that could
+     not be honoured — and previously teleported the card, because the drag read
+     the stored position while the card was drawn at a derived one. */
+  .ideation-board-projected .ideation-card-head {
+    cursor: default;
+  }
   .ideation-card-minimal .ideation-card-head {
     gap: 4px;
   }
@@ -4864,7 +4913,7 @@ const IDEATION_CSS = `
   .focused .ideation-card-indicator-right,
   .selected .ideation-card-indicator-right {
     border-color: color-mix(in srgb, #3a9a5b 42%, var(--vscode-widget-border, #444));
-    color: color-mix(in srgb, #3a9a5b 78%, white 22%);
+    color: color-mix(in srgb, #3a9a5b 78%, var(--tint-away) 22%);
   }
   .ideation-card-compact .ideation-card-body,
   .ideation-card-minimal .ideation-card-body {
@@ -4919,11 +4968,11 @@ const IDEATION_CSS = `
   }
   .tag-good {
     border-color: color-mix(in srgb, #3a9a5b 64%, white 16%);
-    color: color-mix(in srgb, #3a9a5b 78%, white 22%);
+    color: color-mix(in srgb, #3a9a5b 78%, var(--tint-away) 22%);
   }
   .tag-warn {
     border-color: color-mix(in srgb, #d29a2a 64%, white 16%);
-    color: color-mix(in srgb, #d29a2a 82%, white 18%);
+    color: color-mix(in srgb, #d29a2a 82%, var(--tint-away) 18%);
   }
   .ideation-card-sun { background: linear-gradient(180deg, color-mix(in srgb, #e9c46a 16%, var(--vscode-editorWidget-background)) 0%, color-mix(in srgb, var(--vscode-editorWidget-background) 92%, transparent) 100%); }
   .ideation-card-sea { background: linear-gradient(180deg, color-mix(in srgb, #4ea8de 16%, var(--vscode-editorWidget-background)) 0%, color-mix(in srgb, var(--vscode-editorWidget-background) 92%, transparent) 100%); }
@@ -5057,9 +5106,15 @@ const IDEATION_CSS = `
     left: 0;
     background: linear-gradient(90deg, color-mix(in srgb, var(--vscode-button-background) 40%, transparent), transparent);
   }
+  /* Canvas focus mode hides everything that is not the board. The process
+     guide was missing from this list, so it stayed on screen in what is meant
+     to be a full-screen canvas; the composer now has its own section wrapper
+     that has to be hidden alongside the panel itself. */
   body.canvas-focus-mode .ideation-topbar,
-  body.canvas-focus-mode .ideation-hero-grid,
+  body.canvas-focus-mode .ideation-stat-strip,
   body.canvas-focus-mode .ideation-composer-panel,
+  body.canvas-focus-mode .ideation-composer-section,
+  body.canvas-focus-mode .ideation-process-section,
   body.canvas-focus-mode .ideation-lower-grid,
   body.canvas-focus-mode .ideation-analytics-section {
     display: none;
@@ -5097,11 +5152,9 @@ const IDEATION_CSS = `
     height: 100%;
   }
   @media (max-width: 1180px) {
-    .ideation-hero-grid,
     .ideation-process-grid,
     .ideation-main-grid,
     .ideation-lower-grid,
-    .ideation-stat-grid,
     .ideation-workspace-switcher,
     .ideation-constraint-grid,
     .ideation-score-grid,
