@@ -6,6 +6,15 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.145.2 — Git commit hook timeout fix
+
+- **Repository pre-commit hooks can finish before AtlasMind decides the commit failed.** The dedicated `git-commit` skill now gives the Git subprocess 120 seconds and its orchestration wrapper 125 seconds instead of inheriting the generic 15-second tool timeout. The five-second grace lets a process-level timeout return cleanly before the outer deadline. Commit messages remain typed argument values, so spaces are never re-parsed as paths.
+- **README release verification follows the manifest version** instead of hard-coding one release heading, removing a recurring version-bump failure.
+
+## v0.145.1 — Security review types
+
+- Added the shared security review types used by the security review manager and its audit history.
+
 ## v0.145.0 — Agent management that is easy to find and use
 
 - **Settings now has an Agents page.** It appears under Capabilities, reports registered/enabled/built-in/custom counts, and opens the dedicated manager through a validated command bridge. The Settings overview carries the same shortcut.

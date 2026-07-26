@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.145.2] - 2026-07-26
+
+### Fixed
+- **Git commits no longer fail at AtlasMind's 15-second generic tool deadline while repository hooks are still running.** The dedicated `git-commit` skill now gives its subprocess a bounded 120-second window, with a 125-second outer deadline so a timed-out process can report its failure before orchestration stops waiting. Multi-word messages continue to be passed as one typed argument without shell parsing.
+- **The README release-heading check now follows `package.json`.** Version bumps no longer require a second hard-coded test edit merely to keep the "What's new" heading current.
+
+## [0.145.1] - 2026-07-26
+
 ### Added
 - Add security review types to support ethics, legal, and commercial oversight advisors:
   - `SecurityReviewArea`, `SecuritySeverity`, `SecurityExploitability`, `SecurityConfidence` types

@@ -1,9 +1,15 @@
 import type { SkillDefinition } from '../types.js';
 
+const GIT_COMMIT_COMMAND_TIMEOUT_MS = 120_000;
+const GIT_COMMIT_SKILL_TIMEOUT_MS = 125_000;
+
 export const gitCommitSkill: SkillDefinition = {
   id: 'git-commit',
   name: 'Git Commit',
   builtIn: true,
+  // Committing may run repository-defined hooks (compile, lint, tests, etc.).
+  // Give the complete guarded operation the same bounded window as test-run.
+  timeoutMs: GIT_COMMIT_SKILL_TIMEOUT_MS,
   description: 'Create a git commit with the given message. The message is passed directly to git — no shell quoting needed. Optionally stage all tracked changes first (git add -u).',
   parameters: {
     type: 'object',
@@ -29,7 +35,7 @@ export const gitCommitSkill: SkillDefinition = {
     const lines: string[] = [];
 
     if (stageTracked) {
-      const addResult = await context.runCommand('git', ['add', '-u']);
+      const addResult = await context.runCommand('git', ['add', '-u'], { timeoutMs: GIT_COMMIT_COMMAND_TIMEOUT_MS });
       lines.push(`git add -u: exit ${addResult.exitCode}`);
       if (!addResult.ok) {
         const addOut = [addResult.stdout, addResult.stderr].filter(Boolean).join('\n').trim();
@@ -38,7 +44,11 @@ export const gitCommitSkill: SkillDefinition = {
       }
     }
 
-    const result = await context.runCommand('git', ['commit', '-m', message.trim()]);
+    const result = await context.runCommand(
+      'git',
+      ['commit', '-m', message.trim()],
+      { timeoutMs: GIT_COMMIT_COMMAND_TIMEOUT_MS },
+    );
     lines.push(`git commit: exit ${result.exitCode}`);
     const out = [result.stdout, result.stderr].filter(Boolean).join(('\n')).trim();
     if (out) lines.push(out);

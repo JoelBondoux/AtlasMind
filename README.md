@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.145.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.145.2</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,10 +64,11 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.145.0
+## What's new in 0.145.2
 
-This release makes AtlasMind's agents easier to understand, shape, and trust.
+This release makes AtlasMind's agents easier to understand, shape, and trust, and keeps repository quality hooks from being mistaken for failed Git commits.
 
+- **Guarded commits can finish.** AtlasMind now gives repository pre-commit hooks up to 120 seconds to compile, lint, and test before reporting a timeout.
 - **Agents are finally easy to find.** A dedicated Agents page now lives in Settings, with a direct path from the Settings overview.
 - **Agent management feels focused.** Search, filters, and the selected agent now share one calmer workspace, with advanced options grouped out of the way until you need them.
 - **The safety baseline is visible.** You can read the global guardrails that apply to every routed agent directly from the Agents page.
