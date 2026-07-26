@@ -3062,9 +3062,18 @@
         var href = linkMatch ? linkMatch[2] : '';
         var link = document.createElement('a');
         link.textContent = linkMatch ? linkMatch[1] : raw;
-        link.href = sanitizeLinkHref(href);
+        var safeHref = sanitizeLinkHref(href);
+        link.href = safeHref;
         link.target = '_blank';
         link.rel = 'noreferrer noopener';
+        // A rejected scheme is rewritten to '#', but the anchor still rendered
+        // link-coloured and underlined — indistinguishable from a working link
+        // that simply did nothing. Mark it so it reads as inert and says why.
+        if (safeHref === '#' && String(href || '').trim() !== '#') {
+          link.classList.add('blocked-link');
+          link.title = 'This link was blocked: only http, https, mailto and workspace-relative paths are allowed.';
+          link.removeAttribute('target');
+        }
         container.appendChild(link);
         continue;
       }

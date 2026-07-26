@@ -369,9 +369,9 @@ function renderUiSystemPage(config: WebsiteWorkspaceConfig, activePage: WebsiteS
           ${field('Corner style', 'design-cornerStyle', design.cornerStyle)}
           ${listTextarea('Component notes', 'design-componentNotes', design.componentNotes, 'Navigation, buttons, cards, forms…')}
           <div class="token-preview">
-            <span style="background:${escapeHtml(design.primaryColor)}"></span>
-            <span style="background:${escapeHtml(design.secondaryColor)}"></span>
-            <span style="background:${escapeHtml(design.accentColor)}"></span>
+            <span data-token-swatch="design-primaryColor" style="background:${escapeHtml(design.primaryColor)}"></span>
+            <span data-token-swatch="design-secondaryColor" style="background:${escapeHtml(design.secondaryColor)}"></span>
+            <span data-token-swatch="design-accentColor" style="background:${escapeHtml(design.accentColor)}"></span>
             <strong>Shared UI decisions</strong>
           </div>
         </article>
@@ -989,10 +989,34 @@ const WEBSITE_STUDIO_SCRIPT = `
     }
   });
 
-  qsa('[data-color-for]').forEach(picker => picker.addEventListener('input', () => {
-    const target = document.getElementById(picker.dataset.colorFor);
-    if (target) target.value = picker.value;
-  }));
+  // Colour editing used to be one-way and partial: moving the picker wrote into
+  // its paired hex field, typing a hex did not move the picker back, and the
+  // swatches above were server-rendered so neither updated them until a save
+  // and re-render.
+  function paintSwatch(id, value) {
+    const swatch = document.querySelector('[data-token-swatch="' + id + '"]');
+    if (swatch) swatch.style.background = value;
+  }
+
+  qsa('[data-color-for]').forEach(picker => {
+    const id = picker.dataset.colorFor;
+    const target = document.getElementById(id);
+    picker.addEventListener('input', () => {
+      if (target) target.value = picker.value;
+      paintSwatch(id, picker.value);
+    });
+    if (target) {
+      target.addEventListener('input', () => {
+        const value = target.value.trim();
+        // Only a complete hex can drive the native picker; anything else is
+        // still mid-typing, so the swatch waits rather than flickering.
+        if (/^#[0-9a-fA-F]{6}$/.test(value)) {
+          picker.value = value;
+          paintSwatch(id, value);
+        }
+      });
+    }
+  });
 
   window.addEventListener('message', event => {
     if (event.data?.type === 'notice') notice(event.data.message, event.data.tone);

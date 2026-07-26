@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.141.8] - 2026-07-26
+
+### Fixed
+- **Website Studio colour editing was one-way and partial.** Moving a colour picker wrote into its paired hex field, typing a hex never moved the picker back, and the token swatches above were rendered server-side so neither updated them until a save and re-render. Editing is now two-way and the swatches follow live; a partial hex is ignored until it is complete rather than flickering mid-typing.
+- **Chat open-file chips computed which file was the active editor and had nowhere to show it.** `.active` was applied with no rule behind it, so every open file looked identical.
+- **A chat link with a rejected scheme still looked like a working link.** `sanitizeLinkHref` rewrites a disallowed href to `#`, but the anchor kept its link colour and underline — indistinguishable from a link that simply did nothing. Blocked links now render inert, with a title explaining which schemes are permitted.
+
 ## [0.141.7] - 2026-07-26
 
 ### Fixed

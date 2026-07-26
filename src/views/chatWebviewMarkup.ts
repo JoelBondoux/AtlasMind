@@ -886,8 +886,23 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           color: var(--vscode-charts-yellow, #d7ba7d);
           box-shadow: 0 0 0 1px color-mix(in srgb, var(--vscode-charts-yellow, #d7ba7d) 30%, transparent);
         }
+        /* A link whose scheme was rejected is rewritten to '#'; without this it
+           still looked like a working link that merely did nothing. */
+        .chat-content a.blocked-link {
+          color: var(--vscode-descriptionForeground);
+          text-decoration: line-through;
+          cursor: not-allowed;
+        }
         .open-file-chip {
           cursor: pointer;
+        }
+        /* The chip already computed which file is the active editor and then
+           had nowhere to show it — ".active" was applied with no rule behind
+           it, so every open file looked identical. */
+        .open-file-chip.active {
+          border-color: color-mix(in srgb, var(--vscode-focusBorder, var(--vscode-button-background)) 60%, var(--vscode-widget-border, #444));
+          background: color-mix(in srgb, var(--vscode-button-background) 14%, transparent);
+          font-weight: 600;
         }
         .drop-hint {
           margin: 2px 0 4px;
