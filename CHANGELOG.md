@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
+- Add security review types to support ethics, legal, and commercial oversight advisors:
+  - `SecurityReviewArea`, `SecuritySeverity`, `SecurityExploitability`, `SecurityConfidence` types
+  - `SecurityFindingStatus`, `SecurityFinding`, `SecurityAreaRun`, `SecurityReviewConfig` interfaces
+  - `SecurityReviewHistoryEntry` interface for audit trail
 
 ## [0.145.0] - 2026-07-26
 

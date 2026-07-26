@@ -1533,6 +1533,97 @@ export interface RiskOversightHistoryEntry {
   ranAt: string;
 }
 
+// ── Security review ──────────────────────────────────────────────
+
+/**
+ * The areas a security review sweeps. Unlike risk — where each domain has its own
+ * advisor — all four are reviewed by the single `security-reviewer` agent under an
+ * area-scoped prompt, so the split exists to make coverage legible and to let one
+ * area be re-run without re-running the rest.
+ */
+export type SecurityReviewArea = 'secrets' | 'boundaries' | 'dependencies' | 'permissions';
+
+/** Standard severity ladder. `info` is an observation, not a defect, and scores zero. */
+export type SecuritySeverity = 'critical' | 'high' | 'medium' | 'low' | 'info';
+
+/** How reachable the weakness is in practice — the security analogue of likelihood. */
+export type SecurityExploitability = 'low' | 'medium' | 'high';
+
+/** How confident the reviewer was; `low` findings are shown but scored gently. */
+export type SecurityConfidence = 'low' | 'medium' | 'high';
+
+/**
+ * Lifecycle of a security finding. As with risk, findings are never deleted — they
+ * transition — so the register stays a complete account of what was raised and what
+ * was decided. `accepted` means a human consciously owns it, which is a decision.
+ */
+export type SecurityFindingStatus = 'open' | 'accepted' | 'mitigated' | 'closed' | 'dismissed';
+
+/**
+ * One recorded security finding.
+ *
+ * Produced by the security reviewer and sanitised at the boundary before it is
+ * persisted — model output is untrusted input like any other. `evidence` holds
+ * workspace-relative paths; path traversal is rejected on save.
+ */
+export interface SecurityFinding {
+  id: string;
+  area: SecurityReviewArea;
+  title: string;
+  detail: string;
+  severity: SecuritySeverity;
+  exploitability: SecurityExploitability;
+  confidence: SecurityConfidence;
+  status: SecurityFindingStatus;
+  /** Workspace-relative paths cited as evidence. Traversal is rejected on save. */
+  evidence: string[];
+  /** Suggested remediation, and the review it needs. */
+  recommendation?: string;
+  /**
+   * Where this finding came from. `review` is a security-reviewer run; `gap-analysis`
+   * marks one routed here from the Gap Analysis page so its origin stays visible.
+   */
+  origin?: 'review' | 'gap-analysis';
+  /** ISO timestamp this finding was first raised. */
+  raisedAt: string;
+  /** ISO timestamp of the most recent change to this finding. */
+  updatedAt?: string;
+  /** Free-text note recorded when a human accepted, dismissed, or mitigated it. */
+  statusNote?: string;
+}
+
+export interface SecurityAreaRun {
+  area: SecurityReviewArea;
+  ranAt: string;
+  /** Number of findings the run produced (after sanitisation). */
+  findingCount: number;
+}
+
+export interface SecurityReviewConfig {
+  version: 1;
+  /** The full register: open *and* resolved findings. Nothing is dropped on resolve. */
+  findings: SecurityFinding[];
+  /** Most recent review run per area. */
+  runs: SecurityAreaRun[];
+  updatedAt?: string;
+}
+
+/**
+ * One append-only audit record of a security-register change, persisted newest first
+ * to `project_memory/operations/security-review-history.json`.
+ */
+export interface SecurityReviewHistoryEntry {
+  id: string;
+  kind: 'review-run' | 'status-change' | 'finding-added' | (string & {});
+  summary: string;
+  area?: SecurityReviewArea;
+  /** The finding this record refers to, when it is about a single finding. */
+  entityId?: string;
+  /** git user that made the change (name <email>), when resolvable. */
+  actor?: string;
+  ranAt: string;
+}
+
 // ── Delivery / Promotion execution ───────────────────────────────
 
 /** Whether a preflight check is evaluated by AtlasMind or attested by a human. */
