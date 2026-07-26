@@ -61,7 +61,7 @@ describe('package manifest', () => {
     const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
 
     expect(readme).toContain('Your AI delivery team, inside VS Code.');
-    expect(readme).toContain("## What's new in 0.145.0");
+    expect(readme).toContain(`## What's new in ${manifest.version}`);
     expect(readme).not.toContain('| Feature | AtlasMind | Copilot');
     expect(readme).not.toContain('wiki/Comparison.md');
   });

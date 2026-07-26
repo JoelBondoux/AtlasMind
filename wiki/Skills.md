@@ -24,7 +24,7 @@ Skill names, descriptions, and JSON Schemas are supplied to the routed model as 
 |-------|-------------|
 | `git-status` | Get `git status --short --branch` output |
 | `git-diff` | Get diff (optionally staged or against a ref) |
-| `git-commit` | Create a commit with a message passed directly to git — no shell quoting needed; optional `stage_tracked: true` runs `git add -u` first |
+| `git-commit` | Create a commit with a message passed directly to git — no shell quoting needed; optional `stage_tracked: true` runs `git add -u` first; allows up to 120 s for repository pre-commit hooks |
 | `git-push` | Push a branch to a remote with a protected-branch guard (rejects force-push to main/master/production/release\*/hotfix\*); defaults to `--force-with-lease` when force is requested |
 | `git-log` | View commit history with filtering options |
 | `git-branch` | List, create, switch, or delete branches |

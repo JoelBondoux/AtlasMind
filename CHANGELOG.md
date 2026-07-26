@@ -6,7 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.145.3] - 2026-07-26
+
 ### Added
+- **The chat composer status now names the model serving the active request.** Routing and failover updates are reflected beside live progress just above the input, so the operator can see the current model without opening response details.
+- **Local-model savings are estimated per model and totalled.** The Cost Dashboard groups genuinely local requests by model, maps each model to an explainable catalog-backed cloud reference, shows token/request usage and potential savings for every comparison, and reports the combined estimate.
+
+### Fixed
+- **The Cost Dashboard time-period selector no longer occupies or obscures the chart.** It is now a compact open/close disclosure in a toolbar above the plot; opening it expands the toolbar instead of covering line-chart peaks.
+- **Free cloud requests are no longer counted as local-model savings.** Only records attributed to the local provider or a `local/` model id enter the estimate.
+- **The README “What’s new” section now describes everything added since the last Marketplace publication.** Its v0.145.3 summary names v0.145.0 as the published baseline and includes the v0.145.1 security-review foundation and v0.145.2 guarded-commit timeout fix alongside the current model/cost UI work.
+
+## [0.145.2] - 2026-07-26
+
+### Fixed
+- **Git commits no longer fail at AtlasMind's 15-second generic tool deadline while repository hooks are still running.** The dedicated `git-commit` skill now gives its subprocess a bounded 120-second window, with a 125-second outer deadline so a timed-out process can report its failure before orchestration stops waiting. Multi-word messages continue to be passed as one typed argument without shell parsing.
+- **The README release-heading check now follows `package.json`.** Version bumps no longer require a second hard-coded test edit merely to keep the "What's new" heading current.
+
+## [0.145.1] - 2026-07-26
+
+### Added
+- Add security review types to support ethics, legal, and commercial oversight advisors:
+  - `SecurityReviewArea`, `SecuritySeverity`, `SecurityExploitability`, `SecurityConfidence` types
+  - `SecurityFindingStatus`, `SecurityFinding`, `SecurityAreaRun`, `SecurityReviewConfig` interfaces
+  - `SecurityReviewHistoryEntry` interface for audit trail
 
 ## [0.145.0] - 2026-07-26
 

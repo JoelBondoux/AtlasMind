@@ -441,7 +441,7 @@ The following skills are registered automatically at extension activation (`src/
 | `terminal-run` | ✅ Implemented | Execute subprocesses with tiered allow-list (auto-approve, blocked, unknown) and shell-aware argument parsing (handles single/double-quoted spans and backslash escapes); supports Node, Python, Rust, Go, Java, Ruby, PHP, Flutter, Dart, Expo, Elixir, Terraform, Helm, Kubectl, Godot, Turbo/Nx and more |
 | `git-status` | ✅ Implemented | Show repository status |
 | `git-diff` | ✅ Implemented | Show repository diff (staged or against a ref) |
-| `git-commit` | ✅ Implemented | Create a commit with a message passed directly to git (no shell quoting needed); optional `stage_tracked` boolean runs `git add -u` first |
+| `git-commit` | ✅ Implemented | Create a commit with a message passed directly to git (no shell quoting needed); optional `stage_tracked` boolean runs `git add -u` first; allows up to 120 s for repository pre-commit hooks |
 | `git-log` | ✅ Implemented | Query commit log with ref, filePath, and maxCount (capped at 100) |
 | `git-branch` | ✅ Implemented | List, create, switch, or delete branches with name validation |
 | `rollback-checkpoint` | ✅ Implemented | Restore the most recent automatic pre-write checkpoint |

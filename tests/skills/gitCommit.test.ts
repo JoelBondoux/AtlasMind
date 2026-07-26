@@ -42,6 +42,10 @@ function makeContext(overrides: Partial<SkillExecutionContext> = {}): SkillExecu
 }
 
 describe('git-commit skill', () => {
+  it('allows repository pre-commit hooks to finish within a bounded window', () => {
+    expect(gitCommitSkill.timeoutMs).toBe(125_000);
+  });
+
   it('creates a commit with the given message', async () => {
     const context = makeContext({
       runCommand: vi.fn().mockResolvedValue({
@@ -52,7 +56,11 @@ describe('git-commit skill', () => {
       }),
     });
     const result = await gitCommitSkill.execute({ message: 'fix: typo' }, context);
-    expect(context.runCommand).toHaveBeenCalledWith('git', ['commit', '-m', 'fix: typo']);
+    expect(context.runCommand).toHaveBeenCalledWith(
+      'git',
+      ['commit', '-m', 'fix: typo'],
+      { timeoutMs: 120_000 },
+    );
     expect(result).toContain('exit 0');
     expect(result).toContain('fix: typo');
   });
@@ -83,7 +91,11 @@ describe('git-commit skill', () => {
       runCommand: vi.fn().mockResolvedValue({ ok: true, exitCode: 0, stdout: '', stderr: '' }),
     });
     await gitCommitSkill.execute({ message: '  chore: clean up  ' }, context);
-    expect(context.runCommand).toHaveBeenCalledWith('git', ['commit', '-m', 'chore: clean up']);
+    expect(context.runCommand).toHaveBeenCalledWith(
+      'git',
+      ['commit', '-m', 'chore: clean up'],
+      { timeoutMs: 120_000 },
+    );
   });
 
   it('reports a failed commit', async () => {

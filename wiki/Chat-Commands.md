@@ -288,8 +288,8 @@ These are also available from the Command Palette (`Ctrl+Shift+P`):
 | `AtlasMind: Open Model Settings` | Opens the AtlasMind Settings workspace directly on the models page |
 | `AtlasMind: Open Safety Settings` | Opens the AtlasMind Settings workspace directly on the safety page |
 | `AtlasMind: Open Project Settings` | Opens the AtlasMind Settings workspace directly on the project-runs page |
-| `AtlasMind: Focus Chat View` | Reveals the embedded Atlas chat workspace inside the AtlasMind sidebar container |
-| `AtlasMind: Open Chat Panel` | Opens a dedicated AtlasMind conversation panel outside the built-in VS Code Chat view. Shortcut: `Ctrl+Alt+I` (`Cmd+Alt+I` on macOS) |
+| `AtlasMind: Focus Chat View` | Reveals the embedded Atlas chat workspace inside the AtlasMind sidebar container; active request status names the currently routed model |
+| `AtlasMind: Open Chat Panel` | Opens a dedicated AtlasMind conversation panel outside the built-in VS Code Chat view. Active request status names the currently routed model. Shortcut: `Ctrl+Alt+I` (`Cmd+Alt+I` on macOS) |
 | `AtlasMind: Toggle Autopilot` | Enables or disables the session-wide tool approval bypass without reloading the extension |
 | `AtlasMind: Toggle Keep Computer Awake` | Toggles `atlasmind.presence.keepAwake` — keep this computer awake (prevent system sleep) while an activity needs the agent online (Mission Loop / Remote Control gateway / Buzz presence). Deny-by-default, AC-power-gated, and auto-releasing |
 | `AtlasMind: Manage Model Providers` | Add routed provider credentials, configure Azure/Bedrock/local providers, refresh models, health checks |
@@ -312,7 +312,7 @@ These are also available from the Command Palette (`Ctrl+Shift+P`):
 | `AtlasMind: Bootstrap Project` | Same as `/bootstrap` |
 | `AtlasMind: Import Existing Project` | Same as `/import` |
 | `AtlasMind: Show Cost Summary` | Same as `/cost` |
-| `AtlasMind: Open Cost Dashboard` | Full cost management dashboard with adjustable day ranges, subscription-aware totals, budget utilisation, and recent requests |
+| `AtlasMind: Open Cost Dashboard` | Full cost management dashboard with a collapsible time-period picker, subscription-aware totals, budget utilisation, recent requests, and per-local-model cloud-equivalent savings estimates |
 | `AtlasMind: Enable Remote Control` | (desktop) Start the localhost server so the web build can drive this instance — prompts for workspace trust and shows the pairing code |
 | `AtlasMind: Enable Remote Control (Gateway)` | (desktop) Switch to `gateway` mode and start the server behind an SSO-gated Cloudflare Worker + tunnel for cross-machine access; shows the origin secret and local tunnel target |
 | `AtlasMind: Disable Remote Control` | (desktop) Stop the remote-control server and drop all sessions |

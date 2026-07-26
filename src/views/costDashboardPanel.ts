@@ -5,7 +5,7 @@ import type { CostTracker } from '../core/costTracker.js';
 import type { CostRecord, MissionRunRecord } from '../types.js';
 import type { MissionRegistry } from '../core/missionRegistry.js';
 import { formatCost, getDisplayCurrency, getExchangeRate } from '../core/currencyFormatter.js';
-import { getSavingsReferenceTiers } from '../providers/modelCatalog.js';
+import { getComparableCloudReference } from '../providers/modelCatalog.js';
 
 type CostDashboardMessage =
   | { type: 'resetHistory' }
@@ -192,7 +192,7 @@ export class CostDashboardPanel {
     const modelBreakdown = this.buildModelBreakdown(filteredRecords);
     const localSavings = this.buildLocalSavings(filteredRecords);
     const recentTable = this.buildRecentTable(records);
-    const timescaleButtons = [
+    const timescaleOptions: Array<{ value: CostDashboardTimescale; label: string }> = [
       { value: '1d', label: 'Today' },
       { value: '7d', label: '7D' },
       { value: '14d', label: '14D' },
@@ -201,7 +201,9 @@ export class CostDashboardPanel {
       { value: 'qtd', label: 'QTD' },
       { value: 'ytd', label: 'YTD' },
       { value: 'all', label: 'All Time' },
-    ].map(option => `
+    ];
+    const selectedTimescaleLabel = timescaleOptions.find(option => option.value === this.timescale)?.label ?? '14D';
+    const timescaleButtons = timescaleOptions.map(option => `
       <button
         type="button"
         class="${option.value === this.timescale ? 'active' : ''}"
@@ -251,7 +253,7 @@ export class CostDashboardPanel {
               <div>
                 <p class="section-kicker">Spend telemetry</p>
                 <h2>Daily Spend</h2>
-                <p class="section-copy">Windowed spend signal across ${escapeHtml(timescaleLabel)}, with chart controls overlaid directly on the visualization.</p>
+                <p class="section-copy">Windowed spend signal across ${escapeHtml(timescaleLabel)}, with compact controls kept outside the plotted costs.</p>
               </div>
               <div class="meta-pill-row">
                 <span class="meta-pill">${escapeHtml(timescaleLabel)}</span>
@@ -260,18 +262,21 @@ export class CostDashboardPanel {
               </div>
             </div>
             <div class="daily-chart-stage" data-active-chart-style="line">
-              ${/* The line/bar switch is withheld when the window has no spend —
-                    there is no chart to restyle. The timescale strip is NOT:
-                    the records feeding this chart are themselves scoped by the
-                    selected timescale, so an empty window is exactly when the
-                    user needs to widen it. Hiding it would trap them. */ ''}
-              ${hasDailySpend ? `
-                <div class="chart-style-controls" role="group" aria-label="Daily spend chart style">
-                  ${chartStyleButtons}
-                </div>
-              ` : ''}
-              <div id="cost-dashboard-timescale" class="chart-overlay-controls" role="group" aria-label="Daily spend timescale">
-                ${timescaleButtons}
+              <div class="chart-toolbar">
+                ${/* The line/bar switch is withheld when the window has no spend —
+                      there is no chart to restyle. The period disclosure remains:
+                      an empty window is exactly when the user needs to widen it. */ ''}
+                ${hasDailySpend ? `
+                  <div class="chart-style-controls" role="group" aria-label="Daily spend chart style">
+                    ${chartStyleButtons}
+                  </div>
+                ` : '<span></span>'}
+                <details id="cost-dashboard-timescale" class="chart-timescale-disclosure">
+                  <summary aria-label="Select daily spend time period">Period: ${escapeHtml(selectedTimescaleLabel)}</summary>
+                  <div class="chart-timescale-menu" role="group" aria-label="Daily spend time period">
+                    ${timescaleButtons}
+                  </div>
+                </details>
               </div>
               ${dailyChart}
             </div>
@@ -394,6 +399,10 @@ export class CostDashboardPanel {
           element.addEventListener('click', () => {
             const value = element.getAttribute('data-timescale');
             if (value) {
+              const disclosure = element.closest('details');
+              if (disclosure) {
+                disclosure.open = false;
+              }
               vscode.postMessage({ type: 'setTimescale', value });
             }
           });
@@ -594,13 +603,20 @@ export class CostDashboardPanel {
         .budget-track-fill.warn { background: linear-gradient(90deg, #f5a623, #ffcb6b); }
         .budget-track-fill.over { background: linear-gradient(90deg, #f36b6b, #f44747); }
         .budget-caption { margin: 10px 0 0; font-size: 0.82rem; color: var(--vscode-descriptionForeground); }
-        .daily-chart-stage { position: relative; min-height: 320px; border-radius: 22px; padding: 18px 14px 12px; background: linear-gradient(180deg, color-mix(in srgb, var(--vscode-editor-background) 54%, transparent), color-mix(in srgb, var(--vscode-editor-background) 30%, transparent)); border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 65%, transparent); overflow: hidden; }
-        .chart-overlay-controls { position: absolute; top: 14px; right: 14px; z-index: 3; display: inline-flex; gap: 6px; padding: 6px; border-radius: 999px; backdrop-filter: blur(16px); background: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 82%, transparent); border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 72%, transparent); max-width: calc(100% - 28px); overflow-x: auto; }
-        .chart-style-controls { position: absolute; top: 14px; left: 14px; z-index: 3; display: inline-flex; gap: 6px; padding: 6px; border-radius: 999px; backdrop-filter: blur(16px); background: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 82%, transparent); border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 72%, transparent); }
+        .daily-chart-stage { position: relative; min-height: 320px; border-radius: 22px; padding: 14px 14px 12px; background: linear-gradient(180deg, color-mix(in srgb, var(--vscode-editor-background) 54%, transparent), color-mix(in srgb, var(--vscode-editor-background) 30%, transparent)); border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 65%, transparent); }
+        .chart-toolbar { position: relative; z-index: 3; min-height: 36px; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+        .chart-style-controls { display: inline-flex; gap: 6px; padding: 4px; border-radius: 999px; background: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 82%, transparent); border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 72%, transparent); }
         .chart-style-controls button { border: 0; border-radius: 999px; background: transparent; color: var(--vscode-descriptionForeground); padding: 6px 10px; cursor: pointer; font: inherit; }
         .chart-style-controls button.active { background: color-mix(in srgb, var(--vscode-button-background) 82%, white 4%); color: var(--vscode-button-foreground); }
-        .chart-overlay-controls button { border: 0; border-radius: 999px; background: transparent; color: var(--vscode-descriptionForeground); padding: 6px 10px; cursor: pointer; font: inherit; }
-        .chart-overlay-controls button.active { background: color-mix(in srgb, var(--vscode-button-background) 82%, white 4%); color: var(--vscode-button-foreground); }
+        .chart-timescale-disclosure { position: relative; flex: 0 0 auto; }
+        .chart-timescale-disclosure summary { list-style: none; cursor: pointer; user-select: none; border-radius: 999px; padding: 9px 14px; background: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)) 88%, transparent); border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 72%, transparent); color: var(--vscode-foreground); font-size: 0.8rem; }
+        .chart-timescale-disclosure summary::-webkit-details-marker { display: none; }
+        .chart-timescale-disclosure summary::after { content: '▾'; margin-left: 8px; color: var(--vscode-descriptionForeground); }
+        .chart-timescale-disclosure[open] summary::after { content: '▴'; }
+        .chart-timescale-menu { width: min(220px, calc(100vw - 72px)); display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; margin-top: 6px; padding: 7px; border-radius: 14px; background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background)); border: 1px solid var(--vscode-widget-border, #444); box-shadow: 0 14px 34px rgba(0, 0, 0, 0.24); }
+        .chart-timescale-menu button { border: 0; border-radius: 9px; background: transparent; color: var(--vscode-descriptionForeground); padding: 7px 9px; cursor: pointer; font: inherit; font-size: 0.78rem; text-align: left; }
+        .chart-timescale-menu button:hover { background: var(--vscode-list-hoverBackground); color: var(--vscode-foreground); }
+        .chart-timescale-menu button.active { background: color-mix(in srgb, var(--vscode-button-background) 82%, white 4%); color: var(--vscode-button-foreground); }
         .daily-chart { position: relative; min-height: 286px; padding-top: 16px; }
         .daily-chart-grid { position: absolute; inset: 16px 0 30px; display: grid; grid-template-rows: repeat(4, 1fr); pointer-events: none; }
         .daily-chart-grid span { border-top: 1px dashed color-mix(in srgb, var(--vscode-widget-border, #444) 44%, transparent); }
@@ -640,13 +656,13 @@ export class CostDashboardPanel {
         .savings-stat-label { margin: 0 0 6px; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--vscode-descriptionForeground); }
         .savings-stat-value { font-size: clamp(1rem, 1.8vw, 1.4rem); font-weight: 700; font-variant-numeric: tabular-nums; color: var(--vscode-notificationsInfoIcon-foreground, #4ec9b0); }
         .savings-stat-detail { margin: 6px 0 0; font-size: 0.78rem; color: var(--vscode-descriptionForeground); }
-        .savings-tiers { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
-        .savings-tier-row { display: grid; grid-template-columns: 160px 1fr 90px; align-items: center; gap: 12px; }
+        .savings-tiers { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+        .savings-comparison-head, .savings-tier-row { display: grid; grid-template-columns: minmax(180px, 1.2fr) minmax(180px, 1fr) 110px; align-items: center; gap: 12px; }
+        .savings-comparison-head { padding: 0 12px; color: var(--vscode-descriptionForeground); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; }
+        .savings-tier-row { padding: 12px; border-radius: 14px; background: color-mix(in srgb, var(--vscode-editor-background) 55%, transparent); border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 46%, transparent); }
         .savings-tier-meta { display: flex; flex-direction: column; gap: 2px; }
         .savings-tier-label { font-size: 0.82rem; font-weight: 600; }
         .savings-tier-ref { font-size: 0.72rem; color: var(--vscode-descriptionForeground); }
-        .savings-tier-bar-wrap { height: 10px; border-radius: 999px; overflow: hidden; background: color-mix(in srgb, var(--vscode-widget-border, #444) 58%, transparent); }
-        .savings-tier-bar { height: 100%; border-radius: inherit; transform-origin: left center; transform: scaleX(0); animation: budget-fill 720ms cubic-bezier(0.22, 1, 0.36, 1) forwards; background: linear-gradient(90deg, color-mix(in srgb, var(--vscode-notificationsInfoIcon-foreground, #4ec9b0) 90%, transparent), color-mix(in srgb, var(--vscode-notificationsInfoIcon-foreground, #4ec9b0) 50%, var(--vscode-button-background))); --fill-scale: var(--savings-fill); }
         .savings-tier-amount { font-size: 0.88rem; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; color: var(--vscode-notificationsInfoIcon-foreground, #4ec9b0); }
         .savings-note { margin: 0; font-size: 0.72rem; color: var(--vscode-descriptionForeground); line-height: 1.5; padding: 10px 14px; border-radius: 12px; background: color-mix(in srgb, var(--vscode-editor-background) 50%, transparent); border: 1px solid color-mix(in srgb, var(--vscode-widget-border, #444) 40%, transparent); }
         .feedback-summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
@@ -684,12 +700,13 @@ export class CostDashboardPanel {
         @media (max-width: 780px) {
           .dashboard-topbar { flex-direction: column; }
           .dashboard-actions { justify-content: flex-start; }
-          .chart-style-controls { position: static; margin-bottom: 12px; }
-          .chart-overlay-controls { position: static; margin-bottom: 12px; }
+          .chart-toolbar { align-items: flex-start; }
           .daily-chart-footer { grid-template-columns: 1fr; }
           .feedback-summary-grid { grid-template-columns: 1fr; }
           .savings-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-          .savings-tier-row { grid-template-columns: 120px 1fr 72px; }
+          .savings-comparison-head { display: none; }
+          .savings-tier-row { grid-template-columns: 1fr 1fr; }
+          .savings-tier-amount { grid-column: 1 / -1; text-align: left; }
         }
       `,
     });
@@ -989,7 +1006,7 @@ export class CostDashboardPanel {
   }
 
   private buildLocalSavings(records: readonly CostRecord[]): string {
-    const localRecords = records.filter(r => r.providerId === 'local' || r.billingCategory === 'free');
+    const localRecords = records.filter(r => r.providerId === 'local' || r.model.startsWith('local/'));
     if (localRecords.length === 0) {
       return '';
     }
@@ -997,23 +1014,27 @@ export class CostDashboardPanel {
     const totalInputTokens = localRecords.reduce((s, r) => s + r.inputTokens, 0);
     const totalOutputTokens = localRecords.reduce((s, r) => s + r.outputTokens, 0);
     const totalTokens = totalInputTokens + totalOutputTokens;
-
-    const tiers = getSavingsReferenceTiers();
-
-    const tierSavings = tiers.map(tier => ({
-      ...tier,
-      savedUsd: (totalInputTokens / 1000) * tier.inputPricePer1k + (totalOutputTokens / 1000) * tier.outputPricePer1k,
-    }));
-
-    const maxSaved = tierSavings[tierSavings.length - 1]?.savedUsd ?? 0.0001;
-    const budgetSaved = tierSavings[0]?.savedUsd ?? 0;
-    const premiumSaved = tierSavings[tierSavings.length - 1]?.savedUsd ?? 0;
+    const byModel = new Map<string, { requests: number; inputTokens: number; outputTokens: number }>();
+    for (const record of localRecords) {
+      const current = byModel.get(record.model) ?? { requests: 0, inputTokens: 0, outputTokens: 0 };
+      current.requests += 1;
+      current.inputTokens += record.inputTokens;
+      current.outputTokens += record.outputTokens;
+      byModel.set(record.model, current);
+    }
+    const comparisons = [...byModel.entries()].map(([model, usage]) => {
+      const reference = getComparableCloudReference(model);
+      const savedUsd = (usage.inputTokens / 1000) * reference.inputPricePer1k
+        + (usage.outputTokens / 1000) * reference.outputPricePer1k;
+      return { model, ...usage, reference, savedUsd };
+    }).sort((left, right) => right.savedUsd - left.savedUsd);
+    const totalSavedUsd = comparisons.reduce((sum, comparison) => sum + comparison.savedUsd, 0);
 
     const statCards = [
+      { label: 'Estimated Total Saved', value: formatCurrency(totalSavedUsd, 4), detail: 'Sum of per-model cloud comparisons' },
       { label: 'Local Requests', value: String(localRecords.length), detail: 'Routed to local models' },
+      { label: 'Local Models Used', value: String(comparisons.length), detail: 'Each compared separately' },
       { label: 'Tokens Processed', value: formatTokens(totalTokens), detail: `${formatTokens(totalInputTokens)} in / ${formatTokens(totalOutputTokens)} out` },
-      { label: 'Min Savings Est.', value: formatCurrency(budgetSaved, 4), detail: `vs ${tierSavings[0]?.name ?? ''}` },
-      { label: 'Max Savings Est.', value: formatCurrency(premiumSaved, 4), detail: `vs ${tierSavings[tierSavings.length - 1]?.name ?? ''}` },
     ].map(card => `
       <div class="savings-stat">
         <p class="savings-stat-label">${escapeHtml(card.label)}</p>
@@ -1022,18 +1043,19 @@ export class CostDashboardPanel {
       </div>
     `).join('');
 
-    const tierRows = tierSavings.map(tier => {
-      const fillScale = Math.max(0.02, tier.savedUsd / maxSaved);
+    const tierRows = comparisons.map(comparison => {
+      const tokenCount = comparison.inputTokens + comparison.outputTokens;
       return `
-        <div class="savings-tier-row">
+        <div class="savings-tier-row" title="${escapeHtml(comparison.reference.rationale)}">
           <div class="savings-tier-meta">
-            <span class="savings-tier-label">${escapeHtml(tier.label)}</span>
-            <span class="savings-tier-ref">${escapeHtml(tier.name)}</span>
+            <span class="savings-tier-label">${escapeHtml(comparison.model)}</span>
+            <span class="savings-tier-ref">${escapeHtml(String(comparison.requests))} request${comparison.requests === 1 ? '' : 's'} · ${escapeHtml(formatTokens(tokenCount))} tokens</span>
           </div>
-          <div class="savings-tier-bar-wrap">
-            <div class="savings-tier-bar" style="--savings-fill:${fillScale.toFixed(4)}"></div>
+          <div class="savings-tier-meta">
+            <span class="savings-tier-label">${escapeHtml(comparison.reference.name)}</span>
+            <span class="savings-tier-ref">${escapeHtml(comparison.reference.label)} reference · ${escapeHtml(formatCurrency(comparison.reference.inputPricePer1k, 5))} in / ${escapeHtml(formatCurrency(comparison.reference.outputPricePer1k, 5))} out per 1K</span>
           </div>
-          <span class="savings-tier-amount">${escapeHtml(formatCurrency(tier.savedUsd, 4))}</span>
+          <span class="savings-tier-amount">${escapeHtml(formatCurrency(comparison.savedUsd, 4))}</span>
         </div>
       `;
     }).join('');
@@ -1048,13 +1070,12 @@ export class CostDashboardPanel {
           </div>
         </div>
         <div class="savings-stats">${statCards}</div>
-        <div class="savings-tiers">${tierRows}</div>
+        <div class="savings-tiers">
+          <div class="savings-comparison-head"><span>Local model</span><span>Comparable cloud model</span><span>Potential saved</span></div>
+          ${tierRows}
+        </div>
         <p class="savings-note">${escapeHtml(
-          'Reference rates (per 1K tokens) — ' +
-          tierSavings.map(t =>
-            `${t.label}: ${formatCurrency(t.inputPricePer1k, 5)} in / ${formatCurrency(t.outputPricePer1k, 5)} out (${t.name})`
-          ).join('. ') +
-          '. Actual savings depend on which cloud model would otherwise have been used.'
+          'Potential savings are estimates, not measured rebates. AtlasMind maps advertised parameter counts and recognizable model-family markers to catalog-backed budget, mid-tier, or premium cloud references; hover a comparison for its rationale. Actual savings depend on which cloud model would otherwise have been used.'
         )}</p>
       </section>
     `;
