@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.141.7] - 2026-07-26
+
+### Fixed
+- **Run Center action buttons announced themselves only on hover.** The buttons filling a run card, a file chip or the action strip carry no border and no fill, so nothing at rest said they were clickable — and `.file-chip` compounded it by inheriting the shared card chrome, making a live chip look exactly like an inert card. They now carry an at-rest chevron that brightens and shifts on hover, matching the Project Dashboard treatment.
+- **Clickable summary badges sat beside inert ones with identical shape, border and fill** on the MCP and Model Providers panels — three visually identical pills where only some filter anything. The interactive ones now carry a caret.
+
 ## [0.141.6] - 2026-07-26
 
 ### Fixed

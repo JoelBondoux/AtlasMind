@@ -2087,16 +2087,46 @@ export class ProjectRunCenterPanel {
           overflow: hidden;
         }
 
+        /* These fill their card entirely and carry no border or fill, so before
+           the chevron the only thing announcing them as buttons was the hover
+           background — discoverable only after the pointer was already on them.
+           ".file-chip" compounded it by inheriting the shared card chrome, so a
+           clickable chip looked exactly like an inert card. */
         .file-chip button,
         .run-card button,
         .action-strip button {
+          position: relative;
           width: 100%;
           text-align: left;
           border: 0;
           background: transparent;
           color: inherit;
-          padding: 12px 14px;
+          padding: 12px 30px 12px 14px;
           cursor: pointer;
+        }
+
+        .file-chip button::after,
+        .run-card button::after,
+        .action-strip button::after {
+          content: "\\203A";
+          position: absolute;
+          top: 12px;
+          right: 13px;
+          font-size: 15px;
+          line-height: 1;
+          color: color-mix(in srgb, var(--run-accent) 80%, transparent);
+          opacity: 0.5;
+          transition: opacity 140ms ease, transform 140ms ease;
+        }
+
+        .file-chip button:hover::after,
+        .file-chip button:focus-visible::after,
+        .run-card button:hover::after,
+        .run-card button:focus-visible::after,
+        .action-strip button:hover::after,
+        .action-strip button:focus-visible::after {
+          opacity: 1;
+          transform: translateX(2px);
         }
 
         .file-chip button:hover,

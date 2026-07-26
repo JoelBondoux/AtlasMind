@@ -1037,6 +1037,11 @@ const MCP_EXTRA_CSS = `
   .hero-badge { border: 1px solid var(--atlas-border); border-radius: 999px; padding: 6px 12px; background: color-mix(in srgb, var(--atlas-accent) 16%, transparent); }
   .hero-badge-button { color: inherit; font: inherit; cursor: pointer; }
   .hero-badge-button:hover, .hero-badge-button:focus-visible { outline: 2px solid var(--atlas-accent); outline-offset: 2px; }
+  /* Clickable badges sit beside inert ones with identical shape, border and
+     fill; only hover distinguished them. The caret is an at-rest cue that a
+     badge filters something. */
+  .hero-badge-button::after { content: " BE"; opacity: 0.55; font-size: 0.85em; }
+  .hero-badge-button:hover::after, .hero-badge-button:focus-visible::after { opacity: 1; }
   .search-shell { display: grid; gap: 6px; margin: 0 0 18px; }
   .search-label { font-weight: 600; }
   .search-shell input { width: 100%; box-sizing: border-box; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, var(--atlas-border)); padding: 10px 12px; border-radius: 12px; }
