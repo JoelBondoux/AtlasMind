@@ -47,9 +47,35 @@ function makeInput(overrides: Partial<ScoreInput> = {}): ScoreInput {
       history: [],
       summary: 'Risk has not been assessed yet.',
     },
+    privacy: {
+      enabled: false,
+      rules: [],
+      compliancePacks: [],
+      trustedModelIds: [],
+      providers: [],
+      packs: [],
+      activity: { total: 0, redactedCount: 0, bySource: [], byDay: [] },
+      governance: [],
+    },
     ...overrides,
   } as ScoreInput;
 }
+
+/**
+ * A project that has done everything the score asks of it. Kept in one place so
+ * a new category shows up as a single failing assertion rather than a puzzle.
+ */
+const PERFECT: Partial<ScoreInput> = {
+  ssotCoveragePercent: 100,
+  outcomeCompleteness: { ...makeInput().outcomeCompleteness, score: 100 },
+  risk: { ...makeInput().risk, assessed: true, score: 100 },
+  privacy: {
+    ...makeInput().privacy,
+    enabled: true,
+    compliancePacks: ['gdpr'],
+    trustedModelIds: ['local/llama'],
+  },
+};
 
 /** Mirrors how collectDashboardSnapshot derives the headline number. */
 function normalize(components: Array<{ score: number; maxScore: number }>): number {
@@ -59,18 +85,32 @@ function normalize(components: Array<{ score: number; maxScore: number }>): numb
 }
 
 describe('buildScoreBreakdown — risk component', () => {
-  it('omits risk entirely until the project has been assessed', () => {
+  // This reverses the original contract, which omitted risk until an advisor had
+  // run so that shipping the feature could not drop anyone's score overnight.
+  // That protected the number at the cost of what the number is for: with the
+  // component absent, a project never assessed scored *identically* to one
+  // assessed and found clean — the one comparison the score most needs to make.
+  it('always carries a risk component, scoring zero until the project is assessed', () => {
     const breakdown = buildScoreBreakdown(makeInput());
-    expect(breakdown.components.map(component => component.id)).not.toContain('risk');
+    const risk = breakdown.components.find(component => component.id === 'risk');
+    expect(risk).toBeDefined();
+    expect(risk!.score).toBe(0);
+    expect(risk!.maxScore).toBe(15);
+    expect(risk!.tone).toBe('warn');
+    expect(risk!.detail).toMatch(/unclaimed/i);
   });
 
-  it('leaves the normalised score untouched when risk is unassessed', () => {
-    // The safety property: shipping this feature must not silently drop the health
-    // score of every existing project for a risk nobody has been told about.
-    const withoutRiskFeature = buildScoreBreakdown(makeInput()).components
-      .filter(component => component.id !== 'risk');
-    const asShipped = buildScoreBreakdown(makeInput()).components;
-    expect(normalize(asShipped)).toBe(normalize(withoutRiskFeature));
+  it('scores an unassessed project below an assessed-and-clean one', () => {
+    const unassessed = normalize(buildScoreBreakdown(makeInput()).components);
+    const clean = normalize(buildScoreBreakdown(makeInput({
+      risk: { ...makeInput().risk, assessed: true, score: 100 },
+    })).components);
+    expect(unassessed).toBeLessThan(clean);
+  });
+
+  it('tells the manager how to claim the unassessed points', () => {
+    const breakdown = buildScoreBreakdown(makeInput());
+    expect(breakdown.recommendations.some(entry => /\+15 pts/.test(JSON.stringify(entry)))).toBe(true);
   });
 
   it('adds risk once assessed, and a clean register raises nothing alarming', () => {
@@ -117,6 +157,52 @@ describe('buildScoreBreakdown — risk component', () => {
   });
 });
 
+describe('buildScoreBreakdown — privacy component', () => {
+  it('always carries a privacy component, scoring zero until configured', () => {
+    const privacy = buildScoreBreakdown(makeInput()).components
+      .find(component => component.id === 'privacy');
+    expect(privacy).toBeDefined();
+    expect(privacy!.score).toBe(0);
+    expect(privacy!.maxScore).toBe(12);
+    expect(privacy!.tone).toBe('warn');
+    expect(privacy!.pageTarget).toBe('privacy');
+    expect(privacy!.detail).toMatch(/unclaimed/i);
+  });
+
+  it('credits the gate, the packs and the trusted models independently', () => {
+    const scoreFor = (privacy: Partial<ScoreInput['privacy']>) => buildScoreBreakdown(makeInput({
+      privacy: { ...makeInput().privacy, ...privacy },
+    })).components.find(component => component.id === 'privacy')!.score;
+
+    expect(scoreFor({ enabled: true })).toBe(5);
+    expect(scoreFor({ compliancePacks: ['gdpr'] })).toBe(4);
+    expect(scoreFor({ trustedModelIds: ['local/llama'] })).toBe(3);
+    expect(scoreFor({ enabled: true, compliancePacks: ['gdpr'], trustedModelIds: ['local/llama'] })).toBe(12);
+  });
+
+  it('counts an enabled rule as cover even with no compliance pack chosen', () => {
+    // A hand-written rule is a deliberate act; refusing it credit would push
+    // people toward packs they do not need just to move the number.
+    const score = buildScoreBreakdown(makeInput({
+      privacy: {
+        ...makeInput().privacy,
+        rules: [{ id: 'r1', label: 'Customer IDs', pattern: '\\bCUS-\\d+', enabled: true } as never],
+      },
+    })).components.find(component => component.id === 'privacy')!.score;
+    expect(score).toBe(4);
+  });
+
+  it('ignores a rule that exists but is switched off', () => {
+    const score = buildScoreBreakdown(makeInput({
+      privacy: {
+        ...makeInput().privacy,
+        rules: [{ id: 'r1', label: 'Customer IDs', pattern: '\\bCUS-\\d+', enabled: false } as never],
+      },
+    })).components.find(component => component.id === 'privacy')!.score;
+    expect(score).toBe(0);
+  });
+});
+
 describe('buildScoreBreakdown — normalisation invariant', () => {
   it('never lets a component exceed its own maxScore', () => {
     const breakdown = buildScoreBreakdown(makeInput({
@@ -128,18 +214,21 @@ describe('buildScoreBreakdown — normalisation invariant', () => {
     }
   });
 
-  it('normalises a perfect project to 100 with and without risk', () => {
-    // Guards the reason the denominator is derived rather than hard-coded: adding a
-    // 7th category must not push a perfect score past 100, nor dilute it below.
-    const perfect: Partial<ScoreInput> = {
-      ssotCoveragePercent: 100,
-      outcomeCompleteness: { ...makeInput().outcomeCompleteness, score: 100 },
-    };
-    expect(normalize(buildScoreBreakdown(makeInput(perfect)).components)).toBe(100);
-    expect(normalize(buildScoreBreakdown(makeInput({
-      ...perfect,
-      risk: { ...makeInput().risk, assessed: true, score: 100 },
-    })).components)).toBe(100);
+  it('normalises a perfect project to 100', () => {
+    // Guards the reason the denominator is derived rather than hard-coded: adding
+    // a category must not push a perfect score past 100, nor dilute it below.
+    // Every category now counts unconditionally, so "perfect" has to include
+    // having actually run the advisors and configured the privacy gate.
+    expect(normalize(buildScoreBreakdown(makeInput(PERFECT)).components)).toBe(100);
+  });
+
+  it('leaves no component unearned in the perfect fixture', () => {
+    // If a new category is added without extending PERFECT, the test above would
+    // fail with an opaque number. This says which row is short.
+    for (const component of buildScoreBreakdown(makeInput(PERFECT)).components) {
+      expect(component.score, `${component.id} is not maxed in the perfect fixture`)
+        .toBe(component.maxScore);
+    }
   });
 
   it('normalises a worst-case project to 0', () => {

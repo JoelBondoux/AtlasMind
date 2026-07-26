@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.142.0 — Dark-mode legibility, and a score that counts what you have not done
+
+- **The black text in dark mode is fixed.** Card titles, metric values and section headings rendered black-on-black across four dashboards. The cause was a *missing* declaration rather than a wrong one: scoping the shared shell's button paint to unclassed buttons in v0.141.0 also removed `color` from every classed button, and a `<button>` with no author colour falls back to the browser's own `buttontext` keyword — black, whatever the VS Code theme says. Every review that looked for a bad colour was looking for something that was not there. The shell now sets `color: inherit` on all buttons, and pairs colour with background on text-entry controls against the same hazard.
+- **Risk and Data privacy now count toward the operational score whether or not you have engaged with them.** Risk used to be omitted from the score until an advisor had run — which meant a project that had never been assessed scored *identically* to one assessed and found clean. Both categories are now always present and score zero until addressed (Risk 15 pts, Data privacy 12 pts), each naming the unclaimed points and how to claim them. Existing projects will see the headline number fall until the advisors are run and the privacy gate is configured; that drop is the signal, not a bug.
+- **Hero badge chevrons render properly again** on Model Providers and MCP, where the glyph had been corrupted into a control character and shown as tofu.
+
 ## v0.141.0 — The Project Dashboard, rebuilt around how a manager reads it
 
 - **The 14 tabs are grouped and reordered.** The old order was archaeological — it recorded the sequence features shipped, not any reading order. Gap Analysis sat eight tabs from the Overview card that advertises it, Roadmap was buried behind four engineer-facing pages, Risk was read *after* Delivery ("should we ship" after "can we ship"), and Delivery split the three safety pages down the middle. The tabs are now five labelled clusters — **Where we stand** (Overview · Score · Gap Analysis), **The work** (Roadmap · Director · Runtime), **The code** (Repo · Testing), **Is it safe** (Security · Privacy · Risk), **Ship & record** (Delivery · Documents · SSOT) — each wrapping as a unit so a group is never split across rows. The toolbar is sticky, so switching tabs from the bottom of a long page no longer means scrolling back up.

@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.142.0] - 2026-07-26
+
+### Fixed
+- **The black text in dark mode — found and fixed.** Card titles, metric values and section headings rendered black-on-black across the Project Dashboard, Model Providers, Personality Profile and Settings. The cause was a *missing* declaration, not a wrong one: 0.141.0 scoped the shared shell's button paint to `button:not([class])` to stop `button:hover` outranking every panel variant, which also removed `color` from every **classed** button. A `<button>` with no author colour falls back to the UA keyword `buttontext` — black in Chromium whatever the VS Code theme is — and rules like `.action-title { font-weight: 700 }` set weight and let the colour come from the surface. This is precisely why three source reviews and a computed contrast resolver all missed it: every one of them reads *declared* colours. The shell now sets `color: inherit` on the base `button` rule, and pairs `color` with `background` on text-entry controls against the identical `field`/`fieldtext` hazard.
+- **The hero badge chevron rendered as tofu** on the Model Providers and MCP panels — the `▾` had lost its UTF-8 lead bytes in transit, leaving a raw U+0015 control character followed by a literal `BE`. All three hero badges now use the encoding-proof CSS escape `\25BE`, and a test rejects any C0 control character in webview source.
+
+### Changed
+- **Risk and Data privacy now count toward the operational score whether or not you have engaged with them.** Risk was previously omitted until an advisor had run, so shipping it could not drop anyone's score overnight. That protected the number at the cost of what the number is for: with the component absent, a project never assessed scored *identically* to one assessed and found clean — the single comparison the score most needs to make. Both categories are now always present and score zero until addressed (Risk 15 pts, Data privacy 12 pts), with the detail line naming the points as unclaimed and a recommendation explaining how to claim them. The denominator stays derived rather than hard-coded, so a perfect project still normalises to 100.
+- **Existing projects will see the headline score fall** until the advisors are run and the privacy gate is configured. That drop is the intended signal, not a regression.
+
 ## [0.141.10] - 2026-07-26
 
 ### Added

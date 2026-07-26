@@ -309,7 +309,7 @@ export class SpecialistIntegrationsPanel {
         /* Three pills sit side by side with identical shape and fill, but only
            two are buttons — the clickable ones now carry a visible at-rest cue
            and an obvious active state, so the filter can be seen and cleared. */
-        .hero-badge-button::after { content: " ▾"; opacity: 0.55; font-size: 0.85em; }
+        .hero-badge-button::after { content: " \\25BE"; opacity: 0.55; font-size: 0.85em; }
         .hero-badge-button.is-filtering {
           background: color-mix(in srgb, var(--atlas-accent) 38%, transparent);
           border-color: color-mix(in srgb, var(--atlas-accent) 60%, var(--atlas-border));

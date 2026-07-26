@@ -276,6 +276,53 @@ describe('button paint ownership', () => {
     // variant at (0,1,1) vs (0,1,0), regardless of source order.
     expect(shell).not.toMatch(/\n\s*button:hover\s*\{/);
   });
+
+  // Scoping the paint above removed `color` from every classed button, and a
+  // <button> with no author colour falls back to the UA keyword `buttontext` —
+  // black in Chromium whatever the VS Code theme is. Card titles that only set
+  // `font-weight` went black-on-black across four dashboards. Nothing caught it:
+  // a contrast audit reads *declared* colours, and this was an absent one.
+  it('gives every button an explicit text colour so the UA default cannot leak', () => {
+    const shell = readFileSync(path.join(VIEWS_DIR, 'webviewUtils.ts'), 'utf8');
+    const base = /\n\s*button\s*\{([^}]*)\}/.exec(shell);
+    expect(base, 'shell has no base `button { … }` rule').not.toBeNull();
+    expect(base![1], 'base button rule must declare a colour').toMatch(/(?:^|[\s;])color\s*:/);
+  });
+
+  it('pairs colour and background on text-entry controls', () => {
+    // Same failure mode: unstyled, these take the UA `field`/`fieldtext` pair.
+    // Declaring only one half lets the other be inherited into same-on-same.
+    const shell = readFileSync(path.join(VIEWS_DIR, 'webviewUtils.ts'), 'utf8');
+    const rule = /:where\(input[^)]*\)[^{]*\{([^}]*)\}/.exec(shell);
+    expect(rule, 'shell has no text-entry control defaults').not.toBeNull();
+    expect(rule![1]).toMatch(/(?:^|[\s;])color\s*:/);
+    expect(rule![1]).toMatch(/(?:^|[\s;])background\s*:/);
+  });
+});
+
+describe('generated glyphs survive encoding', () => {
+  // Two panels shipped `content: " ▾"` with the character's UTF-8 lead bytes
+  // stripped, leaving a raw U+0015 control char followed by a literal "BE". It
+  // rendered as tofu next to every hero badge and nothing failed. A control
+  // character in source is never intentional, so this is safe to assert flatly.
+  it('has no C0 control characters in webview source', () => {
+    // Tested by code point rather than a character class: a regex literal
+    // spelling out C0 would itself contain the bytes this check exists to ban.
+    const ALLOWED = new Set([0x09, 0x0a, 0x0d]);
+    const offenders: string[] = [];
+    for (const { file, text } of allWebviewSources) {
+      text.split('\n').forEach((line, index) => {
+        for (const char of line) {
+          const code = char.codePointAt(0)!;
+          if (code < 0x20 && !ALLOWED.has(code)) {
+            offenders.push(`${file}:${index + 1} contains U+${code.toString(16).padStart(4, '0').toUpperCase()}`);
+            return;
+          }
+        }
+      });
+    }
+    expect(offenders, offenders.join(' | ')).toEqual([]);
+  });
 });
 
 describe('skill scanner panel', () => {

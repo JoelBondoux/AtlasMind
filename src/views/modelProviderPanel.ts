@@ -342,7 +342,7 @@ export class ModelProviderPanel {
         /* Clickable badges sit beside inert ones with identical shape, border and
            fill; only hover distinguished them. The caret is an at-rest cue that a
            badge filters something. */
-        .hero-badge-button::after { content: " BE"; opacity: 0.55; font-size: 0.85em; }
+        .hero-badge-button::after { content: " \\25BE"; opacity: 0.55; font-size: 0.85em; }
         .hero-badge-button:hover::after, .hero-badge-button:focus-visible::after { opacity: 1; }
         .hero-badge[data-tooltip]::after {
           content: attr(data-tooltip);

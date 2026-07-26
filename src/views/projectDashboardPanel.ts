@@ -2989,6 +2989,9 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
   ];
   const outcomeCompleteness = await collectOutcomeCompleteness(workspaceRoot, ssotPath, runs, ciSignals);
   const ssotDelta = await collectSsotDelta(workspaceRoot, ssotPath, agents.length, memoryEntries, securityPolicyPresent, blockedEntries);
+  // Built before the score rather than inline in the snapshot below: the score
+  // now has a Data privacy component, so both need the same single evaluation.
+  const privacySnapshot = await buildPrivacySnapshot(atlas);
   const scoreBreakdown = buildScoreBreakdown({
     ssotPath,
     securityPolicyPresent,
@@ -3009,6 +3012,7 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
     reviewReadiness,
     outcomeCompleteness,
     risk: riskSnapshot,
+    privacy: privacySnapshot,
   });
   const repoLabel = workspaceRoot && gitSnapshot.currentBranch !== 'Not a git repository'
     ? `${workspaceRootLabel} • ${gitSnapshot.currentBranch}`
@@ -3017,8 +3021,10 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
   // Normalise to /100 from the components actually present rather than assuming the
   // maxScores happen to sum to 100. They did by convention, but nothing enforced it,
   // and the UI hard-codes "/100" in the ring, the headline, and the >=85/>=65 bands.
-  // Deriving the denominator keeps those correct while categories come and go — the
-  // risk component in particular is absent until a project has been assessed.
+  // Deriving the denominator keeps those correct as categories change. Every
+  // component is now unconditional, so the denominator is fixed at 127 — but it
+  // stays derived rather than hard-coded, because the last time a category was
+  // conditional this is the line that kept the ring honest.
   const earnedScore = scoreBreakdown.components.reduce((total, component) => total + component.score, 0);
   const availableScore = scoreBreakdown.components.reduce((total, component) => total + component.maxScore, 0);
   const normalizedHealthScore = availableScore > 0 ? Math.round((earnedScore / availableScore) * 100) : 0;
@@ -3233,7 +3239,7 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
       updatedRelative: formatRelativeDate(ideationBoard.updatedAt),
     },
     gapAnalysis,
-    privacy: await buildPrivacySnapshot(atlas),
+    privacy: privacySnapshot,
   };
 }
 
@@ -5964,6 +5970,7 @@ export function buildScoreBreakdown(input: {
   reviewReadiness: Array<{ label: string; ok: boolean }>;
   outcomeCompleteness: DashboardOutcomeCompleteness;
   risk: DashboardRiskSnapshot;
+  privacy: DashboardPrivacySnapshot;
 }): DashboardScoreBreakdown {
   const components: DashboardScoreComponent[] = [
     {
@@ -6038,25 +6045,84 @@ export function buildScoreBreakdown(input: {
     },
   ];
 
-  // Risk contributes only once an oversight advisor has actually run. Before that the
-  // exposure is unknown, not zero — scoring it as 0/15 would silently drop every
-  // existing project's health number for a risk nobody has been told about, and
-  // scoring it as 15/15 would be false assurance. Omitting it entirely leaves the
-  // normalised total untouched until there is evidence to weigh.
-  if (input.risk.assessed && input.risk.score !== undefined) {
-    const riskScore = input.risk.score;
-    components.push({
-      id: 'risk',
-      label: 'Risk oversight',
-      score: Math.round((riskScore / 100) * 15),
-      maxScore: 15,
-      detail: input.risk.summary,
-      tone: riskScore >= 80 ? 'good' : riskScore >= 55 ? 'accent' : riskScore >= 30 ? 'warn' : 'critical',
+  // Risk and Privacy are always present, so an area nobody has looked at costs
+  // points rather than quietly leaving the denominator.
+  //
+  // This reverses an earlier decision. Risk used to be omitted until an advisor
+  // had run, on the reasoning that an unassessed exposure is *unknown* rather
+  // than zero, and that scoring it 0/15 would silently drop every project's
+  // health number. That protected the number at the cost of the thing the number
+  // is for: with the component absent, a project that has never been assessed
+  // scores identically to one assessed and found clean, which is the one
+  // comparison the score most needs to make.
+  //
+  // The "unknown, not failing" concern is real and is handled in presentation
+  // rather than by omission: an unassessed area scores 0 but is toned `warn`,
+  // not `critical`, and its detail says the points are *unclaimed* and names the
+  // action that claims them. A recommendation is raised alongside it.
+  const riskAssessed = input.risk.assessed && input.risk.score !== undefined;
+  const riskScore = riskAssessed ? input.risk.score! : 0;
+  components.push({
+    id: 'risk',
+    label: 'Risk oversight',
+    score: riskAssessed ? Math.round((riskScore / 100) * 15) : 0,
+    maxScore: 15,
+    detail: riskAssessed
+      ? input.risk.summary
+      : 'Not yet assessed — 15 points unclaimed. Run the ethics, legal and commercial advisors to claim them; an unassessed project is unknown, not safe.',
+    tone: !riskAssessed
+      ? 'warn'
+      : riskScore >= 80 ? 'good' : riskScore >= 55 ? 'accent' : riskScore >= 30 ? 'warn' : 'critical',
+    pageTarget: 'risk',
+  });
+
+  // Privacy: the data boundary between this workspace and an un-trusted model.
+  // Scored on whether the gate is on, whether anything actually classifies, and
+  // whether the model estate has been curated — not on how many matches fired,
+  // which measures the project's content rather than its posture.
+  const privacyEnabled = input.privacy.enabled;
+  const privacyHasRules = input.privacy.compliancePacks.length > 0
+    || input.privacy.rules.some(rule => rule.enabled);
+  const privacyHasTrustedModels = input.privacy.trustedModelIds.length > 0;
+  const privacyConfigured = privacyEnabled || privacyHasRules || privacyHasTrustedModels;
+  const privacyScore = (privacyEnabled ? 5 : 0)
+    + (privacyHasRules ? 4 : 0)
+    + (privacyHasTrustedModels ? 3 : 0);
+  components.push({
+    id: 'privacy',
+    label: 'Data privacy',
+    score: privacyScore,
+    maxScore: 12,
+    detail: !privacyConfigured
+      ? 'Not yet configured — 12 points unclaimed. Turn the gate on and choose the compliance packs that match your data to claim them.'
+      : `${privacyEnabled ? 'Gate on' : 'Gate off'} • ${input.privacy.compliancePacks.length} compliance pack(s), ${input.privacy.rules.filter(rule => rule.enabled).length} active rule(s), ${input.privacy.trustedModelIds.length} trusted model(s).`,
+    tone: !privacyConfigured ? 'warn' : privacyScore >= 10 ? 'good' : privacyScore >= 6 ? 'accent' : 'warn',
+    pageTarget: 'privacy',
+  });
+
+  const recommendations: DashboardScoreRecommendation[] = [];
+
+  // An unclaimed area costs more than most things a project can fix, so these
+  // lead — and they say what the points are worth, because a score that drops
+  // without explaining itself is just noise.
+  if (!riskAssessed) {
+    recommendations.push({
+      horizon: 'short',
+      title: 'Assess risk oversight',
+      detail: 'Ethics, legal and commercial exposure has never been reviewed on this project. The score counts that as unclaimed rather than clean, so 15 points are currently withheld.',
+      impactLabel: '+15 pts',
       pageTarget: 'risk',
     });
   }
-
-  const recommendations: DashboardScoreRecommendation[] = [];
+  if (!privacyConfigured) {
+    recommendations.push({
+      horizon: 'short',
+      title: 'Configure the data privacy gate',
+      detail: 'Nothing currently classifies workspace content before it reaches a model. Turn the gate on and select the compliance packs that match the data this project handles.',
+      impactLabel: '+12 pts',
+      pageTarget: 'privacy',
+    });
+  }
 
   if (input.blockedEntries > 0) {
     recommendations.push({

@@ -70,13 +70,30 @@ export function getWebviewHtmlShell(options: WebviewShellOptions): string {
     table { border-collapse: collapse; width: 100%; margin-top: 0.75em; }
     th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--vscode-widget-border, #444); }
     th { font-weight: 600; }
-    /* Structural defaults apply to every button. */
+    /* Structural defaults apply to every button.
+       "color: inherit" is load-bearing, not tidiness. A <button> with no author
+       "color" falls back to the UA keyword "buttontext", which Chromium paints
+       black regardless of the VS Code theme. That is invisible to any audit of
+       declared colours — it is a *missing* declaration, not a wrong one — and it
+       is exactly what turned every classed button black-on-black in dark mode
+       once the paint below was scoped to unclassed buttons: rules like
+       ".action-title { font-weight: 700 }" set weight and let the colour come
+       from the surface, which is what "inherit" restores. */
     button {
       border: none;
       padding: 4px 12px;
       cursor: pointer;
       border-radius: 2px;
       font-family: inherit;
+      color: inherit;
+    }
+    /* Same hazard, same fix, for text-entry controls: unstyled they take the UA
+       "field"/"fieldtext" pair (white on black text). Colour and background are
+       set together so neither can be inherited into a same-on-same pairing.
+       Wrapped in :where() so specificity stays 0 and any panel rule wins. */
+    :where(input:not([type="radio"]):not([type="checkbox"]), select, textarea) {
+      color: var(--vscode-input-foreground, var(--vscode-foreground));
+      background: var(--vscode-input-background, var(--vscode-editor-background));
     }
     /* The primary *paint* is scoped to genuinely unclassed buttons.
        It used to apply to all of them, and "button:hover" at specificity
