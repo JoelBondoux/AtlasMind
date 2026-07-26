@@ -6,6 +6,17 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.145.0 — Agent management that is easy to find and use
+
+- **Settings now has an Agents page.** It appears under Capabilities, reports registered/enabled/built-in/custom counts, and opens the dedicated manager through a validated command bridge. The Settings overview carries the same shortcut.
+- **The global immutable guardrails are visible on the Agents page.** The selectable read-only block comes directly from the runtime constant, includes provenance, and makes the policy applied to every routed agent inspectable.
+- **Personality Profile is easier to find.** Direct links now appear on both Settings Overview and Models & Integrations, reflecting that profile preferences influence every routed model interaction.
+- **Settings uses one canonical page registry for host and webview navigation.** The Agents destination is recognized in debug and packaged builds instead of falling back to Overview.
+- **The README is now a product pitch, not an implementation inventory.** It leads with outcomes, workflow, trust, and a plain-language **What's new** section, while detailed architecture, agent, skill, configuration, and service material stays in the docs. Competitor comparison matrices and the wiki comparison page have been removed.
+- **Agent Manager is now one master/detail workspace.** Search and enabled/custom/built-in filters stay beside the selected definition, while Identity, Instructions & completion, Skills, Models & budget, Testing, and Maintenance are grouped with progressive disclosure. The old Overview / Directory / empty Editor tabs and duplicated global cadence are gone.
+- **Custom agents can define their completion policy in the UI.** Up to 12 observable rubric rows and 12 bounded incomplete-result patterns can be saved; built-in criteria remain inspectable and factory-defined.
+- **Every Agent Manager action now validates its payload at the extension-host boundary** before registry or configuration state changes.
+
 ## v0.144.0 — Concise role prompts and on-demand specialist guidance
 
 - **All 16 user-facing built-in specialists now append measurable role-specific completion criteria** to the shared execution rubric, so debugging, review, security, GitHub, testing, documentation, performance, DevOps, dependency, oversight, SEO, and UX work each have observable evidence and verification requirements.

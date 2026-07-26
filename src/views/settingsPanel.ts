@@ -12,6 +12,7 @@ import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
 import { scanAiInstructionFiles, syncAiInstructionFiles } from '../utils/aiInstructionSync.js';
 import { syncTestingProtocols } from '../utils/testingProtocolSync.js';
 import { scaffoldTestingFramework } from '../core/testingScaffolder.js';
+import { IMMUTABLE_GUARDRAILS } from '../core/orchestrator.js';
 import type { ArdDiscoveredResource, ArdDiscoveryEndpoint } from '../types.js';
 import { getDisplayCurrency, getExchangeRate } from '../core/currencyFormatter.js';
 import { isLocalSyncStale, LOCAL_MODEL_SYNC_CACHE_KEY, syncLocalModels, type LocalModelSyncResult } from '../providers/localModelSync.js';
@@ -203,7 +204,7 @@ interface LocalModelRecommendationPayload {
  * The nav markup below is grouped to match; this list is the canonical order
  * and the source of `SettingsPageId`.
  */
-export const SETTINGS_PAGE_IDS = ['overview', 'models', 'discovery', 'chat', 'ai-instructions', 'safety', 'testing', 'project', 'loop', 'experimental'] as const;
+export const SETTINGS_PAGE_IDS = ['overview', 'agents', 'models', 'discovery', 'chat', 'ai-instructions', 'safety', 'testing', 'project', 'loop', 'experimental'] as const;
 export type SettingsPageId = (typeof SETTINGS_PAGE_IDS)[number];
 export interface SettingsPanelTarget {
   page?: SettingsPageId;
@@ -257,6 +258,8 @@ type SettingsMessage =
   | { type: 'purgeProjectMemory' }
   | { type: 'openChatView' }
   | { type: 'openChatPanel' }
+  | { type: 'openAgentPanel' }
+  | { type: 'openPersonalityProfile' }
   | { type: 'openModelProviders' }
   | { type: 'openSpecialistIntegrations' }
   | { type: 'openProjectRunCenter' }
@@ -935,6 +938,14 @@ export class SettingsPanel {
 
       case 'openChatPanel':
         await vscode.commands.executeCommand('atlasmind.openChatPanel');
+        return;
+
+      case 'openAgentPanel':
+        await vscode.commands.executeCommand('atlasmind.openAgentPanel');
+        return;
+
+      case 'openPersonalityProfile':
+        await vscode.commands.executeCommand('atlasmind.openPersonalityProfile');
         return;
 
       case 'openProjectRunCenter':
@@ -1665,6 +1676,12 @@ export class SettingsPanel {
 
   private getHtml(): string {
     const configuration = vscode.workspace.getConfiguration('atlasmind');
+    const registeredAgents = this.atlasContext?.agentRegistry?.listAgents() ?? [];
+    const enabledAgentCount = registeredAgents.filter(agent =>
+      this.atlasContext?.agentRegistry?.isEnabled(agent.id) ?? true,
+    ).length;
+    const customAgentCount = registeredAgents.filter(agent => !agent.builtIn).length;
+    const builtInAgentCount = registeredAgents.length - customAgentCount;
     const selectedBudget = getBudgetMode(configuration.get<string>('budgetMode'));
     const selectedSpeed = getSpeedMode(configuration.get<string>('speedMode'));
     const feedbackRoutingWeight = getRangedNumber(configuration.get<number>('feedbackRoutingWeight'), 1, 0, 2, 2);
@@ -1773,10 +1790,11 @@ export class SettingsPanel {
 
       <div class="settings-layout">
         <nav class="settings-nav" aria-label="AtlasMind settings sections" role="tablist" aria-orientation="vertical">
-          <button type="button" class="nav-link ${initialPage === 'overview' ? 'active' : ''}" id="tab-overview" data-page-target="overview" data-search="overview quick actions budget speed cost limits currency display currency embedded chat detached chat project run center vscode chat" role="tab" aria-selected="${initialPage === 'overview' ? 'true' : 'false'}" aria-controls="page-overview" ${initialPage === 'overview' ? '' : 'tabindex="-1"'}>Overview</button>
+          <button type="button" class="nav-link ${initialPage === 'overview' ? 'active' : ''}" id="tab-overview" data-page-target="overview" data-search="overview quick actions budget speed cost limits currency display currency personality profile role tone memory posture embedded chat detached chat project run center vscode chat" role="tab" aria-selected="${initialPage === 'overview' ? 'true' : 'false'}" aria-controls="page-overview" ${initialPage === 'overview' ? '' : 'tabindex="-1"'}>Overview</button>
           <div class="nav-group" role="presentation">
             <span class="nav-group-label" aria-hidden="true">Capabilities</span>
-            <button type="button" class="nav-link ${initialPage === 'models' ? 'active' : ''}" id="tab-models" data-page-target="models" data-search="models integrations providers local endpoint local endpoints ollama lm studio azure bedrock voice vision exa specialist" role="tab" aria-selected="${initialPage === 'models' ? 'true' : 'false'}" aria-controls="page-models" ${initialPage === 'models' ? '' : 'tabindex="-1"'}>Models & Integrations</button>
+            <button type="button" class="nav-link ${initialPage === 'agents' ? 'active' : ''}" id="tab-agents" data-page-target="agents" data-search="agents manage agents built-in custom roles prompts instructions rubrics completion criteria global immutable guardrails safety policy skills models budget auto-update automation" role="tab" aria-selected="${initialPage === 'agents' ? 'true' : 'false'}" aria-controls="page-agents" ${initialPage === 'agents' ? '' : 'tabindex="-1"'}>Agents</button>
+            <button type="button" class="nav-link ${initialPage === 'models' ? 'active' : ''}" id="tab-models" data-page-target="models" data-search="models integrations providers local endpoint local endpoints ollama lm studio azure bedrock personality profile role tone memory posture voice vision exa specialist" role="tab" aria-selected="${initialPage === 'models' ? 'true' : 'false'}" aria-controls="page-models" ${initialPage === 'models' ? '' : 'tabindex="-1"'}>Models & Integrations</button>
             <button type="button" class="nav-link ${initialPage === 'discovery' ? 'active' : ''}" id="tab-discovery" data-page-target="discovery" data-search="resource discovery ard agent finders mcp servers agents skills apis search install publish catalog manifest registry" role="tab" aria-selected="${initialPage === 'discovery' ? 'true' : 'false'}" aria-controls="page-discovery" ${initialPage === 'discovery' ? '' : 'tabindex="-1"'}>Resource Discovery</button>
           </div>
           <div class="nav-group" role="presentation">
@@ -1820,6 +1838,14 @@ export class SettingsPanel {
               <button id="openProjectRunCenter" class="action-card">
                 <span class="action-title">Project Run Center</span>
                 <span class="action-copy">Review batch progress, approvals, pauses, and resumptions.</span>
+              </button>
+              <button id="openAgentManagerOverview" class="action-card">
+                <span class="action-title">Manage Agents</span>
+                <span class="action-copy">Inspect built-ins, create custom agents, and tune prompts, completion criteria, skills, and routing limits.</span>
+              </button>
+              <button id="openPersonalityProfileOverview" class="action-card">
+                <span class="action-title">Personality Profile</span>
+                <span class="action-copy">Shape Atlas's role, tone, memory posture, and project-specific working preferences.</span>
               </button>
               <button id="openCompareModels" class="action-card">
                 <span class="action-title">Compare Models</span>
@@ -1897,6 +1923,73 @@ export class SettingsPanel {
                   <input id="feedbackRoutingWeight" type="number" min="0" max="2" step="0.05" value="${feedbackRoutingWeight}" />
                   <p class="info-note">Set <code>0</code> to ignore thumbs history in routing. Higher values amplify the bias, but AtlasMind still caps the effect so votes cannot override hard capability or provider-health checks.</p>
                 </div>
+              </article>
+            </div>
+          </section>
+
+          <section id="page-agents" class="settings-page ${initialPage === 'agents' ? 'active fallback-visible' : ''}" role="tabpanel" aria-labelledby="tab-agents" tabindex="0">
+            <div class="page-header">
+              <p class="page-kicker">Agents</p>
+              <h2>Agent definitions and operating policy</h2>
+              <p>Review the specialists AtlasMind can route to, create custom agents, and control the instructions and completion criteria applied to each one.</p>
+            </div>
+
+            <div class="stats-grid">
+              <article class="stat-card">
+                <span class="stat-label">Registered</span>
+                <span class="stat-value">${registeredAgents.length}</span>
+                <div class="stat-meta">All built-in and custom definitions.</div>
+              </article>
+              <article class="stat-card">
+                <span class="stat-label">Available</span>
+                <span class="stat-value">${enabledAgentCount}</span>
+                <div class="stat-meta">Enabled for routing and orchestration.</div>
+              </article>
+              <article class="stat-card">
+                <span class="stat-label">Built-in</span>
+                <span class="stat-value">${builtInAgentCount}</span>
+                <div class="stat-meta">Protected identity and factory defaults.</div>
+              </article>
+              <article class="stat-card">
+                <span class="stat-label">Custom</span>
+                <span class="stat-value">${customAgentCount}</span>
+                <div class="stat-meta">Definitions you fully control.</div>
+              </article>
+            </div>
+
+            <div class="page-grid two-up">
+              <article class="settings-card">
+                <div class="card-header">
+                  <p class="card-kicker">Agent workspace</p>
+                  <h3>Manage definitions</h3>
+                </div>
+                <p class="card-copy">Open the dedicated workspace to search agents and edit identity, instructions, rubrics, skills, model limits, testing roles, and maintenance policy in one place.</p>
+                <button id="openAgentManager">Manage Agents</button>
+              </article>
+
+              <article class="settings-card">
+                <div class="card-header">
+                  <p class="card-kicker">Related configuration</p>
+                  <h3>Models and testing</h3>
+                </div>
+                <p class="card-copy">Model providers and project testing methodologies remain separate because they apply across agents. Agent-specific assignments link back to those surfaces.</p>
+                <div class="button-stack">
+                  <button id="openAgentModelProviders">Manage Model Providers</button>
+                  <button id="openAgentTestingSettings" class="secondary-button" data-settings-page="testing">Open Testing Settings</button>
+                </div>
+              </article>
+
+              <article class="settings-card agent-policy-card" id="globalAgentGuardrailsCard">
+                <div class="card-header">
+                  <p class="card-kicker">Runtime policy</p>
+                  <h3>Global guardrails</h3>
+                </div>
+                <p class="card-copy">This authoritative, non-overrideable block is included in every routed agent's effective system instructions. It takes priority over agent definitions, user instructions, retrieved content, workspace files, and tool output.</p>
+                <div class="info-band">
+                  <strong>Read-only by design.</strong> Agents and workspace content cannot weaken these rules. Changing them requires changing and rebuilding AtlasMind.
+                </div>
+                <pre id="globalAgentGuardrails" class="guardrail-block" tabindex="0" aria-label="Global immutable guardrails">${escapeHtml(IMMUTABLE_GUARDRAILS)}</pre>
+                <p class="info-note">Runtime source: <code>IMMUTABLE_GUARDRAILS</code> in <code>src/core/orchestrator.ts</code>. This view is rendered from that source of truth rather than a separate summary.</p>
               </article>
             </div>
           </section>
@@ -1993,6 +2086,7 @@ export class SettingsPanel {
                 <div class="button-stack">
                   <button id="openModelProviders">Manage Model Providers</button>
                   <button id="openSpecialistIntegrations">Open Specialist Integrations</button>
+                  <button id="openPersonalityProfileModels">Personality Profile</button>
                   <button id="openVoicePanel">Voice Panel</button>
                   <button id="openVisionPanel">Vision Panel</button>
                 </div>
@@ -2693,6 +2787,26 @@ export class SettingsPanel {
         .settings-card-danger {
           border-color: var(--vscode-inputValidation-errorBorder, #d13438);
           background: color-mix(in srgb, var(--vscode-inputValidation-errorBorder, #d13438) 8%, var(--atlas-panel-surface));
+        }
+        .agent-policy-card {
+          grid-column: 1 / -1;
+        }
+        .guardrail-block {
+          margin: 14px 0 0;
+          max-width: 100%;
+          padding: 16px;
+          overflow: auto;
+          white-space: pre-wrap;
+          overflow-wrap: anywhere;
+          word-break: break-word;
+          border: 1px solid var(--atlas-panel-border);
+          border-radius: 12px;
+          color: var(--vscode-editor-foreground);
+          background: var(--vscode-textCodeBlock-background, var(--vscode-editor-background));
+          font-family: var(--vscode-editor-font-family, monospace);
+          font-size: 0.88rem;
+          line-height: 1.55;
+          user-select: text;
         }
         .field-grid {
           display: grid;
@@ -3536,7 +3650,7 @@ export class SettingsPanel {
         const pages = Array.from(document.querySelectorAll('.settings-page'));
         const searchInput = document.getElementById('settingsSearch');
         const searchStatus = document.getElementById('searchStatus');
-        const knownPages = new Set(['overview', 'chat', 'models', 'safety', 'testing', 'project', 'loop', 'experimental', 'ai-instructions', 'discovery']);
+        const knownPages = new Set(${JSON.stringify(SETTINGS_PAGE_IDS)});
 
         function focusSection(sectionId) {
           if (typeof sectionId !== 'string' || sectionId.trim().length === 0) {
@@ -3692,6 +3806,11 @@ export class SettingsPanel {
           bindCommandButton('openChatView', 'openChatView');
           bindCommandButton('openChatPanel', 'openChatPanel');
           bindCommandButton('openChat', 'openChat');
+          bindCommandButton('openAgentManagerOverview', 'openAgentPanel');
+          bindCommandButton('openAgentManager', 'openAgentPanel');
+          bindCommandButton('openAgentModelProviders', 'openModelProviders');
+          bindCommandButton('openPersonalityProfileOverview', 'openPersonalityProfile');
+          bindCommandButton('openPersonalityProfileModels', 'openPersonalityProfile');
           bindCommandButton('openModelProviders', 'openModelProviders');
           bindCommandButton('openSpecialistIntegrations', 'openSpecialistIntegrations');
           bindCommandButton('openProjectRunCenter', 'openProjectRunCenter');
@@ -5723,6 +5842,8 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
     message.type === 'purgeProjectMemory' ||
     message.type === 'openChatView' ||
     message.type === 'openChatPanel' ||
+    message.type === 'openAgentPanel' ||
+    message.type === 'openPersonalityProfile' ||
     message.type === 'openModelProviders' ||
     message.type === 'openSpecialistIntegrations' ||
     message.type === 'openProjectRunCenter' ||

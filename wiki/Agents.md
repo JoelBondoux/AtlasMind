@@ -156,17 +156,23 @@ interface AgentDefinition {
 
 ### Via the Agent Manager Panel
 
-1. Open Command Palette → **AtlasMind: Manage Agents**
-2. Click **New Agent** at the top of the panel
+1. Open **AtlasMind Settings → Agents**, use **Manage Agents** on the Settings overview, or run **AtlasMind: Manage Agents** from the command palette
+2. Click **New agent** in the compact workspace header
 3. Fill in the fields:
    - **Name** — e.g. "Security Reviewer"
    - **Role** — e.g. "security-reviewer"
    - **Description** — what the agent specialises in
-   - **System Prompt** — detailed instructions for the LLM
+   - **System Prompt** — stable role, scope, evidence, and safety instructions
+   - **Completion rubric** — up to 12 observable definition-of-done requirements
+   - **Incomplete-result patterns** — optional bounded patterns that trigger one finish-or-declare-blockers retry
    - **Allowed Models** — optionally restrict to specific models
    - **Cost Limit** — maximum USD per task
    - **Skills** — which skills this agent can invoke
 4. Save — the agent is persisted across sessions in VS Code globalState
+
+The Settings Agents landing page shows the exact global immutable guardrails applied to every routed agent. The block is selectable and read-only, comes directly from the runtime source constant rather than a copied summary, and explains that agents, workspace content, and lower-priority instructions cannot weaken it.
+
+The manager is a master/detail workspace: search and filters remain beside the selected agent, rather than sending you through separate Overview, Directory, and empty Editor pages. Agent fields are grouped into Identity, Instructions & completion, Skills, Models & budget, Testing, and Maintenance; advanced groups start collapsed. Built-in identity and completion criteria are shown but remain factory-defined.
 
 ### Via the Models Sidebar
 
@@ -198,7 +204,7 @@ AtlasMind can automatically refresh user-defined agent system prompts and descri
 
 **Setting:** `atlasmind.agentAutoUpdateCadence`
 
-You can now change this directly inside **Manage Agents -> Agent Directory** using the **Agent Auto-Update cadence** dropdown.
+Change this once in the Manage Agents sidebar under **Defaults & automation**. The control is global, so it is not repeated inside each agent editor.
 
 | Value | Behaviour |
 |---|---|

@@ -165,14 +165,17 @@ AtlasMind also exposes part of that route back to the user in the assistant foot
 
 ### Registering Agents
 
-**Via the Manage Agents panel:**
+**Via Settings and the Manage Agents panel:**
 
-Open the command palette and run **AtlasMind: Manage Agents**. The panel supports:
-- Creating a new agent from the **New Agent** button at the top of the panel (id auto-derived from name; all fields editable)
-- Editing an existing user-created agent
-- Enabling or disabling any registered agent (including built-ins)
-- Deleting a user-created agent (with confirmation)
-- Viewing built-in agents (read-only)
+Open **AtlasMind Settings → Agents**, use the **Manage Agents** shortcut on the Settings overview, or run **AtlasMind: Manage Agents** from the command palette. Settings provides the discoverable landing page and live built-in/custom/enabled counts. It also renders the exact `IMMUTABLE_GUARDRAILS` runtime block as selectable, read-only text with source provenance, making the non-overrideable baseline applied to every routed agent visible without duplicating or weakening it. The dedicated manager uses a master/detail workspace so the searchable, filterable directory remains visible while you edit the selected definition.
+
+The manager supports:
+- Creating a custom agent from the compact **New agent** action (id auto-derived from name)
+- Editing identity, description, system prompt, skills, model eligibility, per-request budget, testing assignments, and maintenance policy in grouped disclosure sections
+- Adding up to 12 observable `completionCriteria.rubric` rows and 12 bounded `incompletePatterns` retry gates to custom agents
+- Inspecting factory-defined completion criteria on built-ins while keeping built-in identity and criteria read-only
+- Enabling or disabling any registered agent, deleting custom agents with confirmation, and resetting built-in customizations
+- Searching by name, role, status, or skill and filtering by enabled/custom/built-in without losing that list state when the editor re-renders
 
 Agents created through the panel are persisted to `globalState` and restored on next activation. Disabled-agent state is also persisted and restored. The sidebar agents tree updates immediately.
 
@@ -210,7 +213,7 @@ AtlasMind can automatically refresh user-defined agent system prompts and descri
 
 **Cadence setting (`atlasmind.agentAutoUpdateCadence`):**
 
-The Manage Agents panel now exposes this directly in **Agent Directory** as an **Agent Auto-Update cadence** selector, so you can change the global cadence without leaving the panel.
+The Manage Agents sidebar exposes this once under **Defaults & automation**, so the global cadence stays visible without being duplicated inside every agent editor.
 
 | Value | Behaviour |
 |---|---|

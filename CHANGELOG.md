@@ -8,6 +8,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.145.0] - 2026-07-26
+
+### Added
+- **Agent management is now discoverable from the main Settings workspace.** A first-class **Agents** page sits under Capabilities with registered, enabled, built-in, and custom counts plus direct links into the dedicated manager, models, and testing; the Settings overview also includes a **Manage Agents** action. Both routes cross the webview boundary through a validated `openAgentPanel` message.
+- **The Agents page exposes the effective global guardrails verbatim.** The read-only, selectable policy block is rendered directly from `IMMUTABLE_GUARDRAILS`, identifies its runtime provenance, and explains its non-overrideable precedence so operators can inspect the safety baseline applied to every routed agent.
+- **Personality Profile is discoverable from the workflows it influences.** Settings Overview now carries a dedicated quick-action card, and Models & Integrations links to the same guided profile beside provider and specialist surfaces. Both use a validated webview message and the existing `atlasmind.openPersonalityProfile` command.
+- **Custom-agent completion policy is editable without hand-editing storage.** The grouped editor exposes up to 12 observable completion-rubric requirements and 12 bounded incomplete-result retry patterns. Built-in criteria remain inspectable and read-only.
+
+### Changed
+- **Manage Agents is a focused master/detail workspace instead of three competing pages.** The large hero, duplicated summary cards, Overview / Directory / empty Editor tabs, detached global search, wide table, and duplicated auto-update cadence are gone. Search and enabled/custom/built-in filters stay beside the selected agent, survive host-side re-renders, and lead directly into grouped Identity, Instructions & completion, Skills, Models & budget, Testing, and Maintenance sections. The global cadence appears once under **Defaults & automation**.
+- **Agent webview actions now validate their complete payload shape at the extension-host boundary.** Save, select, delete, enablement, reset, and cadence messages reject missing or mistyped fields before they can touch registry or configuration state.
+- **The README now sells the product before explaining its implementation.** A customer-facing story, workflow, trust case, and non-technical **What's new in 0.145.0** replace the competitor feature matrix and long internal inventories; concise command, configuration, and project-structure references now route readers to the detailed docs. The comparison page and its wiki navigation entries have also been removed.
+
+### Fixed
+- **The Settings navigation allowlist now comes from its canonical page registry.** Newly added pages such as **Agents** no longer fall through the client-side unknown-page guard and open **Overview** instead.
+
 ## [0.144.0] - 2026-07-26
 
 ### Added

@@ -3,7 +3,6 @@ import type { AtlasMindContext } from '../extension.js';
 import type { AgentAutoUpdateCadence, AgentDefinition, TestingMethodologyId } from '../types.js';
 import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
-import { PANEL_NAV_JS } from './panelNav.js';
 import { readProjectTestingConfig } from './settingsPanel.js';
 
 // ── Globalstate key for persisted user agents ────────────────────
@@ -23,6 +22,7 @@ type AgentPanelMessage =
   | { type: 'cancel' }
   | { type: 'refresh' }
   | { type: 'openModelProviders' }
+  | { type: 'openModelsView' }
   | { type: 'openSettingsModels' }
   | { type: 'openTestingStrategy' };
 
@@ -55,15 +55,58 @@ interface AgentFormData {
   skillsAutoManaged: boolean;
   /** JSON-serialised Partial<Record<TestingMethodologyId, string>>; empty string means no overrides. */
   testingModelOverridesJson: string;
+  /** Newline-separated, observable definition-of-done rows. */
+  completionRubric: string;
+  /** Newline-separated response patterns that indicate unfinished delivery. */
+  incompletePatterns: string;
 }
 
 export function isAgentPanelMessage(msg: unknown): msg is AgentPanelMessage {
   if (typeof msg !== 'object' || msg === null) { return false; }
-  const t = (msg as Record<string, unknown>)['type'];
-  return t === 'select' || t === 'save' || t === 'delete' || t === 'toggleEnabled' ||
-    t === 'setAutoUpdateCadence' || t === 'resetBuiltIn' ||
+  const record = msg as Record<string, unknown>;
+  const t = record['type'];
+  const payload = record['payload'];
+
+  if (
     t === 'newAgent' || t === 'cancel' || t === 'refresh' ||
-    t === 'openModelProviders' || t === 'openSettingsModels' || t === 'openTestingStrategy';
+    t === 'openModelProviders' || t === 'openModelsView' ||
+    t === 'openSettingsModels' || t === 'openTestingStrategy'
+  ) {
+    return true;
+  }
+  if (typeof payload !== 'object' || payload === null) { return false; }
+  const values = payload as Record<string, unknown>;
+  if (t === 'select') {
+    return typeof values['id'] === 'string' || values['id'] === null;
+  }
+  if (t === 'delete' || t === 'resetBuiltIn') {
+    return typeof values['id'] === 'string' && values['id'].length > 0;
+  }
+  if (t === 'toggleEnabled') {
+    return typeof values['id'] === 'string' && values['id'].length > 0 && typeof values['enabled'] === 'boolean';
+  }
+  if (t === 'setAutoUpdateCadence') {
+    return typeof values['cadence'] === 'string' && isAgentAutoUpdateCadence(values['cadence']);
+  }
+  if (t === 'save') {
+    const stringFields: Array<keyof AgentFormData> = [
+      'id',
+      'name',
+      'role',
+      'description',
+      'systemPrompt',
+      'allowedModels',
+      'costLimitUsd',
+      'skills',
+      'testingModelOverridesJson',
+      'completionRubric',
+      'incompletePatterns',
+    ];
+    return stringFields.every(field => typeof values[field] === 'string') &&
+      typeof values['autoUpdateExcluded'] === 'boolean' &&
+      typeof values['skillsAutoManaged'] === 'boolean';
+  }
+  return false;
 }
 
 // ── ID helpers ────────────────────────────────────────────────────
@@ -97,6 +140,15 @@ function slugify(text: string): string {
     .replace(/[^a-z0-9_-]/g, '')
     .replace(/^[^a-z0-9]+/, '')
     .slice(0, 32) || 'agent';
+}
+
+function parseBoundedLines(value: string, limit: number, maxLength: number): string[] {
+  return value
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean)
+    .slice(0, limit)
+    .map(line => line.slice(0, maxLength));
 }
 
 // ── Panel ─────────────────────────────────────────────────────────
@@ -289,6 +341,14 @@ export class AgentManagerPanel {
         const isEditingBuiltIn = !isNew && existing?.builtIn === true;
 
         const parsedOverrides = parseTestingModelOverrides(data.testingModelOverridesJson);
+        const completionRubric = parseBoundedLines(data.completionRubric, 12, 240);
+        const incompletePatterns = parseBoundedLines(data.incompletePatterns, 12, 200);
+        const completionCriteria = completionRubric.length > 0 || incompletePatterns.length > 0
+          ? {
+            ...(completionRubric.length > 0 ? { rubric: completionRubric } : {}),
+            ...(incompletePatterns.length > 0 ? { incompletePatterns } : {}),
+          }
+          : undefined;
 
         let definition: AgentDefinition;
         if (isEditingBuiltIn && existing) {
@@ -328,6 +388,7 @@ export class AgentManagerPanel {
             // Preserve lastAutoUpdated so the cadence clock isn't reset on every save.
             lastAutoUpdated: existing?.lastAutoUpdated,
             testingModelOverrides: Object.keys(parsedOverrides).length > 0 ? parsedOverrides : undefined,
+            completionCriteria,
           };
         }
 
@@ -348,7 +409,7 @@ export class AgentManagerPanel {
           void this.atlas.assessAgentSkills?.(definition.id);
         }
 
-        this.editingId = null;
+        this.editingId = definition.id;
         this.formError = '';
         break;
       }
@@ -359,6 +420,10 @@ export class AgentManagerPanel {
 
       case 'openModelProviders':
         void vscode.commands.executeCommand('atlasmind.openModelProviders');
+        return;
+
+      case 'openModelsView':
+        void vscode.commands.executeCommand('atlasmind.modelsView.focus');
         return;
 
       case 'openSettingsModels':
@@ -389,6 +454,22 @@ export class AgentManagerPanel {
     if (data.costLimitUsd.trim()) {
       const val = Number(data.costLimitUsd.trim());
       if (isNaN(val) || val <= 0) { return 'Cost limit must be a positive number (e.g. 0.50).'; }
+    }
+
+    const rubric = data.completionRubric.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+    if (rubric.length > 12) {
+      return 'Completion rubric supports at most 12 requirements.';
+    }
+    if (rubric.some(line => line.length > 240)) {
+      return 'Each completion rubric requirement must be 240 characters or fewer.';
+    }
+
+    const incompletePatterns = data.incompletePatterns.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+    if (incompletePatterns.length > 12) {
+      return 'Incomplete-result detection supports at most 12 patterns.';
+    }
+    if (incompletePatterns.some(line => line.length > 200)) {
+      return 'Each incomplete-result pattern must be 200 characters or fewer.';
     }
 
     return '';
@@ -438,6 +519,9 @@ export class AgentManagerPanel {
 
   private getHtml(): string {
     const agents = this.atlas.agentRegistry.listAgents();
+    if (this.editingId === null && agents.length > 0) {
+      this.editingId = agents[0]!.id;
+    }
     const allSkills = this.atlas.skillsRegistry.listSkills();
     const configuredCadence = this.pendingCadence ?? coerceAgentAutoUpdateCadence(
       vscode.workspace.getConfiguration('atlasmind').get<string>('agentAutoUpdateCadence', 'never'),
@@ -452,21 +536,10 @@ export class AgentManagerPanel {
       return `<option value="${cadence}" ${selected}>${cadence}</option>`;
     }).join('');
 
-    // ── Agent table ──────────────────────────────────────────────
-    const agentRows = agents.map(agent => {
+    // ── Searchable master list ───────────────────────────────────
+    const agentListItems = agents.map(agent => {
       const isBuiltIn = agent.builtIn === true;
       const isEnabled = this.atlas.agentRegistry.isEnabled(agent.id);
-      const badge = isBuiltIn ? '<span class="badge">built-in</span>' : '';
-      const statusBadge = isEnabled
-        ? '<span class="badge">enabled</span>'
-        : '<span class="badge" style="opacity:0.7;">disabled</span>';
-      const editBtn = `<button class="btn-sm" data-action="select-agent" data-agent-id="${escapeHtml(agent.id)}">Edit</button>`;
-      const toggleBtn = isEnabled
-        ? `<button class="btn-sm" data-action="toggle-agent" data-agent-id="${escapeHtml(agent.id)}" data-enabled="false">Disable</button>`
-        : `<button class="btn-sm" data-action="toggle-agent" data-agent-id="${escapeHtml(agent.id)}" data-enabled="true">Enable</button>`;
-      const deleteBtn = isBuiltIn
-        ? `<button class="btn-sm btn-muted" disabled title="Built-in agents cannot be deleted">Delete</button>`
-        : `<button class="btn-sm btn-danger" data-action="delete-agent" data-agent-id="${escapeHtml(agent.id)}">Delete</button>`;
       const searchText = escapeHtml([
         agent.id,
         agent.name,
@@ -476,15 +549,17 @@ export class AgentManagerPanel {
         isBuiltIn ? 'built-in' : 'custom',
         isEnabled ? 'enabled' : 'disabled',
       ].join(' ').toLowerCase());
+      const filterValues = `${isBuiltIn ? 'built-in' : 'custom'} ${isEnabled ? 'enabled' : 'disabled'}`;
+      const selected = this.editingId === agent.id;
 
-      return `<tr data-agent-search="${searchText}" data-row-agent-id="${escapeHtml(agent.id)}" tabindex="0" aria-label="Open ${escapeHtml(agent.name)} in the editor">
-        <td><code>${escapeHtml(agent.id)}</code></td>
-        <td>${escapeHtml(agent.name)} ${badge}</td>
-        <td>${escapeHtml(agent.role)}</td>
-        <td>${statusBadge}</td>
-        <td>${escapeHtml(agent.skills.join(', ') || '—')}</td>
-        <td class="action-col">${editBtn} ${toggleBtn} ${deleteBtn}</td>
-      </tr>`;
+      return `<button type="button" class="agent-list-item ${selected ? 'selected' : ''}" data-action="select-agent" data-agent-id="${escapeHtml(agent.id)}" data-agent-search="${searchText}" data-agent-filter-values="${filterValues}" aria-pressed="${selected ? 'true' : 'false'}">
+        <span class="agent-list-heading">
+          <span class="agent-list-name">${escapeHtml(agent.name)}</span>
+          <span class="status-dot ${isEnabled ? 'enabled' : 'disabled'}" aria-label="${isEnabled ? 'Enabled' : 'Disabled'}"></span>
+        </span>
+        <span class="agent-list-role">${escapeHtml(agent.role)}</span>
+        <span class="agent-list-meta">${isBuiltIn ? 'Built-in' : 'Custom'} · ${agent.skills.length} skill${agent.skills.length === 1 ? '' : 's'}</span>
+      </button>`;
     }).join('');
 
     // ── Editor form ──────────────────────────────────────────────
@@ -495,7 +570,7 @@ export class AgentManagerPanel {
         ? undefined
         : this.atlas.agentRegistry.get(this.editingId);
 
-      const title = isNew ? 'New Agent' : `Edit: ${escapeHtml(agent?.name ?? this.editingId)}`;
+      const title = isNew ? 'New Agent' : escapeHtml(agent?.name ?? this.editingId);
 
       const currentId = escapeHtml(isNew ? '' : (agent?.id ?? ''));
       const currentName = escapeHtml(isNew ? '' : (agent?.name ?? ''));
@@ -507,6 +582,10 @@ export class AgentManagerPanel {
       );
       const currentCost = escapeHtml(
         isNew ? '' : (agent?.costLimitUsd !== undefined ? String(agent.costLimitUsd) : ''),
+      );
+      const currentRubric = escapeHtml(isNew ? '' : (agent?.completionCriteria?.rubric ?? []).join('\n'));
+      const currentIncompletePatterns = escapeHtml(
+        isNew ? '' : (agent?.completionCriteria?.incompletePatterns ?? []).join('\n'),
       );
       const autoUpdateExcluded = !isNew && agent?.autoUpdateExcluded === true;
       // New agents default to Auto; existing agents respect their stored setting.
@@ -532,7 +611,7 @@ export class AgentManagerPanel {
       if (isNew || assignedMethodologyIds.length === 0) {
         testingRolesHtml = `
           <div class="hint">No testing methodologies are currently assigned to this agent.</div>
-          <button type="button" class="btn-link" id="open-testing-strategy-link" style="margin-top:6px">Configure in Testing Strategy →</button>`;
+          <button type="button" class="btn-link inline-link" data-open-testing-strategy>Configure in Testing Strategy →</button>`;
       } else {
         const chips = assignedMethodologyIds.map(mid => {
           const def = TESTING_METHODOLOGY_DEFINITIONS.find(d => d.id === mid);
@@ -557,7 +636,7 @@ export class AgentManagerPanel {
                those inputs on first render. -->
           <input type="hidden" id="testingModelOverridesJson" value="${currentOverridesJson}" readonly />
           ${overrideInputs}
-          <div style="margin-top:8px"><button type="button" class="btn-link" id="open-testing-strategy-link">Configure in Testing Strategy →</button></div>`;
+          <div style="margin-top:8px"><button type="button" class="btn-link" data-open-testing-strategy>Configure in Testing Strategy →</button></div>`;
       }
 
       const errorHtml = this.formError
@@ -565,163 +644,200 @@ export class AgentManagerPanel {
         : '';
 
       const isBuiltIn = agent?.builtIn === true;
+      const isEnabled = isNew || !agent ? true : this.atlas.agentRegistry.isEnabled(agent.id);
       const builtInNotice = isBuiltIn
-        ? `<div class="built-in-notice">Built-in agent — name and role are fixed, and automatic prompt updates are disabled. System prompt, description, and cost limit are customizable. Use <strong>Reset to defaults</strong> to restore factory values.</div>`
+        ? `<div class="built-in-notice">Built-in identity and completion criteria are factory-defined. You can tailor the description, system prompt, skills, cost limit, and testing overrides; <strong>Reset to defaults</strong> removes those customizations.</div>`
         : '';
       const agentIdRow = isNew
         ? `<label>Agent ID</label><div class="hint" style="padding-top:6px">Auto-generated from the name (lowercase letters, digits, hyphens, underscores).</div>`
         : `<label>Agent ID</label><div><code>${currentId}</code><div class="hint">ID cannot be changed after creation.</div></div>`;
 
       editorHtml = `
-      <section id="editor">
-        <h2>${title}</h2>
+      <section id="editor" class="editor-card">
+        <div class="editor-heading">
+          <div>
+            <p class="eyebrow">${isNew ? 'Custom definition' : (isBuiltIn ? 'Built-in agent' : 'Custom agent')}</p>
+            <h2>${title}</h2>
+            ${isNew ? '<p class="editor-subtitle">Create a focused agent with an observable definition of done.</p>' : `<p class="editor-subtitle"><code>${currentId}</code> · ${isEnabled ? 'Enabled' : 'Disabled'}</p>`}
+          </div>
+          ${isNew ? '' : `<button type="button" class="btn-sm" data-action="toggle-agent" data-agent-id="${currentId}" data-enabled="${isEnabled ? 'false' : 'true'}">${isEnabled ? 'Disable' : 'Enable'}</button>`}
+        </div>
         ${builtInNotice}
         ${errorHtml}
         <form id="agentForm">
           ${isNew ? '' : `<input type="hidden" id="agentId" value="${currentId}" />`}
-          <div class="field-grid">
-            ${agentIdRow}
+          <details class="editor-section" open>
+            <summary><span>Identity</span><small>Name, role, and routing description</small></summary>
+            <div class="section-body field-grid">
+              ${agentIdRow}
 
-            <label for="agentName">Name <span class="req">*</span></label>
-            <div>
+              <label for="agentName">Name <span class="req">*</span></label>
               <input type="text" id="agentName" value="${currentName}" placeholder="e.g. Senior Reviewer" ${isBuiltIn ? 'readonly' : ''} />
+
+              <label for="agentRole">Role <span class="req">*</span></label>
+              <input type="text" id="agentRole" value="${currentRole}" placeholder="e.g. code reviewer" ${isBuiltIn ? 'readonly' : ''} />
+
+              <label for="agentDesc">Description</label>
+              <input type="text" id="agentDesc" value="${currentDesc}" placeholder="Short summary used during agent selection" />
             </div>
+          </details>
 
-            <label for="agentRole">Role <span class="req">*</span></label>
-            <input type="text" id="agentRole" value="${currentRole}" placeholder="e.g. code reviewer" ${isBuiltIn ? 'readonly' : ''} />
-
-            <label for="agentDesc">Description</label>
-            <input type="text" id="agentDesc" value="${currentDesc}" placeholder="Short summary of this agent's purpose" />
-
-            <label for="agentPrompt">System Prompt <span class="req">*</span></label>
-            <textarea id="agentPrompt" rows="6" placeholder="Instructions injected into every request for this agent.">${currentPrompt}</textarea>
-
-            <label for="agentModels">Allowed Models</label>
-            <div>
-              <input type="text" id="agentModels" value="${currentModels}" placeholder="model-id-1, model-id-2 (leave blank for any)" ${isBuiltIn ? 'readonly' : ''} />
-              <div class="hint">${isBuiltIn ? 'Allowed models for built-in agents are managed via the Model Providers panel.' : 'Comma-separated model IDs. Empty = all models allowed.'}</div>
-            </div>
-
-            <label for="agentCost">Cost Limit (USD)</label>
-            <div>
-              <input type="number" id="agentCost" value="${currentCost}" min="0" step="0.01" placeholder="e.g. 0.50" />
-              <div class="hint">Per-request cost cap. Leave blank for no limit.</div>
-            </div>
-
-            <label>Auto-Update</label>
-            <div>
-              <label style="font-weight:normal;cursor:pointer">
-                <input type="checkbox" id="agentAutoUpdateExcluded" ${isBuiltIn || autoUpdateExcluded ? 'checked' : ''} ${isBuiltIn ? 'disabled' : ''} />
-                Exclude from auto-updates
-              </label>
-              <div class="hint">${isBuiltIn ? 'Built-in agents are always excluded from the global cadence.' : 'When checked, this agent\'s system prompt will not be refreshed by the global auto-update cadence.'}</div>
-            </div>
-
-            <label>Skills</label>
-            <div>
-              <label class="skill-auto-label" style="cursor:pointer">
-                <input type="checkbox" id="skillsAutoManaged" ${skillsAutoManaged ? 'checked' : ''} />
-                Auto — assign skills based on agent role and context
-              </label>
-              <div class="hint" id="skillsAutoHint" ${skillsAutoManaged ? '' : 'style="display:none"'}>
-                AtlasMind selects relevant skills automatically. Re-assessment runs whenever new skills or MCP connections are added, and during agent auto-updates.
+          <details class="editor-section" open>
+            <summary><span>Instructions &amp; completion</span><small>Permanent role prompt and observable definition of done</small></summary>
+            <div class="section-body field-grid">
+              <label for="agentPrompt">System Prompt <span class="req">*</span></label>
+              <div>
+                <textarea id="agentPrompt" rows="8" placeholder="Stable role, scope, evidence, and safety instructions.">${currentPrompt}</textarea>
+                <div class="hint">Keep permanent instructions concise. AtlasMind appends the shared operating contract and execution rubric at runtime.</div>
               </div>
-              <div id="skillsManualSection" ${skillsAutoManaged ? 'style="display:none"' : ''}>
-                <div class="skill-list">${skillCheckboxes || '<em>No skills registered.</em>'}</div>
+
+              <label for="agentCompletionRubric">Completion rubric</label>
+              <div>
+                <textarea id="agentCompletionRubric" rows="5" placeholder="One observable requirement per line" ${isBuiltIn ? 'readonly' : ''}>${currentRubric}</textarea>
+                <div class="hint">${isBuiltIn ? 'Built-in criteria are factory-defined and shown for inspection.' : 'Up to 12 requirements. State evidence or outcomes that can be checked independently.'}</div>
+              </div>
+
+              <label for="agentIncompletePatterns">Incomplete-result patterns</label>
+              <div>
+                <textarea id="agentIncompletePatterns" rows="4" placeholder="One bounded regular-expression pattern per line" ${isBuiltIn ? 'readonly' : ''}>${currentIncompletePatterns}</textarea>
+                <div class="hint">${isBuiltIn ? 'Built-in completion gates are factory-defined.' : 'Optional. Matching a safe bounded pattern triggers one finish-or-declare-blockers retry; unsafe regex constructs are ignored.'}</div>
               </div>
             </div>
+          </details>
 
-            <label>Testing Roles</label>
-            <div>
-              ${testingRolesHtml}
+          <details class="editor-section">
+            <summary><span>Skills</span><small>Automatic or manual capability assignment</small></summary>
+            <div class="section-body field-grid">
+              <label>Assignment</label>
+              <div>
+                <label class="skill-auto-label">
+                  <input type="checkbox" id="skillsAutoManaged" ${skillsAutoManaged ? 'checked' : ''} />
+                  Auto — assign skills based on agent role and context
+                </label>
+                <div class="hint" id="skillsAutoHint" ${skillsAutoManaged ? '' : 'style="display:none"'}>
+                  AtlasMind reassesses relevant skills when capabilities change and after eligible agent updates.
+                </div>
+                <div id="skillsManualSection" ${skillsAutoManaged ? 'style="display:none"' : ''}>
+                  <div class="skill-list">${skillCheckboxes || '<em>No skills registered.</em>'}</div>
+                </div>
+              </div>
             </div>
-          </div>
+          </details>
+
+          <details class="editor-section">
+            <summary><span>Models &amp; budget</span><small>Routing eligibility and per-request spend</small></summary>
+            <div class="section-body field-grid">
+              <label for="agentModels">Allowed models</label>
+              <div>
+                <input type="text" id="agentModels" value="${currentModels}" placeholder="model-id-1, model-id-2 (leave blank for any)" ${isBuiltIn ? 'readonly' : ''} />
+                <div class="hint">${isBuiltIn ? 'Built-in model assignments are managed from the model surfaces.' : 'Comma-separated model IDs. Empty allows any eligible model.'}</div>
+                ${isBuiltIn ? '<button type="button" class="btn-link inline-link" data-open-model-assignments>Assign from the Models sidebar →</button>' : ''}
+              </div>
+
+              <label for="agentCost">Cost limit (USD)</label>
+              <div>
+                <input type="number" id="agentCost" value="${currentCost}" min="0" step="0.01" placeholder="e.g. 0.50" />
+                <div class="hint">Per-request cap. Leave blank for no agent-specific limit.</div>
+              </div>
+            </div>
+          </details>
+
+          <details class="editor-section">
+            <summary><span>Testing</span><small>Methodology roles and model overrides</small></summary>
+            <div class="section-body field-grid">
+              <label>Testing roles</label>
+              <div>${testingRolesHtml}</div>
+            </div>
+          </details>
+
+          <details class="editor-section">
+            <summary><span>Maintenance</span><small>Update protection, reset, and deletion</small></summary>
+            <div class="section-body field-grid">
+              <label>Prompt updates</label>
+              <div>
+                <label class="checkbox-line">
+                  <input type="checkbox" id="agentAutoUpdateExcluded" ${isBuiltIn || autoUpdateExcluded ? 'checked' : ''} ${isBuiltIn ? 'disabled' : ''} />
+                  Exclude from auto-updates
+                </label>
+                <div class="hint">${isBuiltIn ? 'Built-in agents are always excluded from the global cadence.' : 'Protect this system prompt from the global agent refresh cadence.'}</div>
+              </div>
+
+              ${!isNew && !isBuiltIn ? `<label>Delete agent</label><div><button type="button" class="btn-danger-outline" data-action="delete-agent" data-agent-id="${currentId}">Delete custom agent</button><div class="hint">Deletion requires confirmation and cannot be undone.</div></div>` : ''}
+            </div>
+          </details>
+
           <div class="button-row">
-            <button type="button" id="save-agent">Save</button>
+            <button type="button" id="save-agent">Save agent</button>
             ${isBuiltIn
               ? `<button type="button" id="reset-builtin-agent" class="btn-muted-outline" title="Restore factory-default prompt and description">Reset to defaults</button>`
               : ''
             }
-            <button type="button" id="cancel-agent-editor">Cancel</button>
+            ${isNew ? '<button type="button" id="cancel-agent-editor" class="btn-muted-outline">Cancel</button>' : ''}
           </div>
         </form>
       </section>`;
     }
 
     const scriptContent = `
-      ${PANEL_NAV_JS}
-
       const vscode = acquireVsCodeApi();
-
-      const navButtons = Array.from(document.querySelectorAll('[data-page-target]'));
-      const pages = Array.from(document.querySelectorAll('.panel-page'));
+      const savedState = vscode.getState() ?? {};
       const searchInput = document.getElementById('agentSearch');
       const searchStatus = document.getElementById('agentSearchStatus');
-      const agentRows = Array.from(document.querySelectorAll('tr[data-agent-search]'));
+      const agentItems = Array.from(document.querySelectorAll('[data-agent-search]'));
+      const filterButtons = Array.from(document.querySelectorAll('[data-agent-filter]'));
+      let activeFilter = typeof savedState.agentFilter === 'string' ? savedState.agentFilter : 'all';
 
-      // Tab semantics, roving tabindex and arrow-key navigation come from the
-      // shared controller; this panel's markup and styling are unchanged.
-      const panelNav = createPanelNav({ tablist: '.panel-nav' });
-
-      function activatePage(pageId) {
-        panelNav.activate(pageId);
+      function persistListState() {
+        vscode.setState({
+          ...savedState,
+          searchQuery: searchInput instanceof HTMLInputElement ? searchInput.value : '',
+          agentFilter: activeFilter,
+        });
       }
 
-      function updateSearch(query) {
-        const normalized = typeof query === 'string' ? query.trim().toLowerCase() : '';
-        let visibleRows = 0;
-        agentRows.forEach(row => {
-          if (!(row instanceof HTMLElement)) {
-            return;
-          }
-          const haystack = row.dataset.agentSearch ?? '';
-          const matches = normalized.length === 0 || haystack.includes(normalized);
-          row.style.display = matches ? '' : 'none';
-          if (matches) {
-            visibleRows += 1;
-          }
+      function updateList() {
+        const normalized = searchInput instanceof HTMLInputElement
+          ? searchInput.value.trim().toLowerCase()
+          : '';
+        let visibleItems = 0;
+        agentItems.forEach(item => {
+          if (!(item instanceof HTMLElement)) { return; }
+          const haystack = item.dataset.agentSearch ?? '';
+          const filterValues = item.dataset.agentFilterValues ?? '';
+          const matchesSearch = normalized.length === 0 || haystack.includes(normalized);
+          const matchesFilter = activeFilter === 'all' || filterValues.split(' ').includes(activeFilter);
+          const matches = matchesSearch && matchesFilter;
+          item.hidden = !matches;
+          if (matches) { visibleItems += 1; }
+        });
+        filterButtons.forEach(button => {
+          if (!(button instanceof HTMLButtonElement)) { return; }
+          const selected = button.dataset.agentFilter === activeFilter;
+          button.classList.toggle('active', selected);
+          button.setAttribute('aria-pressed', selected ? 'true' : 'false');
         });
         if (searchStatus instanceof HTMLElement) {
-          if (normalized.length === 0) {
-            searchStatus.textContent = 'Search by agent name, role, status, or skill.';
-          } else if (visibleRows === 0) {
-            searchStatus.textContent = 'No agents matched that search.';
-          } else if (visibleRows === 1) {
-            searchStatus.textContent = '1 agent matched.';
-          } else {
-            searchStatus.textContent = visibleRows + ' agents matched.';
-          }
+          searchStatus.textContent = visibleItems === 0
+            ? 'No agents match the current search and filter.'
+            : visibleItems === 1
+              ? '1 agent shown.'
+              : visibleItems + ' agents shown.';
         }
+        persistListState();
       }
 
-      navButtons.forEach(button => {
-        if (!(button instanceof HTMLButtonElement)) {
-          return;
-        }
-        button.addEventListener('click', () => {
-          activatePage(button.dataset.pageTarget ?? 'overview');
-        });
-      });
-
-      document.querySelectorAll('[data-hero-page-target]').forEach(button => {
-        if (!(button instanceof HTMLButtonElement)) {
-          return;
-        }
-        button.addEventListener('click', () => {
-          activatePage(button.dataset.heroPageTarget ?? 'directory');
-          if (searchInput instanceof HTMLInputElement) {
-            searchInput.value = button.dataset.searchQuery ?? '';
-            updateSearch(searchInput.value);
-            searchInput.focus();
-          }
-        });
-      });
-
-      activatePage(${JSON.stringify(this.editingId !== null ? 'editor' : 'overview')});
       if (searchInput instanceof HTMLInputElement) {
-        updateSearch(searchInput.value);
-        searchInput.addEventListener('input', () => updateSearch(searchInput.value));
+        searchInput.value = typeof savedState.searchQuery === 'string' ? savedState.searchQuery : '';
+        searchInput.addEventListener('input', updateList);
       }
+      filterButtons.forEach(button => {
+        if (!(button instanceof HTMLButtonElement)) { return; }
+        button.addEventListener('click', () => {
+          activeFilter = button.dataset.agentFilter ?? 'all';
+          updateList();
+        });
+      });
+      updateList();
 
       function saveAgent() {
         const idEl = document.getElementById('agentId');
@@ -748,6 +864,8 @@ export class AgentManagerPanel {
             autoUpdateExcluded: document.getElementById('agentAutoUpdateExcluded')?.checked ?? false,
             skillsAutoManaged: autoManaged,
             testingModelOverridesJson: JSON.stringify(overrides),
+            completionRubric: document.getElementById('agentCompletionRubric').value,
+            incompletePatterns: document.getElementById('agentIncompletePatterns').value,
           }
         });
       }
@@ -759,12 +877,17 @@ export class AgentManagerPanel {
         });
       }
 
-      const openModelProviders = document.getElementById('open-model-providers');
-      if (openModelProviders) {
+      document.querySelectorAll('[data-open-model-providers]').forEach(openModelProviders => {
         openModelProviders.addEventListener('click', () => {
           vscode.postMessage({ type: 'openModelProviders' });
         });
-      }
+      });
+
+      document.querySelectorAll('[data-open-model-assignments]').forEach(openModelsView => {
+        openModelsView.addEventListener('click', () => {
+          vscode.postMessage({ type: 'openModelsView' });
+        });
+      });
 
       const openSettingsModels = document.getElementById('open-settings-models');
       if (openSettingsModels) {
@@ -773,22 +896,12 @@ export class AgentManagerPanel {
         });
       }
 
-      const cadenceSelect = document.getElementById('directory-auto-update-cadence');
+      const cadenceSelect = document.getElementById('agent-auto-update-cadence');
       if (cadenceSelect instanceof HTMLSelectElement) {
         cadenceSelect.addEventListener('change', () => {
           vscode.postMessage({
             type: 'setAutoUpdateCadence',
             payload: { cadence: cadenceSelect.value },
-          });
-        });
-      }
-
-      const editorCadenceSelect = document.getElementById('editor-auto-update-cadence');
-      if (editorCadenceSelect instanceof HTMLSelectElement) {
-        editorCadenceSelect.addEventListener('change', () => {
-          vscode.postMessage({
-            type: 'setAutoUpdateCadence',
-            payload: { cadence: editorCadenceSelect.value },
           });
         });
       }
@@ -811,12 +924,11 @@ export class AgentManagerPanel {
         });
       }
 
-      const openTestingStrategyLink = document.getElementById('open-testing-strategy-link');
-      if (openTestingStrategyLink) {
+      document.querySelectorAll('[data-open-testing-strategy]').forEach(openTestingStrategyLink => {
         openTestingStrategyLink.addEventListener('click', () => {
           vscode.postMessage({ type: 'openTestingStrategy' });
         });
-      }
+      });
 
       const saveButton = document.getElementById('save-agent');
       if (saveButton) {
@@ -840,37 +952,11 @@ export class AgentManagerPanel {
       document.querySelectorAll('[data-action="select-agent"]').forEach(button => {
         button.addEventListener('click', () => {
           const id = button.getAttribute('data-agent-id');
-          vscode.postMessage({ type: 'select', payload: { id } });
+          if (id) {
+            persistListState();
+            vscode.postMessage({ type: 'select', payload: { id } });
+          }
         });
-      });
-
-      // Directory rows carry "cursor: pointer" and an accent hover, and the
-      // page copy says "Select a row … to open the editor" — but nothing was
-      // listening, so the whole row was a fake affordance and only the inline
-      // Edit button worked. Delegated so it survives re-render, and keyboard
-      // reachable since a <tr> is not natively focusable.
-      const openAgentFromRow = target => {
-        const row = target instanceof HTMLElement ? target.closest('[data-row-agent-id]') : null;
-        if (!(row instanceof HTMLElement)) { return false; }
-        // Clicks that landed on one of the inline controls belong to that
-        // control, not to the row.
-        if (target instanceof HTMLElement && target.closest('button, a, input, select')) { return false; }
-        const id = row.getAttribute('data-row-agent-id');
-        if (!id) { return false; }
-        vscode.postMessage({ type: 'select', payload: { id } });
-        return true;
-      };
-
-      document.addEventListener('click', event => {
-        openAgentFromRow(event.target);
-      });
-
-      document.addEventListener('keydown', event => {
-        if (event.key !== 'Enter' && event.key !== ' ') { return; }
-        const row = event.target instanceof HTMLElement ? event.target.closest('[data-row-agent-id]') : null;
-        if (!row || row !== event.target) { return; }
-        event.preventDefault();
-        openAgentFromRow(event.target);
       });
 
       document.querySelectorAll('[data-action="delete-agent"]').forEach(button => {
@@ -903,51 +989,70 @@ export class AgentManagerPanel {
         --atlas-accent: var(--vscode-textLink-foreground);
         --atlas-muted: var(--vscode-descriptionForeground, var(--vscode-foreground));
       }
-      body { padding: 20px; }
-      .panel-hero { display: flex; justify-content: space-between; gap: 20px; padding: 20px 22px; margin-bottom: 18px; border: 1px solid var(--atlas-border); border-radius: 18px; background: radial-gradient(circle at top right, color-mix(in srgb, var(--atlas-accent) 14%, transparent), transparent 40%), linear-gradient(160deg, var(--atlas-surface), var(--vscode-editor-background)); }
-      .eyebrow, .page-kicker, .card-kicker { margin: 0 0 6px; text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.74rem; color: var(--atlas-muted); }
-      .panel-hero h1, .page-header h2, #editor h2 { margin: 0; }
-      .hero-copy, .page-header p:last-child, .search-status, .summary-card p:last-child { color: var(--atlas-muted); }
-      .hero-badges { display: flex; flex-wrap: wrap; gap: 10px; align-content: flex-start; justify-content: flex-end; }
-      .hero-badge { border: 1px solid var(--atlas-border); border-radius: 999px; padding: 6px 12px; background: color-mix(in srgb, var(--atlas-accent) 16%, transparent); }
-      .hero-badge-button { color: inherit; font: inherit; cursor: pointer; }
-      .hero-badge-button:hover, .hero-badge-button:focus-visible { outline: 2px solid var(--atlas-accent); outline-offset: 2px; }
-      .search-shell { display: grid; gap: 6px; margin: 0 0 18px; }
+      body { padding: 18px; }
+      .workspace-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; margin-bottom: 16px; padding: 2px 2px 16px; border-bottom: 1px solid var(--atlas-border); }
+      .workspace-header h1, .editor-heading h2 { margin: 0; }
+      .workspace-header-copy { max-width: 720px; margin: 5px 0 0; color: var(--atlas-muted); }
+      .workspace-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+      .primary-action { padding: 7px 13px; background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+      .primary-action:hover { background: var(--vscode-button-hoverBackground); }
+      .secondary-action { padding: 7px 13px; border: 1px solid var(--atlas-border); background: transparent; color: var(--vscode-foreground); }
+      .workspace-stats { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
+      .stat-chip { padding: 3px 8px; border: 1px solid var(--atlas-border); border-radius: 999px; color: var(--atlas-muted); font-size: 0.82rem; }
+      .eyebrow { margin: 0 0 5px; text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.72rem; color: var(--atlas-muted); }
+      .agent-workspace { display: grid; grid-template-columns: minmax(260px, 310px) minmax(0, 1fr); gap: 16px; align-items: start; }
+      .agent-sidebar { position: sticky; top: 16px; display: grid; gap: 12px; min-width: 0; padding: 14px; border: 1px solid var(--atlas-border); border-radius: 14px; background: linear-gradient(180deg, var(--atlas-surface-strong), var(--atlas-surface)); }
+      .sidebar-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+      .sidebar-heading h2 { margin: 0; font-size: 1rem; }
+      .search-shell { display: grid; gap: 5px; }
       .search-label { font-weight: 600; }
-      .search-shell input { width: 100%; box-sizing: border-box; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, var(--atlas-border)); padding: 10px 12px; border-radius: 12px; }
-      .panel-layout { display: grid; grid-template-columns: minmax(220px, 240px) minmax(0, 1fr); gap: 18px; align-items: start; }
-      .panel-nav { position: sticky; top: 20px; display: grid; gap: 8px; padding: 16px; border: 1px solid var(--atlas-border); border-radius: 18px; background: linear-gradient(180deg, var(--atlas-surface-strong), var(--atlas-surface)); }
-      .nav-link { width: 100%; text-align: left; border: 1px solid transparent; border-radius: 12px; padding: 11px 12px; background: transparent; color: var(--vscode-foreground); font-weight: 600; }
-      .nav-link.active { background: color-mix(in srgb, var(--atlas-accent) 22%, transparent); border-color: color-mix(in srgb, var(--atlas-accent) 48%, var(--atlas-border)); }
-      .panel-page { display: none; }
-      .panel-page.active { display: block; }
-      .action-grid, .summary-grid { display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
-      .action-card, .summary-card, #editor, .directory-card { border: 1px solid var(--atlas-border); border-radius: 16px; padding: 16px; background: linear-gradient(180deg, var(--atlas-surface), var(--vscode-editor-background)); }
-      .action-card { display: flex; flex-direction: column; gap: 6px; text-align: left; }
-      .action-primary { border-color: color-mix(in srgb, var(--atlas-accent) 42%, var(--atlas-border)); }
-      .action-title { font-weight: 700; }
-      .summary-card h3 { margin: 0; font-size: 1.8rem; }
-      .field-grid { display: grid; grid-template-columns: 160px 1fr; gap: 10px 16px; align-items: start; margin-top: 8px; }
+      .search-shell input { width: 100%; box-sizing: border-box; border: 1px solid var(--vscode-input-border, var(--atlas-border)); padding: 8px 10px; border-radius: 8px; }
+      .search-status { min-height: 1.2em; margin: 0; color: var(--atlas-muted); font-size: 0.8rem; }
+      .filter-row { display: flex; flex-wrap: wrap; gap: 5px; }
+      .filter-chip { padding: 3px 8px; border: 1px solid var(--atlas-border); border-radius: 999px; background: transparent; color: var(--atlas-muted); font-size: 0.78rem; }
+      .filter-chip.active { border-color: color-mix(in srgb, var(--atlas-accent) 65%, var(--atlas-border)); background: color-mix(in srgb, var(--atlas-accent) 16%, transparent); color: var(--vscode-foreground); }
+      .agent-list { display: grid; gap: 5px; max-height: calc(100vh - 390px); min-height: 120px; overflow: auto; padding-right: 2px; }
+      .agent-list-item { display: grid; gap: 3px; width: 100%; padding: 9px 10px; border: 1px solid transparent; border-radius: 9px; background: transparent; color: var(--vscode-foreground); text-align: left; }
+      .agent-list-item:hover { background: color-mix(in srgb, var(--atlas-accent) 9%, transparent); }
+      .agent-list-item.selected { border-color: color-mix(in srgb, var(--atlas-accent) 52%, var(--atlas-border)); background: color-mix(in srgb, var(--atlas-accent) 17%, transparent); }
+      .agent-list-item[hidden] { display: none; }
+      .agent-list-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+      .agent-list-name { overflow: hidden; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+      .agent-list-role, .agent-list-meta { overflow: hidden; color: var(--atlas-muted); font-size: 0.8rem; text-overflow: ellipsis; white-space: nowrap; }
+      .status-dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: var(--vscode-disabledForeground); }
+      .status-dot.enabled { background: var(--vscode-testing-iconPassed, #73c991); }
+      .automation-card { display: grid; gap: 6px; padding-top: 12px; border-top: 1px solid var(--atlas-border); }
+      .automation-card label { font-weight: 600; }
+      .automation-card select { width: 100%; padding: 6px 8px; border: 1px solid var(--vscode-input-border, var(--atlas-border)); border-radius: 7px; }
+      .related-links { display: flex; flex-wrap: wrap; gap: 10px; }
+      .editor-card { min-width: 0; border: 1px solid var(--atlas-border); border-radius: 14px; padding: 18px; background: linear-gradient(180deg, var(--atlas-surface), var(--vscode-editor-background)); }
+      .editor-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; margin-bottom: 12px; }
+      .editor-subtitle { margin: 5px 0 0; color: var(--atlas-muted); }
+      .editor-section { margin-top: 10px; border: 1px solid var(--atlas-border); border-radius: 10px; background: color-mix(in srgb, var(--atlas-surface-strong) 52%, transparent); }
+      .editor-section summary { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding: 11px 13px; cursor: pointer; list-style: none; }
+      .editor-section summary::-webkit-details-marker { display: none; }
+      .editor-section summary > span { font-weight: 650; }
+      .editor-section summary > span::before { display: inline-block; width: 1.1em; content: '\\25B8'; color: var(--atlas-muted); }
+      .editor-section[open] summary > span::before { content: '\\25BE'; }
+      .editor-section summary small { color: var(--atlas-muted); font-size: 0.8rem; text-align: right; }
+      .section-body { padding: 4px 13px 14px; border-top: 1px solid var(--atlas-border); }
+      .field-grid { display: grid; grid-template-columns: 165px minmax(0, 1fr); gap: 11px 16px; align-items: start; }
       .field-grid label { padding-top: 6px; font-weight: 500; }
       .field-grid input[type="text"],
       .field-grid input[type="number"],
-      .field-grid textarea { width: 100%; box-sizing: border-box; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, #444); padding: 4px 8px; border-radius: 2px; font-family: inherit; font-size: inherit; }
+      .field-grid textarea { width: 100%; box-sizing: border-box; border: 1px solid var(--vscode-input-border, #444); padding: 6px 8px; border-radius: 5px; font-family: inherit; font-size: inherit; }
       .field-grid textarea { resize: vertical; }
-      .field-grid input[readonly], .field-grid textarea[readonly] { opacity: 0.6; }
-      .hint { font-size: 0.82em; color: var(--vscode-descriptionForeground); margin-top: 2px; }
+      .field-grid input[readonly], .field-grid textarea[readonly] { opacity: 0.72; }
+      .hint { font-size: 0.8rem; color: var(--atlas-muted); margin-top: 3px; }
       .req { color: var(--vscode-charts-red, #f48771); }
-      /* Declares its own fill. The shell's primary paint is scoped to unclassed
-         buttons, so a variant that relied on inheriting it would render bare. */
-      .btn-sm { padding: 2px 8px; font-size: 0.85em; background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+      .btn-sm { padding: 5px 10px; font-size: 0.85em; background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
       .btn-sm:hover:not(:disabled) { background: var(--vscode-button-hoverBackground); }
-      .btn-danger { background: var(--vscode-errorForeground, #f48771); color: var(--vscode-editor-background); }
-      .btn-muted { opacity: 0.4; cursor: not-allowed; }
       .btn-muted-outline { background: transparent; border: 1px solid var(--atlas-border); color: var(--atlas-muted); }
-      .button-row { display: flex; gap: 8px; margin-top: 12px; }
-      .action-col { white-space: nowrap; }
-      .form-error { background: var(--vscode-inputValidation-errorBackground, #5a1d1d); border: 1px solid var(--vscode-inputValidation-errorBorder, #be1100); color: var(--vscode-inputValidation-errorForeground, #f48771); padding: 6px 10px; margin-bottom: 8px; border-radius: 2px; }
-      .built-in-notice { background: color-mix(in srgb, var(--vscode-textBlockQuote-background, var(--atlas-surface)) 80%, transparent); border: 1px solid var(--atlas-border); border-radius: 6px; padding: 6px 10px; margin-bottom: 10px; font-size: 0.88em; color: var(--atlas-muted); }
-      .skill-auto-label { display: flex; align-items: center; gap: 6px; font-weight: normal; cursor: pointer; }
+      .btn-danger-outline { padding: 5px 9px; border: 1px solid var(--vscode-inputValidation-errorBorder, #be1100); background: transparent; color: var(--vscode-errorForeground, #f48771); }
+      .button-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+      .form-error { background: var(--vscode-inputValidation-errorBackground, #5a1d1d); border: 1px solid var(--vscode-inputValidation-errorBorder, #be1100); color: var(--vscode-inputValidation-errorForeground, #f48771); padding: 8px 10px; margin-bottom: 10px; border-radius: 6px; }
+      .built-in-notice { background: color-mix(in srgb, var(--vscode-textBlockQuote-background, var(--atlas-surface)) 80%, transparent); border: 1px solid var(--atlas-border); border-radius: 7px; padding: 8px 10px; margin-bottom: 10px; font-size: 0.84rem; color: var(--atlas-muted); }
+      .skill-auto-label, .checkbox-line { display: flex; align-items: center; gap: 6px; font-weight: normal; cursor: pointer; }
       .skill-list { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; }
       .skill-list label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
       .methodology-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
@@ -956,131 +1061,76 @@ export class AgentManagerPanel {
       .override-label { font-size: 0.88em; color: var(--atlas-muted); }
       .override-model-input { width: 100%; box-sizing: border-box; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, #444); padding: 3px 7px; border-radius: 2px; font-family: inherit; font-size: inherit; }
       .btn-link { background: none; border: none; color: var(--atlas-accent); cursor: pointer; padding: 0; font: inherit; font-size: 0.88em; text-decoration: underline; }
-      table { margin-top: 12px; }
-      tr[data-agent-search] { cursor: pointer; }
-      tr[data-agent-search]:hover { background: color-mix(in srgb, var(--atlas-accent) 8%, transparent); }
-      .directory-card code { font-family: var(--vscode-editor-font-family, var(--vscode-font-family, monospace)); }
-      .directory-settings { display: grid; gap: 6px; margin-bottom: 12px; }
-      .directory-settings select { width: max-content; min-width: 170px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, var(--atlas-border)); padding: 6px 10px; border-radius: 8px; }
+      .inline-link { margin-top: 5px; }
+      .empty-editor { display: grid; place-items: center; min-height: 320px; border: 1px dashed var(--atlas-border); border-radius: 14px; color: var(--atlas-muted); text-align: center; }
       @media (max-width: 920px) {
-        .panel-layout, .action-grid, .summary-grid { grid-template-columns: 1fr; }
-        .panel-nav { position: static; }
-        .panel-hero { flex-direction: column; }
+        .workspace-header { flex-direction: column; }
+        .workspace-actions { justify-content: flex-start; }
+        .agent-workspace { grid-template-columns: 1fr; }
+        .agent-sidebar { position: static; }
+        .agent-list { max-height: 320px; }
       }
       @media (max-width: 720px) {
         .field-grid { grid-template-columns: 1fr; }
+        .editor-section summary { grid-template-columns: 1fr; }
+        .editor-section summary small { text-align: left; }
       }
     `;
 
     const bodyContent = `
-      <div class="panel-hero">
+      <header class="workspace-header">
         <div>
           <p class="eyebrow">Custom orchestration</p>
           <h1>Manage Agents</h1>
-          <p class="hero-copy">Create, inspect, and tune agent definitions without losing sight of the models they depend on. Built-in agents remain inspectable but protected from deletion.</p>
+          <p class="workspace-header-copy">Choose an agent from the list and tune its definition without leaving the directory.</p>
+          <div class="workspace-stats" aria-label="Agent summary">
+            <span class="stat-chip">${totalAgents} total</span>
+            <span class="stat-chip">${enabledCount} enabled</span>
+            <span class="stat-chip">${customCount} custom</span>
+            <span class="stat-chip">${builtInCount} built-in</span>
+          </div>
         </div>
-        <div class="hero-badges" aria-label="Agent summary">
-          <button type="button" class="hero-badge hero-badge-button" data-hero-page-target="directory" data-search-query="enabled" title="Open the directory filtered to enabled agents.">${enabledCount} enabled</button>
-          <button type="button" class="hero-badge hero-badge-button" data-hero-page-target="directory" data-search-query="custom" title="Open the directory filtered to custom agents.">${customCount} custom</button>
-          <button type="button" class="hero-badge hero-badge-button" data-hero-page-target="directory" data-search-query="built-in" title="Open the directory filtered to built-in agents.">${builtInCount} built-in</button>
+        <div class="workspace-actions">
+          <button type="button" id="open-settings-models" class="secondary-action">Model settings</button>
+          <button type="button" id="new-agent" class="primary-action">New agent</button>
         </div>
-      </div>
+      </header>
 
-      <div class="search-shell">
-        <label class="search-label" for="agentSearch">Search agents</label>
-        <input id="agentSearch" type="search" placeholder="Search by name, role, status, or skill" />
-        <p id="agentSearchStatus" class="search-status" aria-live="polite">Search by agent name, role, status, or skill.</p>
-      </div>
-
-      <div class="panel-layout">
-        <nav class="panel-nav" aria-label="Agent manager sections" role="tablist" aria-orientation="vertical">
-          <button type="button" class="nav-link active" data-page-target="overview">Overview</button>
-          <button type="button" class="nav-link" data-page-target="directory">Agent Directory</button>
-          <button type="button" class="nav-link" data-page-target="editor">Editor</button>
-        </nav>
-
-        <main class="panel-main">
-          <section id="page-overview" class="panel-page active">
-            <div class="page-header">
-              <p class="page-kicker">Overview</p>
-              <h2>Agent workspace</h2>
-              <p>Create new agents, then jump directly to the provider surfaces that govern allowed-model choices.</p>
-            </div>
-            <div class="action-grid">
-              <button type="button" id="new-agent" class="action-card action-primary">
-                <span class="action-title">New Agent</span>
-                <span class="action-copy">Start a new custom agent definition with its own prompt, role, and skill list.</span>
-              </button>
-              <button type="button" id="open-model-providers" class="action-card">
-                <span class="action-title">Open Model Providers</span>
-                <span class="action-copy">Configure the routed backends your custom agents can rely on.</span>
-              </button>
-              <button type="button" id="open-settings-models" class="action-card">
-                <span class="action-title">Open Model Settings</span>
-                <span class="action-copy">Jump to the Settings models page for workspace-level routing configuration.</span>
-              </button>
-            </div>
-            <div class="summary-grid">
-              <article class="summary-card">
-                <p class="card-kicker">Total</p>
-                <h3>${totalAgents}</h3>
-                <p>Agents currently registered in AtlasMind.</p>
-              </article>
-              <article class="summary-card">
-                <p class="card-kicker">Custom</p>
-                <h3>${customCount}</h3>
-                <p>User-defined agents that can be edited or deleted.</p>
-              </article>
-              <article class="summary-card">
-                <p class="card-kicker">Enabled</p>
-                <h3>${enabledCount}</h3>
-                <p>Agents currently available to routing and orchestration.</p>
-              </article>
-            </div>
-          </section>
-
-          <section id="page-directory" class="panel-page" hidden>
-            <div class="page-header">
-              <p class="page-kicker">Agent Directory</p>
-              <h2>Registered agents</h2>
-              <p>Select a row or use the inline actions to open the editor, toggle enablement, or remove custom agents.</p>
-            </div>
-            <div class="directory-card">
-              <div class="directory-settings">
-                <label for="directory-auto-update-cadence"><strong>Agent Auto-Update cadence</strong></label>
-                <select id="directory-auto-update-cadence" aria-label="Agent Auto-Update cadence">
-                  ${cadenceOptions}
-                </select>
-                <p class="hint">Controls the global <code>atlasmind.agentAutoUpdateCadence</code> setting used for user-defined agent prompt refreshes.</p>
-              </div>
-              <table>
-                <thead>
-                  <tr>
-                    <th>ID</th><th>Name</th><th>Role</th><th>Status</th><th>Skills</th><th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${agentRows || '<tr><td colspan="6">No agents registered.</td></tr>'}
-                </tbody>
-              </table>
-            </div>
-          </section>
-
-          <section id="page-editor" class="panel-page" hidden>
-            <div class="page-header">
-              <p class="page-kicker">Editor</p>
-              <h2>Agent definition</h2>
-              <p>${this.editingId === null ? 'Select an agent from the directory or start a new one to edit its definition.' : 'Update role, prompt, allowed models, and skill assignment for the selected agent.'}</p>
-            </div>
-            <div class="directory-settings" style="margin-bottom:16px;">
-              <label for="editor-auto-update-cadence"><strong>Global Auto-Update cadence</strong></label>
-              <select id="editor-auto-update-cadence" aria-label="Global Agent Auto-Update cadence">
+      <div class="agent-workspace">
+        <aside class="agent-sidebar" aria-label="Agent directory">
+          <div class="sidebar-heading">
+            <h2>Agent directory</h2>
+            <span class="hint">${totalAgents} registered</span>
+          </div>
+          <div class="search-shell">
+            <label class="search-label" for="agentSearch">Search agents</label>
+            <input id="agentSearch" type="search" placeholder="Name, role, status, or skill" />
+            <p id="agentSearchStatus" class="search-status" aria-live="polite"></p>
+          </div>
+          <div class="filter-row" aria-label="Filter agents">
+            <button type="button" class="filter-chip active" data-agent-filter="all" aria-pressed="true">All</button>
+            <button type="button" class="filter-chip" data-agent-filter="enabled" aria-pressed="false">Enabled</button>
+            <button type="button" class="filter-chip" data-agent-filter="custom" aria-pressed="false">Custom</button>
+            <button type="button" class="filter-chip" data-agent-filter="built-in" aria-pressed="false">Built-in</button>
+          </div>
+          <div class="agent-list">
+            ${agentListItems || '<div class="hint">No agents registered yet.</div>'}
+          </div>
+          <div class="automation-card">
+            <label for="agent-auto-update-cadence">Defaults &amp; automation</label>
+            <select id="agent-auto-update-cadence" aria-label="Agent Auto-Update cadence">
                 ${cadenceOptions}
-              </select>
-              <p class="hint">Controls how often user-defined agent system prompts are refreshed. Applies to all agents unless individually excluded.</p>
-            </div>
-            ${editorHtml || '<div id="editor"><p>No agent selected yet.</p></div>'}
-          </section>
+            </select>
+            <p class="hint">Global prompt-refresh cadence for eligible custom agents. Built-ins and individually excluded agents are protected.</p>
+          </div>
+          <div class="related-links">
+            <button type="button" class="btn-link" data-open-model-providers>Model providers</button>
+            <button type="button" class="btn-link" data-open-testing-strategy>Testing strategy</button>
+          </div>
+        </aside>
+
+        <main class="agent-detail">
+          ${editorHtml || '<div class="empty-editor"><div><strong>No agent selected</strong><p>Create a custom agent to get started.</p></div></div>'}
         </main>
       </div>
     `;

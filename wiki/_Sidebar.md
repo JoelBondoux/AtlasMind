@@ -26,7 +26,6 @@
 	- [Composer Input & Search Toggle](Chat-Commands.md#composer-input--search-toggle-v0514)
 
 ### Reference
-- [[Comparison]]
 - [[Security]]
 - [[Contributing]]
 - [[Changelog]]

@@ -104,6 +104,8 @@ describe('isSettingsMessage', () => {
     expect(isSettingsMessage({ type: 'openChatView' })).toBe(true);
     expect(isSettingsMessage({ type: 'openChatPanel' })).toBe(true);
     expect(isSettingsMessage({ type: 'openChat' })).toBe(true);
+    expect(isSettingsMessage({ type: 'openAgentPanel' })).toBe(true);
+    expect(isSettingsMessage({ type: 'openPersonalityProfile' })).toBe(true);
     expect(isSettingsMessage({ type: 'openModelProviders' })).toBe(true);
     expect(isSettingsMessage({ type: 'openSpecialistIntegrations' })).toBe(true);
     expect(isSettingsMessage({ type: 'openProjectRunCenter' })).toBe(true);
@@ -858,16 +860,42 @@ describe('validatePanelMessage (MCP)', () => {
 
 describe('isAgentPanelMessage', () => {
   it('accepts valid agent panel message types', () => {
-    expect(isAgentPanelMessage({ type: 'select' })).toBe(true);
-    expect(isAgentPanelMessage({ type: 'save' })).toBe(true);
-    expect(isAgentPanelMessage({ type: 'delete' })).toBe(true);
-    expect(isAgentPanelMessage({ type: 'toggleEnabled' })).toBe(true);
-    expect(isAgentPanelMessage({ type: 'setAutoUpdateCadence' })).toBe(true);
+    expect(isAgentPanelMessage({ type: 'select', payload: { id: 'reviewer' } })).toBe(true);
+    expect(isAgentPanelMessage({
+      type: 'save',
+      payload: {
+        id: 'reviewer',
+        name: 'Reviewer',
+        role: 'code reviewer',
+        description: 'Reviews changes.',
+        systemPrompt: 'Review carefully.',
+        allowedModels: '',
+        costLimitUsd: '',
+        skills: '',
+        autoUpdateExcluded: false,
+        skillsAutoManaged: true,
+        testingModelOverridesJson: '{}',
+        completionRubric: 'Report evidence.',
+        incompletePatterns: 'TODO',
+      },
+    })).toBe(true);
+    expect(isAgentPanelMessage({ type: 'delete', payload: { id: 'reviewer' } })).toBe(true);
+    expect(isAgentPanelMessage({ type: 'toggleEnabled', payload: { id: 'reviewer', enabled: false } })).toBe(true);
+    expect(isAgentPanelMessage({ type: 'setAutoUpdateCadence', payload: { cadence: 'weekly' } })).toBe(true);
     expect(isAgentPanelMessage({ type: 'newAgent' })).toBe(true);
     expect(isAgentPanelMessage({ type: 'cancel' })).toBe(true);
     expect(isAgentPanelMessage({ type: 'refresh' })).toBe(true);
     expect(isAgentPanelMessage({ type: 'openModelProviders' })).toBe(true);
+    expect(isAgentPanelMessage({ type: 'openModelsView' })).toBe(true);
     expect(isAgentPanelMessage({ type: 'openSettingsModels' })).toBe(true);
+  });
+
+  it('rejects malformed agent action payloads', () => {
+    expect(isAgentPanelMessage({ type: 'select' })).toBe(false);
+    expect(isAgentPanelMessage({ type: 'save', payload: {} })).toBe(false);
+    expect(isAgentPanelMessage({ type: 'delete', payload: { id: '' } })).toBe(false);
+    expect(isAgentPanelMessage({ type: 'toggleEnabled', payload: { id: 'reviewer', enabled: 'yes' } })).toBe(false);
+    expect(isAgentPanelMessage({ type: 'setAutoUpdateCadence', payload: { cadence: 'hourly' } })).toBe(false);
   });
 
   it('rejects null and primitives', () => {

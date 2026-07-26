@@ -8,7 +8,7 @@ import { PANEL_NAV_JS } from '../../src/views/panelNav.ts';
 /**
  * The shared vertical tab controller.
  *
- * Seven panels shipped a container declaring `role="tablist"` whose children
+ * The page-based panels shipped a container declaring `role="tablist"` whose children
  * were plain buttons — no `role="tab"`, no `aria-selected`, no `aria-controls`,
  * no `role="tabpanel"`, no roving tabindex and no keyboard handling of any
  * kind. This exercises the replacement against a minimal DOM stand-in rather
@@ -256,7 +256,7 @@ describe('panels adopting the shared nav', () => {
     .filter(({ text }) => text.includes('role="tablist"'));
 
   it('finds the panels that declare a tablist', () => {
-    expect(panelsWithTablist.length).toBeGreaterThanOrEqual(7);
+    expect(panelsWithTablist.length).toBeGreaterThanOrEqual(6);
   });
 
   it('settings keeps its own, already-correct tab implementation', () => {

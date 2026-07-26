@@ -12,6 +12,7 @@ const vscodeMocks = vi.hoisted(() => ({
   showInformationMessage: vi.fn(),
   showErrorMessage: vi.fn(),
   executeCommand: vi.fn(),
+  exec: vi.fn(),
 }));
 
 const {
@@ -26,6 +27,7 @@ const {
   showInformationMessage,
   showErrorMessage,
   executeCommand,
+  exec,
 } = vscodeMocks;
 const configurationUpdates: Array<{ key: string; value: unknown; target: unknown }> = [];
 
@@ -85,6 +87,10 @@ vi.mock('vscode', () => ({
   ProgressLocation: { Notification: 15, Window: 10, SourceControl: 1 },
   FileType: { File: 1, Directory: 2 },
   default: {},
+}));
+
+vi.mock('node:child_process', () => ({
+  exec: vscodeMocks.exec,
 }));
 
 import { bootstrapProject } from '../../src/bootstrap/bootstrapper.ts';
@@ -206,6 +212,14 @@ describe('bootstrapProject', () => {
     showInformationMessage.mockReset();
     showErrorMessage.mockReset();
     executeCommand.mockReset();
+    exec.mockReset();
+    exec.mockImplementation((...args: unknown[]) => {
+      const callback = [...args].reverse().find(
+        (arg): arg is (error: Error | null, stdout: string, stderr: string) => void => typeof arg === 'function',
+      );
+      queueMicrotask(() => callback?.(new Error('Command unavailable in unit test'), '', ''));
+      return {};
+    });
     configurationUpdates.length = 0;
     configurationState.clear();
     configurationState.set('ssotPath', 'project_memory');
@@ -344,7 +358,9 @@ describe('bootstrapProject', () => {
     expect(intakeLog).toContain('Captured online repo status from project brief.');
     expect(repositoryPlan).toContain('acme/platform/atlas-launchpad');
     expect(storedProfile?.answers?.rememberLongTerm).toContain('Audience: B2B customers');
-    expect(showInputBox).toHaveBeenCalledTimes(5);
+    // Project name, the dense summary, and the primary outcome are supplied;
+    // only success metrics remains uninferred and needs one additional prompt.
+    expect(showInputBox).toHaveBeenCalledTimes(4);
   }, 30000);
 
   it('captures where a missing online repo should be created when the project is not yet hosted', async () => {
