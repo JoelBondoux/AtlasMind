@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.141.10] - 2026-07-26
+
+### Added
+- **A computed contrast check for panel text** (`tests/views/themeContrast.test.ts`). Panel colours are built from chained custom properties and `color-mix()`, so a declaration-level search cannot tell whether the result is legible — two reviews of the source missed it. This resolves every `color` declaration to a concrete RGB value under real VS Code Dark Modern values and measures WCAG contrast against the background it sits on. Two modelling details are load-bearing: `transparent` inside a `color-mix` composites over the *page* background rather than letting the other colour win, and only the dark cascade branch counts — including `body.vscode-light` inverts `--tint-away` and makes every tinted accent read as near-black. Getting either wrong produces confident nonsense, and both did before they were fixed.
+- Result: **no near-black text on a dark surface anywhere in the panels**, and only three rules below a 2.4:1 floor — all deliberate light-fill badges. The reported black text is therefore not in panel CSS.
+
 ## [0.141.9] - 2026-07-26
 
 ### Added
