@@ -436,6 +436,15 @@
     if (!(handle instanceof Element) || state.editingCardId) {
       return;
     }
+    // In a projected lens the board layout is derived: projectCardsForLens
+    // renders copies at computed column/row coordinates while the stored card
+    // keeps its own x/y. Dragging read the *stored* origin, so the first
+    // pointer move teleported the card to somewhere unrelated — and any drop
+    // would have been overwritten by the next projection anyway. Positions are
+    // only the user's to set on the free-form board.
+    if (isProjectedLens(state.boardLens)) {
+      return;
+    }
     const cardId = handle.getAttribute('data-drag-card-id') || '';
     const card = findIdeationCard(cardId);
     if (!card) {
@@ -772,7 +781,7 @@
           '<div class="ideation-edge-glow ideation-edge-glow-right" data-edge="right"></div>' +
           '<div class="ideation-edge-glow ideation-edge-glow-bottom" data-edge="bottom"></div>' +
           '<div class="ideation-edge-glow ideation-edge-glow-left" data-edge="left"></div>' +
-          '<div id="ideationBoardStage" class="ideation-board-stage ideation-board-stage-' + lod + '" tabindex="0">' +
+          '<div id="ideationBoardStage" class="ideation-board-stage ideation-board-stage-' + lod + (isProjectedLens(state.boardLens) ? ' ideation-board-projected' : '') + '" tabindex="0">' +
             '<div id="ideationBoardWorld" class="ideation-board-world" style="transform: translate(calc(-50% + ' + state.viewportX + 'px), calc(-50% + ' + state.viewportY + 'px)) scale(' + state.zoom + ');">' +
               renderBoardLanes() +
               '<svg class="ideation-connections" viewBox="0 0 ' + BOARD_WORLD_WIDTH + ' ' + BOARD_WORLD_HEIGHT + '" preserveAspectRatio="none" aria-hidden="true">' + renderIdeationConnections({ cards: viewCards, connections: visibleConnections }, lod) + '</svg>' +
@@ -3044,8 +3053,17 @@
     return connection.relation === state.relationFilter;
   }
 
+  /**
+   * True when the lens computes card positions rather than using the stored
+   * ones. Card dragging is disabled in these lenses — the layout is derived,
+   * so a moved card would snap straight back on the next projection.
+   */
+  function isProjectedLens(lens) {
+    return lens !== 'default' && lens !== 'archived';
+  }
+
   function projectCardsForLens(cards, lens) {
-    if (lens === 'default' || lens === 'archived') {
+    if (!isProjectedLens(lens)) {
       return cards;
     }
     if (lens === 'focus-network') {

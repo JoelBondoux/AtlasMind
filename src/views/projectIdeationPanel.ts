@@ -4840,6 +4840,13 @@ const IDEATION_CSS = `
     gap: 8px;
     cursor: grab;
   }
+  /* A projected lens computes card positions, so dragging is disabled there.
+     Without this the handle still offered a grab cursor for a drag that could
+     not be honoured — and previously teleported the card, because the drag read
+     the stored position while the card was drawn at a derived one. */
+  .ideation-board-projected .ideation-card-head {
+    cursor: default;
+  }
   .ideation-card-minimal .ideation-card-head {
     gap: 4px;
   }

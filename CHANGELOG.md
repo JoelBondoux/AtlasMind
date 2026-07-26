@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.141.6] - 2026-07-26
+
+### Fixed
+- **Dragging a card in any non-default Ideation lens teleported it.** A projected lens (`projectCardsForLens`) renders *copies* at computed column/row coordinates while the stored card keeps its own `x`/`y`. The drag handler read the stored origin, so the first pointer move jumped the card to somewhere unrelated — and any drop would have been overwritten by the next projection regardless. Card positions are the user’s to set only on the free-form board, so dragging is now disabled in projected lenses and the handle no longer offers a grab cursor there.
+- **Every AI-instruction file path in Settings was unclickable.** Those buttons are injected into `#aiInstructionList` by `innerHTML` *after* a scan returns, but `[data-open-file]` was wired by a one-shot `querySelectorAll` at load, which never saw them. Now delegated.
+
+### Removed
+- The chat **speech-input button**. It rendered as a fully live control — `aria-pressed`, a `.listening` state, a pulse animation — and had zero references in any script: in-chat dictation is not implemented, and the button only implied it was. Its orphaned styles and keyframes are removed with it. Speech input remains available in the Voice Panel.
+
 ## [0.141.5] - 2026-07-25
 
 ### Changed

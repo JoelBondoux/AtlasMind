@@ -3759,17 +3759,22 @@ export class SettingsPanel {
             }
           })();
 
-          document.querySelectorAll('[data-open-file]').forEach(element => {
-            if (!(element instanceof HTMLButtonElement)) {
+          // Delegated, not bound per element at load. The AI-instruction file
+          // buttons are injected into #aiInstructionList by innerHTML *after* a
+          // scan returns, so a one-shot querySelectorAll at startup never saw
+          // them and every one of those paths was unclickable.
+          document.addEventListener('click', event => {
+            const element = event.target instanceof HTMLElement
+              ? event.target.closest('[data-open-file]')
+              : null;
+            if (!(element instanceof HTMLElement)) {
               return;
             }
-            element.addEventListener('click', () => {
-              const relativePath = element.dataset.openFile;
-              if (typeof relativePath !== 'string' || relativePath.trim().length === 0) {
-                return;
-              }
-              vscode.postMessage({ type: 'openWorkspaceFile', payload: relativePath });
-            });
+            const relativePath = element.dataset.openFile;
+            if (typeof relativePath !== 'string' || relativePath.trim().length === 0) {
+              return;
+            }
+            vscode.postMessage({ type: 'openWorkspaceFile', payload: relativePath });
           });
 
           document.querySelectorAll('[data-settings-page]').forEach(element => {

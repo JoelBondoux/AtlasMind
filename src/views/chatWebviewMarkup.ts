@@ -116,14 +116,6 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
                       <line x1="11.5" y1="11.5" x2="15" y2="15"/>
                     </svg>
                   </button>
-                  <button id="toggleDictation" class="icon-btn compact-icon-btn mic-btn" type="button" title="Start speech input" aria-label="Start speech input" aria-pressed="false">
-                    <svg class="mic-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <path d="M8 2.25a1.75 1.75 0 0 1 1.75 1.75v4a1.75 1.75 0 1 1-3.5 0V4A1.75 1.75 0 0 1 8 2.25z"/>
-                      <path d="M4.75 7.75a3.25 3.25 0 0 0 6.5 0"/>
-                      <path d="M8 11v2.75"/>
-                      <path d="M5.5 13.75h5"/>
-                    </svg>
-                  </button>
                   <button id="attachFiles" class="icon-btn compact-icon-btn" title="Add files" aria-label="Add files">+</button>
                   <button id="attachOpenFiles" class="icon-btn compact-icon-btn" title="Add open files" aria-label="Add open files">
                     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -887,18 +879,6 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           padding: 0;
           font-size: 0.82rem;
           line-height: 1;
-        }
-        .mic-btn.listening {
-          border-color: color-mix(in srgb, var(--vscode-focusBorder, var(--vscode-button-background)) 70%, var(--vscode-widget-border, #444));
-          background: color-mix(in srgb, var(--vscode-button-background) 18%, transparent);
-          color: var(--vscode-button-background);
-          box-shadow: 0 0 0 1px color-mix(in srgb, var(--vscode-button-background) 30%, transparent);
-        }
-        .mic-btn.listening .mic-icon {
-          animation: atlasmic-pulse 1.1s ease-in-out infinite;
-        }
-        .mic-btn:disabled {
-          opacity: 0.55;
         }
         .autopilot-btn[aria-pressed="true"] {
           border-color: color-mix(in srgb, var(--vscode-charts-yellow, #d7ba7d) 70%, var(--vscode-widget-border, #444));
@@ -2067,10 +2047,6 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           border: 1px solid color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) 40%, var(--vscode-widget-border, #444));
           background: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) 12%, transparent);
           color: var(--vscode-errorForeground, #f14c4c);
-        }
-        @keyframes atlasmic-pulse {
-          0%, 100% { transform: scale(1); opacity: 1; }
-          50% { transform: scale(1.08); opacity: 0.7; }
         }
 
         /* ---- AI instruction nudge ---- */

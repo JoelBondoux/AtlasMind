@@ -329,6 +329,38 @@ describe('codicon usage across panels', () => {
   });
 });
 
+describe('no control advertises a capability it lacks', () => {
+  it('chat ships no unwired dictation button', () => {
+    // #toggleDictation rendered as a fully live control — aria-pressed, a
+    // .listening state, a pulse animation — with zero references in any
+    // script. In-chat dictation is not implemented; the button only implied
+    // it was.
+    const markup = readFileSync(path.join(VIEWS_DIR, 'chatWebviewMarkup.ts'), 'utf8');
+    expect(markup).not.toContain('toggleDictation');
+    expect(markup).not.toContain('mic-btn');
+  });
+
+  it('wires open-file buttons by delegation, so late-injected ones work', () => {
+    // Settings binds at load, but the AI-instruction paths are injected by
+    // innerHTML after a scan returns — a one-shot querySelectorAll never saw
+    // them, leaving every one of those buttons dead.
+    const settings = readFileSync(path.join(VIEWS_DIR, 'settingsPanel.ts'), 'utf8');
+    expect(settings).not.toMatch(/document\.querySelectorAll\('\[data-open-file\]'\)/);
+    expect(settings).toMatch(/closest\('\[data-open-file\]'\)/);
+  });
+
+  it('does not offer a drag handle where the layout is computed', () => {
+    // A projected lens derives card positions, so the drag read a stored
+    // origin while the card was drawn somewhere else — the first move
+    // teleported it.
+    const script = readFileSync(path.join(process.cwd(), 'media', 'projectIdeation.js'), 'utf8');
+    expect(script).toContain('function isProjectedLens');
+    expect(script).toMatch(/if \(isProjectedLens\(state\.boardLens\)\) \{\s*return;/);
+    const panel = readFileSync(path.join(VIEWS_DIR, 'projectIdeationPanel.ts'), 'utf8');
+    expect(panel).toContain('.ideation-board-projected .ideation-card-head');
+  });
+});
+
 describe('mcp hero badge filters', () => {
   const source = readFileSync(path.join(VIEWS_DIR, 'mcpPanel.ts'), 'utf8');
 
