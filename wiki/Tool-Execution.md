@@ -13,7 +13,7 @@ Every skill is classified by its risk category:
 
 | Category | Risk Level | Examples |
 |----------|-----------|---------|
-| `read` | Low | `file-read`, `file-search`, `directory-list`, `text-search`, `memory-query`, `diagnostics`, `code-symbols`, `git-status`, `git-diff`, `git-log` |
+| `read` | Low | `file-read`, `file-search`, `directory-list`, `text-search`, `memory-query`, `specialist-guidance`, `diagnostics`, `code-symbols`, `git-status`, `git-diff`, `git-log` |
 | `workspace-write` | Medium | `file-write`, `file-edit`, `file-delete`, `file-move`, `git-apply-patch`, `memory-write`, `memory-delete` |
 | `git-read` | Low | `git-status`, `git-diff`, `git-log`, `git-branch` (list) |
 | `git-write` | High | `git-commit`, `git-branch` (create/delete) |
@@ -32,6 +32,8 @@ For dynamically registered tools whose category is not explicitly declared, Atla
 - Names that match neither pattern default to `network/high` (conservative fallback).
 
 This prevents MCP-backed inspection tools from triggering approval prompts that would be required for network-risk tools.
+
+`specialist-guidance` is explicitly classified as `read/low`: it returns a bounded checklist already bundled with the extension and performs no filesystem, process, network, secret, or workspace mutation. Any live verification the checklist recommends remains a separate tool call with its own classification and approval decision.
 
 ---
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createAtlasRuntime } from '../../src/runtime/core.ts';
+import { AgentAutoUpdater } from '../../src/core/agentAutoUpdater.ts';
 
 function makeSkillContext() {
   return {
@@ -69,6 +70,8 @@ describe('createAtlasRuntime', () => {
     expect(runtime.agentRegistry.get('default')?.systemPrompt).toContain('non-overrideable');
     expect(runtime.agentRegistry.get('default')?.systemPrompt).toContain('prefer capturing the change with the smallest relevant automated test before implementation');
     expect(runtime.agentRegistry.get('default')?.systemPrompt).toContain('If no suitable test or spec exists yet, create the smallest one needed');
+    expect(runtime.agentRegistry.get('default')?.systemPrompt).toContain('project-scoped instruction files');
+    expect(runtime.agentRegistry.get('default')?.systemPrompt).not.toContain('wiki/Changelog.md');
     expect(runtime.agentRegistry.get('workspace-debugger')?.systemPrompt).toContain('failing automated test');
     expect(runtime.agentRegistry.get('workspace-debugger')?.systemPrompt).toContain('create the smallest failing test or spec first');
     expect(runtime.agentRegistry.get('frontend-engineer')?.systemPrompt).toContain('smallest relevant automated regression test before implementation');
@@ -79,6 +82,11 @@ describe('createAtlasRuntime', () => {
     expect(runtime.agentRegistry.get('security-reviewer')?.systemPrompt).toContain('documentation summaries alone');
     expect(runtime.agentRegistry.get('security-reviewer')?.systemPrompt).toContain('code, config, and tests as the authoritative source');
     expect(runtime.agentRegistry.get('security-reviewer')?.systemPrompt).toContain('Treat every URL as untrusted input');
+    expect(runtime.skillsRegistry.get('specialist-guidance')).toMatchObject({
+      name: 'Specialist Guidance',
+      builtIn: true,
+      panelPath: ['Reference Guidance'],
+    });
     expect(runtime.agentRegistry.listAgents().length).toBeGreaterThanOrEqual(6);
     expect(runtime.skillsRegistry.listSkills().length).toBeGreaterThan(5);
     expect(runtime.providerRegistry.get('local')).toBeDefined();
@@ -429,5 +437,83 @@ describe('oversight advisors', () => {
       timestamp: new Date().toISOString(),
     });
     expect(result.agentId).not.toMatch(/-oversight$/);
+  });
+});
+
+describe('AgentAutoUpdater', () => {
+  it('never marks a built-in agent due, even on the every-use cadence', async () => {
+    let saved = false;
+    const updater = new AgentAutoUpdater(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      async () => { saved = true; },
+      () => 'every-use',
+    );
+    const builtIn = {
+      id: 'built-in',
+      name: 'Built in',
+      role: 'specialist',
+      description: 'Shipped agent',
+      systemPrompt: 'Guarded prompt',
+      skills: [],
+      builtIn: true,
+    };
+
+    expect(updater.isDue(builtIn)).toBe(false);
+    expect(await updater.maybeUpdate(builtIn)).toBe(builtIn);
+    expect(saved).toBe(false);
+  });
+
+  it('keeps specialist prompts concise and gives every user-facing specialist an observable definition of done', () => {
+    const runtime = createAtlasRuntime({
+      memoryStore: {
+        queryRelevant: async () => [],
+        getWarnedEntries: () => [],
+        getBlockedEntries: () => [],
+        redactSnippet: entry => entry.snippet,
+      },
+      costTracker: {
+        record: () => undefined,
+        getDailyBudgetStatus: () => undefined,
+      },
+      skillContext: makeSkillContext(),
+      providerAdapters: [{ providerId: 'local' } as never],
+    });
+    const specialistIds = [
+      'workspace-debugger',
+      'frontend-engineer',
+      'backend-engineer',
+      'code-reviewer',
+      'security-reviewer',
+      'ethics-oversight',
+      'legal-oversight',
+      'commercial-oversight',
+      'github-operator',
+      'test-developer',
+      'docs-writer',
+      'performance-analyst',
+      'devops-engineer',
+      'dependency-manager',
+      'seo-specialist',
+      'ux-consultant',
+    ];
+
+    for (const id of specialistIds) {
+      const rubric = runtime.agentRegistry.get(id)?.completionCriteria?.rubric ?? [];
+      expect(rubric.length, id).toBeGreaterThanOrEqual(3);
+      expect(rubric.length, id).toBeLessThanOrEqual(4);
+      expect(rubric.every(item => item.length > 20), id).toBe(true);
+    }
+
+    for (const id of ['github-operator', 'seo-specialist', 'ux-consultant']) {
+      expect(runtime.agentRegistry.get(id)?.systemPrompt.length, id).toBeLessThan(4_000);
+    }
+    expect(runtime.agentRegistry.get('seo-specialist')?.systemPrompt).not.toContain('15–30%');
+    expect(runtime.agentRegistry.get('seo-specialist')?.systemPrompt).not.toContain('Princeton/Georgia Tech');
+    expect(runtime.agentRegistry.get('ux-consultant')?.systemPrompt).not.toContain('768px–1023px');
+    expect(runtime.agentRegistry.get('github-operator')?.systemPrompt)
+      .not.toContain('project_memory/domain/ai-instructions-sync.md');
   });
 });

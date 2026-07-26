@@ -6,6 +6,19 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.144.0 — Concise role prompts and on-demand specialist guidance
+
+- **All 16 user-facing built-in specialists now append measurable role-specific completion criteria** to the shared execution rubric, so debugging, review, security, GitHub, testing, documentation, performance, DevOps, dependency, oversight, SEO, and UX work each have observable evidence and verification requirements.
+- **SEO and UX no longer carry encyclopedic permanent prompts.** A new read-only `specialist-guidance` skill loads one focused checklist only when relevant and requires current primary-source verification for time-sensitive search-platform, crawler, markup, performance, accessibility, and UI-platform rules.
+- **GitHub and default-agent policy handling is portable.** Both discover the active repository's instruction, branch, documentation, and release rules; GitHub artifacts are derived from the actual diff, and one-off confirmations are no longer silently persisted as durable policy.
+
+## v0.143.0 — One execution contract, evidence-based rubrics, and meaningful outcome learning
+
+- **Every routed agent now receives the same portable operating contract and six-part execution rubric at runtime.** That includes the hand-written specialists that previously received only immutable guardrails, plus custom, ephemeral, synthesized, and persisted-override agents. The rubric requires task fit, workspace evidence, completion, proportionate verification, safe tool use, and an honest handoff; agent definitions can append observable specialist criteria.
+- **Completion gates and Mission evaluation now use those criteria.** Agent-specific incomplete-response patterns trigger one finish-or-declare-blockers retry with bounded safe-regex handling, while GoalEvaluator explicitly assesses goal, success criteria, evidence, verification, and completeness and cannot accept `achieved` while listing remaining work.
+- **The router's outcome signal is no longer effectively constant.** It now grades actual tool successes/failures, whether an action turn used the available tools, verification, TDD evidence, incomplete delivery, and the final recovered response. Model Comparison keeps its separate coarse completion-integrity grade and optional answer-quality judge.
+- **Built-in agents are genuinely excluded from AI auto-update.** The cadence guard now enforces the promise already made by Settings and documentation, and Agent Manager renders the built-in exclusion as locked.
+
 ## v0.142.0 — Dark-mode legibility, and a score that counts what you have not done
 
 - **The black text in dark mode is fixed.** Card titles, metric values and section headings rendered black-on-black across four dashboards. The cause was a *missing* declaration rather than a wrong one: scoping the shared shell's button paint to unclassed buttons in v0.141.0 also removed `color` from every classed button, and a `<button>` with no author colour falls back to the browser's own `buttontext` keyword — black, whatever the VS Code theme says. Every review that looked for a bad colour was looking for something that was not there. The shell now sets `color: inherit` on all buttons, and pairs colour with background on text-entry controls against the same hazard.

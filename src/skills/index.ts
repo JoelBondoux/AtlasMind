@@ -39,6 +39,7 @@ import { gitBlameSkill } from './gitBlame.js';
 import { simpleBrowserSkill } from './simpleBrowser.js';
 import { debugLaunchSkill } from './debugLaunch.js';
 import { debugBreakpointSkill } from './debugBreakpoint.js';
+import { specialistGuidanceSkill } from './specialistGuidance.js';
 
 export { createDiscoverResourcesSkill } from './discoverResources.js';
 
@@ -50,6 +51,7 @@ export {
   simpleBrowserSkill,
   debugLaunchSkill,
   debugBreakpointSkill,
+  specialistGuidanceSkill,
   fileReadSkill,
   fileWriteSkill,
   fileSearchSkill,
@@ -134,6 +136,7 @@ export function createBuiltinSkills(): SkillDefinition[] {
     withPanelPath(simpleBrowserSkill, 'VS Code'),
     withPanelPath(debugLaunchSkill, 'Debugging'),
     withPanelPath(debugBreakpointSkill, 'Debugging'),
+    withPanelPath(specialistGuidanceSkill, 'Reference Guidance'),
   ];
 }
 

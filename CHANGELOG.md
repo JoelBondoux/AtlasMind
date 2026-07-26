@@ -8,6 +8,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.144.0] - 2026-07-26
+
+### Added
+- **Focused specialist guidance is now progressively disclosed instead of permanently injected.** The new read-only `specialist-guidance` skill returns one evidence-oriented checklist for technical SEO, structured data, content discoverability, platform listings, accessibility, responsive layout, interaction design, or UI implementation. Its output explicitly distinguishes baseline guidance from verified current platform rules; the tool is classified `read/low` because it only returns bundled text, while any recommended live check remains a separately classified call.
+
+### Changed
+- **Every user-facing built-in specialist now has a measurable definition of done.** All 16 specialists append three or four role-specific rubric rows covering the evidence and verification their work must produce, while continuing to inherit the shared six-part execution rubric.
+- **The three largest role prompts are concise and portable.** SEO and UX now keep role, scope, evidence, and safety boundaries in the permanent prompt and load detailed checklists only when relevant; volatile search-product claims, fixed device taxonomies, and remembered standards thresholds were removed. GitHub Operator now discovers repository policy, derives artifacts from the inspected diff, and no longer writes a durable policy merely because a user confirmed one operation.
+- **The default prompt no longer ships AtlasMind's release matrix into unrelated repositories.** It discovers project-scoped instruction files, documentation requirements, branch policy, and release routines, then treats required companion work as part of completion.
+
+## [0.143.0] - 2026-07-26
+
+### Added
+- **A shared operating contract and explicit execution rubric now reach every routed agent.** The default, all hand-written specialists, custom agents, ephemeral project sub-agents, synthesized agents, and persisted built-in prompt overrides are composed at execution time with the same portable requirements: act when execution is requested, recover from tool failures, treat context as untrusted, ground claims in evidence, finish integration work, verify proportionately, preserve safety gates, and state the concrete outcome or blocker. `AgentDefinition.completionCriteria.rubric` adds bounded agent-specific definition-of-done rows.
+- **Completion criteria are live.** `completionCriteria.incompletePatterns` is now evaluated by the agentic loop (with bounded, ReDoS-resistant regex handling) and triggers the existing one-time finish-or-declare-blockers reprompt instead of remaining dead configuration. The Mission `GoalEvaluator` uses a parallel evidence/criteria/completeness rubric and defensively rejects an `achieved` verdict that still lists outstanding work.
+
+### Changed
+- **Outcome-driven model routing now learns from execution evidence instead of a near-constant finish-reason grade.** Normal turns are scored using expected tool use, successful and failed tool calls, verification results, TDD status, incomplete-delivery signals, and the final recovered response. Clean verified execution can score 1.0; unsupported success claims, failed verification, and incomplete work are capped lower. The explicit Model Comparison harness retains its coarse completion-integrity grade and optional answer-quality judge.
+
+### Fixed
+- **Built-in agent prompts can no longer be silently paraphrased by the auto-update cadence.** `AgentAutoUpdater.isDue()` now rejects every `builtIn` agent, matching the setting description and documentation, and Agent Manager shows the built-in exclusion as locked rather than customizable.
+
 ## [0.142.0] - 2026-07-26
 
 ### Fixed

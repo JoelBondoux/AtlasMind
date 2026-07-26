@@ -46,4 +46,13 @@ describe('classifyToolInvocation terminal safety', () => {
     expect(policy.category).toBe('terminal-write');
     expect(policy.risk).toBe('high');
   });
+
+  it('classifies in-memory specialist guidance as a low-risk read', () => {
+    const policy = classifyToolInvocation('specialist-guidance', {
+      topic: 'accessibility',
+    });
+
+    expect(policy.category).toBe('read');
+    expect(policy.risk).toBe('low');
+  });
 });

@@ -566,7 +566,7 @@ export class AgentManagerPanel {
 
       const isBuiltIn = agent?.builtIn === true;
       const builtInNotice = isBuiltIn
-        ? `<div class="built-in-notice">Built-in agent — name and role are fixed. System prompt, description, cost limit, and auto-update settings are customizable. Use <strong>Reset to defaults</strong> to restore factory values.</div>`
+        ? `<div class="built-in-notice">Built-in agent — name and role are fixed, and automatic prompt updates are disabled. System prompt, description, and cost limit are customizable. Use <strong>Reset to defaults</strong> to restore factory values.</div>`
         : '';
       const agentIdRow = isNew
         ? `<label>Agent ID</label><div class="hint" style="padding-top:6px">Auto-generated from the name (lowercase letters, digits, hyphens, underscores).</div>`
@@ -611,10 +611,10 @@ export class AgentManagerPanel {
             <label>Auto-Update</label>
             <div>
               <label style="font-weight:normal;cursor:pointer">
-                <input type="checkbox" id="agentAutoUpdateExcluded" ${autoUpdateExcluded ? 'checked' : ''} />
+                <input type="checkbox" id="agentAutoUpdateExcluded" ${isBuiltIn || autoUpdateExcluded ? 'checked' : ''} ${isBuiltIn ? 'disabled' : ''} />
                 Exclude from auto-updates
               </label>
-              <div class="hint">When checked, this agent's system prompt will not be refreshed by the global auto-update cadence.</div>
+              <div class="hint">${isBuiltIn ? 'Built-in agents are always excluded from the global cadence.' : 'When checked, this agent\'s system prompt will not be refreshed by the global auto-update cadence.'}</div>
             </div>
 
             <label>Skills</label>

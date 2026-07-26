@@ -183,11 +183,13 @@ The Tool Webhooks panel (`src/views/toolWebhookPanel.ts`) provides webhook enabl
 
 Across AtlasMind's newer multi-page webview panels, top-right hero summary chips follow a consistent interaction rule: if a chip maps to a real section or filtered catalog, it is rendered as a button; if it is purely explanatory, it exposes a hover/focus tooltip instead of pretending to navigate.
 
-The Manage Agents webview now also exposes a global Agent Auto-Update cadence control in the Agent Directory page. That selector writes `atlasmind.agentAutoUpdateCadence` through validated extension-host message handling rather than mutating configuration directly in the webview.
+The Manage Agents webview exposes a global Agent Auto-Update cadence control in the Agent Directory page. That selector writes `atlasmind.agentAutoUpdateCadence` through validated extension-host message handling rather than mutating configuration directly in the webview. Built-in editor rows render their exclusion checkbox checked and disabled because the host rejects built-ins before any auto-update provider call; user-created agents retain the editable per-agent exclusion.
 
 Built-in skills now include a git-backed patch application helper (`src/skills/gitApplyPatch.ts`) that validates or applies unified diffs through `git apply` from the shared `SkillExecutionContext`.
 
 Container-aware automation uses a separate Docker skill (`src/skills/dockerCli.ts`) rather than expanding generic terminal passthrough. That skill only permits a curated subset of `docker` and `docker compose` inspection and lifecycle commands, keeping container workflows explicit in the approval pipeline.
+
+Detailed SEO and UX instructions use the read-only `specialist-guidance` skill (`src/skills/specialistGuidance.ts`). Its short tool description stays in the normal tool schema, while the selected checklist is returned only when called. Keep permanent agent prompts limited to role, scope, safety boundaries, and measurable completion criteria; add or revise a guidance topic instead of embedding volatile platform facts or full audit matrices in `src/runtime/core.ts`.
 
 ## Security Defaults
 

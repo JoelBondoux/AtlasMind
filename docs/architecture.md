@@ -83,8 +83,11 @@ Central coordinator. Receives a `TaskRequest` and:
 3. Builds a task profile via `TaskProfiler`.
 4. Picks a model via `ModelRouter.selectModel()`.
 5. Resolves skills for the agent via `SkillsRegistry.getSkillsForAgent()`.
-6. Builds a context bundle and dispatches execution.
-7. Records cost via `CostTracker`.
+6. Composes immutable guardrails, the portable operating contract, the selected role prompt, and the shared plus agent-specific execution rubric.
+7. Builds a context bundle and dispatches execution, enforcing incomplete-delivery and verification gates.
+8. Records cost and an evidence-backed execution-quality outcome via `CostTracker` and `ModelRouter`.
+
+The operating contract and rubric are injected in `buildMessages()` rather than copied into built-in definitions. This closes prompt drift across hand-written specialists, custom agents, ephemeral project agents, synthesized agents, and persisted prompt overrides. Built-in role prompts therefore contain only specialist scope and boundaries; all 16 user-facing specialists add concise observable criteria through `completionCriteria.rubric`. Detailed SEO and UX checklists are progressively disclosed by `src/skills/specialistGuidance.ts` only when relevant, keeping volatile platform and standards details out of permanent prompts. `completionCriteria.incompletePatterns` is evaluated inside the agentic loop using a bounded restricted-regex policy before the existing one-time completion-integrity reprompt. Execution artifacts record failed tool-call count alongside tool count, verification, and TDD status so the router's outcome signal reflects observable delivery rather than only the provider finish reason.
 
 ### AgentRegistry (`src/core/agentRegistry.ts`)
 
@@ -106,7 +109,7 @@ Utility helpers that build the prompt for Atlas-generated custom skill drafts, n
 
 Maintains a map of `ProviderConfig` objects plus provider health state. `selectModel()` accepts `RoutingConstraints`, an optional model whitelist, and an optional `TaskProfile`. It filters by required capabilities, task-profile gates, and provider health before scoring the remaining models using budget mode, speed mode, capability proxies, and task fit. `getModelInfo()` exposes pricing metadata for orchestration cost accounting.
 
-The router carries two learned, decaying routing channels (both gated by `feedbackRoutingWeight`): a positive **outcome bias** (EWMA of graded execution quality, in `executionOutcomes`) and a **struggle memory** (`struggleSignals`) — a persistent, task-signature-keyed de-weight for models that repeatedly fail a *kind* of task. `recordModelStruggle()` folds a severity-weighted, decaying increment (kinds: timeout, empty, tool-call-as-text, error-finish, user-correction) keyed by `phase|modality|reasoning|requiresTools`; `scoreModel()` subtracts the decayed penalty, and `selectBestModel()` applies a **tier-escape** (re-opening candidacy one budget tier higher and re-ranking) when the top pick is a chronic struggler, so a capable model can take over the task kind a cheap model keeps failing. `recoverModelStruggle()` halves the penalty on a clean turn; `getStruggleSignals()`/`setStruggleSignals()` snapshot/restore for persistence (`globalState` key `atlasmind.modelStruggleSignals`); `getStruggleSummary()` exposes active de-weights for the Model Comparison panel hint.
+The router carries two learned, decaying routing channels (both gated by `feedbackRoutingWeight`): a positive **outcome bias** (EWMA of graded execution quality, in `executionOutcomes`) and a **struggle memory** (`struggleSignals`) — a persistent, task-signature-keyed de-weight for models that repeatedly fail a *kind* of task. Normal orchestrator grades incorporate expected tool use, tool success/failure counts, verification, TDD status, incomplete-delivery signals, and the final recovered response; clean text is no longer automatically a perfect execution outcome. The explicit Model Comparison harness intentionally retains its coarse completion-integrity grade and optional judge. `recordModelStruggle()` folds a severity-weighted, decaying increment (kinds: timeout, empty, tool-call-as-text, error-finish, user-correction) keyed by `phase|modality|reasoning|requiresTools`; `scoreModel()` subtracts the decayed penalty, and `selectBestModel()` applies a **tier-escape** (re-opening candidacy one budget tier higher and re-ranking) when the top pick is a chronic struggler, so a capable model can take over the task kind a cheap model keeps failing. `recoverModelStruggle()` halves the penalty on a clean turn; `getStruggleSignals()`/`setStruggleSignals()` snapshot/restore for persistence (`globalState` key `atlasmind.modelStruggleSignals`); `getStruggleSummary()` exposes active de-weights for the Model Comparison panel hint.
 
 Key behaviors added in 0.73.0–0.73.1:
 - **Deprecation filter**: models with a `deprecatedAt` date in the past are auto-excluded from candidates.
@@ -223,7 +226,7 @@ The autonomous goal-seeking **Mission Loop**. It wraps the existing single-pass 
 
 ### GoalEvaluator (`src/core/goalEvaluator.ts`)
 
-LLM-backed progress judge that decides whether a mission's goal is met. Given the goal, success criteria, accumulated outputs, changed files, and verification status, it returns a `GoalVerdict` (`achieved` | `progressing` | `stalled` | `blocked`, plus `confidence`, `remaining`, `nextFocus`, `rationale`). Output is treated as **untrusted**: `parseGoalVerdict` strips fences, extracts the first object, and validates every field (mirroring the Planner's discipline), falling back to `stalled`/zero-confidence on anything malformed so a bad evaluator can never falsely declare success. `applyVerificationGuard` defensively downgrades an `achieved` verdict to `progressing` when the iteration changed files but its TDD/verification status is `missing` or `blocked`. The evaluator takes an injected one-shot completion function (the runner passes `Orchestrator.summarizeText`).
+LLM-backed progress judge that decides whether a mission's goal is met. Given the goal, success criteria, accumulated outputs, changed files, and verification status, it applies an explicit goal/criteria/evidence/verification/completeness/calibration rubric and returns a `GoalVerdict` (`achieved` | `progressing` | `stalled` | `blocked`, plus `confidence`, `remaining`, `nextFocus`, `rationale`). Output is treated as **untrusted**: `parseGoalVerdict` strips fences, extracts the first object, and validates every field (mirroring the Planner's discipline), falling back to `stalled`/zero-confidence on anything malformed so a bad evaluator can never falsely declare success. `applyVerificationGuard` defensively downgrades an `achieved` verdict to `progressing` when the iteration changed files but its TDD/verification status is `missing`/`blocked`, or when the verdict itself still lists outstanding work. The evaluator takes an injected one-shot completion function (the runner passes `Orchestrator.summarizeText`).
 
 ### MissionRegistry (`src/core/missionRegistry.ts`)
 
@@ -500,7 +503,7 @@ All shared types live in `src/types.ts`. See the [type definitions](../src/types
 
 | Interface | Purpose |
 |---|---|
-| `AgentDefinition` | Agent identity, role, system prompt, allowed models, cost limit, skills |
+| `AgentDefinition` | Agent identity, role, system prompt, allowed models, cost limit, skills, and optional completion rubric/incomplete-response gates |
 | `SkillDefinition` | Skill identity, JSON Schema for tool params, handler path |
 | `ModelInfo` | Model identity, provider, pricing, context window, capabilities, reasoning depth, latency class, and prompt-cache support (`supportsPromptCaching`, `cachedInputPricePer1k`) |
 | `ProviderConfig` | Provider identity, API key setting key, enabled flag, model list |

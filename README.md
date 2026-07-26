@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.142.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.144.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -228,7 +228,9 @@ AtlasMind ships 18 specialized agents, automatically routed by task type.
 
 Agents use **AI-driven skill auto-assignment** by default — AtlasMind selects the best-fit skills for each agent's role automatically. Skills can also be assigned manually per agent.
 
-Agents can be **auto-updated on a configurable cadence** (never/daily/weekly/monthly/every-use) so system prompts stay current with best practices and compliance requirements. Individual agents can opt out of auto-updates.
+Every user-facing agent receives the same execution contract and definition-of-done rubric at runtime: act when execution was requested, ground claims in workspace/tool evidence, finish integration work, verify proportionately, preserve safety gates, and report the concrete outcome or blocker. This also covers specialist, custom, ephemeral, synthesized, and persisted built-in prompt overrides; agent-specific rubric rows can add observable completion requirements.
+
+User-created agents can be **auto-updated on a configurable cadence** (never/daily/weekly/monthly/every-use) so system prompts stay current with best practices and compliance requirements. Built-in agents are never auto-updated, and their Agent Manager control is visibly locked; individual user agents can opt out.
 
 ---
 
@@ -334,7 +336,7 @@ See [Funding and Sponsorship](wiki/Funding-and-Sponsorship.md) for details.
 
 - Core runtime: `src/core/`, `src/runtime/`, `src/chat/`, `src/commands.ts`, `src/extension.ts`
 - Provider adapters and catalogs: `src/providers/` (including `localModelSync.ts` and `localModelRecommendationRegistry.ts`)
-- Skills and tool handlers: `src/skills/`
+- Skills and tool handlers: `src/skills/` (including `specialistGuidance.ts`, which progressively discloses focused SEO/UX checklists instead of bloating every specialist prompt)
 - Shared utilities: `src/utils/` (including `secretRedactor.ts` — pattern-based secret scanner used to scrub credentials from memory context before LLM dispatch; `aiInstructionSync.ts` — inbound merge of external agent rule files; `testingProtocolSync.ts` — outbound sync of enabled testing protocols into external agent instruction files; `terminalOutput.ts` — strips ANSI/control escape sequences from captured tool output before it is shown in chat summaries or webviews)
 - Data privacy: `src/core/dataPrivacyManager.ts` (classifies confidential/proprietary terms, files, and folders and gates them to user-selected "trusted" models; records catch activity for the dashboard charts), `src/core/compliancePacks.ts` (built-in GDPR/HIPAA/PCI-DSS/CCPA detector packs), and `src/core/providerDataGovernance.ts` (per-provider GDPR/data-management reference links). The gate scans the context assembled for a task rather than your request, so it responds in proportion: PCI cardholder data and HIPAA PHI restrict routing to trusted models, while GDPR/CCPA matches are advisory and rely on the redaction boundary — one heuristic hit can't silently downgrade an unrelated task. Managed from the Project Dashboard → **Privacy** page (provider/model trust tree, catch charts, and provider data-management panel); policy stored at `project_memory/operations/data-privacy.json`.
 - Delivery & deployment stages: `src/core/deliveryManager.ts` (models Local → Staging → Production stages and promotion "push" edges; seeds a pipeline from the repo's branches, sanitises dashboard edits via `sanitizeDeliveryConfig`, and persists `project_memory/operations/delivery.json` + a human-readable `delivery.md` runbook mirror) and `src/core/promotionRunner.ts` (the guarded promotion engine: builds the preflight → backup → deploy → verify → record plan, enforces the authorization gate, and executes user-authored commands with live progress). Surfaced on the Project Dashboard → **Delivery** page as an editable **Stages & Promotion** pipeline with **Execute / Runbook** push buttons; production is protected, a data-bearing target with no backup command is deny-by-default blocked, executed commands are sourced only from your saved config/routines, and AtlasMind never force-pushes. The page **auto-refreshes** on external `delivery.json` changes (file watcher) and shows a **"review needed"** banner when the protocol, stage-candidate branches, or CI workflows have drifted since your last review.
