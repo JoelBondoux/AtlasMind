@@ -2680,6 +2680,14 @@
             meterKey: `risk-assurance:${domain.domain}`,
           })}
           <div class="list-meta">${escapeHtml(never ? 'No assurance recorded yet.' : `${Math.round(assurance)}% of the ${RISK_STALE_DAYS}-day assurance window remaining.`)}</div>
+          ${/* A clean result only means something if you can see what was looked
+                for — "0 open" reads as "nothing was checked" otherwise. Stated
+                plainly once the advisor has actually run and found nothing. */ ''}
+          ${domain.coverage ? `
+            <details class="risk-coverage"${!never && domain.openCount === 0 ? ' open' : ''}>
+              <summary>${escapeHtml(never ? 'What this advisor reviews' : domain.openCount === 0 ? 'Reviewed, nothing flagged — what was checked' : 'What this advisor reviews')}</summary>
+              <p class="stat-detail">${escapeHtml(domain.coverage)}</p>
+            </details>` : ''}
           <button type="button" class="action-link primary" data-action="risk-run" data-payload="${escapeAttr(domain.domain)}"${state.riskBusy ? ' disabled' : ''} title="Run the ${escapeAttr(domain.label)} Oversight advisor over this workspace">
             ${state.riskBusy ? 'Running…' : 'Run ' + escapeHtml(domain.label) + ' review'}
           </button>

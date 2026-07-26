@@ -4171,7 +4171,6 @@ const IDEATION_CSS = `
     flex-direction: column;
     gap: 18px;
   }
-  .ideation-topbar,
   .row-head,
   .ideation-toolbar,
   .ideation-composer-actions,
@@ -4264,6 +4263,32 @@ const IDEATION_CSS = `
     flex-direction: column;
     gap: 18px;
   }
+  /* The hero title bar every other dashboard shares. Ideation's topbar had been
+     lumped in with the generic flex rows (gap 10, centre-aligned), so it read
+     as a toolbar rather than as the page's title, and the panel lost its only
+     visual anchor when the hero explainer grid was retired. Mirrors
+     .dashboard-topbar in projectDashboardPanel.ts. */
+  .ideation-topbar {
+    display: flex;
+    justify-content: space-between;
+    gap: 24px;
+    align-items: flex-start;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+  }
+
+  .ideation-topbar h1 {
+    margin: 0;
+    font-size: clamp(30px, 4vw, 44px);
+    letter-spacing: -0.02em;
+  }
+
+  .ideation-topbar .section-copy {
+    margin: 10px 0 0;
+    max-width: 780px;
+    font-size: 14px;
+  }
+
   .ideation-process-section {
     margin-top: -2px;
   }

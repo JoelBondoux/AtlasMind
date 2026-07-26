@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+## [0.141.9] - 2026-07-26
+
+### Added
+- **The Risk board now states what each advisor actually reviewed.** A clean result is only meaningful if you can see what was looked for — “0 open findings” otherwise reads as “nothing was checked”. Each domain card carries a disclosure listing that advisor’s scope, sourced from its own agent definition rather than restated on the page so the two cannot drift, and it **opens itself** when a domain has run and found nothing — exactly the case where the question arises.
+
+### Fixed
+- **The Ideation panel had lost the hero title bar the other dashboards share.** Its topbar was grouped with the generic flex rows (10px gap, centre-aligned), so it read as a toolbar rather than the page title — and retiring the hero explainer grid in 0.141.0 left the panel with no visual anchor at all. It now uses the same hero treatment as the Project Dashboard, Cost Dashboard and Run Center.
+
 ## [0.141.8] - 2026-07-26
 
 ### Fixed

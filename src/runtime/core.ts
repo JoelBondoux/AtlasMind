@@ -825,16 +825,21 @@ export const BUILTIN_AGENT_DEFAULTS: readonly AgentDefinition[] = [
       name: 'Memory Agent',
       role: 'session context and SSOT memory manager',
       description:
-        'Maintains per-session context files and project SSOT snippets. ' +
-        'Runs automatically in the background after each chat turn — never invoked directly. ' +
-        'Configure allowedModels to pin to a local LLM (e.g. an Ollama model) to avoid cloud costs.',
+        'Internal background worker for per-session context files and project SSOT snippets. ' +
+        'Never handles a user chat turn — MemoryAgentExecutor supplies its own per-call system prompt and reads only this definition\'s allowedModels. ' +
+        'Configure allowedModels to pin memory maintenance to a local LLM (e.g. an Ollama model) to avoid cloud costs.',
       systemPrompt: [
-        'You maintain AtlasMind session context and SSOT memory.',
-        'Produce concise, factual markdown. Never add timestamps, metadata, or preamble.',
-        'Compress aggressively when nearing character limits; preserve recency over history.',
-      ].join('\n'),
-      skills: [],
+        IMMUTABLE_GUARDRAILS,
+        'You are AtlasMind\'s internal memory-maintenance worker, not a conversational agent.',
+        'This definition exists so memory maintenance can be pinned to a specific model via allowedModels. MemoryAgentExecutor supplies the real system prompt for each maintenance operation.',
+        'If you are ever selected for a user-facing task, do not attempt it. Say that memory maintenance runs in the background, and name the specialist agent that should handle the request instead.',
+        'When you do produce memory content: concise factual markdown only. No timestamps, no metadata, no preamble. Compress aggressively near character limits and preserve recency over history.',
+        'Never write a secret, credential, token, key, or personal identifier into memory. Summarise around it and note that a redacted value exists at that location.',
+      ].join('\n\n'),
+      skills: ['memory-query', 'file-read', 'directory-list'],
       builtIn: true,
+      autoUpdateExcluded: true,
+      skillsAutoManaged: false,
     },
 ];
 

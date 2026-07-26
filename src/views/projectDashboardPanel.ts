@@ -5319,6 +5319,14 @@ interface DashboardRiskDomainView {
   daysSinceRun?: number;
   openCount: number;
   stale: boolean;
+  /**
+   * What this advisor actually reviews, taken from its own agent definition.
+   *
+   * A clean result is only meaningful if you can see what was looked for — "no
+   * concerns" reads as "nothing was checked" otherwise. Sourced from the
+   * registry rather than restated here so the two cannot drift.
+   */
+  coverage?: string;
 }
 
 interface DashboardRiskSnapshot {
@@ -5414,10 +5422,19 @@ function collectRiskSnapshot(atlas: AtlasMindContext, workspaceRoot: string | un
     const run = config?.runs.find(entry => entry.domain === domain);
     const parsed = run ? Date.parse(run.ranAt) : Number.NaN;
     const daysSinceRun = Number.isNaN(parsed) ? undefined : Math.floor((now - parsed) / 86_400_000);
+    const agentId = `${domain}-oversight`;
+    // The advisor's own description is the authoritative statement of what it
+    // reviews; the sentence about being advisory belongs on the page intro, not
+    // on every card, so only the first sentence is carried across.
+    // Optional *call*, not just optional access: this is descriptive enrichment,
+    // and a registry that cannot answer must never take the whole dashboard
+    // snapshot down with it.
+    const coverage = atlas.agentRegistry?.get?.(agentId)?.description?.split(/(?<=\.)\s+/)[0];
     return {
       domain,
       label: RISK_DOMAIN_LABEL[domain],
-      agentId: `${domain}-oversight`,
+      agentId,
+      ...(coverage ? { coverage } : {}),
       ...(run ? { lastRun: run.ranAt } : {}),
       ...(daysSinceRun === undefined ? {} : { daysSinceRun }),
       openCount: open.filter(finding => finding.domain === domain).length,
@@ -7849,6 +7866,35 @@ const DASHBOARD_CSS = `
     font-size: 12px;
     color: var(--dash-muted);
   }
+
+  /* What an advisor reviews, so a clean result is legible as "checked and
+     clear" rather than "never looked". Opens itself when a domain has run and
+     found nothing, which is exactly when the question arises. */
+  .risk-coverage {
+    margin-top: 6px;
+  }
+
+  .risk-coverage > summary {
+    cursor: pointer;
+    list-style: none;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--dash-muted);
+    padding: 2px 0;
+  }
+
+  .risk-coverage > summary::-webkit-details-marker { display: none; }
+
+  .risk-coverage > summary::before {
+    content: "\\25B8";
+    display: inline-block;
+    margin-right: 6px;
+    transition: transform var(--dash-dur-fast) var(--dash-ease);
+  }
+
+  .risk-coverage[open] > summary::before { transform: rotate(90deg); }
+  .risk-coverage > summary:hover { color: var(--vscode-foreground); }
+  .risk-coverage .stat-detail { margin: 4px 0 0; }
 
   /* ── Release strip ────────────────────────────────────────────────────
      One tick per recorded promotion, oldest left. Turns "read eight rows" into

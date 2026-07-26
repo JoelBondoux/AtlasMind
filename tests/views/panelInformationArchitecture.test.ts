@@ -301,3 +301,40 @@ describe('website studio step order', () => {
     expect(steps.map(s => s.n)).toEqual(['1', '2', '3', '4', '5', '6']);
   });
 });
+
+describe('ideation hero title bar', () => {
+  const panel = read('projectIdeationPanel.ts');
+
+  it('styles its topbar as a hero, like the other dashboards', () => {
+    // The topbar was lumped in with the generic flex rows (gap 10, centred), so
+    // it read as a toolbar rather than the page title — and the panel lost its
+    // only visual anchor when the hero explainer grid was retired.
+    expect(panel).toMatch(/\.ideation-topbar \{[^}]*justify-content: space-between/s);
+    expect(panel).toMatch(/\.ideation-topbar h1 \{[^}]*font-size: clamp\(30px, 4vw, 44px\)/s);
+  });
+
+  it('keeps the topbar out of the generic flex-row group', () => {
+    const genericGroup = panel.slice(panel.indexOf('.row-head,'), panel.indexOf('.row-head,') + 400);
+    expect(genericGroup).not.toContain('.ideation-topbar,');
+  });
+});
+
+describe('risk advisor coverage', () => {
+  const panel = read('projectDashboardPanel.ts');
+  const script = readFileSync(path.join(process.cwd(), 'media', 'projectDashboard.js'), 'utf8');
+
+  it('sources what each advisor reviews from its own definition', () => {
+    // Restating the scope in the dashboard would let the two drift; the agent
+    // description is the authoritative statement.
+    expect(panel).toContain('coverage?: string');
+    expect(panel).toContain('atlas.agentRegistry?.get?.(agentId)?.description');
+  });
+
+  it('shows what was checked when an assessment finds nothing', () => {
+    // "0 open" reads as "nothing was checked" unless the scope is visible, so
+    // the disclosure opens itself exactly in the clean-result case.
+    expect(script).toContain('risk-coverage');
+    expect(script).toContain("!never && domain.openCount === 0 ? ' open' : ''");
+    expect(script).toContain('Reviewed, nothing flagged');
+  });
+});
