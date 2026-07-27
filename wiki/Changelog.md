@@ -6,6 +6,19 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.145.6 — Tool-capable project handoff and recoverable limits
+
+- **Planning and execution stay separate.** A reasoning-only model may create the plan, but non-synthesis subtasks receive enabled workspace-evidence skills and route to a model that can actually call them.
+- **Tool-unavailable refusals trigger handoff.** AtlasMind reroutes an executor that reports disabled tools and records an unrecovered refusal as failed rather than completed.
+- **Limit recovery is clickable and correctly scoped.** Chat asks whether to use the suggested limit once, save it permanently, or keep the partial result. A one-run increase restores the previous value after the retry.
+- **Project transcripts stay singular.** Custom-panel project runs no longer append a duplicate user/assistant pair after their streamed run bubble.
+
+## v0.145.5 — Reliable model refresh and run handoffs
+
+- **Removed provider models stay removed.** Successful empty discovery prunes stale entries, and provider-confirmed missing/deprecated models retain a session tombstone across refreshes.
+- **Project-run proposals are decisions, not dead ends.** Interactive chat offers **Start run**, **Save for later**, and **Cancel**; saving creates a Project Run Center preview, while enabled Autopilot can still start immediately.
+- **Local savings are visible in the Efficiency summary.** The headline estimate and detailed per-model comparison share the same local-only usage calculation.
+
 ## v0.145.4 — Security review register foundation
 
 - **Security reviews now have durable, consistent records.** A new `SecurityReviewManager` persists findings and runs for secrets, runtime boundaries, dependencies, and permissions to JSON, a readable Markdown mirror, and capped audit history.

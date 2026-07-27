@@ -26,8 +26,10 @@ import {
   buildProjectResponseMetadata,
   buildWorkstationContext,
   ensureAssistantVisibleResponse,
+  isAutonomousContinuationPrompt,
   reconcileAssistantResponse,
   resolveAtlasChatIntent,
+  resolveProjectRunProposal,
   resolveProjectRunAutoFlow,
   runProjectCommand,
   runLoopCommand,
@@ -137,6 +139,8 @@ interface ChatPanelRunSummary {
 interface PreparedPromptRequest {
   userMessage: string;
   projectGoal?: string;
+  /** False for continuation/card starts so the file-count safety gate still runs. */
+  projectPreApproved?: boolean;
   loopGoal?: string;
   directResponse?: { markdown: string; modelUsed: string; composerPrefills?: SessionComposerPrefill[] };
   commandIntent?: { commandId: string; args?: unknown[]; summary: string };
@@ -530,6 +534,9 @@ export class ChatPanel {
           this.settleLoopDecision(message.payload.choice);
           await this.syncState();
         }
+        return;
+      case 'resolveProjectRunProposal':
+        await this.resolveProjectRunProposal(message.payload.entryId, message.payload.decision);
         return;
       case 'stopPrompt':
         await this.stopActivePrompt();
@@ -981,6 +988,7 @@ export class ChatPanel {
           cancellationSource.token,
           sessionContextBundle ?? undefined,
           sessionContext || undefined,
+          preparedRequest.projectPreApproved ?? true,
         );
         await this.host.webview.postMessage({ type: 'status', payload: 'Autonomous project run completed.' });
         return;
@@ -1116,6 +1124,26 @@ export class ChatPanel {
         activeSessionId,
         assistantMeta,
       );
+      const proposedRun = resolveProjectRunProposal(
+        visibleTranscriptText,
+        this.atlas.sessionConversation.getTranscript(activeSessionId),
+      );
+      const autopilotEnabled = this.atlas.toolApprovalManager?.isAutopilot?.() ?? false;
+      const autoStartProposedRuns = configuration.get<boolean>('autoStartProposedProjectRuns', true);
+      if (proposedRun && (!autopilotEnabled || !autoStartProposedRuns)) {
+        this.atlas.sessionConversation.updateMessage(
+          assistantMessageId,
+          visibleTranscriptText,
+          activeSessionId,
+          {
+            ...assistantMeta,
+            followupQuestion: undefined,
+            quickReplies: undefined,
+            suggestedFollowups: undefined,
+            projectRunProposal: { goal: proposedRun.goal, status: 'pending' },
+          },
+        );
+      }
       await this.persistGapAnalysisIfRequested(preparedRequest.context, visibleTranscriptText);
       // Trigger session SSOT maintenance fire-and-forget — never blocks the response.
       this.atlas.sessionContextManager?.maintainContext(
@@ -1138,8 +1166,8 @@ export class ChatPanel {
         visibleTranscriptText,
         this.atlas.sessionConversation.getTranscript(activeSessionId),
         {
-          enabled: configuration.get<boolean>('autoStartProposedProjectRuns', true),
-          autopilot: this.atlas.toolApprovalManager?.isAutopilot?.() ?? false,
+          enabled: autoStartProposedRuns,
+          autopilot: autopilotEnabled,
         },
       );
       if (autoFlow && !abortController.signal.aborted) {
@@ -1295,21 +1323,59 @@ export class ChatPanel {
   }
 
   private async raiseIterationLimit(entryId: string, value: number, permanent: boolean): Promise<void> {
-    const safeValue = Math.max(1, Math.min(50, Math.round(value)));
-    this.atlas.orchestrator.updateConfig({ maxToolIterations: safeValue });
-    if (permanent) {
-      await vscode.workspace.getConfiguration('atlasmind').update('maxToolIterations', safeValue, vscode.ConfigurationTarget.Workspace);
+    if (!Number.isFinite(value)) {
+      return;
     }
-    await this.continueFromIterationLimit(entryId);
+    const safeValue = Math.max(1, Math.min(50, Math.round(value)));
+    const entry = this.atlas.sessionConversation
+      .getTranscript(this.selectedSessionId)
+      .find(candidate => candidate.id === entryId);
+    if (!entry?.meta?.iterationLimitHit || entry.meta.suggestedIterationLimit !== safeValue) {
+      await this.host.webview.postMessage({ type: 'status', payload: 'That iteration-limit choice is no longer valid.' });
+      return;
+    }
+    if (permanent) {
+      this.atlas.orchestrator.updateConfig({ maxToolIterations: safeValue });
+      await vscode.workspace.getConfiguration('atlasmind').update('maxToolIterations', safeValue, vscode.ConfigurationTarget.Workspace);
+      await this.continueFromIterationLimit(entryId);
+      return;
+    }
+
+    const previousValue = this.atlas.orchestrator.getExecutionLimits().maxToolIterations;
+    this.atlas.orchestrator.updateConfig({ maxToolIterations: safeValue });
+    try {
+      await this.continueFromIterationLimit(entryId);
+    } finally {
+      this.atlas.orchestrator.updateConfig({ maxToolIterations: previousValue });
+    }
   }
 
   private async raiseToolCallsPerTurnLimit(entryId: string, value: number, permanent: boolean): Promise<void> {
-    const safeValue = Math.max(1, Math.min(30, Math.round(value)));
-    this.atlas.orchestrator.updateConfig({ maxToolCallsPerTurn: safeValue });
-    if (permanent) {
-      await vscode.workspace.getConfiguration('atlasmind').update('maxToolCallsPerTurn', safeValue, vscode.ConfigurationTarget.Workspace);
+    if (!Number.isFinite(value)) {
+      return;
     }
-    await this.continueFromIterationLimit(entryId);
+    const safeValue = Math.max(1, Math.min(30, Math.round(value)));
+    const entry = this.atlas.sessionConversation
+      .getTranscript(this.selectedSessionId)
+      .find(candidate => candidate.id === entryId);
+    if (!entry?.meta?.iterationLimitHit || entry.meta.suggestedToolCallsPerTurnLimit !== safeValue) {
+      await this.host.webview.postMessage({ type: 'status', payload: 'That tool-call-limit choice is no longer valid.' });
+      return;
+    }
+    if (permanent) {
+      this.atlas.orchestrator.updateConfig({ maxToolCallsPerTurn: safeValue });
+      await vscode.workspace.getConfiguration('atlasmind').update('maxToolCallsPerTurn', safeValue, vscode.ConfigurationTarget.Workspace);
+      await this.continueFromIterationLimit(entryId);
+      return;
+    }
+
+    const previousValue = this.atlas.orchestrator.getExecutionLimits().maxToolCallsPerTurn;
+    this.atlas.orchestrator.updateConfig({ maxToolCallsPerTurn: safeValue });
+    try {
+      await this.continueFromIterationLimit(entryId);
+    } finally {
+      this.atlas.orchestrator.updateConfig({ maxToolCallsPerTurn: previousValue });
+    }
   }
 
   private async runManagedTerminalPrompt(
@@ -1612,7 +1678,13 @@ export class ChatPanel {
       progress: async (value: string) => {
         await this.appendAssistantMessage(assistantMessageId, activeSessionId, `Status: ${value}`);
       },
-      button: async (button: { title: string }) => {
+      button: async (button: { command?: string; title: string }) => {
+        // The project outcome below promotes execution-cap recovery into real
+        // in-chat chips. Do not flatten the native Settings button into inert
+        // transcript text in the custom panel.
+        if (button.command === 'workbench.action.openSettings' && /tool iterations?/i.test(button.title)) {
+          return;
+        }
         await this.appendAssistantMessage(assistantMessageId, activeSessionId, `[Action available: ${button.title}]`);
       },
       reference: async (uri: vscode.Uri) => {
@@ -1624,7 +1696,7 @@ export class ChatPanel {
       },
     } as unknown as vscode.ChatResponseStream;
 
-    await runProjectCommand(
+    const outcome = await runProjectCommand(
       // Explicit project requests are pre-approved (the operator typed the run);
       // auto-flowed proposals pass the bare goal so the file-count safety gate holds.
       preApproved ? toApprovedProjectPrompt(projectGoal) : projectGoal,
@@ -1634,7 +1706,74 @@ export class ChatPanel {
       undefined,
       sessionContextBundle,
       sessionContext,
+      false,
     );
+
+    if (outcome.iterationLimitHit) {
+      const entry = this.atlas.sessionConversation
+        .getTranscript(activeSessionId)
+        .find(candidate => candidate.id === assistantMessageId && candidate.role === 'assistant');
+      if (entry) {
+        this.atlas.sessionConversation.updateMessage(
+          assistantMessageId,
+          entry.content,
+          activeSessionId,
+          {
+            ...entry.meta,
+            iterationLimitHit: true,
+            ...(typeof outcome.suggestedIterationLimit === 'number'
+              ? { suggestedIterationLimit: outcome.suggestedIterationLimit }
+              : {}),
+            ...(typeof outcome.suggestedToolCallsPerTurnLimit === 'number'
+              ? { suggestedToolCallsPerTurnLimit: outcome.suggestedToolCallsPerTurnLimit }
+              : {}),
+          },
+        );
+        await this.syncState();
+      }
+    }
+  }
+
+  private async resolveProjectRunProposal(
+    entryId: string,
+    decision: 'start' | 'save' | 'cancel',
+  ): Promise<void> {
+    const entry = this.atlas.sessionConversation
+      .getTranscript(this.selectedSessionId)
+      .find(candidate => candidate.id === entryId && candidate.role === 'assistant');
+    const proposal = entry?.meta?.projectRunProposal;
+    if (!entry || !proposal || proposal.status !== 'pending') {
+      await this.host.webview.postMessage({ type: 'status', payload: 'That proposed run is no longer waiting for a decision.' });
+      return;
+    }
+
+    const status = decision === 'start' ? 'started' : decision === 'save' ? 'saved' : 'cancelled';
+    this.atlas.sessionConversation.updateMessage(
+      entry.id,
+      entry.content,
+      this.selectedSessionId,
+      {
+        ...entry.meta,
+        projectRunProposal: { ...proposal, status },
+      },
+    );
+    await this.syncState();
+
+    if (decision === 'cancel') {
+      await this.host.webview.postMessage({ type: 'status', payload: 'Proposed project run cancelled.' });
+      return;
+    }
+
+    if (decision === 'save') {
+      await vscode.commands.executeCommand('atlasmind.openProjectRunCenter', {
+        goal: proposal.goal,
+        autoPreview: true,
+      });
+      await this.host.webview.postMessage({ type: 'status', payload: 'Run saved in Project Run Center for later.' });
+      return;
+    }
+
+    await this.runPrompt('Proceed', 'send');
   }
 
   /**
@@ -1980,6 +2119,7 @@ export class ChatPanel {
     return {
       userMessage,
       projectGoal,
+      ...(projectGoal ? { projectPreApproved: !isAutonomousContinuationPrompt(prompt) } : {}),
       ...(loopGoal ? { loopGoal } : {}),
       ...(roadmapStatus
         ? {

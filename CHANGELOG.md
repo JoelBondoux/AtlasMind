@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.145.6] - 2026-07-27
+
+### Fixed
+- **Reasoning-only project plans now hand execution to tool-capable models.** Planner output that omits or invents disabled skills is normalized to the smallest enabled repository-evidence tool set for non-synthesis subtasks. If a selected runtime explicitly reports that tools are disabled or unavailable, AtlasMind immediately reroutes the subtask and never counts the refusal as completed work.
+- **Project execution-cap recovery now renders as real chat choices.** The custom chat panel retains `needs-input` metadata from `/project`, asks whether to use the suggested cap for this run or permanently, and offers a keep-partial-result chip. Temporary increases are scoped to the retry and restore the prior runtime limit afterward.
+- **Custom project runs no longer duplicate their transcript on completion.** The project stream remains owned by its original assistant bubble instead of recording a second user/assistant pair after the run.
+
+## [0.145.5] - 2026-07-27
+
+### Added
+- **Project-run proposals now end in an actionable chat card.** Interactive chat offers **Start run**, **Save for later**, and **Cancel**; saving creates a reviewed preview in Project Run Center, while Autopilot can still auto-start when `atlasmind.autoStartProposedProjectRuns` is enabled. Native chat exposes the same three choices as follow-ups.
+- **Local-model savings now appear in the Cost Dashboard summary.** The Efficiency group shows estimated avoided cloud spend and local request count, while the existing detailed panel keeps the per-model token and reference-rate breakdown.
+
+### Fixed
+- **Removed or deprecated provider models no longer return after refresh.** Provider-confirmed removals are retained as session tombstones across successful refreshes, stale discovery results cannot resurrect them, and a successful empty provider catalog now prunes old entries instead of keeping them indefinitely.
+- **Assessment-to-run handoffs no longer stop abruptly.** The shared agent completion rubric requires an explicit project-run offer whenever assessed work needs a separate autonomous execution pass, allowing chat surfaces to render the decision controls reliably.
+
 ## [0.145.4] - 2026-07-26
 
 ### Added

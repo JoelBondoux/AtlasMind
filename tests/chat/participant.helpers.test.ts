@@ -53,6 +53,7 @@ import {
   detectResponseQuickReplies,
   detectProjectRunProposal,
   buildProjectRunAutoFlowNotice,
+  resolveProjectRunProposal,
   resolveProjectRunAutoFlow,
   type ProjectRunOutcome,
 } from '../../src/chat/participant.ts';
@@ -708,6 +709,29 @@ describe('participant helper logic', () => {
     ]));
   });
 
+  it('carries execution-limit recovery values into chat metadata', () => {
+    const metadata = buildAssistantResponseMetadata(
+      'Continue the workspace audit',
+      {
+        agentId: 'security-reviewer',
+        modelUsed: 'copilot/gpt-4.1',
+        costUsd: 0.01,
+        inputTokens: 100,
+        outputTokens: 20,
+        artifacts: undefined,
+        iterationLimitHit: true,
+        suggestedIterationLimit: 15,
+        suggestedToolCallsPerTurnLimit: 12,
+      },
+    );
+
+    expect(metadata).toEqual(expect.objectContaining({
+      iterationLimitHit: true,
+      suggestedIterationLimit: 15,
+      suggestedToolCallsPerTurnLimit: 12,
+    }));
+  });
+
   it('adds routing hints and workspace investigation notes to the thinking summary', () => {
     const metadata = buildAssistantResponseMetadata(
       'The chat sidebar layout is broken and I need help debugging the UI regression.',
@@ -981,6 +1005,36 @@ describe('participant helper logic', () => {
 
     expect(metadata.modelUsed).toBe('multiple routed models');
     expect(metadata.thoughtSummary?.summary).toContain('different models');
+  });
+
+  it('promotes paused project subtasks into execution-limit recovery metadata', () => {
+    const metadata = buildProjectResponseMetadata('Audit the repository', {
+      totalInputTokens: 120,
+      totalOutputTokens: 30,
+      totalCostUsd: 0.02,
+      subTaskResults: [
+        {
+          subTaskId: 'security-review',
+          title: 'Audit security',
+          status: 'needs-input',
+          output: 'Execution stopped at the safety cap.',
+          costUsd: 0.02,
+          durationMs: 100,
+          role: 'security-reviewer',
+          dependsOn: [],
+          iterationLimitHit: true,
+          suggestedIterationLimit: 15,
+        },
+      ],
+    });
+
+    expect(metadata).toEqual(expect.objectContaining({
+      iterationLimitHit: true,
+      suggestedIterationLimit: 15,
+    }));
+    expect(metadata.thoughtSummary?.bullets).toEqual(expect.arrayContaining([
+      expect.stringMatching(/paused at an execution safety limit/i),
+    ]));
   });
 
   it('persists TDD artifact metadata into project run artifacts', () => {
@@ -1342,14 +1396,23 @@ describe('resolveProjectRunAutoFlow', () => {
     },
   ];
 
-  it('returns the goal "Proceed" would resolve plus a notice when a run was proposed', () => {
+  it('returns the goal "Proceed" would resolve plus a notice under Autopilot', () => {
     const result = resolveProjectRunAutoFlow(transcript[1].content, transcript, {
       enabled: true,
-      autopilot: false,
+      autopilot: true,
     });
-    // Mirrors resolveAutonomousContinuationGoal('proceed', …): the assistant's proposed action.
-    expect(result?.goal).toBe('kick off a project run to build this out');
-    expect(result?.notice).toContain('Use Stop to cancel');
+    // The proposal is deictic ("this"), so the concrete prior user goal wins.
+    expect(result?.goal).toBe('Add a CSV export to the reports page.');
+    expect(result?.notice).toContain('Autopilot');
+  });
+
+  it('leaves interactive sessions to the project-run decision card', () => {
+    expect(resolveProjectRunAutoFlow(transcript[1].content, transcript, {
+      enabled: true,
+      autopilot: false,
+    })).toBeUndefined();
+    expect(resolveProjectRunProposal(transcript[1].content, transcript)?.goal)
+      .toBe('Add a CSV export to the reports page.');
   });
 
   it('returns undefined when auto-flow is disabled', () => {

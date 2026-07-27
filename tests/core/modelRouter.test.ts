@@ -301,6 +301,19 @@ describe('ModelRouter', () => {
     expect(router.getModelFailure(initial!)).toBeUndefined();
   });
 
+  it('retains provider-confirmed retirements when transient provider failures are cleared', () => {
+    const router = new ModelRouter();
+    registerProviders(router);
+    router.recordModelRetirement('openai/gpt-4o-mini', 'model_not_found');
+    router.recordModelFailure('openai/gpt-4o', 'temporary upstream error');
+
+    router.clearProviderFailures('openai');
+
+    expect(router.isModelRetired('openai/gpt-4o-mini')).toBe(true);
+    expect(router.getModelFailure('openai/gpt-4o-mini')).toMatchObject({ retired: true });
+    expect(router.getModelFailure('openai/gpt-4o')).toBeUndefined();
+  });
+
   it('lets feedback bias break ties after failed models are excluded', () => {
     const router = new ModelRouter();
     router.registerProvider({

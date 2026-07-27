@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.145.4</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.145.6</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,10 +64,15 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.145.4
+## What's new in 0.145.6
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
 
+- **Model refreshes now remove what providers removed.** Successful empty catalogs prune stale entries, and provider-confirmed deprecated or missing models cannot be resurrected by a later stale refresh.
+- **Assessment handoffs are actionable.** Proposed autonomous work ends with a chat card offering **Start run**, **Save for later**, or **Cancel**; only Autopilot may auto-start a proposal.
+- **Reasoning plans now hand off to tooling models.** Non-synthesis project steps are grounded with live workspace evidence skills, and a model that says its tools are disabled is rerouted instead of being counted as a successful executor.
+- **Execution limits end with a decision, not an inert warning.** When a chat or project run reaches its tool cap, AtlasMind asks whether to use the suggested limit for this run, save it permanently, or keep the partial result; the one-run choice restores the prior setting afterward.
+- **Local savings are visible at a glance.** The Cost Dashboard’s Efficiency summary now includes the estimated cloud spend avoided by local-model requests, backed by the detailed per-model comparison.
 - **Security reviews can be recorded consistently.** A new service provides the persistence, audit history, freshness, and scoring foundation for reviews of secrets, runtime boundaries, dependencies, and permissions.
 - **Review evidence is handled defensively.** Malformed model output is ignored safely, cited paths cannot escape the workspace, and unresolved findings cannot be silently marked closed. This release supplies the data layer for future dashboard wiring; it does not add an automated vulnerability scanner or a release gate.
 
@@ -208,7 +213,7 @@ Open the Command Palette with `Ctrl+Shift+P`.
 | `AtlasMind: Open Website Studio` | Open the website planning and delivery workspace |
 | `AtlasMind: Open Project Run Center` | Review plans, runs, approvals, checkpoints, and artifacts |
 | `AtlasMind: Open Mission Control` | Configure and operate bounded autonomous loops |
-| `AtlasMind: Open Cost Dashboard` | Inspect per-session and per-model spend |
+| `AtlasMind: Open Cost Dashboard` | Inspect spend, cache/compression efficiency, and estimated local-model savings |
 | `AtlasMind: Compare Models on a Prompt` | Run a controlled prompt across configured models |
 | `AtlasMind: Manage MCP Servers` | Connect and manage MCP tool servers |
 | `AtlasMind: Resource Discovery` | Search, install, manage, and export agentic resources |
@@ -234,6 +239,7 @@ AtlasMind's main settings are available in its Settings panel and under `atlasmi
 | `speedMode` | `balanced` | Latency/reasoning preference used during routing |
 | `dailyCostLimitUsd` | `0` | Daily spend ceiling; `0` disables the limit |
 | `toolApprovalMode` | `ask-on-write` | When tools require operator approval |
+| `autoStartProposedProjectRuns` | `true` | Permit proposal auto-start only under Autopilot; otherwise show Start, Save for later, and Cancel |
 | `allowTerminalWrite` | `false` | Whether approved terminal subprocesses may mutate state |
 | `autoVerifyAfterWrite` | `true` | Whether configured verification runs after writes |
 | `agentAutoUpdateCadence` | `never` | Optional AI refresh cadence for custom agent definitions |

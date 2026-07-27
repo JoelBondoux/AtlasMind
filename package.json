@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.145.4",
+  "version": "0.145.6",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -1332,8 +1332,8 @@
         "atlasmind.autoStartProposedProjectRuns": {
           "type": "boolean",
           "default": true,
-          "description": "When a chat reply offers to start an autonomous project run, flow straight into it instead of waiting for you to type \"Proceed\". Immediate under Autopilot; otherwise it prints a cancellable notice first. The file-count safety gate still applies.",
-          "markdownDescription": "When an AtlasMind chat reply ends by offering to start an autonomous project run (e.g. \"…want me to kick off a project run to build this out?\"), flow straight into the run instead of stopping for you to type **Proceed**. You already asked for the job, so the extra confirmation is usually redundant.\n\nBehaviour:\n- **Autopilot ON** — the run starts immediately with a brief notice.\n- **Autopilot OFF** — a `Starting a project run to: … — use Stop to cancel` notice is printed, then the run begins on the same turn; use the **Stop** button to cancel.\n- Unusually large runs still hit the `approvalFileThreshold` safety gate, which pauses and shows the plan before changing files.\n\nSet to `false` to keep the previous behaviour: the reply stops with **Yes/No** pills and the run only starts when you confirm.\n\nExamples:\n- Hands-off flow where you want proposed runs to just go: `true` (default)\n- Cautious review-first workflow: `false`"
+          "description": "Allow proposed project runs to start automatically only while Autopilot is on. Interactive chat instead shows Start run, Save for later, and Cancel actions. The file-count safety gate still applies.",
+          "markdownDescription": "Controls whether a project-run proposal may flow straight into execution while **Autopilot is ON**.\n\nBehaviour:\n- **Autopilot ON + setting ON** — the run starts immediately with a brief notice.\n- **Autopilot OFF** — chat shows a decision card with **Start run**, **Save for later**, and **Cancel**.\n- **Setting OFF** — the decision card is shown even under Autopilot.\n- **Save for later** creates a reviewed preview in Project Run Center without executing it.\n- Unusually large runs still hit the `projectApprovalFileThreshold` safety gate before changing files.\n\nExamples:\n- Permit hands-off proposal flow only under Autopilot: `true` (default)\n- Always require a run decision card: `false`"
         },
         "atlasmind.showImportProjectAction": {
           "type": "boolean",

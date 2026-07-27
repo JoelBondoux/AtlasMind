@@ -5,7 +5,7 @@ import type { CostTracker } from '../core/costTracker.js';
 import type { CostRecord, MissionRunRecord } from '../types.js';
 import type { MissionRegistry } from '../core/missionRegistry.js';
 import { formatCost, getDisplayCurrency, getExchangeRate } from '../core/currencyFormatter.js';
-import { getComparableCloudReference } from '../providers/modelCatalog.js';
+import { getComparableCloudReference, type ComparableCloudReference } from '../providers/modelCatalog.js';
 
 type CostDashboardMessage =
   | { type: 'resetHistory' }
@@ -28,6 +28,51 @@ interface SummaryCard {
   cls?: string;
   meter?: number;
   meterClass?: string;
+}
+
+export interface LocalModelSavingsComparison {
+  model: string;
+  requests: number;
+  inputTokens: number;
+  outputTokens: number;
+  reference: ComparableCloudReference;
+  savedUsd: number;
+}
+
+export interface LocalModelSavingsEstimate {
+  localRequestCount: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalSavedUsd: number;
+  comparisons: LocalModelSavingsComparison[];
+}
+
+export function calculateLocalModelSavings(records: readonly CostRecord[]): LocalModelSavingsEstimate {
+  const localRecords = records.filter(record =>
+    record.providerId === 'local'
+    || record.model.toLowerCase().startsWith('local/'),
+  );
+  const byModel = new Map<string, { requests: number; inputTokens: number; outputTokens: number }>();
+  for (const record of localRecords) {
+    const current = byModel.get(record.model) ?? { requests: 0, inputTokens: 0, outputTokens: 0 };
+    current.requests += 1;
+    current.inputTokens += record.inputTokens;
+    current.outputTokens += record.outputTokens;
+    byModel.set(record.model, current);
+  }
+  const comparisons = [...byModel.entries()].map(([model, usage]) => {
+    const reference = getComparableCloudReference(model);
+    const savedUsd = (usage.inputTokens / 1000) * reference.inputPricePer1k
+      + (usage.outputTokens / 1000) * reference.outputPricePer1k;
+    return { model, ...usage, reference, savedUsd };
+  }).sort((left, right) => right.savedUsd - left.savedUsd);
+  return {
+    localRequestCount: localRecords.length,
+    totalInputTokens: localRecords.reduce((sum, record) => sum + record.inputTokens, 0),
+    totalOutputTokens: localRecords.reduce((sum, record) => sum + record.outputTokens, 0),
+    totalSavedUsd: comparisons.reduce((sum, comparison) => sum + comparison.savedUsd, 0),
+    comparisons,
+  };
 }
 
 export function isCostDashboardMessage(value: unknown): value is CostDashboardMessage {
@@ -184,7 +229,8 @@ export class CostDashboardPanel {
     const feedbackOverview = this.buildFeedbackOverview(filteredRecords, feedbackSummary);
     const feedbackWeight = getFeedbackRoutingWeight();
 
-    const summaryCards = this.buildSummaryCards(summary, budget);
+    const localSavingsEstimate = calculateLocalModelSavings(filteredRecords);
+    const summaryCards = this.buildSummaryCards(summary, budget, localSavingsEstimate);
     const dailyChart = this.buildDailyChart(dailyData);
     // No spend recorded means no chart to style or re-window, so the chart
     // controls are withheld rather than floating over an empty stage.
@@ -775,6 +821,7 @@ export class CostDashboardPanel {
   private buildSummaryCards(
     summary: ReturnType<CostTracker['getSummary']>,
     budget: ReturnType<CostTracker['getDailyBudgetStatus']>,
+    localSavings: LocalModelSavingsEstimate,
   ): string {
     const todayCostUsd = budget?.todayCostUsd ?? 0;
     const pct = budget ? Math.min(100, (budget.todayCostUsd / budget.limitUsd) * 100) : 0;
@@ -788,6 +835,7 @@ export class CostDashboardPanel {
       { label: 'Included Subscriptions', value: formatCurrency(summary.totalSubscriptionIncludedUsd, 4), detail: 'Visible even when not budgeted', countTo: summary.totalSubscriptionIncludedUsd, countFormat: 'currency-4', tone: 'accent' },
       { label: 'Compression Savings', value: formatCurrency(summary.totalCompressionSavingsUsd ?? 0, 4), detail: 'Estimated spend avoided with prompt compaction', countTo: summary.totalCompressionSavingsUsd ?? 0, countFormat: 'currency-4', tone: savingsTone(summary.totalCompressionSavingsUsd ?? 0) },
       { label: 'Cache Savings', value: formatCurrency(summary.totalCacheSavingsUsd ?? 0, 4), detail: `Spend avoided via prompt caching (${formatTokens(summary.totalCachedInputTokens ?? 0)} cached input tokens)`, countTo: summary.totalCacheSavingsUsd ?? 0, countFormat: 'currency-4', tone: savingsTone(summary.totalCacheSavingsUsd ?? 0) },
+      { label: 'Local Model Savings', value: formatCurrency(localSavings.totalSavedUsd, 4), detail: `Estimated cloud spend avoided across ${localSavings.localRequestCount} local request${localSavings.localRequestCount === 1 ? '' : 's'}`, countTo: localSavings.totalSavedUsd, countFormat: 'currency-4', tone: savingsTone(localSavings.totalSavedUsd) },
       { label: 'Total Requests', value: String(summary.totalRequests), detail: 'Requests in current window', countTo: summary.totalRequests, countFormat: 'integer', tone: 'accent' },
       { label: 'Input Tokens', value: formatTokens(summary.totalInputTokens), detail: 'Prompt-side token volume', countTo: summary.totalInputTokens, countFormat: 'tokens', tone: 'accent' },
       { label: 'Output Tokens', value: formatTokens(summary.totalOutputTokens), detail: 'Response-side token volume', countTo: summary.totalOutputTokens, countFormat: 'tokens', tone: 'accent' },
@@ -816,7 +864,7 @@ export class CostDashboardPanel {
     // cost, what we avoided spending, how much went through.
     const GROUPS: Array<{ label: string; labels: string[] }> = [
       { label: 'Spend', labels: ['Total Spend', 'Budgeted Spend', 'Included Subscriptions', "Today's Spend"] },
-      { label: 'Efficiency', labels: ['Compression Savings', 'Cache Savings'] },
+      { label: 'Efficiency', labels: ['Compression Savings', 'Cache Savings', 'Local Model Savings'] },
       { label: 'Volume', labels: ['Total Requests', 'Input Tokens', 'Output Tokens'] },
     ];
 
@@ -1006,33 +1054,17 @@ export class CostDashboardPanel {
   }
 
   private buildLocalSavings(records: readonly CostRecord[]): string {
-    const localRecords = records.filter(r => r.providerId === 'local' || r.model.startsWith('local/'));
-    if (localRecords.length === 0) {
+    const estimate = calculateLocalModelSavings(records);
+    if (estimate.localRequestCount === 0) {
       return '';
     }
 
-    const totalInputTokens = localRecords.reduce((s, r) => s + r.inputTokens, 0);
-    const totalOutputTokens = localRecords.reduce((s, r) => s + r.outputTokens, 0);
+    const { totalInputTokens, totalOutputTokens, comparisons, totalSavedUsd } = estimate;
     const totalTokens = totalInputTokens + totalOutputTokens;
-    const byModel = new Map<string, { requests: number; inputTokens: number; outputTokens: number }>();
-    for (const record of localRecords) {
-      const current = byModel.get(record.model) ?? { requests: 0, inputTokens: 0, outputTokens: 0 };
-      current.requests += 1;
-      current.inputTokens += record.inputTokens;
-      current.outputTokens += record.outputTokens;
-      byModel.set(record.model, current);
-    }
-    const comparisons = [...byModel.entries()].map(([model, usage]) => {
-      const reference = getComparableCloudReference(model);
-      const savedUsd = (usage.inputTokens / 1000) * reference.inputPricePer1k
-        + (usage.outputTokens / 1000) * reference.outputPricePer1k;
-      return { model, ...usage, reference, savedUsd };
-    }).sort((left, right) => right.savedUsd - left.savedUsd);
-    const totalSavedUsd = comparisons.reduce((sum, comparison) => sum + comparison.savedUsd, 0);
 
     const statCards = [
       { label: 'Estimated Total Saved', value: formatCurrency(totalSavedUsd, 4), detail: 'Sum of per-model cloud comparisons' },
-      { label: 'Local Requests', value: String(localRecords.length), detail: 'Routed to local models' },
+      { label: 'Local Requests', value: String(estimate.localRequestCount), detail: 'Routed to local models' },
       { label: 'Local Models Used', value: String(comparisons.length), detail: 'Each compared separately' },
       { label: 'Tokens Processed', value: formatTokens(totalTokens), detail: `${formatTokens(totalInputTokens)} in / ${formatTokens(totalOutputTokens)} out` },
     ].map(card => `
@@ -1066,7 +1098,7 @@ export class CostDashboardPanel {
           <div>
             <p class="section-kicker">Cost efficiency</p>
             <h2>Local Model Savings</h2>
-            <p class="section-copy">${escapeHtml(String(localRecords.length))} request${localRecords.length === 1 ? '' : 's'} routed to locally-hosted models in this window — estimated cost avoidance based on equivalent cloud API rates.</p>
+            <p class="section-copy">${escapeHtml(String(estimate.localRequestCount))} request${estimate.localRequestCount === 1 ? '' : 's'} routed to locally-hosted models in this window — estimated cost avoidance based on equivalent cloud API rates.</p>
           </div>
         </div>
         <div class="savings-stats">${statCards}</div>

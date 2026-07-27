@@ -95,7 +95,7 @@ Decomposes a goal into subtasks and executes them autonomously.
 
 If AtlasMind has already discussed a concrete implementation request, a short follow-up such as `Proceed autonomously` can be used instead of repeating the full `/project <goal>` prompt.
 
-You often won't even need to type `Proceed`: when a reply itself ends by **offering** to start an autonomous project run, AtlasMind flows straight into it on the same turn — immediately under **Autopilot**, or after a cancellable *"Starting a project run to: … — use Stop to cancel"* notice otherwise. It reuses the exact goal `Proceed` would have run, and large runs still hit the file-count approval gate. Disable with `atlasmind.autoStartProposedProjectRuns: false` to keep the Yes/No-pill confirmation. See [[Project Planner#starting-a-run-from-chat--auto-flow-from-a-proposal|auto-flow from a proposal]].
+When a reply ends by **offering** an autonomous project run, interactive chat shows **Start run**, **Save for later**, and **Cancel**. Saving creates a reviewed preview in Project Run Center; starting reuses the exact goal `Proceed` would have run, and large runs still hit the file-count gate. Autopilot may start immediately when `atlasmind.autoStartProposedProjectRuns` is enabled; set it to `false` to require the card under Autopilot too. See [[Project Planner#starting-a-run-from-chat--proposal-decisions|proposal decisions]].
 
 See [[Project Planner]] for full details.
 

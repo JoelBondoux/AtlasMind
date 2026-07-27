@@ -178,6 +178,12 @@ type ModelFailureState = {
   message: string;
   failedAt: string;
   failureCount: number;
+  /**
+   * A provider-confirmed removal/deprecation is not a transient health failure.
+   * It remains excluded for the lifetime of this router, including catalog
+   * refreshes, so a stale provider listing cannot resurrect it.
+   */
+  retired: boolean;
 };
 
 /**
@@ -247,7 +253,8 @@ export class ModelRouter {
    * Re-enable a provider that was previously auto-disabled (e.g. after a
    * transient billing blip that the user has resolved, or when AtlasMind
    * detects an ambiguous rate-limit error that resolved itself).
-   * Also clears any per-model failure records for that provider.
+   * Also clears transient per-model failure records for that provider. A
+   * provider-confirmed removed/deprecated model remains retired for this session.
    */
   reEnableProvider(providerId: string): void {
     this.setProviderHealth(providerId, true);
@@ -297,16 +304,37 @@ export class ModelRouter {
       message,
       failedAt: new Date().toISOString(),
       failureCount: (existing?.failureCount ?? 0) + 1,
+      retired: existing?.retired ?? false,
     });
+  }
+
+  /** Permanently exclude a provider-confirmed removed/deprecated model for this session. */
+  recordModelRetirement(modelId: string, message: string): void {
+    const providerId = this.getModelInfo(modelId)?.provider ?? (modelId.includes('/') ? modelId.split('/')[0] : 'unknown');
+    const existing = this.modelFailures.get(modelId);
+    this.modelFailures.set(modelId, {
+      providerId,
+      message,
+      failedAt: new Date().toISOString(),
+      failureCount: (existing?.failureCount ?? 0) + 1,
+      retired: true,
+    });
+  }
+
+  isModelRetired(modelId: string): boolean {
+    return this.modelFailures.get(modelId)?.retired === true;
   }
 
   clearModelFailure(modelId: string): void {
     this.modelFailures.delete(modelId);
   }
 
-  clearProviderFailures(providerId: string): void {
+  clearProviderFailures(providerId: string, includeRetired = false): void {
     for (const [modelId, failure] of this.modelFailures.entries()) {
-      if (failure.providerId === providerId || modelId.startsWith(`${providerId}/`)) {
+      if (
+        (includeRetired || !failure.retired)
+        && (failure.providerId === providerId || modelId.startsWith(`${providerId}/`))
+      ) {
         this.modelFailures.delete(modelId);
       }
     }
@@ -724,8 +752,11 @@ export class ModelRouter {
       return undefined;
     }
     const failure = this.modelFailures.get(modelId);
-    if (failure && Date.now() - new Date(failure.failedAt).getTime() < MODEL_FAILURE_TTL_MS) {
-      return undefined;
+    if (failure) {
+      if (failure.retired || Date.now() - new Date(failure.failedAt).getTime() < MODEL_FAILURE_TTL_MS) {
+        return undefined;
+      }
+      this.modelFailures.delete(modelId);
     }
     const requiredCapabilities = [
       ...(constraints.requiredCapabilities ?? []),
@@ -773,7 +804,7 @@ export class ModelRouter {
         // Skip models with recent failures; clear stale failures automatically.
         const failure = this.modelFailures.get(model.id);
         if (failure) {
-          if (Date.now() - new Date(failure.failedAt).getTime() < MODEL_FAILURE_TTL_MS) {
+          if (failure.retired || Date.now() - new Date(failure.failedAt).getTime() < MODEL_FAILURE_TTL_MS) {
             continue;
           }
           this.modelFailures.delete(model.id);

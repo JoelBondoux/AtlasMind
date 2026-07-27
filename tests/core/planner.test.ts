@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Planner, parsePlannerResponse, removeCycles } from '../../src/core/planner.ts';
+import { ensureProjectExecutionSkills, Planner, parsePlannerResponse, removeCycles } from '../../src/core/planner.ts';
 import type { SubTask } from '../../src/types.ts';
 
 describe('parsePlannerResponse', () => {
@@ -112,6 +112,50 @@ describe('removeCycles', () => {
       { id: 'b', title: 'B', description: '', role: 'x', skills: [], dependsOn: ['a'] },
     ];
     expect(removeCycles(tasks)).toHaveLength(0);
+  });
+});
+
+describe('ensureProjectExecutionSkills', () => {
+  it('grounds planner subtasks with read-only tools when the reasoning model omitted skills', () => {
+    const tasks: SubTask[] = [
+      {
+        id: 'security-review',
+        title: 'Audit security posture',
+        description: 'Inspect the repository and report evidence-backed gaps.',
+        role: 'security-reviewer',
+        skills: [],
+        dependsOn: [],
+      },
+    ];
+
+    expect(ensureProjectExecutionSkills(tasks, [
+      'file-read',
+      'file-search',
+      'workspace-observability',
+    ])[0]?.skills).toEqual([
+      'file-read',
+      'file-search',
+      'workspace-observability',
+    ]);
+  });
+
+  it('leaves dependency-only synthesis tool-free so a reasoning model can combine prior outputs', () => {
+    const tasks: SubTask[] = [
+      {
+        id: 'synthesis',
+        title: 'Synthesize findings',
+        description: 'Synthesize the completed reviews into a prioritized checklist.',
+        role: 'general-assistant',
+        skills: [],
+        dependsOn: ['security-review'],
+      },
+    ];
+
+    expect(ensureProjectExecutionSkills(tasks, [
+      'file-read',
+      'file-search',
+      'workspace-observability',
+    ])[0]?.skills).toEqual([]);
   });
 });
 

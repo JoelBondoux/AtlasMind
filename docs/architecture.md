@@ -69,7 +69,7 @@
    - Calls `registerChatParticipant()`, `registerCommands()`, `registerTreeViews()`.
 3. The `@atlas` chat participant and sidebar views are now available.
 
-The AtlasMind sidebar now starts with a compact Quick Links webview row that sits under the container title and exposes icon-only shortcuts for the Project Dashboard, Ideation board, Run Center, Cost Dashboard, Model Providers, and Settings before the embedded Chat view and the collapsed operational tree views. Assistant transcript metadata now carries not only routed-model and thinking-summary details but also learned-from-friction timeline notes, which lets both the dedicated chat panel and the native sidebar chat surface when Atlas has shifted into direct recovery after operator frustration. During an active request, the composer status also derives the current model from the host-provided `streamingModels` state and appends it to progress text; a failover updates that label without trusting model text supplied by the browser.
+The AtlasMind sidebar now starts with a compact Quick Links webview row that sits under the container title and exposes icon-only shortcuts for the Project Dashboard, Ideation board, Run Center, Cost Dashboard, Model Providers, and Settings before the embedded Chat view and the collapsed operational tree views. Assistant transcript metadata now carries not only routed-model and thinking-summary details but also learned-from-friction timeline notes, which lets both the dedicated chat panel and the native sidebar chat surface when Atlas has shifted into direct recovery after operator frustration. Project-run offers are another validated metadata shape: interactive chat renders a **Start run / Save for later / Cancel** card, the host resolves each action once, and saving delegates preview creation to Project Run Center; Autopilot is the only mode allowed to auto-start. During an active request, the composer status also derives the current model from the host-provided `streamingModels` state and appends it to progress text; a failover updates that label without trusting model text supplied by the browser.
 
 AtlasMind's Voice panel is currently a webview-first specialist surface. It uses the Web Speech API for in-panel STT and fallback TTS, can route optional ElevenLabs audio through a selectable HTML audio sink when the runtime supports it, and stores preferred microphone and speaker ids for future native backends. There is not yet a host-side OS-native speech adapter.
 
@@ -87,7 +87,7 @@ Central coordinator. Receives a `TaskRequest` and:
 7. Builds a context bundle and dispatches execution, enforcing incomplete-delivery and verification gates.
 8. Records cost and an evidence-backed execution-quality outcome via `CostTracker` and `ModelRouter`.
 
-The operating contract and rubric are injected in `buildMessages()` rather than copied into built-in definitions. This closes prompt drift across hand-written specialists, custom agents, ephemeral project agents, synthesized agents, and persisted prompt overrides. Built-in role prompts therefore contain only specialist scope and boundaries; all 16 user-facing specialists add concise observable criteria through `completionCriteria.rubric`. Detailed SEO and UX checklists are progressively disclosed by `src/skills/specialistGuidance.ts` only when relevant, keeping volatile platform and standards details out of permanent prompts. `completionCriteria.incompletePatterns` is evaluated inside the agentic loop using a bounded restricted-regex policy before the existing one-time completion-integrity reprompt. Execution artifacts record failed tool-call count alongside tool count, verification, and TDD status so the router's outcome signal reflects observable delivery rather than only the provider finish reason.
+The operating contract and rubric are injected in `buildMessages()` rather than copied into built-in definitions. This closes prompt drift across hand-written specialists, custom agents, ephemeral project agents, synthesized agents, and persisted prompt overrides. Built-in role prompts therefore contain only specialist scope and boundaries; all 16 user-facing specialists add concise observable criteria through `completionCriteria.rubric`. Detailed SEO and UX checklists are progressively disclosed by `src/skills/specialistGuidance.ts` only when relevant, keeping volatile platform and standards details out of permanent prompts. `completionCriteria.incompletePatterns` is evaluated inside the agentic loop using a bounded restricted-regex policy before the existing one-time completion-integrity reprompt. Execution artifacts record failed tool-call count alongside tool count, verification, and TDD status so the router's outcome signal reflects observable delivery rather than only the provider finish reason. The agentic loop also recognizes explicit runtime claims that workspace tools are disabled or unavailable: instead of spending the remaining iterations re-prompting the same bridge, it marks that model's runtime capability as failed and immediately asks the provider-failover path for another `function_calling` model. If no recovery succeeds, the project classifier records the refusal as failed, never completed.
 
 ### AgentRegistry (`src/core/agentRegistry.ts`)
 
@@ -240,7 +240,7 @@ LLM-backed progress judge that decides whether a mission's goal is met. Given th
 
 Audit-trail persistence for mission runs. Like `DeliveryManager`, the persistence helpers are `vscode`-free (node `fs` only): a `MissionRunRecord[]` is stored as the source of truth at `project_memory/operations/missions.json` with a human-readable `missions.md` runbook mirror regenerated on every write (`renderMissionsMarkdown`). `toPersistedRecord` trims large synthesis/output text and drops heavy nested artifacts before writing, and the history is capped at `MAX_MISSION_RECORDS`. No secret values are persisted. It also exposes `listActive()` (running / awaiting-checkpoint missions) and a lightweight, `vscode`-free `onChange` subscription fired on every save — the **Cost Dashboard** subscribes to it to render its live "Current Loops" section (accumulated cost vs. cap, iteration progress, tokens, latest verdict) and re-render as each iteration is saved.
 
-The Cost Dashboard keeps period/style controls in a toolbar before the daily plot. The period choices use a closed-by-default `<details>` disclosure whose expanded content remains in normal flow, so controls cannot cover a line-chart peak. Local savings are derived only from local-provider records, grouped by exact model id, compared individually with a catalog-backed budget/mid/premium cloud reference selected from the advertised parameter count or model-family markers, and totalled as an explicitly estimated—not realized—saving.
+The Cost Dashboard keeps period/style controls in a toolbar before the daily plot. The period choices use a closed-by-default `<details>` disclosure whose expanded content remains in normal flow, so controls cannot cover a line-chart peak. Local savings are derived only from local-provider records, grouped by exact model id, compared individually with a catalog-backed budget/mid/premium cloud reference selected from the advertised parameter count or model-family markers, and totalled as an explicitly estimated—not realized—saving. The same bounded calculation feeds both the top-level Efficiency metric and the detailed per-model comparison, so the overview and drill-down cannot diverge.
 
 ### TaskProfiler (`src/core/taskProfiler.ts`)
 
@@ -390,12 +390,14 @@ Project execution flow:
 
 ```
 /project <goal> → Chat Participant → Orchestrator.processProject()
-  → Planner.plan()          (LLM decomposes goal → ProjectPlan DAG)
+  → Planner.plan()          (reasoning LLM decomposes goal → ProjectPlan DAG)
+  → normalize execution skills (ground non-synthesis tasks with enabled evidence tools)
   → onProgress({ type: 'planned' })
   → TaskScheduler.execute()
       for each dependency batch (in parallel):
         → Orchestrator.executeSubTask()
             → ephemeral AgentDefinition (from SubTask.role)
+            → route to function-calling executor; hand off explicit tool-unavailable refusals
             → Orchestrator.processTaskWithAgent()
         → onProgress({ type: 'subtask-done' })
   → Orchestrator.synthesize()  (LLM assembles final report)

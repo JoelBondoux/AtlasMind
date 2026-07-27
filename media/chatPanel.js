@@ -2166,6 +2166,10 @@
     var actions = document.createElement('div');
     actions.className = 'chat-message-actions';
 
+    if (entry.meta && entry.meta.projectRunProposal && entry.meta.projectRunProposal.status === 'pending') {
+      actions.appendChild(renderProjectRunProposalCard(entry.id, entry.meta.projectRunProposal));
+    }
+
     if (entry.meta && entry.meta.iterationLimitHit) {
       actions.appendChild(renderIterationLimitActions(entry.id, entry.meta));
     }
@@ -2191,6 +2195,47 @@
     actions.appendChild(createVoteButton(entry.id, 'down', currentVote === 'down'));
     actions.appendChild(createDeleteButton(entry.id));
     return actions;
+  }
+
+  function renderProjectRunProposalCard(entryId, proposal) {
+    var card = document.createElement('section');
+    card.className = 'project-run-proposal-card';
+    card.setAttribute('aria-label', 'Proposed autonomous project run');
+
+    var title = document.createElement('p');
+    title.className = 'project-run-proposal-title';
+    title.textContent = 'Ready for an autonomous run';
+    card.appendChild(title);
+
+    var goal = document.createElement('p');
+    goal.className = 'project-run-proposal-goal';
+    goal.textContent = truncateText(proposal.goal, 280);
+    card.appendChild(goal);
+
+    var actions = document.createElement('div');
+    actions.className = 'project-run-proposal-actions';
+    [
+      { id: 'start', label: 'Start run', className: 'primary' },
+      { id: 'save', label: 'Save for later', className: '' },
+      { id: 'cancel', label: 'Cancel', className: '' },
+    ].forEach(function (option) {
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = option.label;
+      if (option.className) {
+        button.classList.add(option.className);
+      }
+      button.addEventListener('click', function () {
+        card.querySelectorAll('button').forEach(function (candidate) { candidate.disabled = true; });
+        vscode.postMessage({
+          type: 'resolveProjectRunProposal',
+          payload: { entryId: entryId, decision: option.id },
+        });
+      });
+      actions.appendChild(button);
+    });
+    card.appendChild(actions);
+    return card;
   }
 
   /**
@@ -2282,78 +2327,88 @@
   }
 
   function renderIterationLimitActions(entryId, meta) {
-    var wrapper = document.createElement('div');
+    var wrapper = document.createElement('section');
     wrapper.className = 'iteration-limit-actions';
+    wrapper.setAttribute('aria-label', 'Execution limit recovery');
 
     var suggestedIter = meta && typeof meta.suggestedIterationLimit === 'number' ? meta.suggestedIterationLimit : null;
     var suggestedCalls = meta && typeof meta.suggestedToolCallsPerTurnLimit === 'number' ? meta.suggestedToolCallsPerTurnLimit : null;
+    var suggestedLabel = suggestedIter !== null
+      ? suggestedIter + ' tool iterations'
+      : suggestedCalls !== null
+        ? suggestedCalls + ' tool calls per turn'
+        : 'a higher execution limit';
+
+    var question = document.createElement('p');
+    question.className = 'iteration-limit-question';
+    question.textContent = 'This run reached its safety limit. Use ' + suggestedLabel + ' for this run only, save it permanently, or keep the partial result?';
+    wrapper.appendChild(question);
+
+    var actionRow = document.createElement('div');
+    actionRow.className = 'iteration-limit-chip-row';
+
+    function lockAndPost(message) {
+      wrapper.querySelectorAll('button').forEach(function (button) { button.disabled = true; });
+      vscode.postMessage(message);
+    }
 
     if (suggestedIter !== null) {
-      var raisePermBtn = document.createElement('button');
-      raisePermBtn.type = 'button';
-      raisePermBtn.className = 'iteration-limit-raise-perm';
-      raisePermBtn.textContent = 'Raise to ' + suggestedIter + ' (permanent)';
-      raisePermBtn.title = 'Save ' + suggestedIter + ' as the new maxToolIterations setting and continue';
-      raisePermBtn.addEventListener('click', function () {
-        vscode.postMessage({ type: 'raiseIterationLimitPermanent', payload: { entryId: entryId, value: suggestedIter } });
-      });
-
       var raiseTempBtn = document.createElement('button');
       raiseTempBtn.type = 'button';
       raiseTempBtn.className = 'iteration-limit-raise-temp';
-      raiseTempBtn.textContent = 'Raise to ' + suggestedIter + ' (this task)';
-      raiseTempBtn.title = 'Use ' + suggestedIter + ' iterations for this task only, without changing settings';
+      raiseTempBtn.textContent = 'Use ' + suggestedIter + ' this run';
+      raiseTempBtn.title = 'Use ' + suggestedIter + ' iterations for this run only, then restore the current setting';
       raiseTempBtn.addEventListener('click', function () {
-        vscode.postMessage({ type: 'raiseIterationLimitTemporary', payload: { entryId: entryId, value: suggestedIter } });
+        lockAndPost({ type: 'raiseIterationLimitTemporary', payload: { entryId: entryId, value: suggestedIter } });
       });
 
-      wrapper.appendChild(raisePermBtn);
-      wrapper.appendChild(raiseTempBtn);
+      var raisePermBtn = document.createElement('button');
+      raisePermBtn.type = 'button';
+      raisePermBtn.className = 'iteration-limit-raise-perm';
+      raisePermBtn.textContent = 'Always use ' + suggestedIter;
+      raisePermBtn.title = 'Save ' + suggestedIter + ' as the new maxToolIterations setting and resume';
+      raisePermBtn.addEventListener('click', function () {
+        lockAndPost({ type: 'raiseIterationLimitPermanent', payload: { entryId: entryId, value: suggestedIter } });
+      });
+
+      actionRow.appendChild(raiseTempBtn);
+      actionRow.appendChild(raisePermBtn);
     }
 
     if (suggestedCalls !== null) {
-      var raiseCallsPermBtn = document.createElement('button');
-      raiseCallsPermBtn.type = 'button';
-      raiseCallsPermBtn.className = 'iteration-limit-raise-perm';
-      raiseCallsPermBtn.textContent = 'Allow ' + suggestedCalls + ' tools/turn (permanent)';
-      raiseCallsPermBtn.title = 'Save ' + suggestedCalls + ' as the new maxToolCallsPerTurn setting and continue';
-      raiseCallsPermBtn.addEventListener('click', function () {
-        vscode.postMessage({ type: 'raiseToolCallsPerTurnLimitPermanent', payload: { entryId: entryId, value: suggestedCalls } });
-      });
-
       var raiseCallsTempBtn = document.createElement('button');
       raiseCallsTempBtn.type = 'button';
       raiseCallsTempBtn.className = 'iteration-limit-raise-temp';
-      raiseCallsTempBtn.textContent = 'Allow ' + suggestedCalls + ' tools/turn (this task)';
-      raiseCallsTempBtn.title = 'Use ' + suggestedCalls + ' tool calls per turn for this task only';
+      raiseCallsTempBtn.textContent = 'Use ' + suggestedCalls + '/turn this run';
+      raiseCallsTempBtn.title = 'Use ' + suggestedCalls + ' tool calls per turn for this run only, then restore the current setting';
       raiseCallsTempBtn.addEventListener('click', function () {
-        vscode.postMessage({ type: 'raiseToolCallsPerTurnLimitTemporary', payload: { entryId: entryId, value: suggestedCalls } });
+        lockAndPost({ type: 'raiseToolCallsPerTurnLimitTemporary', payload: { entryId: entryId, value: suggestedCalls } });
       });
 
-      wrapper.appendChild(raiseCallsPermBtn);
-      wrapper.appendChild(raiseCallsTempBtn);
-    }
+      var raiseCallsPermBtn = document.createElement('button');
+      raiseCallsPermBtn.type = 'button';
+      raiseCallsPermBtn.className = 'iteration-limit-raise-perm';
+      raiseCallsPermBtn.textContent = 'Always use ' + suggestedCalls + '/turn';
+      raiseCallsPermBtn.title = 'Save ' + suggestedCalls + ' as the new maxToolCallsPerTurn setting and resume';
+      raiseCallsPermBtn.addEventListener('click', function () {
+        lockAndPost({ type: 'raiseToolCallsPerTurnLimitPermanent', payload: { entryId: entryId, value: suggestedCalls } });
+      });
 
-    var continueBtn = document.createElement('button');
-    continueBtn.type = 'button';
-    continueBtn.className = 'iteration-limit-continue';
-    continueBtn.textContent = 'Continue as-is';
-    continueBtn.title = 'Continue execution from where AtlasMind stopped without changing limits';
-    continueBtn.addEventListener('click', function () {
-      vscode.postMessage({ type: 'continueExecution', payload: { entryId: entryId } });
-    });
+      actionRow.appendChild(raiseCallsTempBtn);
+      actionRow.appendChild(raiseCallsPermBtn);
+    }
 
     var cancelBtn = document.createElement('button');
     cancelBtn.type = 'button';
     cancelBtn.className = 'iteration-limit-cancel';
-    cancelBtn.textContent = 'Cancel';
-    cancelBtn.title = 'Dismiss and keep the partial result';
+    cancelBtn.textContent = 'Keep partial result';
+    cancelBtn.title = 'Cancel the retry and keep the partial result';
     cancelBtn.addEventListener('click', function () {
-      vscode.postMessage({ type: 'cancelExecution', payload: { entryId: entryId } });
+      lockAndPost({ type: 'cancelExecution', payload: { entryId: entryId } });
     });
 
-    wrapper.appendChild(continueBtn);
-    wrapper.appendChild(cancelBtn);
+    actionRow.appendChild(cancelBtn);
+    wrapper.appendChild(actionRow);
     return wrapper;
   }
 

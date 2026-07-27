@@ -21,16 +21,17 @@ AtlasMind's broader Project workspace now also includes a pre-planning ideation 
 
 ---
 
-## Starting a run from chat — auto-flow from a proposal
+## Starting a run from chat — proposal decisions
 
-You don't have to type `/project`. When a normal chat reply ends by **offering** to start an autonomous project run (e.g. *"…want me to kick off a project run to build this out?"*), AtlasMind continues straight into the run on the same turn instead of stopping for you to type **Proceed** — you already asked for the job, so the extra confirmation is redundant.
+You don't have to type `/project`. When an assessment or normal chat reply **offers** to start an autonomous project run, interactive chat renders a decision card instead of ending on an inert sentence:
 
-- **Autopilot ON** — the run starts **immediately** after a brief *"Autopilot — auto-continuing into a project run"* notice.
-- **Autopilot OFF** — AtlasMind prints a *"Starting a project run to: … — use Stop to cancel"* notice, then begins on the same turn. Use the **Stop** button to cancel before it gets going.
+- **Start run** — starts the proposed goal now through the normal project execution and file-count gates.
+- **Save for later** — plans and persists a reviewed preview in Project Run Center without executing it.
+- **Cancel** — dismisses the proposal without starting or saving a run.
 
-Auto-flow reuses the **exact goal** that typing "Proceed" would have resolved (the assistant's proposed action, or your last actionable request), so nothing about execution changes — only the keystroke is gone. Crucially, auto-flowed runs are **not pre-approved**: they pass the bare goal, so the `projectApprovalFileThreshold` safety gate (step 2 above) still pauses unusually large runs to show the plan before any files change.
+With **Autopilot ON**, `atlasmind.autoStartProposedProjectRuns: true` permits immediate auto-start after a brief notice. Set it to `false` to require the decision card even under Autopilot. Proposed goals reuse the same action that typing `Proceed` would resolve, and unusually large runs still pause at `projectApprovalFileThreshold`.
 
-Detection is deliberately conservative — it requires explicit project/autonomous-run vocabulary plus a first-person go-ahead, ignores generic "I'll build this", vetoes declines/deferrals, and never fires when the reply is still gathering requirements. Turn the whole behavior off with `atlasmind.autoStartProposedProjectRuns: false` (see [[Configuration]]) to return to the previous **Yes/No**-pill confirmation.
+Detection remains conservative: it requires explicit project/autonomous-run vocabulary plus a first-person offer, ignores generic “I’ll build this,” vetoes declines/deferrals, and never fires while requirements are still being gathered.
 
 ---
 
@@ -47,7 +48,7 @@ The loop runs autonomously but pauses at **deny-by-default approval checkpoints*
 
 ## Planning Phase
 
-The `Planner` sends the goal + workspace context to the LLM, which returns a `ProjectPlan`.
+The `Planner` sends the goal + workspace context to the LLM, which returns a `ProjectPlan`. Planning is intentionally reasoning-only: the selected planning provider may be a chat-only brain such as the Claude CLI bridge. Before execution, AtlasMind validates the returned skill IDs against the enabled registry. Any non-synthesis repository subtask left without valid skills receives the smallest evidence set (`file-read`, `file-search`, `workspace-observability`), forcing execution to route to a model that supports function calling. A dependency-only synthesis step can remain tool-free because it combines prior outputs rather than inspecting the workspace.
 
 AtlasMind now also treats `project_memory/roadmap/improvement-plan.md` as a weighted developer backlog during planning and “what next?” guidance. The manual order of items matters, but it is not absolute: critical, security, architectural, and delivery-risk signals can still override a lower-risk item that simply happens to be near the top.
 
@@ -139,9 +140,9 @@ The `TaskScheduler` takes the dependency DAG and:
 
 ### Subtask outcomes
 
-Each subtask resolves to one of: `completed`, `failed`, or **`needs-input`**. The last is a *pause*, not a failure: it means the subtask hit the agentic tool-iteration cap (`maxToolIterations`) before producing a final answer. Rather than silently recording the cap message as a successful result, the run surfaces a *"⏸️ Paused — tool-iteration limit reached"* section with the orchestrator's suggested higher limit and a button to open the setting. You can then **raise the limit permanently** (and re-run `/project`), **raise it once** and re-run, or **skip** the subtask and accept the partial result. The run is recorded as `paused` and the Project Run Center marks the subtask with a ⏸ icon and a *raise limit to resume* hint.
+Each subtask resolves to one of: `completed`, `failed`, or **`needs-input`**. The last is a *pause*, not a failure: it means the subtask hit an agentic execution cap before producing a final answer. Rather than silently recording the cap message as successful output, chat asks whether to **use the suggested limit for this run**, **save it permanently**, or **keep the partial result**. These are immediate chips, not inert transcript text. A one-run choice restores the previous live limit after the retry; only the permanent choice writes `atlasmind.maxToolIterations` or `atlasmind.maxToolCallsPerTurn`. The run stays `paused` until that decision, and Project Run Center retains the suggested value.
 
-A subtask is only marked `completed` when it actually delivered. A response that ends on an unrecovered tool error, that announces an action without following through ("Let's inspect…"), or that signals incomplete/unverified work is classified as `failed` (after one recovery retry), so dependents are skipped and the run reports honest completed/failed counts rather than a false "N/N completed".
+A subtask is only marked `completed` when it actually delivered. A response that ends on an unrecovered tool error, that announces an action without following through ("Let's inspect…"), that says required workspace tools are disabled/unavailable, or that signals incomplete/unverified work is classified as `failed` (after one recovery retry), so dependents are skipped and the run reports honest completed/failed counts rather than a false "N/N completed". When a tool-backed runtime emits that refusal during execution, AtlasMind first hands the subtask to another tool-capable model instead of accepting the reasoning-only response.
 
 ### Ephemeral Agents
 

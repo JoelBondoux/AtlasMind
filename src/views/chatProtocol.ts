@@ -38,6 +38,7 @@ export type ChatPanelMessage =
   | { type: 'ready' }
   | { type: 'submitPrompt'; payload: { prompt: string; mode: ComposerSendMode } }
   | { type: 'resolveLoopDecision'; payload: { id: string; choice: string } }
+  | { type: 'resolveProjectRunProposal'; payload: { entryId: string; decision: 'start' | 'save' | 'cancel' } }
   | { type: 'stopPrompt' }
   | { type: 'voteAssistantMessage'; payload: { entryId: string; vote: 'up' | 'down' | 'clear' } }
   | { type: 'resolveToolApproval'; payload: { requestId: string; decision: ToolApprovalDecision } }
@@ -176,6 +177,14 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
       && typeof (message.payload as { choice?: unknown }).choice === 'string';
   }
 
+  if (message.type === 'resolveProjectRunProposal') {
+    const payload = message.payload as { entryId?: unknown; decision?: unknown } | undefined;
+    return typeof payload === 'object'
+      && payload !== null
+      && typeof payload.entryId === 'string'
+      && (payload.decision === 'start' || payload.decision === 'save' || payload.decision === 'cancel');
+  }
+
   if (message.type === 'reviewRunFile') {
     return typeof message.payload === 'object'
       && message.payload !== null
@@ -225,10 +234,20 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
     message.type === 'raiseToolCallsPerTurnLimitPermanent' ||
     message.type === 'raiseToolCallsPerTurnLimitTemporary'
   ) {
-    return typeof message.payload === 'object'
-      && message.payload !== null
-      && typeof (message.payload as { entryId?: unknown }).entryId === 'string'
-      && typeof (message.payload as { value?: unknown }).value === 'number';
+    const payload = typeof message.payload === 'object' && message.payload !== null
+      ? message.payload as { entryId?: unknown; value?: unknown }
+      : undefined;
+    const value = payload?.value;
+    const max = message.type === 'raiseIterationLimitPermanent' || message.type === 'raiseIterationLimitTemporary'
+      ? 50
+      : 30;
+    return payload !== undefined
+      && typeof payload.entryId === 'string'
+      && typeof value === 'number'
+      && Number.isFinite(value)
+      && Number.isInteger(value)
+      && value >= 1
+      && value <= max;
   }
 
   if (message.type === 'saveFontScale') {

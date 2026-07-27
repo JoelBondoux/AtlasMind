@@ -163,6 +163,10 @@ const PROJECT_RUN_PROPOSAL_INTENT_PATTERN = /\b(?:(?:autonomous|atlasmind)\s+pro
 const PROJECT_RUN_OFFER_PATTERN = /\b(?:want\s+me\s+to|would\s+you\s+like\s+me\s+to|do\s+you\s+want\s+me\s+to|shall\s+i|should\s+i|can\s+i|may\s+i|i\s+can|i'?ll|i\s+will|let\s+me|i'?m\s+ready\s+to|i\s+am\s+ready\s+to|ready\s+to)\b/i;
 /** Negation/deferral cues that veto a proposal match — the model is declining or still waiting on the user. */
 const PROJECT_RUN_PROPOSAL_NEGATION_PATTERN = /\b(?:won'?t|will\s+not|cannot|can'?t|do\s+not|don'?t|shouldn'?t|not\s+ready|hold\s+off|before\s+(?:i|we)\s+(?:start|begin|run|proceed)|once\s+you|after\s+you)\b/i;
+const PROJECT_RUN_META_ACTION_PREFIX = /^\s*(?:(?:go\s+ahead\s+and\s+)?(?:kick\s+off|start|launch|begin)\s+)?(?:an?\s+|the\s+)?(?:autonomous\s+)?(?:project\s+)?run\b(?:\s+(?:to|for|on|about))?\s*/i;
+const DEICTIC_PROJECT_RUN_ACTION = /^(?:(?:build|implement|fix|do|run|execute|handle|complete)\s+)?(?:this|that|it)(?:\s+(?:out|work|plan|change|implementation))?$/i;
+const SAVE_PROPOSED_RUN_PATTERN = /^\s*save\s+(?:this|the)\s+(?:proposed\s+)?(?:project\s+)?run\s+for\s+later[.!?]*\s*$/i;
+const CANCEL_PROPOSED_RUN_PATTERN = /^\s*(?:cancel|dismiss|skip)\s+(?:this|the)\s+(?:proposed\s+)?(?:project\s+)?run[.!?]*\s*$/i;
 const EXPLICIT_FIX_PROMPT_PATTERN = /\b(?:fix|patch|repair|resolve|implement|update|change|modify|correct|adjust|rewrite|refactor)\b/i;
 const EXPLICIT_NO_FIX_PATTERN = /\b(?:do not fix|don't fix|without changing|no code changes|read only|explain only|question only)\b/i;
 const CONCRETE_ISSUE_PROMPT_PATTERN = /\b(?:bug|issue|problem|broken|regression|failing|fails|error|incorrect|wrong|missing|stuck|overflow|scroll|layout|sidebar|dropdown|panel|webview|tooltip|session rail|hides|hidden|crash|hang|stops|stopped|too tall|too wide|not working|doesn't|does not|won't|will not|can't|cannot)\b/i;
@@ -385,6 +389,12 @@ export interface ProjectRunOutcome {
   hasChangedFiles: boolean;
   /** Display titles of subtasks that ended with status 'failed'. */
   failedSubtaskTitles: string[];
+  /** True when one or more subtasks paused at an agentic execution cap. */
+  iterationLimitHit?: boolean;
+  /** Suggested temporary/permanent maxToolIterations value for resuming the run. */
+  suggestedIterationLimit?: number;
+  /** Suggested temporary/permanent maxToolCallsPerTurn value for resuming the run. */
+  suggestedToolCallsPerTurnLimit?: number;
 }
 
 export interface AssistantResponseReconciliation {
@@ -497,6 +507,77 @@ async function handleNativeChatRequest(
 
   const configuration = vscode.workspace.getConfiguration('atlasmind');
   const transcript = atlas.sessionConversation.getTranscript(sessionId);
+  const pendingRunEntry = [...transcript]
+    .reverse()
+    .find(entry => entry.role === 'assistant' && entry.meta?.projectRunProposal?.status === 'pending');
+  const pendingRunGoal = pendingRunEntry?.meta?.projectRunProposal?.goal;
+
+  if (pendingRunGoal && SAVE_PROPOSED_RUN_PATTERN.test(request.prompt)) {
+    atlas.sessionConversation.updateMessage(
+      pendingRunEntry.id,
+      pendingRunEntry.content,
+      sessionId,
+      {
+        ...pendingRunEntry.meta,
+        projectRunProposal: { goal: pendingRunGoal, status: 'saved' },
+      },
+    );
+    await vscode.commands.executeCommand('atlasmind.openProjectRunCenter', {
+      goal: pendingRunGoal,
+      autoPreview: true,
+    });
+    stream.markdown('Saved the proposed run in **Project Run Center**. You can review and start it there later.');
+    return { metadata: { command: 'save-proposed-project-run' } };
+  }
+
+  if (pendingRunGoal && CANCEL_PROPOSED_RUN_PATTERN.test(request.prompt)) {
+    atlas.sessionConversation.updateMessage(
+      pendingRunEntry.id,
+      pendingRunEntry.content,
+      sessionId,
+      {
+        ...pendingRunEntry.meta,
+        projectRunProposal: { goal: pendingRunGoal, status: 'cancelled' },
+      },
+    );
+    stream.markdown('Cancelled the proposed project run. No run was started or saved.');
+    return { metadata: { command: 'cancel-proposed-project-run' } };
+  }
+
+  const routedIntent = resolveAtlasChatIntent(request.prompt, transcript);
+  if (routedIntent?.kind === 'project') {
+    if (pendingRunEntry && isAutonomousContinuationPrompt(request.prompt)) {
+      atlas.sessionConversation.updateMessage(
+        pendingRunEntry.id,
+        pendingRunEntry.content,
+        sessionId,
+        {
+          ...pendingRunEntry.meta,
+          projectRunProposal: { goal: routedIntent.goal, status: 'started' },
+        },
+      );
+    }
+    stream.markdown('### Autonomous Run\n\nStarting the proposed project run.');
+    const { sessionContextBundle, sessionContext } = await prepareProjectRunContext(atlas, sessionId);
+    const outcome = await runProjectCommand(
+      isAutonomousContinuationPrompt(request.prompt)
+        ? routedIntent.goal
+        : toApprovedProjectPrompt(routedIntent.goal),
+      stream,
+      token,
+      atlas,
+      sessionId,
+      sessionContextBundle,
+      sessionContext,
+    );
+    return { metadata: { command: 'project', outcome } };
+  }
+  if (routedIntent?.kind === 'command') {
+    await vscode.commands.executeCommand(routedIntent.commandId, ...(routedIntent.args ?? []));
+    stream.markdown(routedIntent.summary);
+    return { metadata: { command: 'freeform' } };
+  }
+
   const carryForwardConversationContext = shouldCarryForwardConversationContext(request.prompt, transcript, chatContext);
   const storedSessionContext = carryForwardConversationContext
     ? atlas.sessionConversation.buildContext({
@@ -551,7 +632,7 @@ async function handleNativeChatRequest(
     writeMarkdownChunk(stream, reconciled.additionalText, 'native chat completion');
   }
 
-  const assistantMeta = buildAssistantResponseMetadata(request.prompt, result, {
+  let assistantMeta = buildAssistantResponseMetadata(request.prompt, result, {
     hasSessionContext: Boolean(sessionContext),
     routingContext: {
       ...(sessionContext ? { sessionContext } : {}),
@@ -562,7 +643,33 @@ async function handleNativeChatRequest(
       ...atlas.getWorkspacePolicySnapshots(),
       ...(operatorAdaptation?.policySnapshot ? [operatorAdaptation.policySnapshot] : []),
     ],
+    responseText: reconciled.transcriptText,
   });
+  const proposal = resolveProjectRunProposal(
+    reconciled.transcriptText,
+    [
+      ...transcript,
+      {
+        id: `proposal-${Date.now()}`,
+        role: 'assistant',
+        content: reconciled.transcriptText,
+        timestamp: new Date().toISOString(),
+      },
+    ],
+  );
+  if (proposal) {
+    assistantMeta = {
+      ...assistantMeta,
+      followupQuestion: 'What should I do with this proposed project run?',
+      quickReplies: undefined,
+      projectRunProposal: { goal: proposal.goal, status: 'pending' },
+      suggestedFollowups: [
+        { label: 'Start run', prompt: 'Proceed', description: 'Start the autonomous project run now.' },
+        { label: 'Save for later', prompt: 'Save this proposed project run for later.', description: 'Create a reviewed preview in Project Run Center.' },
+        { label: 'Cancel', prompt: 'Cancel this proposed project run.', description: 'Dismiss the proposal without starting or saving it.' },
+      ],
+    };
+  }
   if (assistantMeta.followupQuestion) {
     writeMarkdownChunk(stream, `\n\n**Next step:** ${assistantMeta.followupQuestion}`, 'native chat follow-up prompt');
   }
@@ -847,6 +954,7 @@ export async function runProjectCommand(
   sessionId?: string,
   sessionContextBundle?: import('../types.js').SessionContextBundle,
   sessionContext?: string,
+  recordSessionTurn = true,
 ): Promise<ProjectRunOutcome> {
   const noOpOutcome: ProjectRunOutcome = { hasFailures: false, hasChangedFiles: false, failedSubtaskTitles: [] };
 
@@ -864,7 +972,13 @@ export async function runProjectCommand(
 
   const approved = prompt.includes(PROJECT_APPROVAL_TOKEN);
   const goal = prompt.replace(PROJECT_APPROVAL_TOKEN, '').trim();
-  const planner = new Planner(atlas.modelRouter, atlas.providerRegistry, new TaskProfiler());
+  const planner = new Planner(
+    atlas.modelRouter,
+    atlas.providerRegistry,
+    new TaskProfiler(),
+    atlas.memoryManager,
+    atlas.skillsRegistry,
+  );
   const runStartedAt = new Date().toISOString();
   const baselineSnapshot = await createWorkspaceSnapshot();
   let lastImpactSnapshot = baselineSnapshot;
@@ -1029,28 +1143,37 @@ export async function runProjectCommand(
       `${result.totalInputTokens.toLocaleString()} in / ${result.totalOutputTokens.toLocaleString()} out*`,
     );
 
+    const suggestedIterationLimit = pausedSubtasks
+      .map(p => p.suggestedIterationLimit)
+      .filter((value): value is number => typeof value === 'number')
+      .reduce<number | undefined>((max, value) => max === undefined ? value : Math.max(max, value), undefined);
+    const suggestedToolCallsPerTurnLimit = pausedSubtasks
+      .map(p => p.suggestedToolCallsPerTurnLimit)
+      .filter((value): value is number => typeof value === 'number')
+      .reduce<number | undefined>((max, value) => max === undefined ? value : Math.max(max, value), undefined);
+
     // One or more subtasks paused at the agentic safety cap rather than failing.
     // Surface the choice the user actually has \u2014 raise the limit (once or
     // permanently) and re-run, or skip \u2014 instead of letting the run end silently.
     if (pausedSubtasks.length > 0) {
-      const suggested = pausedSubtasks
-        .map(p => p.suggestedIterationLimit)
-        .filter((v): v is number => typeof v === 'number')
-        .reduce((max, v) => Math.max(max, v), 0);
       const titles = pausedSubtasks.map(p => `**${p.title}**`).join(', ');
+      const suggestedLimitText = suggestedIterationLimit !== undefined
+        ? `\`${suggestedIterationLimit}\` tool iterations`
+        : suggestedToolCallsPerTurnLimit !== undefined
+          ? `\`${suggestedToolCallsPerTurnLimit}\` tool calls per turn`
+          : 'the suggested execution limit';
       stream.markdown(
         `\n\n### \u23f8\ufe0f Paused \u2014 tool-iteration limit reached\n\n` +
         `${pausedSubtasks.length} subtask(s) stopped at the agentic safety cap (\`maxToolIterations\`) ` +
-        `before finishing: ${titles}. The run did **not** fail \u2014 it is waiting on your decision:\n\n` +
-        (suggested > 0
-          ? `- **Raise permanently** to \`${suggested}\` in Settings, then re-run \`/project\` to resume.\n` +
-            `- **Raise once** by re-running \`/project\` after temporarily bumping the limit.\n`
-          : `- **Raise** \`maxToolIterations\` in Settings, then re-run \`/project\` to resume.\n`) +
-        `- **Skip** these subtasks and accept the partial result above.\n`,
+        `before finishing: ${titles}. The run did **not** fail \u2014 it is waiting on your decision.\n\n` +
+        `Would you like AtlasMind to use ${suggestedLimitText} for **this run only**, ` +
+        `save that limit **permanently**, or keep the partial result and cancel the retry?\n`,
       );
       stream.button({
         command: 'workbench.action.openSettings',
-        title: suggested > 0 ? `Raise max tool iterations (suggested: ${suggested})` : 'Open tool-iteration limit setting',
+        title: suggestedIterationLimit !== undefined
+          ? `Raise max tool iterations (suggested: ${suggestedIterationLimit})`
+          : 'Open tool-iteration limit setting',
         arguments: ['atlasmind.maxToolIterations'],
         tooltip: 'Open the maxToolIterations setting so you can raise the agentic safety cap, then re-run /project to resume.',
       });
@@ -1139,7 +1262,7 @@ export async function runProjectCommand(
       ],
     });
     atlas.projectRunsRefresh.fire();
-    if (!token.isCancellationRequested) {
+    if (!token.isCancellationRequested && recordSessionTurn) {
       atlas.sessionConversation.recordTurn(goal, result.synthesis, sessionId, buildProjectResponseMetadata(goal, result));
     }
     stream.button({
@@ -1185,6 +1308,9 @@ export async function runProjectCommand(
       hasFailures: failedSubtaskTitles.length > 0,
       hasChangedFiles: changedFiles.length > 0,
       failedSubtaskTitles,
+      ...(pausedSubtasks.length > 0 ? { iterationLimitHit: true } : {}),
+      ...(suggestedIterationLimit !== undefined ? { suggestedIterationLimit } : {}),
+      ...(suggestedToolCallsPerTurnLimit !== undefined ? { suggestedToolCallsPerTurnLimit } : {}),
     };
   } catch (err) {
     cancelDisposable.dispose();
@@ -2553,7 +2679,7 @@ export function detectResponseQuickReplies(responseText: string): {
 
 export function buildAssistantResponseMetadata(
   prompt: string,
-  result: Pick<TaskResult, 'agentId' | 'modelUsed' | 'costUsd' | 'inputTokens' | 'outputTokens' | 'artifacts' | 'contextCompressionSavingsUsd'>,
+  result: Pick<TaskResult, 'agentId' | 'modelUsed' | 'costUsd' | 'inputTokens' | 'outputTokens' | 'artifacts' | 'contextCompressionSavingsUsd' | 'iterationLimitHit' | 'suggestedIterationLimit' | 'suggestedToolCallsPerTurnLimit'>,
   options?: { hasSessionContext?: boolean; imageAttachments?: TaskImageAttachment[]; routingContext?: Record<string, unknown>; policies?: SessionPolicySnapshot[]; responseText?: string },
 ): SessionTranscriptMetadata {
   const toolCallCount = result.artifacts?.toolCallCount ?? 0;
@@ -2629,6 +2755,11 @@ export function buildAssistantResponseMetadata(
 
   return {
     modelUsed: result.modelUsed,
+    ...(result.iterationLimitHit ? { iterationLimitHit: true } : {}),
+    ...(typeof result.suggestedIterationLimit === 'number' ? { suggestedIterationLimit: result.suggestedIterationLimit } : {}),
+    ...(typeof result.suggestedToolCallsPerTurnLimit === 'number'
+      ? { suggestedToolCallsPerTurnLimit: result.suggestedToolCallsPerTurnLimit }
+      : {}),
     ...(options?.policies?.length ? { policies: options.policies.map(policy => ({ ...policy })) } : {}),
     ...(timelineNotes.length ? { timelineNotes } : {}),
     ...(suggestedFollowups
@@ -2656,9 +2787,21 @@ export function buildProjectResponseMetadata(goal: string, result?: Pick<Project
   const bullets: string[] = [
     `Goal: ${truncateForSummary(goal, 120)}.`,
   ];
+  const pausedSubtasks = result?.subTaskResults.filter(subtask => subtask.status === 'needs-input') ?? [];
+  const suggestedIterationLimit = pausedSubtasks
+    .map(subtask => subtask.suggestedIterationLimit)
+    .filter((value): value is number => typeof value === 'number')
+    .reduce<number | undefined>((max, value) => max === undefined ? value : Math.max(max, value), undefined);
+  const suggestedToolCallsPerTurnLimit = pausedSubtasks
+    .map(subtask => subtask.suggestedToolCallsPerTurnLimit)
+    .filter((value): value is number => typeof value === 'number')
+    .reduce<number | undefined>((max, value) => max === undefined ? value : Math.max(max, value), undefined);
   if (result) {
     const completedCount = result.subTaskResults.filter(r => r.status === 'completed').length;
     bullets.push(`${completedCount}/${result.subTaskResults.length} subtask(s) completed.`);
+    if (pausedSubtasks.length > 0) {
+      bullets.push(`${pausedSubtasks.length} subtask(s) paused at an execution safety limit and need your decision.`);
+    }
     bullets.push(`${formatCost(result.totalCostUsd, 4)} · ${result.totalInputTokens.toLocaleString()} in / ${result.totalOutputTokens.toLocaleString()} out`);
   } else {
     bullets.push('Planner, execution, and synthesis may each pick a different model based on cost, speed, and capability constraints.');
@@ -2667,6 +2810,9 @@ export function buildProjectResponseMetadata(goal: string, result?: Pick<Project
 
   return {
     modelUsed: 'multiple routed models',
+    ...(pausedSubtasks.length > 0 ? { iterationLimitHit: true } : {}),
+    ...(suggestedIterationLimit !== undefined ? { suggestedIterationLimit } : {}),
+    ...(suggestedToolCallsPerTurnLimit !== undefined ? { suggestedToolCallsPerTurnLimit } : {}),
     thoughtSummary: {
       label: 'Execution summary',
       summary: result
@@ -3628,7 +3774,7 @@ export function resolveAutonomousContinuationGoal(
   // offered, so the assistant's closing proposal is the real goal. Without this the
   // resolver fell back to the most recent *user* message — typically the question
   // that prompted the offer — and the autonomous run just re-ran that question.
-  const proposedAction = extractAssistantProposedAction(transcript);
+  const proposedAction = normalizeProjectRunProposalAction(extractAssistantProposedAction(transcript));
 
   const priorPrompt = proposedAction ?? [...transcript]
     .reverse()
@@ -3645,6 +3791,19 @@ export function resolveAutonomousContinuationGoal(
   }
 
   return `${priorPrompt}\n\nAdditional execution instruction: ${followupDetail}`;
+}
+
+function normalizeProjectRunProposalAction(action: string | undefined): string | undefined {
+  if (!action) {
+    return undefined;
+  }
+  const normalized = PROJECT_RUN_META_ACTION_PREFIX.test(action)
+    ? action.replace(PROJECT_RUN_META_ACTION_PREFIX, '').trim()
+    : action.trim();
+  if (!normalized || DEICTIC_PROJECT_RUN_ACTION.test(normalized)) {
+    return undefined;
+  }
+  return normalized;
 }
 
 /**
@@ -3685,6 +3844,11 @@ export interface ProjectRunAutoFlow {
   notice: string;
 }
 
+/** A non-mutating project-run proposal resolved from the assistant reply and chat history. */
+export interface ProjectRunProposal {
+  goal: string;
+}
+
 /**
  * True when the assistant's reply ends by offering to start an autonomous project
  * run. Conservative by construction: it requires explicit project/autonomous-run
@@ -3722,6 +3886,21 @@ export function detectProjectRunProposal(responseText: string): boolean {
   return PROJECT_RUN_OFFER_PATTERN.test(window);
 }
 
+/**
+ * Resolve the executable goal behind a project-run proposal without starting it.
+ * Chat surfaces use this to render Start / Save for later / Cancel controls.
+ */
+export function resolveProjectRunProposal(
+  responseText: string,
+  transcript: SessionTranscriptEntry[],
+): ProjectRunProposal | undefined {
+  if (!detectProjectRunProposal(responseText)) {
+    return undefined;
+  }
+  const goal = resolveAutonomousContinuationGoal('proceed', transcript)?.trim();
+  return goal ? { goal } : undefined;
+}
+
 /** The notice rendered before an auto-flowed run — Autopilot is immediate; otherwise it's cancellable. */
 export function buildProjectRunAutoFlowNotice(goal: string, autopilot: boolean): string {
   const display = truncateForSummary(goal, 160);
@@ -3744,17 +3923,17 @@ export function resolveProjectRunAutoFlow(
   transcript: SessionTranscriptEntry[],
   options: { enabled: boolean; autopilot: boolean },
 ): ProjectRunAutoFlow | undefined {
-  if (!options.enabled) {
+  // Outside Autopilot the safe handoff is an explicit in-chat decision card.
+  // The legacy setting still controls whether Autopilot may flow straight
+  // through; it no longer bypasses the operator when approvals are interactive.
+  if (!options.enabled || !options.autopilot) {
     return undefined;
   }
-  if (!detectProjectRunProposal(responseText)) {
+  const proposal = resolveProjectRunProposal(responseText, transcript);
+  if (!proposal) {
     return undefined;
   }
-  const goal = resolveAutonomousContinuationGoal('proceed', transcript)?.trim();
-  if (!goal) {
-    return undefined;
-  }
-  return { goal, notice: buildProjectRunAutoFlowNotice(goal, options.autopilot) };
+  return { goal: proposal.goal, notice: buildProjectRunAutoFlowNotice(proposal.goal, options.autopilot) };
 }
 
 function normalizeAutonomousSourcePrompt(prompt: string): string {

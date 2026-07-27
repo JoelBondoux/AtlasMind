@@ -34,7 +34,7 @@ For responses viewed in the shared AtlasMind chat workspace, assistant bubbles n
 
 In addition to manual thumbs votes, AtlasMind also feeds **task outcome results** directly into the preference signal. After every agentic task completes, `ModelRouter.recordModelOutcome(modelId, success)` increments or decrements the preference vote count by `PERFORMANCE_OUTCOME_WEIGHT` (0.12). This means routing continuously adapts from real execution results, not only from explicit user feedback.
 
-**Deprecation and staleness handling**: models with a `deprecatedAt` date in the past are automatically excluded from the candidate pool. Failure records older than 5 minutes are cleared so transient network errors do not permanently suppress a provider. `reEnableProvider()` is available for manual recovery.
+**Deprecation and staleness handling**: models with a `deprecatedAt` date in the past are automatically excluded from the candidate pool. Provider-confirmed model-not-found/deprecated errors create a session retirement tombstone that a later stale discovery response cannot clear or re-list. Ordinary failure records older than 5 minutes are still cleared so transient network errors do not permanently suppress a provider. A successful discovery response is authoritative even when it contains zero models, so Settings refresh prunes the previous provider list; discovery exceptions and timeouts preserve the last known catalog.
 
 **Extended-thinking cost scaling**: for models with a `thinkingTokenMultiplier`, `effectiveCostPer1k` applies that multiplier to the output price before budget scoring, preventing extended-thinking models from appearing cheaper than they are in budget modes.
 
@@ -270,7 +270,7 @@ AtlasMind now refreshes all enabled providers during startup, including GitHub C
 
 Provider failover now stays inside the candidate set that still satisfies the task's routing constraints. If a workspace-debug or tool-required request runs out of models that support the needed capabilities, AtlasMind fails the request explicitly instead of silently dropping to the built-in `local/echo-1` text fallback.
 
-When a routed model fails during execution, AtlasMind marks that model as failed for the current session, removes it from future candidate selection, increments a per-model failure counter, and shows a warning state in the Models sidebar until a later provider refresh clears the failure.
+When a routed model fails during execution, AtlasMind marks that model as failed for the current session, removes it from future candidate selection, increments a per-model failure counter, and shows a warning state in the Models sidebar. A successful provider refresh clears transient failures; provider-confirmed removal/deprecation tombstones remain excluded for the session and are filtered out even if stale discovery lists them again.
 
 ## Specialist And Future Providers
 
