@@ -51,6 +51,17 @@ Executing a promotion ("push") on the Delivery page runs real shell commands, so
 - **Separation of duties.** A stage can require the promoter (git actor) to differ from the change's author, enforced automatically.
 - **Deploy in CD, not on a laptop.** A stage can promote by dispatching a CD workflow (`gh workflow run`) so production deploys carry CI/CD identity and logs.
 
+### 3b. Buzz Inbound Boundary
+
+Reading from a Buzz relay means accepting data from a networked party AtlasMind does not control, so inbound sync is treated as an untrusted-input surface:
+
+- **Frames are parsed defensively.** `parseRelayFrame` never throws: oversized (capped), non-JSON, non-array, and structurally invalid frames degrade to a typed `unknown` frame. `validateNostrEvent` checks hex lengths, kind range, and tag structure and returns undefined rather than coercing a malformed event into a half-trusted one.
+- **Structural validity is not authenticity.** Signature verification is explicitly *not* performed client-side — it is the relay's job under NIP-42 — and the code says so, so a validated event is never mistaken for an authenticated one.
+- **Derive, don't mirror.** Inbound messages become follow-up work items with a **pointer back to the Buzz thread**, never the message body. SSOT is git-tracked, so mirroring a channel would commit colleagues' conversations into the repository. Text that does cross is secret-redacted, control-character-stripped, and length-clamped.
+- **Links stay on the allowlist.** A thread link is built only from an `https` base, with the channel id percent-encoded, so a crafted pointer can neither yield a launchable non-https URI nor traverse the path.
+- **A refused key is not retried.** A NIP-42 `restricted:` refusal stops reconnection rather than looping — the client already authenticated and was still rejected, so retrying would only hammer the relay.
+- **Deny-by-default.** Read-only subscription first; any auto-creation of work items sits behind an explicit toggle.
+
 ### 4. Memory Scanner
 
 The `MemoryScanner` validates content before writes to SSOT. It blocks:

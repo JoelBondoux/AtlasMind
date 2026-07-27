@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.147.0] - 2026-07-27
+
+### Added
+- **The protocol foundation for reading Buzz activity back into AtlasMind (Buzz integration, Tier 3).** Complements the Tier-1b outbound bridge with the read side. Buzz is Nostr-based, so its transport is a published open specification rather than a Buzz invention — which is why this layer could be built and fully tested without a live relay. Three new pure, `vscode`-free services: `BuzzProtocol` (NIP-01 framing, NIP-42 auth, and Buzz's event kinds), `BuzzConnectionPolicy` (liveness and reconnect), and `BuzzInboundDerivation` (turning activity into work items). They are not yet wired to a socket.
+- **Connection presence — the half a wake lock cannot provide.** Keeping the machine awake does nothing when the WebSocket silently drops, so AtlasMind now has a keep-alive/liveness policy, capped exponential-backoff reconnect with jitter, and a resume plan that re-subscribes tracked filters and re-announces presence. A fresh socket keeps none of the previous connection's state, so reconnecting alone would leave an agent silently absent while appearing connected.
+- **Buzz's event kinds, read from its own registry** at the same pinned tag the CLI bridge uses — including the two traps that are easy to get wrong: channel metadata is kind 39000 (not the legacy 41), and a channel message is kind 40002 (not 9, nor the earlier 10002). Subscribing to the wrong one yields a connection that works and receives nothing, so both are asserted in tests.
+
+### Security
+- **External conversations are derived, never mirrored.** Project memory is git-tracked, so an inbound message becomes a follow-up carrying a **pointer back to the Buzz thread** and a short sanitised title — never the message body, which would commit colleagues' conversations into your repository. Buzz remains the message system-of-record. Text that does cross the boundary is secret-redacted (`nsec` keys, long hex, `sk-`/`ghp_`/`xoxb-` tokens), stripped of control characters that could corrupt a Markdown mirror, and length-clamped.
+- **Relay input is treated as untrusted.** Frame parsing never throws: oversized, non-JSON, and structurally invalid frames degrade to a typed unknown frame, and event validation returns nothing rather than coercing a malformed event into a half-trusted one. Signature verification is explicitly *not* performed client-side — it is the relay's job under NIP-42 — so a structurally valid event is never mistaken for an authenticated one.
+- **A rejected key is not retried.** A relay refusal meaning "authenticated, but this key is still not allowed" stops reconnection instead of looping, since retrying cannot change the outcome. The recoverable "not authenticated yet" case reconnects and re-runs authentication.
+- **A kind-less relay query is refused at construction.** Buzz rejects a filter without `kinds` with a 403, which is confusing to debug at runtime, so subscriptions cannot be built without them.
+- **Thread links keep the existing allowlist.** Built only from an `https` base with the channel id percent-encoded, so a crafted pointer can neither produce a launchable non-https URI nor traverse the path.
+
 ## [0.146.0] - 2026-07-27
 
 ### Added

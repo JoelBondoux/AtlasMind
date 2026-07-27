@@ -367,6 +367,28 @@ Shared runtime-bootstrap helpers used by both the recommended-install command an
 
 Communication-only adapter for official Buzz CLI source tag v0.4.26. `BuzzCliBridge` owns configuration/relay validation, required command/flag contract probing, direct process execution, bounded JSON parsing, identifier validation, stdin message delivery, and secret redaction. `buzzCommsServer.ts` declares the four MCP tool schemas and annotations, checks readiness before connecting stdio, and contains no AtlasMind reasoning or workspace-execution surface.
 
+### BuzzProtocol (`src/core/buzzProtocol.ts`)
+
+Verified Nostr wire framing for Tier-3 **inbound** sync — the read side, complementing the outbound `BuzzCliBridge`. Buzz is Nostr-based, so the transport is **not** a Buzz invention: NIP-01 and NIP-42 are published open specifications, which is why this layer could be built and fully tested without a live relay. Everything is read from spec or from Buzz's own registry: NIP-01 event shape and `EVENT`/`REQ`/`CLOSE`/`OK`/`EOSE`/`CLOSED`/`NOTICE` framing; NIP-42's `["AUTH", <challenge>]` → signed **kind 22242** event carrying `relay` and `challenge` tags; and kind numbers from `crates/buzz-core/src/kind.rs` at `BUZZ_PROTOCOL_VERIFIED_VERSION` (`v0.4.26`, matching the pinned CLI tag).
+
+**Three documented traps are encoded deliberately.** Channel metadata is **39000**, not the legacy NIP-01 kind 41 that also exists in the registry; a channel message is **40002** (`KIND_STREAM_MESSAGE_V2`), not plain NIP-29 kind 9 nor V1's 10002 — subscribing to the wrong one yields a connection that works and receives nothing. Both are asserted in tests so a future edit can't silently regress them. The third is enforced by the type system: `NostrFilter.kinds` is **required and non-empty**, because Buzz's relay answers a kind-less query with a 403 "p-gate", so `buildSubscriptionFrame` refuses to build one rather than letting it fail confusingly at the relay.
+
+**Untrusted-input boundary.** A relay frame arrives over the network from a party AtlasMind does not control, so `parseRelayFrame` never throws: oversized (`MAX_RELAY_FRAME_BYTES`), non-JSON, non-array, and structurally wrong frames all degrade to a typed `unknown` frame. `validateNostrEvent` checks hex lengths, kind range, and tag structure, returning undefined rather than coercing — and deliberately does **not** verify the Schnorr signature, so callers must not mistake structural validity for authenticity. `classifyRelayRefusal` separates a recoverable `auth-required:` from a terminal `restricted:`.
+
+### BuzzConnectionPolicy (`src/core/buzzConnectionPolicy.ts`)
+
+The **second half of "stays in contact"**. `PresenceManager` already keeps the *machine* awake; that is necessary but not sufficient, because a wake lock does nothing when the WebSocket silently drops. This module decides when a connection is dead and when to retry. It is pure and **clock-free** — time and randomness are arguments — so the whole policy is deterministically testable without timers or sockets.
+
+`evaluateLiveness` is conservative by design: a connection is only `dead` after a keep-alive ping has been *sent* and gone unanswered, never from idleness alone, because a quiet channel is not a broken socket. `nextReconnectDelay` is capped exponential backoff with **subtractive** jitter, so a delay can never exceed the cap it is meant to enforce, with the exponent clamped so a long outage can't overflow. `planReconnect` refuses to retry a `restricted:` refusal — the client already authenticated and the relay still rejects that key, so retrying cannot change the outcome and must not become a hammering loop. `buildResumePlan` re-subscribes tracked filters and re-announces presence (a fresh socket keeps none of the previous connection's state, so reconnecting alone leaves an agent silently absent while looking connected), rewinding the cursor by a small overlap: clocks drift, and a duplicate the caller de-duplicates by event id is a better failure than a silently dropped message.
+
+### BuzzInboundDerivation (`src/core/buzzInboundDerivation.ts`)
+
+Enforces the roadmap's load-bearing inbound rule, **derive, don't mirror**. An event becomes a `FollowUp`-shaped work item carrying a **pointer back to the Buzz thread** and a short, sanitised title — never the message body. This is a privacy boundary as much as a storage one: SSOT files are git-tracked, so mirroring a channel would commit colleagues' chat into the repository. Buzz stays the message system-of-record; the pointer is the deliverable.
+
+`sanitizeDerivedText` redacts secret-shaped material (`nsec…`, 64-char hex, `sk-`/`ghp_`/`xoxb-` tokens), strips control characters so a crafted message can't corrupt a Markdown mirror, and clamps to a title length. Derivation is total — underivable kinds and empty text return a reason instead of throwing — and never invents a linked entity the event doesn't support. `deriveWorkItems` de-duplicates by event id, which is what makes the reconnect replay overlap safe. `buildBuzzThreadLink` applies the same `https`-only allowlist as Director contact deep links and percent-encodes the channel id, so a crafted pointer can neither produce a launchable non-https URI nor traverse the path.
+
+**Not yet wired.** These three modules are the composable foundation; the `BuzzClient` socket that drives them, Schnorr signing for the auth event, and the deny-by-default inbound toggle still need validation against a running relay.
+
 ### Agentic Resource Discovery (`src/ard/`)
 
 [ARD](resource-discovery.md) is a discovery-only protocol layered in front of invocation. Three core services, plus a webview panel and a sidebar tree:

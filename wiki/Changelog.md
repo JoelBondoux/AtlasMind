@@ -6,6 +6,14 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.147.0 — Buzz inbound foundation (Tier 3)
+
+- **Verified Nostr protocol layer.** Buzz's transport is a published open spec (NIP-01 framing, NIP-42 auth), so this was built and fully tested without a live relay. Buzz's own event kinds come from its registry at the same pinned tag as the CLI bridge — including the traps: channel metadata is 39000 (not 41) and a channel message is 40002 (not 9 or 10002), both asserted in tests because the wrong one connects fine and receives nothing.
+- **Connection presence, the half a wake lock can't provide.** Keep-alive/liveness detection, capped backoff reconnect with jitter, and a resume plan that re-subscribes filters and re-announces presence — a fresh socket keeps no prior state, so reconnecting alone leaves an agent silently absent.
+- **Derive, don't mirror.** Inbound activity becomes a follow-up with a **pointer back to the Buzz thread**, never the message body. Project memory is git-tracked, so mirroring a channel would commit colleagues' chat into your repo.
+- **Relay data is untrusted.** Frame parsing never throws; malformed events are dropped rather than coerced; client-side structural validity is explicitly not treated as authenticity. A "restricted" key refusal stops reconnecting instead of hammering the relay.
+- **Not yet live.** The WebSocket itself is not connected — that needs validation against a running Buzz relay.
+
 ## v0.146.0 — Buzz live communications (Tier 1b)
 
 - **Project Director can post to Buzz.** A bundled communication-only MCP bridge wraps the pinned official Buzz CLI v0.4.26 for channel posts, bounded thread reads, and DMs.

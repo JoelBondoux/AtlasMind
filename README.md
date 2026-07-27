@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.146.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.147.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,10 +64,11 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.146.0
+## What's new in 0.147.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
 
+- **Groundwork for reading Buzz activity back in.** The verified Nostr protocol layer, the connection-presence policy that keeps an agent genuinely in contact (a wake lock can't save a dropped socket), and the inbound derivation boundary are in place. External conversations are **derived, never mirrored**: a message becomes a follow-up with a pointer back to the thread, never the message body — project memory is committed to your repository, so a mirrored channel would put colleagues' chat in your git history. The live socket is not connected yet; that needs validation against a running relay.
 - **Buzz can now send for real through the guarded connector path.** A bundled communication-only MCP bridge wraps the pinned official Buzz CLI for channel posts, thread reads, and DMs; it stores the agent key in SecretStorage, passes message bodies over stdin, enforces local/remote relay policy, and keeps Buzz traffic from being misrouted through Slack or Teams.
 - **Workspace memory stays out of source and release archives.** Git ignores the local memory backup, while VSIX packaging excludes every `project_memory*` directory before Marketplace publication.
 - **Model refreshes now remove what providers removed.** Successful empty catalogs prune stale entries, and provider-confirmed deprecated or missing models cannot be resurrected by a later stale refresh.

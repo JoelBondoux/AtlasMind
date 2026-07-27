@@ -255,6 +255,16 @@ AtlasMind now reuses the SSOT memory-scanner rules for transient freeform-chat c
 - warned transient context is redacted and included only as explicitly labeled untrusted data
 - clean transient context is still treated as data, not instructions, and is kept out of the system-prompt trust boundary
 
+## External Conversations Are Derived, Never Mirrored
+
+Project memory is **git-tracked**, so anything written into SSOT gets committed to your repository. That makes "what may enter memory" a privacy decision as much as a storage one, and the rule for external chat systems is **derive, don't mirror**.
+
+[Buzz](https://buzz.xyz) inbound derivation is the reference implementation: a message becomes a **follow-up with a pointer back to the original thread** and a short sanitised title. The message body is never stored — the derived record has no content field at all. Buzz stays the message system-of-record; AtlasMind records only that there's something to act on and where to find it.
+
+Everything crossing that boundary is sanitised first — secret-shaped material redacted, control characters stripped, text length-clamped — and a derivation never invents a link to a stakeholder or run the source event doesn't support.
+
+The same rule applies to any future chat integration: keep the pointer and a summary, never the transcript. See [[Security]] and [[Architecture]].
+
 ## Dispatch-Time Secret Redaction
 
 Before retrieved memory context and live evidence are embedded in a model prompt, AtlasMind passes both through the `SecretRedactor` utility (`src/utils/secretRedactor.ts`). This is a separate, lighter-weight layer from the `MemoryScanner` write-gate — it protects the **LLM dispatch boundary** rather than the write path.

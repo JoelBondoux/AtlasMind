@@ -1,7 +1,9 @@
 # Buzz (buzz.xyz) Integration — Phased Roadmap
 
 > **Status:** Tier 1b implementation complete; a real-relay smoke test remains before the live-send
-> gate is closed. Tier 2 guided connector shipped and ARD discovery still planned; Tiers 3–4 planned.
+> gate is closed. Tier 2 guided connector shipped and ARD discovery still planned. Tier 3's
+> protocol/policy/derivation **foundation** shipped (v0.147.0); its socket, signing, and wiring need
+> the same running relay — see the Tier-3 verification log. Tier 4 planned.
 > **Owner:** AtlasMind core. **Created:** 2026-07-25.
 > This is the SSOT north star for integrating Buzz into AtlasMind. Build incrementally,
 > respecting the entry criteria between tiers. Nothing here overrides AtlasMind's
@@ -163,6 +165,64 @@ the discovered server disabled until it passes the normal MCP trust gate.
 
 **Entry criteria:** Tier-1b live send working; `buzz-sdk` event/filter schema verified; relay auth
 (NIP-42) validated end-to-end.
+
+### Tier-3 verification log (2026-07-27, v0.147.0) — foundation shipped, socket still owed
+
+**The key realisation:** Buzz's transport is **not a Buzz invention**. Buzz is Nostr-based, so
+NIP-01 (events, `REQ`/`EVENT`/`EOSE`/`CLOSED` framing, filters) and NIP-42 (relay auth) are
+*published open specifications*. Verifying them against `nostr-protocol/nips` is exactly as legitimate
+as verifying `buzz-cli` against its Cargo.toml — no live relay needed. Only the *integration* is
+relay-blocked, not the protocol layer.
+
+| Fact | Source | Value |
+|---|---|---|
+| Event object + client/relay frames | `nips/01.md` | `["REQ", <subId>, <filter>…]`, `["EVENT", <subId>, <event>]`, `["OK", <id>, <bool>, <msg>]`, `["EOSE", <subId>]`, `["CLOSED", <subId>, <msg>]`, `["NOTICE", <msg>]` |
+| Relay auth | `nips/42.md` | Relay sends `["AUTH", <challenge>]`; client replies with a signed **kind 22242** event with `relay` + `challenge` tags. Refusals prefixed `auth-required:` / `restricted:` |
+| Event kinds | `crates/buzz-core/src/kind.rs` @ `v0.4.26` | channel message **40002**, edit **40003**, system **40099**, channel metadata **39000**, thread summary **39005**, auth **22242**, jobs **43001–43006** |
+| Filter gotcha | `AGENTS.md` @ `v0.4.26` | "Relay queries must specify `kinds` — omitting `kinds` triggers the p-gate (403)" |
+
+Note the kind registry was read at **the same pinned tag (`v0.4.26`) the Tier-1b CLI bridge uses**, so
+the inbound and outbound halves are pinned together and move together.
+
+**Traps found and encoded (each would have been a silent, confusing bug):**
+- **Channel metadata is 39000, not 41.** Kind 41 *does* exist in the registry as legacy NIP-01 channel
+  metadata — the plausible-looking wrong answer. `AGENTS.md` calls this out explicitly.
+- **A channel message is 40002, not 9 or 10002.** `KIND_STREAM_MESSAGE = 9` (plain NIP-29) and V1's
+  10002 both exist; `KIND_STREAM_MESSAGE_V2 = 40002` is current. Subscribing to the wrong one yields
+  a connection that works and receives nothing.
+- **A kind-less filter is a 403, not an empty result.** So `NostrFilter.kinds` is required non-empty
+  *by type*, and `buildSubscriptionFrame` refuses to build one.
+
+Both kind traps are pinned by assertions in `tests/core/buzzProtocol.test.ts` so a later edit cannot
+regress them quietly.
+
+**Shipped (all pure, `vscode`-free, unit-tested — 69 tests):**
+- `buzzProtocol.ts` — framing, parsing, filters, NIP-42 templates, event validation. Untrusted-input
+  boundary: never throws; explicitly does **not** verify signatures (relay's job under NIP-42), so
+  structural validity is never confused with authenticity.
+- `buzzConnectionPolicy.ts` — the **connection-presence half** the tier explicitly owed. Clock-free,
+  so it is deterministically testable with no timers. Notable decisions: `dead` only after an
+  *unanswered ping* (idleness alone is not death — a quiet channel is not a broken socket); jitter is
+  **subtractive** so the backoff cap actually holds; a `restricted:` refusal **stops** rather than
+  retries; the resume cursor rewinds by an overlap, preferring a de-duplicated duplicate over a
+  silently dropped message.
+- `buzzInboundDerivation.ts` — the **derive-don't-mirror** boundary. Event → `FollowUp` + thread
+  pointer; the body is never stored (the derived record has no content field at all). This is a
+  privacy boundary: SSOT is git-tracked, so mirroring a channel would commit colleagues' chat into
+  the repo.
+
+**Still owed for Tier 3 — needs a running relay, not more reading:**
+1. **The `BuzzClient` socket itself.** Build it with an **injectable socket factory**, matching
+   `PresenceManager`'s injectable-`spawn` idiom, so the connect → AUTH → REQ → EVENT → EOSE → drop →
+   backoff → resubscribe state machine is unit-testable against a fake socket. The three modules
+   above are the parts it composes.
+2. **Schnorr signing** for the NIP-42 auth event. `buildAuthEventTemplate` deliberately returns an
+   *unsigned* template — signing needs a secp256k1 backend and the agent key, and adding a crypto
+   dependency deserves its own decision rather than being smuggled in here.
+3. **End-to-end NIP-42 validation** against a real relay, plus confirming the `h`-tag channel-scoping
+   assumption used by the derivation layer. This can share the Tier-1b real-relay smoke test.
+4. **Wiring:** the deny-by-default inbound toggle, `hold('buzz')`/`release('buzz')` against
+   `PresenceManager`, and persisting derived follow-ups.
 
 ---
 
