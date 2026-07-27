@@ -387,7 +387,17 @@ Enforces the roadmap's load-bearing inbound rule, **derive, don't mirror**. An e
 
 `sanitizeDerivedText` redacts secret-shaped material (`nsec…`, 64-char hex, `sk-`/`ghp_`/`xoxb-` tokens), strips control characters so a crafted message can't corrupt a Markdown mirror, and clamps to a title length. Derivation is total — underivable kinds and empty text return a reason instead of throwing — and never invents a linked entity the event doesn't support. `deriveWorkItems` de-duplicates by event id, which is what makes the reconnect replay overlap safe. `buildBuzzThreadLink` applies the same `https`-only allowlist as Director contact deep links and percent-encodes the channel id, so a crafted pointer can neither produce a launchable non-https URI nor traverse the path.
 
-**Not yet wired.** These three modules are the composable foundation; the `BuzzClient` socket that drives them, Schnorr signing for the auth event, and the deny-by-default inbound toggle still need validation against a running relay.
+### BuzzClient (`src/core/buzzClient.ts`, `src/core/buzzSocket.ts`)
+
+The inbound subscription itself — the piece that *drives* the three modules above. It owns the state machine (connect → authenticate → subscribe → receive → drop → back off → resume) and nothing else: it parses no frames, invents no delays, and stores no conversation.
+
+**Transport-agnostic on purpose.** The socket arrives through an injected `BuzzSocketFactory`, the same idiom `PresenceManager` uses for `spawn`, so `buzzClient.ts` imports neither `ws` nor `vscode`. That keeps the whole machine unit-testable against a fake socket *and* testable against a real in-process WebSocket server (`tests/core/buzzClient.integration.test.ts`), which covers what a fake cannot: the genuine handshake, `ws`'s Buffer→string delivery, real ping/pong, and a hard TCP drop with no closing handshake. `createBuzzWebSocketFactory` (`buzzSocket.ts`) supplies the real transport; `ws` was already a dependency, so inbound sync adds none. `toWebSocketUrl` maps the CLI-style `http(s)` relay base onto `ws(s)`, so a single `atlasmind.buzz.relayUrl` setting serves both the outbound CLI bridge and the inbound socket.
+
+**Signing is a seam, not an implementation.** NIP-42 needs a Schnorr signature over a kind-22242 event, requiring a secp256k1 backend AtlasMind does not yet depend on. `BuzzEventSigner` is that seam. With no signer configured, a relay demanding auth produces a typed, explained stop — never a silent failure and never a reconnect loop.
+
+**Safety.** Deny-by-default: constructing a client connects nothing, and `start()` is explicit. **Read-only by construction** — it sends only `REQ`, `CLOSE`, `AUTH`, and keep-alive pings, never an `EVENT`, so an inbound subscription cannot write to Buzz (asserted in tests). Every frame passes through `parseRelayFrame`, so malformed input is counted and ignored rather than acted on. A socket that cannot even be created is treated as a failed attempt and backed off, not an exception escaping into the extension host.
+
+**Still owed.** Schnorr signing (the dependency decision), validation against a real Buzz relay rather than a NIP-01-shaped stand-in, and the deny-by-default inbound toggle plus follow-up persistence.
 
 ### Agentic Resource Discovery (`src/ard/`)
 

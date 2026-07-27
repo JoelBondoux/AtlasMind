@@ -60,7 +60,9 @@ Reading from a Buzz relay means accepting data from a networked party AtlasMind 
 - **Derive, don't mirror.** Inbound messages become follow-up work items with a **pointer back to the Buzz thread**, never the message body. SSOT is git-tracked, so mirroring a channel would commit colleagues' conversations into the repository. Text that does cross is secret-redacted, control-character-stripped, and length-clamped.
 - **Links stay on the allowlist.** A thread link is built only from an `https` base, with the channel id percent-encoded, so a crafted pointer can neither yield a launchable non-https URI nor traverse the path.
 - **A refused key is not retried.** A NIP-42 `restricted:` refusal stops reconnection rather than looping — the client already authenticated and was still rejected, so retrying would only hammer the relay.
-- **Deny-by-default.** Read-only subscription first; any auto-creation of work items sits behind an explicit toggle.
+- **Read-only by construction.** The inbound client sends only `REQ`, `CLOSE`, `AUTH`, and keep-alive pings — never an `EVENT`. A subscription therefore *cannot* publish to Buzz, and a test asserts it, so the read path can never become a write path by accident.
+- **Deny-by-default.** Constructing a client connects nothing; `start()` is explicit. Read-only subscription first, and any auto-creation of work items sits behind an explicit toggle.
+- **A relay that demands auth without a signer stops, explained.** Schnorr signing is a seam AtlasMind has not yet filled, so an authenticating relay produces a typed stop naming the reason — never a silent failure and never a reconnect loop.
 
 ### 4. Memory Scanner
 

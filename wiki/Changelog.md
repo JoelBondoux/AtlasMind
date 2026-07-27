@@ -6,6 +6,14 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.148.0 — Buzz inbound subscription (Tier 3)
+
+- **AtlasMind can hold a live Buzz relay subscription.** Connect → authenticate → subscribe → receive, and on a drop, back off and resume from where it left off.
+- **No new dependency.** `ws` was already bundled. The relay URL is accepted as either the CLI-style `http(s)` base or `ws(s)`, so one setting serves both the outbound bridge and the inbound socket.
+- **Read-only by construction.** The subscription sends only subscribe/close/authenticate/keep-alive frames — never an event — so it cannot write to Buzz. Asserted in tests.
+- **Tested against a real WebSocket server.** 26 deterministic unit tests plus 9 integration tests covering a genuine handshake, real ping/pong, a real NIP-42 exchange, and a hard TCP drop the client recovers from unaided.
+- **Two pieces remain** before inbound is switched on: Schnorr signing for authenticating relays, and validation against a real Buzz instance.
+
 ## v0.147.0 — Buzz inbound foundation (Tier 3)
 
 - **Verified Nostr protocol layer.** Buzz's transport is a published open spec (NIP-01 framing, NIP-42 auth), so this was built and fully tested without a live relay. Buzz's own event kinds come from its registry at the same pinned tag as the CLI bridge — including the traps: channel metadata is 39000 (not 41) and a channel message is 40002 (not 9 or 10002), both asserted in tests because the wrong one connects fine and receives nothing.

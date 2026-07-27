@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.148.0] - 2026-07-27
+
+### Added
+- **The Buzz inbound subscription itself (`BuzzClient`).** AtlasMind can now hold a live connection to a Buzz relay — connect, authenticate, subscribe, receive, and on a drop, back off and resume where it left off. It drives the Tier-3 foundation modules and owns only the state machine: it parses no frames, invents no delays, and stores no conversation.
+- **A real transport, with no new dependency.** `ws` was already an AtlasMind dependency, so inbound sync adds none. The relay URL is accepted in either form — the CLI-style `http(s)` base or `ws(s)` — so a single `atlasmind.buzz.relayUrl` setting serves both the outbound bridge and the inbound socket, and the two halves cannot drift apart.
+- **Tested against a real WebSocket server, not only a mock.** 26 unit tests drive the state machine through a fake socket with an injected clock (deterministic, no timers), and 9 integration tests run the real client against a real in-process WebSocket server — covering the genuine handshake, real ping/pong, a real NIP-42 exchange, and a hard TCP drop with no closing handshake, after which the client reconnects on its own.
+
+### Security
+- **The inbound subscription is read-only by construction.** It sends only subscribe, close, authenticate, and keep-alive frames — never an event — so a read connection cannot become a write path to Buzz. A test asserts it.
+- **Nothing connects until asked.** Constructing a client opens no socket; starting it is an explicit, separate step that the caller gates on the inbound toggle.
+- **A relay demanding authentication stops with an explanation.** Schnorr signing is a deliberate seam AtlasMind has not yet filled, so an authenticating relay produces a typed, named stop rather than a silent failure or an endless reconnect loop. The same applies when signing fails or the relay rejects the signature.
+- **Malformed frames are counted and ignored, never acted on**, and a socket that cannot even be created is treated as a failed attempt and backed off rather than throwing into the extension host.
+
 ## [0.147.0] - 2026-07-27
 
 ### Added

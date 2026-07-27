@@ -2,8 +2,9 @@
 
 > **Status:** Tier 1b implementation complete; a real-relay smoke test remains before the live-send
 > gate is closed. Tier 2 guided connector shipped and ARD discovery still planned. Tier 3's
-> protocol/policy/derivation **foundation** shipped (v0.147.0); its socket, signing, and wiring need
-> the same running relay — see the Tier-3 verification log. Tier 4 planned.
+> protocol/policy/derivation **foundation** shipped (v0.147.0) and its `BuzzClient` subscription
+> (v0.148.0); Schnorr signing, real-relay validation, and wiring remain — see the Tier-3 logs.
+> Tier 4 planned.
 > **Owner:** AtlasMind core. **Created:** 2026-07-25.
 > This is the SSOT north star for integrating Buzz into AtlasMind. Build incrementally,
 > respecting the entry criteria between tiers. Nothing here overrides AtlasMind's
@@ -211,18 +212,45 @@ regress them quietly.
   privacy boundary: SSOT is git-tracked, so mirroring a channel would commit colleagues' chat into
   the repo.
 
-**Still owed for Tier 3 — needs a running relay, not more reading:**
-1. **The `BuzzClient` socket itself.** Build it with an **injectable socket factory**, matching
-   `PresenceManager`'s injectable-`spawn` idiom, so the connect → AUTH → REQ → EVENT → EOSE → drop →
-   backoff → resubscribe state machine is unit-testable against a fake socket. The three modules
-   above are the parts it composes.
-2. **Schnorr signing** for the NIP-42 auth event. `buildAuthEventTemplate` deliberately returns an
-   *unsigned* template — signing needs a secp256k1 backend and the agent key, and adding a crypto
-   dependency deserves its own decision rather than being smuggled in here.
-3. **End-to-end NIP-42 validation** against a real relay, plus confirming the `h`-tag channel-scoping
-   assumption used by the derivation layer. This can share the Tier-1b real-relay smoke test.
-4. **Wiring:** the deny-by-default inbound toggle, `hold('buzz')`/`release('buzz')` against
-   `PresenceManager`, and persisting derived follow-ups.
+### Tier-3 subscription log (2026-07-27, v0.148.0) — `BuzzClient` shipped
+
+Item 1 below is now done. The prediction that it needed a relay was wrong: with an **injectable
+socket factory**, the state machine is fully testable without one, and `ws` was **already an AtlasMind
+dependency**, so inbound sync added none.
+
+**Shipped:**
+- `buzzClient.ts` — the state machine: connect → authenticate → subscribe → receive → drop → back off
+  → resume. It drives the three foundation modules and owns nothing else (parses no frames, invents
+  no delays, stores no conversation). Transport-agnostic via `BuzzSocketFactory`, so it imports
+  neither `ws` nor `vscode`.
+- `buzzSocket.ts` — the real `ws` adapter, isolated so the client stays dependency-free.
+  `toWebSocketUrl` maps the CLI-style `http(s)` relay base onto `ws(s)`, so **one `relayUrl` setting
+  serves both the outbound CLI bridge and the inbound socket** — the two halves can't drift.
+- **35 tests: 26 unit (fake socket, injected clock — no timers, fully deterministic) + 9 integration
+  against a real in-process WebSocket server.** The integration layer covers what a fake cannot: the
+  genuine handshake, `ws`'s Buffer→string delivery, real ping/pong, a real NIP-42 exchange, and a
+  **hard TCP drop with no closing handshake** (the client notices via keep-alive and reconnects with
+  the rewound cursor).
+
+**Findings worth keeping:**
+- The first test run failed because the fixtures used `'p'.repeat(64)` as a pubkey and
+  `'s'.repeat(128)` as a signature — **neither is hex**. `validateNostrEvent` correctly rejected them.
+  A reassuring failure: the untrusted-input boundary caught bad data written by its own author.
+- **Read-only is now structural, not just intended.** The client sends only `REQ`/`CLOSE`/`AUTH`/pings
+  and never an `EVENT`, and a test asserts it — so the read path cannot silently become a write path.
+
+**Still owed for Tier 3:**
+1. **Schnorr signing** for the NIP-42 auth event. `buildAuthEventTemplate` returns an *unsigned*
+   template and `BuzzEventSigner` is the seam; with no signer, an authenticating relay yields a typed,
+   explained stop rather than a loop. Filling it needs a secp256k1 backend — `@noble/curves` is the
+   audited, zero-dependency standard (what `nostr-tools` itself uses). **This is a dependency decision
+   in a security-sensitive path and deserves its own reviewable change.**
+2. **Validation against a real Buzz relay.** The integration tests run against a NIP-01-shaped
+   stand-in, not Buzz — so relay-specific behaviour (the p-gate, real auth, and the `h`-tag
+   channel-scoping assumption the derivation layer makes) is still unconfirmed. Share the Tier-1b
+   smoke test.
+3. **Wiring:** the deny-by-default inbound toggle, `hold('buzz')`/`release('buzz')` against
+   `PresenceManager` while a subscription is live, and persisting derived follow-ups.
 
 ---
 
