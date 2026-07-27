@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.145.7] - 2026-07-27
+
+### Security
+- **Source-control and VSIX packaging now exclude AtlasMind memory archives and variants.** Git ignores the local `project_memory_old/` backup, while the package boundary rejects every `project_memory*` directory, preventing workspace memory from entering a commit or Marketplace release.
+
 ## [0.145.6] - 2026-07-27
 
 ### Fixed

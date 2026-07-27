@@ -56,7 +56,7 @@ npm run package:vsix # Produces a .vsix file with runtime dependencies included
 ```
 
 AtlasMind has runtime dependencies. Do not package or publish with `--no-dependencies` unless those dependencies have been bundled into the extension output first.
-The checked-in `.vscodeignore` keeps local and release VSIX files focused on runtime assets by excluding workspace-only folders such as `project_memory/`, `wiki/`, generated `.vsix` files, local Vitest JSON reports, assistant instruction folders, and extra dependency docs or test trees.
+The checked-in `.gitignore` keeps `project_memory_old/` out of source control, while `.vscodeignore` keeps local and release VSIX files focused on runtime assets by excluding all workspace-memory directories matching `project_memory*` (including local archives and backups), `wiki/`, generated `.vsix` files, local Vitest JSON reports, assistant instruction folders, and extra dependency docs or test trees. Treat any workspace-memory directory shown by `vsce package` as a release blocker.
 
 ### Run in VS Code
 

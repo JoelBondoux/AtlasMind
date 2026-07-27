@@ -6,6 +6,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.145.7 — Workspace-memory package boundary
+
+- **Local memory archives stay local.** Git ignores `project_memory_old/`, and the checked-in package boundary excludes every `project_memory*` directory, including backup variants discovered during release verification.
+
 ## v0.145.6 — Tool-capable project handoff and recoverable limits
 
 - **Planning and execution stay separate.** A reasoning-only model may create the plan, but non-synthesis subtasks receive enabled workspace-evidence skills and route to a model that can actually call them.

@@ -264,7 +264,7 @@ npm run tag:release    # Re-run the git tag step on its own if it failed after p
 
 `publish:release` runs `vsce publish` and then `npm run tag:release`, which creates and pushes a `v<version>` annotated git tag (`.github/scripts/tag-release.mjs`). The tagger is cross-platform and idempotent — it skips if the tag already exists — so every Marketplace release stays traceable to a tagged commit without a manual step.
 
-The checked-in `.vscodeignore` is the packaging boundary for local and release VSIX files. It intentionally excludes workspace-only content such as `project_memory/`, `wiki/`, local `.vsix` outputs, Vitest JSON report artifacts, assistant instruction folders, and extra dependency test or docs folders so the packaged extension stays closer to runtime-only contents.
+The checked-in `.gitignore` keeps the local `project_memory_old/` backup outside source control, and `.vscodeignore` is the packaging boundary for local and release VSIX files. It intentionally excludes workspace-only content such as all `project_memory*` directories (including local archive or backup variants), `wiki/`, local `.vsix` outputs, Vitest JSON report artifacts, assistant instruction folders, and extra dependency test or docs folders so the packaged extension stays closer to runtime-only contents. Review the `vsce package` file listing before publishing; a workspace-memory directory in that listing is a release blocker.
 
 Requires `vsce` to be installed globally or as a dev dependency:
 ```bash
