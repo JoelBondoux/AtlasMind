@@ -476,6 +476,8 @@ AtlasMind can connect to any [Model Context Protocol](https://modelcontextprotoc
 
 **Guided Setup wizard** (`src/views/mcpPanel.ts`): the panel leads with a step-by-step flow for first-time users — **Scan my computer** (`McpServerRegistry.detectAvailableServers()` surfaces only servers whose runtime is present) or **Browse by category** → prerequisite check (missing runtimes install only after confirmation, via `src/mcp/mcpRuntime.ts`) → guided credential/parameter fields → connect. Recommended starters declare typed `inputs` (`RecommendedMcpInput` in `src/constants.ts`); secret-kind values are stored in VS Code SecretStorage (`McpServerConfig.secretEnvKeys`) and merged into the process env only at connect time. The former raw form remains under the **Advanced** tab (and backs editing an existing server).
 
+**Buzz Communications (Tier 1b)** is a first-party guided starter for the extension-bundled `buzzCommsServer.ts`, not for Buzz's developer MCP. It wraps official pinned `buzz-cli` source tag v0.4.26 and registers `buzz_list_channels`, `buzz_post_message`, `buzz_read_thread`, and `buzz_send_dm`. The starter stores `BUZZ_PRIVATE_KEY` and optional `BUZZ_AUTH_TAG` in SecretStorage, takes the executable path as non-secret configuration, and injects the existing Buzz enable/relay/remote-consent settings through a closed template allowlist. Because the upstream v0.4.26 CLI does not expose a working `--version` flag, the server probes the exact required command/flag surface and refuses an incompatible CLI or disallowed relay before completing the MCP handshake. Its tool surface is intentionally communication-only: no shell, files, workflows, repositories, administration, identity minting, or message mirroring.
+
 **Skill ID pattern**: `mcp:<serverId>:<toolName>`  
 **Source field**: `mcp://<serverId>/<toolName>`
 
@@ -494,6 +496,7 @@ MCP skills are registered in `SkillsRegistry` when a server connects and automat
 - MCP tools execute in a separate process or remote service — they are not sandboxed within the extension.
 - The URL field must use `http://` or `https://`; other schemes are rejected.
 - Env vars for stdio servers are merged with the extension host environment. Secrets entered through the Guided Setup wizard are stored in VS Code SecretStorage (via `McpServerConfig.secretEnvKeys`), never in `globalState`, and injected only at connect time; if you use the Advanced form's raw `env` field, prefer the server's native secret management for sensitive values.
+- The bundled Buzz bridge adds a second boundary inside stdio: it calls the CLI without a shell, sends message text over stdin, validates channel/event/pubkey identifiers, caps process time and output, and redacts the Buzz key/authorization grant from errors. Remote relays require both explicit `allowRemoteRelay` consent and TLS.
 - AtlasMind only imports MCP entries it can reproduce faithfully. VS Code-only fields such as sandbox settings, unresolved `${...}` variables, custom headers, or other unsupported transport options are skipped instead of being downgraded silently.
 
 ---

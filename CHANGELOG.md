@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.146.0] - 2026-07-27
+
+### Added
+- **Buzz Tier 1b live communications.** AtlasMind now ships a bundled, communication-only stdio MCP server (`buzzCommsServer.ts`) backed by an isolated, unit-tested `BuzzCliBridge`. The guided MCP catalogue configures the official pinned Buzz CLI v0.4.26 and exposes only bounded channel listing, channel posting, thread reading, and direct messaging—never Buzz shell, file-edit, workflow, repository, or administration tools.
+- **Guided Buzz connector setup.** The MCP wizard stores `BUZZ_PRIVATE_KEY` and an optional NIP-OA `BUZZ_AUTH_TAG` in VS Code SecretStorage, carries only non-secret relay/CLI metadata in the saved server config, and launches the extension-bundled bridge through an extension-path template.
+
+### Changed
+- **Director connector routing is provider-aware.** Messaging capabilities remain separate by contact-link kind and Buzz delivery shape, so a Buzz recipient cannot be handed to Slack or Teams merely because another connector's tool ranked first. Buzz channel UUIDs route to `buzz_post_message`; 64-character public keys route to `buzz_send_dm`.
+- **Buzz's published v0.4.26 CLI contract is now the pinned integration seam.** The roadmap and documentation now reflect the official JSON commands and their HTTP(S) CLI relay base, while preserving the boundary that Buzz owns identity/messaging and AtlasMind owns reasoning/execution.
+
+### Security
+- **The Buzz bridge fails closed.** It requires `atlasmind.buzz.enabled`, rejects remote relays unless `atlasmind.buzz.allowRemoteRelay` is enabled, requires TLS for remote relays, rejects credential/query-bearing relay URLs, verifies the pinned v0.4.26 communication command/flag contract before the MCP handshake, invokes the CLI without a shell, sends message bodies only over stdin, bounds input/output/time, validates UUIDs/event IDs/pubkeys, and redacts private keys/authorization grants from errors. Director sends still require the per-project `outboundEnabled` gate and an explicit modal confirmation.
+
 ## [0.145.7] - 2026-07-27
 
 ### Security

@@ -63,6 +63,8 @@ export interface RecommendedMcpStarterDetails {
 	transport: 'stdio' | 'http';
 	command?: string;
 	args?: string[];
+	/** Fixed, non-secret env values/templates supplied by the audited starter. */
+	env?: Record<string, string>;
 	url?: string;
 	note: string;
 	runtimeInstalls?: Partial<Record<SupportedRuntimePlatform, RecommendedMcpRuntimeInstall[]>>;
@@ -138,6 +140,7 @@ function inferRecommendedMcpServerProvenance(server: Omit<RecommendedMcpServer, 
 		|| combined.includes('modelcontextprotocol.io')
 		|| combined.includes('github.com/modelcontextprotocol/servers')
 		|| combined.includes('github.com/github/github-mcp-server')
+		|| combined.includes('github.com/block/buzz')
 		|| combined.includes('npmjs.com/package/@azure/mcp')
 	) {
 		return 'official';
@@ -178,6 +181,7 @@ const RECOMMENDED_MCP_CATEGORY_BY_ID: Record<string, RecommendedMcpCategory> = {
 	'mcp-server-prometheus': 'DevOps',
 	'mcp-server-sentry': 'DevOps',
 	'mcp-server-jira': 'Collaboration',
+	'mcp-server-buzz': 'Collaboration',
 	'mcp-server-slack': 'Collaboration',
 	'mcp-server-trello': 'Collaboration',
 	'mcp-server-contrast-checker': 'Design',
@@ -401,6 +405,13 @@ const RECOMMENDED_MCP_SERVER_CATALOGUE: Array<Omit<RecommendedMcpServer, 'proven
 		description: 'Integrate Slack messaging, notifications, and workflow triggers.',
 		installUrl: 'https://github.com/zencoderai/slack-mcp-server',
 		docsUrl: 'https://github.com/zencoderai/slack-mcp-server',
+	},
+	{
+		id: 'mcp-server-buzz',
+		name: 'Buzz Communications',
+		description: 'Connect AtlasMind Project Director to Buzz channels, threads, and DMs through a bundled, communication-only bridge around the official pinned Buzz CLI.',
+		installUrl: 'https://github.com/block/buzz/releases/tag/v0.4.26',
+		docsUrl: 'https://github.com/block/buzz/blob/v0.4.26/crates/buzz-cli/TESTING.md',
 	},
 	{
 		id: 'mcp-server-trello',
@@ -760,6 +771,65 @@ export function getRecommendedMcpStarterDetails(serverId: string): RecommendedMc
 						{ packageManager: 'pacman', packageId: 'nodejs', extraPackages: ['npm'], displayName: 'Node.js and npm' },
 					],
 				},
+			};
+		case 'mcp-server-buzz':
+			return {
+				setupMode: 'prefill',
+				transport: 'stdio',
+				command: 'node',
+				args: ['${extensionPath}/out/mcp/buzzCommsServer.js'],
+				env: {
+					ATLASMIND_BUZZ_ENABLED: '${config:atlasmind.buzz.enabled}',
+					ATLASMIND_BUZZ_ALLOW_REMOTE_RELAY: '${config:atlasmind.buzz.allowRemoteRelay}',
+					BUZZ_CLI_PATH: 'buzz',
+					BUZZ_RELAY_URL: '${config:atlasmind.buzz.relayUrl}',
+				},
+				note: 'AtlasMind-bundled communication-only MCP bridge for the official Buzz CLI v0.4.26. It exposes channels, posts, threads, and DMs — never Buzz shell/file/admin tools.',
+				inputs: [
+					{
+						key: 'BUZZ_PRIVATE_KEY',
+						label: 'Buzz agent private key',
+						help: 'The agent identity key as nsec or 64-character hex. Stored only in VS Code SecretStorage.',
+						kind: 'secret',
+						target: 'env',
+						example: 'nsec1…',
+						required: true,
+					},
+					{
+						key: 'BUZZ_AUTH_TAG',
+						label: 'Buzz owner authorization tag — optional',
+						help: 'Optional NIP-OA owner attestation JSON. Store it as a secret when your community requires scoped agent authorization.',
+						kind: 'secret',
+						target: 'env',
+						required: false,
+					},
+					{
+						key: 'BUZZ_CLI_PATH',
+						label: 'Buzz CLI executable',
+						help: 'Command name or absolute path for the pinned v0.4.26 Buzz CLI. Leave as "buzz" when it is on PATH.',
+						kind: 'text',
+						target: 'env',
+						defaultValue: 'buzz',
+						example: 'C:\\Tools\\buzz.exe',
+						required: false,
+					},
+				],
+				prerequisites: [
+					'Buzz CLI v0.4.26 installed from the official Block release or built from the v0.4.26 tag.',
+					'A Buzz community/relay and a dedicated agent identity with only the channel memberships it needs.',
+					'atlasmind.buzz.enabled turned on; remote communities also require atlasmind.buzz.allowRemoteRelay.',
+					'Node.js (AtlasMind can install it) to host the bundled local MCP bridge.',
+				],
+				credentialSteps: [
+					'Create or select a dedicated agent identity in Buzz; do not reuse a human private key.',
+					'Grant that identity membership only in the channels AtlasMind should reach.',
+					'Copy the identity private key (nsec or 64-character hex) into the secret field below.',
+					'If your community issues a NIP-OA owner authorization tag, paste that optional JSON grant too.',
+					'Enable atlasmind.buzz.enabled and review the configured relay URL before connecting.',
+				],
+				credentialHelpUrl: 'https://github.com/block/buzz/blob/v0.4.26/README.md',
+				safetyNote: 'This identity can perform real external sends. Use a dedicated, least-privilege agent key. AtlasMind stores it in SecretStorage, passes message bodies over stdin, confirms Director sends, and rejects an incompatible CLI command contract or remote relays without explicit consent.',
+				runtimeInstalls: NODE_RUNTIME_INSTALLS,
 			};
 		case 'mcp-server-github':
 			return {

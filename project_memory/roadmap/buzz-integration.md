@@ -1,6 +1,7 @@
 # Buzz (buzz.xyz) Integration — Phased Roadmap
 
-> **Status:** Tier 1 (foundation) partially implemented; Tiers 2–4 planned.
+> **Status:** Tier 1b implementation complete; a real-relay smoke test remains before the live-send
+> gate is closed. Tier 2 guided connector shipped and ARD discovery still planned; Tiers 3–4 planned.
 > **Owner:** AtlasMind core. **Created:** 2026-07-25.
 > This is the SSOT north star for integrating Buzz into AtlasMind. Build incrementally,
 > respecting the entry criteria between tiers. Nothing here overrides AtlasMind's
@@ -48,18 +49,17 @@ humans *and* the orchestrated agents around a project — without hard-coupling 
 | Component | What it is | Integration relevance |
 |---|---|---|
 | `buzz-relay` | Axum **WS + REST** Nostr relay: NIP-01 events, NIP-42 Schnorr auth, NIP-34 git. Postgres + Redis + S3/MinIO. Default `ws://localhost:3000`, self-hostable. | Direct protocol option (Tier 3/4). |
-| `buzz-cli` | **Agent-first CLI, JSON in / JSON out**, auth via `BUZZ_PRIVATE_KEY`, relay via `BUZZ_RELAY_URL`. | The programmatic **comms** surface (post/DM/channels). **Exact command schema not yet published — must be confirmed against the installed binary before wiring live sends.** |
+| `buzz-cli` | **Agent-first CLI, JSON in / JSON out**, auth via `BUZZ_PRIVATE_KEY`, relay via `BUZZ_RELAY_URL`. AtlasMind pins source tag v0.4.26 and its published `channels list`, `messages send`, `messages thread`, and `dms open` contracts. | The verified programmatic **comms** surface (post/DM/channels). Upstream v0.4.26 has no working `--version` flag, so AtlasMind probes every required command/flag contract before connecting and fails closed on incompatibility. |
 | `buzz-dev-mcp` | An **MCP server** shipping shell + file-edit tools. **No comms tools.** | Connectable today via AtlasMind's MCP registry, but gives agent dev-tools, *not* messaging. |
+| AtlasMind Buzz comms MCP | Bundled stdio MCP server wrapping only the pinned `buzz-cli` communication commands. | Gives Director a normal MCP capability surface without exposing Buzz shell, file-edit, workflow, repo, or admin operations. |
 | `buzz-sdk` / `buzz-core` | TypeScript typed event builders + protocol types / NIP-01 filters. | Cleanest path for a first-class in-extension `BuzzClient` (Tier 3/4), since AtlasMind is TS. |
 | `buzz-acp` / `buzz-agent` | ACP (Agent Client Protocol) harness — **already supports Claude Code**, Goose, Codex. | A2A / self-sovereign agent identities (Tier 4). |
 | `buzz-workflow` / `buzz-persona` | YAML automation; agent persona packs. | Project-management automation (Tier 2/3). |
 
-**Key constraint that shapes the plan:** Buzz has **no comms-capable MCP server today**. So the
-"register an MCP server whose `post_message` tool auto-flows into Director dispatch" path does not
-work out of the box for messaging. Live outbound to Buzz requires either (a) Buzz shipping a comms
-MCP, or (b) AtlasMind wrapping `buzz-cli`/`buzz-sdk` — gated on a verified command/event schema.
-Until then, AtlasMind integrates Buzz as a **recognized identity + connector** and reaches Buzz via
-**deep links** through the existing guarded fallback.
+**Key constraint that shapes the plan:** Buzz has **no upstream comms-capable MCP server today**.
+AtlasMind therefore ships a narrow communication-only wrapper around the verified, pinned
+`buzz-cli` v0.4.26 contract. It deliberately excludes the `buzz-dev-mcp` execution surface.
+Deep links remain the fallback when the connector is disabled or unavailable.
 
 ## Value targets (all four in scope, phased)
 
@@ -77,46 +77,60 @@ mirroring `atlasmind.ard.allowInsecureEndpoints`.
 
 ---
 
-## Tier 1 — Foundation & recognized connector  *(in progress)*
+## Tier 1 — Foundation, recognized connector, and live outbound  *(smoke test pending)*
 
 **Goal:** Buzz is a first-class, configurable, deny-by-default citizen of the existing Director +
 comms machinery, with zero speculative protocol code.
 
-**Shipped in this pass:**
+**Tier 1a foundation:**
 - `buzz` added to `CommunicationChannelKind` (`src/types.ts`) — Director contacts can carry a Buzz identity (npub / @handle / #channel) and an optional Buzz web deep link.
 - Buzz option in the contact-link editor + an `https`-only deep-link builder (`media/projectDashboard.js`), reusing the existing scheme allowlist (no new native scheme added — safety-first).
-- `directorCommsRunner.ts` `INTENT_PATTERNS` extended so Buzz-style comms tool names (`post_to_channel`, `send_dm`, `direct_message`, `buzz_*`) classify as the `message` intent. **Forward-compatible:** the moment a Buzz comms tool is connected (via MCP), Director's guarded `{modal:true}` dispatch works with no further code.
+- `directorCommsRunner.ts` `INTENT_PATTERNS` recognizes Buzz-style comms tool names (`post_to_channel`, `send_dm`, `direct_message`, `buzz_*`) as the `message` intent.
 - Settings (deny-by-default): `atlasmind.buzz.enabled` (`false`), `atlasmind.buzz.relayUrl` (`ws://localhost:3000`), `atlasmind.buzz.allowRemoteRelay` (`false`).
 
-**Reuse map (no new send path, no new dispatch):** `handleDirectorSendComms` + the `{modal:true}`
-auth gate + the `outboundEnabled` project flag + `handleOpenContactDeepLink` + `ALLOWED_DEEPLINK_SCHEMES`
-+ `sanitizeProjectDirectorConfig` are all reused unchanged.
+**Tier 1b live outbound communications:**
+- A thin, isolated `BuzzCliBridge` pins and verifies official `buzz-cli` v0.4.26, centralizing the
+  exact channel-list, post, bounded-thread-read, and DM command construction.
+- A bundled stdio MCP server exposes only `buzz_list_channels`, `buzz_post_message`,
+  `buzz_read_thread`, and `buzz_send_dm`. It never exposes Buzz shell, file-edit, workflow,
+  repository, or administration tools.
+- The bridge runs the configured binary directly (`shell:false`), passes message bodies through
+  stdin, bounds duration/output/message size, validates identifiers and JSON responses, and
+  redacts keys and authorization tags from failures.
+- Relay policy is enforced at the process boundary: loopback is the default, remote relays require
+  explicit opt-in and TLS, and Desktop-style `ws(s)` URLs are normalized to the HTTP(S) base the
+  pinned CLI accepts.
+- Director comms routing now matches the selected contact-link provider. Buzz channel UUIDs route
+  to channel posts and 64-character public keys route to DMs; Slack or Teams cannot receive a Buzz
+  recipient by capability-ranking accident.
 
-**Tier-1 completion gate (Tier-1b, follow-up):** wire a live outbound send to Buzz. Options, in
-preference order:
-1. Adopt a Buzz **comms MCP** if/when Block ships one → automatic via existing dispatch.
-2. Otherwise author a thin, isolated, unit-tested `buzz-cli`/`buzz-sdk` bridge — **only after** the
-   `buzz-cli` JSON command schema (or `buzz-sdk` event builders) is verified against a pinned Buzz
-   version. Centralize the command/event construction in one module; never guess an external API.
+**Remaining completion check:** run one channel post, thread read, and DM against a disposable
+identity on a real Buzz v0.4.26 installation. The local development machine did not have `buzz` on
+PATH, so unit/contract/package verification is complete but the external relay smoke test is not.
+
+**Reuse map:** `handleDirectorSendComms` + the `{modal:true}` auth gate + the `outboundEnabled`
+project flag + `handleOpenContactDeepLink` + `ALLOWED_DEEPLINK_SCHEMES` +
+`sanitizeProjectDirectorConfig` remain the guarded send/deep-link path.
 
 ---
 
-## Tier 2 — ARD discoverability + guided connector
+## Tier 2 — ARD discoverability + guided connector  *(partially complete)*
 
 **Goal:** Buzz is discoverable and one-click connectable, disabled-by-default.
 
-- Add a curated **Buzz MCP starter** to the guided-setup catalogue (`RECOMMENDED_MCP_SERVER_CATALOGUE`
-  + `getRecommendedMcpStarterDetails`, `src/constants.ts`), `Collaboration` category, `guided-manual`,
-  `secretEnvKeys: ['BUZZ_PRIVATE_KEY']`, env `BUZZ_RELAY_URL` from the Tier-1 setting. Honest note:
-  connects Buzz's **agent dev-tools** today; comms tools flow in automatically when available.
+- **Shipped:** a curated **Buzz Communications** starter in the guided-setup catalogue
+  (`RECOMMENDED_MCP_SERVER_CATALOGUE` + `getRecommendedMcpStarterDetails`, `src/constants.ts`),
+  under `Collaboration`. It launches AtlasMind's bundled comms bridge, stores `BUZZ_PRIVATE_KEY`
+  and optional `BUZZ_AUTH_TAG` in SecretStorage, and resolves the relay/consent settings at launch.
 - Surface Buzz as an **ARD resource** (`application/mcp-server+json`) via `ArdInstaller` → disabled
   `McpServerConfig` through the normal MCP trust gate. Only publish an Agent Finder that points at a
   **verified** Buzz `ai-catalog.json`; do not point at an unverified URL.
-- **Boundary note:** the starter connects Buzz's identity/comms surface. `buzz-dev-mcp`'s shell/file-edit
-  tools are a Buzz-side agent surface, **not** AtlasMind's executor — AtlasMind keeps executing on its own
-  skills/tools (see the governing contract). Present the starter as a comms/identity connector, not a tool host.
+- **Boundary note:** the starter connects only Buzz's identity/comms surface. `buzz-dev-mcp`'s
+  shell/file-edit tools are a Buzz-side agent surface, **not** AtlasMind's executor — AtlasMind
+  keeps executing on its own skills/tools (see the governing contract).
 
-**Entry criteria:** Tier 1 merged; a real Buzz install available to validate the starter command on PATH.
+**Remaining Tier 2 gate:** verify and publish only a real Buzz Agent Finder/catalog endpoint; keep
+the discovered server disabled until it passes the normal MCP trust gate.
 
 ---
 

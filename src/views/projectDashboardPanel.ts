@@ -2320,16 +2320,29 @@ export class ProjectDashboardPanel {
       return;
     }
     const intent = payload.intent;
-    const preferKinds = intent === 'message' ? ['slack', 'teams'] : ['email'];
-    const link = contact.links.find(entry => preferKinds.includes(entry.kind)) ?? contact.links[0];
+    const capabilities = detectConnectorCapabilities(this.atlas.mcpServerRegistry?.listServers() ?? []);
+    const preferKinds = intent === 'message' ? ['buzz', 'slack', 'teams'] : ['email'];
+    const preferredLinks = contact.links.filter(entry => preferKinds.includes(entry.kind));
+    const link = preferredLinks.find(entry =>
+      resolveCapability(capabilities, intent, entry.kind, entry.handle),
+    ) ?? preferredLinks[0] ?? contact.links[0];
     const recipient = link?.handle ?? '';
     if (!recipient) {
       void vscode.window.showWarningMessage(`No ${intent === 'message' ? 'chat' : intent} channel on file for ${contact.name}.`);
       return;
     }
 
-    const capabilities = detectConnectorCapabilities(this.atlas.mcpServerRegistry?.listServers() ?? []);
-    const capability = resolveCapability(capabilities, intent);
+    if (link?.kind === 'buzz') {
+      const buzzEnabled = vscode.workspace.getConfiguration('atlasmind').get<boolean>('buzz.enabled', false);
+      if (!buzzEnabled) {
+        void vscode.window.showWarningMessage(
+          'Buzz integration is off. Enable atlasmind.buzz.enabled before opening or sending to Buzz.',
+        );
+        return;
+      }
+    }
+
+    const capability = resolveCapability(capabilities, intent, link?.kind, recipient);
     if (!capability) {
       // Non-destructive fallback: open the deep-link, or explain there's no connector.
       if (link?.deepLink) {

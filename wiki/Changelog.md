@@ -6,6 +6,13 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.146.0 — Buzz live communications (Tier 1b)
+
+- **Project Director can post to Buzz.** A bundled communication-only MCP bridge wraps the pinned official Buzz CLI v0.4.26 for channel posts, bounded thread reads, and DMs.
+- **Buzz stays in its lane.** The connector exposes no Buzz shell, file-edit, workflow, repository, or administrative tools; AtlasMind keeps reasoning and execution in its own toolchain.
+- **Secrets and relay policy fail closed.** Agent keys and optional authorization tags stay in SecretStorage, message bodies go through stdin, remote relays require explicit consent plus TLS, and the bridge refuses a CLI that does not match the pinned v0.4.26 communication contract.
+- **Connectors cannot cross wires.** Director routing now matches the contact's channel kind and distinguishes Buzz channels from Buzz DMs, preventing a Buzz recipient from being sent through Slack or Teams.
+
 ## v0.145.7 — Workspace-memory package boundary
 
 - **Local memory archives stay local.** Git ignores `project_memory_old/`, and the checked-in package boundary excludes every `project_memory*` directory, including backup variants discovered during release verification.

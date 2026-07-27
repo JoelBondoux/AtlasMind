@@ -266,6 +266,19 @@ New to MCP? The panel leads with a **Guided Setup** wizard:
 
 Prefer full control? The **Advanced** tab keeps the raw transport/command/args/env form and also backs editing an existing server.
 
+### Buzz Communications (Tier 1b)
+
+Choose **Browse by category → Collaboration → Buzz Communications** to add AtlasMind's bundled communication-only connector. It requires official `buzz-cli` v0.4.26, a dedicated agent key, and `atlasmind.buzz.enabled`. The wizard stores `BUZZ_PRIVATE_KEY` and an optional NIP-OA `BUZZ_AUTH_TAG` in SecretStorage; the saved MCP config contains only the executable path plus non-secret, closed-template references to the Buzz relay and consent settings.
+
+The connector registers four skills:
+
+- `buzz_list_channels` — read up to 100 visible channels.
+- `buzz_post_message` — post to a validated channel UUID, with an optional thread root.
+- `buzz_read_thread` — read a bounded thread by channel/event ID.
+- `buzz_send_dm` — open/reuse a DM and send to a 64-character public key.
+
+It intentionally does not connect `buzz-dev-mcp` and exposes no Buzz shell, file-edit, workflow, repository, administration, identity-minting, or message-history mirroring. Because upstream v0.4.26 has no working `--version` flag, it probes the exact required command/flag contract plus relay policy before the MCP handshake. Runtime calls use no shell, pass message bodies through stdin, bound process time/output, validate identifiers, and redact credentials. Remote relays require explicit `atlasmind.buzz.allowRemoteRelay` consent and TLS. Project Director sends retain the separate `outboundEnabled` and modal-confirmation gates.
+
 ### Per-Skill Control
 
 - Individual MCP tools can be enabled/disabled in the Skills tree view

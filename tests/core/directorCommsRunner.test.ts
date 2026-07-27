@@ -37,7 +37,7 @@ describe('classifyToolIntent', () => {
 });
 
 describe('detectConnectorCapabilities', () => {
-  it('detects one capability per intent from connected servers, preferring send over draft', () => {
+  it('detects provider-specific capabilities, preferring send over draft', () => {
     const servers = [
       server('m365', 'Microsoft 365', 'connected', [
         tool('outlook_create_draft'),
@@ -53,6 +53,29 @@ describe('detectConnectorCapabilities', () => {
     expect(email?.serverName).toBe('Microsoft 365');
     expect(resolveCapability(caps, 'schedule')?.toolName).toBe('outlook_create_event');
     expect(resolveCapability(caps, 'message')?.toolName).toBe('post_message');
+  });
+
+  it('keeps Buzz and Slack message routes separate', () => {
+    const servers = [
+      server('slack', 'Slack', 'connected', [tool('post_message', { channel: {}, text: {} })]),
+      server('buzz', 'Buzz Communications', 'connected', [
+        tool('buzz_post_message', { channel: {}, content: {} }),
+        tool('buzz_send_dm', { pubkey: {}, content: {} }),
+      ]),
+    ];
+    const caps = detectConnectorCapabilities(servers);
+    expect(resolveCapability(caps, 'message', 'slack', '#general')?.serverId).toBe('slack');
+    expect(resolveCapability(caps, 'message', 'buzz', '123e4567-e89b-42d3-a456-426614174000')?.toolName)
+      .toBe('buzz_post_message');
+    expect(resolveCapability(caps, 'message', 'buzz', 'a'.repeat(64))?.toolName).toBe('buzz_send_dm');
+    expect(resolveCapability(caps, 'message', 'buzz', '#general')).toBeUndefined();
+  });
+
+  it('does not fall across provider boundaries', () => {
+    const caps = detectConnectorCapabilities([
+      server('slack', 'Slack', 'connected', [tool('post_message')]),
+    ]);
+    expect(resolveCapability(caps, 'message', 'buzz', '#general')).toBeUndefined();
   });
 
   it('ignores servers that are not connected', () => {
@@ -96,5 +119,8 @@ describe('buildToolArgs', () => {
     const msgCap: ConnectorCapability = { serverId: 's', serverName: 'Slack', toolName: 'post_message', intent: 'message', inputSchema: { properties: { channel: {}, text: {} } } };
     expect(buildToolArgs(msgCap, { intent: 'message', recipient: '@dana', body: 'ping' }))
       .toEqual({ channel: '@dana', text: 'ping' });
+    const buzzDmCap: ConnectorCapability = { serverId: 'b', serverName: 'Buzz', toolName: 'buzz_send_dm', intent: 'message', channelKind: 'buzz', delivery: 'dm', inputSchema: { properties: { pubkey: {}, content: {} } } };
+    expect(buildToolArgs(buzzDmCap, { intent: 'message', recipient: 'a'.repeat(64), body: 'ping' }))
+      .toEqual({ pubkey: 'a'.repeat(64), content: 'ping' });
   });
 });

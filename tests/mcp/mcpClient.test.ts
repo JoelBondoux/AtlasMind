@@ -16,6 +16,13 @@ vi.mock('vscode', () => ({
         },
       },
     ],
+    getConfiguration: () => ({
+      get: (key: string, fallback: unknown) => ({
+        'buzz.enabled': true,
+        'buzz.relayUrl': 'wss://buzz.example.com',
+        'buzz.allowRemoteRelay': true,
+      }[key] ?? fallback),
+    }),
   },
 }));
 
@@ -186,6 +193,29 @@ describe('McpClient', () => {
         };
 
       expect(lastStdioTransportOptions).toMatchObject(expectedLaunch);
+    });
+
+    it('expands only the audited Buzz configuration templates at connect time', async () => {
+      const client = new McpClient(makeStdioConfig({
+        command: 'node',
+        args: ['${extensionPath}/out/mcp/buzzCommsServer.js'],
+        env: {
+          ATLASMIND_BUZZ_ENABLED: '${config:atlasmind.buzz.enabled}',
+          ATLASMIND_BUZZ_ALLOW_REMOTE_RELAY: '${config:atlasmind.buzz.allowRemoteRelay}',
+          BUZZ_RELAY_URL: '${config:atlasmind.buzz.relayUrl}',
+        },
+      }));
+      await client.connect();
+
+      expect(lastStdioTransportOptions).toMatchObject({
+        env: {
+          ATLASMIND_BUZZ_ENABLED: 'true',
+          ATLASMIND_BUZZ_ALLOW_REMOTE_RELAY: 'true',
+          BUZZ_RELAY_URL: 'wss://buzz.example.com',
+        },
+      });
+      const args = (lastStdioTransportOptions as { args?: string[] }).args ?? [];
+      expect(args.some(arg => /out[\\/]mcp[\\/]buzzCommsServer\.js$/.test(arg))).toBe(true);
     });
 
     it('throws for stdio transport when command is missing', async () => {

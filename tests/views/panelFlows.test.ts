@@ -257,6 +257,24 @@ describe('MCP guided wizard: buildWizardServerConfig', () => {
     expect(JSON.stringify(built?.config)).not.toContain('xoxb-123');
   });
 
+  it('builds the bundled Buzz bridge without persisting its private key', () => {
+    const starter = getRecommendedMcpStarterDetails('mcp-server-buzz');
+    const built = buildWizardServerConfig('Buzz Communications', starter, {
+      BUZZ_PRIVATE_KEY: 'a'.repeat(64),
+      BUZZ_CLI_PATH: 'C:\\Tools\\buzz.exe',
+    });
+
+    expect(built?.config.command).toBe('node');
+    expect(built?.config.args).toEqual(['${extensionPath}/out/mcp/buzzCommsServer.js']);
+    expect(built?.config.env).toMatchObject({
+      BUZZ_CLI_PATH: 'C:\\Tools\\buzz.exe',
+      BUZZ_RELAY_URL: '${config:atlasmind.buzz.relayUrl}',
+      ATLASMIND_BUZZ_ENABLED: '${config:atlasmind.buzz.enabled}',
+    });
+    expect(built?.config.secretEnvKeys).toEqual(['BUZZ_PRIVATE_KEY']);
+    expect(JSON.stringify(built?.config)).not.toContain('a'.repeat(64));
+  });
+
   it('returns null when a required input is missing', () => {
     const starter = getRecommendedMcpStarterDetails('mcp-server-slack');
     const built = buildWizardServerConfig('Slack MCP Server', starter, { SLACK_TEAM_ID: 'T123' });

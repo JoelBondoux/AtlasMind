@@ -177,11 +177,13 @@ Integration with [Buzz](https://buzz.xyz) — the open-source, Nostr-based works
 
 | Setting | Type | Default | Description |
 |---|---|---|---|
-| `atlasmind.buzz.enabled` | `boolean` | `false` | Enable Buzz integration: record Buzz identities/channels (npub / @handle / #channel) on Project Director contacts and reach them via a Buzz deep link. Automated outbound posting additionally requires a connected Buzz comms tool and the per-project `outboundEnabled` gate. |
+| `atlasmind.buzz.enabled` | `boolean` | `false` | Enable Buzz integration: record Buzz identities/channels and allow the bundled Buzz Communications MCP bridge to connect. Live Director sends additionally require the guided connector, a pinned official CLI, and the per-project `outboundEnabled` gate. |
 | `atlasmind.buzz.relayUrl` | `string` | `ws://localhost:3000` | Buzz relay URL (`BUZZ_RELAY_URL`). Defaults to a local self-hosted relay. A remote relay sends project data off-machine and additionally requires `atlasmind.buzz.allowRemoteRelay`. |
 | `atlasmind.buzz.allowRemoteRelay` | `boolean` | `false` | Allow a non-local Buzz relay URL. When `false`, only loopback/localhost relays are used so project data stays on-machine. |
 
-Buzz contact channels and any launchable deep link are sanitised at the webview boundary like every other Director channel — only `https` Buzz workspace links are launchable (Buzz has no verified native URI scheme), and an npub / @handle / #channel is stored as display-only.
+Use **AtlasMind: Manage MCP Servers → Browse by category → Buzz Communications** for live outbound setup. The bundled bridge wraps official `buzz-cli` v0.4.26, stores the private key and optional authorization tag in SecretStorage, and exposes only channel listing/posting, thread reading, and DM sending. The WS/WSS setting is converted to the HTTP/HTTPS base used by the CLI. Non-local relays require `allowRemoteRelay:true` and HTTPS/WSS; message sends still require the Director's explicit confirmation.
+
+Buzz contact channels and any launchable deep link are sanitised at the webview boundary like every other Director channel — only `https` Buzz workspace links are launchable from AtlasMind, and an npub / @handle / #channel remains display-only unless it is represented by a channel UUID or 64-character public key the bridge can validate.
 
 ## Presence & Power (keep-awake)
 

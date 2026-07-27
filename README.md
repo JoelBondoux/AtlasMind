@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.145.7</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.146.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,10 +64,11 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.145.7
+## What's new in 0.146.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
 
+- **Buzz can now send for real through the guarded connector path.** A bundled communication-only MCP bridge wraps the pinned official Buzz CLI for channel posts, thread reads, and DMs; it stores the agent key in SecretStorage, passes message bodies over stdin, enforces local/remote relay policy, and keeps Buzz traffic from being misrouted through Slack or Teams.
 - **Workspace memory stays out of source and release archives.** Git ignores the local memory backup, while VSIX packaging excludes every `project_memory*` directory before Marketplace publication.
 - **Model refreshes now remove what providers removed.** Successful empty catalogs prune stale entries, and provider-confirmed deprecated or missing models cannot be resurrected by a later stale refresh.
 - **Assessment handoffs are actionable.** Proposed autonomous work ends with a chat card offering **Start run**, **Save for later**, or **Cancel**; only Autopilot may auto-start a proposal.
@@ -267,7 +268,7 @@ The README keeps the map short; implementation details and data flows belong in 
 | `src/memory/` | SSOT retrieval, scanning, redaction, and persistence |
 | `src/chat/` | Chat participant and shared interaction protocol |
 | `src/views/` | Settings, dashboards, editors, and sidebar surfaces |
-| `src/mcp/` and `src/ard/` | MCP connectivity and Agentic Resource Discovery |
+| `src/mcp/` and `src/ard/` | MCP connectivity—including the bundled Buzz communications bridge—and Agentic Resource Discovery |
 | `src/voice/` and `src/remote/` | Voice backends and opt-in remote control |
 | `tests/` | Unit, integration, webview, security, and regression coverage |
 | `docs/` and `wiki/` | Developer architecture and user-facing guides |

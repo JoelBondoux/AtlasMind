@@ -299,6 +299,7 @@ function resolveMcpTemplateValue(value: string, serverName: string): string {
   const replacements: Array<[string, string | undefined]> = [
     ['${workspaceFolder}', workspaceFolder],
     ['${userHome}', userHome],
+    ['${extensionPath}', path.resolve(__dirname, '..', '..')],
   ];
 
   let resolved = value;
@@ -310,6 +311,21 @@ function resolveMcpTemplateValue(value: string, serverName: string): string {
       throw new Error(`MCP server "${serverName}" requires ${token}, but AtlasMind could not resolve it in the current workspace.`);
     }
     resolved = resolved.split(token).join(replacement);
+  }
+
+  if (resolved.includes('${config:atlasmind.buzz.')) {
+    const buzz = vscode.workspace.getConfiguration('atlasmind');
+    const buzzReplacements: Array<[string, string]> = [
+      ['${config:atlasmind.buzz.enabled}', String(buzz.get<boolean>('buzz.enabled', false))],
+      ['${config:atlasmind.buzz.relayUrl}', buzz.get<string>('buzz.relayUrl', 'ws://localhost:3000')],
+      [
+        '${config:atlasmind.buzz.allowRemoteRelay}',
+        String(buzz.get<boolean>('buzz.allowRemoteRelay', false)),
+      ],
+    ];
+    for (const [token, replacement] of buzzReplacements) {
+      resolved = resolved.split(token).join(replacement);
+    }
   }
 
   return resolved;

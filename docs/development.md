@@ -88,7 +88,7 @@ AtlasMind/
 │   ├── chat/             Chat participant
 │   ├── core/             Orchestrator, registries, router, skill drafting, task profiler, cost tracker, currency formatter, webhook dispatcher, Website Studio SSOT (`websiteWorkspaceManager.ts`), testing config loader + scaffolder (`testingScaffolder.ts`), delivery/deployment-stage modelling (`deliveryManager.ts`) + guarded promotion engine (`promotionRunner.ts`), Project Director people/follow-up modelling (`projectDirectorManager.ts`) + guarded outbound-comms detection (`directorCommsRunner.ts`) + follow-up reminder scheduler (`followUpScheduler.ts`), security-review register persistence/scoring (`securityReviewManager.ts`), Mission Loop (`missionRunner.ts`, `goalEvaluator.ts`, `missionRegistry.ts`), routing intelligence (`executionQuality.ts`, `modelEvalHarness.ts`)
 │   ├── utils/            Shared helpers: `secretRedactor.ts`, `aiInstructionSync.ts` (inbound import), `aiInstructionMerge.ts` (two-way instruction-set sync), `managedBlock.ts` (shared delimited-block upsert/strip), `testingProtocolSync.ts` (outbound testing-protocol sync), `terminalOutput.ts` (ANSI/control-sequence sanitizer for captured tool output)
-│   ├── mcp/              MCP client + server registry
+│   ├── mcp/              MCP client/registry plus bundled Buzz CLI communications bridge/server
 │   ├── ard/              Agentic Resource Discovery: `ardClient.ts`, `ardRegistry.ts`, `ardInstaller.ts`, `ardCatalogExporter.ts`
 │   ├── memory/           SSOT memory manager
 │   ├── providers/        LLM provider adapters (for example `anthropic.ts`, `claude-cli.ts`, `copilot.ts`); also `copilotMultiplierSync.ts`, `localModelSync.ts`, and `localModelRecommendationRegistry.ts`
@@ -99,7 +99,7 @@ AtlasMind/
 ├── tests/                Vitest unit tests
 │   ├── core/             Core service unit tests
 │   ├── memory/           Memory manager and scanner tests
-│   ├── mcp/              MCP client and registry unit tests
+│   ├── mcp/              MCP client, registry, environment, and Buzz bridge unit tests
 │   ├── ard/              ARD client, registry, installer, and catalog exporter tests
 │   └── skills/           Built-in skill unit tests
 └── out/                  Compiled JavaScript (gitignored)

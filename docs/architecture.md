@@ -194,7 +194,9 @@ Models the **people** a project runs on — its stakeholders, delivery team, res
 
 **Dashboard tab (Phase 2).** The Project Dashboard has a **Director** page (`collectDirectorSnapshot`/`detectDirectorSignals` in `projectDashboardPanel.ts`, rendered by `renderDirector` in `media/projectDashboard.js`) with Setup, People (roster), Responsibilities, Assignments (+ an "assign a human owner" overlay on autonomous `ProjectRunRecord`s via `Assignment.linkedRunId`), and Follow-ups sub-sections. It is **solo-aware** (`resolveTeamMode`/`isSoloProject` foreground self-management for a one-person project) and **GDPR-gated**: persisting raw PII triggers a one-time consent modal (workspace-scoped ack) that also enables the `gdpr-pii` compliance pack. Every webview payload is validated by `isProjectDashboardMessage` and re-run through `sanitizeProjectDirectorConfig` before it touches disk; contact deep-links are resolved and re-checked against the scheme allowlist server-side before `openExternal`, and "Copy contact" is built host-side.
 
-**Guarded connectors (Phase 3).** With outbound messaging enabled (`settings.outboundEnabled`, default off) and a matching MCP connector connected, the Director tab can email / schedule / message a contact. `DirectorCommsRunner` (`src/core/directorCommsRunner.ts`, pure/vscode-free) detects which connected MCP tool can perform each intent — matching tool names (`outlook_send_mail`, `create_event`, `post_message`, …) across `mcpServerRegistry.listServers()`, preferring real send/create tools over drafts — and best-effort maps a composed draft onto that tool's declared input-schema fields (inventing nothing). Dispatch is deny-by-default in the panel: it requires the toggle, a connected connector, and an explicit `{ modal: true }` confirmation showing the exact action (connector, tool, recipient, subject/body, classified risk via `classifyToolInvocation`) before running the tool through its `mcp:<serverId>:<toolName>` skill wrapper (`skillsRegistry.get(...).execute(args, atlas.skillContext)`). No connector for the intent → non-destructive fallback to the deep-link. The webview only supplies the draft; the tool comes from the connected server, credentials stay in SecretStorage, and successful sends are recorded to `project-director-history.json`.
+**Guarded connectors (Phase 3).** With outbound messaging enabled (`settings.outboundEnabled`, default off) and a matching MCP connector connected, the Director tab can email / schedule / message a contact. `DirectorCommsRunner` (`src/core/directorCommsRunner.ts`, pure/vscode-free) detects which connected MCP tool can perform each intent — matching tool names (`outlook_send_mail`, `create_event`, `post_message`, …) across `mcpServerRegistry.listServers()`, preferring real send/create tools over drafts — and best-effort maps a composed draft onto that tool's declared input-schema fields (inventing nothing). Capabilities stay partitioned by contact channel kind (`email`/`slack`/`teams`/`buzz`) and delivery shape, so a Buzz recipient can never fall through to another connected messaging provider; Buzz channel UUIDs select `buzz_post_message`, while 64-character Nostr pubkeys select `buzz_send_dm`. Dispatch is deny-by-default in the panel: it requires the toggle, a connected connector, and an explicit `{ modal: true }` confirmation showing the exact action (connector, tool, recipient, subject/body, classified risk via `classifyToolInvocation`) before running the tool through its `mcp:<serverId>:<toolName>` skill wrapper (`skillsRegistry.get(...).execute(args, atlas.skillContext)`). No connector for the exact channel kind → non-destructive fallback to the deep-link. The webview only supplies the draft; the tool comes from the connected server, credentials stay in SecretStorage, and successful sends are recorded to `project-director-history.json`.
+
+**Buzz Tier 1b bridge.** `src/mcp/buzzCommsServer.ts` is an extension-bundled stdio MCP server backed by the pure `BuzzCliBridge` in `src/mcp/buzzCliBridge.ts`. It wraps official `buzz-cli` source tag v0.4.26 and exposes only bounded channel listing, channel posting, bounded thread reading, and DM sending. Upstream v0.4.26 has no working `--version` flag, so the bridge probes the exact required root/channel/message/thread/DM help contracts before the MCP handshake; reads the agent private key and optional NIP-OA authorization tag from SecretStorage-backed env; converts the WS/WSS relay setting to the HTTP/HTTPS base the CLI expects; rejects remote relays without `atlasmind.buzz.allowRemoteRelay` and rejects non-TLS remote URLs; invokes the CLI without a shell; passes message bodies over stdin; validates identifiers; caps input, output, and duration; and redacts credentials from failures. It exposes none of `buzz-dev-mcp`'s shell/file-edit surface and none of Buzz's workflow/repository/admin commands. The boundary remains: **Buzz owns identity + messaging; AtlasMind owns reasoning + execution.**
 
 **Reminders + surfacing (Phase 4).** `FollowUpScheduler` (`src/core/followUpScheduler.ts`, pure eval + a thin timer class) surfaces a **throttled, once-per-day** in-editor nudge (via injected `notify`) when follow-ups are overdue/due-soon, opening the Director tab on click. It is **notification-only and deny-by-default** — it never sends anything outbound on a timer (outbound always needs the per-send confirmation above). A startup `runOnce()` fires when `settings.nudgeOnActivation` is on (default); the recurring 30-minute timer (wired near the manager in `extension.ts`) only nudges while `settings.remindersEnabled` is on (default off); the once/day throttle is a `workspaceState` date-key that survives restarts. A sidebar tree `atlasmind.projectDirectorView` (`ProjectDirectorTreeProvider` in `treeViews.ts`) groups Stakeholders / Team / Follow-ups with an overdue badge refreshed on `projectDirectorRefresh`; `atlasmind.openProjectDirector` opens the dashboard on the Director tab, and `@atlas /director` + `/followups` print a skimmable status.
 
@@ -343,6 +345,8 @@ Sends outbound webhook notifications for tool execution events. Reads workspace 
 
 Wraps `@modelcontextprotocol/sdk` `Client` for a single server. Supports `connect()`, `disconnect()`, `callTool()`, `refreshTools()`. Handles `stdio` (subprocess via `StdioClientTransport`) and `http` (Streamable HTTP with SSE fallback via `StreamableHTTPClientTransport` / `SSEClientTransport`). Tracks `status: McpConnectionStatus` and surfaces `error` and `tools` as readable state.
 
+For audited bundled starters it also resolves `${extensionPath}` plus the three fixed Buzz configuration templates (`buzz.enabled`, `buzz.relayUrl`, `buzz.allowRemoteRelay`). This is a closed allowlist, not a general settings interpolation surface.
+
 ### McpServerRegistry (`src/mcp/mcpServerRegistry.ts`)
 
 Manages `McpServerConfig` persistence (key: `atlasmind.mcpServers` in `globalState`) and live `McpClient` instances. On `connectServer()`: instantiates a client, calls `connect()`, then registers each discovered tool as a `SkillDefinition` in `SkillsRegistry` (ID: `mcp:<serverId>:<toolName>`) with auto-approved scan status. On `disconnectServer()`: disables or unregisters the corresponding skills. `connectAll()` is called non-blocking on activation; `disposeAll()` is called on deactivation.
@@ -358,6 +362,10 @@ Discovers MCP setup signals so the "Add MCP server" flow can hand-hold instead o
 ### mcpRuntime (`src/mcp/mcpRuntime.ts`)
 
 Shared runtime-bootstrap helpers used by both the recommended-install command and the guided wizard. `checkStarterRuntime()` reports whether a server's launch runtime exists and, if not, *plans* an install (`installable` with the exact command, or `manual`) — it never installs. `runRuntimeInstallPlan()` runs a plan only after the caller has obtained explicit user confirmation (confirm-before-install policy).
+
+### BuzzCliBridge / Buzz communications MCP (`src/mcp/buzzCliBridge.ts`, `src/mcp/buzzCommsServer.ts`)
+
+Communication-only adapter for official Buzz CLI source tag v0.4.26. `BuzzCliBridge` owns configuration/relay validation, required command/flag contract probing, direct process execution, bounded JSON parsing, identifier validation, stdin message delivery, and secret redaction. `buzzCommsServer.ts` declares the four MCP tool schemas and annotations, checks readiness before connecting stdio, and contains no AtlasMind reasoning or workspace-execution surface.
 
 ### Agentic Resource Discovery (`src/ard/`)
 
@@ -484,10 +492,12 @@ extension.ts
         │     ├── mcp/mcpClient.ts
         │     ├── mcp/mcpRuntime.ts
         │     └── mcp/mcpEnvironmentScanner.ts
-            ├── skills/index.ts
-            │     ├── skills/dockerCli.ts
-            │     └── skills/gitApplyPatch.ts
-          └── providers/index.ts
+        ├── mcp/buzzCommsServer.ts
+        │     └── mcp/buzzCliBridge.ts
+        ├── skills/index.ts
+        │     ├── skills/dockerCli.ts
+        │     └── skills/gitApplyPatch.ts
+        └── providers/index.ts
               ├── providers/anthropic.ts
               ├── providers/claude-cli.ts
               ├── providers/copilot.ts
