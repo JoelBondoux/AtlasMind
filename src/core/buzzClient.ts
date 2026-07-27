@@ -220,6 +220,9 @@ export class BuzzClient {
   }
 
   private handleOpen(): void {
+    if (this.stopped) {
+      return;
+    }
     this.attempt = 0;
     this.lastFrameAt = this.scheduler.now();
     // Subscribe optimistically. A relay requiring NIP-42 answers with
@@ -256,6 +259,12 @@ export class BuzzClient {
   // ── Frame handling ────────────────────────────────────────────
 
   private handleMessage(data: unknown): void {
+    // A stopped client must be inert. Frames can still arrive after stop() —
+    // in flight, or buffered by the transport — and acting on them would let a
+    // terminal refusal restart the auth path it just refused.
+    if (this.stopped) {
+      return;
+    }
     this.lastFrameAt = this.scheduler.now();
     this.pingSentAt = undefined;
 

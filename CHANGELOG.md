@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.148.1] - 2026-07-27
+
+### Fixed
+- **A stopped Buzz subscription is now genuinely inert.** Frames already in flight when the client stopped were still being handled, so a relay that repeated an `auth-required` refusal could restart the authentication path the client had just terminated on — producing a stopped → authenticating → stopped cycle and reporting the same terminal error twice. Found by running the client against a real Buzz relay; frames arriving after a stop are now ignored, and a terminal refusal is reported once.
+
 ## [0.148.0] - 2026-07-27
 
 ### Added

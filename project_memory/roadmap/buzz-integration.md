@@ -239,8 +239,41 @@ dependency**, so inbound sync added none.
 - **Read-only is now structural, not just intended.** The client sends only `REQ`/`CLOSE`/`AUTH`/pings
   and never an `EVENT`, and a test asserts it — so the read path cannot silently become a write path.
 
+### Real-relay probe result (2026-07-27, local Buzz relay) — **signing is REQUIRED**
+
+Ran the real `BuzzClient` against Joel's local Buzz relay (`ws://localhost:3000`, channel
+`443a7fd2-…`). Two results, both decisive:
+
+**1. The relay demands NIP-42 auth before it will serve a subscription.**
+
+```
+auth-required: authenticate before subscribing
+```
+
+So Schnorr signing is **not optional** — inbound cannot function against a real Buzz relay without
+it. This closes the open question and makes the `@noble/curves` decision a prerequisite rather than a
+nice-to-have. The client behaved exactly as designed: it refused to retry and stopped with the reason.
+
+Two protocol details learned that the spec alone did not give us:
+- The relay delivers `auth-required:` in a **`NOTICE`** frame (and again on `CLOSED`), not only on
+  `OK`/`CLOSED` as NIP-42 describes. `classifyRelayRefusal` already handles the prefix wherever it
+  appears, so no change was needed — but note it for the signing work.
+- Because auth intercepts everything, the **p-gate test was inconclusive**: the kind-less filter was
+  refused for auth, not for missing `kinds`. That constraint is still only verified from `AGENTS.md`.
+  Re-run the probe after signing lands to confirm it independently.
+
+**2. A real bug the unit tests missed (fixed in v0.148.1).** The status trace showed
+`stopped → authenticating → stopped`: frames arriving *after* `stop()` were still handled, so a
+repeated `auth-required` restarted the auth path the client had just terminated on, and the terminal
+error was reported twice. A stopped client is now inert. Lesson: the fake-socket tests never delivered
+a frame after stopping — the real relay found it in one run. Regression tests added for both the
+inert-after-stop behaviour and the report-once behaviour.
+
+**Still unverified** (auth blocked them): the `h`-tag channel-scoping assumption and that kind 40002
+actually delivers channel messages. Both re-test as soon as signing works.
+
 **Still owed for Tier 3:**
-1. **Schnorr signing** for the NIP-42 auth event. `buildAuthEventTemplate` returns an *unsigned*
+1. **Schnorr signing** for the NIP-42 auth event. **Now confirmed blocking — see the probe result above.** `buildAuthEventTemplate` returns an *unsigned*
    template and `BuzzEventSigner` is the seam; with no signer, an authenticating relay yields a typed,
    explained stop rather than a loop. Filling it needs a secp256k1 backend — `@noble/curves` is the
    audited, zero-dependency standard (what `nostr-tools` itself uses). **This is a dependency decision

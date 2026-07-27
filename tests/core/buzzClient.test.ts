@@ -444,6 +444,35 @@ describe('BuzzClient — lifecycle', () => {
     expect(h.sockets).toHaveLength(1);
   });
 
+  it('ignores frames that arrive after stop() — a stopped client is inert', () => {
+    // Regression: a real relay sent `auth-required` twice, and the second frame
+    // restarted the auth path the client had already terminated on, producing
+    // stopped → authenticating → stopped.
+    const h = harness();
+    h.client.start();
+    h.socket().emit('open');
+    h.client.stop();
+
+    const statusesAfterStop = h.statuses.length;
+    h.socket().emit('message', JSON.stringify(['AUTH', 'challenge-1']));
+    h.socket().emit('message', JSON.stringify(['CLOSED', 'atlasmind-inbound', 'auth-required: nope']));
+    h.socket().emit('message', JSON.stringify(['EVENT', 'atlasmind-inbound', event()]));
+
+    expect(h.client.getStatus()).toBe('stopped');
+    expect(h.statuses).toHaveLength(statusesAfterStop);
+    expect(h.items).toHaveLength(0);
+  });
+
+  it('reports a terminal refusal once, not once per repeated frame', () => {
+    const h = harness();
+    h.client.start();
+    h.socket().emit('open');
+    h.socket().emit('message', JSON.stringify(['CLOSED', 'atlasmind-inbound', 'auth-required: authenticate first']));
+    h.socket().emit('message', JSON.stringify(['CLOSED', 'atlasmind-inbound', 'auth-required: authenticate first']));
+
+    expect(h.errors.filter(e => /no Buzz event signer/i.test(e))).toHaveLength(1);
+  });
+
   it('is idempotent for repeated start and stop', () => {
     const h = harness();
     h.client.start();
