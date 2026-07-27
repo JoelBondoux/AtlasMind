@@ -1508,6 +1508,42 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           flex-wrap: wrap;
           margin-left: auto;
         }
+        .project-run-proposal-card {
+          flex: 1 0 100%;
+          width: min(100%, 680px);
+          box-sizing: border-box;
+          padding: 12px;
+          border-radius: 12px;
+          border: 1px solid color-mix(in srgb, var(--vscode-button-background) 58%, var(--vscode-widget-border, #444));
+          background: color-mix(in srgb, var(--vscode-button-background) 10%, var(--vscode-editor-background));
+          box-shadow: inset 3px 0 0 color-mix(in srgb, var(--vscode-button-background) 78%, transparent);
+        }
+        .project-run-proposal-title {
+          margin: 0 0 5px;
+          font-size: 0.84rem;
+          font-weight: 700;
+        }
+        .project-run-proposal-goal {
+          margin: 0 0 10px;
+          color: var(--vscode-descriptionForeground);
+          font-size: 0.8rem;
+          line-height: 1.45;
+        }
+        .project-run-proposal-actions {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 7px;
+        }
+        .project-run-proposal-actions button {
+          border-radius: 999px;
+          padding: 5px 11px;
+          cursor: pointer;
+        }
+        .project-run-proposal-actions button.primary {
+          border-color: var(--vscode-button-background);
+          background: var(--vscode-button-background);
+          color: var(--vscode-button-foreground);
+        }
         .assistant-followup-controls {
           display: inline-flex;
           align-items: center;
@@ -1580,11 +1616,30 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           transform: scale(0.96);
         }
         .iteration-limit-actions {
+          flex: 1 0 100%;
+          width: min(100%, 680px);
+          box-sizing: border-box;
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          padding: 11px 12px;
+          border: 1px solid color-mix(in srgb, var(--vscode-inputValidation-warningBorder, #cca700) 65%, var(--vscode-widget-border, #444));
+          border-radius: 12px;
+          background: color-mix(in srgb, var(--vscode-inputValidation-warningBackground, #5a4b00) 14%, var(--vscode-editor-background));
+        }
+        .iteration-limit-question {
+          margin: 0;
+          color: var(--vscode-foreground);
+          font-size: 0.8rem;
+          line-height: 1.45;
+          font-weight: 600;
+        }
+        .iteration-limit-chip-row {
           display: flex;
           flex-wrap: wrap;
           align-items: center;
           gap: 6px;
-          margin-right: 6px;
+          margin-top: 9px;
         }
         .iteration-limit-continue,
         .iteration-limit-cancel,

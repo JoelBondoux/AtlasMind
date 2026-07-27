@@ -5,7 +5,9 @@ import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { applyMemorySelfHealingToContent, autoLoadWorkspaceSsot, buildWorkspaceIdentityPrompt, buildWorkspacePolicySnapshots, ensureAtlasMindCliOnTerminalPath, requiresExplicitProviderActivation, resolveStartupSsotLocation, runActivationStep, shouldAutoRefreshProjectMemoryForUri, withTimeout } from '../src/extension.ts';
+import { applyMemorySelfHealingToContent, autoLoadWorkspaceSsot, buildWorkspaceIdentityPrompt, buildWorkspacePolicySnapshots, ensureAtlasMindCliOnTerminalPath, refreshProviderModelsCatalog, requiresExplicitProviderActivation, resolveStartupSsotLocation, runActivationStep, shouldAutoRefreshProjectMemoryForUri, withTimeout } from '../src/extension.ts';
+import { ModelRouter } from '../src/core/modelRouter.ts';
+import { ProviderRegistry } from '../src/providers/registry.ts';
 
 describe('withTimeout (bounded provider discovery)', () => {
   it('resolves to the promise value when it settles in time', async () => {
@@ -311,5 +313,39 @@ describe('runActivationStep', () => {
     expect(outputChannel.appendLine).toHaveBeenCalledWith(
       expect.stringContaining('cliPath enabled atlasmind in new integrated terminals'),
     );
+  });
+});
+
+describe('refreshProviderModelsCatalog', () => {
+  it('treats a successful empty discovery as authoritative and prunes stale models', async () => {
+    const router = new ModelRouter();
+    router.registerProvider({
+      id: 'openai',
+      displayName: 'OpenAI',
+      enabled: true,
+      pricingModel: 'pay-per-token',
+      models: [{
+        id: 'openai/removed-model',
+        provider: 'openai',
+        name: 'Removed Model',
+        enabled: true,
+        contextWindow: 8_000,
+        capabilities: ['chat'],
+        inputPricePer1k: 0,
+        outputPricePer1k: 0,
+      }],
+    });
+    const registry = new ProviderRegistry();
+    registry.register({
+      providerId: 'openai',
+      healthCheck: vi.fn().mockResolvedValue(true),
+      listModels: vi.fn().mockResolvedValue([]),
+      complete: vi.fn(),
+    });
+
+    const result = await refreshProviderModelsCatalog(router, registry);
+
+    expect(result).toEqual({ providersUpdated: 1, modelsAvailable: 0 });
+    expect(router.getProviderConfig('openai')?.models).toEqual([]);
   });
 });

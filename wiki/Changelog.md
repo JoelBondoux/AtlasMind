@@ -6,6 +6,29 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.145.7 — Workspace-memory package boundary
+
+- **Local memory archives stay local.** Git ignores `project_memory_old/`, and the checked-in package boundary excludes every `project_memory*` directory, including backup variants discovered during release verification.
+
+## v0.145.6 — Tool-capable project handoff and recoverable limits
+
+- **Planning and execution stay separate.** A reasoning-only model may create the plan, but non-synthesis subtasks receive enabled workspace-evidence skills and route to a model that can actually call them.
+- **Tool-unavailable refusals trigger handoff.** AtlasMind reroutes an executor that reports disabled tools and records an unrecovered refusal as failed rather than completed.
+- **Limit recovery is clickable and correctly scoped.** Chat asks whether to use the suggested limit once, save it permanently, or keep the partial result. A one-run increase restores the previous value after the retry.
+- **Project transcripts stay singular.** Custom-panel project runs no longer append a duplicate user/assistant pair after their streamed run bubble.
+
+## v0.145.5 — Reliable model refresh and run handoffs
+
+- **Removed provider models stay removed.** Successful empty discovery prunes stale entries, and provider-confirmed missing/deprecated models retain a session tombstone across refreshes.
+- **Project-run proposals are decisions, not dead ends.** Interactive chat offers **Start run**, **Save for later**, and **Cancel**; saving creates a Project Run Center preview, while enabled Autopilot can still start immediately.
+- **Local savings are visible in the Efficiency summary.** The headline estimate and detailed per-model comparison share the same local-only usage calculation.
+
+## v0.145.4 — Security review register foundation
+
+- **Security reviews now have durable, consistent records.** A new `SecurityReviewManager` persists findings and runs for secrets, runtime boundaries, dependencies, and permissions to JSON, a readable Markdown mirror, and capped audit history.
+- **Review scoring reflects uncertainty.** Severity, exploitability, confidence, coverage, and 45-day freshness contribute to the score, so an unreviewed area cannot count as assurance.
+- **The data boundary is defensive.** Malformed model output records no findings, values are bounded, unresolved findings default to open, and cited paths cannot escape the workspace. This is a persistence foundation, not an automated scanner, dashboard feature, or release gate.
+
 ## v0.145.3 — Visible model choice and local savings
 
 - **README release highlights are cumulative from the last Marketplace publication (v0.145.0)** rather than presenting only the latest source patch; they also cover the security-review data foundation and guarded-commit timeout fix from v0.145.1–v0.145.2.

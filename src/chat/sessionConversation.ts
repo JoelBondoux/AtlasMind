@@ -37,6 +37,11 @@ export interface SessionSuggestedFollowup {
   description?: string;
 }
 
+export interface SessionProjectRunProposal {
+  goal: string;
+  status: 'pending' | 'started' | 'saved' | 'cancelled';
+}
+
 /** A chip that pre-fills the composer (rather than submitting), letting the user finish an answer. */
 export interface SessionComposerPrefill {
   label: string;
@@ -71,6 +76,8 @@ export interface SessionTranscriptMetadata {
   suggestedFollowups?: SessionSuggestedFollowup[];
   /** Immediate-submit pill buttons shown below a response that ends with a question. */
   quickReplies?: SessionSuggestedFollowup[];
+  /** Actionable handoff shown when an assessment proposes an autonomous project run. */
+  projectRunProposal?: SessionProjectRunProposal;
   /** Chips that pre-fill the composer so the user can answer an open question inline. */
   composerPrefills?: SessionComposerPrefill[];
   timelineNotes?: SessionTimelineNote[];
@@ -852,6 +859,7 @@ function isSessionTranscriptMetadata(value: unknown): value is SessionTranscript
     && (candidate['thoughtSummary'] === undefined || isSessionThoughtSummary(candidate['thoughtSummary']))
     && (candidate['suggestedFollowups'] === undefined || (Array.isArray(candidate['suggestedFollowups']) && candidate['suggestedFollowups'].every(isSessionSuggestedFollowup)))
     && (candidate['quickReplies'] === undefined || (Array.isArray(candidate['quickReplies']) && candidate['quickReplies'].every(isSessionSuggestedFollowup)))
+    && (candidate['projectRunProposal'] === undefined || isSessionProjectRunProposal(candidate['projectRunProposal']))
     && (candidate['composerPrefills'] === undefined || (Array.isArray(candidate['composerPrefills']) && candidate['composerPrefills'].every(isSessionComposerPrefill)))
     && (candidate['timelineNotes'] === undefined || (Array.isArray(candidate['timelineNotes']) && candidate['timelineNotes'].every(isSessionTimelineNote)))
     && (candidate['promptAttachments'] === undefined || (Array.isArray(candidate['promptAttachments']) && candidate['promptAttachments'].every(isSessionPromptAttachment)))
@@ -965,4 +973,20 @@ function normalizeSessionTitle(value: string): string | undefined {
 function normalizeFolderName(value: string): string | undefined {
   const trimmed = value.trim().replace(/\s+/g, ' ');
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function isSessionProjectRunProposal(value: unknown): value is SessionProjectRunProposal {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate['goal'] === 'string'
+    && candidate['goal'].trim().length > 0
+    && candidate['goal'].length <= 4_000
+    && (
+      candidate['status'] === 'pending'
+      || candidate['status'] === 'started'
+      || candidate['status'] === 'saved'
+      || candidate['status'] === 'cancelled'
+    );
 }

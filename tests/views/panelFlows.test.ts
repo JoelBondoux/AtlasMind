@@ -138,7 +138,7 @@ import { ModelProviderPanel, isProviderConfigured } from '../../src/views/modelP
 import { ProjectRunCenterPanel } from '../../src/views/projectRunCenterPanel.ts';
 import { AgentManagerPanel } from '../../src/views/agentManagerPanel.ts';
 import { ChatPanel, getStatusDrivenComposerMode, isOneShotComposerMode } from '../../src/views/chatPanel.ts';
-import { CostDashboardPanel } from '../../src/views/costDashboardPanel.ts';
+import { CostDashboardPanel, calculateLocalModelSavings } from '../../src/views/costDashboardPanel.ts';
 import { ProjectDashboardPanel } from '../../src/views/projectDashboardPanel.ts';
 import { MissionControlPanel, parseMissionControlMessage } from '../../src/views/missionControlPanel.ts';
 import { ProjectIdeationPanel } from '../../src/views/projectIdeationPanel.ts';
@@ -187,6 +187,57 @@ describe('chat composer mode helpers', () => {
     expect(isOneShotComposerMode('new-session')).toBe(true);
     expect(isOneShotComposerMode('send')).toBe(false);
     expect(isOneShotComposerMode('steer')).toBe(false);
+  });
+});
+
+describe('chat execution-limit recovery', () => {
+  it('restores the configured iteration limit after a one-run retry', async () => {
+    let currentLimit = 10;
+    const updateConfig = vi.fn((patch: { maxToolIterations?: number }) => {
+      if (typeof patch.maxToolIterations === 'number') {
+        currentLimit = patch.maxToolIterations;
+      }
+    });
+    const continueFromIterationLimit = vi.fn(async () => {
+      expect(currentLimit).toBe(15);
+    });
+    const panel = Object.create(ChatPanel.prototype) as {
+      atlas: {
+        orchestrator: {
+          getExecutionLimits(): { maxToolIterations: number; maxToolCallsPerTurn: number };
+          updateConfig(patch: { maxToolIterations?: number }): void;
+        };
+        sessionConversation: {
+          getTranscript(sessionId: string): Array<{
+            id: string;
+            meta?: { iterationLimitHit?: boolean; suggestedIterationLimit?: number };
+          }>;
+        };
+      };
+      selectedSessionId: string;
+      continueFromIterationLimit(entryId: string): Promise<void>;
+      raiseIterationLimit(entryId: string, value: number, permanent: boolean): Promise<void>;
+    };
+    panel.atlas = {
+      orchestrator: {
+        getExecutionLimits: () => ({ maxToolIterations: currentLimit, maxToolCallsPerTurn: 8 }),
+        updateConfig,
+      },
+      sessionConversation: {
+        getTranscript: () => [{
+          id: 'assistant-1',
+          meta: { iterationLimitHit: true, suggestedIterationLimit: 15 },
+        }],
+      },
+    };
+    panel.selectedSessionId = 'chat-1';
+    panel.continueFromIterationLimit = continueFromIterationLimit;
+
+    await panel.raiseIterationLimit('assistant-1', 15, false);
+
+    expect(continueFromIterationLimit).toHaveBeenCalledWith('assistant-1');
+    expect(currentLimit).toBe(10);
+    expect(mocks.configurationUpdate).not.toHaveBeenCalled();
   });
 });
 
@@ -1729,6 +1780,28 @@ describe('panel refresh flows', () => {
         incompletePatterns: ['\\bTODO\\b'],
       },
     }));
+  });
+
+  it('totals local-model savings by model without treating free cloud usage as local', () => {
+    const base = {
+      taskId: 'local-1',
+      agentId: 'developer',
+      model: 'local/ollama@@qwen2.5-coder:7b',
+      providerId: 'local' as const,
+      inputTokens: 2_000,
+      outputTokens: 1_000,
+      costUsd: 0,
+      timestamp: '2026-07-27T10:00:00.000Z',
+    };
+    const estimate = calculateLocalModelSavings([
+      base,
+      { ...base, taskId: 'local-2', providerId: undefined, model: 'LOCAL/lm-studio@@codestral-22b' },
+      { ...base, taskId: 'cloud-free', providerId: 'google', model: 'google/gemini-free' },
+    ]);
+
+    expect(estimate.localRequestCount).toBe(2);
+    expect(estimate.comparisons).toHaveLength(2);
+    expect(estimate.totalSavedUsd).toBeGreaterThan(0);
   });
 
   it('renders the cost dashboard with timescale and subscription controls', () => {

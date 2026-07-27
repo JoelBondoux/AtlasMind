@@ -1,0 +1,23 @@
+[
+  {
+    "id": "run-commercial-2026-07-26T14:38:13.350Z",
+    "kind": "analysis-run",
+    "summary": "Commercial Oversight reviewed the workspace and reported 0 findings.",
+    "domain": "commercial",
+    "ranAt": "2026-07-26T14:38:13.350Z"
+  },
+  {
+    "id": "run-legal-2026-07-26T14:35:21.953Z",
+    "kind": "analysis-run",
+    "summary": "Legal Oversight reviewed the workspace and reported 0 findings.",
+    "domain": "legal",
+    "ranAt": "2026-07-26T14:35:21.953Z"
+  },
+  {
+    "id": "run-ethics-2026-07-26T14:34:27.030Z",
+    "kind": "analysis-run",
+    "summary": "Ethics Oversight reviewed the workspace and reported 0 findings.",
+    "domain": "ethics",
+    "ranAt": "2026-07-26T14:34:27.030Z"
+  }
+]

@@ -325,6 +325,7 @@ export const AGENT_EXECUTION_RUBRIC = [
   '4. Verification: run the smallest proportionate check when behaviour or files changed, and never claim success when the latest evidence failed.',
   '5. Safety: preserve approval gates, validate untrusted inputs and tool parameters, avoid destructive or out-of-scope actions, and redact secrets.',
   '6. Handoff: lead with the concrete outcome, name verification performed, and state any unresolved blocker plainly.',
+  'When an assessment or planning reply recommends implementation that requires a separate autonomous project run, end with an explicit offer to start that project run. Never stop at an unfinished handoff sentence; the chat surface will turn the offer into Start, Save for later, and Cancel actions.',
   'If any item is unmet, continue working when safe and possible. Otherwise label the exact blocker; never invent evidence or imply completion.',
 ].join('\n');
 
@@ -483,6 +484,13 @@ export class Orchestrator {
 
   updateConfig(patch: Partial<OrchestratorConfig>): void {
     this.cfg = { ...this.cfg, ...patch };
+  }
+
+  getExecutionLimits(): Pick<OrchestratorConfig, 'maxToolIterations' | 'maxToolCallsPerTurn'> {
+    return {
+      maxToolIterations: this.cfg.maxToolIterations,
+      maxToolCallsPerTurn: this.cfg.maxToolCallsPerTurn,
+    };
   }
 
   setAgentAutoUpdater(updater: AgentAutoUpdater): void {
@@ -1448,11 +1456,16 @@ export class Orchestrator {
         } catch (error) {
           attemptedModels.add(currentModel);
           const failureMessage = error instanceof Error ? error.message : String(error);
-          this.router.recordModelFailure(currentModel, failureMessage);
+          const modelWasRetired = isModelDeprecatedError(error);
+          if (modelWasRetired) {
+            this.router.recordModelRetirement(currentModel, `Model deprecated or not found: ${failureMessage}`);
+          } else {
+            this.router.recordModelFailure(currentModel, failureMessage);
+          }
           // Feed struggle memory — but only for genuine model/provider failures,
           // not a billing pause (provider out of credits) or a deprecated-model
           // signal, which say nothing about how this model performs on the task.
-          if (!isBillingError(error) && !isModelDeprecatedError(error)) {
+          if (!isBillingError(error) && !modelWasRetired) {
             this.noteModelStruggle(currentModel, /timed out/i.test(failureMessage) ? 'timeout' : 'error-finish', baseTaskProfile);
           }
 
@@ -1465,10 +1478,9 @@ export class Orchestrator {
               reason: 'billing',
             };
             onProgress?.(`Provider "${autoDisabledProvider.displayName}" paused — insufficient credits. Searching for a fallback provider…`);
-          } else if (isModelDeprecatedError(error)) {
+          } else if (modelWasRetired) {
             // The provider signalled that this specific model is gone.  Tombstone it
             // for the rest of the session so the router never routes to it again.
-            this.router.recordModelFailure(currentModel, `Model deprecated or not found: ${failureMessage}`);
             onProgress?.(`Model "${currentModel}" reported as deprecated or removed by the provider. Switching to an alternative…`);
           }
 
@@ -2255,6 +2267,26 @@ export class Orchestrator {
           loopCapped = false;
           break;
         }
+      }
+
+      // Some reasoning bridges and inaccurately-described provider models answer
+      // with an explicit "tools are disabled/unavailable" refusal even though
+      // AtlasMind supplied callable tools. Re-prompting that same runtime only
+      // burns iterations; signal the outer execution loop immediately so it can
+      // hand the subtask to a genuinely tool-capable model.
+      if (
+        tools.length > 0
+        && completion.finishReason !== 'tool_calls'
+        && (!completion.toolCalls || completion.toolCalls.length === 0)
+        && looksLikeToolCapabilityRefusal(completion.content)
+      ) {
+        onProgress?.(`Model "${model}" reported that workspace tools were unavailable. AtlasMind will hand execution to another tool-capable model.`);
+        loopCapped = false;
+        return {
+          completion,
+          artifacts: buildExecutionArtifacts(completion.content, toolArtifacts, checkpointedTools, verificationSummary, projectTddState, difficulty.failedToolCalls),
+          toolCapabilityMissing: true,
+        };
       }
 
       // Detect when a model silently ignores tools it doesn't support. On the
@@ -4336,10 +4368,29 @@ export function classifySubTaskFailure(response: string): string | undefined {
   if (looksLikePreambleOnly(trimmed)) {
     return 'Subtask stopped after announcing an action without delivering any result.';
   }
+  if (looksLikeToolCapabilityRefusal(trimmed)) {
+    return 'Subtask reported that required workspace tools were disabled or unavailable.';
+  }
   if (looksLikeIncompleteDelivery(response)) {
     return 'Subtask reported incomplete or unverified work.';
   }
   return undefined;
+}
+
+/**
+ * Detect a model/runtime refusal that specifically says callable workspace tools
+ * are unavailable. This is deliberately narrower than generic "I cannot" text:
+ * it is used both to trigger model handoff and to prevent a refusal from being
+ * counted as a completed project subtask.
+ */
+export function looksLikeToolCapabilityRefusal(response: string): boolean {
+  const bounded = response.slice(0, 8_000);
+  return [
+    /\b(?:workspace|file(?:system)?|terminal|process|git)?\s*tools?\s+(?:are|is)\s+(?:not\s+available|unavailable|disabled|not\s+accessible)\b/i,
+    /\b(?:cannot|can'?t|unable to)\s+(?:access|execute|use|call|run)\s+(?:any\s+)?(?:workspace|file(?:system)?|terminal|process|git)?\s*tools?\b/i,
+    /\bno\s+(?:file\s+(?:read|write)|file\s+search|terminal(?:\/process)?\s+execution|workspace\s+tools?)\s+available\b/i,
+    /\bbridge mode\b[\s\S]{0,180}\btools?\s+(?:are\s+)?(?:disabled|unavailable|not\s+accessible)\b/i,
+  ].some(pattern => pattern.test(bounded));
 }
 
 /**

@@ -25,13 +25,16 @@ type MemoryStore = {
  * Minimum guaranteed skills when no registry is provided (e.g. in tests).
  * Keep this list in sync with getBuiltinWorkspaceTools() in builtinWorkspaceTools.ts.
  */
-const FALLBACK_SKILL_IDS = [
+const FALLBACK_SKILL_ID_LIST = [
   'file-read', 'file-write', 'file-edit', 'file-search',
   'memory-query', 'memory-write',
   'test-run', 'git-commit', 'git-status', 'git-diff', 'git-log',
   'git-branch', 'git-push', 'git-apply-patch', 'git-blame',
   'terminal-run', 'workspace-observability',
-].join(', ');
+] as const;
+const FALLBACK_SKILL_IDS = FALLBACK_SKILL_ID_LIST.join(', ');
+const PROJECT_EVIDENCE_SKILL_IDS = ['file-read', 'file-search', 'workspace-observability'] as const;
+const DEPENDENCY_ONLY_SYNTHESIS_PATTERN = /\b(synthesi[sz]e|summari[sz]e|consolidate|compile (?:the )?(?:findings|results|report)|prioriti[sz]ed checklist|final report)\b/i;
 
 const DEPENDENCY_GOVERNANCE_HINT = `
 Dependency governance platform knowledge:
@@ -156,7 +159,11 @@ export class Planner {
       return this.fallbackPlan(goal);
     }
 
-    const subTasks = parsePlannerResponse(rawResponse);
+    const parsedSubTasks = parsePlannerResponse(rawResponse);
+    const enabledSkillIds = this.skills
+      ? this.skills.listSkills().filter(skill => this.skills!.isEnabled(skill.id)).map(skill => skill.id)
+      : undefined;
+    const subTasks = ensureProjectExecutionSkills(parsedSubTasks, enabledSkillIds);
     if (subTasks.length === 0) {
       return this.fallbackPlan(goal);
     }
@@ -227,6 +234,37 @@ function resolveProviderIdForModel(
 }
 
 // ── Parsing helpers ───────────────────────────────────────────────
+
+/**
+ * Keep reasoning-only planning separate from project execution. Planner output
+ * is untrusted and models occasionally omit the `skills` array contents (or
+ * invent disabled IDs), which previously let a chat-only reasoning provider run
+ * repository audits without any callable tools. Ground non-synthesis subtasks
+ * with the smallest read-only evidence set so routing requires a tool-capable
+ * execution model.
+ */
+export function ensureProjectExecutionSkills(
+  tasks: readonly SubTask[],
+  enabledSkillIds?: readonly string[],
+): SubTask[] {
+  const enabled = enabledSkillIds ? new Set(enabledSkillIds) : undefined;
+  const evidenceSkills = PROJECT_EVIDENCE_SKILL_IDS.filter(skillId => !enabled || enabled.has(skillId));
+
+  return tasks.map(task => {
+    const validSkills = [...new Set(task.skills.filter(skillId => !enabled || enabled.has(skillId)))];
+    const dependencyOnlySynthesis = task.dependsOn.length > 0
+      && DEPENDENCY_ONLY_SYNTHESIS_PATTERN.test(`${task.title}\n${task.description}`);
+    const skills = validSkills.length > 0 || dependencyOnlySynthesis
+      ? validSkills
+      : [...evidenceSkills];
+
+    return {
+      ...task,
+      skills,
+      dependsOn: [...task.dependsOn],
+    };
+  });
+}
 
 export function parsePlannerResponse(raw: string): SubTask[] {
   // Strip markdown fences if model ignored the instruction

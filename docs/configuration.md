@@ -133,7 +133,7 @@ When either mode is set to `auto`, the task profiler infers the appropriate leve
 
 | Setting | Type | Default | Description |
 |---|---|---|---|
-| `atlasmind.autoStartProposedProjectRuns` | `boolean` | `true` | When a chat reply offers to start an autonomous project run, flow straight into it instead of waiting for a manual "Proceed" — immediate under Autopilot, otherwise after a cancellable notice. Auto-flowed runs use the bare goal (not pre-approved), so `projectApprovalFileThreshold` still gates unusually large runs. Set `false` to keep the previous Yes/No-pill confirmation. |
+| `atlasmind.autoStartProposedProjectRuns` | `boolean` | `true` | Permit proposed runs to auto-start only while Autopilot is on. Interactive chat shows **Start run**, **Save for later**, and **Cancel**; saving creates a reviewed preview in Project Run Center. Set `false` to require this decision card even under Autopilot. The file-count safety gate still applies. |
 | `atlasmind.projectApprovalFileThreshold` | `number` | `12` | Estimated changed-file count that triggers approval gating before `/project` runs. |
 | `atlasmind.projectEstimatedFilesPerSubtask` | `number` | `2` | Heuristic multiplier to estimate changed files from the planned subtask count. |
 | `atlasmind.projectChangedFileReferenceLimit` | `number` | `5` | Maximum number of changed files surfaced as clickable references after a `/project` run. |

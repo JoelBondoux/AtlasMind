@@ -326,6 +326,12 @@ describe('isChatPanelMessage', () => {
     expect(isChatPanelMessage({ type: 'removeAttachment', payload: 'file:src/extension.ts' })).toBe(true);
     expect(isChatPanelMessage({ type: 'resolveToolApproval', payload: { requestId: 'approval-1', decision: 'allow-once' } })).toBe(true);
     expect(isChatPanelMessage({ type: 'resolveToolApproval', payload: { requestId: 'approval-1', decision: 'deny' } })).toBe(true);
+    expect(isChatPanelMessage({ type: 'resolveProjectRunProposal', payload: { entryId: 'msg-1', decision: 'start' } })).toBe(true);
+    expect(isChatPanelMessage({ type: 'resolveProjectRunProposal', payload: { entryId: 'msg-1', decision: 'save' } })).toBe(true);
+    expect(isChatPanelMessage({ type: 'resolveProjectRunProposal', payload: { entryId: 'msg-1', decision: 'cancel' } })).toBe(true);
+    expect(isChatPanelMessage({ type: 'raiseIterationLimitTemporary', payload: { entryId: 'msg-1', value: 15 } })).toBe(true);
+    expect(isChatPanelMessage({ type: 'raiseIterationLimitPermanent', payload: { entryId: 'msg-1', value: 15 } })).toBe(true);
+    expect(isChatPanelMessage({ type: 'raiseToolCallsPerTurnLimitTemporary', payload: { entryId: 'msg-1', value: 12 } })).toBe(true);
     expect(isChatPanelMessage({ type: 'voteAssistantMessage', payload: { entryId: 'msg-1', vote: 'up' } })).toBe(true);
     expect(isChatPanelMessage({ type: 'voteAssistantMessage', payload: { entryId: 'msg-1', vote: 'down' } })).toBe(true);
     expect(isChatPanelMessage({ type: 'voteAssistantMessage', payload: { entryId: 'msg-1', vote: 'clear' } })).toBe(true);
@@ -349,6 +355,10 @@ describe('isChatPanelMessage', () => {
     expect(isChatPanelMessage({ type: 'submitPrompt', payload: { prompt: 'Explain', mode: 'launch' } })).toBe(false);
     expect(isChatPanelMessage({ type: 'deleteConversation' })).toBe(false);
     expect(isChatPanelMessage({ type: 'resolveToolApproval', payload: { requestId: 'approval-1', decision: 'maybe' } })).toBe(false);
+    expect(isChatPanelMessage({ type: 'resolveProjectRunProposal', payload: { entryId: 'msg-1', decision: 'delete' } })).toBe(false);
+    expect(isChatPanelMessage({ type: 'raiseIterationLimitPermanent', payload: { entryId: 'msg-1', value: Number.NaN } })).toBe(false);
+    expect(isChatPanelMessage({ type: 'raiseIterationLimitTemporary', payload: { entryId: 'msg-1', value: 51 } })).toBe(false);
+    expect(isChatPanelMessage({ type: 'raiseToolCallsPerTurnLimitPermanent', payload: { entryId: 'msg-1', value: 31 } })).toBe(false);
     expect(isChatPanelMessage({ type: 'archiveSession', payload: 42 })).toBe(false);
     expect(isChatPanelMessage({ type: 'selectSession', payload: 42 })).toBe(false);
     expect(isChatPanelMessage({ type: 'openProjectRunCenter' })).toBe(false);

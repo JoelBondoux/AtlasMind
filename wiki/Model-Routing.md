@@ -53,7 +53,7 @@ That feedback bias is controlled by `atlasmind.feedbackRoutingWeight`. Set it to
 
 **Task outcome feedback**: in addition to manual thumbs votes, AtlasMind also feeds task execution results into the preference signal. After every agentic task completes, `ModelRouter.recordModelOutcome(modelId, success)` increments or decrements the preference score by a fractional `PERFORMANCE_OUTCOME_WEIGHT` (0.12). This means routing adapts continuously from real execution outcomes, not only from explicit user feedback.
 
-**Deprecation and staleness handling**: models with a `deprecatedAt` date in the past are automatically excluded from candidates. Failure records older than 5 minutes are cleared so transient errors do not permanently suppress a provider.
+**Deprecation and staleness handling**: models with a `deprecatedAt` date in the past are automatically excluded from candidates. Provider-confirmed model-not-found/deprecated errors create a session retirement tombstone that successful refreshes do not clear, so stale discovery cannot resurrect the model. Transient failures still expire after 5 minutes. A successful empty discovery prunes the provider's previous model list; only errors and timeouts preserve the last known catalog.
 
 **Extended-thinking cost scaling**: models with a `thinkingTokenMultiplier` have that multiplier applied to their output price during budget scoring, so extended-thinking models are not misclassified as cheap.
 
@@ -214,7 +214,7 @@ AtlasMind now refreshes all enabled providers during startup, including GitHub C
 
 Provider failover now stays inside the candidate set that still satisfies the task's routing constraints. If a workspace-debug or tool-required request runs out of models that support the needed capabilities, AtlasMind fails the request explicitly instead of silently dropping to the built-in `local/echo-1` text fallback.
 
-When a routed model fails during execution, AtlasMind marks that model as failed for the current session, removes it from future candidate selection, increments a per-model failure counter, and shows a warning state in the Models sidebar until a later provider refresh clears the failure.
+When a routed model fails during execution, AtlasMind marks that model as failed for the current session, removes it from future candidate selection, increments a per-model failure counter, and shows a warning state in the Models sidebar. Refresh clears transient failures only; provider-confirmed removal/deprecation tombstones remain excluded for the session.
 
 Each candidate is scored using:
 

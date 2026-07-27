@@ -209,6 +209,14 @@ describe('chat panel order', () => {
     expect(script).toContain('setCurrentStatusModel(isBusy ? activeModels[activeModels.length - 1] : undefined)');
   });
 
+  it('renders execution-limit recovery as a question with one-run and permanent chips', () => {
+    const script = read('../../media/chatPanel.js');
+    expect(script).toContain('This run reached its safety limit.');
+    expect(script).toContain("raiseTempBtn.textContent = 'Use ' + suggestedIter + ' this run'");
+    expect(script).toContain("raisePermBtn.textContent = 'Always use ' + suggestedIter");
+    expect(script).toContain("cancelBtn.textContent = 'Keep partial result'");
+  });
+
   it('ships no dead search markup', () => {
     // #composerSearch / #searchInput / #searchResults were never referenced by
     // the script — search mode works through dynamically created controls over

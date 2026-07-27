@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { describe, expect, it, vi } from 'vitest';
-import { Orchestrator, appendTddBlockedCaveat, appendVerificationCaveat, budgetForCorrection, buildProjectSessionContextBundle, classifySubTaskFailure, collapseDuplicatedTrailingBlock, detectVerificationContradiction, isUserCorrectionTurn, looksLikeIncompleteDelivery, resolveProviderIdForModel, responseClaimsSuccessWithoutCaveat, shouldBiasTowardWorkspaceInvestigation, TOOL_EXECUTION_FAILURE_PREFIX, verificationIndicatesFailure } from '../../src/core/orchestrator.ts';
+import { Orchestrator, appendTddBlockedCaveat, appendVerificationCaveat, budgetForCorrection, buildProjectSessionContextBundle, classifySubTaskFailure, collapseDuplicatedTrailingBlock, detectVerificationContradiction, isUserCorrectionTurn, looksLikeIncompleteDelivery, looksLikeToolCapabilityRefusal, resolveProviderIdForModel, responseClaimsSuccessWithoutCaveat, shouldBiasTowardWorkspaceInvestigation, TOOL_EXECUTION_FAILURE_PREFIX, verificationIndicatesFailure } from '../../src/core/orchestrator.ts';
 import { MAX_TOOL_ITERATIONS } from '../../src/constants.ts';
 import { AgentRegistry } from '../../src/core/agentRegistry.ts';
 import { SkillsRegistry } from '../../src/core/skillsRegistry.ts';
@@ -217,6 +217,12 @@ describe('classifySubTaskFailure', () => {
 
   it('flags an incomplete-delivery response', () => {
     expect(classifySubTaskFailure('I created the handler but it is not yet wired into the router. Important follow-up remains.')).toBeTruthy();
+  });
+
+  it('flags a bridge-mode tool refusal instead of counting it as completed work', () => {
+    const response = 'The available workspace tools (file-read, file-search, git-log) are not accessible in this bridge mode environment. Tools are disabled.';
+    expect(looksLikeToolCapabilityRefusal(response)).toBe(true);
+    expect(classifySubTaskFailure(response)).toMatch(/tools were disabled or unavailable/i);
   });
 
   it('returns undefined for genuine completed work', () => {
@@ -1231,6 +1237,79 @@ describe('Orchestrator agentic loop', () => {
     expect(result.response).toBe('Timer started for "test timer".');
     expect(result.modelUsed).toBe('copilot/gpt-4.1');
     expect(result.artifacts?.toolCallCount).toBe(1);
+  });
+
+  it('flags an explicit tools-disabled refusal for immediate executor handoff', async () => {
+    const refusingProvider = makeMockProvider([{
+      content: 'The available workspace tools are not accessible in this bridge mode environment. Tools are disabled.',
+      model: 'local/echo-1',
+      inputTokens: 8,
+      outputTokens: 12,
+      finishReason: 'stop',
+    }]);
+    const orchestrator = makeOrchestrator(
+      refusingProvider,
+      [{
+        id: 'file-read',
+        name: 'Read File',
+        description: 'Read a workspace file.',
+        parameters: { type: 'object', required: ['path'], properties: { path: { type: 'string' } } },
+        execute: async () => 'export const auth = true;',
+      }],
+      makeSkillContext(),
+    );
+    const runAgenticLoop = (orchestrator as unknown as {
+      runAgenticLoop(
+        provider: ProviderAdapter,
+        model: string,
+        messages: Array<{ role: 'system' | 'user'; content: string }>,
+        tools: Array<{ name: string; description: string; parameters: Record<string, unknown> }>,
+        context: {
+          taskId: string;
+          agentId: string;
+          taskProfile: {
+            phase: 'execution';
+            modality: 'code';
+            reasoning: 'medium';
+            requiresTools: true;
+            requiredCapabilities: ModelCapability[];
+            preferredCapabilities: ModelCapability[];
+          };
+          allowEscalation: boolean;
+        },
+      ): Promise<{ toolCapabilityMissing?: boolean; completion: CompletionResponse }>;
+    }).runAgenticLoop.bind(orchestrator);
+
+    const attempt = await runAgenticLoop(
+      refusingProvider,
+      'local/echo-1',
+      [
+        { role: 'system', content: 'Workspace investigation hint: inspect the repository.' },
+        { role: 'user', content: 'Read src/auth.ts and list its exports.' },
+      ],
+      [{
+        name: 'file-read',
+        description: 'Read a workspace file.',
+        parameters: { type: 'object', properties: { path: { type: 'string' } } },
+      }],
+      {
+        taskId: 'tool-handoff',
+        agentId: 'workspace-reader',
+        taskProfile: {
+          phase: 'execution',
+          modality: 'code',
+          reasoning: 'medium',
+          requiresTools: true,
+          requiredCapabilities: ['function_calling'],
+          preferredCapabilities: [],
+        },
+        allowEscalation: false,
+      },
+    );
+
+    expect(refusingProvider.complete).toHaveBeenCalledTimes(1);
+    expect(attempt.toolCapabilityMissing).toBe(true);
+    expect(attempt.completion.content).toMatch(/tools are disabled/i);
   });
 
   it('prefers a real local tool-capable model for terse command-style MCP actions when available', async () => {

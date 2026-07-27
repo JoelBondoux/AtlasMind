@@ -7,7 +7,7 @@ tests/**
 docs/**
 .vscode/**
 wiki/**
-project_memory/**
+project_memory*/**
 
 # Exclude local workspace-only artifacts
 .claude/**

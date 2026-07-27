@@ -45,6 +45,8 @@ The three oversight advisors (`ethics-oversight`, `legal-oversight`, `commercial
 
 The reasoning is separation of duties. An advisor that reviews whether something *should* ship should not also be the thing that changes it. Where an advisor's findings need to be recorded, the Project Dashboard owns that write path and sanitises the model's output at the boundary first.
 
+The separate `SecurityReviewManager` follows the same authority boundary: it can persist already-produced, sanitized findings for secrets, runtime boundaries, dependencies, and permissions, but it does not invoke an agent, grant tools, execute remediation, or gate delivery. Future UI wiring must keep review invocation inside the normal approval and tool-policy pipeline.
+
 ## Approval Modes
 
 The `atlasmind.toolApprovalMode` setting controls when AtlasMind asks for confirmation:
@@ -164,8 +166,9 @@ Setting up an MCP server can require a local runtime (Node/`npx`, `uv`/`uvx`, �
 
 When a turn reaches `maxToolIterations` (or the per-turn tool-call limit) without producing a final answer, AtlasMind **stops and asks** rather than failing silently:
 
-- **Single-turn chat** surfaces *Raise to N (permanent)* / *Raise to N (this task)* buttons; choosing one updates `maxToolIterations` (workspace setting for permanent, in-memory for this task only) and resumes from the original prompt.
-- **Autonomous `/project` subtasks** report a `needs-input` pause (a distinct state from `failed`) carrying the suggested higher limit. The project report renders a *"⏸️ Paused — tool-iteration limit reached"* section with a button to open the `atlasmind.maxToolIterations` setting and the choices to raise permanently and re-run, raise once and re-run, or skip. See [[Project-Planner]].
+- **Single-turn chat and autonomous `/project` runs** render a direct question with chips to use the suggested limit for this run, save it permanently, or keep the partial result. Project subtasks carry this as a `needs-input` pause, distinct from `failed`.
+- **Temporary means temporary.** The host captures the current live limit, applies the suggested value only while the awaited retry runs, and restores the previous value in `finally`. Permanent choices alone update the workspace setting.
+- **The webview cannot invent a limit change.** Limit messages must carry a finite bounded integer, and the extension host re-resolves the assistant transcript entry, requires a live `iterationLimitHit`, and requires the submitted value to equal that entry's stored suggestion before touching runtime or workspace configuration. See [[Project-Planner]].
 
 ---
 

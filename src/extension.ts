@@ -3133,7 +3133,7 @@ export function withTimeout<T>(promise: Promise<T>, ms: number, onTimeout: () =>
   });
 }
 
-async function refreshProviderModelsCatalog(
+export async function refreshProviderModelsCatalog(
   modelRouter: ModelRouter,
   providerRegistry: ProviderRegistry,
   outputChannel?: vscode.OutputChannel,
@@ -3220,11 +3220,18 @@ async function refreshProviderModelsCatalog(
       outputChannel?.appendLine(`[providers] ${provider.id}: discovered ${discoveredIds.length} model(s).`);
 
       if (discoveredIds.length === 0) {
-        outputChannel?.appendLine(`[providers] ${provider.id} discovery returned 0 models; keeping ${provider.models.length} existing.`);
-        return { updated: false, modelEntries: provider.models.length };
+        // A successful, healthy discovery is authoritative even when empty.
+        // Keeping the previous array here made removed models survive every
+        // Settings refresh. Discovery exceptions/timeouts are handled below and
+        // still preserve the last known catalog.
+        modelRouter.registerProvider({ ...provider, models: [] });
+        modelRouter.clearProviderFailures(provider.id);
+        outputChannel?.appendLine(`[providers] ${provider.id}: discovery returned 0 models; pruned ${provider.models.length} stale model(s).`);
+        return { updated: true, modelEntries: 0 };
       }
 
-      const normalized = [...new Set(discoveredIds.map(modelId => normalizeModelId(provider.id, modelId)))];
+      const normalized = [...new Set(discoveredIds.map(modelId => normalizeModelId(provider.id, modelId)))]
+        .filter(modelId => !modelRouter.isModelRetired(modelId));
       const hintsById = new Map<string, DiscoveredModel>();
       if (discoveredHints) {
         for (const hint of discoveredHints) {
@@ -3235,6 +3242,8 @@ async function refreshProviderModelsCatalog(
       const providerPricingSync = pricingSyncResults.get(provider.id);
       const merged = mergeProviderModels(provider, normalized, hintsById, multiplierSync, multiplierOverrides, localSync, providerPricingSync);
       modelRouter.registerProvider({ ...provider, models: merged });
+      // Clear transient failures after a successful authoritative refresh, but
+      // retain provider-confirmed removal/deprecation tombstones.
       modelRouter.clearProviderFailures(provider.id);
       outputChannel?.appendLine(`[providers] ${provider.id}: registered ${merged.length} model(s) after merge.`);
       return { updated: true, modelEntries: merged.length };
