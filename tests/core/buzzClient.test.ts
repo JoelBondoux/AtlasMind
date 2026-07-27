@@ -270,6 +270,21 @@ describe('BuzzClient — NIP-42 authentication', () => {
     expect(h.socket().frameLabels()).toContain('AUTH');
   });
 
+  it('signs once when a relay both challenges and refuses in the same connect', async () => {
+    // The normal path against a real authenticating relay: it sends AUTH, and
+    // separately answers the optimistic REQ with `CLOSED … auth-required`.
+    const h = harness({ signer });
+    h.client.start();
+    h.socket().emit('open');
+    h.socket().emit('message', JSON.stringify(['AUTH', 'challenge-1']));
+    h.socket().emit('message', JSON.stringify(['CLOSED', 'atlasmind-inbound', 'auth-required: authenticate first']));
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(h.socket().frameLabels().filter(label => label === 'AUTH')).toHaveLength(1);
+  });
+
   it('stops with an explanation when the relay wants auth and no signer exists', () => {
     const h = harness();
     h.client.start();

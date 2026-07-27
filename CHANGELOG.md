@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.149.1] - 2026-07-27
+
+### Fixed
+- **Buzz authentication now signs once per connection.** An authenticating relay normally prompts twice on connect — with its own challenge, and again when refusing the optimistic subscription — and both prompts produced a signature, because the "already authenticating" guard was only set after signing finished rather than before it started. One signature is now produced and one frame sent.
+
 ## [0.149.0] - 2026-07-27
 
 ### Added

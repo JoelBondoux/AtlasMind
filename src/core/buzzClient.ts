@@ -15,11 +15,14 @@
  * against a real in-process WebSocket server. `createBuzzWebSocketFactory`
  * (`buzzSocket.ts`) supplies the real transport.
  *
- * **Signing is a seam, not an implementation.** NIP-42 requires a Schnorr
- * signature over a kind-22242 event, which needs a secp256k1 backend AtlasMind
- * does not yet depend on. `BuzzEventSigner` is that seam. With no signer, a relay
+ * **Signing arrives through a seam.** NIP-42 requires a Schnorr signature over a
+ * kind-22242 event; `BuzzEventSigner` is the seam and `buzzSigner.ts` implements
+ * it. The signer stays injected rather than imported so this module keeps no
+ * crypto dependency and remains testable without one. With **no** signer, a relay
  * that demands auth produces a typed, explained stop — never a silent failure or
- * a reconnect loop.
+ * a reconnect loop. A relay normally triggers authentication twice on connect
+ * (its `AUTH` challenge, plus the `auth-required` answer to the optimistic
+ * subscription); only one signature is produced.
  *
  * Safety posture:
  *  - **Deny-by-default:** constructing a client connects nothing; `start()` is
@@ -74,8 +77,8 @@ export interface BuzzSocket {
 export type BuzzSocketFactory = (relayUrl: string) => BuzzSocket;
 
 /**
- * Signs a NIP-42 auth event. Deliberately unimplemented in AtlasMind today —
- * Schnorr signing needs a secp256k1 dependency that warrants its own decision.
+ * Signs a NIP-42 auth event. Implemented by `buzzSigner.ts`; kept as an injected
+ * interface so this module carries no crypto dependency of its own.
  */
 export interface BuzzEventSigner {
   /** The agent's 32-byte hex public key. */
@@ -145,6 +148,8 @@ export class BuzzClient {
   private lastEventCreatedAt: number | undefined;
   private challenge: string | undefined;
   private pendingAuthEventId: string | undefined;
+  /** True from the moment signing starts until the frame is sent or it fails. */
+  private authInFlight = false;
 
   private reconnectHandle: unknown;
   private livenessHandle: unknown;
@@ -195,6 +200,7 @@ export class BuzzClient {
     this.lastFrameAt = this.scheduler.now();
     this.challenge = undefined;
     this.pendingAuthEventId = undefined;
+    this.authInFlight = false;
 
     let socket: BuzzSocket;
     try {
@@ -356,6 +362,18 @@ export class BuzzClient {
   }
 
   private async authenticate(): Promise<void> {
+    // An authenticating relay typically triggers this twice on connect: once
+    // from its `AUTH` challenge, and again from the `CLOSED … auth-required`
+    // answer to the optimistic subscription. One signature is enough — signing
+    // twice wastes work and puts a redundant frame on the wire.
+    //
+    // The in-flight flag is checked and set *synchronously*, before any await:
+    // signing is async, so a second call would otherwise sail past a guard that
+    // is only set once the first signature completes.
+    if (this.authInFlight || this.pendingAuthEventId) {
+      return;
+    }
+
     const signer = this.options.signer;
     if (!signer) {
       this.stopForRefusal(
@@ -380,15 +398,18 @@ export class BuzzClient {
       return;
     }
 
+    this.authInFlight = true;
     let signed: NostrEvent;
     try {
       signed = await signer.sign(template.event);
     } catch (error) {
+      this.authInFlight = false;
       this.stopForRefusal(
         `Signing the Buzz authentication event failed: ${error instanceof Error ? error.message : 'unknown error'}`,
       );
       return;
     }
+    this.authInFlight = false;
 
     // The client may have been stopped while signing.
     if (this.stopped) {
