@@ -397,7 +397,21 @@ The inbound subscription itself — the piece that *drives* the three modules ab
 
 **Safety.** Deny-by-default: constructing a client connects nothing, and `start()` is explicit. **Read-only by construction** — it sends only `REQ`, `CLOSE`, `AUTH`, and keep-alive pings, never an `EVENT`, so an inbound subscription cannot write to Buzz (asserted in tests). Every frame passes through `parseRelayFrame`, so malformed input is counted and ignored rather than acted on. A socket that cannot even be created is treated as a failed attempt and backed off, not an exception escaping into the extension host.
 
-**Still owed.** Schnorr signing (the dependency decision), validation against a real Buzz relay rather than a NIP-01-shaped stand-in, and the deny-by-default inbound toggle plus follow-up persistence.
+**Hosted relays.** A Buzz workspace need not be local. `toWebSocketUrl` therefore refuses an **unencrypted socket to a remote host** — plaintext to a hosted relay would expose colleagues' message content and the NIP-42 challenge/response in transit. Loopback is exempt because it never leaves the machine. The rule lives at the transport rather than in a policy caller, so no future wiring can reintroduce a plaintext remote connection, and it matches what the outbound `BuzzCliBridge` already enforces.
+
+### BuzzSigner (`src/core/buzzSigner.ts`)
+
+BIP-340 Schnorr signing for NIP-42, filling the `BuzzEventSigner` seam. A real Buzz relay refuses to serve a subscription until the client authenticates (`auth-required: authenticate before subscribing`, observed against a live relay), so inbound sync cannot work without this.
+
+**Bundled but lazily loaded.** `@noble/secp256k1` is a normal dependency — fixed at build time, covered by the lockfile's integrity hash, auditable in the repo — chosen over the full `@noble/curves` suite because it is **170 KB with zero transitive dependencies** versus 1.87 MB plus an 889 KB dependency, for the one curve Nostr uses. It is imported only the first time a signature is needed, so a user who never touches Buzz pays nothing at activation. Node's built-in `crypto` supplies SHA-256, so nothing else is pulled in.
+
+**Module-format care.** The package is ESM-only, and `require()`-ing ESM throws on Node before 22.12 — which the VS Code extension host can be. A plain `await import()` would be downlevelled to `require()` by the CommonJS emit, so the import is constructed through `Function` to survive transpilation, with a `require` fallback for hosts that cannot resolve a bare specifier that way. The dependency's surface is declared as a local structural interface rather than a type import, which both avoids the ESM/CJS type friction and documents exactly how little of the library is used.
+
+**Correctness and safety.** `parseBuzzSecretKey` accepts a bech32 `nsec…` or bare 64-char hex — the two forms Buzz documents — and **validates the bech32 checksum**, so a mistyped key fails loudly rather than silently authenticating as a different identity; an `npub` is rejected with that named explicitly, since it is the likely mistake. Key validation happens when the signer is *created*, not mid-handshake. Every signature is verified against the derived public key before the event is returned, so a miswired hash backend cannot emit a bad signature. Secret material never appears in a log, an error message, or a serialised value. The hand-written bech32 decoder and the library are cross-validated in tests against the **published NIP-19 nsec/npub vector pair**: decoding one and deriving the other must reproduce the spec's values.
+
+**Scope.** It signs *authentication* events only. `BuzzClient` stays read-only — the sole event this produces is the ephemeral kind-22242 auth event, which relays never store.
+
+**Still owed.** Validation against a real Buzz relay rather than a NIP-01-shaped stand-in, and the deny-by-default inbound toggle plus follow-up persistence.
 
 ### Agentic Resource Discovery (`src/ard/`)
 

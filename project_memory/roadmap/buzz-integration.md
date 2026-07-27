@@ -3,8 +3,8 @@
 > **Status:** Tier 1b implementation complete; a real-relay smoke test remains before the live-send
 > gate is closed. Tier 2 guided connector shipped and ARD discovery still planned. Tier 3's
 > protocol/policy/derivation **foundation** shipped (v0.147.0) and its `BuzzClient` subscription
-> (v0.148.0); Schnorr signing, real-relay validation, and wiring remain — see the Tier-3 logs.
-> Tier 4 planned.
+> (v0.148.0), and NIP-42 Schnorr signing (v0.149.0); real-relay validation and wiring remain — see
+> the Tier-3 logs. Tier 4 planned.
 > **Owner:** AtlasMind core. **Created:** 2026-07-25.
 > This is the SSOT north star for integrating Buzz into AtlasMind. Build incrementally,
 > respecting the entry criteria between tiers. Nothing here overrides AtlasMind's
@@ -272,8 +272,34 @@ inert-after-stop behaviour and the report-once behaviour.
 **Still unverified** (auth blocked them): the `h`-tag channel-scoping assumption and that kind 40002
 actually delivers channel messages. Both re-test as soon as signing works.
 
+### Signing shipped (2026-07-27, v0.149.0)
+
+`buzzSigner.ts` fills the `BuzzEventSigner` seam. Decisions worth keeping:
+
+- **`@noble/secp256k1`, not `@noble/curves`.** 170 KB with zero transitive deps versus 1.87 MB plus an
+  889 KB dependency, for the single curve Nostr uses. The earlier recommendation of `@noble/curves`
+  was wrong on size; measuring first changed it.
+- **Bundled, not downloaded on demand.** An on-demand installer was considered (the
+  `LocalTranscriber` pattern) but rejected: fetching *crypto* at runtime is a worse supply-chain
+  posture than a lockfile-pinned dependency, adds offline/npm/proxy failure modes, and is more code
+  than the 184 KB it would avoid shipping. The "only when called upon" property is kept via **lazy
+  import** instead — nothing loads until the first signature.
+- **ESM/CJS trap.** The package is ESM-only and `require(esm)` throws before Node 22.12, which the
+  VS Code extension host can be. A plain `await import()` is downlevelled to `require()` by the CJS
+  emit, so the import is built through `Function` to survive transpilation, with a `require` fallback
+  for hosts (notably the test runner) that can't resolve a bare specifier that way.
+- **bech32 implemented in-repo** rather than adding `@scure/base` — it is a checksummed encoding, not
+  crypto, and it is cross-validated in tests against the published **NIP-19 nsec/npub vector pair**
+  (decode one, derive the other, both must match the spec).
+
+**Hosted relays changed the landscape (v0.149.0).** Buzz need not be local. That exposed an asymmetry:
+the outbound `BuzzCliBridge` required remote relays to be HTTPS/WSS, but the inbound transport did
+not — `buzzConnector.ts` (which had the relay gate) was dropped when this branch was rebased. Fixed
+in `buzzSocket.toWebSocketUrl`, which now refuses a plaintext socket to any non-loopback host. Placed
+at the **transport** rather than in a policy caller so future wiring cannot reintroduce it.
+
 **Still owed for Tier 3:**
-1. **Schnorr signing** for the NIP-42 auth event. **Now confirmed blocking — see the probe result above.** `buildAuthEventTemplate` returns an *unsigned*
+1. ~~**Schnorr signing**~~ — **done in v0.149.0.** `buildAuthEventTemplate` returns an *unsigned*
    template and `BuzzEventSigner` is the seam; with no signer, an authenticating relay yields a typed,
    explained stop rather than a loop. Filling it needs a secp256k1 backend — `@noble/curves` is the
    audited, zero-dependency standard (what `nostr-tools` itself uses). **This is a dependency decision

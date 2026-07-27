@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.149.0] - 2026-07-27
+
+### Added
+- **Buzz inbound can authenticate (Buzz integration, Tier 3).** BIP-340 Schnorr signing for NIP-42, filling the seam `BuzzClient` left open. Running the client against a real Buzz relay showed it refuses to serve a subscription until the client authenticates, so this is what makes a live inbound subscription possible at all.
+- **A deliberately small dependency, loaded only when used.** `@noble/secp256k1` is 170 KB with no dependencies of its own — chosen over the full `@noble/curves` suite (1.87 MB plus an 889 KB dependency) because Nostr needs exactly one curve. It is imported the first time a signature is needed, so anyone who never uses Buzz pays nothing at activation. Node's built-in crypto supplies the hashing, so nothing further is pulled in.
+
+### Security
+- **A remote Buzz relay must be encrypted.** A Buzz workspace need not be local, and an unencrypted socket to a **hosted** relay would expose colleagues' message content and the authentication challenge in transit, so it is now refused outright. Loopback is exempt because it never leaves the machine. The rule sits at the transport layer, so no future wiring can reintroduce it, and it matches what the outbound path already enforced.
+- **A mistyped agent key fails loudly instead of signing as someone else.** An `nsec` is decoded with its bech32 checksum verified, and an `npub` — a public key, and the likely mistake — is rejected by name. The key is validated when the signer is created rather than mid-handshake, every signature is checked against the derived public key before the event leaves the signer, and secret material never reaches a log, an error message, or a serialised value.
+- **Cross-validated against the published specification.** The bech32 decoder and the signing library are tested against the canonical NIP-19 key-pair vectors: decoding one and deriving the other must reproduce the spec's own values.
+
 ## [0.148.1] - 2026-07-27
 
 ### Fixed

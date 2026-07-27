@@ -157,6 +157,25 @@ describe('toWebSocketUrl', () => {
     expect(toWebSocketUrl('javascript:alert(1)')).toBeUndefined();
     expect(toWebSocketUrl('not a url')).toBeUndefined();
   });
+
+  it('refuses an unencrypted socket to a REMOTE relay', () => {
+    // A hosted Buzz workspace is off-machine: plaintext would expose
+    // colleagues' messages and the NIP-42 challenge/response in transit.
+    // Mirrors the rule the outbound BuzzCliBridge already enforces.
+    expect(toWebSocketUrl('ws://relay.example.com')).toBeUndefined();
+    expect(toWebSocketUrl('http://relay.example.com')).toBeUndefined();
+    expect(toWebSocketUrl('ws://192.168.1.10:3000')).toBeUndefined();
+    // ...while the encrypted forms are fine.
+    expect(toWebSocketUrl('wss://relay.example.com')).toBe('wss://relay.example.com/');
+    expect(toWebSocketUrl('https://relay.example.com')).toBe('wss://relay.example.com/');
+  });
+
+  it('still allows plaintext to loopback, which never leaves the machine', () => {
+    expect(toWebSocketUrl('ws://localhost:3000')).toBe('ws://localhost:3000/');
+    expect(toWebSocketUrl('ws://127.0.0.1:3000')).toBe('ws://127.0.0.1:3000/');
+    expect(toWebSocketUrl('ws://[::1]:3000')).toBe('ws://[::1]:3000/');
+    expect(toWebSocketUrl('http://localhost:3000')).toBe('ws://localhost:3000/');
+  });
 });
 
 describe('BuzzClient over a real WebSocket', () => {

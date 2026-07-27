@@ -6,6 +6,14 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.149.0 — Buzz NIP-42 signing + hosted-relay TLS (Tier 3)
+
+- **Inbound can authenticate.** BIP-340 Schnorr signing fills the seam `BuzzClient` left open. A real relay refuses to serve a subscription until the client authenticates, so this is what makes inbound possible at all.
+- **A small dependency, loaded only when used.** `@noble/secp256k1` — 170 KB, zero dependencies of its own, picked over the 1.87 MB `@noble/curves` suite for the one curve Nostr uses. Imported on first signature, so non-Buzz users pay nothing at activation.
+- **Hosted relays must be encrypted.** A Buzz workspace need not be local; an unencrypted socket to a remote relay is now refused, matching the outbound rule. Loopback is exempt.
+- **A mistyped key fails loudly.** `nsec` bech32 checksums are verified and an `npub` is rejected by name, so a bad key can never silently sign as a different identity. Secrets never reach a log or error.
+- **Verified against the spec.** The bech32 decoder and signing library are cross-validated against the canonical NIP-19 key-pair vectors.
+
 ## v0.148.0 — Buzz inbound subscription (Tier 3)
 
 - **AtlasMind can hold a live Buzz relay subscription.** Connect → authenticate → subscribe → receive, and on a drop, back off and resume from where it left off.

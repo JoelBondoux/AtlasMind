@@ -22,6 +22,25 @@ import { MAX_RELAY_FRAME_BYTES } from './buzzProtocol.js';
 /** Schemes a Buzz relay WebSocket may use. */
 const ALLOWED_SOCKET_PROTOCOLS = new Set(['ws:', 'wss:']);
 
+/**
+ * True when a hostname resolves to this machine. Mirrors the rule the outbound
+ * `BuzzCliBridge` applies, so both halves of the integration agree on what
+ * "local" means.
+ */
+function isLoopbackHost(hostname: string): boolean {
+  const host = hostname.trim().toLowerCase().replace(/^\[/, '').replace(/\]$/, '');
+  if (!host) {
+    return false;
+  }
+  if (host === 'localhost' || host.endsWith('.localhost')) {
+    return true;
+  }
+  if (host === '::1' || host === '0:0:0:0:0:0:0:1') {
+    return true;
+  }
+  return /^127(?:\.\d{1,3}){3}$/.test(host);
+}
+
 export interface BuzzWebSocketOptions {
   /** Handshake timeout in milliseconds. */
   handshakeTimeoutMs?: number;
@@ -49,6 +68,16 @@ export function toWebSocketUrl(relayUrl: string): string | undefined {
   } else if (protocol === 'https:') {
     parsed.protocol = 'wss:';
   } else if (!ALLOWED_SOCKET_PROTOCOLS.has(protocol)) {
+    return undefined;
+  }
+
+  // A **hosted** Buzz workspace is off-machine, so the connection must be
+  // encrypted: an unencrypted socket to a remote relay would expose colleagues'
+  // message content and the NIP-42 challenge/response in transit. Loopback is
+  // exempt because it never leaves the machine. This mirrors the rule the
+  // outbound `BuzzCliBridge` already enforces, and it lives at the transport
+  // so no future wiring can reintroduce a plaintext remote connection.
+  if (parsed.protocol.toLowerCase() === 'ws:' && !isLoopbackHost(parsed.hostname)) {
     return undefined;
   }
 
