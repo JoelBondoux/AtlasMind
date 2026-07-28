@@ -37,6 +37,7 @@ import {
   toApprovedLoopPrompt,
 } from '../chat/participant.js';
 import { classifyToolInvocation, getToolApprovalMode, requiresToolApproval } from '../core/toolPolicy.js';
+import { decideApprovalAttention } from '../core/approvalAttention.js';
 import { extractSessionCarryForwardImages, resolvePickedImageAttachments } from '../chat/imageAttachments.js';
 import { buildChatWebviewHtml } from './chatWebviewMarkup.js';
 import { hasAiInstructionSyncFile, scanAiInstructionFiles, syncAiInstructionFiles } from '../utils/aiInstructionSync.js';
@@ -80,6 +81,14 @@ export interface ChatPanelHost {
   onDidDispose(listener: () => unknown, thisArgs?: unknown, disposables?: vscode.Disposable[]): vscode.Disposable;
   /** Present only on editor-panel hosts (vscode.WebviewPanel), not on views or the remote host. */
   reveal?(viewColumn?: vscode.ViewColumn, preserveFocus?: boolean): void;
+  /** Present on sidebar-view hosts (vscode.WebviewView). */
+  show?(preserveFocus?: boolean): void;
+  /**
+   * Whether the surface is on screen. Absent on the remote host, where it is
+   * unknowable — treated as not visible, so a waiting approval is announced
+   * rather than assumed to have been seen.
+   */
+  readonly visible?: boolean;
 }
 
 /** Minimal webview surface needed to resolve attachment preview URIs. */
@@ -270,6 +279,8 @@ interface PendingPromptSubmission {
 }
 
 export class ChatPanel {
+  /** Approval request ids already announced, so a resolution does not re-fire one. */
+  private announcedApprovalIds: string[] = [];
   public static currentPanel: ChatPanel | undefined;
   public static lastUsedSurface: 'panel' | 'sidebar' | undefined;
   private static readonly viewType = 'atlasmind.chatPanel';
@@ -402,8 +413,9 @@ export class ChatPanel {
       void this.syncState();
     }, null, this.disposables);
     this.disposables.push({
-      dispose: this.atlas.toolApprovalManager?.onPendingApprovalsChange?.(() => {
+      dispose: this.atlas.toolApprovalManager?.onPendingApprovalsChange?.(requests => {
         void this.syncState();
+        this.announcePendingApprovals(requests);
       }) ?? (() => undefined),
     });
     this.disposables.push({
@@ -1898,6 +1910,57 @@ export class ChatPanel {
     const next = current.length > 0 ? `${current}\n\n${fragment}` : fragment;
     this.atlas.sessionConversation.updateMessage(assistantMessageId, next, sessionId);
     await this.syncState();
+  }
+
+  /**
+   * Bring a waiting approval to the user's attention.
+   *
+   * A tool approval blocks the run until answered, and the bar lives in this
+   * panel — which you may not be looking at. Repainting a hidden webview
+   * announces nothing, so the run appears to hang. Kept deliberately quiet when
+   * the panel is already on screen: interrupting someone toward something they
+   * are already looking at is how prompts get trained into reflex dismissal.
+   */
+  private announcePendingApprovals(requests: readonly PendingToolApprovalRequest[]): void {
+    if (this._isDisposed) {
+      return;
+    }
+    const attention = decideApprovalAttention({
+      previousIds: this.announcedApprovalIds,
+      pending: requests,
+      // Unknowable on the remote host, where `visible` is absent. Treated as
+      // hidden, because a missed approval costs more than a redundant nudge.
+      surfaceVisible: this.host.visible === true,
+      revealEnabled: vscode.workspace.getConfiguration('atlasmind')
+        .get<boolean>('chat.revealOnApprovalRequest', true),
+    });
+    if (!attention) {
+      return;
+    }
+    this.announcedApprovalIds = attention.announcedIds;
+
+    if (attention.reveal) {
+      this.revealSurface();
+    }
+    if (attention.notify) {
+      void vscode.window
+        .showWarningMessage(`AtlasMind is waiting for your approval: ${attention.summary}`, 'Review')
+        .then(choice => {
+          if (choice === 'Review') {
+            this.revealSurface();
+          }
+        });
+    }
+  }
+
+  /** Bring this surface forward, whichever kind of host it is. */
+  private revealSurface(): void {
+    try {
+      this.host.reveal?.(undefined, false);
+      this.host.show?.(false);
+    } catch {
+      // A host that cannot be revealed still got the notification.
+    }
   }
 
   private async syncState(): Promise<void> {

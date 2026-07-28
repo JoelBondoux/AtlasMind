@@ -1,7 +1,11 @@
 # Buzz (buzz.xyz) Integration — Phased Roadmap
 
 > **Status:** Tier 1b implementation complete; a real-relay smoke test remains before the live-send
-> gate is closed. Tier 2 guided connector shipped and ARD discovery still planned; Tiers 3–4 planned.
+> gate is closed. Tier 2 guided connector shipped and ARD discovery still planned. Tier 3's
+> protocol/policy/derivation **foundation** shipped (v0.147.0) and its `BuzzClient` subscription
+> (v0.148.0), NIP-42 Schnorr signing (v0.149.0), **real-relay validation (v0.149.2 — which caught a
+> wrong message kind)**, and the wiring + agent bindings (v0.150.0). **Tier 3 is complete and
+> switchable-on.** Tier 4 planned.
 > **Owner:** AtlasMind core. **Created:** 2026-07-25.
 > This is the SSOT north star for integrating Buzz into AtlasMind. Build incrementally,
 > respecting the entry criteria between tiers. Nothing here overrides AtlasMind's
@@ -163,6 +167,315 @@ the discovered server disabled until it passes the normal MCP trust gate.
 
 **Entry criteria:** Tier-1b live send working; `buzz-sdk` event/filter schema verified; relay auth
 (NIP-42) validated end-to-end.
+
+### Tier-3 verification log (2026-07-27, v0.147.0) — foundation shipped, socket still owed
+
+**The key realisation:** Buzz's transport is **not a Buzz invention**. Buzz is Nostr-based, so
+NIP-01 (events, `REQ`/`EVENT`/`EOSE`/`CLOSED` framing, filters) and NIP-42 (relay auth) are
+*published open specifications*. Verifying them against `nostr-protocol/nips` is exactly as legitimate
+as verifying `buzz-cli` against its Cargo.toml — no live relay needed. Only the *integration* is
+relay-blocked, not the protocol layer.
+
+| Fact | Source | Value |
+|---|---|---|
+| Event object + client/relay frames | `nips/01.md` | `["REQ", <subId>, <filter>…]`, `["EVENT", <subId>, <event>]`, `["OK", <id>, <bool>, <msg>]`, `["EOSE", <subId>]`, `["CLOSED", <subId>, <msg>]`, `["NOTICE", <msg>]` |
+| Relay auth | `nips/42.md` | Relay sends `["AUTH", <challenge>]`; client replies with a signed **kind 22242** event with `relay` + `challenge` tags. Refusals prefixed `auth-required:` / `restricted:` |
+| Event kinds | `crates/buzz-core/src/kind.rs` @ `v0.4.26` | channel message **40002**, edit **40003**, system **40099**, channel metadata **39000**, thread summary **39005**, auth **22242**, jobs **43001–43006** |
+| Filter gotcha | `AGENTS.md` @ `v0.4.26` | "Relay queries must specify `kinds` — omitting `kinds` triggers the p-gate (403)" |
+
+Note the kind registry was read at **the same pinned tag (`v0.4.26`) the Tier-1b CLI bridge uses**, so
+the inbound and outbound halves are pinned together and move together.
+
+**Traps found and encoded (each would have been a silent, confusing bug):**
+- **Channel metadata is 39000, not 41.** Kind 41 *does* exist in the registry as legacy NIP-01 channel
+  metadata — the plausible-looking wrong answer. `AGENTS.md` calls this out explicitly.
+- **A channel message is 40002, not 9 or 10002.** `KIND_STREAM_MESSAGE = 9` (plain NIP-29) and V1's
+  10002 both exist; `KIND_STREAM_MESSAGE_V2 = 40002` is current. Subscribing to the wrong one yields
+  a connection that works and receives nothing.
+- **A kind-less filter is a 403, not an empty result.** So `NostrFilter.kinds` is required non-empty
+  *by type*, and `buildSubscriptionFrame` refuses to build one.
+
+Both kind traps are pinned by assertions in `tests/core/buzzProtocol.test.ts` so a later edit cannot
+regress them quietly.
+
+**Shipped (all pure, `vscode`-free, unit-tested — 69 tests):**
+- `buzzProtocol.ts` — framing, parsing, filters, NIP-42 templates, event validation. Untrusted-input
+  boundary: never throws; explicitly does **not** verify signatures (relay's job under NIP-42), so
+  structural validity is never confused with authenticity.
+- `buzzConnectionPolicy.ts` — the **connection-presence half** the tier explicitly owed. Clock-free,
+  so it is deterministically testable with no timers. Notable decisions: `dead` only after an
+  *unanswered ping* (idleness alone is not death — a quiet channel is not a broken socket); jitter is
+  **subtractive** so the backoff cap actually holds; a `restricted:` refusal **stops** rather than
+  retries; the resume cursor rewinds by an overlap, preferring a de-duplicated duplicate over a
+  silently dropped message.
+- `buzzInboundDerivation.ts` — the **derive-don't-mirror** boundary. Event → `FollowUp` + thread
+  pointer; the body is never stored (the derived record has no content field at all). This is a
+  privacy boundary: SSOT is git-tracked, so mirroring a channel would commit colleagues' chat into
+  the repo.
+
+### Tier-3 subscription log (2026-07-27, v0.148.0) — `BuzzClient` shipped
+
+Item 1 below is now done. The prediction that it needed a relay was wrong: with an **injectable
+socket factory**, the state machine is fully testable without one, and `ws` was **already an AtlasMind
+dependency**, so inbound sync added none.
+
+**Shipped:**
+- `buzzClient.ts` — the state machine: connect → authenticate → subscribe → receive → drop → back off
+  → resume. It drives the three foundation modules and owns nothing else (parses no frames, invents
+  no delays, stores no conversation). Transport-agnostic via `BuzzSocketFactory`, so it imports
+  neither `ws` nor `vscode`.
+- `buzzSocket.ts` — the real `ws` adapter, isolated so the client stays dependency-free.
+  `toWebSocketUrl` maps the CLI-style `http(s)` relay base onto `ws(s)`, so **one `relayUrl` setting
+  serves both the outbound CLI bridge and the inbound socket** — the two halves can't drift.
+- **35 tests: 26 unit (fake socket, injected clock — no timers, fully deterministic) + 9 integration
+  against a real in-process WebSocket server.** The integration layer covers what a fake cannot: the
+  genuine handshake, `ws`'s Buffer→string delivery, real ping/pong, a real NIP-42 exchange, and a
+  **hard TCP drop with no closing handshake** (the client notices via keep-alive and reconnects with
+  the rewound cursor).
+
+**Findings worth keeping:**
+- The first test run failed because the fixtures used `'p'.repeat(64)` as a pubkey and
+  `'s'.repeat(128)` as a signature — **neither is hex**. `validateNostrEvent` correctly rejected them.
+  A reassuring failure: the untrusted-input boundary caught bad data written by its own author.
+- **Read-only is now structural, not just intended.** The client sends only `REQ`/`CLOSE`/`AUTH`/pings
+  and never an `EVENT`, and a test asserts it — so the read path cannot silently become a write path.
+
+### Real-relay probe result (2026-07-27, local Buzz relay) — **signing is REQUIRED**
+
+Ran the real `BuzzClient` against Joel's local Buzz relay (`ws://localhost:3000`, channel
+`443a7fd2-…`). Two results, both decisive:
+
+**1. The relay demands NIP-42 auth before it will serve a subscription.**
+
+```
+auth-required: authenticate before subscribing
+```
+
+So Schnorr signing is **not optional** — inbound cannot function against a real Buzz relay without
+it. This closes the open question and makes the `@noble/curves` decision a prerequisite rather than a
+nice-to-have. The client behaved exactly as designed: it refused to retry and stopped with the reason.
+
+Two protocol details learned that the spec alone did not give us:
+- The relay delivers `auth-required:` in a **`NOTICE`** frame (and again on `CLOSED`), not only on
+  `OK`/`CLOSED` as NIP-42 describes. `classifyRelayRefusal` already handles the prefix wherever it
+  appears, so no change was needed — but note it for the signing work.
+- Because auth intercepts everything, the **p-gate test was inconclusive**: the kind-less filter was
+  refused for auth, not for missing `kinds`. That constraint is still only verified from `AGENTS.md`.
+  Re-run the probe after signing lands to confirm it independently.
+
+**2. A real bug the unit tests missed (fixed in v0.148.1).** The status trace showed
+`stopped → authenticating → stopped`: frames arriving *after* `stop()` were still handled, so a
+repeated `auth-required` restarted the auth path the client had just terminated on, and the terminal
+error was reported twice. A stopped client is now inert. Lesson: the fake-socket tests never delivered
+a frame after stopping — the real relay found it in one run. Regression tests added for both the
+inert-after-stop behaviour and the report-once behaviour.
+
+**Still unverified** (auth blocked them): the `h`-tag channel-scoping assumption and that kind 40002
+actually delivers channel messages. Both re-test as soon as signing works.
+
+### Signing shipped (2026-07-27, v0.149.0)
+
+`buzzSigner.ts` fills the `BuzzEventSigner` seam. Decisions worth keeping:
+
+- **`@noble/secp256k1`, not `@noble/curves`.** 170 KB with zero transitive deps versus 1.87 MB plus an
+  889 KB dependency, for the single curve Nostr uses. The earlier recommendation of `@noble/curves`
+  was wrong on size; measuring first changed it.
+- **Bundled, not downloaded on demand.** An on-demand installer was considered (the
+  `LocalTranscriber` pattern) but rejected: fetching *crypto* at runtime is a worse supply-chain
+  posture than a lockfile-pinned dependency, adds offline/npm/proxy failure modes, and is more code
+  than the 184 KB it would avoid shipping. The "only when called upon" property is kept via **lazy
+  import** instead — nothing loads until the first signature.
+- **ESM/CJS trap.** The package is ESM-only and `require(esm)` throws before Node 22.12, which the
+  VS Code extension host can be. A plain `await import()` is downlevelled to `require()` by the CJS
+  emit, so the import is built through `Function` to survive transpilation, with a `require` fallback
+  for hosts (notably the test runner) that can't resolve a bare specifier that way.
+- **bech32 implemented in-repo** rather than adding `@scure/base` — it is a checksummed encoding, not
+  crypto, and it is cross-validated in tests against the published **NIP-19 nsec/npub vector pair**
+  (decode one, derive the other, both must match the spec).
+
+**Hosted relays changed the landscape (v0.149.0).** Buzz need not be local. That exposed an asymmetry:
+the outbound `BuzzCliBridge` required remote relays to be HTTPS/WSS, but the inbound transport did
+not — `buzzConnector.ts` (which had the relay gate) was dropped when this branch was rebased. Fixed
+in `buzzSocket.toWebSocketUrl`, which now refuses a plaintext socket to any non-loopback host. Placed
+at the **transport** rather than in a policy caller so future wiring cannot reintroduce it.
+
+### Real-relay validation, round 2 (2026-07-28, v0.149.2) — **a wrong kind, caught**
+
+With signing working, the probe finally reached the data path. Three results:
+
+**1. NIP-42 signing is validated end-to-end.** The relay issued a challenge, accepted the signed
+kind-22242 event, and served the subscription (reached EOSE). Tier 3's auth half is proven against
+real Buzz, not a stand-in.
+
+**2. The channel-message kind was WRONG — and would have failed silently.** Asking the relay what it
+actually stores returned:
+
+| kind | count | tags |
+|---|---|---|
+| 40099 (system message) | 8 | `h` |
+| **9 (channel message)** | **5** | `h`, `p`, `client` |
+| 39000 (channel metadata) | 4 | `d`, `name`, `about`, `public`, `closed`, `t`, `private` |
+| 20001 (presence) | 1 | — |
+
+**Zero kind-40002 events.** `buzz-core/src/kind.rs` defines both `KIND_STREAM_MESSAGE = 9` and
+`KIND_STREAM_MESSAGE_V2 = 40002`, with a comment implying V2 supersedes it — reading the source, 40002
+is the obvious answer. It is also the wrong one for this deployment. **This is the exact trap the
+Tier-3 log warned about, and I walked into it anyway**, then wrote a test asserting
+`channelMessage !== 9` that encoded the mistaken inference as if it were verified fact.
+
+The failure mode is the nastiest kind: the client authenticates, subscribes, reaches EOSE, and reports
+itself perfectly healthy while receiving **nothing, forever**. No error, no warning, no retry — just
+silence that looks like a quiet channel.
+
+**Fix:** both kinds are subscribed and derived, so either deployment works. The corrected test now
+asserts kind 9 *and* records why the earlier assertion was wrong.
+
+**3. Two assumptions confirmed.** The `h` tag does scope messages to a channel (present on every kind-9
+event), and 39000 is channel metadata. Both were previously unverified.
+
+**Lesson for the remaining tiers:** reading a registry tells you what kinds *exist*, not which one a
+deployment *uses*. Ask the relay. `--discover` in the probe does exactly this and should be re-run
+against any new Buzz version before trusting a kind number.
+
+### Tier 3 wiring + agent bindings (2026-07-28, v0.150.0) — **Tier 3 complete**
+
+`BuzzInboundService` connects the verified modules to the editor: settings, the agent key from
+SecretStorage, the `hold('buzz')`/`release('buzz')` wake lock, and follow-up persistence. `sync()`
+reconciles on any `atlasmind.buzz.*` change.
+
+**Three gates, all deny-by-default** — deliberately more than the roadmap's minimum:
+1. `buzz.enabled` — the Tier-1 master switch.
+2. `buzz.inboundEnabled` — subscribe at all.
+3. `buzz.autoCreateFollowUps` — *record* what arrives. Separate on purpose: `project_memory/` is
+   git-tracked, so a network event writing into it is a decision to make, not one to inherit from an
+   upgrade. While off, inbound activity is reported and not persisted.
+
+**New: AtlasMind agents ↔ Buzz agents** (`atlasmind.buzz.agentBindings`, requested by the owner).
+Maps a Buzz identity to an AtlasMind agent id so inbound work lands with the right specialist.
+Deliberate design choices:
+- **A local routing preference, not identity.** Buzz keeps the keypair, the directory, and the
+  authorship ledger — this stays on AtlasMind's side of the governing contract, and is emphatically
+  *not* a step toward becoming a directory (that would violate the Tier-4 boundary too).
+- `npub`/hex both accepted and normalised through the already-verified bech32 decoder, so the forms
+  are interchangeable. A **mistyped npub is rejected** rather than normalising to a different
+  identity — silently routing work to the wrong agent is worse than failing. An `nsec` pasted where a
+  public key belongs is refused by name.
+- Unusable bindings are **reported**, never dropped silently; an unbound author stays **unassigned**
+  rather than being guessed at.
+
+**Follow-ups merge by an id derived from the event**, so the deliberate reconnect replay overlap and
+repeat sightings update nothing rather than duplicating, with a per-batch cap.
+
+**Remaining across the whole integration:**
+- Tier 1b's real-relay **smoke test for outbound** (Joel's, still open).
+- Tier 2's **ARD Agent Finder** — still blocked on whether Buzz publishes a verifiable
+  `ai-catalog.json`.
+- The **p-gate** remains confirmed only indirectly: auth intercepts a kind-less query before the gate
+  can answer. Re-run `--discover` on a relay without auth to close it.
+- **Tier 4** (agent keypairs, signed A2A handoffs, revocation) — unstarted, and gated on a threat
+  model + security review. Note the new agent bindings are a *natural stepping stone*: they already
+  express "this AtlasMind agent corresponds to that Buzz identity", which Tier 4 would extend from a
+  reference into a custodied keypair.
+
+**Still owed for Tier 3:**
+1. ~~**Schnorr signing**~~ — **done in v0.149.0.** `buildAuthEventTemplate` returns an *unsigned*
+   template and `BuzzEventSigner` is the seam; with no signer, an authenticating relay yields a typed,
+   explained stop rather than a loop. Filling it needs a secp256k1 backend — `@noble/curves` is the
+   audited, zero-dependency standard (what `nostr-tools` itself uses). **This is a dependency decision
+   in a security-sensitive path and deserves its own reviewable change.**
+2. ~~**Validation against a real Buzz relay.**~~ **Done (v0.149.2)** — auth, the `h`-tag scoping
+   assumption, and the message kind are all now verified against a live relay. The p-gate remains
+   confirmed only indirectly (auth intercepts a kind-less query before the gate can answer).
+3. **Wiring:** the deny-by-default inbound toggle, `hold('buzz')`/`release('buzz')` against
+   `PresenceManager` while a subscription is live, and persisting derived follow-ups.
+
+### Buzz UI + identity picker (2026-07-28, v0.151.0 → v0.152.0)
+
+Everything in Tier 3 was reachable only by hand-editing `settings.json`. Three passes closed that,
+and two of them were fixing my own defects.
+
+**v0.151.0 — Settings → Buzz page + agent binding in the Director person form.**
+Both write through one pure helper (`writeAgentBinding`), so a click is validated exactly like a
+hand-edit. `atlasmind.buzz.agentBindings` stays the single source of truth; the roster edits it
+rather than shadowing it.
+
+**v0.151.1 — Windows CI.** A new assertion pinned `\n` inside a multi-line source substring, so it
+could never match a CRLF checkout. The assertion was wrong, not the code.
+
+**v0.151.2 — two reported defects, one much worse than it looked.**
+`isSettingsMessage` is a runtime allowlist and `handleMessage` returns early on anything it does not
+recognise. The new message types were added to the union and to the switch but **not to the guard**,
+so every one was dropped before reaching its case: the whole Settings → Buzz page was inert, with
+switches that appeared to toggle while nothing was ever written. It type-checked and linted
+throughout. The source-grep tests could not have caught it — the message type was present in the
+file exactly as expected. Replaced with tests that **call the guard**.
+Second defect: the agent picker's `hidden` attribute did nothing, because the row is a
+`.stage-edit-grid` and that author rule's `display: grid` outranks the UA rule for `[hidden]`.
+
+**v0.152.0 — the identity picker, and a fourth relay verification.**
+
+Question asked: *can the Handle be derived automatically?* Answer, precisely:
+
+- **From a person's name: no, and never.** There is no function from "Jane Doe" to a public key.
+  A constructed key would be plausible and would belong to a **different real person**.
+- **From observed activity: yes.** Every inbound event already carried `authorPubkey`; it just went
+  nowhere. `BuzzDirectory` now records it.
+- **From the MCP bridge: no.** Its four tools are list-channels / post / read-thread / send-DM —
+  no directory or user lookup. Worth recording so this isn't re-investigated.
+- **Your own handle: yes, trivially** — `deriveBuzzPublicKey` computes it from the key already in
+  SecretStorage. The one handle that never needed a lookup.
+
+**Relay verification (`--profiles`), the fourth time evidence beat inference.** A picker of raw hex
+is nearly useless, so it needed names. Nostr's kind 0 would give them — but kind 0 is **absent from
+Buzz's kind registry**, making "does a Buzz relay serve it?" exactly the question that produced the
+kind-9/40002 mistake. Probed rather than assumed:
+
+```
+10. distinct authors observed — 2 identities seen
+11. kind 0 profile metadata is served — 2 of 2 author(s) have a profile
+12. a usable display name is present — fields available: display_name, about
+```
+
+Verdict: **kind 0 is served, `display_name` is the field.** Only then was it added to `BUZZ_KIND` —
+and deliberately excluded from `BUZZ_INBOUND_KINDS`, because a profile is not work.
+
+Design notes worth keeping:
+- Names are **untrusted remote text** rendered in AtlasMind's UI: redacted, control-stripped and
+  clamped **on the way in**, never on the way out where one missed call site is a hole.
+- The roster is **never persisted** — who spoke and when is exactly what git-tracked `project_memory/`
+  must not accumulate.
+- Profile lookups are author-scoped (a kind-0 filter with no `authors` pulls every profile on the
+  relay), capped, debounced, and re-issue the message filter alongside so inbound work never stops.
+  They reuse the authenticated connection rather than opening a second one.
+- `BuzzClient.onEvent` is kept separate from `onWorkItems`, so widening what is *observed* can never
+  widen what becomes a follow-up.
+
+### Guided setup (2026-07-28, v0.153.0)
+
+Setting Buzz up touches five unrelated places — a CLI binary, a secret, two settings, an MCP server,
+and a relay — and getting one wrong fails at the far end, usually as a subscription that connects and
+then silently receives nothing. `/buzz` turns that into an ordered checklist derived from observed
+state, and `buzz` is now in the environment scanner's PATH probe so a missing CLI is reported during
+setup rather than discovered as a failed send.
+
+Two properties held deliberately, both pinned by tests:
+
+- **A plan, never an installer.** Every action *opens a surface*; nothing enables a gate, writes a
+  setting, stores a secret, or connects anything. Buzz is deny-by-default in three places precisely
+  so that turning it on is a human decision — an assistant that flipped those switches to be helpful
+  would remove the property they exist to provide. The action allowlist is asserted.
+- **Derived, not model-generated.** A hallucinated setup step sends someone to configure something
+  that does not exist and leaves them trusting a broken result.
+
+One bug worth recording: `nextBuzzSetupStep` initially fell back to *any* blocked step, so with
+reading fully configured it nominated the MCP bridge — blocked only by the optional CLI. It now
+scopes to the required steps. Sending someone off to install a binary they never need is worse than
+saying nothing.
+
+**Still owed:** MCP setup is `prefill` (guided) — AtlasMind pre-fills command, args, and env, and
+wires the relay URL and both gates through `${config:atlasmind.buzz.*}`, but installing the CLI
+binary itself remains manual, and the bridge exposes no directory lookup (list-channels / post /
+read-thread / send-DM only).
 
 ---
 

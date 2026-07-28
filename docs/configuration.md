@@ -173,13 +173,33 @@ Agent Finder definitions are stored in `globalState` and managed from the Resour
 
 ## Buzz (agentic comms)
 
+### Chat attention
+
+| Setting | Type | Default | Description |
+|---|---|---:|---|
+| `atlasmind.chat.revealOnApprovalRequest` | `boolean` | `true` | Bring the AtlasMind chat panel forward when a tool approval is waiting. |
+
+An approval **blocks the run until it is answered**, and the approval bar lives in the AtlasMind chat panel — which you may not be looking at, since VS Code has its own chat and you may be in an editor or another window entirely. Without an announcement the run simply appears to hang.
+
+A notification naming the waiting action is shown regardless of this setting, so turning it off stops the panel taking focus without leaving you unaware. Nothing is announced while the panel is already on screen, and only newly-arrived requests announce — the pending list also changes when a request is answered.
+
 Integration with [Buzz](https://buzz.xyz) — the open-source, Nostr-based workspace for humans and AI agents. All settings are deny-by-default; nothing connects to Buzz until you opt in. See `project_memory/roadmap/buzz-integration.md` for the phased roadmap.
 
 | Setting | Type | Default | Description |
 |---|---|---|---|
 | `atlasmind.buzz.enabled` | `boolean` | `false` | Enable Buzz integration: record Buzz identities/channels and allow the bundled Buzz Communications MCP bridge to connect. Live Director sends additionally require the guided connector, a pinned official CLI, and the per-project `outboundEnabled` gate. |
 | `atlasmind.buzz.relayUrl` | `string` | `ws://localhost:3000` | Buzz relay URL (`BUZZ_RELAY_URL`). Defaults to a local self-hosted relay. A remote relay sends project data off-machine and additionally requires `atlasmind.buzz.allowRemoteRelay`. |
+| `atlasmind.buzz.inboundEnabled` | `boolean` | `false` | Hold a **read-only** subscription to the Buzz relay and derive AtlasMind work items from the activity. Also requires `atlasmind.buzz.enabled`. The subscription can never publish to Buzz. |
+| `atlasmind.buzz.inboundChannels` | `string[]` | `[]` | Buzz channel ids (UUIDs) to watch. Empty means every channel the agent key can read. |
+| `atlasmind.buzz.autoCreateFollowUps` | `boolean` | `false` | Record inbound activity as Project Director follow-ups. Off by default because `project_memory/` is git-tracked — while off, inbound items are reported, not written. |
+| `atlasmind.buzz.agentBindings` | `object` | `{}` | Map a Buzz identity (`npub…` or 64-char hex) to an AtlasMind agent id, so inbound work from that Buzz agent lands with the right specialist. Unbound identities stay unassigned. |
 | `atlasmind.buzz.allowRemoteRelay` | `boolean` | `false` | Allow a non-local Buzz relay URL. When `false`, only loopback/localhost relays are used so project data stays on-machine. |
+
+### Where to set these
+
+Every switch above is on the **Settings → Buzz** page (`AtlasMind: Open Settings`), grouped as Connection, Inbound, Persistence, and Routing. The gates are nested, so a control whose parent switch is off renders dimmed and disabled while still showing the value that is stored — an inert setting is shown as inert, not as absent.
+
+`agentBindings` is edited per person on the **Project Dashboard → Director** tab: give a contact the `buzz` channel, paste their `npub…` (or 64-character hex) key, and pick an AtlasMind agent. The setting remains the single source of truth — the roster is a convenience editor for it, not a second store — so a binding made by clicking and one typed into `settings.json` cannot disagree. Editing one binding leaves the others untouched and preserves whichever shape (record or array) is already written. A mistyped `npub` is refused with a reason rather than coerced onto a different identity, an `nsec` is refused by name, and a binding naming a non-existent agent is rejected.
 
 Use **AtlasMind: Manage MCP Servers → Browse by category → Buzz Communications** for live outbound setup. The bundled bridge wraps official `buzz-cli` v0.4.26, stores the private key and optional authorization tag in SecretStorage, and exposes only channel listing/posting, thread reading, and DM sending. The WS/WSS setting is converted to the HTTP/HTTPS base used by the CLI. Non-local relays require `allowRemoteRelay:true` and HTTPS/WSS; message sends still require the Director's explicit confirmation.
 

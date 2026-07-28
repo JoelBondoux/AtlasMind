@@ -839,6 +839,24 @@
       if (chk('asStakeholder')) { cfg.stakeholders.push({ id: 'stk-' + id, contactId: id, category: val('stkCategory') || 'internal', influence: val('stkInfluence') || 'medium', interest: val('stkInterest') || 'medium' }); }
       cfg.teamMembers = cfg.teamMembers.filter(t => t.contactId !== id);
       if (chk('asTeam')) { cfg.teamMembers.push({ id: 'tm-' + id, contactId: id, discipline: val('teamDiscipline').trim() || 'contributor' }); }
+      // The agent binding lives in `atlasmind.buzz.agentBindings`, not in the
+      // roster: it is a local routing preference, and project_memory/ is
+      // git-tracked. Posted separately so the roster save is never blocked by a
+      // binding the extension refuses.
+      // Only when there is actually a binding to change. A Buzz handle is not
+      // always a public key — a channel UUID is a perfectly valid handle — so
+      // posting unconditionally warned people that a binding they never asked
+      // for had failed, on a save that otherwise worked fine.
+      if (linkKind === 'buzz' && directorLooksLikeBuzzKey(linkHandle)) {
+        const chosenAgent = val('buzzAgentId').trim();
+        const alreadyBound = directorBoundAgentId('buzz', linkHandle);
+        if (chosenAgent || alreadyBound) {
+          vscode.postMessage({
+            type: 'setBuzzAgentBinding',
+            payload: { pubkey: linkHandle, agentId: chosenAgent, label: name },
+          });
+        }
+      }
       state.directorEditContactId = '';
       postDirectorConfig(cfg);
       return;
@@ -994,6 +1012,35 @@
     }
     state.promotion.attestations[checkId] = target.checked;
     render();
+  });
+
+  // Contact editor: the Buzz agent binding only means anything on a buzz
+  // channel, so it follows the channel picker. Toggled in place rather than
+  // via render() — a re-render would discard whatever else has been typed
+  // into the form but not yet saved.
+  root?.addEventListener('change', event => {
+    const target = event.target instanceof HTMLSelectElement ? event.target : null;
+    if (!target) { return; }
+    const field = target.getAttribute('data-field');
+
+    if (field === 'linkKind') {
+      syncBuzzBindingVisibility(target.value);
+      return;
+    }
+
+    // Picking an observed identity fills Handle with the key that arrived on
+    // the wire. Typing one by hand is still supported; this only saves the
+    // paste, it is not the only way in.
+    if (field === 'buzzIdentityPick' && target.value) {
+      const container = document.getElementById('director-contact-editor');
+      const handle = container && container.querySelector('[data-field="linkHandle"]');
+      if (handle instanceof HTMLInputElement) { handle.value = target.value; }
+      const label = container && container.querySelector('[data-field="linkLabel"]');
+      const chosen = target.options[target.selectedIndex];
+      if (label instanceof HTMLInputElement && !label.value.trim() && chosen) {
+        label.value = 'Buzz';
+      }
+    }
   });
 
   // Data Privacy controls: checkboxes (enable / packs / models / rule toggles)
@@ -4066,6 +4113,50 @@
   }
   function directorIsPiiLink(kind) { return kind === 'email' || kind === 'phone' || kind === 'sms'; }
 
+  /**
+   * Compare two Buzz keys the way the extension does. The client cannot decode
+   * bech32, so it matches an `npub…` only as typed and a hex key
+   * case-insensitively. A near-miss simply shows as unbound here; the extension
+   * is what decides whether a key is valid, and it refuses rather than guesses.
+   */
+  /**
+   * Does this handle even look like a Buzz *public key*?
+   *
+   * A Buzz handle is not always one. A channel UUID is a legitimate handle, and
+   * so is a workspace URL — only an agent *identity* is an npub or 64-char hex.
+   * Agent bindings are keyed by identity, so anything else simply has no binding
+   * to make. Shape-only: the extension still decides validity (it verifies the
+   * bech32 checksum), because a client that decided would have to guess.
+   */
+  function directorLooksLikeBuzzKey(handle) {
+    const h = String(handle || '').trim();
+    return /^npub1[0-9a-z]{20,}$/i.test(h) || /^[0-9a-f]{64}$/i.test(h);
+  }
+
+  function directorSameBuzzKey(a, b) {
+    return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+  }
+
+  /** The agent currently bound to this contact's Buzz key, or '' when unbound. */
+  function directorBoundAgentId(kind, handle) {
+    if (kind !== 'buzz' || !handle) { return ''; }
+    const dir = (state.snapshot && state.snapshot.director) || {};
+    const match = (dir.agentBindings || []).find(b => directorSameBuzzKey(b.pubkey, handle));
+    return match ? match.agentId : '';
+  }
+
+  /**
+   * Show the agent binding row only for a buzz channel — on any other channel
+   * there is no Buzz identity to bind, so the picker is not merely inert, it is
+   * meaningless. Relies on the `[hidden] { display: none !important }` rule:
+   * the row is a `.stage-edit-grid`, whose `display: grid` would otherwise
+   * outrank the user agent's default styling for the attribute.
+   */
+  function syncBuzzBindingVisibility(kind) {
+    const row = document.querySelector('[data-buzz-binding]');
+    if (row instanceof HTMLElement) { row.hidden = kind !== 'buzz'; }
+  }
+
   var DIRECTOR_INTENT_LABEL = { email: 'Email', schedule: 'Schedule', message: 'Message' };
 
   function renderDirectorCompose(contact, intent) {
@@ -4094,6 +4185,14 @@
     if (isSelf) { badges.push('<span class="tag" style="background:var(--vscode-badge-background)">you</span>'); }
     if (stk) { badges.push('<span class="tag">' + escapeHtml(stk.category) + ' · ' + escapeHtml(stk.influence) + '/' + escapeHtml(stk.interest) + '</span>'); }
     if (team) { badges.push('<span class="tag mono">' + escapeHtml(team.discipline) + '</span>'); }
+    const buzzLink = (contact.links || []).find(l => l.kind === 'buzz');
+    if (buzzLink) {
+      const boundId = directorBoundAgentId('buzz', buzzLink.handle);
+      const agent = boundId ? (snap.agentChoices || []).find(a => a.id === boundId) : null;
+      if (boundId) {
+        badges.push('<span class="tag">buzz → ' + escapeHtml(agent ? agent.name : boundId) + '</span>');
+      }
+    }
     const linkButtons = contact.links.map(link => {
       const open = link.deepLink
         ? '<button type="button" class="action-link" data-action="director-open-link" data-payload="' + escapeAttr(contact.id + '::' + link.id) + '">Open ' + escapeHtml(link.kind) + '</button>'
@@ -4131,6 +4230,45 @@
       </article>`;
   }
 
+  /**
+   * A picker of Buzz identities AtlasMind has actually seen, plus your own.
+   *
+   * Every option is evidence: each key arrived on the wire and each name was
+   * published by its owner. Nothing here derives a key from a person's name —
+   * that would produce a plausible key belonging to someone else. An identity
+   * with no published name shows as a key prefix rather than a made-up label.
+   * Choosing an option fills the Handle field; typing one by hand still works.
+   */
+  function renderBuzzIdentityPicker(dir, contact, primary) {
+    // A handle that is not an identity key has no binding to make. Say so
+    // plainly here rather than letting the save warn about a failure.
+    if (primary.handle && !directorLooksLikeBuzzKey(primary.handle)) {
+      return `<label class="stage-edit-field"><span>Buzz identity</span>
+        <span class="list-meta">This handle is not a public key, so there is no identity to bind an agent to. That is fine — a channel UUID or workspace URL is a perfectly good Buzz handle. To route their work to an agent, use their <code>npub…</code> or 64-character hex key instead.</span></label>`;
+    }
+    const options = [];
+    if (dir.ownBuzzPubkey) {
+      options.push({ value: dir.ownBuzzPubkey, label: 'You (your Buzz agent key)' });
+    }
+    for (const identity of dir.buzzIdentities || []) {
+      if (identity.pubkey === dir.ownBuzzPubkey) { continue; }
+      const where = identity.channelIds && identity.channelIds.length
+        ? ` · seen in ${identity.channelIds.length} channel${identity.channelIds.length === 1 ? '' : 's'}`
+        : '';
+      options.push({
+        value: identity.pubkey,
+        label: identity.named ? `${identity.label}${where}` : `${identity.label} (no published name)${where}`,
+      });
+    }
+    if (options.length === 0) {
+      return `<label class="stage-edit-field"><span>Buzz identity</span>
+        <span class="list-meta">No Buzz identities observed yet. Switch on inbound in Settings → Buzz and they will appear here once they post — until then, paste their <code>npub…</code> or hex key into Handle above.</span></label>`;
+    }
+    const selected = options.some(o => directorSameBuzzKey(o.value, primary.handle)) ? primary.handle : '';
+    return edSelect('Buzz identity (fills Handle)', 'buzzIdentityPick', selected,
+      [{ value: '', label: options.length === 1 ? 'Pick or type below…' : 'Pick an observed identity…' }].concat(options));
+  }
+
   function renderDirectorContactEditor(cfg, contact, isNew) {
     const kinds = ['email', 'slack', 'teams', 'buzz', 'phone', 'github', 'linkedin', 'other'].map(k => ({ value: k, label: k }));
     const cats = ['sponsor', 'client', 'user-representative', 'regulator', 'vendor', 'partner', 'internal', 'other'].map(k => ({ value: k, label: k }));
@@ -4138,6 +4276,10 @@
     const primary = (contact.links && contact.links[0]) || { kind: 'email', label: '', handle: '' };
     const stk = cfg.stakeholders.find(s => s.contactId === contact.id);
     const team = cfg.teamMembers.find(t => t.contactId === contact.id);
+    const dir = (state.snapshot && state.snapshot.director) || {};
+    const agentOptions = [{ value: '', label: 'Unassigned' }]
+      .concat((dir.agentChoices || []).map(a => ({ value: a.id, label: a.name })));
+    const boundAgent = directorBoundAgentId(primary.kind, primary.handle);
     return `
       <article class="stage-card stage-editor" id="director-contact-editor">
         <div class="stage-head"><h4>${isNew ? 'Add person' : 'Edit person'}</h4></div>
@@ -4148,6 +4290,11 @@
           ${edSelect('Channel', 'linkKind', primary.kind, kinds)}
           ${edText('Label', 'linkLabel', primary.label, 'Work email')}
           ${edText('Handle (address / @user / phone)', 'linkHandle', primary.handle, 'jane@example.com')}
+        </div>
+        <div class="stage-edit-grid director-buzz-binding" data-buzz-binding ${primary.kind === 'buzz' ? '' : 'hidden'}>
+          ${renderBuzzIdentityPicker(dir, contact, primary)}
+          ${edSelect('AtlasMind agent for their Buzz messages', 'buzzAgentId', boundAgent, agentOptions)}
+          <p class="list-meta">Work arriving from this Buzz identity is routed to that agent. Leave it <em>Unassigned</em> and inbound work stays unattributed rather than being guessed.${dir.buzzEnabled === false ? ' <strong>Buzz is off</strong> — the binding saves but stays inert until you enable it in Settings → Buzz.' : ''}</p>
         </div>
         <div class="stage-edit-checks">
           ${edCheck('This is me', 'isSelf', cfg.selfContactId === contact.id)}
@@ -4444,10 +4591,17 @@
     const contactCards = cfg.contacts.length
       ? cfg.contacts.map(c => renderDirectorContactCard(cfg, d, c)).join('')
       : '<div class="dashboard-empty">No people yet. Seed from repo or add someone.</div>';
+    // Unusable bindings are reported, never dropped — a typo that silently did
+    // nothing would look identical to a binding that works.
+    const bindingIssues = (d.agentBindingIssues || []).length
+      ? `<div class="dashboard-empty">${(d.agentBindingIssues || []).map(i =>
+          'Buzz agent binding ignored — <code>' + escapeHtml(i.input) + '</code>: ' + escapeHtml(i.reason)).join('<br>')}</div>`
+      : '';
     const rosterCard = `
       <article class="list-card" style="grid-column: 1 / -1">
         <div class="row-head"><h3>${solo ? 'You & external stakeholders' : 'People'}</h3>
           <button type="button" class="action-link" data-action="director-contact-add" data-payload="">＋ Add person</button></div>
+        ${bindingIssues}
         ${contactEditor}
         <div class="director-roster">${contactCards}</div>
       </article>`;
