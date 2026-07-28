@@ -15,7 +15,7 @@ This file is the developer-facing backlog AtlasMind should absorb into SSOT and 
 <!-- atlasmind:roadmap-items:start -->
 - [ ] Adopt ACP (Agent Client Protocol) so AtlasMind can drive Claude Code, Codex, and Gemini CLI subscriptions as routable capacity — replacing the argv-bounded, tool-free `claude-cli` bridge. Phased plan in `roadmap/acp-integration.md`: Tier 1 ACP-as-provider (streaming, no 26k prompt cap, images), Tier 2 multi-subscription fleet (ChatGPT Plus/Pro + Google, neither reachable today), Tier 3 delegated execution behind AtlasMind's approval gate, Tier 4 AtlasMind exposed as an ACP agent. Safety-critical constraint: delegated execution is never delegated authorization, and the Orchestrator's tool loop must stand down rather than nest inside the agent's. #mvp
 - [x] The Documents Dash should auto create the folders when a new shelf is made. #mvp
-- [ ] The Testing Dash should have more visibility for failed and missing tests for each testing policy enabled. A More visual readout would help here. #mvp
+- [x] The Testing Dash should have more visibility for failed and missing tests for each testing policy enabled. A More visual readout would help here. #mvp
 - [ ] The Roadmap dash should allow for other  version gates beyond MVP
 - [x] MCP Servers should be part of the main settings page under Capabilities #mvp
 - [ ] Add to the opening Project Dashboard charts filters to see commits and work from various team members. A pie chart of user's work. A chart of route to MVP. A chart of outstanding tagged objectives. And other similar useful charts using line, bar and pie charts where appropriate with filters where this makes sense.

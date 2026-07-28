@@ -17,6 +17,7 @@ import type { ArdDiscoveredResource, ArdDiscoveryEndpoint } from '../types.js';
 import { getDisplayCurrency, getExchangeRate } from '../core/currencyFormatter.js';
 import { isLocalSyncStale, LOCAL_MODEL_SYNC_CACHE_KEY, syncLocalModels, type LocalModelSyncResult } from '../providers/localModelSync.js';
 import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
+import { deriveTestingPolicyCoverage, parseJUnitReport, type TestingPolicyCoverage, type TestingPolicyTestFile } from '../core/testingPolicyCoverage.js';
 import { parseAgentBindings } from '../core/buzzAgentBindings.js';
 
 const execFileAsync = promisify(execFile);
@@ -160,6 +161,12 @@ export interface TestingDashboardSnapshot {
   projectTestingConfig: import('../types.js').ProjectTestingConfig | undefined;
   /** Agents available for methodology assignment. */
   availableAgentSummaries: Array<{ id: string; name: string }>;
+  /**
+   * Per-enabled-policy evidence: what has tests, what has none, and what is
+   * failing according to the project's own test report. See
+   * {@link ../core/testingPolicyCoverage.ts}.
+   */
+  policyCoverage: TestingPolicyCoverage;
 }
 
 interface LocalHardwareSnapshot {
@@ -5685,6 +5692,13 @@ export function collectTestingDashboardSnapshot(
       verificationScripts,
       projectTestingConfig: undefined,
       availableAgentSummaries,
+      policyCoverage: deriveTestingPolicyCoverage({
+        enabledMethodologies: [],
+        testFiles: [],
+        dependencies: [],
+        scripts: [],
+        configFiles: [],
+      }),
     };
   }
 
@@ -5693,6 +5707,11 @@ export function collectTestingDashboardSnapshot(
   let packageScripts: string[] = [];
   let frameworkLabel = 'Workspace tests';
   const configFiles: string[] = [];
+  // Every script and dependency name, not just the test-shaped ones: the policy
+  // readout below asks "is this policy's tooling installed at all", which the
+  // display-filtered lists cannot answer.
+  let allScriptNames: string[] = [];
+  let dependencyNames: string[] = [];
   const packageJsonPath = path.join(workspaceRoot, 'package.json');
   if (existsSync(packageJsonPath)) {
     configFiles.push('package.json');
@@ -5702,7 +5721,12 @@ export function collectTestingDashboardSnapshot(
         dependencies?: Record<string, string>;
         devDependencies?: Record<string, string>;
       };
-      packageScripts = Object.keys(packageJson.scripts ?? {})
+      allScriptNames = Object.keys(packageJson.scripts ?? {}).slice(0, 200);
+      dependencyNames = [
+        ...Object.keys(packageJson.dependencies ?? {}),
+        ...Object.keys(packageJson.devDependencies ?? {}),
+      ].slice(0, 500);
+      packageScripts = allScriptNames
         .filter(name => /(test|coverage|vitest|jest|playwright|cypress|watch)/i.test(name))
         .slice(0, 8);
       frameworkLabel = inferTestingFramework(packageJson);
@@ -5723,7 +5747,9 @@ export function collectTestingDashboardSnapshot(
   let unitFiles = 0;
   let integrationFiles = 0;
   let e2eFiles = 0;
+  let newestTestFileMs = 0;
   const discoveredTests: TestingCaseSummary[] = [];
+  const policyTestFiles: TestingPolicyTestFile[] = [];
 
   const fileSummaries = discoveredFiles.map(filePath => {
     const relativePath = toWorkspaceRelativePath(workspaceRoot, filePath);
@@ -5731,8 +5757,13 @@ export function collectTestingDashboardSnapshot(
     const fileText = safeReadTextFile(filePath);
     const suites = countPatternMatches(fileText, /\bdescribe\s*\(/g);
     const cases = countPatternMatches(fileText, /\b(?:it|test)(?:\.(?:only|skip|todo|fails|concurrent))?(?:\.each\([^)]*\))?\s*\(/g);
+    // Tests that exist but do not run. Locally derivable and always available,
+    // unlike a failure count — a skipped test is a gap the panel should show.
+    const skipped = countPatternMatches(fileText, /\b(?:it|test|describe)\.(?:skip|todo)\s*\(|\bx(?:it|describe)\s*\(|@(?:pytest\.mark\.)?skip|@unittest\.skip|#\[ignore\]|\bt\.Skip\(/g);
     const modified = statSync(filePath).mtime;
     const lastModifiedLabel = `Updated ${modified.toISOString().slice(0, 10)}`;
+    newestTestFileMs = Math.max(newestTestFileMs, modified.getTime());
+    policyTestFiles.push({ relativePath, cases, skipped });
 
     totalSuites += suites;
     totalCases += cases;
@@ -5752,6 +5783,26 @@ export function collectTestingDashboardSnapshot(
       cases,
       lastModifiedLabel,
     } satisfies TestingFileSummary;
+  });
+
+  const enabledMethodologies = (projectTestingConfig?.methodologies ?? [])
+    .filter(entry => entry.enabled)
+    .map(entry => entry.id);
+  const discoveredReport = findTestResultReport(workspaceRoot);
+  const parsedReport = discoveredReport ? parseJUnitReport(discoveredReport.text) : undefined;
+  const policyCoverage = deriveTestingPolicyCoverage({
+    // Nothing enabled yet means the two Atlas defaults, matching what the
+    // strategy table shows in that state rather than an empty board.
+    enabledMethodologies: enabledMethodologies.length > 0 ? enabledMethodologies : ['tdd', 'unit'],
+    testFiles: policyTestFiles,
+    dependencies: dependencyNames,
+    scripts: allScriptNames,
+    configFiles: [...configFiles, ...probePolicyConfigFiles(workspaceRoot)],
+    ...(parsedReport && discoveredReport
+      ? { report: { ...parsedReport, relativePath: discoveredReport.relativePath, generatedAtMs: discoveredReport.generatedAtMs } }
+      : {}),
+    ...(newestTestFileMs > 0 ? { newestTestFileMs } : {}),
+    frameworkLabel,
   });
 
   const coverageInfoPath = path.join(workspaceRoot, 'coverage', 'lcov.info');
@@ -5789,7 +5840,84 @@ export function collectTestingDashboardSnapshot(
     verificationScripts,
     projectTestingConfig,
     availableAgentSummaries,
+    policyCoverage,
   };
+}
+
+/**
+ * Config and CI files that evidence a testing policy's tooling.
+ *
+ * A fixed probe list rather than a walk: this runs on every dashboard render, and
+ * the paths a tool writes are well known. Returns workspace-relative paths only.
+ */
+function probePolicyConfigFiles(workspaceRoot: string): string[] {
+  const candidates = [
+    'cypress.config.ts', 'cypress.config.js', 'wdio.conf.ts', 'wdio.conf.js',
+    'stryker.conf.json', 'stryker.conf.js', 'stryker.conf.mjs', '.stryker-tmp',
+    'backstop.json', '.percy.yml', '.percy.yaml', 'loki.config.js',
+    'semgrep.yml', 'semgrep.yaml', '.semgrep.yml', '.snyk', '.gitleaks.toml', 'SECURITY.md',
+    'openapi.yaml', 'openapi.yml', 'openapi.json', 'asyncapi.yaml', 'swagger.json',
+    '.spectral.yaml', '.spectral.yml', 'redocly.yaml',
+    '.gitlab-ci.yml', 'azure-pipelines.yml', 'Jenkinsfile', '.travis.yml', 'bitbucket-pipelines.yml',
+    'setup.cfg', 'pytest.ini', 'tox.ini',
+  ];
+  const found = candidates.filter(candidate => existsSync(path.join(workspaceRoot, candidate)));
+  // Directories are reported with a trailing slash so a `^\.github/workflows/`
+  // style marker matches without needing to enumerate the workflow files.
+  for (const dir of ['.github/workflows', '.circleci', 'pacts', 'features']) {
+    if (existsSync(path.join(workspaceRoot, dir))) {
+      found.push(`${dir}/`);
+    }
+  }
+  return found;
+}
+
+/**
+ * Find the newest machine-readable test report the project has produced.
+ *
+ * A fixed candidate list plus a shallow scan of the handful of directories
+ * runners conventionally write to — never a workspace walk. Nothing is executed
+ * to create one: if the project has not written a report, the panel says so
+ * rather than implying a clean run.
+ */
+function findTestResultReport(workspaceRoot: string): { relativePath: string; text: string; generatedAtMs: number } | undefined {
+  const MAX_REPORT_SIZE = 8_000_000;
+  const candidates = [
+    'junit.xml', 'test-results.xml', 'test-report.xml', 'report.xml',
+    'test-results/junit.xml', 'test-results/results.xml', 'test-results/test-results.xml',
+    'reports/junit.xml', 'coverage/junit.xml',
+  ];
+  for (const dir of ['test-results', 'reports', 'target/surefire-reports', 'build/test-results/test', 'TestResults']) {
+    try {
+      const entries = readdirSync(path.join(workspaceRoot, dir), { withFileTypes: true, encoding: 'utf8' });
+      for (const entry of entries.slice(0, 40)) {
+        if (entry.isFile() && entry.name.toLowerCase().endsWith('.xml')) {
+          candidates.push(`${dir}/${entry.name}`);
+        }
+      }
+    } catch {
+      // Directory absent or unreadable — nothing to add.
+    }
+  }
+
+  let best: { relativePath: string; text: string; generatedAtMs: number } | undefined;
+  for (const relativePath of [...new Set(candidates)].slice(0, 60)) {
+    const absolute = path.join(workspaceRoot, relativePath);
+    try {
+      const stat = statSync(absolute);
+      if (!stat.isFile() || stat.size === 0 || stat.size > MAX_REPORT_SIZE) {
+        continue;
+      }
+      if (best && stat.mtimeMs <= best.generatedAtMs) {
+        continue;
+      }
+      const text = readFileSync(absolute, 'utf8');
+      best = { relativePath, text, generatedAtMs: stat.mtimeMs };
+    } catch {
+      // Unreadable or missing — skip it.
+    }
+  }
+  return best;
 }
 
 export function extractIndividualTests(

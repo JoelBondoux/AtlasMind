@@ -2034,6 +2034,9 @@
             { label: `${testing.totalFiles} files`, tone: testing.totalFiles > 0 ? 'good' : 'warn' },
             { label: testing.verificationEnabled ? 'Verification on' : 'Verification off', tone: testing.verificationEnabled ? 'good' : 'warn' },
             { label: testing.coveragePercent ? `Coverage ${testing.coveragePercent}` : 'No coverage report', tone: testing.coveragePercent ? 'good' : 'accent' },
+            // Failing/gap chips only when there is something to say: an
+            // absent report is reported as unknown, never as a pass.
+            ...(policyChips(testing)),
           ],
           action: { command: 'atlasmind.openSettingsTesting' },
           actionLabel: 'Testing settings',
@@ -2167,8 +2170,146 @@
           </article>
         </div>
 
+        ${renderPolicyCoverage(testing)}
+
         ${renderMethodologyStrategy(testing)}
       </section>
+    `;
+  }
+
+  function policyChips(testing) {
+    const coverage = testing.policyCoverage;
+    if (!coverage || !Array.isArray(coverage.rows) || coverage.rows.length === 0) {
+      return [];
+    }
+    const chips = [];
+    if (coverage.report) {
+      chips.push(coverage.report.failed > 0
+        ? { label: `${coverage.report.failed} failing`, tone: 'critical' }
+        : { label: 'Last report clean', tone: 'good' });
+    } else {
+      chips.push({ label: 'No test report', tone: 'warn' });
+    }
+    const gaps = coverage.toolingOnlyCount + coverage.missingCount;
+    if (gaps > 0) {
+      chips.push({ label: `${gaps} polic${gaps === 1 ? 'y' : 'ies'} untested`, tone: 'warn' });
+    }
+    if (coverage.totalSkipped > 0) {
+      chips.push({ label: `${coverage.totalSkipped} skipped`, tone: 'warn' });
+    }
+    return chips;
+  }
+
+  // ── Per-policy coverage board ────────────────────────────────────
+  // Answers, for every policy the project switched on: is anything testing it,
+  // and is any of it failing? Deliberately distinguishes "no tests" from "no
+  // report to read" — a panel that renders 0 failures when nothing ran is worse
+  // than one that admits it has no verdict.
+  function renderPolicyCoverage(testing) {
+    const coverage = testing.policyCoverage;
+    if (!coverage || !Array.isArray(coverage.rows)) {
+      return '';
+    }
+    const rows = coverage.rows;
+    const report = coverage.report;
+    const failingRows = rows.filter(row => row.failedCount > 0);
+    const gapRows = rows.filter(row => row.status === 'missing' || row.status === 'tooling-only');
+
+    const reportLine = report
+      ? `
+        <div class="policy-report-line">
+          <span class="tag ${report.failed > 0 ? 'tag-critical' : 'tag-good'}">${report.failed > 0 ? escapeHtml(`${report.failed} failing`) : 'All passing'}</span>
+          <span class="list-meta">${escapeHtml(`${report.tests} test${report.tests === 1 ? '' : 's'} across ${report.suites} suite${report.suites === 1 ? '' : 's'}${report.skipped > 0 ? `, ${report.skipped} skipped` : ''}`)}</span>
+          <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(report.relativePath)}">${escapeHtml(report.relativePath)}</button>
+          ${report.stale ? `<span class="tag tag-warn" title="${escapeAttr(report.staleDetail || '')}">May be out of date</span>` : ''}
+        </div>`
+      : `
+        <div class="policy-report-line">
+          <span class="tag tag-warn">No test report</span>
+          <span class="list-meta">Pass/fail cannot be shown until a run writes one. This is not a clean result — it is no result.</span>
+        </div>
+        <div class="policy-report-line"><code>${escapeHtml(coverage.reportHint)}</code></div>`;
+
+    const cards = rows.map(row => {
+      const tone = row.failedCount > 0 ? 'tag-critical'
+        : row.status === 'covered' ? 'tag-good'
+        : row.status === 'tooling-only' ? 'tag-warn'
+        : row.status === 'missing' ? 'tag-critical'
+        : '';
+      const counts = [];
+      if (row.status !== 'not-file-evident') {
+        counts.push(`${row.fileCount} file${row.fileCount === 1 ? '' : 's'}`);
+        if (row.caseCount > 0) { counts.push(`${row.caseCount} case${row.caseCount === 1 ? '' : 's'}`); }
+        if (row.skippedCount > 0) { counts.push(`${row.skippedCount} skipped`); }
+        if (row.failedCount > 0) { counts.push(`${row.failedCount} failing`); }
+      }
+      return `
+        <div class="policy-card status-${escapeAttr(row.status)}${row.failedCount > 0 ? ' has-failures' : ''}">
+          <div class="policy-card-head">
+            <strong>${escapeHtml(row.label)}</strong>
+            <span class="tag ${tone}">${escapeHtml(row.failedCount > 0 ? `${row.failedCount} failing` : row.statusLabel)}</span>
+          </div>
+          ${counts.length > 0 ? `<div class="policy-card-signals">${escapeHtml(counts.join(' · '))}</div>` : ''}
+          <div class="policy-card-detail">${escapeHtml(row.detail)}</div>
+          ${(row.toolingSignals || []).length > 0 ? `<div class="policy-card-signals">Tooling: ${escapeHtml(row.toolingSignals.join(', '))}</div>` : ''}
+          <div class="tag-row">
+            ${row.exampleFile ? `<button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(row.exampleFile)}">Open a test</button>` : ''}
+            <button type="button" class="action-link${row.status === 'missing' || row.failedCount > 0 ? ' primary' : ''}" data-action="prompt" data-payload="${escapeAttr(row.actionPrompt)}">${escapeHtml(row.failedCount > 0 ? 'Fix with Atlas' : row.status === 'covered' ? 'Review with Atlas' : 'Write tests with Atlas')}</button>
+          </div>
+        </div>`;
+    }).join('');
+
+    const failureItems = [
+      ...failingRows.flatMap(row => (row.failures || []).map(failure => ({ ...failure, policy: row.label }))),
+      ...(coverage.unattributedFailures || []).map(failure => ({ ...failure, policy: 'Unattributed' })),
+    ].slice(0, 25);
+
+    return `
+      <article class="panel-card" style="margin-top:16px">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap">
+          <div>
+            <p class="section-kicker">Policy coverage</p>
+            <h3>What each enabled policy has to show</h3>
+          </div>
+          <span class="tag ${gapRows.length > 0 || failingRows.length > 0 ? 'tag-warn' : 'tag-good'}">${escapeHtml(`${coverage.coveredCount}/${coverage.activeCount} with tests`)}</span>
+        </div>
+        <div class="stat-detail">${escapeHtml(coverage.summary)}</div>
+        ${reportLine}
+        <div class="panel-grid" style="margin-top:12px">
+          ${renderDistributionBar('policy-coverage', [
+            { label: 'Tested', value: coverage.coveredCount, tone: 'good' },
+            { label: 'Tooling only', value: coverage.toolingOnlyCount, tone: 'warn' },
+            { label: 'Nothing found', value: coverage.missingCount, tone: 'critical' },
+            { label: 'Practice (not file-evident)', value: coverage.practiceCount, tone: 'muted' },
+          ], {
+            title: 'Enabled policies by evidence',
+            caption: `${coverage.activeCount} enabled`,
+            emptyLabel: 'No testing policies are enabled yet.',
+          })}
+          <div class="mini-grid">
+            ${renderMetricPill('Failing tests', report ? String(report.failed) : 'Unknown', { tone: report ? (report.failed > 0 ? 'critical' : 'good') : 'warn' })}
+            ${renderMetricPill('Skipped in tree', String(coverage.totalSkipped || 0), { tone: (coverage.totalSkipped || 0) > 0 ? 'warn' : 'good' })}
+            ${renderMetricPill('Policies with no tests', String(gapRows.length), { tone: gapRows.length > 0 ? 'warn' : 'good' })}
+          </div>
+        </div>
+        <div class="policy-grid">${cards || '<div class="dashboard-empty">Enable the policies this project follows to see what each has to show for itself.</div>'}</div>
+        ${failureItems.length > 0 ? `
+          <p class="section-kicker" style="margin-top:16px">Failing tests in the last report</p>
+          <div class="policy-failure-list">
+            ${failureItems.map(failure => `
+              <div class="recent-item">
+                <div class="row-head">
+                  <strong>${escapeHtml(failure.name)}</strong>
+                  <span class="tag-group">
+                    <span class="tag tag-critical">${escapeHtml(failure.kind === 'error' ? 'error' : 'failed')}</span>
+                    <span class="tag">${escapeHtml(failure.policy)}</span>
+                  </span>
+                </div>
+                ${failure.suite ? `<div class="list-meta">${escapeHtml(failure.suite)}</div>` : ''}
+                ${failure.file ? `<div class="tag-row"><button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(failure.file)}">${escapeHtml(failure.file)}</button></div>` : ''}
+              </div>`).join('')}
+          </div>` : ''}
+      </article>
     `;
   }
 

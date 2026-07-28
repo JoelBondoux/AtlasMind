@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.165.0] - 2026-07-28
+
+### Added
+- **Policy coverage board on the Testing dashboard.** Every enabled testing methodology now gets its own card answering the question the page could not answer before: *is anything actually testing this, and is any of it failing?* Each card shows status (**Tested** / **No tests yet** — tooling installed but nothing written / **Nothing found**), the matching file and case counts, how many of those cases are skipped, the tooling that was detected, and a per-policy action (**Fix with Atlas** when tests are failing, **Write tests with Atlas** when there are none). A distribution bar and three metric pills give the shape of the board at a glance, and failing tests from the report are listed with a link to each file. New pure, unit-tested `src/core/testingPolicyCoverage.ts`; evidence is gathered by `collectTestingDashboardSnapshot`.
+- **Practices are not reported as gaps.** Exploratory, black-box, gray-box, white-box, V-model, test-design, and agile testing leave no file artifact, so they are labelled *Practice — not file-evident* and excluded from the gap counts. Flagging a way of working as a missing test trains people to ignore the panel.
+- **Skipped tests are counted from the tree**, so that signal exists even for a project that has never produced a test report.
+
+### Security
+- **A missing test report is reported as "no verdict", never as a pass.** Failures come only from a JUnit report the project already wrote; nothing runs a test command on render — a dashboard that shells out is both a surprise and an execution surface. With no report the page says pass/fail cannot be shown and quotes the framework-appropriate command to produce one.
+- **The report is treated as untrusted input.** `parseJUnitReport` never throws, reads attributes by regex rather than an XML parser (so no entity or external-DTD expansion), decodes only the five predefined entities, caps how much it reads and how many cases it keeps, control-strips and clamps every string, and prefers the failures it can *count* over the totals the report *asserts* — a truncated or hand-edited report cannot present itself as clean. **Failure messages are deliberately not extracted**: an assertion message can carry values from a test environment, and this data renders in a webview. Report staleness (a test file changed after the report was written) is surfaced rather than hidden.
+
 ## [0.164.0] - 2026-07-28
 
 ### Added

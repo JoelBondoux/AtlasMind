@@ -9552,6 +9552,26 @@ const DASHBOARD_CSS = `
   .methodology-toggle-label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
   .methodology-name-cell { width: 60%; }
 
+  /* ── Testing: per-policy coverage board ───────────────────────────
+     Each enabled policy gets a card whose left edge carries its status, so the
+     shape of the board is readable before any label is: a column of green edges
+     is a covered suite, a run of red ones is the gap the page exists to show. */
+  .policy-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; margin-top: 12px; }
+  .policy-card { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.28)); background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); border-left-width: 3px; border-left-style: solid; }
+  .policy-card.status-covered { border-left-color: var(--dash-good, #4ec9b0); }
+  .policy-card.status-tooling-only { border-left-color: var(--dash-warn, #cca700); }
+  .policy-card.status-missing { border-left-color: var(--dash-critical, #f14c4c); }
+  .policy-card.status-not-file-evident { border-left-color: var(--vscode-widget-border, rgba(127,127,127,0.4)); opacity: 0.82; }
+  .policy-card.has-failures { box-shadow: 0 0 0 1px color-mix(in srgb, var(--dash-critical, #f14c4c) 45%, transparent) inset; }
+  .policy-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  .policy-card-head strong { font-size: 0.92em; }
+  .policy-card-detail { font-size: 0.8em; line-height: 1.4; color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
+  .policy-card-signals { font-size: 0.76em; color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
+  .policy-card .tag-row { margin-top: 2px; gap: 6px; }
+  .policy-report-line { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 0.84em; margin-top: 4px; }
+  .policy-report-line code { font-size: 0.92em; overflow-wrap: anywhere; }
+  .policy-failure-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+
   /* ── Delivery: Stages & Promotion ─────────────────────────────── */
   .stage-pipeline-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
   .stage-pipeline-header .tag-row { margin-top: 6px; }

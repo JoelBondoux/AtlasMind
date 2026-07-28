@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.165.0 — what each testing policy has to show for itself
+
+- **A card per enabled policy** on the Testing tab: tested, tooling-only, or nothing found — plus case counts, skipped counts, failing tests, and a per-policy action to write or fix them.
+- **Practices are labelled, not flagged.** Exploratory, black-box, V-model and friends leave no files behind, so they are never counted as missing tests.
+- **No report means no verdict.** Failures are read only from a report your project wrote; with none, the page says so and shows the command to produce one instead of a "0 failing" nothing measured. It never runs your tests for you.
+
 ## v0.164.0 — a shelf creates its folder
 
 - **Documents → add a shelf, get the folder.** Saving a shelf now creates the folder it names, so a filing system can be designed before the files exist. Shelves still pointing at a missing folder get a **Create folder** button.
