@@ -87,6 +87,13 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 - **Quoted, never executed.** Fetched docs are untrusted text: commands are attributed suggestions AtlasMind will not run, prose is redacted and control-stripped, and markdown links are flattened so a label cannot misrepresent where it points. The origin is pinned to the Buzz repo.
 - **Offline still works** — it falls back to built-in guidance rather than breaking.
 
+## v0.163.0 — one person, several channels; one identity, several agents
+
+- **Several communication channels per person.** Email *and* Slack *and* Buzz, rather than the one the editor used to allow. The first is preferred; the rest are added and removed without losing the rest of the form.
+- **Several AtlasMind agents per Buzz identity.** A checklist, not a single choice — the first ticked owns the work, the rest are recorded as also-relevant.
+- **Identities you can recognise.** Each option shows what that identity last said, how much it has said, and when. Most Buzz identities publish no name, and a truncated key identifies nobody.
+- **The desktop app has a home in the walkthrough** — the "prove a message arrives" step, the one that actually needs it, with the download link and the shared-relay warning.
+
 ## v0.162.0 — fetch your Buzz channels instead of copying ids
 
 - **A "Fetch my channels" button** on Settings → Buzz asks the Buzz CLI which channels your key can see and offers them as a ticklist, pre-ticked with what you already watch.

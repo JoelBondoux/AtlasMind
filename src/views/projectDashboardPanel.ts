@@ -212,7 +212,7 @@ type ProjectDashboardMessage =
   | { type: 'openContactDeepLink'; payload: { contactId: string; linkId: string } }
   | { type: 'assignRunOwner'; payload: { runId: string; contactId: string } }
   | { type: 'directorSendComms'; payload: { intent: DirectorCommsIntent; contactId: string; subject?: string; body?: string; start?: string } }
-  | { type: 'setBuzzAgentBinding'; payload: { pubkey: string; agentId: string; label?: string } }
+  | { type: 'setBuzzAgentBinding'; payload: { pubkey: string; agentIds: string[]; label?: string } }
   | { type: 'openExternalUrl'; payload: string };
 
 type DashboardWebviewMessage =
@@ -801,7 +801,22 @@ interface DashboardDirectorSnapshot {
    * published by its own owner. In-memory only — a roster of who spoke is not
    * something `project_memory/` should accumulate.
    */
-  buzzIdentities: Array<{ pubkey: string; label: string; named: boolean; channelIds: string[] }>;
+  /**
+   * Observed Buzz identities, with enough evidence attached to tell strangers
+   * apart. A truncated hex key and a channel count cannot: the picker offering
+   * three `dcbe44bf896f… (no published name) · seen in 1 channel` rows is a
+   * list nobody can choose from knowingly.
+   */
+  buzzIdentities: Array<{
+    pubkey: string;
+    label: string;
+    named: boolean;
+    channelIds: string[];
+    messageCount: number;
+    lastSeenAt: number;
+    lastMessage?: string;
+    about?: string;
+  }>;
   /**
    * The user's own Buzz public key, derived from the agent key already in
    * SecretStorage. The one handle that needs no lookup at all.
@@ -2126,17 +2141,21 @@ export class ProjectDashboardPanel {
    *  - Writing fails visibly rather than leaving the roster showing a binding
    *    the settings file does not have.
    */
-  private async handleSetBuzzAgentBinding(payload: { pubkey: string; agentId: string; label?: string }): Promise<void> {
-    const agentId = payload.agentId.trim();
-    if (agentId && !this.atlas.agentRegistry?.get(agentId)) {
+  private async handleSetBuzzAgentBinding(payload: { pubkey: string; agentIds: string[]; label?: string }): Promise<void> {
+    const agentIds = payload.agentIds.map(id => id.trim()).filter(Boolean);
+    // Every id is checked, not just the first. A rename that broke the second
+    // of three would otherwise save silently and route nothing.
+    const unknown = agentIds.filter(id => !this.atlas.agentRegistry?.get(id));
+    if (unknown.length > 0) {
       void vscode.window.showWarningMessage(
-        `The person was saved, but the Buzz agent binding was not: there is no AtlasMind agent named "${agentId}".`,
+        `The person was saved, but the Buzz agent binding was not: there is no AtlasMind agent named ${
+          unknown.map(id => `"${id}"`).join(', ')}.`,
       );
       return;
     }
 
     const configuration = vscode.workspace.getConfiguration('atlasmind');
-    const result = writeAgentBinding(configuration.get('buzz.agentBindings'), { ...payload, agentId });
+    const result = writeAgentBinding(configuration.get('buzz.agentBindings'), { ...payload, agentIds });
     if (!result.ok) {
       // Say what did and did not happen. The person is saved by a separate
       // message, so a refused binding must not read as a refused save.
@@ -2930,9 +2949,11 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
 
   if (candidate['type'] === 'setBuzzAgentBinding') {
     const p = candidate['payload'] as Record<string, unknown> | undefined;
-    // `agentId` may be empty — that is the unbind case, not a malformed message.
+    // An empty list is the unbind case, not a malformed message. Every entry
+    // must be a string: this decides which agent owns inbound work, so a
+    // non-string slipping through would reach the registry lookup as anything.
     return typeof p === 'object' && p !== null && typeof p['pubkey'] === 'string' && p['pubkey'].length > 0
-      && typeof p['agentId'] === 'string';
+      && Array.isArray(p['agentIds']) && p['agentIds'].every(id => typeof id === 'string');
   }
 
   if (candidate['type'] === 'requestPromotionPlan') {
@@ -4541,6 +4562,10 @@ async function collectDirectorSnapshot(
     label: describeIdentity(identity),
     named: identity.displayName !== undefined,
     channelIds: identity.channelIds,
+    messageCount: identity.messageCount,
+    lastSeenAt: identity.lastSeenAt,
+    ...(identity.lastMessage ? { lastMessage: identity.lastMessage } : {}),
+    ...(identity.about ? { about: identity.about } : {}),
   }));
   const ownBuzzPubkey = await readOwnBuzzPubkey(atlas);
   const base: DashboardDirectorSnapshot = {
@@ -9567,6 +9592,15 @@ const DASHBOARD_CSS = `
      element marked hidden stays fully visible. */
   [hidden] { display: none !important; }
   .stage-edit-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin: 4px 0; }
+  /* One communication channel. A person may need several, so the rows repeat. */
+  .director-link-row { align-items: end; }
+  /* The agent binding is a checklist, not one choice: a correspondent can span
+     more than one specialism. Collapsed by default so the form stays readable. */
+  .director-agent-picker { border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, rgba(127,127,127,0.4)));
+    border-radius: 6px; background: var(--vscode-input-background); padding: 4px 7px; }
+  .director-agent-picker > summary { cursor: pointer; padding: 2px 0; color: var(--vscode-input-foreground); }
+  .director-agent-options { display: flex; flex-direction: column; gap: 3px; max-height: 190px; overflow-y: auto; padding: 6px 0 2px; }
+  .director-agent-options .stage-edit-check { margin: 0; }
   .stage-edit-field { display: flex; flex-direction: column; gap: 3px; font-size: 0.8em; }
   .stage-edit-field > span { color: var(--vscode-descriptionForeground); }
   .stage-edit-field input[type="text"], .stage-edit-field input[type="number"], .stage-edit-field textarea, .stage-edit-field select {

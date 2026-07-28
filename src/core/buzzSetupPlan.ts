@@ -346,15 +346,20 @@ export function buildBuzzSetupPlan(state: BuzzSetupState): BuzzSetupStep[] {
         : 'Subscribed, but nothing has arrived yet. A wrong channel id, a wrong relay, and a quiet day all look identical from here, so send one message and check it lands.',
     guidance: observed > 0 || rosterBlocked ? undefined : [
       { text: '**You already have an agent.** The key you stored two steps ago *is* a Buzz identity — Buzz makes no distinction between a person and an agent, they are both keypairs. There is nothing else to obtain.' },
-      { text: '**1. Post something.** Open the Buzz app, go to a channel AtlasMind is watching, and send a message — "hello from Buzz" will do. If you left **Channels to watch** empty, any channel your key can read counts.' },
+      // The one step that genuinely needs the desktop app, so the one step that
+      // should say how to get it. It was mentioned only in an optional step the
+      // walkthrough never shows, which read as though nothing needed it.
+      { text: '**1. Get the Buzz app, if you have not already.** This is the step that needs it: AtlasMind can read Buzz but cannot post, so the test message has to come from somewhere else. Download the build for your OS — `.exe` on Windows, `.dmg` on macOS, `.AppImage`/`.deb` on Linux — and install it like any other app.', url: BUZZ_APP_RELEASE_URL },
+      { text: 'Point the app at the same relay as AtlasMind. By default both use `ws://localhost:3000`; for a hosted relay, set `BUZZ_RELAY_URL` before launching or switch the relay inside the app. **Different relays is the second-most-common reason nothing arrives.**' },
+      { text: '**2. Post something.** In the app, go to a channel AtlasMind is watching and send a message — "hello from Buzz" will do. If you left **Channels to watch** empty, any channel your key can read counts.' },
       // Deliberately not a `command`: that renders in a shell fence and offers a
       // terminal button, and `/buzz read` is a chat command, not something to type
       // into a terminal.
-      { text: '**2. Check it arrived.** Come back to this chat and say **`/buzz read`**. That prints what AtlasMind actually received, so it answers the question directly rather than by inference.' },
-      { text: '**3a. If you see your message — that is the whole integration proven.** The relay, the key, the authentication, and the subscription are all confirmed working, and the identity you just posted under is now available to bind in the next step.' },
+      { text: '**3. Check it arrived.** Come back to this chat and say **`/buzz read`**. That prints what AtlasMind actually received, so it answers the question directly rather than by inference.' },
+      { text: '**4a. If you see your message — that is the whole integration proven.** The relay, the key, the authentication, and the subscription are all confirmed working, and the identity you just posted under is now available to bind in the next step.' },
       ...(state.cliOnPath
-        ? [{ text: '**3b. If nothing appears**, the usual cause is a channel id mismatch: the id in **Settings → Buzz → Channels to watch** is not the channel you posted in. Press **Fetch my channels** on that page — it asks the Buzz CLI for the real ids so you can tick the right one instead of guessing.' }]
-        : [{ text: '**3b. If nothing appears**, the usual cause is a channel id mismatch: the id in **Settings → Buzz → Channels to watch** is not the channel you posted in. Clear the list to watch everything, and try again.' }]),
+        ? [{ text: '**4b. If nothing appears**, the usual cause is a channel id mismatch: the id in **Settings → Buzz → Channels to watch** is not the channel you posted in. Press **Fetch my channels** on that page — it asks the Buzz CLI for the real ids so you can tick the right one instead of guessing.' }]
+        : [{ text: '**4b. If nothing appears**, the usual cause is a channel id mismatch: the id in **Settings → Buzz → Channels to watch** is not the channel you posted in. Clear the list to watch everything, and try again.' }]),
       { text: 'The next most likely cause is that AtlasMind and the Buzz app are pointed at different relays. Both must use the same URL — check the app\'s relay against **Settings → Buzz → Relay URL**.' },
       { text: 'Note that this half is **read-only by construction**: AtlasMind can subscribe but cannot publish. Replying from AtlasMind is the optional CLI and MCP bridge steps further down — nothing here needs them.' },
     ],

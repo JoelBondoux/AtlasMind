@@ -43,6 +43,15 @@ export const MAX_CHANNELS_PER_IDENTITY = 5;
 /** Display names are labels, not prose. */
 export const MAX_DISPLAY_NAME_LENGTH = 60;
 
+/**
+ * How much of an identity's most recent message is kept, as a recognition aid.
+ *
+ * Short on purpose. This is not a message store — `BuzzConversation` is — it is
+ * the answer to "which of these three keys is the build bot?", which one line
+ * settles and a transcript does not.
+ */
+export const MAX_LAST_MESSAGE_LENGTH = 80;
+
 /** One Buzz identity AtlasMind has actually seen. */
 export interface BuzzIdentity {
   /** Lowercase 32-byte hex public key, exactly as it arrived. */
@@ -55,6 +64,17 @@ export interface BuzzIdentity {
   lastSeenAt: number;
   /** Channels this identity was seen posting in. */
   channelIds: string[];
+  /** How many messages from this identity have been seen this session. */
+  messageCount: number;
+  /**
+   * A short, sanitized excerpt of this identity's most recent message.
+   *
+   * A truncated hex key and "seen in 1 channel" cannot tell three strangers
+   * apart, which makes the identity picker unusable for exactly the people it
+   * exists to help you find. One line of what they last said can. Session-only
+   * and never persisted, like everything else here.
+   */
+  lastMessage?: string;
 }
 
 /** The observed-identity map. Keyed by lowercase hex pubkey. */
@@ -106,10 +126,17 @@ export function recordSighting(directory: BuzzDirectory, event: NostrEvent): voi
 
   const createdAt = Number.isFinite(event.created_at) ? event.created_at : 0;
   const channelId = readChannelId(event);
-  const entry: BuzzIdentity = existing ?? { pubkey, lastSeenAt: createdAt, channelIds: [] };
+  const entry: BuzzIdentity = existing ?? { pubkey, lastSeenAt: createdAt, channelIds: [], messageCount: 0 };
 
-  if (createdAt > entry.lastSeenAt) {
+  entry.messageCount += 1;
+  // Only the newest message wins, so an out-of-order replay after a reconnect
+  // cannot overwrite the excerpt with something older.
+  if (createdAt >= entry.lastSeenAt) {
     entry.lastSeenAt = createdAt;
+    const excerpt = sanitizeDerivedText(typeof event.content === 'string' ? event.content : '', MAX_LAST_MESSAGE_LENGTH);
+    if (excerpt) {
+      entry.lastMessage = excerpt;
+    }
   }
   if (channelId && !entry.channelIds.includes(channelId) && entry.channelIds.length < MAX_CHANNELS_PER_IDENTITY) {
     entry.channelIds.push(channelId);
@@ -154,6 +181,9 @@ export function applyProfile(directory: BuzzDirectory, event: NostrEvent): void 
     pubkey,
     lastSeenAt: Number.isFinite(event.created_at) ? event.created_at : 0,
     channelIds: [],
+    // A profile is not a message: an identity known only from its profile has
+    // said nothing, and counting one here would claim otherwise.
+    messageCount: 0,
   };
 
   // `display_name` is what the live relay actually carried; `name` is the

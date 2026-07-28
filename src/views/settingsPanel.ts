@@ -2684,7 +2684,7 @@ export class SettingsPanel {
                 </div>
                 ${parsedBuzzBindings.bindings.length
                   ? `<ul class="plain-list">${parsedBuzzBindings.bindings.map(binding =>
-                      `<li><code>${escapeHtml(`${binding.pubkey.slice(0, 12)}…`)}</code> → <strong>${escapeHtml(binding.agentId)}</strong>${binding.label ? ` <span class="muted-line">${escapeHtml(binding.label)}</span>` : ''}</li>`).join('')}</ul>`
+                      `<li><code>${escapeHtml(`${binding.pubkey.slice(0, 12)}…`)}</code> → <strong>${escapeHtml(binding.agentIds.join(', '))}</strong>${binding.agentIds.length > 1 ? ' <span class="muted-line">(first owns the work)</span>' : ''}${binding.label ? ` <span class="muted-line">${escapeHtml(binding.label)}</span>` : ''}</li>`).join('')}</ul>`
                   : '<p class="muted-line">No bindings yet. Work from an unbound Buzz identity stays unassigned rather than being routed by guesswork.</p>'}
                 ${parsedBuzzBindings.issues.length
                   ? `<p class="warning-note">${parsedBuzzBindings.issues.map(issue =>

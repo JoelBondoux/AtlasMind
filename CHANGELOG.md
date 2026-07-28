@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.163.0] - 2026-07-28
+
+### Added
+- **A person can hold several communication channels.** The Director's Add / Edit person form now takes as many as someone actually has — email *and* Slack *and* Buzz — instead of the single channel it allowed. The first row is the preferred one; the rest are added and removed in place, so nothing else typed into the form is lost. `DirectorContact.links` was always a list; only the editor insisted on one, which quietly discarded a colleague's second channel.
+- **A Buzz identity can be bound to several AtlasMind agents.** `atlasmind.buzz.agentBindings` now accepts `<npub>: [<agentId>…]` alongside the existing `<npub>: <agentId>`, and the Director offers a checklist rather than one choice. A correspondent who raises both API defects and design feedback belongs to two specialists, and forcing a choice discards something the user knows. **The first is the owner** — a follow-up has exactly one — and the rest are recorded as also-relevant rather than picked between by inference the binding does not support.
+- **Observed Buzz identities carry enough evidence to be recognised.** Each option now shows what that identity last said, how many messages it has sent, how many channels it has been seen in, and how long ago — because most Buzz identities publish no profile, and three rows reading `dcbe44bf896f… (no published name) · seen in 1 channel` is a list nobody can choose from knowingly. The excerpt is session-only and never persisted, like everything else in the directory.
+
+### Changed
+- **The walkthrough says where the Buzz desktop app fits.** Proving a message arrives is the one step that needs it — AtlasMind can read Buzz but cannot post, so the test message has to come from elsewhere — and that step now says so, with the download link and the warning that the app and AtlasMind must point at the same relay. Previously the app was named only in an optional step the walkthrough never shows, which read as though nothing required it.
+- **A single binding is still written as a plain string**, so a hand-authored settings record does not sprout arrays because one unrelated entry gained a second agent.
+
+### Security
+- **Every agent id in a binding is validated, not just the first.** A rename that broke the second of three would otherwise have saved silently and routed nothing. The webview message guard requires an array whose every entry is a string, since this decides which agent owns inbound work.
+- **The message excerpt crosses the boundary already sanitized** — secret-redacted, control-stripped, and clamped to 80 characters by the same path as every other piece of remote-authored text in the directory — and only the newest message wins, so a reconnect replay cannot overwrite it with something older.
+
 ## [0.162.0] - 2026-07-28
 
 ### Added

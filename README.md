@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.162.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.163.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,10 +64,14 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.162.0
+## What's new in 0.163.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
 
+- **One person, several ways to reach them.** The Director's Add / Edit person form now holds as many communication channels as someone actually has — email *and* Slack *and* Buzz — rather than the one it used to allow. The first is the preferred channel; the rest sit under it, added and removed without losing anything else you have typed. The roster's data model always stored a list; only the editor insisted on one.
+- **Bind a Buzz identity to more than one agent.** The AtlasMind agent picker is a checklist, because a colleague who raises both API defects and design feedback belongs to two specialists and being made to choose throws away something you know. The first ticked owns the work — a follow-up has exactly one owner — and the rest are recorded as also-relevant rather than picked between by inference.
+- **An observed Buzz identity you can actually recognise.** The picker used to offer three rows reading `dcbe44bf896f… (no published name) · seen in 1 channel`, which is a list nobody can choose from knowingly. Most Buzz identities publish no profile, so the evidence now comes from behaviour instead: what they last said, how much they have said, and when.
+- **The walkthrough says where the Buzz desktop app fits.** Proving a message arrives is the one step that needs it — AtlasMind can read Buzz but cannot post, so the test message has to come from somewhere — and it now says so, with the download link and the warning that the app and AtlasMind must share a relay.
 - **Fetch your Buzz channels instead of copying ids by hand.** A **Fetch my channels** button on Settings → Buzz asks the Buzz CLI which channels your key can actually see, and offers them as a ticklist with the ones you already watch pre-ticked. A channel id that quietly does not match the channel you posted in is the most common reason a correctly configured subscription receives nothing — and it is undiagnosable from inside AtlasMind, because the wrong id, the wrong relay, and a quiet day look identical. Nothing is written unless you tick and confirm, and a channel you watch that the relay did not list is kept rather than silently dropped.
 - **The Buzz walkthrough now finishes the job.** It used to stop at "subscribed", which is the point where every remaining problem looks identical: a wrong channel id, a wrong relay, and a quiet Tuesday all present as a connection that receives nothing. Two steps follow it now. **Prove one message arrives** — post in Buzz, run `/buzz read`, and see it — with the two things that actually go wrong named and fixed on the spot. Then **put the Buzz people in the Director roster**, so what arrives reaches an agent instead of sitting unassigned. Neither is required for the subscription to work, so neither is reported as a fault; they are simply things nobody was ever told to do.
 - **MCP servers are visible in Settings.** A new **Settings → MCP Servers** page lists every server with its live connection status, tool count, and any error, and lets you enable, connect, or disconnect each one — so you can see what AtlasMind can actually reach without opening a separate panel. Adding and editing servers stays in the dedicated manager, which the page links to.
