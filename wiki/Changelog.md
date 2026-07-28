@@ -6,6 +6,11 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.167.0 — answer with one tap, everywhere
+
+- **Quick-reply pills reach the Ideation and Vision panels.** They were a Chat-panel-only affordance, which made them look like a property of that panel instead of of Atlas asking a question.
+- **Still pills only.** A question with no clean options gets the text box, not invented buttons — the same behaviour chat has always had.
+
 ## v0.166.0 — the roadmap plans more than one release
 
 - **Release gates beyond MVP.** Declare a public beta, a v1.0, a v2 — and switch the "Road to…" card between them. Each gate gets its own progress, milestone track, best route, and plan-with-Atlas prompt, and an item can sit on more than one.

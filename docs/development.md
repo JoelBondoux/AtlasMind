@@ -20,6 +20,7 @@ npm install     # required whenever the branch changed dependencies
 - The chat panel composer uses a single input field for both chat and session search (since v0.51.4).
 - Toggling the Search icon swaps the Send/Mode controls for a Search button. In search mode, Enter triggers a session search.
 - When multiple transcript matches are found, compact previous/next arrows appear beside Search so the webview can jump through results without leaving the thread.
+- One-tap **quick-reply pills** are a property of Atlas asking a question, not of one panel. `buildQuickReplyPayload` (`src/chat/participant.ts`) turns a response into a webview-ready `{ question, replies }` payload — pills only, never a bare question, matching the Chat panel — with every label and prompt length-capped and control-stripped at that single boundary, since the label is rendered and the prompt is submitted on click. The Chat panel, the Project Ideation panel, the Vision panel, and the dashboard ideation path all post it; `QUICK_REPLY_CSS` in `src/views/webviewUtils.ts` is the single style definition so the four surfaces cannot drift into four different pills.
 - The Project Dashboard Gap Analysis surface now seeds a structured report from workspace signals, then opens a fresh Atlas chat session for live investigation and writes the prioritized findings back into the dashboard.
 
 # Development Guide (v0.53.6)

@@ -7,7 +7,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { AtlasMindContext } from '../extension.js';
 import type { TaskImageAttachment } from '../types.js';
-import { buildAssistantResponseMetadata, buildWorkstationContext, reconcileAssistantResponse } from '../chat/participant.js';
+import { buildAssistantResponseMetadata, buildQuickReplyPayload, buildWorkstationContext, reconcileAssistantResponse } from '../chat/participant.js';
 import { resolvePickedImageAttachments } from '../chat/imageAttachments.js';
 import { collectTestingDashboardSnapshot, writeProjectTestingConfig, type TestingDashboardSnapshot } from './settingsPanel.js';
 import { getWebviewHtmlShell } from './webviewUtils.js';
@@ -243,6 +243,7 @@ type DashboardWebviewMessage =
   | { type: 'ideationStatus'; payload: string }
   | { type: 'ideationResponseReset' }
   | { type: 'ideationResponseChunk'; payload: string }
+  | { type: 'ideationQuickReplies'; payload: import('../chat/participant.js').WebviewQuickReplyPayload }
   | { type: 'gapAnalysisBusy'; payload: boolean }
   | { type: 'gapAnalysisStatus'; payload: string }
   | { type: 'riskBusy'; payload: boolean }
@@ -2116,8 +2117,16 @@ export class ProjectDashboardPanel {
           hasSessionContext: Boolean(sessionContext),
           imageAttachments: this.ideationAttachments,
           routingContext: { ideation: true },
+          responseText: parsed.displayResponse,
         }),
       );
+
+      // A question Atlas asks here deserves the same one-tap answer as in the
+      // Chat panel; without this the user has to retype "yes".
+      const quickReplies = buildQuickReplyPayload(parsed.displayResponse);
+      if (quickReplies) {
+        await this.postMessage({ type: 'ideationQuickReplies', payload: quickReplies });
+      }
 
       if (payload.speakResponse || configuration.get<boolean>('voice.ttsEnabled', false)) {
         this.atlas.voiceManager.speak(parsed.displayResponse);

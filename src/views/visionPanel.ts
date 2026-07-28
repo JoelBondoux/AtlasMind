@@ -2,9 +2,9 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import type { AtlasMindContext } from '../extension.js';
 import type { TaskImageAttachment } from '../types.js';
-import { buildAssistantResponseMetadata, buildWorkstationContext, reconcileAssistantResponse } from '../chat/participant.js';
+import { buildAssistantResponseMetadata, buildQuickReplyPayload, buildWorkstationContext, reconcileAssistantResponse } from '../chat/participant.js';
 import { resolvePickedImageAttachments } from '../chat/imageAttachments.js';
-import { getWebviewHtmlShell } from './webviewUtils.js';
+import { getWebviewHtmlShell, QUICK_REPLY_CSS } from './webviewUtils.js';
 import { PANEL_NAV_JS } from './panelNav.js';
 
 type VisionPanelMessage =
@@ -197,8 +197,16 @@ export class VisionPanel {
           hasSessionContext: Boolean(sessionContext),
           imageAttachments: this.attachments,
           routingContext: sessionContext ? { sessionContext } : {},
+          responseText: reconciled.transcriptText,
         }),
       );
+
+      // A vision reply that ends in a question gets the same one-tap pills as
+      // the Chat panel; clicking one runs it as the next vision prompt.
+      const quickReplies = buildQuickReplyPayload(reconciled.transcriptText);
+      if (quickReplies) {
+        await this.panel.webview.postMessage({ type: 'quickReplies', payload: quickReplies });
+      }
       if (configuration.get<boolean>('voice.ttsEnabled', false)) {
         this.atlas.voiceManager.speak(reconciled.transcriptText);
       }
@@ -365,12 +373,14 @@ export class VisionPanel {
                   <button id="saveResponse">Open as Markdown</button>
                 </div>
                 <pre id="responseOutput" class="output-box" aria-live="polite"></pre>
+                <div id="quickReplies" class="quick-reply-buttons" hidden></div>
               </section>
             </section>
           </main>
         </div>
       `,
-      extraCss: `
+      extraCss: `${QUICK_REPLY_CSS}
+        #quickReplies { margin-top: 10px; }
         :root {
           --atlas-surface: color-mix(in srgb, var(--vscode-editor-background) 80%, var(--vscode-sideBar-background) 20%);
           --atlas-surface-strong: color-mix(in srgb, var(--vscode-editor-background) 64%, var(--vscode-sideBar-background) 36%);
@@ -583,8 +593,43 @@ function buildScript(): string {
   const promptInput = document.getElementById('promptInput');
   const attachmentList = document.getElementById('attachmentList');
   const responseOutput = document.getElementById('responseOutput');
+  const quickReplies = document.getElementById('quickReplies');
   const status = document.getElementById('status');
   let responseMarkdown = '';
+
+  /**
+   * One-tap answers for a vision reply that ends in a question — the same
+   * affordance the Chat panel has, so a question is never a retyping exercise.
+   * Labels are set with textContent (never innerHTML): they are model output.
+   */
+  function renderQuickReplies(payload) {
+    if (!(quickReplies instanceof HTMLElement)) { return; }
+    quickReplies.textContent = '';
+    const replies = payload && Array.isArray(payload.replies) ? payload.replies : [];
+    if (replies.length === 0) {
+      quickReplies.hidden = true;
+      return;
+    }
+    quickReplies.hidden = false;
+    if (payload.question) {
+      quickReplies.setAttribute('aria-label', payload.question);
+      quickReplies.title = payload.question;
+    }
+    replies.forEach(reply => {
+      if (!reply || typeof reply.prompt !== 'string' || reply.prompt.length === 0) { return; }
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'quick-reply-btn';
+      button.textContent = String(reply.label || reply.prompt);
+      button.title = 'Send this as the next vision prompt';
+      button.addEventListener('click', () => {
+        if (promptInput instanceof HTMLTextAreaElement) { promptInput.value = reply.prompt; }
+        quickReplies.hidden = true;
+        vscode.postMessage({ type: 'submitPrompt', payload: reply.prompt });
+      });
+      quickReplies.appendChild(button);
+    });
+  }
 
   // Tab semantics, roving tabindex and arrow-key navigation come from the
   // shared controller; this panel's markup and styling are unchanged.
@@ -769,6 +814,11 @@ function buildScript(): string {
       case 'responseReset':
         responseMarkdown = '';
         if (responseOutput) { responseOutput.innerHTML = ''; }
+        // Stale pills answer the previous question — clear them with the output.
+        renderQuickReplies(undefined);
+        return;
+      case 'quickReplies':
+        renderQuickReplies(message.payload);
         return;
       case 'responseChunk':
         responseMarkdown += String(message.payload || '');

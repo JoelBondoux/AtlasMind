@@ -231,8 +231,12 @@ describe('button paint ownership', () => {
     'media/projectIdeation.js': 'src/views/projectIdeationPanel.ts',
     'media/chatPanel.js': 'src/views/chatWebviewMarkup.ts',
   };
+  // `webviewUtils.ts` joins the shared-CSS scope because QUICK_REPLY_CSS lives
+  // there: quick-reply pills render on four surfaces, so their paint is defined
+  // once and interpolated into each panel's CSS rather than copied per panel.
   const shared = readFileSync(path.join(VIEWS_DIR, 'dashboardTheme.ts'), 'utf8')
-    + readFileSync(path.join(VIEWS_DIR, 'dashboardWidgets.ts'), 'utf8');
+    + readFileSync(path.join(VIEWS_DIR, 'dashboardWidgets.ts'), 'utf8')
+    + readFileSync(path.join(VIEWS_DIR, 'webviewUtils.ts'), 'utf8');
 
   // Fragments produced by template interpolation, not real class names.
   const NOISE = /[${}?=()'"+:]|^$/;

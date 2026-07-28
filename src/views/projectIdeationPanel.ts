@@ -3,9 +3,9 @@ import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 import type { AtlasMindContext } from '../extension.js';
 import type { ProjectRunRecord, TaskImageAttachment } from '../types.js';
-import { buildAssistantResponseMetadata, buildWorkstationContext, reconcileAssistantResponse } from '../chat/participant.js';
+import { buildAssistantResponseMetadata, buildQuickReplyPayload, buildWorkstationContext, reconcileAssistantResponse } from '../chat/participant.js';
 import { resolvePickedImageAttachments } from '../chat/imageAttachments.js';
-import { getWebviewHtmlShell } from './webviewUtils.js';
+import { getWebviewHtmlShell, QUICK_REPLY_CSS } from './webviewUtils.js';
 
 const PROJECT_IDEATION_VIEW_TYPE = 'atlasmind.projectIdeation';
 const MAX_IDEATION_CARDS = 48;
@@ -285,7 +285,8 @@ type IdeationWebviewMessage =
   | { type: 'ideationBusy'; payload: boolean }
   | { type: 'ideationStatus'; payload: string }
   | { type: 'ideationResponseReset' }
-  | { type: 'ideationResponseChunk'; payload: string };
+  | { type: 'ideationResponseChunk'; payload: string }
+  | { type: 'ideationQuickReplies'; payload: import('../chat/participant.js').WebviewQuickReplyPayload };
 
 interface IdeationSnapshot {
   activeWorkspaceId: string;
@@ -749,8 +750,16 @@ export class ProjectIdeationPanel {
           hasSessionContext: Boolean(sessionContext),
           imageAttachments,
           routingContext: { ideation: true },
+          responseText: parsed.displayResponse,
         }),
       );
+
+      // Same one-tap answer as the Chat panel: a question Atlas asks here is
+      // answerable with a click rather than by retyping the option.
+      const quickReplies = buildQuickReplyPayload(parsed.displayResponse);
+      if (quickReplies) {
+        await this.postMessage({ type: 'ideationQuickReplies', payload: quickReplies });
+      }
 
       if (payload.speakResponse || configuration.get<boolean>('voice.ttsEnabled', false)) {
         this.atlas.voiceManager.speak(parsed.displayResponse);
@@ -4153,7 +4162,8 @@ function normalizeSsotPath(value: string): string {
   return normalized.length > 0 ? normalized : 'project_memory';
 }
 
-const IDEATION_CSS = `
+const IDEATION_CSS = `${QUICK_REPLY_CSS}
+  .quick-reply-buttons { margin: 10px 0 4px; }
   :root {
     color-scheme: light dark;
   }

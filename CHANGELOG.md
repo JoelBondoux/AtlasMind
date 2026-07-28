@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.167.0] - 2026-07-28
+
+### Added
+- **One-tap quick-reply pills on every chat surface, not just the Chat panel.** `detectResponseQuickReplies` has reliably recognised question shapes since v0.125.0, but the pills only rendered in one webview — which made them read as a feature of that panel rather than of Atlas asking a question. The **Project Ideation** panel now renders them under the facilitation response (clicking one runs it as the next ideation pass), and the **Vision** panel renders them under the streamed output (clicking one runs it as the next vision prompt). The dashboard ideation path posts them too. New `buildQuickReplyPayload` (`src/chat/participant.ts`) produces the webview-ready payload, and `QUICK_REPLY_CSS` (`src/views/webviewUtils.ts`) is now the single style definition — the Chat panel's inline copy was replaced by it, so four surfaces cannot drift into four different pills.
+- **Pills only, never a bare question.** A question with no clean options yields nothing, exactly as in the Chat panel, where that case gets the text input rather than invented buttons. Stale pills are cleared when a new response starts, so a pill never answers the previous question.
+
+### Security
+- **Model output is clamped at the one boundary it crosses.** A pill's label is rendered and its prompt is *submitted on click*, so `buildQuickReplyPayload` length-caps and control-strips both and caps how many pills it will hand over. The webview render paths use `textContent`/`escapeHtml`, never `innerHTML`, and each surface dispatches the click through its own existing, already-validated run path rather than a new one.
+
 ## [0.166.0] - 2026-07-28
 
 ### Added

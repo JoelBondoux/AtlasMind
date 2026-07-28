@@ -51,6 +51,7 @@ import {
   toApprovedProjectPrompt,
   toSerializableAttribution,
   detectResponseQuickReplies,
+  buildQuickReplyPayload,
   detectProjectRunProposal,
   buildProjectRunAutoFlowNotice,
   resolveProjectRunProposal,
@@ -140,6 +141,41 @@ describe('detectResponseQuickReplies', () => {
       'Done. **Which would you like next: tests, docs, or cleanup?**',
     );
     expect(result?.quickReplies?.map(r => r.label)).toEqual(['Tests', 'Docs', 'Cleanup']);
+  });
+});
+
+describe('buildQuickReplyPayload — pills for the surfaces outside the Chat panel', () => {
+  it('returns the question and its pills for an answerable question', () => {
+    const payload = buildQuickReplyPayload('Should I fix the failing test?');
+    expect(payload?.question).toBe('Should I fix the failing test?');
+    expect(payload?.replies.map(reply => reply.prompt)).toEqual(['yes', 'no']);
+  });
+
+  it('returns nothing when there are no clean options', () => {
+    // The Chat panel offers the text input rather than inventing buttons here,
+    // and these surfaces must behave the same way.
+    expect(buildQuickReplyPayload('What do you think of the architecture?')).toBeUndefined();
+    expect(buildQuickReplyPayload('Here is the answer. All done.')).toBeUndefined();
+  });
+
+  it('returns nothing for empty or missing input', () => {
+    expect(buildQuickReplyPayload('')).toBeUndefined();
+    expect(buildQuickReplyPayload('   ')).toBeUndefined();
+    expect(buildQuickReplyPayload(undefined)).toBeUndefined();
+  });
+
+  it('clamps every field it hands to a webview', () => {
+    const payload = buildQuickReplyPayload(`Which one: ${'a'.repeat(300)}, beta, or gamma?`);
+    for (const reply of payload?.replies ?? []) {
+      expect(reply.label.length).toBeLessThanOrEqual(60);
+      expect(reply.prompt.length).toBeLessThanOrEqual(400);
+    }
+    expect((payload?.question.length ?? 0)).toBeLessThanOrEqual(300);
+  });
+
+  it('caps how many pills it will hand over', () => {
+    const payload = buildQuickReplyPayload('Which one: a, b, c, d, e, f, or g?');
+    expect(payload?.replies.length ?? 0).toBeLessThanOrEqual(5);
   });
 });
 
