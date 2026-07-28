@@ -37,6 +37,14 @@ import {
   type DirectorCommsIntent,
   type CommsDraft,
 } from '../core/directorCommsRunner.js';
+import {
+  parseAgentBindings,
+  writeAgentBinding,
+  type BuzzAgentBinding,
+  type BuzzAgentBindingIssue,
+} from '../core/buzzAgentBindings.js';
+import { describeIdentity } from '../core/buzzDirectory.js';
+import { BUZZ_AGENT_KEY_SECRET, deriveBuzzPublicKey } from '../core/buzzSigner.js';
 import { mcpSkillId } from '../mcp/mcpServerRegistry.js';
 import { classifyToolInvocation } from '../core/toolPolicy.js';
 import { DOCUMENTS_SSOT_PATH, DOCUMENTS_SUMMARY_SSOT_PATH, sanitizeDocumentsConfig, seedDocumentsConfig } from '../core/documentsManager.js';
@@ -204,6 +212,7 @@ type ProjectDashboardMessage =
   | { type: 'openContactDeepLink'; payload: { contactId: string; linkId: string } }
   | { type: 'assignRunOwner'; payload: { runId: string; contactId: string } }
   | { type: 'directorSendComms'; payload: { intent: DirectorCommsIntent; contactId: string; subject?: string; body?: string; start?: string } }
+  | { type: 'setBuzzAgentBinding'; payload: { pubkey: string; agentId: string; label?: string } }
   | { type: 'openExternalUrl'; payload: string };
 
 type DashboardWebviewMessage =
@@ -770,6 +779,34 @@ interface DashboardDirectorSnapshot {
   seeded: boolean;
   /** True when no git repository is present, so the roster cannot be seeded yet. */
   notInGitRepo: boolean;
+  /**
+   * AtlasMind agents a Buzz identity can be bound to, id + label only. Sent so
+   * the roster can offer a picker without the client guessing agent ids.
+   */
+  agentChoices: Array<{ id: string; name: string }>;
+  /**
+   * Current `atlasmind.buzz.agentBindings`, normalised. The setting stays the
+   * single source of truth — this view is a convenience editor for it, not a
+   * second store, so a binding made here and one hand-written in settings can
+   * never disagree.
+   */
+  agentBindings: BuzzAgentBinding[];
+  /** Bindings that could not be used, surfaced rather than silently dropped. */
+  agentBindingIssues: BuzzAgentBindingIssue[];
+  /** True when `atlasmind.buzz.enabled` is on, so the UI can explain an inert binding. */
+  buzzEnabled: boolean;
+  /**
+   * Buzz identities *observed* this session, so a handle can be picked instead
+   * of typed. Never a guess: each key arrived on the wire, and each name was
+   * published by its own owner. In-memory only — a roster of who spoke is not
+   * something `project_memory/` should accumulate.
+   */
+  buzzIdentities: Array<{ pubkey: string; label: string; named: boolean; channelIds: string[] }>;
+  /**
+   * The user's own Buzz public key, derived from the agent key already in
+   * SecretStorage. The one handle that needs no lookup at all.
+   */
+  ownBuzzPubkey?: string;
 }
 
 type DashboardGapPriority = 'P1' | 'P2' | 'P3';
@@ -1525,6 +1562,9 @@ export class ProjectDashboardPanel {
         return;
       case 'directorSendComms':
         await this.handleDirectorSendComms(message.payload);
+        break;
+      case 'setBuzzAgentBinding':
+        await this.handleSetBuzzAgentBinding(message.payload);
         return;
       case 'testDataPrivacy':
         {
@@ -2069,6 +2109,54 @@ export class ProjectDashboardPanel {
       return;
     }
     await this.atlas.projectDirectorManager.save(config);
+    await this.syncState();
+  }
+
+  /**
+   * Bind (or unbind) a Buzz identity to an AtlasMind agent from the Director roster.
+   *
+   * The `atlasmind.buzz.agentBindings` setting remains the single source of
+   * truth; this is a convenience editor for it, so a binding made here and one
+   * typed into settings can never disagree. Three refusals, all loud:
+   *
+   *  - A key that will not normalise is **rejected, never coerced** — one wrong
+   *    bech32 character would otherwise bind work to a different real identity.
+   *  - An agent id with no matching agent is refused, so a rename cannot leave a
+   *    binding silently pointing at nothing.
+   *  - Writing fails visibly rather than leaving the roster showing a binding
+   *    the settings file does not have.
+   */
+  private async handleSetBuzzAgentBinding(payload: { pubkey: string; agentId: string; label?: string }): Promise<void> {
+    const agentId = payload.agentId.trim();
+    if (agentId && !this.atlas.agentRegistry?.get(agentId)) {
+      void vscode.window.showWarningMessage(
+        `The person was saved, but the Buzz agent binding was not: there is no AtlasMind agent named "${agentId}".`,
+      );
+      return;
+    }
+
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    const result = writeAgentBinding(configuration.get('buzz.agentBindings'), { ...payload, agentId });
+    if (!result.ok) {
+      // Say what did and did not happen. The person is saved by a separate
+      // message, so a refused binding must not read as a refused save.
+      void vscode.window.showWarningMessage(
+        `The person was saved, but the Buzz agent binding was not: ${result.error ?? 'the key could not be used.'}`,
+      );
+      return;
+    }
+
+    // Workspace scope: which colleague maps to which specialist is a property of
+    // this project, not of the machine.
+    const target = vscode.workspace.workspaceFolders?.length
+      ? vscode.ConfigurationTarget.Workspace
+      : vscode.ConfigurationTarget.Global;
+    try {
+      await configuration.update('buzz.agentBindings', result.value, target);
+    } catch (error) {
+      void vscode.window.showWarningMessage(`Could not save the Buzz agent binding: ${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
     await this.syncState();
   }
 
@@ -2838,6 +2926,13 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return typeof p === 'object' && p !== null
       && (p['intent'] === 'email' || p['intent'] === 'schedule' || p['intent'] === 'message')
       && typeof p['contactId'] === 'string' && p['contactId'].length > 0;
+  }
+
+  if (candidate['type'] === 'setBuzzAgentBinding') {
+    const p = candidate['payload'] as Record<string, unknown> | undefined;
+    // `agentId` may be empty — that is the unbind case, not a malformed message.
+    return typeof p === 'object' && p !== null && typeof p['pubkey'] === 'string' && p['pubkey'].length > 0
+      && typeof p['agentId'] === 'string';
   }
 
   if (candidate['type'] === 'requestPromotionPlan') {
@@ -4323,6 +4418,26 @@ const DELIVERY_REVIEW_STATE_KEY = 'atlasmind.deliveryReview';
 const PROJECT_DIRECTOR_PII_ACK_KEY = 'atlasmind.projectDirector.piiStorageAcknowledged';
 
 /**
+ * The user's own Buzz public key, derived from the agent key in SecretStorage.
+ *
+ * Only the *public* half ever leaves this function, and only when Buzz is
+ * enabled — reading the stored secret to compute a key nobody asked for would
+ * be touching a secret without a reason. Failure is silent by design: an absent
+ * or unusable key simply means the roster offers nothing to prefill.
+ */
+async function readOwnBuzzPubkey(atlas: AtlasMindContext): Promise<string | undefined> {
+  if (!vscode.workspace.getConfiguration('atlasmind').get<boolean>('buzz.enabled', false)) {
+    return undefined;
+  }
+  try {
+    const stored = (await atlas.extensionContext.secrets.get(BUZZ_AGENT_KEY_SECRET))?.trim();
+    return stored ? await deriveBuzzPublicKey(stored) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Gather a first-draft roster from the repository: the git user (as "me"),
  * distinct git contributors, CODEOWNERS handles, the package author, and any
  * Website Studio client-intake stakeholders. Everything is optional and
@@ -4413,6 +4528,21 @@ async function collectDirectorSnapshot(
 ): Promise<DashboardDirectorSnapshot> {
   const connectors = detectConnectorCapabilities(atlas.mcpServerRegistry?.listServers() ?? [])
     .map(capability => ({ intent: capability.intent, serverName: capability.serverName, toolName: capability.toolName }));
+  const buzzConfiguration = vscode.workspace.getConfiguration('atlasmind');
+  const parsedBindings = parseAgentBindings(buzzConfiguration.get('buzz.agentBindings'));
+  const agentChoices = (atlas.agentRegistry?.listAgents() ?? [])
+    .map(agent => ({ id: agent.id, name: agent.name || agent.id }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  // Observed identities, so a handle can be picked. `named` distinguishes a
+  // published name from a key prefix standing in for one — the UI must not
+  // present the latter as though someone chose it.
+  const buzzIdentities = (atlas.buzzInbound?.listIdentities() ?? []).map(identity => ({
+    pubkey: identity.pubkey,
+    label: describeIdentity(identity),
+    named: identity.displayName !== undefined,
+    channelIds: identity.channelIds,
+  }));
+  const ownBuzzPubkey = await readOwnBuzzPubkey(atlas);
   const base: DashboardDirectorSnapshot = {
     configPath: PROJECT_DIRECTOR_SSOT_PATH,
     summaryPath: PROJECT_DIRECTOR_SUMMARY_SSOT_PATH,
@@ -4427,6 +4557,12 @@ async function collectDirectorSnapshot(
     connectors,
     seeded: false,
     notInGitRepo: false,
+    agentChoices,
+    agentBindings: parsedBindings.bindings,
+    agentBindingIssues: parsedBindings.issues,
+    buzzEnabled: buzzConfiguration.get<boolean>('buzz.enabled', false),
+    buzzIdentities,
+    ...(ownBuzzPubkey ? { ownBuzzPubkey } : {}),
   };
   const manager = atlas.projectDirectorManager;
   let piiAcknowledged = false;
@@ -9425,6 +9561,11 @@ const DASHBOARD_CSS = `
   .action-link.primary:hover { background: var(--vscode-button-hoverBackground, #1177bb); }
   .action-link.danger { color: var(--vscode-errorForeground, #f14c4c); }
   .stage-editor, .path-editor { grid-column: 1 / -1; margin: 6px 0 12px; border-color: var(--vscode-focusBorder, #4daafc); }
+  /* The hidden attribute must actually hide. Any author rule that sets a
+     display value (every .stage-edit-grid, .tag-row, flex or grid container
+     here) outranks the user-agent rule for [hidden], so without this an
+     element marked hidden stays fully visible. */
+  [hidden] { display: none !important; }
   .stage-edit-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin: 4px 0; }
   .stage-edit-field { display: flex; flex-direction: column; gap: 3px; font-size: 0.8em; }
   .stage-edit-field > span { color: var(--vscode-descriptionForeground); }
