@@ -7,6 +7,7 @@ export { type ProviderAdapter, type CompletionRequest, type CompletionResponse, 
 export { AnthropicAdapter } from './anthropic.js';
 export { BedrockAdapter, BEDROCK_ACCESS_KEY_SECRET, BEDROCK_MODEL_IDS_SETTING, BEDROCK_REGION_SETTING, BEDROCK_SECRET_KEY_SECRET, BEDROCK_SESSION_TOKEN_SECRET, getConfiguredBedrockModelIds, getConfiguredBedrockRegion } from './bedrock.js';
 export { ClaudeCliAdapter, CLAUDE_CLI_PROVIDER_ID, CLAUDE_CLI_SETUP_URL, probeClaudeCli } from './claude-cli.js';
+export { AcpAdapter, ACP_PROVIDER_ID, ACP_SETUP_URL, VERIFIED_ACP_AGENTS, parseAcpAgentSettings, resetAcpProbeCache, type AcpAgentConfig, type AcpProbeResult } from './acp.js';
 export { CopilotAdapter } from './copilot.js';
 export { OpenAiCompatibleAdapter } from './openai-compatible.js';
 export { OpenRouterAdapter } from './openrouter.js';

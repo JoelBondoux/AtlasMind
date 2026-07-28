@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.169.0",
+  "version": "0.170.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -1230,6 +1230,47 @@
           },
           "description": "Map a Buzz identity (npub or 64-character hex) to an AtlasMind agent id, so inbound work from that Buzz agent lands with the right specialist.",
           "markdownDescription": "Assign specific **AtlasMind agents** to specific **Buzz agents**.\n\nMaps a Buzz identity to an AtlasMind agent id, so inbound work from that identity is attributed to the right specialist — a Buzz build-bot's messages can land with your DevOps agent instead of arriving unattributed.\n\n```json\n{\n  \"npub1abc…\": \"devops-engineer\",\n  \"7e7e9c42…\": \"security-specialist\"\n}\n```\n\nKeys accept an `npub…` or a 64-character hex key (the bech32 checksum is validated, so a mistyped npub is rejected rather than binding to the wrong identity; an `nsec` secret key is refused). An unbound identity simply stays unassigned — AtlasMind never guesses an agent.\n\nThis is a **local routing preference only**. Buzz still owns the keypair, the directory, and the authorship ledger."
+        },
+        "atlasmind.acp.agents": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "command"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Short id used in the model id acp/<id>."
+              },
+              "command": {
+                "type": "string",
+                "description": "Executable that starts the agent in ACP mode."
+              },
+              "args": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Arguments passed to the command."
+              },
+              "env": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "Extra environment variables for the agent process."
+              },
+              "label": {
+                "type": "string",
+                "description": "Display name shown in model lists."
+              }
+            }
+          },
+          "description": "ACP agents AtlasMind may use as subscription-backed completion capacity. Empty by default — nothing is spawned until you name a command you have installed.",
+          "markdownDescription": "Agents AtlasMind can drive over the [Agent Client Protocol](https://agentclientprotocol.com), using **your existing subscription** instead of pay-per-token API credit.\n\nEach entry names a command **you have already installed**. AtlasMind never downloads, installs, or `npx`-fetches an agent, and the list is empty by default.\n\n```json\n[\n  { \"id\": \"claude\", \"command\": \"claude-agent-acp\" },\n  { \"id\": \"codex\", \"command\": \"codex-acp\" }\n]\n```\n\nThose two commands are the ones named in ACP's own agent list. Other ACP agents work too — supply whatever command starts them in ACP mode.\n\nAgents run in **restricted mode**: no filesystem access, no terminal, and no MCP servers are passed through. They are a completion source, not an executor, and AtlasMind refuses any permission request they make. Compared with the older `claude-cli` bridge this streams, has no ~26,000-character prompt ceiling, and can send images when the agent declares support."
         },
         "atlasmind.buzz.autonomousReplies": {
           "type": "boolean",

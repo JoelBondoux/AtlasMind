@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.170.0] - 2026-07-28
+
+### Added
+- **ACP provider — Agent Client Protocol support (Tier 1 of the ACP roadmap).** AtlasMind can now drive any ACP agent (`claude-agent-acp`, `codex-acp`, …) as a routable provider, turning a Claude or ChatGPT subscription into capacity the router can select. New `src/providers/acp.ts` (adapter) and `src/providers/acpProtocol.ts` (pure wire framing), both unit-tested; registered as `pricingModel: 'subscription'` so the existing quota machinery applies unchanged, and **seeded disabled**.
+- **Everything the argv bridge could not do.** Against `claude-cli`, this adds: **streaming** (`session/update` text chunks map to `onTextChunk`; the CLI bridge has no streaming at all), **no ~26,000-character prompt ceiling** (prompts travel as JSON-RPC over stdio, so `CLAUDE_CLI_TOTAL_PROMPT_BUDGET` and the `MAX_CLAUDE_CLI_*` truncation constants simply do not apply — pinned by a regression that sends a 60,000-character prompt and asserts it arrives intact), and **image attachments** as ACP content blocks when the agent declares `promptCapabilities.image`, rather than being dropped. `claude-cli` is untouched and remains the fallback.
+- **New setting `atlasmind.acp.agents`** — a user-authored list of agents. Empty by default; AtlasMind never installs, downloads, or `npx`-fetches an agent, and spawns nothing until you name a command you already have.
+
+### Security
+- **The protocol contract is verified, not guessed.** Transport, protocol version, method names, the five stop reasons, the `session/update` discriminators, content-block shapes, and the camelCase/snake_case convention were all read from the published specification at agentclientprotocol.com and recorded in `ACP_SPEC_SOURCE` / `ACP_SPEC_VERIFIED_AT`. Only launch commands the official agent list actually names are shipped as verified (`claude-agent-acp`, `codex-acp`); Gemini CLI implements ACP but publishes no invocation, so it is deliberately omitted rather than guessed — a wrong command produces a spawn failure a user cannot diagnose.
+- **Restricted mode is what lets this ship without touching the authorization gate.** The agent is initialised with `fs: { readTextFile: false, writeTextFile: false }`, `terminal: false`, and an empty `mcpServers` list: a completion source, not an executor. A request carrying tools is refused with an explanation rather than silently stripped.
+- **Fails closed on `session/request_permission`.** The adapter answers JSON-RPC `-32601` (method not implemented), never a grant — authorizing a tool call through a path with no policy behind it is exactly what Tier 3 exists to build. Pinned by a test asserting the reply contains no approval.
+- **The agent's stdout is untrusted input.** Every parse in `acpProtocol.ts` is total: a startup banner, a partial line, a malformed frame, an unknown `sessionUpdate`, or a negative token count all degrade to a typed result instead of throwing inside a streaming read loop. Frames are size-capped and strings length-clamped. An unreadable `stopReason` maps to `refusal`, never `end_turn` — a turn whose outcome cannot be read is not one that completed normally. Missing usage counts stay `0` rather than being estimated, so the cost tracker is never fed a number nobody measured. The child process is spawned directly with an argument list, never through a shell.
+
 ## [0.169.0] - 2026-07-28
 
 ### Added
