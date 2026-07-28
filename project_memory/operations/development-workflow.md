@@ -42,19 +42,14 @@ npm run lint
 
 ## Test
 
+**Webview scripts are guarded by a parser, not by the compiler.** `media/*.js` is a string handed to a browser: never type-checked, never imported by a test. A renamed function therefore leaves its old call site behind silently, and the failure arrives as a render-time `ReferenceError` that takes down the entire panel ("Dashboard refresh failed — …is not defined"). `tests/views/webviewIdentifierIntegrity.test.ts` parses each script with acorn and asserts every identifier it reads is bound — declared in the file, a parameter, or a real browser/host global. When it fails, the fix is either the rename you missed or, for a genuine new DOM global, an addition to its `HOST_GLOBALS` list.
+
+
 ```bash
 npm run test
 npm run test:coverage
 npm run test:providers:local-recommendations
 ```
-
-## Versioning Workflow
-
-1. Make changes and choose the correct SemVer bump for the same commit.
-2. Update `version` in `package.json` in that commit.
-3. Add a matching `CHANGELOG.md` entry in that same commit.
-4. Every commit (not just PRs) must include a version bump and changelog entry. This applies to all code, doc, and config changes. The version bump and changelog update must be in the same commit as the change.
-5. Use a conventional commit message and push.
 
 ## GitHub Workflow Standards
 ## Goals
@@ -102,8 +97,8 @@ npm run test:providers:local-recommendations
 <!-- atlasmind-import
 entry-path: operations/development-workflow.md
 generator-version: 2
-generated-at: 2026-07-24T11:56:11.404Z
+generated-at: 2026-07-28T12:06:49.103Z
 source-paths: docs/development.md | docs/github-workflow.md
-source-fingerprint: d835ce42
-body-fingerprint: 6dbd5b83
+source-fingerprint: e39f56b2
+body-fingerprint: 7c3d5514
 -->

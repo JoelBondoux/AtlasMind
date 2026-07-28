@@ -13,6 +13,7 @@
 - .vscode-test/
 - coverage/
 - .claude/
+- project_memory_old/
 - project_memory/sessions/
 - project_memory/temp/
 - project_memory/operations/project-run-*.json
@@ -22,8 +23,8 @@
 <!-- atlasmind-import
 entry-path: domain/conventions.md
 generator-version: 2
-generated-at: 2026-07-24T11:56:11.404Z
+generated-at: 2026-07-28T12:06:49.103Z
 source-paths: tsconfig.json | .gitignore | .editorconfig | .prettierrc | eslint.config.js | .eslintrc.json | .eslintrc.js | Dockerfile | docker-compose.yml | Makefile
-source-fingerprint: 181248cd
-body-fingerprint: 3c548815
+source-fingerprint: 142d0f68
+body-fingerprint: 1abff3f2
 -->

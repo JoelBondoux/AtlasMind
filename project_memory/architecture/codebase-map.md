@@ -24,29 +24,32 @@ src/
   config/
     criticality.config.ts
   core/
+    acpSetupPlan.ts
     agentAutoUpdater.ts
     agentDrafting.ts
     agentRegistry.ts
+    approvalAttention.ts
     builtinWorkspaceTools.ts
-    checkpointManager.ts
-    classifierService.ts
-    compliancePacks.ts
-    costTracker.ts
-    criticality.test.ts
-    criticality.ts
-    currencyFormatter.ts
-    dataPrivacyManager.ts
-    deliveryManager.ts
-    directorCommsRunner.ts
-    environmentManager.ts
-    executionQuality.ts
-    goalEvaluator.ts
-    missionRegistry.ts
-    missionRunner.ts
-    modelEvalHarness.ts
-    ... (23 more entries)
+    buzzAgentBindings.ts
+    buzzChannelCatalog.ts
+    buzzClient.ts
+    buzzConnectionPolicy.ts
+    buzzConversation.ts
+    buzzDirectory.ts
+    buzzDocsSource.ts
+    buzzInboundDerivation.ts
+    buzzInboundService.ts
+    buzzProtocol.ts
+    buzzSendPolicy.ts
+    buzzSetupPlan.ts
+    buzzSigner.ts
+    buzzSocket.ts
+    ... (49 more entries)
   mcp/
+    buzzCliBridge.ts
+    buzzCommsServer.ts
     mcpClient.ts
+    mcpEnvironmentScanner.ts
     mcpRuntime.ts
     mcpServerRegistry.ts
   memory/
@@ -55,6 +58,8 @@ src/
     memoryScanner.ts
     sessionContextManager.ts
   providers/
+    acp.ts
+    acpProtocol.ts
     adapter.ts
     anthropic.ts
     bedrock.ts
@@ -100,7 +105,7 @@ src/
     frameworkDetect.ts
     gitApplyPatch.ts
     gitBlame.ts
-    ... (23 more entries)
+    ... (24 more entries)
   utils/
     aiInstructionMerge.ts
     aiInstructionSync.ts
@@ -115,10 +120,13 @@ src/
     chatProtocol.ts
     chatWebviewMarkup.ts
     costDashboardPanel.ts
+    dashboardTheme.ts
+    dashboardWidgets.ts
     mcpPanel.ts
     missionControlPanel.ts
     modelComparisonPanel.ts
     modelProviderPanel.ts
+    panelNav.ts
     personalityProfilePanel.ts
     projectDashboardPanel.ts
     projectIdeationPanel.ts
@@ -127,10 +135,7 @@ src/
     settingsPanel.ts
     skillScannerPanel.ts
     specialistIntegrationsPanel.ts
-    toolWebhookPanel.ts
-    treeViews.ts
-    visionPanel.ts
-    ... (3 more entries)
+    ... (6 more entries)
   voice/
     hostSpeechSynthesizer.ts
     localTranscriber.ts
@@ -167,42 +172,47 @@ tests/
     participant.helpers.test.ts
     participant.provider.test.ts
     sessionConversation.test.ts
+    slashCommandRouting.test.ts
   cli/
     adversarialPrompt.test.ts
     main.test.ts
   core/
+    acpSetupPlan.test.ts
+    approvalAttention.test.ts
+    buzzAgentBindings.test.ts
+    buzzChannelCatalog.test.ts
+    buzzClient.integration.test.ts
+    buzzClient.test.ts
+    buzzConnectionPolicy.test.ts
+    buzzConversation.test.ts
+    buzzDirectory.test.ts
+    buzzDocsSource.test.ts
+    buzzInboundDerivation.test.ts
+    buzzInboundService.test.ts
+    buzzProtocol.test.ts
+    buzzSendPolicy.test.ts
+    buzzSetupPlan.test.ts
+    buzzSigner.test.ts
     checkpointManager.test.ts
     compliancePacks.test.ts
     costTracker.test.ts
     dataPrivacyManager.test.ts
-    deliveryManager.test.ts
-    directorCommsRunner.test.ts
-    goalEvaluator.test.ts
-    missionRegistry.test.ts
-    missionRunner.test.ts
-    modelEvalHarness.test.ts
-    modelRouter.test.ts
-    orchestrator.security.test.ts
-    orchestrator.tools.test.ts
-    planner.scheduler.test.ts
-    planner.test.ts
-    projectDirectorManager.test.ts
-    projectRunHistory.test.ts
-    promotionRunner.test.ts
-    providerDataGovernance.test.ts
-    scannerRulesManager.test.ts
-    ... (9 more entries)
+    ... (33 more entries)
   integration/
     taskLifecycle.test.ts
   mcp/
+    buzzCliBridge.test.ts
     mcpClient.security.test.ts
     mcpClient.test.ts
+    mcpEnvironmentScanner.test.ts
     mcpServerRegistry.test.ts
   memory/
     memoryManager.test.ts
     memoryPersistence.test.ts
     memoryScanner.test.ts
   providers/
+    acpAdapter.test.ts
+    acpProtocol.test.ts
     anthropicCaching.test.ts
     claudeCliPrompt.test.ts
     copilotDiscovery.test.ts
@@ -238,19 +248,28 @@ tests/
     memoryDelete.test.ts
     memoryQuery.test.ts
     memoryWrite.test.ts
-    ... (10 more entries)
+    ... (11 more entries)
   utils/
     aiInstructionMerge.test.ts
     managedBlock.test.ts
     terminalOutput.test.ts
     testingProtocolSync.test.ts
   views/
+    buzzSurfaces.test.ts
+    dashboardNav.test.ts
+    dashboardScore.test.ts
+    dashboardWidgets.test.ts
     localModelMatch.test.ts
     panelFlows.test.ts
+    panelInformationArchitecture.test.ts
+    panelNav.test.ts
+    panelWiring.test.ts
     skillScannerPanel.test.ts
+    themeContrast.test.ts
     treeViews.test.ts
     voicePanel.test.ts
     websiteStudioPanel.test.ts
+    webviewIdentifierIntegrity.test.ts
     webviewMessages.test.ts
     webviewSecurity.test.ts
   voice/
@@ -292,7 +311,6 @@ wiki/
   Changelog.md
   Chat-Commands.md
   CLI.md
-  Comparison.md
   Configuration.md
   Contributing.md
   FAQ.md
@@ -306,7 +324,8 @@ wiki/
   Resource-Discovery.md
   Security.md
   Skills.md
-  ... (2 more entries)
+  Tool-Execution.md
+  ... (1 more entries)
 ```
 
 ## project_memory
@@ -373,14 +392,24 @@ project_memory/
     delivery.json
     delivery.md
     development-workflow.md
+    documents.json
+    documents.md
+    mcp-environment.json
+    mcp-environment.md
+    project-director-history.json
+    project-director.json
+    project-director.md
     project-run-2026-06-03T01-45-39-088Z.json
     project-run-2026-06-04T00-20-12-535Z.json
     project-run-2026-06-04T11-01-42-059Z.json
     project-run-2026-06-11T18-34-23-597Z.json
     project-run-2026-06-12T15-39-39-156Z.json
-    security-and-safety.md
+    risk-oversight-history.json
+    ... (3 more entries)
   roadmap/
     .gitkeep
+    acp-integration.md
+    buzz-integration.md
     improvement-plan.md
     release-history.md
   routines/
@@ -389,7 +418,7 @@ project_memory/
     README.md
   sessions/
     chat-1775389876037-6d714e/
-    chat-1784894194166-qzv1s4/
+    chat-1778659585817-hvmfa6/
     .gitkeep
   skills/
     .gitkeep
@@ -425,8 +454,8 @@ project_memory/
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-07-24T12:06:10.564Z
+generated-at: 2026-07-28T12:06:49.103Z
 source-paths: src | tests | docs | wiki | project_memory | .github
-source-fingerprint: eab07eb6
-body-fingerprint: df6d1038
+source-fingerprint: 98760453
+body-fingerprint: 7a2eaa4b
 -->

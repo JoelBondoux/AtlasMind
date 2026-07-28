@@ -8,26 +8,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-### Added
+## [0.171.1] - 2026-07-28
 
-## [0.134.0] - 2026-07-24
-
-### Added
-- **Project Director — guarded outbound messaging via connectors (Phase 3, opt-in, default off).** When a project enables outbound messaging and a matching MCP connector is connected, the Director tab can **email**, **schedule a meeting**, or **post a message** to a contact through that connector — otherwise it falls back to the existing **Open** deep-link / **Copy** path and never auto-sends. A new pure `directorCommsRunner` (`src/core/directorCommsRunner.ts`) detects which connected MCP tool can perform each intent (matching tool names like `outlook_send_mail` / `create_event` / `post_message`, preferring real send/create tools over drafts) and best-effort maps a composed draft onto that tool's declared input-schema fields — inventing nothing, so the confirmation dialog shows exactly what will be sent.
-- **Authorization gate.** Dispatch is deny-by-default: it requires `settings.outboundEnabled`, a connected connector, and an explicit `{ modal: true }` confirmation summarising the exact action (connector, tool, recipient, subject/body, classified risk) before the tool runs. The executed tool is sourced from the connected MCP server (via the `mcp:<serverId>:<toolName>` skill wrapper); the webview only supplies the draft, which is re-resolved and re-classified server-side (`classifyToolInvocation`). Successful sends are recorded to `project-director-history.json`.
-- **Connector surfacing + PII minimisation.** The Setup card shows which messaging connectors are connected and a link to manage MCP Servers, and an "Outbound messaging: On/Off" toggle (persisted in the project config). `AtlasMindContext` now exposes `skillContext` so panels can dispatch MCP tool skills. Connector credentials remain in VS Code SecretStorage (`atlasmind.mcp.<serverId>.<KEY>`), and referencing a person in their system of record stays preferred over storing raw PII.
-
-## [0.133.0] - 2026-07-24
+### Fixed
+- **"Dashboard refresh failed — directorBoundAgentId is not defined".** The entire Project Dashboard failed to render for any project with a Buzz contact. When a Buzz identity became bindable to *several* agents in v0.163.0, `directorBoundAgentId` was pluralised to `directorBoundAgentIds`, and one call in the Director contact-card renderer was left behind. The card now reads the list correctly and names the **owning** agent with a `+n` for the rest, matching how the binding is actually defined (first owns the work, the others are also-relevant).
 
 ### Added
-- **Project Director dashboard — the usable v1 (Phase 2).** The Project Dashboard has a new **Director** tab (`src/views/projectDashboardPanel.ts`, `media/projectDashboard.js`) that surfaces and edits the people model backed by `ProjectDirectorManager`: a **Setup** card (project, team-mode toggle, "Seed from repo", open the markdown mirror), a **People** roster (contacts with role badges, per-channel **Open** deep-links and **Copy contact**, inline add/edit with stakeholder/team roles), **Responsibilities** (area → owner/backup), **Assignments** (add/edit/status-cycle, plus an **Autonomous runs** list where each `ProjectRunRecord` can be given a human owner), and **Follow-ups** grouped Overdue / Due soon / Upcoming with complete/snooze/cancel.
+- **A guard for the class of bug that caused it.** Webview scripts are strings handed to a browser: never type-checked, never imported by a test. A renamed function leaves its old call site behind, `tsc` says nothing, every test passes, and the failure arrives as a `ReferenceError` at render time that takes down the **whole panel** — and it only fires on the code path that touches it, which is why this one survived review. `tests/views/webviewIdentifierIntegrity.test.ts` parses each webview script with a real JS parser and asserts every identifier it reads is bound: declared in the file, a function parameter, or a genuine browser/host global. Parsing rather than pattern-matching is the point — prose like `3 subtask(s) recorded` inside a template literal is indistinguishable from a call to `subtask()` under a regex. The test is pinned against both the exact bug that shipped and that false positive.
+
+## [0.171.0] - 2026-07-28
+
+### Added
+- **`/acp` — a guided ACP setup walkthrough, in the same shape as `/buzz`.** Five steps: name an agent → install it → sign in → enable the provider → **prove a completion comes back**. State is derived from your actual configuration rather than asked for, one step is shown at a time with the command written out, and the checklist says done / to do / blocked / optional for each. New `src/core/acpSetupPlan.ts`, unit-tested.
+- **`/setup` — the index of every setup guide and how far along each one is.** A feature that needs configuring should be discoverable *before* you hit the failure that configuring it would have prevented. `/setup acp` and `/setup buzz` jump straight into a guide. New `src/core/setupGuideRegistry.ts`; each guide's progress is computed from that guide's own plan, so the index cannot claim a guide is finished while the guide disagrees.
+- **Setup guides now share their mechanics rather than resembling each other.** New `src/core/setupWalkthrough.ts` owns the step model, next-step selection, progress counting, and markdown rendering for every guide; `buzzSetupPlan.ts` delegates to it (all 62 of its existing tests unchanged) and 
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: roadmap/release-history.md
 generator-version: 2
-generated-at: 2026-07-24T12:06:10.564Z
+generated-at: 2026-07-28T12:06:49.103Z
 source-paths: CHANGELOG.md | package.json
-source-fingerprint: 0c819274
-body-fingerprint: c790a7b8
+source-fingerprint: b4a98bdb
+body-fingerprint: b9d598df
 -->

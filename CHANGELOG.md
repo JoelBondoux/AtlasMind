@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.180.2] - 2026-07-28
+
+### Changed
+- **Project memory refreshed from the repository.** An AtlasMind import run regenerated the SSOT mirrors: the architecture set (`codebase-map`, `project-overview`, `project-structure`, `dependencies`, `model-routing`, `runtime-and-surfaces`), the operations set (`configuration-reference`, `development-workflow`, `security-and-safety`), `domain/conventions`, `domain/product-capabilities`, `decisions/development-guardrails`, and the import index. `roadmap/release-history.md` catches up from v0.134.0 to the v0.171.x releases — it remains behind the current version, since it reflects the state at the time of the import run rather than now.
+- **Three oversight agent definitions added** under `project_memory/agents/`: `ethics-oversight`, `legal-oversight`, and `commercial-oversight` — the read-only advisors behind the Project Dashboard Risk tab.
+- **`.vscode/settings.json`: `atlasmind.budgetMode` changed from `cheap` to `auto`.** Noted separately because that file is tracked: this is the default anyone cloning the repository gets, not a local preference.
+
 ## [0.180.1] - 2026-07-28
 
 ### Fixed

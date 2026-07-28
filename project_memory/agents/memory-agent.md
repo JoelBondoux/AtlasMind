@@ -12,15 +12,15 @@ Compress aggressively when nearing character limits; preserve recency over histo
 
 ## Configuration
 
-- **Skills:** none
+- **Skills:** memory-query, file-read, directory-list
 - **Allowed models:** any
 - **Type:** Built-in (shipped with AtlasMind)
 
 <!-- atlasmind-import
 entry-path: agents/memory-agent.md
 generator-version: 2
-generated-at: 2026-06-03T14:23:59.981Z
+generated-at: 2026-07-28T12:06:49.103Z
 source-paths: agentRegistry
-source-fingerprint: 06692784
-body-fingerprint: c4ede1aa
+source-fingerprint: b16952bf
+body-fingerprint: f83fa7f7
 -->

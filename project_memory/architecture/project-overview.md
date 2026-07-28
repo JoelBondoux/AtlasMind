@@ -4,349 +4,307 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.140.0</strong> · </sub></p>
-
+<p align="center"><sub> · <strong>Current source version: 0.171.1</strong> · </sub></p>
 
 <p align="center">
-  <strong>BETA</strong><br/>
-  <strong>AtlasMind is your AI teammate for solo and small dev teams.</strong><br/>
-  <em>Ship faster, automate the boring parts, and keep your project's brain in one place — all inside VS Code.</em>
+  <strong>BETA</strong><br />
+  <strong>Your AI delivery team, inside VS Code.</strong><br />
+  <em>Turn an idea into coordinated, verified work without losing the decisions that got you there.</em>
 </p>
 
+<p align="center">
+  <a href="https://marketplace.visualstudio.com/items?itemName=JoelBondoux.atlasmind"><strong>Install from the VS Code Marketplace</strong></a>
+  ·
+  <a href="wiki/Getting-Started.md">Getting Started</a>
+  ·
+  <a href="docs/architecture.md">How it works</a>
+</p>
 
 ---
 
+## Build with a team, not another tab
 
-AtlasMind is built for indie developers, freelancers, and small teams who want to get more done without context switching or tool overload. It's not just a chatbot — it's a multi-agent orchestrator that routes your tasks to the right AI, remembers your decisions, and helps you focus on what matters most.
+AtlasMind gives solo developers, freelancers, and small teams the coordination of a larger engineering organisation without making them leave the editor.
 
-**Why solo and small devs love AtlasMind:**
+Describe the outcome you want. AtlasMind selects an appropriate specialist, routes the task to a suitable configured model, gathers project evidence, carries the work through tools, and shows you what changed. Decisions, architecture, lessons, and run history remain attached to the project instead of disappearing with the chat.
 
-- **No more context switching:** Everything happens in your editor — chat, code, memory, and planning.
-- **Automate the grind:** Refactoring, testing, docs, and more — handled by specialized agents.
-- **Bring your own models:** Use Local LLM, OpenAI, Claude, Gemini, Azure, or your favorite provider. Mix and match for cost, speed, or quality.
-- **Project memory that sticks:** AtlasMind remembers your architecture, decisions, and lessons learned, so you don't have to.
-- **Stay in control:** Approvals, cost tracking, and safety guardrails keep you in the driver's seat.
-- **Secure and reliable by default:** Strong security guardrails and a configurable 23-methodology testing strategy system — TDD, BDD, E2E, security, performance, and more — with per-agent assignment, auto-detect, and AI token impact guidance so you can build with confidence from day one.
-- **Everything at a glance:** Project, run, personality, and cost dashboards keep you in control — review agent runs, memory, and spend in one place.
+You stay in charge. Approval gates, budgets, verification, protected delivery stages, and visible guardrails make ambitious automation reviewable rather than mysterious.
 
----
+### Move from intent to finished work
 
+Use a focused chat turn for a small fix, `/project` for a coordinated delivery plan, or Mission Control for a goal-seeking run bounded by cost, time, tokens, iterations, and approval checkpoints.
 
+### Bring the models you already trust
 
+Connect cloud providers, subscription-backed models, or local OpenAI-compatible runtimes such as Ollama and LM Studio. AtlasMind routes by task fit, capability, health, budget, speed, and observed outcomes.
 
-## What Makes AtlasMind Different?
+### Keep your project's brain
 
+The structured SSOT memory records architecture, decisions, roadmap context, operations, lessons learned, agents, and skills. AtlasMind can retrieve that context later while still checking live source files for claims that need current evidence.
 
+### See the work, not just the answer
 
+Project Dashboard, Project Run Center, Cost Dashboard, Mission Control, Website Studio, and the Personality Profile turn hidden orchestration state into something you can inspect and steer.
 
-| Feature | AtlasMind | Copilot | Claude Code | Cline | Cursor |
-|---|:---:|:---:|:---:|:---:|:---:|
-| Multi-agent workflow | ✅ | <span title="Copilot supports some agent-like flows but not true multi-agent orchestration.">⚠️</span> | ✅ | <span title="Cline is a single agent with a plan/act loop, not multi-agent orchestration.">⚠️</span> | <span title="Cursor supports some agent-like flows but not true multi-agent orchestration.">⚠️</span> |
-| Goal-seeking autonomous loops (Mission Control) | ✅ | <span title="Copilot agent mode and the cloud coding agent run agentic loops, but without a goal-bounded budget/iteration/time envelope.">⚠️</span> | <span title="Claude Code's /loop runs on an interval or self-paces, but without AtlasMind's cost/iteration envelope, per-iteration goal self-evaluation, and persisted audit trail.">⚠️</span> | <span title="Cline's auto-approve/YOLO mode keeps acting on a task, but without goal self-evaluation or a budget/iteration envelope.">⚠️</span> | <span title="Cursor's agent and background agents iterate autonomously, but without a goal-bounded budget/iteration envelope.">⚠️</span> |
-| Model provider choice | ✅ | <span title="Copilot supports only GitHub-hosted models, not bring-your-own.">⚠️</span> | <span title="Claude Code supports only Anthropic models.">⚠️</span> | <span title="Cline supports OpenAI-compatible providers and configurable endpoints.">✅</span> | ✅ |
-| Project memory (SSOT) | ✅ | <span title="Copilot has session memory but not persistent project SSOT.">⚠️</span> | <span title="Claude Code has session memory but not persistent project SSOT.">⚠️</span> | <span title="Cline can use rules and context, but not AtlasMind-style persistent project SSOT.">⚠️</span> | <span title="Cursor has session memory but not persistent project SSOT.">⚠️</span> |
-| Approval/safety gates | ✅ | <span title="Copilot has some safety checks but not approval gating.">⚠️</span> | ✅ | ✅ | <span title="Cursor has some safety checks but not approval gating.">⚠️</span> |
-| Cost tracking | ✅ | ❌ | <span title="Claude Code shows session token cost via /cost, but not AtlasMind-style per-model cost dashboards.">⚠️</span> | <span title="Cline shows usage and token costs, but not AtlasMind-style cost dashboards.">⚠️</span> | <span title="Cursor has a usage dashboard and spend caps, but not AtlasMind-style per-request/per-model cost dashboards.">⚠️</span> |
-| VS Code native | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Built-in dashboards | ✅ | <span title="Copilot has some usage stats but not full dashboards.">⚠️</span> | <span title="Claude Code has some usage stats but not full dashboards.">⚠️</span> | <span title="Cline surfaces usage and settings views, but not AtlasMind-style project/run/cost dashboards.">⚠️</span> | <span title="Cursor has some usage stats but not full dashboards.">⚠️</span> |
-| Extensible with MCP servers | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Secure by default | ✅ | <span title="Copilot has security features but not full sandboxing or approval gating.">⚠️</span> | <span title="Claude Code has security features but not full sandboxing or approval gating.">⚠️</span> | <span title="Cline has strong approval controls, but not AtlasMind's full security guardrail stack.">⚠️</span> | <span title="Cursor has security features but not full sandboxing or approval gating.">⚠️</span> |
-| Configurable testing methodology system | ✅ | ❌ | ❌ | ❌ | ❌ |
+### Grow the team around the project
 
-- **Multi-agent orchestration**: 18 built-in specialized agents — debugger, frontend/backend engineers, reviewer, security, SEO, UX, DevOps, plus ethics/legal/commercial oversight advisors — and instant AI-drafted custom agents on demand.
-- **Multi-provider model routing**: Supports GitHub Copilot, Claude, GPT, Gemini, Azure OpenAI, Bedrock, Mistral, and more. Budget and speed preferences steer selection automatically.
-- **Built-in skills**: 43 pre-built skills including file editing, git, diagnostics, code navigation, test running, debugging, HTTP requests, Docker, web fetch, and more. Skills are grouped by category and support custom folders. Agents use AI-driven auto skill assignment by default.
-- **Long-term project memory (SSOT)**: Decisions, architecture notes, and lessons learned persist in a structured memory folder. A dedicated Memory Agent maintains session context and keeps SSOT snippets fresh as source files evolve.
-- **Project planner**: Decompose goals into subtasks, preview impact, gate execution, and review results.
-- **Website Studio**: Run a client website from normalized intake through sitemap, wireframes, high-fidelity UI decisions, a fixed Develop → Staging → Production hosting pipeline, platform readiness, and n8n workflow mapping. Targets include Cloudflare Pages, GitHub Pages, WordPress/Elementor, Vercel, Netlify, Azure Static Web Apps, Shopify, Webflow, and custom hosting.
-- **Cost tracking**: Real-time per-session spend with budget guardrails and a daily cost limit.
-- **MCP server support**: Extend AtlasMind with Model Context Protocol (MCP) servers for custom tools, agent extensions, and advanced workflows.
-- **Voice & Vision**: Speak your prompts and hear responses via the Voice Panel (TTS/STT). Attach workspace images to any question via the Vision Panel for multimodal analysis.
-- **Session management**: Name, organize into folders, archive, and restore chat sessions for long-running projects.
+Start with 18 built-in agents and 43 built-in skills. Add custom agents, assign models and testing responsibilities, connect MCP servers, or discover new agentic resources when the project needs more.
 
 ---
 
+## From idea to delivery
 
+1. **Connect your models.** Bring one provider or several; AtlasMind can also use local models.
+2. **Give AtlasMind the project context.** Bootstrap a new project or import an existing repository into structured project memory.
+3. **Choose the level of autonomy.** Ask for one task, preview a multi-step project run, or launch a bounded Mission Loop.
+4. **Review the evidence.** Inspect agent choice, model choice, tool activity, verification, cost, changed files, and unresolved blockers.
+5. **Promote deliberately.** Move work through guarded delivery stages with preflight, backup, approval, and verification gates.
+
+AtlasMind is designed to carry work forward while keeping the operator informed enough to intervene.
+
+---
+
+## What's new in 0.171.1
+
+Since the last Marketplace publication, **v0.145.3**, source builds have added:
+
+- **Every setup process now works the way the Buzz one does.** `/acp` walks you through ACP setup a step at a time — name an agent, install it, sign in, enable the provider, and then **prove a completion actually comes back**, because configured and working are different things the settings screen cannot tell apart. `/setup` lists every guide with how far along it is, so a feature that needs configuring is discoverable before you hit the failure it causes. The two guides share their mechanics rather than resembling each other, so they cannot drift — and neither installs or enables anything for you: every button opens the screen where you decide.
+- **Use your Claude or Codex subscription as routable capacity.** AtlasMind can now drive coding agents over the [Agent Client Protocol](https://agentclientprotocol.com) — the emerging standard that is to coding agents what LSP is to language servers. Point it at an agent you have installed (`claude-agent-acp`, `codex-acp`) and its subscription becomes another model the router can choose. It replaces the old Claude CLI bridge on every axis that mattered: replies **stream** instead of arriving in one lump, the **~26,000-character prompt ceiling is gone** (prompts travel over a pipe, not a command line, so long context arrives intact rather than silently truncated), and **images** are sent when the agent accepts them. Agents run with no filesystem, no terminal, and no tools — they answer, they do not act — and if one asks for permission to do something, AtlasMind refuses rather than granting it. Nothing is installed for you, and nothing is enabled until you name a command yourself.
+- **Your issue tracker, inside the dashboard.** A new **Issues** tab reads the repository's GitHub issues: what is open, what nobody has picked up, and what has gone quiet for a month, with charts by label and assignee. You can comment, close, reopen, or open a new issue without leaving the editor — each one shown to you in full and confirmed before it is sent, because a tracker is public. **Work on it with Atlas** hands the issue to chat as a *report to check*, explicitly not as instructions, since an issue is written by whoever filed it.
+- **The dashboard opens with charts of who did the work and how far each release has to go.** A donut of **commits by contributor** (click a name to scope the commit timeline to that person), a **route to release** ring for whichever gate the Roadmap card is showing, and a bar of **outstanding objectives by release gate** — so the first screen answers who, what is left, and how far, not just how busy the repo has been. Everything is drawn from git history and the roadmap you already keep: no new scan, no model call, and author names only.
+- **When Atlas asks a question, you can answer it with one tap — everywhere.** One-tap reply pills existed only in the main Chat panel, which made them look like a feature of that panel rather than of Atlas asking. The Ideation panel and the Vision panel now show them too: click **Yes**, or the option you want, and it runs. Where a question has no clean options you still get the text box rather than invented buttons, which is exactly how chat has always behaved.
+- **The roadmap plans more than one release.** MVP was the only milestone the Roadmap tab could track, which stops being useful the day you ship it. You can now declare your own **release gates** — a public beta, v1.0, v2 — and switch the "Road to…" card between them; each shows its own progress, milestone track, best route, and plan-with-Atlas prompt. An item can sit on more than one release. Gates are stored as readable markdown in the roadmap file, so they diff and review like the backlog does, and removing a gate removes a *label*, never any work.
+- **The Testing tab says which policies are actually tested — and what's failing.** A **Policy coverage** board gives every methodology you switched on its own card: does anything in the tree test it, is its tooling merely installed with nothing written yet, how many of its cases are skipped, and which of its tests failed in the newest test report. Practices that leave no file behind — exploratory, black-box, V-model — are labelled as practices instead of being counted as gaps, because a panel that flags everything gets ignored. And when your project has never written a test report, the page says it has **no verdict** and shows the command that would produce one, rather than displaying a reassuring "0 failing" that nothing measured. It never runs your tests to find out.
+- **A document shelf creates its folder.** Adding a shelf on the Documents tab now makes the folder it names, so you can design a filing system before the files exist instead of describing one against folders that aren't there. Shelves still pointing at a missing folder get a **Create folder** button. It only ever creates: a folder that already exists is left alone, and a file sitting where the shelf points is reported rather than touched.
+- **One person, several ways to reach them.** The Director's Add / Edit person form now holds as many communication channels as someone actually has — email *and* Slack *and* Buzz — rather than the one it used to allow. The first is the preferred channel; the rest sit under it, added and removed without losing anything else you have typed. The roster's data model always stored a list; only the editor insisted on one.
+- **Bind a Buzz identity to more than one agent.** The AtlasMind agent picker is a checklist, because a colleague who raises both API defects and design feedback belongs to two specialists and being made to choose throws away something you know. The first ticked owns the work — a follow-up has exactly one owner — and the rest are recorded as also-relevant rather than picked between by inference.
+- **An observed Buzz identity you can actually recognise.** The picker used to offer three rows reading `dcbe44bf896f… (no published name) · seen in 1 channel`, which is a list nobody can choose from knowingly. Most Buzz identities publish no profile, so the evidence now comes from behaviour instead: what they last said, how much they have said, and when.
+- **The walkthrough says where the Buzz desktop app fits.** Proving a message arrives is the one step that needs it — AtlasMind can read Buzz but cannot post, so the test message has to come from somewhere — and it now says so, with the download link and the warning that the app and AtlasMind must share a relay.
+- **Fetch your Buzz channels instead of copying ids by hand.** A **Fetch my channels** button on Settings → Buzz asks the Buzz CLI which channels your key can actually see, and offers them as a ticklist with the ones you already watch pre-ticked. A channel id that quietly does not match the channel you posted in is the most common reason a correctly configured subscription receives nothing — and it is undiagnosable from inside AtlasMind, because the wrong id, the wrong relay, and a quiet day look identical. Nothing is written unless you tick and confirm, and a channel you watch that the relay did not list is kept rather than silently dropped.
+- **The Buzz walkthrough now finishes the job.** It used to stop at "subscribed", which is the point where every remaining problem looks identical: a wrong channel id, a wrong relay, and a quiet Tuesday all present as a connection that receives nothing. Two steps follow it now. **Prove one message arrives** — post in Buzz, run `/buzz read`, and see it — with the two things that actually go wrong named and fixed on the spot. Then **put the Buzz people in the Director roster**, so what arrives reaches an agent instead of sitting unassigned. Neither is required for the subscription to work, so neither is reported as a fault; they are simply things nobody was ever told to do.
+- **MCP servers are visible in Settings.** A new **Settings → MCP Servers** page lists every server with its live connection status, tool count, and any error, and lets you enable, connect, or disconnect each one — so you can see what AtlasMind can actually reach without opening a separate panel. Adding and editing servers stays in the dedicated manager, which the page links to.
+- **Buzz setup is a walkthrough, not a wall of text.** `/buzz` takes you one step at a time, asks whether you are running Buzz locally or connecting to a hosted relay, and then shows only that path — with the exact terminal commands written out and a button that loads them into a terminal ready to run (it never presses Enter for you). It covers the Buzz desktop app and the MCP bridge too, and opens in AtlasMind's own chat rather than Copilot's.
+- **A blocked run no longer looks like a hung one.** When a tool approval is waiting and the AtlasMind panel is not on screen, the panel comes forward and a notification names what needs an answer — because the approval bar lives in that panel, and you might be in VS Code's own chat, an editor, or another window. It stays quiet when the panel is already visible.
+- **DM people from chat, and let agents talk to each other.** `/buzz dm <name> <message>` messages someone straight from your Director roster. And `atlasmind.buzz.autonomousReplies` (off by default) lets an AtlasMind agent hold a loop with a Buzz agent without a dialog per message — scoped only to identities you explicitly bound to an agent, rate-capped per recipient, and still confirming for anyone unbound, who is treated as a person.
+- **Talk to Buzz from AtlasMind chat.** `/buzz read` shows the conversation with real names and emoji reactions; `/buzz send <message>` replies through the guarded bridge. Confirmation now fires where it earns its place — anything AtlasMind drafted, any recipient it picked, and the first message to anyone in a session — rather than on every message you type yourself, because a dialog you always click through protects nothing.
+- **The Buzz setup guide reads Buzz's own docs.** Rather than hand-written instructions that go stale every time Buzz ships, `/buzz` quotes the current Buzz README for the parts outside AtlasMind — running a relay, installing the CLI, setting a key — with a source link and how recently it was read. Assessing *your* setup stays a deterministic check; only claims about Buzz are fetched, and anything quoted is clearly somebody else's text that AtlasMind will not run for you.
+- **A "Guide me through Buzz setup" button** on Settings → Buzz opens the walkthrough in chat, now with real how-to for the parts outside AtlasMind — including that a local relay is something *you* have to run (normally via Docker), since a valid `localhost` URL is not the same as a relay actually listening.
+- **`/buzz` sets Buzz up with you.** Ask `@atlas /buzz` and AtlasMind reads your actual configuration and tells you what is done, what is left, and what to click next — with a button for each gap. It will not switch anything on for you: every Buzz gate is off by default so that enabling it stays your call, and each button opens the relevant screen rather than changing state behind you. AtlasMind can now also tell you whether the Buzz CLI is installed, instead of letting you find out when a send fails.
+- **Pick a Buzz handle instead of pasting one.** Adding a person on the Director tab now offers the Buzz identities AtlasMind has actually seen, by the name each one published for itself — and your own identity, derived from the key already in secure storage. Nothing is ever guessed from a person's name: every option is a key that arrived on the wire, because a fabricated key would belong to somebody else.
+- **Buzz is configurable by clicking.** A new **Settings → Buzz** page surfaces every Buzz switch — enable it, point it at a relay, allow a remote one, subscribe to inbound, choose channels, and decide whether follow-ups are recorded — with each nested switch shown dimmed while its parent is off, so the three gates read as the three gates they are. And in **Project Dashboard → Director**, adding or editing a person with a `buzz` channel now offers an **AtlasMind agent** picker, so you can say "route their messages to this specialist" while adding them rather than by hand-editing settings JSON.
+- **Buzz activity can become AtlasMind work.** Switch on inbound and AtlasMind holds a live, read-only subscription to your Buzz relay, turning channel activity into follow-ups with a pointer back to the thread. You can also **assign AtlasMind agents to specific Buzz agents**, so work from a known Buzz bot lands with the right specialist. Three separate opt-ins gate it — enabling Buzz, subscribing, and recording — because project memory is committed to your repository.
+- **Buzz inbound can now authenticate.** AtlasMind signs the NIP-42 challenge a real Buzz relay demands, so a live subscription is possible at all — a relay refuses to serve one otherwise. The signing library is tiny (170 KB, no dependencies of its own) and is loaded only the first time a signature is needed, so if you never use Buzz it costs you nothing. Your agent key stays in the OS secret store, is checksum-validated so a mistyped key fails loudly instead of signing as someone else, and never reaches a log or an error message.
+- **Hosted Buzz workspaces are handled safely.** A Buzz relay doesn't have to be local. Connecting to a **remote** one now requires an encrypted connection — plaintext to a hosted relay would expose colleagues' messages in transit — matching the rule the outbound path already applied.
+- **Reading Buzz activity back in.** AtlasMind can now hold a live subscription to a Buzz relay: it authenticates, subscribes, keeps itself genuinely in contact (a wake lock can't save a dropped socket, so there's a keep-alive with backoff reconnect), and turns activity into follow-ups. External conversations are **derived, never mirrored** — a message becomes a follow-up with a pointer back to the thread, never the message body, because project memory is committed to your repository and a mirrored channel would put colleagues' chat in your git history. The subscription is **read-only by construction**: it can never publish to Buzz. Authentication and the message contract are now verified against a real Buzz relay; what remains before it is switched on is the wiring — an opt-in toggle and follow-up persistence.
+- **Buzz can now send for real through the guarded connector path.** A bundled communication-only MCP bridge wraps the pinned official Buzz CLI for channel posts, thread reads, and DMs; it stores the agent key in SecretStorage, passes message bodies over stdin, enforces local/remote relay policy, and keeps Buzz traffic from being misrouted through Slack or Teams.
+- **Workspace memory stays out of source and release archives.** Git ignores the local memory backup, while VSIX packaging excludes every `project_memory*` directory before Marketplace publication.
+- **Model refreshes now remove what providers removed.** Successful empty catalogs prune stale entries, and provider-confirmed deprecated or missing models cannot be resurrected by a later stale refresh.
+- **Assessment handoffs are actionable.** Proposed autonomous work ends with a chat card offering **Start run**, **Save for later**, or **Cancel**; only Autopilot may auto-start a proposal.
+- **Reasoning plans now hand off to tooling models.** Non-synthesis project steps are grounded with live workspace evidence skills, and a model that says its tools are disabled is rerouted instead of being counted as a successful executor.
+- **Execution limits end with a decision, not an inert warning.** When a chat or project run reaches its tool cap, AtlasMind asks whether to use the suggested limit for this run, save it permanently, or keep the partial result; the one-run choice restores the prior setting afterward.
+- **Local savings are visible at a glance.** The Cost Dashboard’s Efficiency summary now includes the estimated cloud spend avoided by local-model requests, backed by the detailed per-model comparison.
+- **Security reviews can be recorded consistently.** A new service provides the persistence, audit history, freshness, and scoring foundation for reviews of secrets, runtime boundaries, dependencies, and permissions.
+- **Review evidence is handled defensively.** Malformed model output is ignored safely, cited paths cannot escape the workspace, and unresolved findings cannot be silently marked closed. This release supplies the data layer for future dashboard wiring; it does not add an automated vulnerability scanner or a release gate.
+
+---
+
+## What is included
+
+- **Multi-agent orchestration** — debugger, frontend and backend engineers, reviewer, security specialist, testing, documentation, performance, DevOps, dependency, SEO, UX, and ethics/legal/commercial oversight.
+- **Outcome-aware model routing** — configurable provider choice with budget, speed, capability, health, feedback, and task-profile signals.
+- **Project planning and Mission Control** — dependency-aware subtasks, previews, checkpoints, resumable runs, and goal evaluation inside a closed operating envelope.
+- **Long-term project memory** — structured SSOT files, security-scanned writes, secret redaction, and source-backed retrieval.
+- **Agent and skill workspaces** — create custom agents, define completion criteria, assign tools and models, scan custom skills, and extend through MCP.
+- **Testing strategy** — 23 configurable methodologies with per-agent ownership, model overrides, project notes, scaffolding, and protocol sync to other AI tools.
+- **Project operations** — roadmap, delivery, privacy, risk, documents, stakeholders, assignments, and follow-ups in one project dashboard.
+- **Website Studio** — move a client site from intake through sitemap, wireframes, UI system, platform readiness, and a protected Develop → Staging → Production path.
+- **Voice, vision, and remote workflows** — local or hosted speech options, multimodal image analysis, and opt-in remote control.
+- **Transparent cost and quality signals** — per-session and per-model spend, model comparison, feedback, verification evidence, and routing outcomes.
+
+---
+
+## Built for trust
+
+AtlasMind treats chat input, workspace files, retrieved memory, model output, webview messages, URLs, and tool parameters as trust boundaries.
+
+- Global immutable guardrails are visible from **Settings → Agents** and apply to every routed agent.
+- Write, external, and destructive actions pass through configurable approval policy.
+- Secrets are kept in VS Code SecretStorage and redacted before model dispatch where required.
+- Workspace paths and webview payloads are validated before they can mutate state.
+- Verification can run automatically after writes, and project runs surface their evidence rather than silently claiming success.
+- Production promotion remains protected and deny-by-default when required backup or approval evidence is missing.
+
+Read the full [security model](wiki/Security.md) and [tool-execution policy](wiki/Tool-Execution.md).
+
+---
+
+## Make Atlas work like you do
+
+The Personality Profile lets you shape Atlas's role, tone, reasoning posture, memory preferences, and working boundaries. Save a global baseline, then layer project-specific preferences on top when a repository needs a different style.
+
+Open it from the Command Palette, **Settings Overview**, or **Settings → Models & Integrations**.
+
+Agent behavior is equally inspectable. **Settings → Agents** shows the global guardrails and a direct path into the Agent Manager, where built-in agents can be reviewed and custom agents can be created with their own instructions, completion rubric, skills, models, budget, testing role, and maintenance policy.
+
+Learn more in [Agents & Skills](docs/agents-and-skills.md).
+
+---
 
 ## Quick Start
 
-1. Install **AtlasMind** from the VS Code Marketplace.
-2. Open **AtlasMind: Manage Model Providers** and configure your first model provider.
-3. Start AtlasMind in your workspace:
-  - For a new project, run `@atlas /bootstrap`.
-  - For an existing project, run `@atlas /import`.
-4. Ask AtlasMind to help with your next task.
+1. [Install AtlasMind from the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=JoelBondoux.atlasmind).
+2. Run **AtlasMind: Manage Model Providers** and connect your first provider.
+3. Open a project in VS Code.
+4. Give AtlasMind context:
 
-For advanced setup, provider notes, CLI usage, or development workflows, see:
-- [Getting Started](wiki/Getting-Started.md)
-- [CLI Usage](wiki/CLI.md)
-- [Model Routing](docs/model-routing.md)
-- [Website Studio](docs/website-studio.md)
-- [Development Guide](docs/development.md)
+   - For a new project, run `@atlas /bootstrap`.
+   - For an existing repository, run `@atlas /import`.
 
-Focused provider test example:
-- `npm run test:providers:local-recommendations` (validates local-model recommendation override loading and fallback behavior; this also runs as an explicit CI quality gate)
+5. Ask AtlasMind to investigate, build, review, plan, or ship your next outcome.
+
+New to the workflow? Follow the [Getting Started guide](wiki/Getting-Started.md). Provider setup and routing details live in [Model Routing](docs/model-routing.md).
+
+---
+
+## Popular workflows
+
+### Fix or build something
+
+Ask in Atlas chat as you would ask a teammate. AtlasMind can inspect the workspace, choose a specialist, use the available tools, make the change, verify it, and report the result.
+
+### Run a coordinated project
+
+Use `/project <goal>` to create a reviewable task plan with dependencies, expected impact, approval gates, checkpoints, and a final synthesis.
+
+### Pursue a bounded goal
+
+Use `/loop <goal>` or open Mission Control. Each iteration plans the next increment, executes it, evaluates measurable progress, and stops when the goal is achieved or a configured guardrail confines the run.
+
+### Shape an idea before implementation
+
+Open Project Ideation to build a visual decision board, explore constraints and relationships, then hand a focused result into Project Run Center.
+
+### Deliver a website
+
+Website Studio connects client intake, information architecture, design review, platform readiness, and delivery planning. See the [Website Studio guide](docs/website-studio.md).
+
+### Keep the project organised
+
+Project Dashboard brings roadmap, issues, documents, delivery stages, privacy, risk, stakeholders, assignments, and follow-ups into one operational surface.
 
 ---
 
 ## Chat Slash Commands
 
-Use these in the AtlasMind chat panel by typing `@atlas /<command>`.
+Use these in AtlasMind chat as `@atlas /<command>`.
 
-| Command | Description |
+| Command | Outcome |
 |---|---|
-| `/bootstrap` | Initialise a new project with SSOT memory structure |
-| `/import` | Import an existing project by scanning files and populating memory |
-| `/project <goal>` | Decompose a goal into tests-first subtasks and execute autonomously |
-| `/loop <goal>` | Run an autonomous, goal-seeking **Mission Loop** within a closed budget envelope: plan → execute → re-evaluate each iteration until the goal is met or a guardrail (cost/iterations/no-progress/time) confines progress. Pauses for approval at configurable checkpoints |
-| `/agents` | List or manage registered agents |
-| `/skills` | List or manage registered skills |
-| `/discover <query>` | Discover external agentic resources (MCP servers, agents, skills, APIs) via [Agentic Resource Discovery](https://agenticresourcediscovery.org/), with one-click install of the results |
-| `/memory` | Query or manage the SSOT memory system |
-| `/cost` | Show cost summary for the current session |
-| `/runs` | Open the Project Run Center and inspect recent autonomous runs |
-| `/ship` | Run the project's default routine from `project_memory/routines/`. `/ship <id>` runs a named routine; trailing text sets `${message}` for interpolation |
-| `/sync-instructions` | Two-way sync AI instruction sets across tools (Claude, Copilot, Cursor, …) and AtlasMind: reconcile every tool's instructions into one unified set, resolve significant conflicts in chat, then mirror the set back into each tool's file (managed block, native format). `apply` / `choose <#> <#>` continue an in-progress sync |
-| `/voice` | Open the Voice Panel for TTS and STT |
-| `/vision` | Pick workspace images and ask a multimodal question |
+| `/bootstrap` | Create project memory and guided foundations for a new project |
+| `/import` | Build project memory from an existing repository |
+| `/project <goal>` | Preview and execute a coordinated multi-step project run |
+| `/loop <goal>` | Pursue a goal inside bounded cost, token, time, iteration, and checkpoint limits |
+| `/agents` | List and manage registered agents |
+| `/skills` | List and manage registered skills |
+| `/discover <query>` | Find agentic resources such as MCP servers, agents, skills, and APIs |
+| `/memory` | Query or manage SSOT project memory |
+| `/cost` | Show the current session cost summary |
+| `/runs` | Open recent autonomous runs and checkpoints |
+| `/director` | Review stakeholders, team, responsibilities, assignments, and follow-ups |
+| `/buzz` | Walk through Buzz setup: what is done, what is left, and what to click next |
+| `/setup` | List every setup guide and how far along each one is |
+| `/acp` | Walk through ACP agent setup: name it, install it, sign in, enable it, prove it answers |
+| `/followups` | Group open follow-ups by urgency |
+| `/ship [routine]` | Run the default or named project routine from project memory |
+| `/sync-instructions` | Reconcile and mirror supported AI instruction files |
+| `/voice` | Open the Voice Panel |
+| `/vision` | Open multimodal image analysis |
+
+The complete behavior and continuation syntax is documented in [Chat Commands](wiki/Chat-Commands.md).
 
 ---
 
 ## Extension Commands
 
-Access these from the VS Code Command Palette (`Ctrl+Shift+P`).
+Open the Command Palette with `Ctrl+Shift+P`.
 
-| Command | Description |
+| Command | Purpose |
 |---|---|
-| `AtlasMind: Getting Started` | Open the guided walkthrough |
-| `AtlasMind: Open Chat Panel` | Open the detached chat panel (`Ctrl+Alt+I`) |
-| `AtlasMind: Focus Chat View` | Focus the sidebar chat view |
-| `AtlasMind: Manage Model Providers` | Configure API keys and provider quota |
-| `AtlasMind: Dismiss Provider Notifications` | Clear the Models view auto-paused badge for the current session without re-enabling paused providers |
-| `AtlasMind: Manage Agents` | Create, edit, and enable/disable agents |
-| `AtlasMind: Open Settings Panel` | Open the budget/speed settings panel |
-| `AtlasMind: Open Personality Profile` | Configure Atlas's role, tone, and memory posture |
-| `AtlasMind: Bootstrap Project` | Create SSOT memory structure for a new project |
-| `AtlasMind: Import Existing Project` | Populate memory from an existing project |
-| `AtlasMind: Update Project Memory` | Re-scan and refresh the SSOT memory |
-| `AtlasMind: Open Cost Dashboard` | Per-session and per-model cost breakdown, plus a live "Current Loops" section for in-flight Mission Loop spend |
-| `AtlasMind: Open Project Dashboard` | Project health, gap analysis, and roadmap — including a **Road to MVP** section that tags backlog items (`#mvp`), visualises a milestone track to a first shippable product, and recommends the best route with an "ask Atlas" handoff |
-| `AtlasMind: Open Project Ideation` | Ideation whiteboard before launching a project run |
-| `AtlasMind: Open Website Studio` | Six website dashboards for client intake, sitemap, wireframes and visual-design review, UI system decisions, guarded Develop/Staging/Production hosting plus CMS targets, and n8n workflow mapping |
-| `AtlasMind: Open Project Run Center` | Task run history and checkpoint browser |
-| `AtlasMind: Open Mission Control` | Define, launch, watch, checkpoint, and audit autonomous Mission Loop runs |
-| `AtlasMind: Show Cost Summary` | Quick cost summary in the chat |
-| `AtlasMind: Toggle Autopilot` | Toggle autopilot mode |
-| `AtlasMind: Open Voice Panel` | Open TTS/STT voice interaction panel |
-| `AtlasMind: Open Vision Panel` | Open multimodal image analysis panel |
-| `AtlasMind: Manage MCP Servers` | Configure MCP server connections |
-| `AtlasMind: Resource Discovery` | Open the Agentic Resource Discovery (ARD) panel: search Agent Finders, install discovered resources, manage finders, and export this project's catalog |
-| `AtlasMind: Discover Resources (ARD)` | Prompt for a query and search enabled Agent Finders |
-| `AtlasMind: Export Resource Catalog (ai-catalog.json)` | Publish AtlasMind's agents, skills, and MCP servers as a spec-conformant `ai-catalog.json` (secrets/prompts excluded) |
+| `AtlasMind: Getting Started` | Open the guided onboarding walkthrough |
+| `AtlasMind: Open Chat Panel` | Open the larger detached Atlas chat |
+| `AtlasMind: Focus Chat View` | Return focus to the sidebar chat |
+| `AtlasMind: Open Settings Panel` | Open the multi-page AtlasMind settings workspace |
+| `AtlasMind: Manage Model Providers` | Connect providers, credentials, and quotas |
+| `AtlasMind: Manage Agents` | Search agents and edit grouped agent definitions |
+| `AtlasMind: Open Personality Profile` | Configure global and project-specific working preferences |
+| `AtlasMind: Bootstrap Project` | Create SSOT memory for a new project |
+| `AtlasMind: Import Existing Project` | Build SSOT memory from the open repository |
+| `AtlasMind: Update Project Memory` | Refresh project memory from current source |
+| `AtlasMind: Open Project Dashboard` | Open project health, roadmap, operations, and governance |
+| `AtlasMind: Open Project Director` | Open stakeholder, team, assignment, and follow-up management |
+| `AtlasMind: Open Project Ideation` | Open the visual ideation workspace |
+| `AtlasMind: Open Website Studio` | Open the website planning and delivery workspace |
+| `AtlasMind: Open Project Run Center` | Review plans, runs, approvals, checkpoints, and artifacts |
+| `AtlasMind: Open Mission Control` | Configure and operate bounded autonomous loops |
+| `AtlasMind: Open Cost Dashboard` | Inspect spend, cache/compression efficiency, and estimated local-model savings |
+| `AtlasMind: Compare Models on a Prompt` | Run a controlled prompt across configured models |
+| `AtlasMind: Manage MCP Servers` | Connect and manage MCP tool servers |
+| `AtlasMind: Resource Discovery` | Search, install, manage, and export agentic resources |
 | `AtlasMind: Specialist Integrations` | Configure specialist search and media providers |
-| `AtlasMind: Tool Webhooks` | Configure outbound tool execution webhooks |
-| `AtlasMind: Scaffold Testing Framework` | Construct a stack-aware starter framework (config, example tests, strategy playbook) for the enabled testing methodologies |
-| `AtlasMind: Compare Models on a Prompt` | Run one prompt across your configured models (grouped by provider, Select All + sample prompts) and view a sortable comparison. An optional LLM **judge** scores each answer 0–100; click any column header to sort. Records outcomes to calibrate routing. Reachable from the Models view titlebar (beaker icon) and the Settings overview. |
-| `AtlasMind: Sync Testing Protocols to AI Agents` | Write the enabled testing protocols into detected AI agent instruction files (`CLAUDE.md`, `copilot-instructions.md`, `AGENTS.md`, etc.) |
-| `AtlasMind: Enable Remote Control` | Start the localhost server so the web build can drive this desktop instance (desktop) |
-| `AtlasMind: Enable Remote Control (Gateway)` | Switch to `gateway` mode and start the server behind an SSO-gated Cloudflare Worker + tunnel for cross-machine access (desktop) |
-| `AtlasMind: Disable Remote Control` | Stop the remote-control server and drop sessions (desktop) |
-| `AtlasMind: Show Remote Pairing Code` | Re-display the remote pairing URL and token (desktop) |
-| `AtlasMind: Revoke Remote Access` | Rotate the pairing token and disconnect all clients (desktop) |
-| `AtlasMind: Connect to Desktop Instance` | Pair the web build with a desktop instance (web) |
-| `AtlasMind: Disconnect from Desktop Instance` | Disconnect the web client (web) |
-| `AtlasMind: Open Remote Dashboard` | Read-only cost and project-run dashboard in the web build (web) |
+| `AtlasMind: Tool Webhooks` | Configure guarded outbound tool-event webhooks |
+| `AtlasMind: Open Voice Panel` | Configure TTS and STT interaction |
+| `AtlasMind: Open Vision Panel` | Ask multimodal questions about workspace images |
+| `AtlasMind: Scaffold Testing Framework` | Create a stack-aware testing starter |
+| `AtlasMind: Sync Testing Protocols to AI Agents` | Mirror enabled testing protocols into supported instruction files |
+| `AtlasMind: Toggle Keep Computer Awake` | Opt into an AC-aware wake lock for long-running activity |
+| `AtlasMind: Set Buzz Agent Key` | Store or remove the Buzz agent key in the OS secret store (empty value removes it) |
+| `AtlasMind: Fetch My Buzz Channels` | Ask the Buzz CLI which channels your key can see, and tick the ones to watch. Writes nothing unless you confirm |
 
-See [Remote Control](docs/remote-control.md) for the architecture and security model.
-
----
-
-## Website Studio
-
-Choose **Website / Marketing Site** during guided bootstrap, or run **AtlasMind: Open Website Studio** in any workspace. The Studio provides six connected dashboards:
-
-1. **Client brief** — capture manually or import bounded JSON from a form, CRM, or n8n normalization flow.
-2. **Sitemap** — define each page, slug, purpose, and reusable template.
-3. **Wireframes & UI** — outline page sections and track wireframe, visual design, content, and SEO through draft, review, and approval.
-4. **UI system** — record brand direction, type, palette, spacing, corners, accessibility target, and component decisions.
-5. **Hosting & Platforms** — configure the fixed Develop → Staging → Production path, then choose and track Cloudflare Pages, GitHub Pages, WordPress/Elementor, WordPress, Vercel, Netlify, Azure Static Web Apps, Shopify, Webflow, or a custom target.
-6. **n8n automations** — map events and outcomes while storing only workflow IDs and credential references, never webhook or credential values.
-
-The hosting policy is fixed: **Develop** uses a loopback URL by default and can use an HTTPS, password-protected hosted fallback only when local hosting is not possible; **Staging** is always an HTTPS, password-protected `<review-label>.<production-domain>` for client review; **Production** is public and promotion-protected. Password values are never stored—only references such as `SecretStorage:website.staging.password` or `env:WEBSITE_STAGING_PASSWORD`.
-
-The source of truth is `project_memory/domain/website.json`; AtlasMind regenerates `website.md` as a review-friendly mirror. Website Studio evaluates readiness but does not publish or trigger workflows directly. Production delivery remains behind the Project Dashboard's preflight, backup, approval, publish, and verification gates.
-
----
-
-## Sidebar Views
-
-AtlasMind adds a sidebar with the following tree and webview panels:
-
-| View | Description |
-|---|---|
-| **Quick Links** | Fast access to key panels and actions |
-| **Chat** | Inline chat interface within the sidebar |
-| **Project Runs** | History of autonomous project runs and checkpoints |
-| **Sessions** | Named chat sessions with folder organization and archiving |
-| **Memory (SSOT)** | Browse and edit SSOT memory entries |
-| **Agents** | Enable/disable and inspect registered agents |
-| **Skills** | Enable/disable, scan, and manage skills and custom folders |
-| **MCP Servers** | Status and summary of connected MCP servers |
-| **Resource Discovery** | ARD Agent Finders (enable/disable) and recently discovered resources |
-| **Models** | Available models by provider with enable/disable and routing controls |
-
----
-
-## Built-in Agents
-
-AtlasMind ships 18 specialized agents, automatically routed by task type.
-
-| Agent | Role |
-|---|---|
-| **Default Assistant** | General-purpose coding and task assistant |
-| **Workspace Debugger** | Root-cause diagnosis, error tracing, and fix verification |
-| **Frontend Engineer** | UI components, CSS, accessibility, responsive layouts |
-| **Backend Engineer** | APIs, services, databases, and server-side logic |
-| **Code Reviewer** | Code quality, correctness, and improvement feedback |
-| **Security Reviewer** | Threat modelling, vulnerability detection, and remediation |
-| **GitHub Operator** | Pull requests, issues, CI/CD workflows, and git housekeeping |
-| **Test Developer** | Unit, integration, E2E, regression tests — test-first by default |
-| **Documentation Writer** | READMEs, API docs, JSDoc/TSDoc, wikis, and changelogs |
-| **Performance Analyst** | CPU hot paths, memory leaks, slow queries, and benchmarks |
-| **DevOps Engineer** | CI/CD pipelines, Docker, Kubernetes, Terraform, and IaC |
-| **Dependency Manager** | Package updates, vulnerability remediation, and lockfile hygiene |
-| **SEO Specialist** | Technical SEO, Core Web Vitals, structured data, AEO, GEO, LLMO |
-| **UX Consultant** | UX critique, accessible UI generation, responsive design |
-| **Memory Agent** | Background session context and SSOT snippet maintenance |
-
-Agents use **AI-driven skill auto-assignment** by default — AtlasMind selects the best-fit skills for each agent's role automatically. Skills can also be assigned manually per agent.
-
-Agents can be **auto-updated on a configurable cadence** (never/daily/weekly/monthly/every-use) so system prompts stay current with best practices and compliance requirements. Individual agents can opt out of auto-updates.
-
----
-
-## Built-in Skills
-
-43 built-in skills organized by category. All skills are enable/disable toggleable and undergo security scanning before use.
-
-| Category | Skills |
-|---|---|
-| **Workspace Files** | file-read, file-write, file-edit, file-search, file-delete, file-move, directory-list |
-| **Git & Review** | git-status, git-diff, git-commit, git-push, git-log, git-branch, git-apply-patch, git-blame, rollback-checkpoint, diff-preview |
-| **Execution & Testing** | terminal-run, terminal-read, test-run, debug-session, docker-cli, npm-scripts, workspace-observability |
-| **Code Intelligence** | diagnostics, code-symbols, rename-symbol, code-action, code-format, framework-detect |
-| **Debugging** | debug-launch, debug-breakpoint, log-file-tail |
-| **Search & Fetch** | text-search, web-fetch, http-request, exa-search, discover-resources |
-| **Memory** | memory-query, memory-write, memory-delete |
-| **VS Code** | vscode-extensions, simple-browser |
-
-Custom skills can be authored and loaded from any workspace folder. The Skills view supports folder organization and per-skill security scanning.
+Settings-specific, sidebar, remote-control, and resource-action commands are listed in [Chat Commands](wiki/Chat-Commands.md) and [Remote Control](docs/remote-control.md).
 
 ---
 
 ## Configuration
 
-Key settings under `atlasmind.*` in VS Code settings:
+AtlasMind's main settings are available in its Settings panel and under `atlasmind.*` in VS Code settings.
 
-| Setting | Default | Description |
-|---|---|---|
-| `budgetMode` | `balanced` | Model cost preference: `cheap`, `balanced`, `expensive`, `auto` |
-| `speedMode` | `balanced` | Model speed preference: `fast`, `balanced`, `considered`, `auto` |
-| `planningModelId` | `""` | Optional model ID pinned for the planning "brain" phase; empty routes planning normally |
-| `synthesisModelId` | `""` | Optional model ID pinned for the synthesis (summarization) phase; empty routes synthesis normally |
-| `draftModelId` | `""` | Optional model pinned to draft mechanical tasks (local-draft / frontier-escalate); empty routes normally |
-| `toolApprovalMode` | `ask-on-write` | When to prompt for tool approval: `always-ask`, `ask-on-write`, `ask-on-external`, `allow-safe-readonly` |
-| `dailyCostLimitUsd` | `0` | Daily spend cap in USD (0 = unlimited) |
-| `agentAutoUpdateCadence` | `never` | How often to AI-refresh agent definitions: `never`, `daily`, `weekly`, `monthly`, `every-use` |
-| `maxToolIterations` | `10` | Max tool-call loop iterations per agent turn |
-| `loop.enabled` | `true` | Enable the autonomous Mission Loop (`/loop` + Mission Control) |
-| `loop.defaultMaxIterations` | `8` | Default hard cap on Mission Loop iterations |
-| `loop.defaultMaxCostUsd` | `5` | Default hard ceiling (USD) on a Mission Loop run |
-| `loop.defaultMaxTokens` | `2000000` | Default cumulative token cap for a Mission Loop run |
-| `loop.defaultMaxDurationMinutes` | `30` | Default wall-clock cap (minutes) for a Mission Loop run |
-| `loop.maxConsecutiveNoProgress` | `2` | Stop after this many consecutive no-progress iterations |
-| `loop.checkpointEveryNIterations` | `3` | Pause for approval every N iterations (0 = off) |
-| `loop.checkpointAtBudgetFraction` | `0.75` | Pause when spend crosses this fraction (0..1) of the cost budget |
-| `loop.requireApprovalBeforeWriteBatches` | `false` | Require approval before any write/commit iteration |
-| `loop.allowDiscovery` | `true` | Allow the loop to synthesize/discover capabilities (gated) |
-| `loop.goalAchievedConfidenceThreshold` | `0.7` | Min evaluator confidence to accept an `achieved` verdict |
-| `allowTerminalWrite` | `false` | Allow terminal subprocesses (installs, commits) after explicit approval |
-| `autoVerifyAfterWrite` | `true` | Run verification scripts after workspace writes |
-| `autoStartProposedProjectRuns` | `true` | When a reply offers an autonomous project run, flow straight into it (immediate under Autopilot; cancellable notice otherwise) instead of waiting for "Proceed"; the file-count gate still applies |
-| `ssotPath` | `project_memory` | Relative path to the SSOT memory folder |
-| `localOpenAiEndpoints` | `[]` | Labeled local OpenAI-compatible endpoints (`id`/`label`/`baseUrl`) aggregated under the Local provider; managed from Settings → Models & Integrations |
-| `localOpenAiBaseUrl` | `http://127.0.0.1:11434/v1` | Legacy single-endpoint fallback for Ollama or LM Studio (auto-migrated into `localOpenAiEndpoints`) |
-| `toolWebhookEnabled` | `false` | Send tool execution events to an outbound webhook |
-| `ard.enabled` | `true` | Enable Agentic Resource Discovery (panel, `/discover`, and the read-only `discover-resources` skill) |
-| `ard.federationMode` | `referrals` | How ARD searches fan out across federated registries: `auto`, `referrals`, `none` |
-| `ard.maxResults` | `10` | Maximum results returned from a discovery search |
-| `ard.requestTimeoutMs` | `15000` | Timeout for each outbound ARD discovery request (ms) |
-| `ard.allowInsecureEndpoints` | `false` | Allow `http://`/localhost Agent Finders (e.g. the ARD conformance demo); otherwise HTTPS is required and private hosts are rejected |
-| `remote.enabled` | `false` | Allow the web build to remote-control this desktop instance over a localhost WebSocket |
-| `remote.mode` | `localhost` | Transport/auth mode: `localhost` (same-machine token pairing) or `gateway` (SSO-gated Cloudflare Worker + tunnel for cross-machine access) |
-| `remote.port` | `0` | Localhost port for the remote-control server (0 = auto; pin a value in `gateway` mode so the tunnel target stays fixed) |
+| Setting | Default | What it controls |
+|---|---:|---|
+| `budgetMode` | `balanced` | Cost preference used during model routing |
+| `speedMode` | `balanced` | Latency/reasoning preference used during routing |
+| `dailyCostLimitUsd` | `0` | Daily spend ceiling; `0` disables the limit |
+| `toolApprovalMode` | `ask-on-write` | When tools require operator approval |
+| `autoStartProposedProjectRuns` | `true` | Permit proposal auto-start only under Autopilot; otherwise show Start, Save for later, and Cancel |
+| `allowTerminalWrite` | `false` | Whether approved terminal subprocesses may mutate state |
+| `autoVerifyAfterWrite` | `true` | Whether configured verification runs after writes |
+| `agentAutoUpdateCadence` | `never` | Optional AI refresh cadence for custom agent definitions |
+| `ssotPath` | `project_memory` | Workspace-relative project-memory location |
+| `localOpenAiEndpoints` | `[]` | Labeled local OpenAI-compatible endpoints |
+| `loop.enabled` | `true` | Whether Mission Loop can run |
+| `feedbackRoutingWeight` | `1` | Strength of saved response feedback in routing |
+| `remote.enabled` | `false` | Whether desktop remote control is available |
+| `buzz.enabled` | `false` | Master switch for the Buzz integration (Settings → Buzz) |
+| `buzz.inboundEnabled` | `false` | Hold a read-only subscription to a Buzz relay |
+| `buzz.autoCreateFollowUps` | `false` | Record derived Buzz follow-ups into git-tracked project memory |
+| `buzz.agentBindings` | `{}` | Route a Buzz identity's work to an AtlasMind agent (edited per person on Dashboard → Director) |
 
-See [Configuration Reference](docs/configuration.md) and [wiki/Configuration.md](wiki/Configuration.md) for the full settings list.
-
----
-
-## Open Source & Support
-
-AtlasMind is fully open source and available under the permissive MIT license. There are no paywalls, feature gates, or commercial editions—just the full project, free for everyone.
-
-If AtlasMind saves you time or helps your team, consider a pay-what-it's-worth donation to keep the project alive and thriving. Every bit of support helps sustain ongoing development.
-
-See [Funding and Sponsorship](wiki/Funding-and-Sponsorship.md) for details.
-
----
-
-
-
-## Learn More
-
-
-- [Core Workflows](wiki/Chat-Commands.md)
-- [Model Routing](docs/model-routing.md)
-- [Agents & Skills](docs/agents-and-skills.md)
-- [SSOT Memory System](docs/ssot-memory.md)
-- [Configuration Reference](docs/configuration.md)
-- [Roadmap](docs/roadmap.md)
-- [Funding and Sponsorship](wiki/Funding-and-Sponsorship.md)
+See the [Configuration Reference](docs/configuration.md) or [wiki Configuration](wiki/Configuration.md) for every setting, accepted value, security implication, and provider-specific option.
 
 ---
 
 ## Project Structure
 
-- Core runtime: `src/core/`, `src/runtime/`, `src/chat/`, `src/commands.ts`, `src/extension.ts`
-- Provider adapters and catalogs: `src/providers/` (including `localModelSync.ts` and `localModelRecommendationRegistry.ts`)
-- Skills and tool handlers: `src/skills/`
-- Shared utilities: `src/utils/` (including `secretRedactor.ts` — pattern-based secret scanner used to scrub credentials from memory context before LLM dispatch; `aiInstructionSync.ts` — inbound merge of external agent rule files; `testingProtocolSync.ts` — outbound sync of enabled testing protocols into external agent instruction files; `terminalOutput.ts` — strips ANSI/control escape sequences from captured tool output before it is shown in chat summaries or webviews)
-- Data privacy: `src/core/dataPrivacyManager.ts` (classifies confidential/proprietary terms, files, and folders and gates them to user-selected "trusted" models; records catch activity for the dashboard charts), `src/core/compliancePacks.ts` (built-in GDPR/HIPAA/PCI-DSS/CCPA detector packs), and `src/core/providerDataGovernance.ts` (per-provider GDPR/data-management reference links). Managed from the Project Dashboard → **Privacy** page (provider/model trust tree, catch charts, and provider data-management panel); policy stored at `project_memory/operations/data-privacy.json`.
-- Delivery & deployment stages: `src/core/deliveryManager.ts` (models Local → Staging → Production stages and promotion "push" edges; seeds a pipeline from the repo's branches, sanitises dashboard edits via `sanitizeDeliveryConfig`, and persists `project_memory/operations/delivery.json` + a human-readable `delivery.md` runbook mirror) and `src/core/promotionRunner.ts` (the guarded promotion engine: builds the preflight → backup → deploy → verify → record plan, enforces the authorization gate, and executes user-authored commands with live progress). Surfaced on the Project Dashboard → **Delivery** page as an editable **Stages & Promotion** pipeline with **Execute / Runbook** push buttons; production is protected, a data-bearing target with no backup command is deny-by-default blocked, executed commands are sourced only from your saved config/routines, and AtlasMind never force-pushes. The page **auto-refreshes** on external `delivery.json` changes (file watcher) and shows a **"review needed"** banner when the protocol, stage-candidate branches, or CI workflows have drifted since your last review.
-- Website delivery: `src/core/websiteWorkspaceManager.ts` (bounded client-intake normalization, fixed Develop/Staging/Production hosting policy and readiness, sitemap/design/platform/n8n SSOT persistence, secret redaction, and Markdown mirroring) and `src/views/websiteStudioPanel.ts` (the six-tab Website Studio webview). Website bootstrap seeds `project_memory/domain/website.json` plus `website.md` without overwriting an existing plan; publishing continues through the guarded Delivery pipeline rather than executing from the Studio.
-- Project Director (people & follow-ups): `src/core/projectDirectorManager.ts` models the stakeholders, delivery team, responsibilities, human task assignments, and follow-ups around a project, persisted to `project_memory/operations/project-director.json` plus a `project-director.md` mirror (with capped history). It is GDPR-first — it prefers to *reference* people in their system of record (Microsoft 365 / Slack / Google Workspace, each with a data-governance reference) over storing raw PII, flags any locally-stored PII for a one-time consent gate, restricts communication deep-links to a scheme allowlist, and describes channels by kind/label only in the git-tracked mirror. Surfaced on the Project Dashboard → **Director** page *(dashboard, guarded connector send/schedule, and scheduled reminders arrive in later phases)*.
-- Mission Loop (autonomous goal-seeking loop): `src/core/missionRunner.ts` (the outer plan → execute → evaluate loop with the closed parameter envelope and deny-by-default checkpoints), `src/core/goalEvaluator.ts` (validated, untrusted-output progress verdicts), and `src/core/missionRegistry.ts` (audit persistence to `project_memory/operations/missions.json` + a `missions.md` runbook mirror). Defined/launched/watched from the **Mission Control** webview (`src/views/missionControlPanel.ts`) and the `/loop` chat command.
-- Testing strategy: `src/core/testingConfigLoader.ts` (methodology resolution for orchestrated runs) and `src/core/testingScaffolder.ts` (stack-aware framework scaffolding)
-- Routing intelligence: `src/core/executionQuality.ts` (shared output-quality scorer), `src/core/modelEvalHarness.ts` (scored-replay model comparison), and `src/views/modelComparisonPanel.ts` (comparison webview)
-- Webview and sidebar surfaces: `src/views/` (`chatProtocol.ts` and `chatWebviewMarkup.ts` are Node-free so they are shared with the web build)
-- Voice (TTS/STT): `src/voice/` (`voiceManager.ts` bridge, `hostSpeechSynthesizer.ts` on-device OS speech engine, `localTranscriber.ts` on-device Whisper STT)
-- Memory and MCP layers: `src/memory/`, `src/mcp/` (`mcpServerRegistry.ts` persists servers and resolves SecretStorage-backed env at connect, `mcpClient.ts` the transport client, `mcpRuntime.ts` the shared confirm-before-install runtime bootstrap). MCP setup uses a guided wizard (`src/views/mcpPanel.ts` → **Guided Setup**): scan the environment or browse by category, AtlasMind checks prerequisites and collects any credentials (stored in SecretStorage), then connects; a raw form remains under **Advanced**.
-- Agentic Resource Discovery: `src/ard/` (`ardClient.ts` protocol client, `ardRegistry.ts` Agent Finder registry, `ardInstaller.ts` install mapping, `ardCatalogExporter.ts` publisher). The discovery UI is the **Resource Discovery** tab in the Settings dashboard (`src/views/settingsPanel.ts`). See [Resource Discovery](docs/resource-discovery.md).
-- Remote control: `src/remote/` (`protocol.ts` wire format, `remoteControlServer.ts` desktop server, `remoteBridge.ts` synthetic webview host) and `src/web/` (browser thin-client entry, `remoteClient.ts`, `chatClientPanel.ts`, `dashboardPanel.ts`)
+The README keeps the map short; implementation details and data flows belong in the technical docs.
 
----
-
-## Contributing & License
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup and contribution guidelines.
-
-MIT License — see [LICENSE]
+| Path | Responsibility |
+|---|---|
+| `src/co
 
 <!-- atlasmind-import
 entry-path: architecture/project-overview.md
 generator-version: 2
-generated-at: 2026-07-24T12:06:10.564Z
+generated-at: 2026-07-28T12:06:49.103Z
 source-paths: README.md
-source-fingerprint: 764aa97f
-body-fingerprint: faf199de
+source-fingerprint: 6d1b5cf4
+body-fingerprint: 7b7f3b06
 -->
