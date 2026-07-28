@@ -173,6 +173,12 @@ Agent Finder definitions are stored in `globalState` and managed from the Resour
 
 ## Buzz (agentic comms)
 
+### MCP servers
+
+**Settings → MCP Servers** lists every registered server with its transport, live connection status, tool count, and any error, and offers Enable / Connect / Disconnect per server. The state is read from the registry each render, so it reflects what is running rather than what was configured.
+
+Disabling a server also disconnects it — a gate that reports itself closed while its tools stay reachable would be worse than none. Adding a server, changing its transport or arguments, and entering secrets remain in the dedicated **AtlasMind: Manage MCP Servers** panel, which this page links to; duplicating that flow would create two implementations to keep in step.
+
 ### Chat attention
 
 | Setting | Type | Default | Description |

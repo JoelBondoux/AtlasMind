@@ -189,6 +189,12 @@ Agent Finders ship **disabled** and are managed from the Resource Discovery tab 
 
 ---
 
+## MCP Servers
+
+**Settings → MCP Servers** shows each registered server's transport, live status, tool count, and error, with Enable / Connect / Disconnect. Disabling disconnects rather than just relabelling. Adding and editing servers stays in the dedicated MCP manager, linked from the page.
+
+---
+
 ## Chat Attention
 
 | Setting | Type | Default | Description |

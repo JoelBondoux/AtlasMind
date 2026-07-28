@@ -212,7 +212,7 @@ interface LocalModelRecommendationPayload {
  * The nav markup below is grouped to match; this list is the canonical order
  * and the source of `SettingsPageId`.
  */
-export const SETTINGS_PAGE_IDS = ['overview', 'agents', 'models', 'discovery', 'buzz', 'chat', 'ai-instructions', 'safety', 'testing', 'project', 'loop', 'experimental'] as const;
+export const SETTINGS_PAGE_IDS = ['overview', 'agents', 'models', 'discovery', 'mcp', 'buzz', 'chat', 'ai-instructions', 'safety', 'testing', 'project', 'loop', 'experimental'] as const;
 export type SettingsPageId = (typeof SETTINGS_PAGE_IDS)[number];
 export interface SettingsPanelTarget {
   page?: SettingsPageId;
@@ -245,6 +245,10 @@ type SettingsMessage =
   | { type: 'openBuzzAgentKey' }
   | { type: 'openDirectorRoster' }
   | { type: 'openBuzzGuide' }
+  | { type: 'setMcpServerEnabled'; payload: { id: string; enabled: boolean } }
+  | { type: 'connectMcpServer'; payload: string }
+  | { type: 'disconnectMcpServer'; payload: string }
+  | { type: 'openMcpManager' }
   | { type: 'setVoiceTtsEnabled'; payload: boolean }
   | { type: 'setVoiceRate'; payload: number }
   | { type: 'setVoicePitch'; payload: number }
@@ -880,6 +884,37 @@ export class SettingsPanel {
 
       case 'openDirectorRoster':
         await vscode.commands.executeCommand('atlasmind.openProjectDirector');
+        return;
+
+      case 'setMcpServerEnabled': {
+        const registry = this.atlasContext?.mcpServerRegistry;
+        if (!registry) { return; }
+        registry.updateServer(message.payload.id, { enabled: message.payload.enabled });
+        // Disabling should actually stop the server, not just relabel it.
+        if (!message.payload.enabled) {
+          await registry.disconnectServer(message.payload.id).catch(() => undefined);
+        }
+        this.panel.webview.html = this.getHtml();
+        return;
+      }
+
+      case 'connectMcpServer':
+        await this.atlasContext?.mcpServerRegistry?.connectServer(message.payload).catch((error: unknown) => {
+          void vscode.window.showWarningMessage(`Could not connect: ${error instanceof Error ? error.message : String(error)}`);
+        });
+        this.panel.webview.html = this.getHtml();
+        return;
+
+      case 'disconnectMcpServer':
+        await this.atlasContext?.mcpServerRegistry?.disconnectServer(message.payload).catch(() => undefined);
+        this.panel.webview.html = this.getHtml();
+        return;
+
+      case 'openMcpManager':
+        // Adding, editing, and secret entry stay in the dedicated panel. Two
+        // implementations of one flow drift, and the one that drifts is the one
+        // nobody is looking at.
+        await vscode.commands.executeCommand('atlasmind.openMcpServers');
         return;
 
       case 'openBuzzGuide':
@@ -1811,6 +1846,18 @@ export class SettingsPanel {
     const experimentalSkillLearningEnabled = configuration.get<boolean>('experimentalSkillLearningEnabled', false);
     const maxToolIterations = getPositiveInteger(configuration.get<number>('maxToolIterations'), 20);
 
+    // MCP servers, read live so the page shows what is actually connected
+    // rather than what was configured.
+    const mcpServers = (this.atlasContext?.mcpServerRegistry?.listServers() ?? []).map(entry => ({
+      id: entry.config.id,
+      name: entry.config.name || entry.config.id,
+      transport: entry.config.transport,
+      enabled: entry.config.enabled !== false,
+      status: entry.status,
+      error: entry.error,
+      toolCount: entry.tools.length,
+    }));
+
     // Buzz. Each switch is read independently so the page can show the real
     // stored value even when a parent gate makes it inert — hiding a stored
     // `true` behind a disabled parent would misrepresent what is configured.
@@ -1883,6 +1930,7 @@ export class SettingsPanel {
             <button type="button" class="nav-link ${initialPage === 'agents' ? 'active' : ''}" id="tab-agents" data-page-target="agents" data-search="agents manage agents built-in custom roles prompts instructions rubrics completion criteria global immutable guardrails safety policy skills models budget auto-update automation" role="tab" aria-selected="${initialPage === 'agents' ? 'true' : 'false'}" aria-controls="page-agents" ${initialPage === 'agents' ? '' : 'tabindex="-1"'}>Agents</button>
             <button type="button" class="nav-link ${initialPage === 'models' ? 'active' : ''}" id="tab-models" data-page-target="models" data-search="models integrations providers local endpoint local endpoints ollama lm studio azure bedrock personality profile role tone memory posture voice vision exa specialist" role="tab" aria-selected="${initialPage === 'models' ? 'true' : 'false'}" aria-controls="page-models" ${initialPage === 'models' ? '' : 'tabindex="-1"'}>Models & Integrations</button>
             <button type="button" class="nav-link ${initialPage === 'discovery' ? 'active' : ''}" id="tab-discovery" data-page-target="discovery" data-search="resource discovery ard agent finders mcp servers agents skills apis search install publish catalog manifest registry" role="tab" aria-selected="${initialPage === 'discovery' ? 'true' : 'false'}" aria-controls="page-discovery" ${initialPage === 'discovery' ? '' : 'tabindex="-1"'}>Resource Discovery</button>
+            <button type="button" class="nav-link ${initialPage === 'mcp' ? 'active' : ''}" id="tab-mcp" data-page-target="mcp" data-search="mcp servers model context protocol tools connect disconnect stdio http bridge" role="tab" aria-selected="${initialPage === 'mcp' ? 'true' : 'false'}" aria-controls="page-mcp" ${initialPage === 'mcp' ? '' : 'tabindex="-1"'}>MCP Servers</button>
             <button type="button" class="nav-link ${initialPage === 'buzz' ? 'active' : ''}" id="tab-buzz" data-page-target="buzz" data-search="buzz nostr relay inbound subscription follow-ups agent bindings npub agent key channels remote relay" role="tab" aria-selected="${initialPage === 'buzz' ? 'true' : 'false'}" aria-controls="page-buzz" ${initialPage === 'buzz' ? '' : 'tabindex="-1"'}>Buzz</button>
           </div>
           <div class="nav-group" role="presentation">
@@ -2491,6 +2539,49 @@ export class SettingsPanel {
                 <p class="info-note">A goal is only accepted as achieved with passing verification and at least this evaluator confidence, so a low-confidence verdict can never falsely declare success.</p>
               </article>
             </div>
+          </section>
+
+          <section id="page-mcp" class="settings-page ${initialPage === 'mcp' ? 'active fallback-visible' : ''}" role="tabpanel" aria-labelledby="tab-mcp" tabindex="0">
+            <div class="page-header">
+              <p class="page-kicker">MCP Servers</p>
+              <h2>Tools AtlasMind can reach</h2>
+              <p>Each connected server contributes tools that agents may call. Enabling or connecting one here widens what AtlasMind can do, so the list shows what is actually running rather than what was once configured.</p>
+            </div>
+
+            <div class="page-grid">
+              ${mcpServers.length === 0
+                ? `<article class="settings-card">
+                    <div class="card-header"><p class="card-kicker">Nothing connected</p><h3>No MCP servers yet</h3></div>
+                    <p class="muted-line">Add one from the full manager — it has the browse-by-category list, transport setup, and secret entry.</p>
+                    <div class="button-stack"><button type="button" class="secondary-button" id="mcpOpenManager">Open the MCP manager</button></div>
+                  </article>`
+                : mcpServers.map(server => `
+                  <article class="settings-card">
+                    <div class="card-header">
+                      <p class="card-kicker">${escapeHtml(server.transport)} · ${escapeHtml(server.status)}${server.toolCount > 0 ? ` · ${server.toolCount} tool${server.toolCount === 1 ? '' : 's'}` : ''}</p>
+                      <h3>${escapeHtml(server.name)}</h3>
+                    </div>
+                    ${server.error ? `<p class="warning-note">${escapeHtml(server.error)}</p>` : ''}
+                    <label class="checkbox-card">
+                      <input type="checkbox" data-mcp-enable="${escapeHtml(server.id)}" ${server.enabled ? 'checked' : ''}>
+                      <span>
+                        <strong>Enabled</strong>
+                        <span class="muted-line">Turning this off disconnects the server and withdraws its tools.</span>
+                      </span>
+                    </label>
+                    <div class="button-stack">
+                      ${server.status === 'connected'
+                        ? `<button type="button" class="secondary-button" data-mcp-disconnect="${escapeHtml(server.id)}">Disconnect</button>`
+                        : `<button type="button" class="secondary-button" data-mcp-connect="${escapeHtml(server.id)}" ${server.enabled ? '' : 'disabled'}>Connect</button>`}
+                    </div>
+                  </article>`).join('')}
+            </div>
+
+            ${mcpServers.length > 0 ? `<article class="settings-card">
+              <div class="card-header"><p class="card-kicker">Adding and editing</p><h3>Full MCP manager</h3></div>
+              <p class="muted-line">Adding a server, changing its transport or arguments, and entering secrets all live in the dedicated panel. They are deliberately not duplicated here — two implementations of one flow drift, and the one that drifts is the one nobody is looking at.</p>
+              <div class="button-stack"><button type="button" class="secondary-button" id="mcpOpenManager">Open the MCP manager</button></div>
+            </article>` : ''}
           </section>
 
           <section id="page-buzz" class="settings-page ${initialPage === 'buzz' ? 'active fallback-visible' : ''}" role="tabpanel" aria-labelledby="tab-buzz" tabindex="0">
@@ -4536,6 +4627,34 @@ export class SettingsPanel {
             voiceOutputDeviceId.addEventListener('blur', emitVoiceOutputDeviceId);
           }
 
+          // MCP servers. Delegated because the cards are re-rendered whenever a
+          // connection changes, so per-element listeners would be lost.
+          document.querySelectorAll('[data-mcp-enable]').forEach(element => {
+            if (element instanceof HTMLInputElement) {
+              element.addEventListener('change', () => {
+                vscode.postMessage({
+                  type: 'setMcpServerEnabled',
+                  payload: { id: element.getAttribute('data-mcp-enable'), enabled: element.checked },
+                });
+              });
+            }
+          });
+          document.querySelectorAll('[data-mcp-connect]').forEach(element => {
+            element.addEventListener('click', () => {
+              vscode.postMessage({ type: 'connectMcpServer', payload: element.getAttribute('data-mcp-connect') });
+            });
+          });
+          document.querySelectorAll('[data-mcp-disconnect]').forEach(element => {
+            element.addEventListener('click', () => {
+              vscode.postMessage({ type: 'disconnectMcpServer', payload: element.getAttribute('data-mcp-disconnect') });
+            });
+          });
+          document.querySelectorAll('#mcpOpenManager').forEach(element => {
+            element.addEventListener('click', () => {
+              vscode.postMessage({ type: 'openMcpManager' });
+            });
+          });
+
           // Buzz. The gates are nested, so a dependent control is dimmed and
           // disabled while its parent is off — it still shows the value that is
           // stored, because hiding a stored 'on' would misreport the config.
@@ -6181,8 +6300,20 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
     return typeof message.payload === 'string';
   }
 
-  if (message.type === 'openBuzzAgentKey' || message.type === 'openDirectorRoster' || message.type === 'openBuzzGuide') {
+  if (message.type === 'openBuzzAgentKey' || message.type === 'openDirectorRoster'
+    || message.type === 'openBuzzGuide' || message.type === 'openMcpManager') {
     return true;
+  }
+
+  if (message.type === 'connectMcpServer' || message.type === 'disconnectMcpServer') {
+    return typeof message.payload === 'string' && message.payload.trim().length > 0;
+  }
+
+  if (message.type === 'setMcpServerEnabled') {
+    const payload = message.payload as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null
+      && typeof payload['id'] === 'string' && payload['id'].trim().length > 0
+      && typeof payload['enabled'] === 'boolean';
   }
 
   if (message.type === 'ardExportCatalog') {

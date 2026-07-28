@@ -32,7 +32,7 @@ describe('settings section order', () => {
     expect([...SETTINGS_PAGE_IDS]).toEqual([
       'overview',
       // Capabilities — what the extension can do.
-      'agents', 'models', 'discovery', 'buzz',
+      'agents', 'models', 'discovery', 'mcp', 'buzz',
       // Interaction — how it talks to you.
       'chat', 'ai-instructions',
       // Guardrails — what it is allowed to do.

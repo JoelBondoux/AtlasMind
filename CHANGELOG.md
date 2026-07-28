@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.160.0] - 2026-07-28
+
+### Added
+- **Settings → MCP Servers.** Every registered server is listed with its transport, live connection status, tool count, and any error — with Enable, Connect, and Disconnect for each. Previously the only way to see whether a server was actually connected was to open a separate panel.
+
+### Changed
+- **Disabling a server now disconnects it**, rather than only relabelling it. A gate that reports itself closed while its tools remain reachable is worse than no gate.
+- **The page shows what is running, not what was configured.** Status and tool counts are read live from the registry each time it renders.
+- **Adding and editing a server stays in the dedicated MCP manager.** Browse-by-category, transport setup, and secret entry are deliberately not duplicated here — two implementations of one flow drift, and the one that drifts is the one nobody is looking at. The page links straight to it.
+
+### Security
+- **Each new message is validated at the runtime allowlist**, not only in the type union. A server id must be a non-empty string and the enabled flag a real boolean, because these messages start and stop processes that contribute callable tools. This is the same guard that a previous page skipped, which left every control on it silently inert.
+
 ## [0.159.1] - 2026-07-28
 
 ### Fixed
