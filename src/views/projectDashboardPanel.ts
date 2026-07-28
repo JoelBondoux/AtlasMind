@@ -47,7 +47,7 @@ import { describeIdentity } from '../core/buzzDirectory.js';
 import { BUZZ_AGENT_KEY_SECRET, deriveBuzzPublicKey } from '../core/buzzSigner.js';
 import { mcpSkillId } from '../mcp/mcpServerRegistry.js';
 import { classifyToolInvocation } from '../core/toolPolicy.js';
-import { DOCUMENTS_SSOT_PATH, DOCUMENTS_SUMMARY_SSOT_PATH, sanitizeDocumentsConfig, seedDocumentsConfig } from '../core/documentsManager.js';
+import { DOCUMENTS_SSOT_PATH, DOCUMENTS_SUMMARY_SSOT_PATH, createShelfFolders, newShelfPaths, sanitizeDocumentsConfig, seedDocumentsConfig } from '../core/documentsManager.js';
 import {
   RISK_SSOT_PATH,
   RISK_SUMMARY_SSOT_PATH,
@@ -205,6 +205,7 @@ type ProjectDashboardMessage =
   | { type: 'seedDirectorFromRepo' }
   | { type: 'saveDocumentsConfig'; payload: import('../types.js').DocumentsConfig }
   | { type: 'seedDocumentsFromRepo' }
+  | { type: 'createShelfFolder'; payload: string }
   | { type: 'runRiskAnalysis'; payload: { domain: import('../types.js').RiskDomain | 'all' } }
   | { type: 'setRiskFindingStatus'; payload: { findingId: string; status: import('../types.js').RiskStatus; note?: string } }
   | { type: 'setRiskFilter'; payload: string }
@@ -1558,13 +1559,21 @@ export class ProjectDashboardPanel {
           // paths workspace-relative and traversal-safe) before it touches disk.
           const clean = sanitizeDocumentsConfig(message.payload);
           if (clean) {
+            // Diff against what was persisted *before* the save so only shelves
+            // that are genuinely new get a folder created for them.
+            const added = newShelfPaths(clean, this.atlas.documentsManager.getConfig());
             await this.atlas.documentsManager.save(clean);
+            await this.ensureShelfFolders(added);
             await this.syncState();
           }
         }
         return;
       case 'seedDocumentsFromRepo':
         await this.handleSeedDocuments();
+        return;
+      case 'createShelfFolder':
+        await this.ensureShelfFolders([message.payload]);
+        await this.syncState();
         return;
       case 'copyContact':
         await this.handleCopyContact(message.payload);
@@ -2177,6 +2186,30 @@ export class ProjectDashboardPanel {
       return;
     }
     await this.syncState();
+  }
+
+  /**
+   * Create the folders for shelves that declare one.
+   *
+   * A shelf records where documents live, so it should not point at a folder the
+   * project doesn't have — but this stays create-only (`mkdir`, never a write),
+   * and a path already occupied by a file is reported rather than disturbed. The
+   * user is told what was created so a filing decision never happens invisibly.
+   */
+  private async ensureShelfFolders(relPaths: string[]): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot || relPaths.length === 0) {
+      return;
+    }
+    const result = await createShelfFolders(workspaceRoot, relPaths);
+    if (result.created.length > 0) {
+      void vscode.window.showInformationMessage(
+        `Created document ${result.created.length === 1 ? 'folder' : 'folders'}: ${result.created.join(', ')}.`,
+      );
+    }
+    for (const skip of result.skipped) {
+      void vscode.window.showWarningMessage(`Could not create the shelf folder "${skip.path}" — ${skip.reason}.`);
+    }
   }
 
   private async handleSeedDocuments(): Promise<void> {
@@ -2855,7 +2888,7 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return true;
   }
 
-  if ((candidate['type'] === 'openCommand' || candidate['type'] === 'openFile' || candidate['type'] === 'openRun' || candidate['type'] === 'openRunWithGoal' || candidate['type'] === 'openSession' || candidate['type'] === 'addressGap' || candidate['type'] === 'resolveGapItem' || candidate['type'] === 'resolveGapGroup' || candidate['type'] === 'openGapFiles' || candidate['type'] === 'copyContact') && typeof candidate['payload'] === 'string') {
+  if ((candidate['type'] === 'openCommand' || candidate['type'] === 'openFile' || candidate['type'] === 'openRun' || candidate['type'] === 'openRunWithGoal' || candidate['type'] === 'openSession' || candidate['type'] === 'addressGap' || candidate['type'] === 'resolveGapItem' || candidate['type'] === 'resolveGapGroup' || candidate['type'] === 'openGapFiles' || candidate['type'] === 'copyContact' || candidate['type'] === 'createShelfFolder') && typeof candidate['payload'] === 'string') {
     return candidate['payload'].trim().length > 0;
   }
 

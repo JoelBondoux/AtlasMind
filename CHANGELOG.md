@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.164.0] - 2026-07-28
+
+### Added
+- **A document shelf creates its folder.** Saving a shelf on the Project Dashboard → **Documents** page now creates the folder it names if the project doesn't have one yet, so a filing system can be designed before the files exist rather than described against folders that aren't there. Shelves already pointing at an absent folder get an explicit **Create folder** action, and the shelf editor says up front that the folder will be created. New `newShelfPaths` (pure path diff — re-pointing a shelf counts as new) and `createShelfFolders` in `src/core/documentsManager.ts`, both unit-tested; the panel handles a new `createShelfFolder` webview message.
+
+### Security
+- **Create-only, and only inside the workspace.** The new folder creation is a `mkdir` and nothing else: a path that is already a directory is a no-op, a path occupied by a **file** is reported and left exactly as it was, and an unsafe path is refused. Paths are re-validated through `normalizeRelPath` inside `createShelfFolders` rather than trusted from the caller, and the resolved target is re-checked against the workspace root — this is the point where a missed traversal would create a directory outside the project. Every folder created is named in a notification, so a change to the user's tree never happens invisibly.
+
 ## [0.163.0] - 2026-07-28
 
 ### Added

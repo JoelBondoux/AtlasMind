@@ -6,6 +6,11 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.164.0 — a shelf creates its folder
+
+- **Documents → add a shelf, get the folder.** Saving a shelf now creates the folder it names, so a filing system can be designed before the files exist. Shelves still pointing at a missing folder get a **Create folder** button.
+- **Create-only.** An existing folder is left alone, a file sitting at the shelf path is reported rather than touched, an unsafe path is refused, and every folder created is named in a notification.
+
 ## v0.160.1 — the buttons the guide kept promising
 
 - **"Press the button below" — there was no button.** The walkthrough's wording was written for VS Code chat, where buttons render, and shown in the AtlasMind panel, where nothing did. Each step's actions now appear as buttons there: open the relevant screen, set the agent key, or load a command into a terminal.

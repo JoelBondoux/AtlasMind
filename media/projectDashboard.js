@@ -492,6 +492,10 @@
       saveDocFilingDraft();
       return;
     }
+    if (action === 'documents-create-folder') {
+      vscode.postMessage({ type: 'createShelfFolder', payload: payload });
+      return;
+    }
     if (action === 'documents-save-auto') {
       saveDocAutoDraft();
       return;
@@ -3023,6 +3027,7 @@
         <div class="list-meta"><code>${escapeHtml(pathLabel)}</code></div>
         ${entry.description ? `<div class="list-meta">${escapeHtml(entry.description)}</div>` : ''}
         <div class="tag-row">
+          ${entry.exists ? '' : `<button type="button" class="action-link primary" data-action="documents-create-folder" data-payload="${escapeAttr(entry.path)}" title="Create this folder in the workspace">Create folder</button>`}
           <button type="button" class="action-link" data-action="documents-edit-filing" data-payload="${escapeAttr(entry.id)}">Edit</button>
           <button type="button" class="action-link danger" data-action="documents-delete-filing" data-payload="${escapeAttr(entry.id)}">Delete</button>
         </div>
@@ -3042,6 +3047,7 @@
           <label class="stage-edit-field"><span>Glob (optional)</span><input type="text" data-doc-field="pattern" value="${escapeAttr(e.pattern || '')}" placeholder="**/*.md" /></label>
           <label class="stage-edit-field" style="grid-column:1 / -1;"><span>Description</span><input type="text" data-doc-field="description" value="${escapeAttr(e.description || '')}" placeholder="What lives on this shelf" /></label>
         </div>
+        <div class="stat-detail">The folder is created for you if it doesn't exist yet. Existing files are never touched.</div>
         <div class="stage-edit-actions">
           <button type="button" class="action-link primary" data-action="documents-save-filing">Save shelf</button>
           <button type="button" class="action-link" data-action="documents-cancel">Cancel</button>
