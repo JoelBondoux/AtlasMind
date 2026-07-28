@@ -1726,6 +1726,14 @@ async function handleBuzzCommand(
   for (const step of steps) {
     lines.push(`${MARK[step.status] ?? '⬜'} **${escapeMd(step.title)}**  `);
     lines.push(`   ${escapeMd(step.detail)}`);
+    // Guidance is already written as markdown and is authored here, not
+    // model-generated, so it is intentionally not escaped.
+    for (const line of step.guidance ?? []) {
+      lines.push(`   - ${line}`);
+    }
+    if (step.docs && step.status !== 'done') {
+      lines.push(`   - [${escapeMd(step.docs.title)}](${step.docs.url})`);
+    }
   }
   const observed = steps.length > 0 ? (atlas.buzzInbound?.listIdentities().length ?? 0) : 0;
   if (ready && observed > 0) {

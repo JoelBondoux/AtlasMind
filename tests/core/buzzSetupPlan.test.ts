@@ -181,3 +181,71 @@ describe('nextBuzzSetupStep scoping', () => {
     expect(nextBuzzSetupStep(plan)?.id).toBe('agentKey');
   });
 });
+
+describe('the guide is thorough about what lives outside AtlasMind', () => {
+  it('explains that a local relay is something you have to run', () => {
+    // The default relay URL is localhost, which reads as "already working".
+    // Nothing in AtlasMind starts a relay, and the symptom of an absent one is
+    // a subscription that simply never goes live.
+    const guidance = (buildBuzzSetupPlan(READY).find(s => s.id === 'relay')?.guidance ?? []).join(' ');
+    expect(guidance).toMatch(/something has to actually be listening/i);
+    expect(guidance).toMatch(/docker/i);
+    expect(guidance).toMatch(/nothing in atlasmind starts it/i);
+  });
+
+  it('covers the hosted alternative too, since Buzz need not be local', () => {
+    const guidance = (buildBuzzSetupPlan(READY).find(s => s.id === 'relay')?.guidance ?? []).join(' ');
+    expect(guidance).toMatch(/hosted relay/i);
+    expect(guidance).toMatch(/wss:\/\//);
+  });
+
+  it('does not invent a Docker command it cannot verify', () => {
+    // Naming an image or a command that has drifted would be worse than the
+    // link: it would fail in a way that looks like AtlasMind's fault.
+    const guidance = (buildBuzzSetupPlan(READY).find(s => s.id === 'relay')?.guidance ?? []).join(' ');
+    expect(guidance).not.toMatch(/docker run\s+\S/i);
+    expect(buildBuzzSetupPlan(READY).find(s => s.id === 'relay')?.docs?.url).toContain('github.com/block/buzz');
+  });
+
+  it('says what kind of key the agent-key prompt wants', () => {
+    const guidance = (buildBuzzSetupPlan(FRESH).find(s => s.id === 'agentKey')?.guidance ?? []).join(' ');
+    expect(guidance).toMatch(/nsec1/);
+    expect(guidance).toMatch(/npub.*cannot sign|cannot sign/i);
+    expect(guidance).toMatch(/secret store/i);
+  });
+
+  it('corrects the empty-channel-list misreading where someone will hit it', () => {
+    const guidance = (buildBuzzSetupPlan({ ...FRESH, enabled: true, hasAgentKey: true })
+      .find(s => s.id === 'inbound')?.guidance ?? []).join(' ');
+    expect(guidance).toMatch(/not.*no channels/i);
+  });
+
+  it('stays quiet on steps that are already done', () => {
+    // Guidance on a finished step is noise, and noise is what makes people
+    // stop reading the steps that matter. The relay step needs a live
+    // connection to count as finished — see the next test for why.
+    for (const s of buildBuzzSetupPlan({ ...READY, inboundStatus: 'live' })) {
+      if (s.status === 'done') {
+        expect(s.guidance, `${s.id} should not lecture once done`).toBeUndefined();
+      }
+    }
+  });
+
+  it('does not treat a valid localhost URL as proof a relay exists', () => {
+    // This is the trap the default setting walks into: ws://localhost:3000
+    // reads as settled while nothing may be listening on that port, and the
+    // symptom is a subscription that never goes live. A string is not a relay.
+    const unproven = buildBuzzSetupPlan(READY).find(s => s.id === 'relay');
+    expect(unproven?.detail).toMatch(/has not connected yet/i);
+    expect(unproven?.guidance?.join(' ')).toMatch(/docker/i);
+
+    const proven = buildBuzzSetupPlan({ ...READY, inboundStatus: 'live' }).find(s => s.id === 'relay');
+    expect(proven?.detail).not.toMatch(/has not connected yet/i);
+    expect(proven?.guidance).toBeUndefined();
+  });
+
+  it('tells you the CLI is skippable if you only want to read', () => {
+    const guidance = (buildBuzzSetupPlan(READY).find(s => s.id === 'cli')?.guidance ?? []).join(' ');
+    expect(guidance).toMatch(/skip this entirely/i);
+  });
+});

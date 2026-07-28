@@ -244,6 +244,7 @@ type SettingsMessage =
   // untrusted, and an allowlist of two is one by construction.
   | { type: 'openBuzzAgentKey' }
   | { type: 'openDirectorRoster' }
+  | { type: 'openBuzzGuide' }
   | { type: 'setVoiceTtsEnabled'; payload: boolean }
   | { type: 'setVoiceRate'; payload: number }
   | { type: 'setVoicePitch'; payload: number }
@@ -879,6 +880,12 @@ export class SettingsPanel {
 
       case 'openDirectorRoster':
         await vscode.commands.executeCommand('atlasmind.openProjectDirector');
+        return;
+
+      case 'openBuzzGuide':
+        // Hand off to the chat walkthrough rather than duplicating it here:
+        // one plan, rendered in the place that can hold a conversation about it.
+        await vscode.commands.executeCommand('workbench.action.chat.open', { query: '@atlas /buzz' });
         return;
 
       case 'setProjectRunReportFolder': {
@@ -2490,6 +2497,17 @@ export class SettingsPanel {
               <h2>Work with your Buzz workspace</h2>
               <p>Buzz owns identity and messaging; AtlasMind owns reasoning and execution. Each switch below is off until you turn it on, and each one only takes effect when the one above it is already on.</p>
             </div>
+
+            <article class="settings-card" id="buzzGuideCard">
+              <div class="card-header">
+                <p class="card-kicker">Not sure where to start?</p>
+                <h3>Walk me through it</h3>
+              </div>
+              <p class="muted-line">Opens a guided checklist in chat, built from what is actually configured here: what is done, what is left, and what to do next — including the parts that live outside this page, like running a relay or installing the CLI. It reports; it never switches anything on for you.</p>
+              <div class="button-stack">
+                <button type="button" class="secondary-button" id="buzzOpenGuide">Guide me through Buzz setup</button>
+              </div>
+            </article>
 
             <div class="page-grid">
               <article class="settings-card">
@@ -4595,6 +4613,13 @@ export class SettingsPanel {
             });
           }
 
+          const buzzOpenGuide = document.getElementById('buzzOpenGuide');
+          if (buzzOpenGuide instanceof HTMLButtonElement) {
+            buzzOpenGuide.addEventListener('click', () => {
+              vscode.postMessage({ type: 'openBuzzGuide' });
+            });
+          }
+
           const buzzOpenDirector = document.getElementById('buzzOpenDirector');
           if (buzzOpenDirector instanceof HTMLButtonElement) {
             buzzOpenDirector.addEventListener('click', () => {
@@ -6154,7 +6179,7 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
     return typeof message.payload === 'string';
   }
 
-  if (message.type === 'openBuzzAgentKey' || message.type === 'openDirectorRoster') {
+  if (message.type === 'openBuzzAgentKey' || message.type === 'openDirectorRoster' || message.type === 'openBuzzGuide') {
     return true;
   }
 

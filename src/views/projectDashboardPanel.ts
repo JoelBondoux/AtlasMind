@@ -2129,14 +2129,20 @@ export class ProjectDashboardPanel {
   private async handleSetBuzzAgentBinding(payload: { pubkey: string; agentId: string; label?: string }): Promise<void> {
     const agentId = payload.agentId.trim();
     if (agentId && !this.atlas.agentRegistry?.get(agentId)) {
-      void vscode.window.showWarningMessage(`No AtlasMind agent named "${agentId}" — the Buzz binding was not saved.`);
+      void vscode.window.showWarningMessage(
+        `The person was saved, but the Buzz agent binding was not: there is no AtlasMind agent named "${agentId}".`,
+      );
       return;
     }
 
     const configuration = vscode.workspace.getConfiguration('atlasmind');
     const result = writeAgentBinding(configuration.get('buzz.agentBindings'), { ...payload, agentId });
     if (!result.ok) {
-      void vscode.window.showWarningMessage(`Buzz binding not saved. ${result.error ?? ''}`.trim());
+      // Say what did and did not happen. The person is saved by a separate
+      // message, so a refused binding must not read as a refused save.
+      void vscode.window.showWarningMessage(
+        `The person was saved, but the Buzz agent binding was not: ${result.error ?? 'the key could not be used.'}`,
+      );
       return;
     }
 

@@ -145,7 +145,7 @@ describe('Director roster agent binding', () => {
   });
 
   it('refuses a binding to an agent that does not exist', () => {
-    expect(dashboardSource).toContain('No AtlasMind agent named');
+    expect(dashboardSource).toMatch(/there is no AtlasMind agent named/);
   });
 
   it('routes the write through the shared pure helper rather than merging inline', () => {
@@ -156,7 +156,7 @@ describe('Director roster agent binding', () => {
   });
 
   it('reports a refused binding rather than failing silently', () => {
-    expect(dashboardSource).toMatch(/showWarningMessage\(`Buzz binding not saved/);
+    expect(dashboardSource).toMatch(/the Buzz agent binding was not/);
   });
 
   it('offers observed identities and fills Handle from the pick', () => {
@@ -189,5 +189,37 @@ describe('Director roster agent binding', () => {
   it('sends the agent choices from the registry so the client never guesses an id', () => {
     expect(dashboardSource).toContain('agentChoices');
     expect(dashboardSource).toContain('agentRegistry?.listAgents()');
+  });
+});
+
+describe('the guided walkthrough is reachable from the Buzz settings page', () => {
+  it('offers a button that opens the chat guide', () => {
+    expect(settingsSource).toContain('id="buzzOpenGuide"');
+    expect(settingsSource).toContain("type: 'openBuzzGuide'");
+    expect(settingsSource).toContain("case 'openBuzzGuide':");
+    expect(settingsSource).toContain("message.type === 'openBuzzGuide'");
+  });
+
+  it('hands off to the one plan rather than duplicating it in the panel', () => {
+    expect(settingsSource).toContain("'@atlas /buzz'");
+  });
+});
+
+describe('a Buzz handle is not always a public key', () => {
+  it('only posts a binding when there is one to make', () => {
+    // A channel UUID is a perfectly valid Buzz handle. Posting unconditionally
+    // warned people that a binding they never asked for had failed, on a save
+    // that had otherwise worked.
+    expect(dashboardClient).toContain('directorLooksLikeBuzzKey');
+    expect(dashboardClient).toMatch(/if \(chosenAgent \|\| alreadyBound\)/);
+  });
+
+  it('explains a non-key handle instead of erroring on save', () => {
+    expect(dashboardClient).toContain('This handle is not a public key');
+  });
+
+  it('says the person was saved even when the binding was refused', () => {
+    // "Buzz binding not saved" next to a save button reads as "nothing saved".
+    expect(dashboardSource).toMatch(/The person was saved, but the Buzz agent binding was not/);
   });
 });

@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.154.0] - 2026-07-28
+
+### Added
+- **"Guide me through Buzz setup" on the Settings → Buzz page.** Opens the `/buzz` walkthrough in chat rather than duplicating it in the panel, so there is one plan rendered where you can ask about it.
+- **The walkthrough now covers the parts that live outside AtlasMind.** Each incomplete step carries real how-to: what a local relay actually requires (you have to run one, normally via Docker — nothing in AtlasMind starts it), what a hosted relay needs instead, which kind of key the agent-key prompt wants and why an `npub` is refused, and what an empty channel list really does.
+
+### Fixed
+- **Saving a Buzz contact whose handle is not a public key no longer warns that something failed.** A channel UUID or workspace URL is a perfectly valid Buzz handle; only an *identity* is an `npub`. AtlasMind now only attempts a binding when there is one to make, and the person form says plainly that a non-key handle has no identity to bind rather than producing an error on save.
+- **A refused binding no longer reads as a refused save.** The warning now says the person *was* saved and only the binding was not — the two are separate operations, and the old wording implied the whole save had failed.
+
+### Changed
+- **A valid relay URL is no longer treated as proof a relay exists.** The default `ws://localhost:3000` reads as settled while nothing may be listening on that port, and the symptom is a subscription that never goes live. The setup guide now keeps showing how to run one until a connection has actually succeeded, and says so explicitly: "the configured target rather than a confirmed one."
+- **Setup guidance disappears once a step is genuinely finished**, because advice on completed steps is what makes people stop reading the steps that still matter.
+
 ## [0.153.0] - 2026-07-28
 
 ### Added

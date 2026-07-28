@@ -843,11 +843,19 @@
       // roster: it is a local routing preference, and project_memory/ is
       // git-tracked. Posted separately so the roster save is never blocked by a
       // binding the extension refuses.
-      if (linkKind === 'buzz' && linkHandle) {
-        vscode.postMessage({
-          type: 'setBuzzAgentBinding',
-          payload: { pubkey: linkHandle, agentId: val('buzzAgentId').trim(), label: name },
-        });
+      // Only when there is actually a binding to change. A Buzz handle is not
+      // always a public key — a channel UUID is a perfectly valid handle — so
+      // posting unconditionally warned people that a binding they never asked
+      // for had failed, on a save that otherwise worked fine.
+      if (linkKind === 'buzz' && directorLooksLikeBuzzKey(linkHandle)) {
+        const chosenAgent = val('buzzAgentId').trim();
+        const alreadyBound = directorBoundAgentId('buzz', linkHandle);
+        if (chosenAgent || alreadyBound) {
+          vscode.postMessage({
+            type: 'setBuzzAgentBinding',
+            payload: { pubkey: linkHandle, agentId: chosenAgent, label: name },
+          });
+        }
       }
       state.directorEditContactId = '';
       postDirectorConfig(cfg);
@@ -4111,6 +4119,20 @@
    * case-insensitively. A near-miss simply shows as unbound here; the extension
    * is what decides whether a key is valid, and it refuses rather than guesses.
    */
+  /**
+   * Does this handle even look like a Buzz *public key*?
+   *
+   * A Buzz handle is not always one. A channel UUID is a legitimate handle, and
+   * so is a workspace URL — only an agent *identity* is an npub or 64-char hex.
+   * Agent bindings are keyed by identity, so anything else simply has no binding
+   * to make. Shape-only: the extension still decides validity (it verifies the
+   * bech32 checksum), because a client that decided would have to guess.
+   */
+  function directorLooksLikeBuzzKey(handle) {
+    const h = String(handle || '').trim();
+    return /^npub1[0-9a-z]{20,}$/i.test(h) || /^[0-9a-f]{64}$/i.test(h);
+  }
+
   function directorSameBuzzKey(a, b) {
     return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
   }
@@ -4218,6 +4240,12 @@
    * Choosing an option fills the Handle field; typing one by hand still works.
    */
   function renderBuzzIdentityPicker(dir, contact, primary) {
+    // A handle that is not an identity key has no binding to make. Say so
+    // plainly here rather than letting the save warn about a failure.
+    if (primary.handle && !directorLooksLikeBuzzKey(primary.handle)) {
+      return `<label class="stage-edit-field"><span>Buzz identity</span>
+        <span class="list-meta">This handle is not a public key, so there is no identity to bind an agent to. That is fine — a channel UUID or workspace URL is a perfectly good Buzz handle. To route their work to an agent, use their <code>npub…</code> or 64-character hex key instead.</span></label>`;
+    }
     const options = [];
     if (dir.ownBuzzPubkey) {
       options.push({ value: dir.ownBuzzPubkey, label: 'You (your Buzz agent key)' });
