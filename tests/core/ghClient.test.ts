@@ -163,6 +163,31 @@ describe('GhClient', () => {
         .toEqual({ installed: true, authenticated: true });
     });
 
+    it('requires positive evidence before claiming the CLI is installed', async () => {
+      // An unclassifiable failure is not evidence of presence. Reading it as
+      // "installed" would have a caller skip offering to install the very thing
+      // that is missing; being wrong the other way just offers a needless install.
+      const unknown = await client(runnerThrowing(new Error('something entirely unexpected'))).probe();
+      expect(unknown.installed).toBe(false);
+      expect(unknown.authenticated).toBe(false);
+
+      const timedOut = await client(runnerThrowing(new Error('ETIMEDOUT'))).probe();
+      expect(timedOut.installed).toBe(false);
+    });
+
+    it('accepts failures only a running gh could produce as proof it exists', async () => {
+      for (const [message, kind] of [
+        ['You are not logged into any GitHub hosts', 'not-authenticated'],
+        ['API rate limit exceeded', 'rate-limited'],
+        ['HTTP 403: Resource not accessible', 'forbidden'],
+        ['HTTP 404: Not Found', 'not-found'],
+      ] as const) {
+        const probe = await client(runnerThrowing(new Error(message))).probe();
+        expect(probe.installed, `${kind} should prove gh ran`).toBe(true);
+        expect(probe.authenticated).toBe(false);
+      }
+    });
+
     it('distinguishes not-installed from installed-but-signed-out', async () => {
       // These are different problems with different fixes, and collapsing them
       // sends half the users to the wrong remedy.

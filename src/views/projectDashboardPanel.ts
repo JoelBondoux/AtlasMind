@@ -21,6 +21,7 @@ import {
   type IssueRecord,
   type IssueSummary,
 } from '../core/issueTracker.js';
+import { ghFailureOf, runGhOrThrow } from '../core/ghClient.js';
 import {
   buildWorkflowCurriculum,
   glossaryEntry,
@@ -36,6 +37,7 @@ import {
   deriveBranchMetrics,
   deriveCiMetrics,
   deriveIssueMetrics,
+  derivePullRequestMetrics,
   deriveReleaseMetrics,
   deriveWorkflowHealth,
   known,
@@ -44,9 +46,14 @@ import {
   type CiMetrics,
   type HealthComponent,
   type IssueMetrics,
+  type PullRequestMetrics,
   type ReleaseMetrics,
   type WorkflowHealth,
 } from '../core/workflowMetrics.js';
+import {
+  parseGhPullRequestList,
+  type PullRequestRecord,
+} from '../core/pullRequestTracker.js';
 import { DASHBOARD_THEME_CSS } from './dashboardTheme.js';
 import {
   MAX_ROADMAP_GATES,
@@ -745,6 +752,8 @@ interface DashboardGuidedWorkflowSnapshot {
    */
   capabilities: Array<{ id: string; label: string; enabled: boolean; detail: string }>;
   issues?: IssueMetrics;
+  /** Absent until pull requests have actually been fetched — absent ≠ zero. */
+  pullRequests?: PullRequestMetrics;
   branches: BranchMetrics;
   ci: CiMetrics;
   release: ReleaseMetrics;
@@ -1502,6 +1511,17 @@ export class ProjectDashboardPanel {
     busy: false,
   };
 
+  /**
+   * Pull requests, loaded alongside issues on the same explicit refresh.
+   *
+   * Two reads on one user action rather than a second button, because they are
+   * halves of the same question — what work is in flight — and nobody wants to
+   * press refresh twice. Kept `undefined` until a load actually succeeds, so a
+   * surface can tell "none open" from "never looked": the second must never
+   * render as the first.
+   */
+  private pullRequestsState: PullRequestRecord[] | undefined;
+
   public static createOrShow(context: vscode.ExtensionContext, atlas: AtlasMindContext, targetPage?: DashboardPageId): void {
     const column = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
 
@@ -1822,7 +1842,7 @@ export class ProjectDashboardPanel {
           }
           const configuration = vscode.workspace.getConfiguration('atlasmind');
           const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState);
           const seedItems = snapshot.gapAnalysis.items.filter(item => !item.resolved);
           this.queueNavigation('gapAnalysis');
           await this.postMessage({ type: 'navigate', payload: 'gapAnalysis' });
@@ -1849,7 +1869,7 @@ export class ProjectDashboardPanel {
           if (!workspaceRoot || message.payload.trim().length === 0) {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState);
           const targetItem = snapshot.gapAnalysis.items.find(item => item.id === message.payload.trim() && !item.resolved && item.type !== 'praise');
           if (!targetItem) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: 'That gap could not be found. Try re-running the analysis.' });
@@ -1875,7 +1895,7 @@ export class ProjectDashboardPanel {
           if (priority !== 'P1' && priority !== 'P2' && priority !== 'P3') {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState);
           const groupedItems = snapshot.gapAnalysis.items.filter(item => !item.resolved && item.type !== 'praise' && item.priority === priority);
           if (groupedItems.length === 0) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: `No open ${priority} items are available to resolve.` });
@@ -1901,7 +1921,7 @@ export class ProjectDashboardPanel {
           if (!gapId) {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState);
           const targetItem = snapshot.gapAnalysis.items.find(item => item.id === gapId);
           if (!targetItem) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: 'Gap item not found. Try re-running the analysis.' });
@@ -1960,7 +1980,7 @@ export class ProjectDashboardPanel {
 
   private async syncState(): Promise<void> {
     try {
-      const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState);
+      const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState);
       await this.postMessage({ type: 'state', payload: snapshot });
       if (this.pendingNavigationTarget) {
         await this.postMessage({ type: 'navigate', payload: this.pendingNavigationTarget });
@@ -2136,32 +2156,50 @@ export class ProjectDashboardPanel {
         loadedAt: new Date().toISOString(),
         busy: false,
       };
+
+      // Pull requests, best-effort and deliberately not fatal: a repository can
+      // have issues readable and pull requests not (a permissions split, or an
+      // older `gh`), and failing the whole refresh over the secondary read would
+      // hide the primary one that succeeded.
+      try {
+        const prRaw = await runGh(workspaceRoot, [
+          'pr', 'list',
+          '--state', 'all',
+          '--limit', '100',
+          '--json', 'number,title,state,author,headRefName,baseRefName,labels,body,url,createdAt,updatedAt,mergedAt,isDraft,additions,deletions,changedFiles,reviews',
+        ]);
+        this.pullRequestsState = parseGhPullRequestList(prRaw);
+      } catch {
+        // Left as-is rather than emptied: a failed refresh must not turn a
+        // previously-read list into a confident "none".
+      }
     } catch (error) {
       this.issuesState = { ...this.classifyIssueFailure(error), issues: [], busy: false };
     }
     await this.syncState();
   }
 
-  /** Turn a `gh` failure into the specific thing that is wrong, and its fix. */
+  /**
+   * Turn a `gh` failure into the specific thing that is wrong, and its fix.
+   *
+   * The diagnosis comes from `ghClient` rather than being re-derived from the
+   * message here. Two independent classifications of the same failure is how a
+   * user ends up told to re-authenticate when they are merely rate-limited.
+   */
   private classifyIssueFailure(error: unknown): Pick<DashboardIssuesSnapshot, 'status' | 'detail' | 'fixCommand'> {
-    const message = error instanceof Error ? error.message : String(error);
-    if (/ENOENT|not recognized|command not found/i.test(message)) {
-      return {
-        status: 'no-cli',
-        detail: 'The GitHub CLI (`gh`) is not installed, so AtlasMind cannot read this repository\'s issues.',
-        fixCommand: 'winget install --id GitHub.cli',
-      };
-    }
-    if (/auth|login|credential|token/i.test(message)) {
-      return {
-        status: 'not-authenticated',
-        detail: 'The GitHub CLI is installed but not authenticated for this repository.',
-        fixCommand: 'gh auth login',
-      };
-    }
+    const failure = ghFailureOf(error);
+    // `GhFailureKind` is richer than this page's status set, so the extra kinds
+    // fold into `error` — keeping their specific detail and fix, which is the
+    // part the user actually needs.
+    const status: DashboardIssuesSnapshot['status'] =
+      failure.kind === 'no-cli' ? 'no-cli'
+        : failure.kind === 'not-authenticated' ? 'not-authenticated'
+          : failure.kind === 'not-found' ? 'no-repo'
+            : 'error';
     return {
-      status: 'error',
-      detail: `Could not read issues: ${message.slice(0, 300)}`,
+      status,
+      detail: failure.detail,
+      ...(failure.fixCommand === undefined ? {} : { fixCommand: failure.fixCommand }),
     };
   }
 
@@ -3661,6 +3699,7 @@ function buildGuidedWorkflowSnapshot(input: {
   ciWorkflowCount: number;
   testing: TestingDashboardSnapshot;
   issues: DashboardIssuesSnapshot;
+  pullRequests?: readonly PullRequestRecord[];
   changelogPresent: boolean;
   prTemplatePresent: boolean;
   codeownersPresent: boolean;
@@ -3697,6 +3736,25 @@ function buildGuidedWorkflowSnapshot(input: {
       now,
     )
     : undefined;
+
+  // Absent until a load succeeded — absent is not the same as none open, and
+  // only one of those is a fact about the repository.
+  const prMetrics = input.pullRequests === undefined
+    ? undefined
+    : derivePullRequestMetrics(
+      input.pullRequests.map(pr => ({
+        number: pr.number,
+        state: pr.state,
+        createdAt: pr.createdAt,
+        updatedAt: pr.updatedAt,
+        mergedAt: pr.mergedAt,
+        additions: pr.additions,
+        deletions: pr.deletions,
+        reviews: pr.reviews.map(review => ({ verdict: review.verdict, submittedAt: review.submittedAt })),
+        linkedIssues: pr.linkedIssues,
+      })),
+      now,
+    );
 
   // Phase 1 has no check-run fetch on the render path, so CI reports honestly
   // that it has not looked rather than implying a green build.
@@ -3820,6 +3878,7 @@ function buildGuidedWorkflowSnapshot(input: {
       },
     ],
     ...(issueMetrics === undefined ? {} : { issues: issueMetrics }),
+    ...(prMetrics === undefined ? {} : { pullRequests: prMetrics }),
     branches,
     ci,
     release,
@@ -3838,6 +3897,9 @@ async function collectDashboardSnapshot(
   // Held by the panel rather than collected here: issues come from a network
   // call, so they are fetched on demand and simply carried through a render.
   issues: DashboardIssuesSnapshot = { status: 'not-loaded', detail: 'Issues have not been loaded yet.', issues: [], busy: false },
+  // Undefined until a load has actually succeeded. An empty array would claim
+  // "no pull requests", which is a different fact from "we have not looked".
+  pullRequests?: readonly PullRequestRecord[],
 ): Promise<DashboardSnapshot> {
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const workspaceName = vscode.workspace.workspaceFolders?.[0]?.name ?? 'No Workspace';
@@ -4121,6 +4183,7 @@ async function collectDashboardSnapshot(
       ciWorkflowCount: workflowSnapshot.length,
       testing: testingSnapshot,
       issues,
+      ...(pullRequests === undefined ? {} : { pullRequests }),
       changelogPresent,
       prTemplatePresent,
       codeownersPresent,
@@ -4799,10 +4862,16 @@ async function detectDispatchWorkflow(workspaceRoot: string): Promise<string | u
   return undefined;
 }
 
-/** Run a `gh` command (best-effort; short timeout, never used on the render path). */
+/**
+ * Run a `gh` command (best-effort; short timeout, never used on the render path).
+ *
+ * Delegates to {@link runGhOrThrow} so every `gh` invocation in AtlasMind shares
+ * one implementation — one answer to "is this escaped?", one timeout policy, one
+ * failure taxonomy. The throwing shape is kept because this function's callers
+ * are written around try/catch.
+ */
 async function runGh(workspaceRoot: string, args: string[]): Promise<string> {
-  const { stdout } = await execFileAsync('gh', args, { cwd: workspaceRoot, windowsHide: true, timeout: 8000, maxBuffer: 1024 * 1024 });
-  return stdout.trim();
+  return runGhOrThrow(workspaceRoot, args);
 }
 
 /** Best-effort GitHub branch-protection import: exact required-check contexts + PR requirement. */

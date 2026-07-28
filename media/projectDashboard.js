@@ -3201,6 +3201,38 @@
           </div></div>
         </article>`;
 
+    // Pull requests. Absent until a refresh has actually run — and "we have not
+    // looked" must never render as "none open", which is why this is a distinct
+    // empty state rather than a row of zeroes.
+    const prs = wf.pullRequests;
+    const prCard = prs
+      ? `<article class="panel-card">
+          <p class="card-kicker">Pull requests</p>
+          <div class="mini-grid">
+            ${renderMetricPill('Open', String(prs.open))}
+            ${renderMetricPill('Awaiting review', String(prs.awaitingReview), { tone: prs.awaitingReview > 0 ? 'warn' : 'good' })}
+            ${renderMetricPill('Time to first review', formatDuration(prs.medianTimeToFirstReviewMs))}
+            ${renderMetricPill('Time to merge', formatDuration(prs.medianTimeToMergeMs))}
+            ${renderMetricPill('Linked to an issue', renderVerdictText(prs.linkedRate, value => `${value}%`))}
+          </div>
+          ${renderDistributionBar('wf-pr-size', prs.sizeDistribution || [], {
+            title: 'Merged pull requests by size',
+            caption: 'Review quality falls off a cliff with size — a 40-line diff gets read, a 400-line one gets skimmed',
+            emptyLabel: 'Nothing merged yet to size.',
+          })}
+          ${renderChartCard('wf-pr-throughput', 'Merge throughput',
+            'Pull requests merged per day. Long flat stretches usually mean work is queued in review rather than that nobody is writing it.',
+            (prs.throughput || []).map(point => ({ label: point.label, value: point.value })), 'workflow')}
+        </article>`
+      : `<article class="panel-card">
+          <p class="card-kicker">Pull requests</p>
+          <div class="dashboard-empty"><div>
+            <strong>Pull requests have not been loaded</strong>
+            <p class="section-copy">Stage 4 is where a change stops being private: it is the point CI runs, the point a second pair of eyes can see it, and the durable record of why the change looked right at the time. AtlasMind reads them on the same refresh as issues, rather than automatically, because the GitHub API is rate-limited.</p>
+            <button type="button" class="action-link" data-action="page" data-payload="issues">Open the Issues tab and refresh</button>
+          </div></div>
+        </article>`;
+
     const branchCard = `
       <article class="panel-card">
         <p class="card-kicker">Branches</p>
@@ -3301,6 +3333,7 @@
         ${healthCard}
         ${ladderCard}
         ${issuesCard}
+        ${prCard}
         ${branchCard}
         ${ciCard}
         ${releaseCard}
@@ -3311,6 +3344,15 @@
         ${stages}
       </section>
     </section>`;
+  }
+
+  /** A duration verdict as text, scaling its unit with magnitude. */
+  function formatDuration(verdict) {
+    if (!verdict || verdict.known !== true) { return '—'; }
+    const hours = verdict.value / 3600000;
+    if (hours < 1) { return Math.round(hours * 60) + 'm'; }
+    if (hours < 48) { return hours.toFixed(1) + 'h'; }
+    return (hours / 24).toFixed(1) + 'd';
   }
 
   /** Plain-text verdict, for slots that cannot take markup. */

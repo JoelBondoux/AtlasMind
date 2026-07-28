@@ -447,6 +447,137 @@ export function deriveCiMetrics(runs: readonly MetricCheckRunInput[]): CiMetrics
   };
 }
 
+// ── Pull requests ────────────────────────────────────────────────────────────
+
+/** The shape this module needs from a pull request. Structural, so callers pass more. */
+export interface MetricPullRequestInput {
+  number: number;
+  state: string;
+  createdAt?: string;
+  updatedAt?: string;
+  mergedAt?: string;
+  additions?: number;
+  deletions?: number;
+  reviews?: readonly { verdict: string; submittedAt?: string }[];
+  linkedIssues?: readonly number[];
+}
+
+export interface PullRequestMetrics {
+  open: number;
+  merged: number;
+  draft: number;
+  awaitingReview: number;
+  /** Merged pull requests per day, for the throughput chart. */
+  throughput: MetricSeriesPoint[];
+  /** Author push → first submitted review. The review-latency signal. */
+  medianTimeToFirstReviewMs: MetricVerdict<number>;
+  /** Open → merged. Includes review time, so read it alongside the above. */
+  medianTimeToMergeMs: MetricVerdict<number>;
+  /** Lines changed, bucketed. Review quality falls off a cliff with size. */
+  sizeDistribution: MetricSegment[];
+  medianSize: MetricVerdict<number>;
+  /** Share of merged pull requests that closed an issue. */
+  linkedRate: MetricVerdict<number>;
+}
+
+/**
+ * Size buckets.
+ *
+ * The boundaries are declared rather than computed from the data, so the same
+ * pull request lands in the same bucket this month as last — a distribution
+ * whose buckets move cannot be compared with itself.
+ */
+const SIZE_BUCKETS: readonly { key: string; label: string; max: number; tone: MetricSegment['tone'] }[] = [
+  { key: 'xs', label: '< 10 lines', max: 10, tone: 'good' },
+  { key: 's', label: '10–99', max: 100, tone: 'good' },
+  { key: 'm', label: '100–399', max: 400, tone: 'accent' },
+  { key: 'l', label: '400–999', max: 1000, tone: 'warn' },
+  { key: 'xl', label: '1000+', max: Number.POSITIVE_INFINITY, tone: 'critical' },
+];
+
+export function derivePullRequestMetrics(
+  pullRequests: readonly MetricPullRequestInput[],
+  now: number,
+  windowDays = 30,
+): PullRequestMetrics {
+  const open: MetricPullRequestInput[] = [];
+  const merged: MetricPullRequestInput[] = [];
+  let draft = 0;
+  let awaitingReview = 0;
+
+  for (const pr of pullRequests) {
+    const state = pr.state.toLowerCase();
+    if (state === 'merged') {
+      merged.push(pr);
+    } else if (state === 'open' || state === 'draft') {
+      open.push(pr);
+      if (state === 'draft') {
+        draft += 1;
+      }
+      const substantive = (pr.reviews ?? []).filter(review => review.verdict !== 'pending');
+      if (substantive.length === 0) {
+        awaitingReview += 1;
+      }
+    }
+  }
+
+  const timeToFirstReview: number[] = [];
+  const timeToMerge: number[] = [];
+  const sizes: number[] = [];
+  const buckets = new Map<string, number>(SIZE_BUCKETS.map(bucket => [bucket.key, 0]));
+  let linked = 0;
+
+  // Size and linkage are measured over *merged* pull requests: an open one is
+  // still growing, so counting it would report a distribution of unfinished work.
+  for (const pr of merged) {
+    const created = parseTimestamp(pr.createdAt);
+    const mergedAt = parseTimestamp(pr.mergedAt);
+    if (created !== undefined && mergedAt !== undefined && mergedAt >= created) {
+      timeToMerge.push(mergedAt - created);
+    }
+
+    const firstReview = (pr.reviews ?? [])
+      .filter(review => review.verdict !== 'pending')
+      .map(review => parseTimestamp(review.submittedAt))
+      .filter((value): value is number => value !== undefined)
+      .sort((a, b) => a - b)[0];
+    if (created !== undefined && firstReview !== undefined && firstReview >= created) {
+      timeToFirstReview.push(firstReview - created);
+    }
+
+    const size = Math.max(0, (pr.additions ?? 0) + (pr.deletions ?? 0));
+    sizes.push(size);
+    const bucket = SIZE_BUCKETS.find(candidate => size < candidate.max) ?? SIZE_BUCKETS.at(-1)!;
+    buckets.set(bucket.key, (buckets.get(bucket.key) ?? 0) + 1);
+
+    if ((pr.linkedIssues ?? []).length > 0) {
+      linked += 1;
+    }
+  }
+
+  return {
+    open: open.length,
+    merged: merged.length,
+    draft,
+    awaitingReview,
+    throughput: bucketByDay(
+      merged.map(pr => parseTimestamp(pr.mergedAt)).filter((v): v is number => v !== undefined),
+      windowDays,
+      now,
+    ),
+    medianTimeToFirstReviewMs: median(timeToFirstReview),
+    medianTimeToMergeMs: median(timeToMerge),
+    sizeDistribution: SIZE_BUCKETS.map(bucket => ({
+      key: bucket.key,
+      label: bucket.label,
+      value: buckets.get(bucket.key) ?? 0,
+      ...(bucket.tone === undefined ? {} : { tone: bucket.tone }),
+    })),
+    medianSize: median(sizes),
+    linkedRate: percentage(linked, merged.length),
+  };
+}
+
 // ── Commits and release ──────────────────────────────────────────────────────
 
 /**

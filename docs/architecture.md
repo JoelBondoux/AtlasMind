@@ -313,6 +313,20 @@ Consequences that follow from that one decision: `median` refuses below `MIN_SAM
 
 Output shapes match the dashboard's existing render primitives — series for `renderChartCard`, slices for `renderDonutChart`, segments for `renderDistributionBar` — so the instrumentation wall is assembled from components that already exist. `deriveBranchMetrics` exempts integration and release branches from naming conformance, because a permanent unfixable gap teaches people to ignore gaps; `deriveCommitConformance` excludes platform-generated merge commits, which would otherwise penalise a team for using squash merges.
 
+### PullRequestTracker (`src/core/pullRequestTracker.ts`)
+
+The sibling of `issueTracker.ts`, built to the same discipline because the threat is the same one: **a pull-request body and a review comment are third-party text.** Anyone who can comment can write a paragraph designed to be read as an instruction by an AI assistant, and "address this review feedback" is precisely the workflow that hands that paragraph to a model holding tools.
+
+Until this module, nothing in AtlasMind sanitized that text — because nothing read it. Adding the reading is what created the obligation.
+
+`parseGhPullRequestList` never throws: malformed JSON, a wrong shape, or one unusable entry degrades to *fewer pull requests*, never to an exception on a dashboard render. `buildPrReviewPrompt` fences review bodies as REPORTED CONTENT and instructs the model not to follow them, so the mitigation lives where the prompt is built rather than in a reviewer's memory. Two smaller decisions carry real weight: an unrecognised review verdict reads as `commented` rather than `approved`, so a malformed feed can never satisfy an approval gate; and `parseLinkedIssues` recognises only GitHub's closing keywords, so a bare `#142` is not counted as traceability the repository does not have.
+
+### BranchNaming (`src/core/branchNaming.ts`)
+
+`deriveBranchName` turns an issue into `feat/142-guided-github-workflow`. A branch name is the only context anyone gets before opening a branch, and deriving it means the link back to the issue is never forgotten because it was never typed.
+
+Three properties are asserted rather than assumed. It is **pure and predictable** — collisions resolve with an ordinal suffix (`-2`, `-3`) rather than a hash or timestamp, so running the same command twice gives a name you could have predicted rather than one you have to go and read. It is **structurally incapable of producing a protected name**, because the result always carries a `<type>/` prefix; the protected-set check is belt-and-braces against a future format change. And it **refuses rather than inventing**: a title that reduces to no ASCII slug produces a stated refusal, not `feat/142-branch`, because an unreadable branch name is worse than a question. Accents fold to their base letter rather than being dropped, since "caf" reads as a typo and a branch name is read far more often than typed.
+
 ### GhClient (`src/core/ghClient.ts`)
 
 The single boundary between AtlasMind and the GitHub CLI. Before it there were three independent `gh` call sites — one in the dashboard panel, one in the bootstrapper, and one that built a command *string* for later shell execution — and three call sites means three answers to "is this argument escaped?", only one of which needs to be wrong.

@@ -1,6 +1,6 @@
 # Guided GitHub Workflow — Phased Roadmap
 
-> **Status:** Tier 1 in progress. **Owner:** AtlasMind core. **Created:** 2026-07-28.
+> **Status:** Tier 1 shipped v0.181.0; Tier 2 in progress. **Owner:** AtlasMind core. **Created:** 2026-07-28.
 > This is the SSOT implementation plan for [`docs/guided-github-workflow.md`](../../docs/guided-github-workflow.md),
 > which is the normative specification. Where the two disagree, the specification wins and this
 > file is wrong. Build incrementally, respecting the entry criteria between tiers. Nothing here
@@ -50,20 +50,20 @@ what lets the dashboard chart a failure taxonomy over time and have the chart me
 
 What AtlasMind actually does today, so every tier builds on facts rather than assumptions.
 
-**Three `gh` call sites, no shared runner:**
-
-| Site | Mechanism | Shell |
-|---|---|---|
-| `runGh()` — `src/views/projectDashboardPanel.ts:4533` | `execFile('gh', args)`, 8 s timeout | no |
-| `src/bootstrap/bootstrapper.ts:1877` | `cp.exec('gh repo create …')` | **yes — the only one** |
-| `src/core/promotionRunner.ts:288` | builds a `gh workflow run` **string** for later shell execution | yes |
+**One `gh` exec boundary** as of v0.182.0 — `src/core/ghClient.ts`, argv arrays only, no shell,
+pinned by `tests/core/ghExecBoundary.test.ts`. It replaced three ad-hoc sites, one of which
+(`bootstrapper.ts` repo creation) interpolated an **unvalidated GitHub owner** into a shell string.
+`promotionRunner.ts` still composes a `gh workflow run` string, but as persisted user-authored
+config executed through the promotion runner's own audited path — not spawned directly.
 
 **Subcommands in use:** `gh repo view --json nameWithOwner`; `gh issue list/create/comment/close/reopen`;
 `gh api repos/{slug}/branches/{b}/protection`; `gh api repos/{slug}/commits/{ref}/check-runs`;
 `gh repo create`.
 
-**Not present anywhere in `src/`:** any `gh pr` call, any `gh run` call, any `gh release` call, any
-pull-request type, any CI log retrieval, any tech-debt model, any branch-naming convention.
+**Not present anywhere in `src/`:** any `gh run` call, any `gh release` call, any CI log retrieval,
+any tech-debt model. Pull requests are **read** as of v0.182.0 (`pullRequestTracker.ts`,
+`gh pr list`); writing them is the rest of Tier 2. Branch naming landed in v0.182.0
+(`branchNaming.ts`).
 
 **Already built and directly reusable:** `issueTracker.ts` (pure parse/sanitize/summarize plus the
 untrusted-content prompt fence); `promotionRunner.ts` (`classifyBumpLevel`, `bumpVersion`,
@@ -80,7 +80,7 @@ pattern); `testingPolicyCoverage.ts` (`parseJUnitReport` and the no-report-no-ve
 
 ---
 
-## Tier 1 — the workflow engine, the guide, and the instruments  *(in progress)*
+## Tier 1 — the workflow engine, the guide, and the instruments  ✅ **SHIPPED v0.181.0**
 
 **Entry criteria:** none. **Exit criteria:** a user can open the Workflow page, learn the whole
 workflow from it, and see real numbers about their repository — with AtlasMind having written
@@ -155,9 +155,9 @@ nothing to GitHub.
 
 ---
 
-## Tier 2 — branches and pull requests
+## Tier 2 — branches and pull requests  *(in progress)*
 
-**Entry criteria:** Tier 1 shipped; `ghClient` is the only exec path.
+**Entry criteria:** ✅ met in v0.182.0 — Tier 1 shipped, and `ghClient` is now the only `gh` exec path (pinned by `tests/core/ghExecBoundary.test.ts`).
 **Exit criteria:** a pull request can be drafted, opened, reviewed and merged from the dashboard,
 with every write gated.
 

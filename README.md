@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.181.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.182.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,9 +64,13 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.181.0
+## What's new in 0.182.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
+
+- **Pull requests, branch naming, and one door to `gh`.** The Workflow page now reads your pull requests and charts review health — open and awaiting-review counts, median time to first review and to merge, size distribution, merge throughput. Review text is *fenced* before any agent sees it: a review comment is written by whoever can comment, and "address this feedback" is exactly the path that hands that text to a model holding tools. Branch names now derive from the issue they serve (`feat/142-guided-github-workflow`) — pure, predictable, and structurally incapable of producing a protected branch name.
+
+  This pass also closed a shell-injection hole in GitHub repository creation, where the *unvalidated* owner field was interpolated into a command line; consolidated every `gh` invocation behind one argv-only boundary; and fixed a long-standing bug that flattened every issue body to a single line, because the control-character strip included the newline it was meant to preserve.
 
 - **One guided GitHub workflow — and a dashboard page that teaches it.** Project Dashboard → **Workflow** lays out eight stages, from issue intake to release and maintenance, and shows where your repository actually stands in each. Every stage and step carries a **?** opening *why this exists*, *how to do it*, and *what people usually get wrong* — written for somebody meeting a professional workflow for the first time, not only for somebody confirming one they already know, with a glossary for the terms that normally get assumed. The same page charts delivery health: issue ageing, branch naming conformance, CI state, commit conventions, changelog drift, and a weighted score. It adapts to the testing protocols your project has enabled, and it costs nothing to open — nothing on the render path touches the network.
 

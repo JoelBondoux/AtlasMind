@@ -9,6 +9,7 @@ import {
   deriveCiMetrics,
   deriveCommitConformance,
   deriveIssueMetrics,
+  derivePullRequestMetrics,
   deriveReleaseMetrics,
   deriveWorkflowHealth,
   formatHours,
@@ -250,6 +251,110 @@ describe('deriveCiMetrics — worst state wins', () => {
       { name: 'a', status: 'completed', conclusion: 'failure' },
     ]);
     expect(metrics.failingCheckNames).toEqual(['a', 'z']);
+  });
+});
+
+describe('derivePullRequestMetrics', () => {
+  const pr = (over: Partial<Parameters<typeof derivePullRequestMetrics>[0][number]> = {}) => ({
+    number: 1, state: 'merged',
+    createdAt: daysAgo(3), mergedAt: daysAgo(1),
+    additions: 20, deletions: 5,
+    reviews: [{ verdict: 'approved', submittedAt: daysAgo(2) }],
+    linkedIssues: [7],
+    ...over,
+  });
+
+  it('separates open, draft and merged', () => {
+    const metrics = derivePullRequestMetrics([
+      pr({ state: 'merged' }),
+      pr({ state: 'open', mergedAt: undefined }),
+      pr({ state: 'draft', mergedAt: undefined }),
+      pr({ state: 'closed', mergedAt: undefined }),
+    ], NOW);
+    expect(metrics.merged).toBe(1);
+    expect(metrics.open).toBe(2);
+    expect(metrics.draft).toBe(1);
+  });
+
+  it('counts an open pull request with no submitted review as awaiting review', () => {
+    const metrics = derivePullRequestMetrics([
+      pr({ state: 'open', mergedAt: undefined, reviews: [] }),
+      pr({ state: 'open', mergedAt: undefined, reviews: [{ verdict: 'pending' }] }),
+      pr({ state: 'open', mergedAt: undefined, reviews: [{ verdict: 'approved' }] }),
+    ], NOW);
+    expect(metrics.awaitingReview).toBe(2);
+  });
+
+  it('measures size and linkage over merged pull requests only', () => {
+    // An open pull request is still growing; counting it would report a
+    // distribution of unfinished work.
+    const metrics = derivePullRequestMetrics([
+      pr({ state: 'merged', additions: 5, deletions: 0, linkedIssues: [1] }),
+      pr({ state: 'open', mergedAt: undefined, additions: 5000, deletions: 0, linkedIssues: [] }),
+    ], NOW);
+    expect(metrics.sizeDistribution.find(s => s.key === 'xs')?.value).toBe(1);
+    expect(metrics.sizeDistribution.find(s => s.key === 'xl')?.value).toBe(0);
+    expect(metrics.linkedRate).toEqual({ known: true, value: 100 });
+  });
+
+  it('buckets size against declared boundaries', () => {
+    const sizes = [5, 50, 200, 700, 5000];
+    const metrics = derivePullRequestMetrics(
+      sizes.map((n, i) => pr({ number: i, additions: n, deletions: 0 })), NOW,
+    );
+    expect(metrics.sizeDistribution.map(s => s.value)).toEqual([1, 1, 1, 1, 1]);
+  });
+
+  it('has no latency verdict below the sample floor', () => {
+    const metrics = derivePullRequestMetrics([pr()], NOW);
+    expect(metrics.medianTimeToFirstReviewMs.known).toBe(false);
+    expect(metrics.medianTimeToMergeMs.known).toBe(false);
+  });
+
+  it('computes review and merge latency once there are enough samples', () => {
+    const metrics = derivePullRequestMetrics([pr(), pr({ number: 2 }), pr({ number: 3 })], NOW);
+    // created 3d ago, first review 2d ago, merged 1d ago.
+    expect(metrics.medianTimeToFirstReviewMs).toEqual({ known: true, value: 24 * 60 * 60 * 1000 });
+    expect(metrics.medianTimeToMergeMs).toEqual({ known: true, value: 2 * 24 * 60 * 60 * 1000 });
+  });
+
+  it('ignores a review timestamped before the pull request existed', () => {
+    // Clock skew and backfilled data both produce these; a negative latency
+    // would drag a median into nonsense.
+    const metrics = derivePullRequestMetrics([
+      pr({ reviews: [{ verdict: 'approved', submittedAt: daysAgo(9) }] }),
+      pr({ number: 2 }), pr({ number: 3 }), pr({ number: 4 }),
+    ], NOW);
+    expect(metrics.medianTimeToFirstReviewMs).toEqual({ known: true, value: 24 * 60 * 60 * 1000 });
+  });
+
+  it('takes the earliest submitted review as "first"', () => {
+    const metrics = derivePullRequestMetrics([1, 2, 3].map(n => pr({
+      number: n,
+      reviews: [
+        { verdict: 'approved', submittedAt: daysAgo(1) },
+        { verdict: 'commented', submittedAt: daysAgo(2) },
+      ],
+    })), NOW);
+    expect(metrics.medianTimeToFirstReviewMs).toEqual({ known: true, value: 24 * 60 * 60 * 1000 });
+  });
+
+  it('has no linked-rate verdict when nothing has merged', () => {
+    expect(derivePullRequestMetrics([pr({ state: 'open', mergedAt: undefined })], NOW).linkedRate.known)
+      .toBe(false);
+  });
+
+  it('charts merge throughput over the window', () => {
+    const metrics = derivePullRequestMetrics([pr(), pr({ number: 2 })], NOW, 7);
+    expect(metrics.throughput).toHaveLength(7);
+    expect(metrics.throughput.reduce((sum, p) => sum + p.value, 0)).toBe(2);
+  });
+
+  it('handles an empty repository without inventing numbers', () => {
+    const metrics = derivePullRequestMetrics([], NOW);
+    expect(metrics.merged).toBe(0);
+    expect(metrics.medianTimeToMergeMs.known).toBe(false);
+    expect(metrics.linkedRate.known).toBe(false);
   });
 });
 

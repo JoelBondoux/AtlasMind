@@ -58,6 +58,30 @@ export type GhResult<T> =
   | { ok: true; value: T }
   | { ok: false; failure: GhFailure };
 
+/**
+ * A `gh` failure as a throwable, for call sites whose contract is exceptions.
+ *
+ * Several existing callers are written around try/catch and would be riskier to
+ * invert than to adapt. Carrying the classified {@link GhFailure} on the error
+ * means those sites keep their shape without the diagnosis being re-derived
+ * from a message string — which is how two slightly different classifications
+ * of the same failure end up in one codebase.
+ */
+export class GhError extends Error {
+  readonly failure: GhFailure;
+
+  constructor(failure: GhFailure) {
+    super(failure.detail);
+    this.name = 'GhError';
+    this.failure = failure;
+  }
+}
+
+/** The classified failure behind an error, whatever form it arrived in. */
+export function ghFailureOf(error: unknown): GhFailure {
+  return error instanceof GhError ? error.failure : classifyGhFailure(error);
+}
+
 /** Injected so tests never spawn a process. */
 export interface GhProcessRunner {
   (
@@ -233,19 +257,60 @@ export class GhClient {
     return this.exec(['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner']);
   }
 
-  /** Whether `gh` is installed and authenticated, without assuming either. */
+  /**
+   * Whether `gh` is installed and authenticated, without assuming either.
+   *
+   * `installed` requires **positive evidence that the binary ran** — either it
+   * succeeded, or it failed in a way only a running `gh` can produce (it told
+   * us we are signed out, or GitHub itself refused us). An unclassifiable
+   * failure reports `installed: false`, because "we could not tell" is not
+   * "it is there": reading an unknown error as success would have a caller skip
+   * offering to install the very thing that is missing. Being wrong the other
+   * way merely offers an install that turns out to be unnecessary.
+   */
   async probe(): Promise<{ installed: boolean; authenticated: boolean; failure?: GhFailure }> {
     const result = await this.exec(['auth', 'status']);
     if (result.ok) {
       return { installed: true, authenticated: true };
     }
     const { failure } = result;
+    // Each of these can only be produced by a `gh` that actually executed.
+    const ranSuccessfullyEnoughToProveItExists =
+      failure.kind === 'not-authenticated'
+      || failure.kind === 'rate-limited'
+      || failure.kind === 'forbidden'
+      || failure.kind === 'not-found';
     return {
-      installed: failure.kind !== 'no-cli',
+      installed: ranSuccessfullyEnoughToProveItExists,
       authenticated: false,
       failure,
     };
   }
+}
+
+/**
+ * Run `gh` and return stdout, throwing {@link GhError} on failure.
+ *
+ * The adapter for call sites whose contract is exceptions. Everything still
+ * goes through {@link GhClient}, so the no-shell guarantee and the failure
+ * classification are the same ones every other caller gets.
+ */
+export async function runGhOrThrow(
+  workspaceRoot: string,
+  args: readonly string[],
+  options: { timeoutMs?: number; maxBufferBytes?: number } = {},
+): Promise<string> {
+  const client = new GhClient({
+    workspaceRoot,
+    run: nodeGhRunner,
+    ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+    ...(options.maxBufferBytes === undefined ? {} : { maxBufferBytes: options.maxBufferBytes }),
+  });
+  const result = await client.exec(args);
+  if (!result.ok) {
+    throw new GhError(result.failure);
+  }
+  return result.value;
 }
 
 /**

@@ -88,7 +88,7 @@ function cleanMultiline(value: unknown, max: number): { text: string; truncated:
   }
   const normalized = value
     .replace(/\r\n/g, '\n')
-    .replace(/[\u0000-\u001f\u007f]+/g, ' ')
+    .replace(/[\u0000-\u0009\u000b-\u001f\u007f]+/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
   return { text: normalized.slice(0, max), truncated: normalized.length > max };

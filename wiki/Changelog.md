@@ -6,6 +6,15 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.182.0 — pull requests, branch naming, and one door to `gh`
+
+- **Pull requests are read and measured** on the Workflow page: open and awaiting-review counts, median time to first review and to merge, size distribution, merge throughput. As everywhere on that page, *not loaded* is its own state — never a row of zeroes.
+- **Review text is fenced before any agent sees it.** A pull-request body and a review comment are written by whoever can comment, and "address this feedback" is exactly the path that hands that text to a model with tools. Nothing sanitized it before because nothing read it.
+- **Branch names derive from the issue** — `feat/142-guided-github-workflow`, pure and predictable, collisions resolved by `-2`/`-3` rather than a hash. It cannot produce a protected branch name, and refuses with a reason rather than inventing one.
+- **Fixed a shell-injection hole in repository creation** — `gh repo create` interpolated an *unvalidated* GitHub owner into a shell string. Self-inflicted rather than remote, but exactly what argv arrays exist to prevent.
+- **`gh` now has exactly one exec boundary**, pinned by a test that reads the real source. `probe()` also stopped claiming the CLI was installed when it had no evidence either way.
+- **Issue and pull-request bodies stopped being flattened to one line** — the control-character strip included `\n`, so bodies lost their structure and the blank-run collapse below it was dead code. Present since the issue tracker first shipped.
+
 ## v0.181.0 — one guided GitHub workflow, and a dashboard that teaches it
 
 - **Project Dashboard → [[GitHub Workflow|Workflow]]** lays out eight stages — issue intake, branch naming, development, pull requests, CI, release, maintenance, automation — and shows where your repository stands in each. Every step carries a **?** opening *why it exists*, *how to do it*, and *what people get wrong*, written for somebody meeting a professional workflow for the first time. Plus a glossary for the terms that usually get assumed.

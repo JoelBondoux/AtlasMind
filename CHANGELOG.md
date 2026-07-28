@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.182.0] - 2026-07-28
+
+### Added
+- **Pull requests are now read, measured, and safe to hand to an agent.** `pullRequestTracker.ts` parses `gh pr list` with exactly the discipline `issueTracker` uses — control-stripped, clamped, count-capped, non-`https` links dropped, never throws — and `buildPrReviewPrompt` fences review text as REPORTED CONTENT. That fence is the point: a pull-request body and a review comment are text written by whoever can comment, and "address this review feedback" is precisely the workflow that hands that text to a model holding tools. Nothing sanitized it before because nothing read it; adding the reading is what created the obligation.
+
+  The Workflow page gains a pull-request band: open and awaiting-review counts, median time to first review, median time to merge, a size distribution, and merge throughput over time. As everywhere on that page, **"not loaded" renders as its own state rather than as a row of zeroes** — a list nobody fetched is not an empty list.
+
+- **Branch names derive from the issue they serve.** `deriveBranchName` turns issue #142 into `feat/142-guided-github-workflow`: pure, ASCII-slugged, truncated at a word boundary, and length-capped across the whole name rather than just the slug. Collisions resolve with an ordinal suffix (`-2`, `-3`) rather than a hash or timestamp, so running the same command twice gives you a name you could have predicted. It cannot produce a protected branch name — the `<type>/` prefix makes that structurally unreachable — and it **refuses with a reason** rather than inventing one when a title reduces to nothing, because an unreadable branch name is worse than a question.
+
+### Fixed
+- **A shell-injection hole in GitHub repository creation.** `gh repo create` was assembled as a shell string with the GitHub **owner** interpolated into it, and unlike the repository name, the owner input box had no validation. An owner containing a shell metacharacter would have run as a second command. Self-inflicted rather than remote — you would have to type it into your own prompt — but exactly the class of bug argv arrays exist to prevent. Repository creation now passes an argv array through `ghClient`.
+
+- **`gh` now has exactly one exec boundary.** `ghClient` shipped in 0.181.0 but nothing imported it, so "the shared runner" was a runner nothing shared. All call sites now route through it, both shell-based invocations are gone, and `tests/core/ghExecBoundary.test.ts` reads the real source so a new one cannot quietly reappear. The dashboard also stopped re-deriving its own failure diagnosis from message text — two independent classifications of one failure is how somebody gets told to re-authenticate when they are merely rate-limited.
+
+- **`probe()` claimed the GitHub CLI was installed when it had no idea.** It read *any* failure other than "not found" as evidence of presence, so an unclassifiable error — a timeout, an unexpected exception — reported `installed: true`. That would have a caller skip offering to install the very thing that is missing. It now requires positive evidence the binary actually ran: success, or a failure only a running `gh` can produce (signed out, rate-limited, forbidden, not found).
+
+- **Issue and pull-request bodies were being flattened to a single line.** `cleanMultiline` in `issueTracker` promised "newlines survive so a body stays readable", but `\n` is U+000A and sat inside the control-character class it strips — so every body lost its structure and the blank-run collapse beneath it was dead code. This shipped in `issueTracker` from the start and was faithfully reproduced in the new pull-request tracker before being caught. Both now exclude `\n` specifically, with a regression test naming the trap.
+
 ## [0.181.0] - 2026-07-28
 
 ### Added

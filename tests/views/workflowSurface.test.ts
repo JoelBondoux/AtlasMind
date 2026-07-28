@@ -117,6 +117,18 @@ describe('empty states teach rather than report emptiness', () => {
     expect(source).toContain('data-action="page" data-payload="issues"');
   });
 
+  it('distinguishes "no pull requests loaded" from "none open"', () => {
+    // A row of zeroes for a list nobody fetched is the same class of lie as
+    // "0 failing" for a test suite that never ran.
+    expect(source).toContain('Pull requests have not been loaded');
+    expect(source).toContain('const prs = wf.pullRequests;');
+    // The card is chosen by presence, not by a count — so an empty-but-loaded
+    // list still renders real zeroes while an unloaded one renders the
+    // explanation.
+    expect(source).toMatch(/const prCard = prs\s*\?/);
+    expect(source).not.toMatch(/prs\s*&&\s*prs\.open\s*>\s*0\s*\?/);
+  });
+
   it('never renders an unmeasured CI state as a passing or zero-failure result', () => {
     // "No report ⇒ no verdict, never 0 failing" — inherited from the testing
     // policy coverage contract, and the single most important honesty rule on

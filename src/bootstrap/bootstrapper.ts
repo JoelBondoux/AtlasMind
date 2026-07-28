@@ -4,6 +4,7 @@ import { SSOT_FOLDERS, TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
 import type { AtlasMindContext } from '../extension.js';
 import type { BudgetMode, MemoryDocumentClass, MemoryEntry, MemoryEvidenceType, ProjectTestingConfig, RoutineStep, SpeedMode, TestingMethodologyId } from '../types.js';
 import { formatCost } from '../core/currencyFormatter.js';
+import { GhClient, ghFailureOf, nodeGhRunner, runGhOrThrow } from '../core/ghClient.js';
 
 type DependencyMonitoringProvider = 'dependabot' | 'renovate' | 'snyk' | 'azure-devops';
 type DependencyMonitoringSchedule = 'daily' | 'weekly' | 'monthly';
@@ -1819,9 +1820,7 @@ async function createGitHubRepo(
 ): Promise<RemoteRepoResult> {
   reportBootstrapProgress(reporter, '- Checking for GitHub CLI (`gh`)...');
 
-  const ghAvailable = await new Promise<boolean>(resolve => {
-    cp.exec('gh --version', err => resolve(!err));
-  });
+  const ghAvailable = await ghCliAvailable(workspaceRoot.fsPath);
 
   if (!ghAvailable) {
     const installed = await installGitHubCli(reporter);
@@ -1873,31 +1872,43 @@ async function createGitHubRepo(
 
   reportBootstrapProgress(reporter, `- Creating GitHub repo \`${nameArg}\` (${visibility.label.toLowerCase()})...`);
 
-  return new Promise<RemoteRepoResult>(resolve => {
-    cp.exec(
-      `gh repo create ${nameArg} ${visibility.value} --source=. --remote=origin --push`,
-      { cwd },
-      (err, stdout, stderr) => {
-        if (err) {
-          const detail = stderr?.trim() || err.message;
-          vscode.window.showErrorMessage(`GitHub repo creation failed: ${detail}`, 'Open Terminal').then(choice => {
-            if (choice === 'Open Terminal') {
-              vscode.commands.executeCommand('workbench.action.terminal.new');
-            }
-          });
-          resolve({ created: false, url: undefined });
-          return;
-        }
-
-        const urlMatch = /https:\/\/github\.com\/[\w.\-/]+/.exec(stdout);
-        const url = urlMatch?.[0];
-        vscode.window.showInformationMessage(
-          url ? `GitHub repo created: ${url}` : `GitHub repo \`${nameArg}\` created and pushed.`,
-        );
-        resolve({ created: true, url });
-      },
+  // Argv array, not a shell string. `repoName` is validated at its input box but
+  // `owner` was not, and both were interpolated into a command line — so an owner
+  // containing a shell metacharacter would have run as a second command. Passing
+  // argv removes the class of bug rather than adding a second validator.
+  try {
+    const stdout = await runGhOrThrow(
+      cwd,
+      ['repo', 'create', nameArg, visibility.value, '--source=.', '--remote=origin', '--push'],
+      // Repo creation pushes the initial commit, so it needs longer than the
+      // read-only default eight seconds.
+      { timeoutMs: 120_000 },
     );
-  });
+    const url = /https:\/\/github\.com\/[\w.\-/]+/.exec(stdout)?.[0];
+    vscode.window.showInformationMessage(
+      url ? `GitHub repo created: ${url}` : `GitHub repo \`${nameArg}\` created and pushed.`,
+    );
+    return { created: true, url };
+  } catch (error) {
+    const detail = ghFailureOf(error).detail;
+    void vscode.window.showErrorMessage(`GitHub repo creation failed: ${detail}`, 'Open Terminal').then(choice => {
+      if (choice === 'Open Terminal') {
+        void vscode.commands.executeCommand('workbench.action.terminal.new');
+      }
+    });
+    return { created: false, url: undefined };
+  }
+}
+
+/**
+ * Whether the GitHub CLI is on PATH.
+ *
+ * Goes through the shared client so "is `gh` installed?" has one answer in the
+ * codebase, and so this stops being a shell invocation.
+ */
+async function ghCliAvailable(cwd: string): Promise<boolean> {
+  const client = new GhClient({ workspaceRoot: cwd, run: nodeGhRunner });
+  return (await client.probe()).installed;
 }
 
 async function ensureInitialCommit(cwd: string, reporter?: BootstrapPromptReporter): Promise<void> {
