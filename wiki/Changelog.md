@@ -6,6 +6,80 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.160.1 — the buttons the guide kept promising
+
+- **"Press the button below" — there was no button.** The walkthrough's wording was written for VS Code chat, where buttons render, and shown in the AtlasMind panel, where nothing did. Each step's actions now appear as buttons there: open the relevant screen, set the agent key, or load a command into a terminal.
+- **The opening line no longer reads as though the guide lost its place.** Starting at "step 2 of 4" looks like something was skipped, when in fact step 1 was already finished. It now leads with progress — "1 of 4 done. Next: …" — and only says "step 1 of 4" when nothing is done yet.
+- **A key already given to the Buzz MCP bridge is now recognised.** The bridge stores it under its own secret and inbound reads a different one, so the guide could correctly report "no key" to someone who had already supplied it. It now spots that and offers **Reuse the key from the Buzz bridge**.
+- **A guide button names an option id, never a command.** The mapping from option to command is held extension-side and looked up, so a webview message cannot choose what runs.
+- **Reusing the bridge key is checked, not trusted.** The secret id must match the Buzz bridge's exact naming, the key is validated by constructing a signer before it is stored, and neither the key nor any part of it is ever displayed or logged.
+
+## v0.160.0 — Settings → MCP Servers
+
+- **Every registered server in one list** with its transport, live connection status, tool count, and any error — plus Enable, Connect and Disconnect for each. Previously the only way to see whether a server was actually connected was to open a separate panel.
+- **Disabling a server now disconnects it**, rather than only relabelling it. A gate that reports itself closed while its tools remain reachable is worse than no gate.
+- **The page shows what is running, not what was configured** — status and tool counts are read live from the registry each time it renders.
+- **Adding and editing a server stays in the dedicated MCP manager.** Browse-by-category, transport setup, and secret entry are deliberately not duplicated here; two implementations of one flow drift, and the one that drifts is the one nobody is looking at.
+- **Each new message is validated at the runtime allowlist**, not only in the type union — these messages start and stop processes that contribute callable tools. This is the same guard a previous page skipped, which left every control on it silently inert.
+
+## v0.159.1 — the guide stops skipping the question it cannot answer
+
+- **The setup guide opened in whatever thread happened to be in front of you.** It now gets its own **Buzz setup** session, so a walkthrough no longer lands in the middle of unrelated work under a title about something else.
+- **The guide skipped straight to step 3.** Steps 1 and 2 read as finished because Buzz was enabled and the default `ws://localhost:3000` parses — but nothing had ever connected, so whether a relay existed was unknown and the guide walked past the question entirely. Until you say how you run Buzz (or a subscription actually connects), the relay step is unfinished and the guide stops there to ask.
+- **Real chips in AtlasMind's own panel.** "How do you want to run Buzz?" is answered by clicking **I will run Buzz on this machine** or **I have a relay URL from someone else**, and the guide reprints with only that path.
+- **Each step shows the whole sequence with its position marked**, so arriving at step 3 says why.
+- **Chips appear only where there is a genuine question.** The relay path is the one thing AtlasMind cannot work out for itself; everywhere else a chip would be a button meaning "I have read this".
+
+## v0.159.0 — `/buzz` walks you through it one step at a time
+
+- **One step, not a wall.** `/buzz` shows only the step you are on — numbered, with the exact commands written out — instead of the whole checklist. `/buzz all` still shows everything.
+- **Commands can be put straight into a terminal for you.** A button loads the command into a "Buzz setup" terminal, typed but **not run** — pressing Enter stays yours, since these clone repositories and start containers.
+- **The guide asks how you run Buzz and then shows only that path.** `/buzz local` gives the Docker route with real commands; `/buzz hosted` says there is nothing to install and what to paste where. Stored as `atlasmind.buzz.relayMode`, which changes guidance only.
+- **The Buzz desktop app is now part of the guide.** It was missing entirely, which left the walkthrough describing a workspace with no way in — and the channel ids the later steps ask for come from the app.
+- **"Guide me through Buzz setup" now opens AtlasMind's own chat panel**, not VS Code's. Routing through `workbench.action.chat.open` put a Buzz question in front of Copilot's participant picker, and — because a slash command in a pre-filled query arrives as text — straight into the general agent.
+- **The local-relay path is spoon-fed:** check Docker, clone the repo, build and start, then confirm something is listening with `docker ps`. Previously it said "normally means Docker", which is not something a first-timer can act on.
+- **Only commands AtlasMind wrote can be loaded into a terminal.** `BUZZ_SETUP_COMMANDS` is an allowlist checked at the command handler, because a command id is reachable from a webview and its payload cannot be assumed to be ours. Commands quoted from Buzz's documentation are shown for copying and are never wired to a button — they are somebody else's text.
+
+## v0.158.1 — every green build is installable
+
+- **CI uploads a packaged `.vsix` for the exact commit it built** (14-day retention), so a branch can be installed into a real editor by downloading it from the run rather than being handed a file.
+- **CI can be triggered by hand** (`workflow_dispatch`), so a feature branch gets a build without opening a pull request to provoke one.
+- **`docs/development.md` now says what running a branch actually needs.** F5 builds from source and needs no packaged build at all — but it does need `npm install` after pulling a branch that changed dependencies, which is the step that silently breaks a launch when skipped.
+
+## v0.158.0 — a waiting approval says so
+
+- **A blocked run no longer looks like a hung one.** When a tool approval needs an answer and the AtlasMind chat panel is off screen, the panel is brought forward and a notification names the action that is waiting. Previously the only reaction was repainting a webview you may not have been looking at.
+- **`atlasmind.chat.revealOnApprovalRequest`** (default on) controls whether the panel takes focus. The notification is shown either way, so turning it off stops the interruption without leaving you unaware.
+- **Nothing is announced while the panel is already visible.** Interrupting someone toward something already in front of them is how prompts get trained into reflex dismissal.
+- **Only newly-arrived requests announce.** The pending list also changes when a request is *answered*, so announcing on every change would have fired a notification each time you approved something.
+- **The notification names the action** ("Run `npm test` in the workspace"), since a message that does not say what it is about gives no reason to switch to it.
+
+## v0.157.1 — a slash command that arrives as text
+
+- **"Guide me through Buzz setup" sent your question to the general agent instead of showing the checklist.** The button opens chat with a pre-filled `@atlas /buzz` query, and VS Code hands that to the participant as prompt *text* rather than as a command. The chip renders identically either way, so nothing looked wrong.
+- **A deterministic command can no longer widen its own tool surface by falling through.** The point of `/buzz` being model-free is that a Buzz question never needs an agent, let alone one holding every connected MCP tool — and the silent fall-through granted exactly that, which is how an unrelated third-party tool got reached for. A slash command arriving as text is now recovered and routed to its own handler.
+- **Tests pin the shape**: every command the manifest declares has a handler, the known-command list matches the manifest, and dispatch reads the recovered prompt rather than the raw one.
+
+## v0.157.0 — DM a contact, and let two agents talk
+
+- **`/buzz dm <name> <message>`** resolves the person from your Director roster and sends to the Buzz key on their card — the person you added once is the person you can message.
+- **Autonomous agent-to-agent replies** (`atlasmind.buzz.autonomousReplies`, off by default). With it armed, an AtlasMind agent can hold a back-and-forth with a Buzz agent without a dialog per message, which is the point of putting them in the same workspace.
+- **"AtlasMind drafted it" no longer means "always ask".** It means "ask, unless you have explicitly armed autonomy *and* the recipient is one you declared to be an agent *and* the rate cap has not been reached." Requiring a human click per message made an agent loop impossible; removing the gate entirely would have removed something real.
+- **Autonomy is scoped to agents you declared**, never to agents AtlasMind inferred — only to recipients in `atlasmind.buzz.agentBindings`, and creating that binding is already a deliberate act naming both the identity and the agent. An unbound recipient is treated as a person and still gets a confirmation.
+- **It is rate-bounded per recipient** (`atlasmind.buzz.autonomousReplyLimitPerHour`, default 10), and at the cap the next message **falls back to a dialog rather than being dropped** — a silently-discarded reply looks identical to a working loop. An autonomous send never becomes a standing grant.
+- **The residual risk is stated rather than hidden:** inbound Buzz messages are untrusted input, so an agent that reads one and replies autonomously gives its author partial influence over what AtlasMind then says to others.
+- **An ambiguous name is refused, not guessed**, and a contact whose handle is a channel UUID rather than a public key cannot be DM'd — picking the wrong colleague is not recoverable.
+
+## v0.156.0 — read and reply to Buzz from chat
+
+- **`/buzz read`** shows the recent conversation with authors resolved to their published names; **`/buzz send <message>`** posts back through the guarded bridge.
+- **Emoji work in both directions.** Reactions arriving from Buzz attach to the message they target and aggregate with counts, and emoji you type are sent exactly as written.
+- **Confirmation now fires where it adds something, instead of on every send.** A message *you* wrote, aimed at a channel *you* chose, to a recipient you have already messaged this session, sends without a dialog — you confirmed it by typing it and pressing send. Everything else still confirms: anything AtlasMind drafted, any recipient AtlasMind picked, and the first message to any recipient in a session. Dialogs that add nothing train people to dismiss the ones that matter.
+- **AtlasMind refuses to guess which channel to post to.** With more than one configured, `/buzz send` stops rather than choosing — sending to the wrong channel cannot be undone.
+- **Conversations are held in memory for the session and never written to disk.** "Derive, don't mirror" governs what is *stored* in git-tracked `project_memory/`; it was never a rule against looking at a message.
+- **A secret in an outgoing message is a refusal, not a redaction** — quietly sending a redacted version would leave you believing you had sent one thing while your colleagues read another.
+- **Emoji are handled as a correctness problem.** Truncation walks whole code points and backs off trailing joiners, variation selectors, and skin-tone modifiers, so a trimmed message never ends in a broken glyph. Reactions compare on the full published sequence, so 👍 and 👍🏽 stay distinct — different reactions by different people.
+
 ## v0.155.0 — the setup guide reads Buzz's own docs
 
 - **Live documentation instead of stale prose.** `/buzz` quotes the current Buzz README for the steps outside AtlasMind — relay, CLI, agent key — with a source link and how recently it was read.

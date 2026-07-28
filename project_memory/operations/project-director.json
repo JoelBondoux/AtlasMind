@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-07-27T15:53:50.452Z",
+  "updatedAt": "2026-07-28T02:14:47.553Z",
   "project": {
     "name": "atlasmind",
     "summary": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry."
