@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.165.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.166.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,10 +64,11 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.165.0
+## What's new in 0.166.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
 
+- **The roadmap plans more than one release.** MVP was the only milestone the Roadmap tab could track, which stops being useful the day you ship it. You can now declare your own **release gates** — a public beta, v1.0, v2 — and switch the "Road to…" card between them; each shows its own progress, milestone track, best route, and plan-with-Atlas prompt. An item can sit on more than one release. Gates are stored as readable markdown in the roadmap file, so they diff and review like the backlog does, and removing a gate removes a *label*, never any work.
 - **The Testing tab says which policies are actually tested — and what's failing.** A **Policy coverage** board gives every methodology you switched on its own card: does anything in the tree test it, is its tooling merely installed with nothing written yet, how many of its cases are skipped, and which of its tests failed in the newest test report. Practices that leave no file behind — exploratory, black-box, V-model — are labelled as practices instead of being counted as gaps, because a panel that flags everything gets ignored. And when your project has never written a test report, the page says it has **no verdict** and shows the command that would produce one, rather than displaying a reassuring "0 failing" that nothing measured. It never runs your tests to find out.
 - **A document shelf creates its folder.** Adding a shelf on the Documents tab now makes the folder it names, so you can design a filing system before the files exist instead of describing one against folders that aren't there. Shelves still pointing at a missing folder get a **Create folder** button. It only ever creates: a folder that already exists is left alone, and a file sitting where the shelf points is reported rather than touched.
 - **One person, several ways to reach them.** The Director's Add / Edit person form now holds as many communication channels as someone actually has — email *and* Slack *and* Buzz — rather than the one it used to allow. The first is the preferred channel; the rest sit under it, added and removed without losing anything else you have typed. The roster's data model always stored a list; only the editor insisted on one.

@@ -12,6 +12,20 @@ import { resolvePickedImageAttachments } from '../chat/imageAttachments.js';
 import { collectTestingDashboardSnapshot, writeProjectTestingConfig, type TestingDashboardSnapshot } from './settingsPanel.js';
 import { getWebviewHtmlShell } from './webviewUtils.js';
 import { DASHBOARD_THEME_CSS } from './dashboardTheme.js';
+import {
+  MAX_ROADMAP_GATES,
+  MVP_GATE_ID,
+  ROADMAP_GATES_START,
+  extractItemGates,
+  formatItemGateTags,
+  normalizeGates,
+  parseRoadmapGates,
+  sanitizeGateSelection,
+  slugifyGateId,
+  stripRoadmapGatesBlock,
+  upsertRoadmapGatesBlock,
+  type RoadmapGate,
+} from '../core/roadmapGates.js';
 import { DataPrivacyManager, readDataPrivacyConfig, writeDataPrivacyConfig, defaultDataPrivacyConfig } from '../core/dataPrivacyManager.js';
 import { COMPLIANCE_PACKS } from '../core/compliancePacks.js';
 import { getProviderDataGovernance } from '../core/providerDataGovernance.js';
@@ -162,13 +176,16 @@ function isRoadmapNoiseItem(text: string): boolean {
 
 // The backlog lives between explicit markers; parse only that region when present
 // so "## Project Context" and "## Prioritisation Notes" never leak into the list.
+// The release-gates block is stripped first: it is a list too, and in a document
+// with no item markers its lines would otherwise be read as backlog items.
 function extractRoadmapItemsRegion(content: string): string {
-  const start = content.indexOf(ROADMAP_ITEMS_START);
-  const end = content.indexOf(ROADMAP_ITEMS_END);
+  const source = stripRoadmapGatesBlock(content);
+  const start = source.indexOf(ROADMAP_ITEMS_START);
+  const end = source.indexOf(ROADMAP_ITEMS_END);
   if (start >= 0 && end > start) {
-    return content.slice(start + ROADMAP_ITEMS_START.length, end);
+    return source.slice(start + ROADMAP_ITEMS_START.length, end);
   }
-  return content;
+  return source;
 }
 
 type ProjectDashboardMessage =
@@ -184,6 +201,8 @@ type ProjectDashboardMessage =
   | { type: 'clearIdeationImages' }
   | { type: 'saveIdeationBoard'; payload: IdeationBoardPayload }
   | { type: 'saveRoadmap'; payload: DashboardRoadmapSavePayload }
+  | { type: 'createRoadmapGate' }
+  | { type: 'deleteRoadmapGate'; payload: string }
   | { type: 'runIdeationLoop'; payload: IdeationRunPayload }
   | { type: 'runGapAnalysis' }
   | { type: 'addressGap'; payload: string }
@@ -568,7 +587,14 @@ interface DashboardOutcomeCompleteness {
 }
 
 interface DashboardRoadmapSavePayload {
-  items: Array<{ id?: string; text: string; completed?: boolean; isMvp?: boolean }>;
+  /**
+   * `isMvp` is the original single-gate field and is still accepted: an older
+   * webview (or a queued message from one) must not silently drop an item's MVP
+   * membership. `gates` supersedes it when present.
+   */
+  items: Array<{ id?: string; text: string; completed?: boolean; isMvp?: boolean; gates?: string[] }>;
+  /** Declared release gates, when the save also changes the gate list. */
+  gates?: Array<{ id: string; label: string }>;
 }
 
 interface DashboardRoadmapItem {
@@ -578,8 +604,17 @@ interface DashboardRoadmapItem {
   focus: 'security' | 'architecture' | 'delivery' | 'feature' | 'documentation';
   priorityScore: number;
   priorityReason: string;
+  /** Retained as `gates.includes('mvp')` — the MVP gate keeps its own name. */
   isMvp: boolean;
+  /** Every declared gate this item is tagged for, in declared order. */
+  gates: string[];
   mvpCandidate: boolean;
+}
+
+interface DashboardRoadmapGateView extends RoadmapGate {
+  totalCount: number;
+  completedCount: number;
+  progressPercent: number;
 }
 
 interface DashboardMvpStep {
@@ -610,7 +645,12 @@ interface DashboardRoadmapSnapshot {
   completedCount: number;
   outstandingCount: number;
   nextSuggestedWork: DashboardRoadmapItem[];
+  /** The MVP gate's route. Kept under its own name — it feeds the score. */
   mvp: DashboardMvpSnapshot;
+  /** Declared gates with their progress, in declared order (`mvp` first). */
+  gates: DashboardRoadmapGateView[];
+  /** One route per gate, keyed by gate id, so switching gates needs no round trip. */
+  gateRoutes: Record<string, DashboardMvpSnapshot>;
 }
 
 interface DashboardScoreRecommendation {
@@ -1475,6 +1515,12 @@ export class ProjectDashboardPanel {
       case 'saveRoadmap':
         await this.saveRoadmap(message.payload);
         return;
+      case 'createRoadmapGate':
+        await this.handleCreateRoadmapGate();
+        return;
+      case 'deleteRoadmapGate':
+        await this.handleDeleteRoadmapGate(message.payload);
+        return;
       case 'saveTestingConfig':
         {
           const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -1835,27 +1881,172 @@ export class ProjectDashboardPanel {
     const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('atlasmind.ssotPath', 'project_memory')
       ?? vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
     const filePath = path.join(workspaceRoot, ssotPath, 'roadmap', 'improvement-plan.md');
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    const existing = await fs.readFile(filePath, 'utf-8').catch(() => '');
+
+    // Gates come from the payload when the save changes them, otherwise from the
+    // file — a plain item save must never drop a gate the user declared.
+    const declaredGates = normalizeGates(
+      Array.isArray(payload.gates)
+        ? payload.gates.map(gate => ({
+            id: slugifyGateId((gate as { id?: unknown })?.id),
+            label: typeof (gate as { label?: unknown })?.label === 'string' ? (gate as { label: string }).label : '',
+            order: 0,
+            builtIn: false,
+          }))
+        : parseRoadmapGates(existing),
+    );
+
     const sanitizedItems = (payload.items ?? [])
       .map((item, index) => {
-        // The #mvp tag is metadata: keep it out of the text and re-derive it from
-        // the flag so the round-trip stays idempotent even if the tag leaks in.
+        // Gate tags are metadata: keep them out of the text and re-derive them
+        // from the ids so the round-trip stays idempotent even if a tag leaks in.
         const rawText = typeof item.text === 'string' ? item.text : '';
-        const isMvp = item.isMvp === true || /#mvp\b/i.test(rawText);
+        const stripped = extractItemGates(rawText, declaredGates);
+        const gates = sanitizeGateSelection(
+          Array.isArray(item.gates)
+            ? item.gates
+            : [...(item.isMvp === true ? [MVP_GATE_ID] : []), ...stripped.gates],
+          declaredGates,
+        );
         return {
           id: typeof item.id === 'string' && item.id.trim().length > 0 ? item.id.trim() : `roadmap-${index + 1}`,
-          text: rawText.replace(/\s*#mvp\b/ig, '').trim(),
+          text: stripped.text,
           completed: item.completed === true,
-          isMvp,
+          isMvp: gates.includes(MVP_GATE_ID),
+          gates,
         };
       })
       .filter(item => item.text.length > 0);
 
-    await fs.mkdir(path.dirname(filePath), { recursive: true });
-    const existing = await fs.readFile(filePath, 'utf-8').catch(() => '');
-    const nextDocument = serializeDashboardRoadmapDocument(existing, sanitizedItems);
+    const nextDocument = serializeDashboardRoadmapDocument(existing, sanitizedItems, declaredGates);
     await fs.writeFile(filePath, nextDocument, 'utf-8');
 
     const ssotRoot = vscode.Uri.file(path.join(workspaceRoot, ssotPath));
+    await this.atlas.memoryManager.loadFromDisk(ssotRoot);
+    this.atlas.memoryRefresh.fire();
+    await this.syncState();
+  }
+
+  /**
+   * Declare a new release gate.
+   *
+   * The name is collected with a native input box rather than in the webview: it
+   * becomes a `#tag` in a tracked markdown file, so it is validated where the
+   * write happens (slugified, length-capped, checked against the existing gates
+   * and the maximum) and refused with a reason rather than silently corrected.
+   */
+  private async handleCreateRoadmapGate(): Promise<void> {
+    const context = await this.readRoadmapDocument();
+    if (!context) {
+      return;
+    }
+    if (context.gates.length >= MAX_ROADMAP_GATES) {
+      void vscode.window.showWarningMessage(`A roadmap can track ${MAX_ROADMAP_GATES} release gates. Remove one before adding another.`);
+      return;
+    }
+
+    const label = await vscode.window.showInputBox({
+      title: 'New release gate',
+      prompt: 'Name the release this gate represents, e.g. "Public beta" or "v1.0".',
+      placeHolder: 'Public beta',
+      validateInput: value => {
+        const id = slugifyGateId(value);
+        if (!id) {
+          return 'Use letters or numbers — the name becomes a #tag in the roadmap file.';
+        }
+        if (context.gates.some(gate => gate.id === id)) {
+          return `A gate called #${id} already exists.`;
+        }
+        return undefined;
+      },
+    });
+    if (!label) {
+      return;
+    }
+    const id = slugifyGateId(label);
+    if (!id || context.gates.some(gate => gate.id === id)) {
+      return;
+    }
+
+    const gates = normalizeGates([...context.gates, { id, label: label.trim(), order: context.gates.length, builtIn: false }]);
+    await this.writeRoadmapDocument(context, context.items, gates);
+    void vscode.window.showInformationMessage(`Release gate #${id} added. Tag backlog items with it to build its path.`);
+  }
+
+  /**
+   * Remove a release gate.
+   *
+   * Destructive to a *label*, never to work: the gate's tag is removed from every
+   * item, the items themselves are untouched, and the built-in MVP gate cannot be
+   * removed at all. Confirmed modally because it edits a tracked file.
+   */
+  private async handleDeleteRoadmapGate(gateId: string): Promise<void> {
+    const id = slugifyGateId(gateId);
+    if (!id || id === MVP_GATE_ID) {
+      return;
+    }
+    const context = await this.readRoadmapDocument();
+    if (!context) {
+      return;
+    }
+    const gate = context.gates.find(entry => entry.id === id);
+    if (!gate) {
+      return;
+    }
+    const taggedCount = context.items.filter(item => item.gates.includes(id)).length;
+    const confirmation = await vscode.window.showWarningMessage(
+      `Remove the release gate "${gate.label}" (#${id})?`,
+      {
+        modal: true,
+        detail: taggedCount > 0
+          ? `The tag will be removed from ${taggedCount} backlog item${taggedCount === 1 ? '' : 's'}. No backlog item is deleted.`
+          : 'No backlog items are tagged for it.',
+      },
+      'Remove gate',
+    );
+    if (confirmation !== 'Remove gate') {
+      return;
+    }
+
+    const gates = normalizeGates(context.gates.filter(entry => entry.id !== id));
+    const items = context.items.map(item => ({ ...item, gates: item.gates.filter(entry => entry !== id) }));
+    await this.writeRoadmapDocument(context, items, gates);
+  }
+
+  /** Read the roadmap document once, with its gates and items already parsed. */
+  private async readRoadmapDocument(): Promise<{
+    filePath: string;
+    ssotPath: string;
+    workspaceRoot: string;
+    existing: string;
+    gates: RoadmapGate[];
+    items: Array<{ id: string; text: string; completed: boolean; gates: string[] }>;
+  } | undefined> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      return undefined;
+    }
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    const ssotPath = normalizeSsotPath(configuration.get<string>('atlasmind.ssotPath', 'project_memory')
+      ?? configuration.get<string>('ssotPath', 'project_memory'));
+    const filePath = path.join(workspaceRoot, ssotPath, 'roadmap', 'improvement-plan.md');
+    const existing = await fs.readFile(filePath, 'utf-8').catch(() => '');
+    const gates = parseRoadmapGates(existing);
+    const items = parseDashboardRoadmapItems(existing, gates)
+      .map(item => ({ id: item.id, text: item.text, completed: item.completed, gates: item.gates }));
+    return { filePath, ssotPath, workspaceRoot, existing, gates, items };
+  }
+
+  private async writeRoadmapDocument(
+    context: { filePath: string; ssotPath: string; workspaceRoot: string; existing: string },
+    items: Array<{ text: string; completed: boolean; gates: string[] }>,
+    gates: RoadmapGate[],
+  ): Promise<void> {
+    await fs.mkdir(path.dirname(context.filePath), { recursive: true });
+    const nextDocument = serializeDashboardRoadmapDocument(context.existing, items, gates);
+    await fs.writeFile(context.filePath, nextDocument, 'utf-8');
+    const ssotRoot = vscode.Uri.file(path.join(context.workspaceRoot, context.ssotPath));
     await this.atlas.memoryManager.loadFromDisk(ssotRoot);
     this.atlas.memoryRefresh.fire();
     await this.syncState();
@@ -2884,8 +3075,14 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
   }
 
   const candidate = message as Record<string, unknown>;
-  if (candidate['type'] === 'ready' || candidate['type'] === 'refresh' || candidate['type'] === 'runGapAnalysis' || candidate['type'] === 'markDeliveryReviewed' || candidate['type'] === 'reimportDelivery' || candidate['type'] === 'seedDirectorFromRepo' || candidate['type'] === 'seedDocumentsFromRepo') {
+  if (candidate['type'] === 'ready' || candidate['type'] === 'refresh' || candidate['type'] === 'runGapAnalysis' || candidate['type'] === 'markDeliveryReviewed' || candidate['type'] === 'reimportDelivery' || candidate['type'] === 'seedDirectorFromRepo' || candidate['type'] === 'seedDocumentsFromRepo' || candidate['type'] === 'createRoadmapGate') {
     return true;
+  }
+
+  if (candidate['type'] === 'deleteRoadmapGate') {
+    // A gate id is a slug, not free text: reject anything that would not round-trip
+    // as a `#tag` rather than coercing it into one.
+    return typeof candidate['payload'] === 'string' && slugifyGateId(candidate['payload']).length > 0;
   }
 
   if ((candidate['type'] === 'openCommand' || candidate['type'] === 'openFile' || candidate['type'] === 'openRun' || candidate['type'] === 'openRunWithGoal' || candidate['type'] === 'openSession' || candidate['type'] === 'addressGap' || candidate['type'] === 'resolveGapItem' || candidate['type'] === 'resolveGapGroup' || candidate['type'] === 'openGapFiles' || candidate['type'] === 'copyContact' || candidate['type'] === 'createShelfFolder') && typeof candidate['payload'] === 'string') {
@@ -5888,19 +6085,23 @@ async function collectDocumentsSnapshot(atlas: AtlasMindContext, workspaceRoot: 
 async function collectRoadmapSnapshot(workspaceRoot: string | undefined, ssotPath: string): Promise<DashboardRoadmapSnapshot> {
   const filePath = `${ssotPath}/roadmap/improvement-plan.md`;
   if (!workspaceRoot) {
+    const gates = normalizeGates([]);
     return {
       filePath,
       items: [],
       completedCount: 0,
       outstandingCount: 0,
       nextSuggestedWork: [],
-      mvp: buildMvpSnapshot([]),
+      mvp: buildMvpSnapshot([], MVP_GATE_ID),
+      gates: buildGateViews(gates, []),
+      gateRoutes: buildGateRoutes(gates, []),
     };
   }
 
   const absolutePath = path.join(workspaceRoot, ssotPath, 'roadmap', 'improvement-plan.md');
   const content = await fs.readFile(absolutePath, 'utf-8').catch(() => '');
-  const items = prioritizeDashboardRoadmapItems(parseDashboardRoadmapItems(content));
+  const gates = parseRoadmapGates(content);
+  const items = prioritizeDashboardRoadmapItems(parseDashboardRoadmapItems(content, gates));
 
   return {
     filePath,
@@ -5908,11 +6109,42 @@ async function collectRoadmapSnapshot(workspaceRoot: string | undefined, ssotPat
     completedCount: items.filter(item => item.completed).length,
     outstandingCount: items.filter(item => !item.completed).length,
     nextSuggestedWork: items.filter(item => !item.completed).slice(0, 5),
-    mvp: buildMvpSnapshot(items),
+    mvp: buildMvpSnapshot(items, MVP_GATE_ID),
+    gates: buildGateViews(gates, items),
+    gateRoutes: buildGateRoutes(gates, items),
   };
 }
 
-function parseDashboardRoadmapItems(content: string): Array<{ id: string; text: string; completed: boolean; isMvp: boolean }> {
+/** Per-gate progress, so the gate selector can show it without a route walk. */
+function buildGateViews(gates: RoadmapGate[], items: DashboardRoadmapItem[]): DashboardRoadmapGateView[] {
+  return gates.map(gate => {
+    const tagged = items.filter(item => item.gates.includes(gate.id));
+    const completedCount = tagged.filter(item => item.completed).length;
+    return {
+      ...gate,
+      totalCount: tagged.length,
+      completedCount,
+      progressPercent: tagged.length > 0 ? Math.round((completedCount / tagged.length) * 100) : 0,
+    };
+  });
+}
+
+/**
+ * A route per gate, computed up front.
+ *
+ * Switching gates in the UI is then instant and offline — the alternative
+ * (asking the extension to recompute the selected gate) turns a view toggle into
+ * a message round trip that can fail.
+ */
+function buildGateRoutes(gates: RoadmapGate[], items: DashboardRoadmapItem[]): Record<string, DashboardMvpSnapshot> {
+  const routes: Record<string, DashboardMvpSnapshot> = {};
+  for (const gate of gates.slice(0, MAX_ROADMAP_GATES)) {
+    routes[gate.id] = buildMvpSnapshot(items, gate.id, gate.label);
+  }
+  return routes;
+}
+
+function parseDashboardRoadmapItems(content: string, gates: RoadmapGate[]): Array<{ id: string; text: string; completed: boolean; isMvp: boolean; gates: string[] }> {
   const region = extractRoadmapItemsRegion(content);
   const seen = new Set<string>();
   return [...region.matchAll(/^\s*(?:[-*]|\d+\.)\s+(.+?)\s*$/gm)]
@@ -5920,9 +6152,11 @@ function parseDashboardRoadmapItems(content: string): Array<{ id: string; text: 
       const raw = match[1]?.trim() ?? '';
       const completed = /^(?:✅|\[x\])/i.test(raw);
       const withoutCheckbox = raw.replace(/^(?:✅|\[(?:x| )\])\s*/i, '').trim();
-      const isMvp = /#mvp\b/i.test(withoutCheckbox);
-      const text = withoutCheckbox.replace(/\s*#mvp\b/ig, '').trim();
-      return { text, completed, isMvp };
+      // Gate tags are metadata: keep them out of the displayed text and carry
+      // them as ids. Only declared gates are recognised, so an item mentioning
+      // "#2" keeps its wording.
+      const parsed = extractItemGates(withoutCheckbox, gates);
+      return { text: parsed.text, completed, isMvp: parsed.gates.includes(MVP_GATE_ID), gates: parsed.gates };
     })
     // Drop generator scaffolding (Project Context / Prioritisation Notes) …
     .filter(item => !isRoadmapNoiseItem(item.text))
@@ -5939,7 +6173,7 @@ function parseDashboardRoadmapItems(content: string): Array<{ id: string; text: 
     .map((item, index) => ({ id: `roadmap-${index + 1}`, ...item }));
 }
 
-function prioritizeDashboardRoadmapItems(items: Array<{ id: string; text: string; completed: boolean; isMvp?: boolean }>): DashboardRoadmapItem[] {
+function prioritizeDashboardRoadmapItems(items: Array<{ id: string; text: string; completed: boolean; isMvp?: boolean; gates?: string[] }>): DashboardRoadmapItem[] {
   return items
     .map((item, index, allItems) => {
       const normalized = item.text.toLowerCase();
@@ -5978,9 +6212,14 @@ function prioritizeDashboardRoadmapItems(items: Array<{ id: string; text: string
         || focus === 'architecture'
         || /\b(core|auth|foundation|foundational|baseline|essential|launch|ship|release|minimum viable|mvp|must|critical|first)\b/i.test(normalized);
 
+      const gates = Array.isArray(item.gates) ? [...item.gates] : [];
+      if (item.isMvp === true && !gates.includes(MVP_GATE_ID)) {
+        gates.push(MVP_GATE_ID);
+      }
       return {
         ...item,
-        isMvp: item.isMvp === true,
+        gates,
+        isMvp: gates.includes(MVP_GATE_ID),
         mvpCandidate: !item.completed && foundational,
         focus,
         priorityScore: orderBoost + focusBoost,
@@ -6046,15 +6285,27 @@ function orderMvpItems(items: DashboardRoadmapItem[]): DashboardRoadmapItem[] {
   });
 }
 
-function buildMvpSnapshot(items: DashboardRoadmapItem[]): DashboardMvpSnapshot {
-  const tagged = items.filter(item => item.isMvp);
+/**
+ * The route to a single gate.
+ *
+ * The MVP gate keeps its heuristic fallback — an untagged project still gets a
+ * suggested foundation path, which is how the section earns its place before
+ * anyone has tagged anything. A **user-created** gate does not: guessing which
+ * items belong to someone's "v2" would be inventing a release plan, so an empty
+ * gate is reported as empty.
+ */
+function buildMvpSnapshot(items: DashboardRoadmapItem[], gateId: string = MVP_GATE_ID, gateLabel = 'MVP'): DashboardMvpSnapshot {
+  const isMvpGate = gateId === MVP_GATE_ID;
+  const tagged = items.filter(item => item.gates.includes(gateId));
   const hasTaggedItems = tagged.length > 0;
 
-  // Hybrid: explicit #mvp tags define the path; otherwise fall back to the
-  // strongest heuristic candidates so the section is still useful unconfigured.
+  // Hybrid (MVP gate only): explicit tags define the path; otherwise fall back to
+  // the strongest heuristic candidates so the section is still useful unconfigured.
   const pathItems = hasTaggedItems
     ? tagged
-    : orderMvpItems(items.filter(item => item.mvpCandidate)).slice(0, 5);
+    : isMvpGate
+      ? orderMvpItems(items.filter(item => item.mvpCandidate)).slice(0, 5)
+      : [];
 
   const route = orderMvpItems(pathItems).map((item, index) => toMvpStep(item, index + 1));
   const completedCount = route.filter(step => step.completed).length;
@@ -6062,27 +6313,34 @@ function buildMvpSnapshot(items: DashboardRoadmapItem[]): DashboardMvpSnapshot {
   const progressPercent = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
   const nextStep = route.find(step => !step.completed);
 
-  // Heuristic candidates not already on the path, offered as "add to MVP".
+  // Heuristic candidates not already on the path, offered as "add to this gate".
+  // Only for the MVP gate — the heuristic recognises foundational work, which is
+  // not a claim about which release something belongs to.
   const pathIds = new Set(pathItems.map(item => item.id));
-  const candidates = hasTaggedItems
+  const candidates = hasTaggedItems && isMvpGate
     ? orderMvpItems(items.filter(item => item.mvpCandidate && !pathIds.has(item.id)))
         .slice(0, 5)
         .map((item, index) => toMvpStep(item, index + 1))
     : [];
 
   const outstanding = route.filter(step => !step.completed);
+  const label = isMvpGate ? 'MVP' : gateLabel;
   let summary: string;
   if (totalCount === 0) {
-    summary = 'No MVP path yet. Tag the roadmap items that define your minimum viable product with “Mark MVP”.';
+    summary = isMvpGate
+      ? 'No MVP path yet. Tag the roadmap items that define your minimum viable product with “Mark MVP”.'
+      : `Nothing is tagged for ${label} yet. Tag the backlog items that belong to this release to build its path.`;
   } else if (!hasTaggedItems) {
     summary = `No items tagged for MVP yet — showing ${totalCount} suggested foundation${totalCount === 1 ? '' : 's'}. ${nextStep ? `Start with: ${nextStep.text}.` : ''}`.trim();
   } else if (outstanding.length === 0) {
-    summary = `All ${totalCount} MVP milestone${totalCount === 1 ? '' : 's'} complete — the minimum viable product is in reach.`;
+    summary = isMvpGate
+      ? `All ${totalCount} MVP milestone${totalCount === 1 ? '' : 's'} complete — the minimum viable product is in reach.`
+      : `All ${totalCount} ${label} milestone${totalCount === 1 ? '' : 's'} complete.`;
   } else {
-    summary = `${completedCount} of ${totalCount} MVP milestone${totalCount === 1 ? '' : 's'} complete${nextStep ? ` — next: ${nextStep.text}.` : '.'}`;
+    summary = `${completedCount} of ${totalCount} ${label} milestone${totalCount === 1 ? '' : 's'} complete${nextStep ? ` — next: ${nextStep.text}.` : '.'}`;
   }
 
-  const planPrompt = buildMvpPlanPrompt(outstanding, hasTaggedItems);
+  const planPrompt = buildMvpPlanPrompt(outstanding, hasTaggedItems, label);
 
   return {
     hasTaggedItems,
@@ -6097,26 +6355,36 @@ function buildMvpSnapshot(items: DashboardRoadmapItem[]): DashboardMvpSnapshot {
   };
 }
 
-function buildMvpPlanPrompt(outstanding: DashboardMvpStep[], hasTaggedItems: boolean): string {
+function buildMvpPlanPrompt(outstanding: DashboardMvpStep[], hasTaggedItems: boolean, gateLabel = 'MVP'): string {
+  const isMvp = gateLabel === 'MVP';
+  const target = isMvp ? 'a minimum viable product' : `the ${gateLabel} release`;
   if (outstanding.length === 0) {
-    return 'Review the roadmap in project_memory/roadmap/improvement-plan.md and recommend what the next minimum-viable-product milestone should be, given that the currently tracked MVP items are all complete. Keep it concise and call out the single best next step.';
+    return `Review the roadmap in project_memory/roadmap/improvement-plan.md and recommend what the next ${isMvp ? 'minimum-viable-product' : gateLabel} milestone should be, given that the currently tracked ${gateLabel} items are all complete. Keep it concise and call out the single best next step.`;
   }
   const list = outstanding.map((step, index) => `${index + 1}. ${step.text}`).join('\n');
   const tagNote = hasTaggedItems
-    ? 'These are the roadmap items currently tagged for the MVP path:'
-    : 'No items are tagged for MVP yet; these are the foundational roadmap items the dashboard suggests for the MVP path:';
+    ? `These are the roadmap items currently tagged for the ${gateLabel} path:`
+    : `No items are tagged for ${gateLabel} yet; these are the foundational roadmap items the dashboard suggests for the ${gateLabel} path:`;
   return [
-    'Plan the fastest safe route to a minimum viable product for this project.',
+    `Plan the fastest safe route to ${target} for this project.`,
     tagNote,
     list,
     'Recommend an ordered sequence that front-loads foundational, security, and architectural work, calls out dependencies between the items, and identifies the single best next step to take now. Keep the response concise.',
   ].join('\n\n');
 }
 
-function serializeDashboardRoadmapDocument(existing: string, items: Array<{ text: string; completed: boolean; isMvp?: boolean }>): string {
+function serializeDashboardRoadmapDocument(
+  existing: string,
+  items: Array<{ text: string; completed: boolean; isMvp?: boolean; gates?: string[] }>,
+  gates: RoadmapGate[] = normalizeGates([]),
+): string {
+  const declaredGates = normalizeGates(gates);
   const normalizedItems = items.filter(item => item.text.trim().length > 0);
   const itemLines = normalizedItems.length > 0
-    ? normalizedItems.map(item => `- [${item.completed ? 'x' : ' '}] ${item.text.trim()}${item.isMvp ? ' #mvp' : ''}`)
+    ? normalizedItems.map(item => {
+        const selected = item.gates ?? (item.isMvp ? [MVP_GATE_ID] : []);
+        return `- [${item.completed ? 'x' : ' '}] ${item.text.trim()}${formatItemGateTags(selected, declaredGates)}`;
+      })
     : ['- [ ] Add the first prioritized roadmap item here.'];
 
   const section = [
@@ -6126,15 +6394,23 @@ function serializeDashboardRoadmapDocument(existing: string, items: Array<{ text
     ROADMAP_ITEMS_END,
   ].join('\n');
 
+  // The gates block is only written once a project has gates beyond the built-in
+  // MVP one, so a roadmap that never uses them is left exactly as it was.
+  const withGates = (document: string): string => (
+    declaredGates.length > 1 || document.includes(ROADMAP_GATES_START)
+      ? upsertRoadmapGatesBlock(document, declaredGates, ROADMAP_ITEMS_END)
+      : document
+  );
+
   if (existing.includes(ROADMAP_ITEMS_START) && existing.includes(ROADMAP_ITEMS_END)) {
-    return existing.replace(
+    return withGates(existing.replace(
       new RegExp(`${escapeRegExp(ROADMAP_ITEMS_START)}[\\s\\S]*?${escapeRegExp(ROADMAP_ITEMS_END)}`, 'g'),
       [ROADMAP_ITEMS_START, ...itemLines, ROADMAP_ITEMS_END].join('\n'),
-    );
+    ));
   }
 
   const preservedNotes = existing.trim().length > 0 ? `\n\n## Existing Notes\n${existing.trim()}\n` : '\n';
-  return [
+  return withGates([
     '# Developer Roadmap',
     '',
     'This file is the developer-facing backlog AtlasMind should absorb into SSOT and consult when deciding what to tackle next.',
@@ -6149,7 +6425,7 @@ function serializeDashboardRoadmapDocument(existing: string, items: Array<{ text
     '3. User-facing outcomes and the manual order of this backlog.',
     '4. Delivery hygiene such as tests, CI, release notes, and docs.',
     preservedNotes.trimEnd(),
-  ].filter(Boolean).join('\n');
+  ].filter(Boolean).join('\n'));
 }
 
 /**
@@ -8467,6 +8743,80 @@ const DASHBOARD_CSS = `
 
   .roadmap-item.is-mvp {
     border-left: 3px solid color-mix(in srgb, var(--dash-accent-strong) 70%, var(--dash-border));
+  }
+
+  /* ── Roadmap: release gates ───────────────────────────────────────
+     A gate selector above the route card and one toggle per gate on each
+     backlog item. With only the built-in MVP gate this reads as the single
+     control it replaces; it grows into a release plan without a menu. */
+  .gate-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .gate-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--dash-border);
+    background: transparent;
+    color: var(--dash-muted);
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+  }
+
+  .gate-chip:hover { border-color: color-mix(in srgb, var(--dash-accent-strong) 55%, var(--dash-border)); }
+
+  .gate-chip.is-active {
+    border-color: color-mix(in srgb, var(--dash-accent-strong) 75%, var(--dash-border));
+    background: color-mix(in srgb, var(--dash-accent-strong) 18%, transparent);
+    color: color-mix(in srgb, var(--dash-accent-strong) 90%, var(--tint-away) 10%);
+    font-weight: 600;
+  }
+
+  .gate-chip-count { opacity: 0.75; font-variant-numeric: tabular-nums; }
+  .gate-chip--add { border-style: dashed; }
+
+  .gate-toggle-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: 10px;
+  }
+
+  .gate-toggle-hint {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--dash-muted);
+  }
+
+  .gate-toggle {
+    padding: 3px 9px;
+    border-radius: 999px;
+    border: 1px dashed var(--dash-border);
+    background: transparent;
+    color: var(--dash-muted);
+    font: inherit;
+    font-size: 10.5px;
+    cursor: pointer;
+  }
+
+  .gate-toggle:hover { border-color: color-mix(in srgb, var(--dash-accent-strong) 55%, var(--dash-border)); }
+
+  .gate-toggle.is-on {
+    border-style: solid;
+    border-color: color-mix(in srgb, var(--dash-accent-strong) 70%, var(--dash-border));
+    background: color-mix(in srgb, var(--dash-accent-strong) 16%, transparent);
+    color: color-mix(in srgb, var(--dash-accent-strong) 88%, var(--tint-away) 12%);
+    font-weight: 600;
   }
 
   .roadmap-item {

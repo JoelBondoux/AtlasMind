@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.166.0 — the roadmap plans more than one release
+
+- **Release gates beyond MVP.** Declare a public beta, a v1.0, a v2 — and switch the "Road to…" card between them. Each gate gets its own progress, milestone track, best route, and plan-with-Atlas prompt, and an item can sit on more than one.
+- **Stored where the backlog is.** Gates are readable markdown in `improvement-plan.md`, so they diff and review like everything else in project memory.
+- **Removing a gate removes a label.** The tag comes off every item; no backlog item is deleted, and MVP cannot be removed.
+
 ## v0.165.0 — what each testing policy has to show for itself
 
 - **A card per enabled policy** on the Testing tab: tested, tooling-only, or nothing found — plus case counts, skipped counts, failing tests, and a per-policy action to write or fix them.

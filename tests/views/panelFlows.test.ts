@@ -2861,6 +2861,86 @@ describe('panel refresh flows', () => {
     rmSync(tempRoot, { recursive: true, force: true });
   });
 
+  it('persists a user-declared release gate and tags items for it', async () => {
+    const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'atlasmind-gate-save-'));
+    const roadmapDir = path.join(tempRoot, 'project_memory', 'roadmap');
+    mkdirSync(roadmapDir, { recursive: true });
+    const roadmapFile = path.join(roadmapDir, 'improvement-plan.md');
+    writeFileSync(roadmapFile, [
+      '## Prioritized Backlog',
+      '<!-- atlasmind:roadmap-items:start -->',
+      '- [ ] Ship onboarding flow #mvp',
+      '- [ ] Add team billing',
+      '<!-- atlasmind:roadmap-items:end -->',
+      '',
+      '## Prioritisation Notes',
+    ].join('\n'));
+    mocks.state.workspaceFolders = [{ name: 'Temp', uri: { fsPath: tempRoot, path: tempRoot } }];
+
+    ProjectDashboardPanel.createOrShow(
+      { extensionUri: { fsPath: '/ext', path: '/ext' } } as never,
+      {
+        agentsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        skillsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        modelsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        memoryRefresh: { event: vi.fn(() => ({ dispose: () => undefined })), fire: vi.fn() },
+        toolApprovalManager: { isAutopilot: vi.fn().mockReturnValue(false), onAutopilotChange: vi.fn(() => () => undefined) },
+        modelRouter: { listProviders: vi.fn().mockReturnValue([]), isProviderHealthy: vi.fn().mockReturnValue(true) },
+        agentRegistry: { listAgents: vi.fn().mockReturnValue([]), isEnabled: vi.fn().mockReturnValue(true) },
+        skillsRegistry: { listSkills: vi.fn().mockReturnValue([]), isEnabled: vi.fn().mockReturnValue(true) },
+        sessionConversation: {
+          listSessions: vi.fn().mockReturnValue([]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        costTracker: {
+          getSummary: vi.fn().mockReturnValue({ totalCostUsd: 0, totalRequests: 0, totalInputTokens: 0, totalOutputTokens: 0 }),
+          getRecords: vi.fn().mockReturnValue([]),
+        },
+        memoryManager: {
+          listEntries: vi.fn().mockReturnValue([]),
+          getScanResults: vi.fn().mockReturnValue(new Map()),
+          loadFromDisk: vi.fn().mockResolvedValue(undefined),
+        },
+      } as never,
+    );
+
+    const panel = ProjectDashboardPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> };
+    await panel.handleMessage({
+      type: 'saveRoadmap',
+      payload: {
+        gates: [{ id: 'beta', label: 'Public beta' }],
+        items: [
+          { id: 'roadmap-1', text: 'Ship onboarding flow', completed: false, gates: ['mvp', 'beta'] },
+          { id: 'roadmap-2', text: 'Add team billing', completed: false, gates: ['beta'] },
+        ],
+      },
+    });
+
+    const written = readFileSync(roadmapFile, 'utf-8');
+    // The gate is declared in its own managed block…
+    expect(written).toContain('- `#beta` — Public beta');
+    // …items carry their tags in declared order (mvp first)…
+    expect(written).toContain('- [ ] Ship onboarding flow #mvp #beta');
+    expect(written).toContain('- [ ] Add team billing #beta');
+    // …and the rest of the document is untouched.
+    expect(written).toContain('## Prioritisation Notes');
+
+    // An unknown gate id from the webview is dropped rather than written as a tag.
+    await panel.handleMessage({
+      type: 'saveRoadmap',
+      payload: {
+        gates: [{ id: 'beta', label: 'Public beta' }],
+        items: [{ id: 'roadmap-1', text: 'Ship onboarding flow', completed: false, gates: ['ghost'] }],
+      },
+    });
+    expect(readFileSync(roadmapFile, 'utf-8')).toContain('- [ ] Ship onboarding flow\n');
+
+    rmSync(tempRoot, { recursive: true, force: true });
+  });
+
   it('runs the allowlisted Cost Dashboard command but ignores non-allowlisted commands', async () => {
     ProjectDashboardPanel.createOrShow(
       {

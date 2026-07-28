@@ -3,6 +3,9 @@
   // Plain-language explainer surfaced as a tooltip on every "Mark MVP" control so
   // novice developers understand what tagging an item actually does.
   const MVP_HELP_TEXT = 'Mark MVP — MVP stands for Minimum Viable Product: the smallest set of features needed for a first usable release. Tagging an item adds it to the "Road to MVP" plan above and tells Atlas to prioritise it.';
+  // The same explanation, generalised: MVP is the built-in first gate, and a
+  // project past it needs somewhere to say "this belongs to the beta" instead.
+  const GATE_HELP_TEXT = 'Release gates are the milestones your backlog is working towards — MVP is the built-in first one, and you can add your own (a public beta, v1.0, v2). Tagging an item puts it on that release\'s path. An item can belong to more than one, and removing a gate never deletes any work.';
   const root = document.getElementById('dashboard-root');
   const refreshButton = document.getElementById('dashboard-refresh');
   const versionStrip = document.getElementById('dashboard-version-strip');
@@ -129,6 +132,8 @@
       runs: '',
       memory: '',
     },
+    /** Which release gate the Road-to card is showing. '' = the first (MVP). */
+    activeRoadmapGate: 'mvp',
     activeTestCategory: 'all',
     selectedTestId: '',
     testSearch: '',
@@ -440,19 +445,42 @@
       return;
     }
     if (action === 'roadmap-delete') {
-      persistRoadmapItems(getRoadmapItems().filter(item => item.id !== payload));
+      persistRoadmapItems(roadmapItemsForSave().filter(item => item.id !== payload));
       return;
     }
     if (action === 'roadmap-toggle') {
-      persistRoadmapItems(getRoadmapItems().map(item => item.id === payload ? { ...item, completed: !item.completed } : item));
+      persistRoadmapItems(roadmapItemsForSave().map(item => item.id === payload ? { ...item, completed: !item.completed } : item));
+      return;
+    }
+    if (action === 'roadmap-gate-toggle') {
+      // payload is "<itemId>::<gateId>" — one control per gate per item.
+      const parts = String(payload || '').split('::');
+      if (parts.length === 2 && parts[0] && parts[1]) { toggleItemGate(parts[0], parts[1]); }
       return;
     }
     if (action === 'roadmap-mvp-toggle') {
-      persistRoadmapItems(getRoadmapItems().map(item => item.id === payload ? { ...item, isMvp: !item.isMvp } : item));
+      toggleItemGate(payload, 'mvp');
       return;
     }
     if (action === 'roadmap-mvp-add') {
-      persistRoadmapItems(getRoadmapItems().map(item => item.id === payload ? { ...item, isMvp: true } : item));
+      // "Add to <gate>" adds to whichever gate the card is currently showing.
+      const gate = activeRoadmapGate();
+      persistRoadmapItems(roadmapItemsForSave().map(item => item.id === payload && item.gates.indexOf(gate.id) < 0
+        ? { ...item, gates: [...item.gates, gate.id] }
+        : item));
+      return;
+    }
+    if (action === 'roadmap-gate-select') {
+      state.activeRoadmapGate = String(payload || 'mvp');
+      render();
+      return;
+    }
+    if (action === 'roadmap-gate-new') {
+      vscode.postMessage({ type: 'createRoadmapGate' });
+      return;
+    }
+    if (action === 'roadmap-gate-delete') {
+      vscode.postMessage({ type: 'deleteRoadmapGate', payload: payload });
       return;
     }
     if (action === 'documents-seed') {
@@ -2602,22 +2630,34 @@
     if (state.editingRoadmapId === item.id) {
       return renderRoadmapEditor(item.id);
     }
-    const mvpTooltip = item.isMvp
-      ? 'Remove this item from the MVP path. MVP = Minimum Viable Product: the smallest set of work needed for a first usable release.'
-      : MVP_HELP_TEXT;
+    const gates = getRoadmapGates();
+    const itemGates = Array.isArray(item.gates) ? item.gates : (item.isMvp ? ['mvp'] : []);
+    // One chip per declared gate: with a single (MVP) gate this reads exactly as
+    // the old Mark-MVP button did, and it scales to a real release plan without
+    // a menu. Wording stays explicit about what a click does.
+    const gateChips = gates.map(gate => {
+      const on = itemGates.indexOf(gate.id) >= 0;
+      const tooltip = gate.id === 'mvp'
+        ? (on ? 'Remove this item from the MVP path. MVP = Minimum Viable Product: the smallest set of work needed for a first usable release.' : MVP_HELP_TEXT)
+        : (on ? `Remove this item from the ${gate.label} release.` : `Put this item on the ${gate.label} release.`);
+      return `<button type="button" class="gate-toggle${on ? ' is-on' : ''}" data-action="roadmap-gate-toggle" data-payload="${escapeAttr(`${item.id}::${gate.id}`)}" title="${escapeAttr(tooltip)}" aria-pressed="${on ? 'true' : 'false'}">${escapeHtml(gate.label)}</button>`;
+    }).join('');
     return `
       <div class="recent-item roadmap-item ${item.isMvp ? 'is-mvp' : ''}" draggable="true" data-roadmap-id="${escapeAttr(item.id)}">
         <div class="row-head">
           <span class="drag-handle" title="Drag to reorder — position sets Atlas's default priority" aria-hidden="true">⠿</span>
           <strong>${escapeHtml(item.text)}</strong>
           <span class="tag-group">
-            ${item.isMvp ? '<span class="tag tag-mvp" title="This item is on your Minimum Viable Product path">MVP</span>' : ''}
+            ${gates.filter(gate => itemGates.indexOf(gate.id) >= 0).map(gate => `<span class="tag tag-mvp" title="${escapeAttr(`This item is on the ${gate.label} path`)}">${escapeHtml(gate.label)}</span>`).join('')}
             <span class="tag ${item.completed ? 'tag-good' : item.focus === 'security' ? 'tag-critical' : item.focus === 'architecture' ? 'tag-warn' : ''}">${escapeHtml(item.completed ? 'done' : item.focus)}</span>
           </span>
         </div>
         <div class="list-meta">${escapeHtml(item.priorityReason)}</div>
+        <div class="gate-toggle-row" role="group" aria-label="Release gates for this item">
+          <span class="gate-toggle-hint" title="${escapeAttr(GATE_HELP_TEXT)}">Release:</span>
+          ${gateChips}
+        </div>
         <div class="tag-row">
-          <button type="button" class="action-link" data-action="roadmap-mvp-toggle" data-payload="${escapeAttr(item.id)}" title="${escapeAttr(mvpTooltip)}">${item.isMvp ? 'Unmark MVP' : 'Mark MVP'}</button>
           <button type="button" class="action-link" data-action="roadmap-toggle" data-payload="${escapeAttr(item.id)}">${item.completed ? 'Mark active' : 'Mark done'}</button>
           <button type="button" class="action-link" data-action="roadmap-edit" data-payload="${escapeAttr(item.id)}">Edit</button>
           <button type="button" class="action-link" data-action="roadmap-delete" data-payload="${escapeAttr(item.id)}">Delete</button>
@@ -2626,8 +2666,33 @@
     `;
   }
 
+  // Release-gate selector. The MVP gate is the built-in one and always first;
+  // everything else is a user-declared release the backlog can be tagged for.
+  function renderGateSelector(roadmap) {
+    const gates = getRoadmapGates();
+    const active = activeRoadmapGate();
+    return `
+      <div class="gate-bar" role="tablist" aria-label="Release gates">
+        ${gates.map(gate => `
+          <button type="button" role="tab" aria-selected="${gate.id === active.id ? 'true' : 'false'}"
+            class="gate-chip${gate.id === active.id ? ' is-active' : ''}"
+            data-action="roadmap-gate-select" data-payload="${escapeAttr(gate.id)}"
+            title="${escapeAttr(`${gate.label}: ${gate.completedCount} of ${gate.totalCount} tagged items complete`)}">
+            <span class="gate-chip-label">${escapeHtml(gate.label)}</span>
+            <span class="gate-chip-count">${escapeHtml(`${gate.completedCount}/${gate.totalCount}`)}</span>
+          </button>`).join('')}
+        <button type="button" class="gate-chip gate-chip--add" data-action="roadmap-gate-new" title="Declare another release gate, e.g. a public beta or v2">+ New gate</button>
+        ${!active.builtIn ? `<button type="button" class="action-link danger" data-action="roadmap-gate-delete" data-payload="${escapeAttr(active.id)}" title="Remove this gate. No backlog item is deleted.">Remove ${escapeHtml(active.label)}</button>` : ''}
+      </div>
+    `;
+  }
+
   function renderMvpSection(roadmap) {
-    const mvp = roadmap.mvp || { route: [], candidates: [], totalCount: 0, completedCount: 0, progressPercent: 0, hasTaggedItems: false, summary: '', planPrompt: '' };
+    const active = activeRoadmapGate();
+    const routes = roadmap.gateRoutes && typeof roadmap.gateRoutes === 'object' ? roadmap.gateRoutes : {};
+    const mvp = routes[active.id] || roadmap.mvp || { route: [], candidates: [], totalCount: 0, completedCount: 0, progressPercent: 0, hasTaggedItems: false, summary: '', planPrompt: '' };
+    const isMvpGate = active.id === 'mvp';
+    const gateLabel = isMvpGate ? 'MVP' : active.label;
     const route = Array.isArray(mvp.route) ? mvp.route : [];
     const candidates = Array.isArray(mvp.candidates) ? mvp.candidates : [];
     const outstanding = route.filter(step => !step.completed);
@@ -2635,28 +2700,31 @@
     const nextStep = mvp.nextStep;
     const hasPath = mvp.totalCount > 0;
     return `
+      ${renderGateSelector(roadmap)}
       <div class="panel-grid mvp-grid">
         <article class="panel-card mvp-card">
-          <p class="section-kicker">Road to MVP</p>
-          <h3>Minimum viable product <span class="mvp-help" title="${escapeAttr(MVP_HELP_TEXT)}" aria-label="What is an MVP?">ⓘ</span></h3>
+          <p class="section-kicker">Road to ${escapeHtml(gateLabel)}</p>
+          <h3>${escapeHtml(isMvpGate ? 'Minimum viable product' : gateLabel)} ${isMvpGate ? `<span class="mvp-help" title="${escapeAttr(MVP_HELP_TEXT)}" aria-label="What is an MVP?">ⓘ</span>` : `<span class="mvp-help" title="${escapeAttr(GATE_HELP_TEXT)}" aria-label="What is a release gate?">ⓘ</span>`}</h3>
           <div class="stat-detail">${escapeHtml(mvp.summary || '')}</div>
           ${hasPath ? `
             <div class="mini-grid">
               ${renderMetricPill('On path', String(mvp.totalCount))}
               ${renderMetricPill('Completed', String(mvp.completedCount))}
               ${renderMetricPill('Remaining', String(remaining))}
-              ${renderMetricPill('To MVP', `${mvp.progressPercent}%`)}
+              ${renderMetricPill(`To ${gateLabel}`, `${mvp.progressPercent}%`)}
             </div>
-            <div class="mvp-progress" role="progressbar" aria-valuenow="${mvp.progressPercent}" aria-valuemin="0" aria-valuemax="100" aria-label="Progress to MVP">
-              <div class="mvp-progress-fill" data-anim-key="mvp-progress" data-anim-to="${Math.max(0, Math.min(100, mvp.progressPercent))}%" style="width:0%"></div>
+            <div class="mvp-progress" role="progressbar" aria-valuenow="${mvp.progressPercent}" aria-valuemin="0" aria-valuemax="100" aria-label="${escapeAttr(`Progress to ${gateLabel}`)}">
+              <div class="mvp-progress-fill" data-anim-key="mvp-progress-${escapeAttr(active.id)}" data-anim-to="${Math.max(0, Math.min(100, mvp.progressPercent))}%" style="width:0%"></div>
             </div>
             ${renderMvpTrack(route)}
             ${!mvp.hasTaggedItems ? '<div class="list-meta">These are suggested foundations. Use “Mark MVP” on a backlog item below to define your own MVP path.</div>' : ''}
           ` : `
-            <div class="dashboard-empty">No MVP path defined yet. Tag the backlog items that make up your minimum viable product with “Mark MVP”, or let Atlas suggest a route.</div>
+            <div class="dashboard-empty">${escapeHtml(isMvpGate
+              ? 'No MVP path defined yet. Tag the backlog items that make up your minimum viable product with “Mark MVP”, or let Atlas suggest a route.'
+              : `Nothing is tagged for ${gateLabel} yet. Use the ${gateLabel} chip on a backlog item below to put it on this release.`)}</div>
           `}
           <div class="tag-row">
-            <button type="button" class="action-link" data-action="prompt" data-payload="${escapeAttr(mvp.planPrompt || '')}">Plan the MVP route with Atlas</button>
+            <button type="button" class="action-link" data-action="prompt" data-payload="${escapeAttr(mvp.planPrompt || '')}">${escapeHtml(`Plan the ${gateLabel} route with Atlas`)}</button>
             <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(roadmap.filePath)}">Open roadmap file</button>
           </div>
         </article>
@@ -2668,7 +2736,7 @@
               <span class="mvp-next-kicker">Next step</span>
               <strong>${escapeHtml(nextStep.text)}</strong>
               <span class="list-meta">${escapeHtml(nextStep.rationale)}</span>
-            </div>` : (hasPath ? '<div class="list-meta">Every MVP milestone is complete — choose the next outcome to pursue.</div>' : '')}
+            </div>` : (hasPath ? `<div class="list-meta">${escapeHtml(`Every ${gateLabel} milestone is complete — choose the next outcome to pursue.`)}</div>` : '')}
           <div class="stack-list">
             ${outstanding.length > 0
               ? outstanding.map(step => `
@@ -2679,16 +2747,16 @@
                   </div>
                   <div class="list-meta">${escapeHtml(step.rationale)}</div>
                 </div>`).join('')
-              : (hasPath ? '' : '<div class="dashboard-empty">Once items are on the MVP path, the recommended route appears here.</div>')}
+              : (hasPath ? '' : `<div class="dashboard-empty">${escapeHtml(`Once items are on the ${gateLabel} path, the recommended route appears here.`)}</div>`)}
           </div>
           ${candidates.length > 0 ? `
-            <p class="section-kicker">Suggested for MVP</p>
+            <p class="section-kicker">${escapeHtml(`Suggested for ${gateLabel}`)}</p>
             <div class="stack-list">
               ${candidates.map(step => `
                 <div class="recent-item">
                   <div class="row-head">
                     <strong>${escapeHtml(step.text)}</strong>
-                    <button type="button" class="action-link" data-action="roadmap-mvp-add" data-payload="${escapeAttr(step.id)}">Add to MVP</button>
+                    <button type="button" class="action-link" data-action="roadmap-mvp-add" data-payload="${escapeAttr(step.id)}">${escapeHtml(`Add to ${gateLabel}`)}</button>
                   </div>
                   <div class="list-meta">${escapeHtml(step.rationale)}</div>
                 </div>`).join('')}
@@ -2747,7 +2815,7 @@
 
     const items = getRoadmapItems().map(item => ({ id: item.id, text: item.text, completed: !!item.completed, isMvp: !!item.isMvp }));
     if (state.editingRoadmapId === 'new') {
-      items.unshift({ id: createRoadmapItemId(text), text, completed: false, isMvp: false });
+      items.unshift({ id: createRoadmapItemId(text), text, completed: false, gates: [] });
     } else {
       const target = items.find(item => item.id === state.editingRoadmapId);
       if (target) {
@@ -2768,17 +2836,48 @@
           id: item.id || `roadmap-${index + 1}`,
           text: item.text,
           completed: !!item.completed,
-          isMvp: !!item.isMvp,
+          // Both are sent: `gates` is the truth, `isMvp` keeps the MVP path
+          // readable to anything still reading the original single flag.
+          gates: Array.isArray(item.gates) ? item.gates : (item.isMvp ? ['mvp'] : []),
+          isMvp: Array.isArray(item.gates) ? item.gates.indexOf('mvp') >= 0 : !!item.isMvp,
         })),
       },
     });
+  }
+
+  function roadmapItemsForSave() {
+    return getRoadmapItems().map(item => ({
+      id: item.id,
+      text: item.text,
+      completed: !!item.completed,
+      gates: Array.isArray(item.gates) ? item.gates.slice() : (item.isMvp ? ['mvp'] : []),
+    }));
+  }
+
+  function getRoadmapGates() {
+    const gates = state.snapshot && state.snapshot.roadmap ? state.snapshot.roadmap.gates : null;
+    return Array.isArray(gates) && gates.length > 0 ? gates : [{ id: 'mvp', label: 'MVP', order: 0, builtIn: true, totalCount: 0, completedCount: 0, progressPercent: 0 }];
+  }
+
+  function activeRoadmapGate() {
+    const gates = getRoadmapGates();
+    const selected = gates.find(gate => gate.id === state.activeRoadmapGate);
+    return selected || gates[0];
+  }
+
+  function toggleItemGate(itemId, gateId) {
+    persistRoadmapItems(roadmapItemsForSave().map(item => {
+      if (item.id !== itemId) { return item; }
+      const has = item.gates.indexOf(gateId) >= 0;
+      return { ...item, gates: has ? item.gates.filter(id => id !== gateId) : [...item.gates, gateId] };
+    }));
   }
 
   function moveRoadmapItem(sourceId, targetId) {
     if (!sourceId || !targetId || sourceId === targetId) {
       return;
     }
-    const items = getRoadmapItems().map(item => ({ id: item.id, text: item.text, completed: !!item.completed, isMvp: !!item.isMvp }));
+    const items = roadmapItemsForSave();
     const fromIndex = items.findIndex(item => item.id === sourceId);
     const toIndex = items.findIndex(item => item.id === targetId);
     if (fromIndex < 0 || toIndex < 0) {

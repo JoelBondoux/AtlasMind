@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.166.0] - 2026-07-28
+
+### Added
+- **Release gates beyond MVP on the Roadmap dashboard.** MVP was the only milestone the page could track, which stops being useful the day a project ships it. Projects can now declare their own gates — a public beta, `v1.0`, `v2` (up to 12) — with **+ New gate**, and a gate selector switches the "Road to …" card between them: each gate gets its own progress bar, milestone track, best-route ordering, next-step callout, and *Plan the … route with Atlas* prompt. Every backlog item shows one membership toggle per gate, so an item can belong to the MVP *and* the beta. New pure, unit-tested `src/core/roadmapGates.ts`.
+- **Gates are stored in the roadmap file.** A managed `<!-- atlasmind:roadmap-gates:start/end -->` block in `improvement-plan.md` holds them as readable markdown (`` - `#beta` — Public beta ``), so they diff and review like the backlog they describe, with no second source of truth. Item membership stays `#<gate>` tags inside the existing items block; tags never appear in displayed text and round-trip through every save. The block is only written once a project declares a gate beyond MVP, so a roadmap that never uses them is left exactly as it was.
+
+### Changed
+- **`isMvp` still works.** The single-flag save payload is still accepted and still written, so an older webview — or a queued message from one — cannot silently drop an item's MVP membership. The MVP gate keeps its own name in the snapshot and remains the gate that feeds the Operational Score.
+- **Heuristic suggestions stay MVP-only.** The "suggested foundations" fallback recognises foundational work, which is not a claim about which release something belongs to — so a user-created gate with nothing tagged is reported as empty rather than filled with a guess.
+
+### Security
+- **A tag is only a gate once it is declared.** `extractItemGates` recognises declared ids only, so an item reading `fix the #2 case` keeps its wording instead of inventing a gate, and a tag-boundary check stops `#v1` matching inside `#v10`. Gate ids are slug-validated (`slugifyGateId`) and **refused with a reason** rather than coerced — the id becomes a `#tag` in a tracked file, so a value that would not parse back is never written — and the webview's `deleteRoadmapGate` message is rejected outright if its payload is not a valid slug. Unknown gate ids in a save are dropped, not persisted.
+- **Removing a gate removes a label, never work.** Deletion is confirmed modally with the count of items that will lose the tag, strips the tag from every item, and deletes no backlog item. The built-in MVP gate cannot be removed, and survives an editing accident in the gates block.
+
 ## [0.165.0] - 2026-07-28
 
 ### Added
