@@ -1,0 +1,91 @@
+{
+  "version": 1,
+  "scannedAt": "2026-07-28T00:10:27.432Z",
+  "launchers": {
+    "npx": true,
+    "uvx": true,
+    "node": true,
+    "docker": true,
+    "python": true,
+    "python3": false,
+    "pipx": false,
+    "gh": true,
+    "az": true,
+    "aws": false,
+    "gcloud": true,
+    "wrangler": false
+  },
+  "importedServers": [
+    {
+      "name": "work-timer",
+      "source": "Claude Desktop",
+      "sourcePath": "C:\\Users\\joel\\AppData\\Roaming\\Claude\\claude_desktop_config.json",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "C:\\Users\\joel\\Work-Timer\\dist\\mcp\\server.js"
+      ],
+      "envKeys": [],
+      "secretEnvKeys": []
+    },
+    {
+      "name": "GitKraken",
+      "source": "Claude Desktop",
+      "sourcePath": "C:\\Users\\joel\\AppData\\Roaming\\Claude\\claude_desktop_config.json",
+      "transport": "stdio",
+      "command": "C:\\Users\\joel\\AppData\\Local\\Microsoft\\WinGet\\Packages\\GitKraken.cli_Microsoft.Winget.Source_8wekyb3d8bbwe\\gk.exe",
+      "args": [
+        "mcp",
+        "--host=claude"
+      ],
+      "envKeys": [],
+      "secretEnvKeys": []
+    }
+  ],
+  "envVarNames": [],
+  "projectSignals": [
+    "MCP-related npm packages in this project: @modelcontextprotocol/sdk."
+  ],
+  "sources": [
+    {
+      "label": ".vscode/mcp.json (workspace)",
+      "path": "c:\\Users\\joel\\OneDrive\\Dev\\AtlasMind\\.vscode\\mcp.json",
+      "exists": false
+    },
+    {
+      "label": ".cursor/mcp.json (workspace)",
+      "path": "c:\\Users\\joel\\OneDrive\\Dev\\AtlasMind\\.cursor\\mcp.json",
+      "exists": false
+    },
+    {
+      "label": ".mcp.json (workspace)",
+      "path": "c:\\Users\\joel\\OneDrive\\Dev\\AtlasMind\\.mcp.json",
+      "exists": false
+    },
+    {
+      "label": "mcp.json (workspace)",
+      "path": "c:\\Users\\joel\\OneDrive\\Dev\\AtlasMind\\mcp.json",
+      "exists": false
+    },
+    {
+      "label": "Claude Desktop",
+      "path": "C:\\Users\\joel\\AppData\\Roaming\\Claude\\claude_desktop_config.json",
+      "exists": true
+    },
+    {
+      "label": "Cursor (global)",
+      "path": "C:\\Users\\joel\\.cursor\\mcp.json",
+      "exists": false
+    },
+    {
+      "label": "VS Code (user)",
+      "path": "C:\\Users\\joel\\AppData\\Roaming\\Code\\User\\mcp.json",
+      "exists": true
+    },
+    {
+      "label": "Windsurf",
+      "path": "C:\\Users\\joel\\.codeium\\windsurf\\mcp_config.json",
+      "exists": false
+    }
+  ]
+}

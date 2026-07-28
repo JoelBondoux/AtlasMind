@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+- **ACP integration roadmap.** A phased SSOT plan (`project_memory/roadmap/acp-integration.md`) for adopting the Agent Client Protocol: Tier 1 replaces the argv-bounded, tool-free `claude-cli` bridge with a streaming ACP provider, Tier 2 adds Codex and Gemini CLI subscriptions as routable capacity, Tier 3 delegates whole subtasks to a subscription agent while AtlasMind retains the authorization gate, and Tier 4 exposes AtlasMind itself as an ACP agent. Planning only — no implementation.
+
 ## [0.146.0] - 2026-07-27
 
 ### Added
