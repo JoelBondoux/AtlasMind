@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.153.0] - 2026-07-28
+
+### Added
+- **`/buzz` walks you through setting Buzz up.** Ask `@atlas /buzz` and you get an ordered checklist built from what is actually configured: the master switch, the relay, your agent key, the read-only subscription, then the optional extras. Each step says done, to do, blocked, or optional, names the next thing to click, and offers a button that takes you straight there.
+- **AtlasMind can now tell you whether the Buzz CLI is installed.** `buzz` was added to the environment scanner's PATH probe, so a missing CLI is reported during setup rather than discovered later as a failed send.
+
+### Changed
+- **The setup walkthrough distinguishes what you need from what you might want.** Reading Buzz needs four things; the CLI, the MCP bridge, and follow-up persistence are extras. A step that is blocked only by something optional is never nominated as your next action — sending someone off to install a binary they do not need is worse than saying nothing.
+
+### Security
+- **The walkthrough is a plan, never an installer.** Every button opens a surface — the Settings page, the key prompt, the MCP manager, the download page. Nothing in it enables a gate, writes a setting, stores a secret, or connects anything. Buzz is deny-by-default in three places precisely so that turning it on is a decision a human makes; a setup assistant that flipped those switches to be helpful would remove the property they exist to provide. A test pins the action allowlist.
+- **It is derived, not generated.** Every line comes from observed state rather than from a model, because a hallucinated setup step sends someone to configure something that does not exist and leaves them trusting a broken result.
+- **It reports refusals with the reason.** A plaintext relay URL pointing off-machine is shown as refused *and why* — plaintext would expose colleagues' messages and the login challenge in transit — rather than as a step that simply will not go green.
+
 ## [0.152.0] - 2026-07-28
 
 ### Added

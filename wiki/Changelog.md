@@ -6,6 +6,14 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.153.0 — `/buzz` sets Buzz up with you
+
+- **A guided walkthrough in chat.** `@atlas /buzz` reports each setup step as done / to do / blocked / optional from your real configuration, names the next thing to click, and offers a button for it.
+- **The Buzz CLI is now detected**, so a missing binary surfaces during setup rather than as a failed send later.
+- **A plan, never an installer.** Every button opens a surface; nothing enables a gate, writes a setting, or stores a secret. Each Buzz gate is off by default so that turning it on stays your decision — an assistant that flipped them to be helpful would remove the point of them.
+- **Derived, not generated** — a hallucinated setup step sends you to configure something that does not exist.
+- **Required vs. extra is respected.** Reading Buzz needs four things; the CLI, the bridge, and follow-up persistence are extras, and a step blocked only by an optional one is never nominated as your next action.
+
 ## v0.152.0 — Pick a Buzz handle instead of pasting one
 
 - **The person form offers identities AtlasMind has seen**, by the name each published for itself; picking one fills Handle. Typing a key by hand still works.

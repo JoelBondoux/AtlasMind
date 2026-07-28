@@ -870,6 +870,10 @@ async function handleChatRequest(
       await handleDirectorCommand(stream, atlas);
       break;
 
+    case 'buzz':
+      await handleBuzzCommand(stream, atlas);
+      break;
+
     case 'followups':
       await handleFollowUpsCommand(stream, atlas);
       break;
@@ -1656,6 +1660,97 @@ async function handleRunsCommand(stream: vscode.ChatResponseStream): Promise<voi
 /** Neutralise markdown control characters in user-authored text for chat output. */
 function escapeMd(value: string): string {
   return String(value ?? '').replace(/([\\`*_{}\[\]()#+\-!|])/g, '\\$1');
+}
+
+/**
+ * `/buzz` — walk through Buzz setup and say exactly what is left.
+ *
+ * Deliberately **not** an installer. Every button opens a surface; none of them
+ * enables a gate, writes a setting, or stores a secret. Buzz is deny-by-default
+ * in three places so that switching it on is a decision a human makes, and a
+ * setup assistant that flipped those switches to be helpful would be removing
+ * the property they exist to provide.
+ *
+ * Also deliberately **not** model-generated. Every line comes from observed
+ * state, because a hallucinated setup step sends someone to configure something
+ * that does not exist and leaves them trusting a broken result.
+ */
+async function handleBuzzCommand(
+  stream: vscode.ChatResponseStream,
+  atlas: AtlasMindContext,
+): Promise<void> {
+  const [{ buildBuzzSetupPlan, isBuzzInboundReady, nextBuzzSetupStep }, { hasLauncherOnPath }, { BUZZ_AGENT_KEY_SECRET }] =
+    await Promise.all([
+      import('../core/buzzSetupPlan.js'),
+      import('../mcp/mcpEnvironmentScanner.js'),
+      import('../core/buzzSigner.js'),
+    ]);
+
+  const cfg = vscode.workspace.getConfiguration('atlasmind');
+  let hasAgentKey = false;
+  try {
+    hasAgentKey = Boolean((await atlas.extensionContext.secrets.get(BUZZ_AGENT_KEY_SECRET))?.trim());
+  } catch {
+    // An unreadable secret store is reported as "no key" rather than crashing
+    // the walkthrough — the remedy is the same either way.
+  }
+
+  const rawChannels = cfg.get<unknown>('buzz.inboundChannels', []);
+  const steps = buildBuzzSetupPlan({
+    cliOnPath: hasLauncherOnPath('buzz'),
+    hasAgentKey,
+    relayUrl: cfg.get<string>('buzz.relayUrl', ''),
+    allowRemoteRelay: cfg.get<boolean>('buzz.allowRemoteRelay', false),
+    enabled: cfg.get<boolean>('buzz.enabled', false),
+    inboundEnabled: cfg.get<boolean>('buzz.inboundEnabled', false),
+    channelIds: Array.isArray(rawChannels) ? rawChannels.filter((c): c is string => typeof c === 'string') : [],
+    autoCreateFollowUps: cfg.get<boolean>('buzz.autoCreateFollowUps', false),
+    mcpServerRegistered: (atlas.mcpServerRegistry?.listServers() ?? [])
+      .some(server => server.config.id === 'mcp-server-buzz' || /buzz/i.test(server.config.name ?? '')),
+    ...(atlas.buzzInbound ? { inboundStatus: atlas.buzzInbound.getStatus() } : {}),
+    observedIdentities: atlas.buzzInbound?.listIdentities().length ?? 0,
+  });
+
+  const MARK: Record<string, string> = { done: '✅', todo: '⬜', blocked: '⏸️', optional: '◽' };
+  const ready = isBuzzInboundReady(steps);
+  const next = nextBuzzSetupStep(steps);
+
+  const lines = [
+    '### Set up Buzz',
+    '',
+    ready
+      ? '**Reading Buzz is set up.** Anything below marked ◽ is an optional extra, not something missing.'
+      : `**${steps.filter(s => s.status === 'done').length} of ${steps.filter(s => s.status !== 'optional').length} required steps done.** Start with **${escapeMd(next?.title ?? '')}**.`,
+    '',
+  ];
+  for (const step of steps) {
+    lines.push(`${MARK[step.status] ?? '⬜'} **${escapeMd(step.title)}**  `);
+    lines.push(`   ${escapeMd(step.detail)}`);
+  }
+  const observed = steps.length > 0 ? (atlas.buzzInbound?.listIdentities().length ?? 0) : 0;
+  if (ready && observed > 0) {
+    lines.push('', `Seen **${observed}** Buzz identit${observed === 1 ? 'y' : 'ies'} so far — they are offered when you add a person on the Director tab.`);
+  }
+  lines.push('', 'AtlasMind will not switch any of this on for you: each gate is off by default so that turning it on stays your decision.');
+  stream.markdown(lines.join('\n'));
+
+  // One button per incomplete step, in dependency order, so the first is always
+  // the right next click.
+  const seen = new Set<string>();
+  for (const step of steps) {
+    if (step.status === 'done' || !step.action || seen.has(step.action.title)) {
+      continue;
+    }
+    seen.add(step.action.title);
+    stream.button({
+      command: step.action.command,
+      title: step.action.title,
+      ...(step.action.args ? { arguments: step.action.args.map(arg => typeof arg === 'string' && /^https?:\/\//.test(arg) ? vscode.Uri.parse(arg) : arg) } : {}),
+    });
+  }
+  if (ready) {
+    stream.button({ command: 'atlasmind.openProjectDirector', title: 'Open the Director roster' });
+  }
 }
 
 async function handleDirectorCommand(
@@ -3665,6 +3760,12 @@ export function buildFollowups(
       return [
         { prompt: '/followups', label: "What's due" },
         { prompt: '/runs', label: 'Autonomous runs' },
+      ];
+
+    case 'buzz':
+      return [
+        { prompt: '/director', label: 'Open Project Director' },
+        { prompt: '/followups', label: "What's due" },
       ];
 
     case 'followups':

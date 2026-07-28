@@ -450,9 +450,32 @@ Design notes worth keeping:
 - `BuzzClient.onEvent` is kept separate from `onWorkItems`, so widening what is *observed* can never
   widen what becomes a follow-up.
 
-**Still owed:** `buzz` is not in the MCP environment scanner's PATH probe list, so AtlasMind cannot
-tell you whether the Buzz CLI is installed — you find out when a call fails. MCP setup is
-`prefill` (guided), and installing the CLI binary itself remains manual.
+### Guided setup (2026-07-28, v0.153.0)
+
+Setting Buzz up touches five unrelated places — a CLI binary, a secret, two settings, an MCP server,
+and a relay — and getting one wrong fails at the far end, usually as a subscription that connects and
+then silently receives nothing. `/buzz` turns that into an ordered checklist derived from observed
+state, and `buzz` is now in the environment scanner's PATH probe so a missing CLI is reported during
+setup rather than discovered as a failed send.
+
+Two properties held deliberately, both pinned by tests:
+
+- **A plan, never an installer.** Every action *opens a surface*; nothing enables a gate, writes a
+  setting, stores a secret, or connects anything. Buzz is deny-by-default in three places precisely
+  so that turning it on is a human decision — an assistant that flipped those switches to be helpful
+  would remove the property they exist to provide. The action allowlist is asserted.
+- **Derived, not model-generated.** A hallucinated setup step sends someone to configure something
+  that does not exist and leaves them trusting a broken result.
+
+One bug worth recording: `nextBuzzSetupStep` initially fell back to *any* blocked step, so with
+reading fully configured it nominated the MCP bridge — blocked only by the optional CLI. It now
+scopes to the required steps. Sending someone off to install a binary they never need is worse than
+saying nothing.
+
+**Still owed:** MCP setup is `prefill` (guided) — AtlasMind pre-fills command, args, and env, and
+wires the relay URL and both gates through `${config:atlasmind.buzz.*}`, but installing the CLI
+binary itself remains manual, and the bridge exposes no directory lookup (list-channels / post /
+read-thread / send-DM only).
 
 ---
 

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.152.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.153.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,10 +64,11 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.152.0
+## What's new in 0.153.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
 
+- **`/buzz` sets Buzz up with you.** Ask `@atlas /buzz` and AtlasMind reads your actual configuration and tells you what is done, what is left, and what to click next — with a button for each gap. It will not switch anything on for you: every Buzz gate is off by default so that enabling it stays your call, and each button opens the relevant screen rather than changing state behind you. AtlasMind can now also tell you whether the Buzz CLI is installed, instead of letting you find out when a send fails.
 - **Pick a Buzz handle instead of pasting one.** Adding a person on the Director tab now offers the Buzz identities AtlasMind has actually seen, by the name each one published for itself — and your own identity, derived from the key already in secure storage. Nothing is ever guessed from a person's name: every option is a key that arrived on the wire, because a fabricated key would belong to somebody else.
 - **Buzz is configurable by clicking.** A new **Settings → Buzz** page surfaces every Buzz switch — enable it, point it at a relay, allow a remote one, subscribe to inbound, choose channels, and decide whether follow-ups are recorded — with each nested switch shown dimmed while its parent is off, so the three gates read as the three gates they are. And in **Project Dashboard → Director**, adding or editing a person with a `buzz` channel now offers an **AtlasMind agent** picker, so you can say "route their messages to this specialist" while adding them rather than by hand-editing settings JSON.
 - **Buzz activity can become AtlasMind work.** Switch on inbound and AtlasMind holds a live, read-only subscription to your Buzz relay, turning channel activity into follow-ups with a pointer back to the thread. You can also **assign AtlasMind agents to specific Buzz agents**, so work from a known Buzz bot lands with the right specialist. Three separate opt-ins gate it — enabling Buzz, subscribing, and recording — because project memory is committed to your repository.
@@ -189,6 +190,7 @@ Use these in AtlasMind chat as `@atlas /<command>`.
 | `/cost` | Show the current session cost summary |
 | `/runs` | Open recent autonomous runs and checkpoints |
 | `/director` | Review stakeholders, team, responsibilities, assignments, and follow-ups |
+| `/buzz` | Walk through Buzz setup: what is done, what is left, and what to click next |
 | `/followups` | Group open follow-ups by urgency |
 | `/ship [routine]` | Run the default or named project routine from project memory |
 | `/sync-instructions` | Reconcile and mirror supported AI instruction files |
