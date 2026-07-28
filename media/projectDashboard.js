@@ -4938,10 +4938,15 @@
     if (team) { badges.push('<span class="tag mono">' + escapeHtml(team.discipline) + '</span>'); }
     const buzzLink = (contact.links || []).find(l => l.kind === 'buzz');
     if (buzzLink) {
-      const boundId = directorBoundAgentId('buzz', buzzLink.handle);
-      const agent = boundId ? (snap.agentChoices || []).find(a => a.id === boundId) : null;
-      if (boundId) {
-        badges.push('<span class="tag">buzz → ' + escapeHtml(agent ? agent.name : boundId) + '</span>');
+      // An identity can be bound to several agents; the first owns the work and
+      // the rest are also-relevant, so the badge names the owner and counts the
+      // remainder rather than pretending there is only ever one.
+      const boundIds = directorBoundAgentIds('buzz', buzzLink.handle);
+      if (boundIds.length > 0) {
+        const owner = boundIds[0];
+        const agent = (snap.agentChoices || []).find(a => a.id === owner);
+        const extra = boundIds.length > 1 ? ' +' + (boundIds.length - 1) : '';
+        badges.push('<span class="tag">buzz → ' + escapeHtml(agent ? agent.name : owner) + escapeHtml(extra) + '</span>');
       }
     }
     const linkButtons = contact.links.map(link => {

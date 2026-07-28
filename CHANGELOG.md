@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.171.1] - 2026-07-28
+
+### Fixed
+- **"Dashboard refresh failed — directorBoundAgentId is not defined".** The entire Project Dashboard failed to render for any project with a Buzz contact. When a Buzz identity became bindable to *several* agents in v0.163.0, `directorBoundAgentId` was pluralised to `directorBoundAgentIds`, and one call in the Director contact-card renderer was left behind. The card now reads the list correctly and names the **owning** agent with a `+n` for the rest, matching how the binding is actually defined (first owns the work, the others are also-relevant).
+
+### Added
+- **A guard for the class of bug that caused it.** Webview scripts are strings handed to a browser: never type-checked, never imported by a test. A renamed function leaves its old call site behind, `tsc` says nothing, every test passes, and the failure arrives as a `ReferenceError` at render time that takes down the **whole panel** — and it only fires on the code path that touches it, which is why this one survived review. `tests/views/webviewIdentifierIntegrity.test.ts` parses each webview script with a real JS parser and asserts every identifier it reads is bound: declared in the file, a function parameter, or a genuine browser/host global. Parsing rather than pattern-matching is the point — prose like `3 subtask(s) recorded` inside a template literal is indistinguishable from a call to `subtask()` under a regex. The test is pinned against both the exact bug that shipped and that false positive.
+
 ## [0.171.0] - 2026-07-28
 
 ### Added

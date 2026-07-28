@@ -6,6 +6,11 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.171.1 — the dashboard renders again
+
+- **Fixed "Dashboard refresh failed — directorBoundAgentId is not defined"**, which blanked the whole Project Dashboard for any project with a Buzz contact. A rename in v0.163.0 left one call site behind.
+- **Added a guard** that parses every webview script and fails the build if it references an identifier that does not exist — the failure mode is a blank panel, and neither the compiler nor the unit tests could see it.
+
 ## v0.171.0 — every setup process works the same way
 
 - **`/acp`** walks you through ACP setup a step at a time, ending with *prove a completion comes back* — configured and working are different things.
