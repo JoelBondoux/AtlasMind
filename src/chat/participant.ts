@@ -871,7 +871,7 @@ async function handleChatRequest(
       break;
 
     case 'buzz':
-      await handleBuzzCommand(stream, atlas);
+      await handleBuzzCommand(stream, atlas, token);
       break;
 
     case 'followups':
@@ -1663,6 +1663,31 @@ function escapeMd(value: string): string {
 }
 
 /**
+ * Read one pinned Buzz documentation URL.
+ *
+ * Bounded and total: HTTPS only, an origin the caller has already pinned, a
+ * hard timeout, and a size cap. Any failure returns undefined so the setup
+ * guide falls back to its built-in text — a walkthrough that breaks when
+ * offline is worse than one that is merely less current.
+ */
+async function fetchBuzzDoc(url: string): Promise<string | undefined> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 6_000);
+  try {
+    const response = await fetch(url, { signal: controller.signal, redirect: 'follow' });
+    if (!response.ok) {
+      return undefined;
+    }
+    const text = await response.text();
+    return text.slice(0, 512 * 1024);
+  } catch {
+    return undefined;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * `/buzz` — walk through Buzz setup and say exactly what is left.
  *
  * Deliberately **not** an installer. Every button opens a surface; none of them
@@ -1678,12 +1703,14 @@ function escapeMd(value: string): string {
 async function handleBuzzCommand(
   stream: vscode.ChatResponseStream,
   atlas: AtlasMindContext,
+  token: vscode.CancellationToken,
 ): Promise<void> {
-  const [{ buildBuzzSetupPlan, isBuzzInboundReady, nextBuzzSetupStep }, { hasLauncherOnPath }, { BUZZ_AGENT_KEY_SECRET }] =
+  const [{ buildBuzzSetupPlan, isBuzzInboundReady, nextBuzzSetupStep }, { hasLauncherOnPath }, { BUZZ_AGENT_KEY_SECRET }, docsModule] =
     await Promise.all([
       import('../core/buzzSetupPlan.js'),
       import('../mcp/mcpEnvironmentScanner.js'),
       import('../core/buzzSigner.js'),
+      import('../core/buzzDocsSource.js'),
     ]);
 
   const cfg = vscode.workspace.getConfiguration('atlasmind');
@@ -1741,6 +1768,34 @@ async function handleBuzzCommand(
   }
   lines.push('', 'AtlasMind will not switch any of this on for you: each gate is off by default so that turning it on stays your decision.');
   stream.markdown(lines.join('\n'));
+
+  // Buzz ships releases, so the *how* is read from Buzz's own documentation
+  // rather than from prose written here that quietly goes stale. Assessing your
+  // machine stays deterministic above; only the external how-to is cited.
+  const wanted = steps.filter(step => step.status === 'todo' || step.status === 'blocked')
+    .map(step => (step.id === 'relay' ? 'relay' : step.id === 'cli' || step.id === 'mcp' ? 'cli' : step.id === 'agentKey' ? 'key' : undefined))
+    .filter((topic): topic is 'relay' | 'cli' | 'key' => topic !== undefined);
+  if (wanted.length > 0 && !token.isCancellationRequested) {
+    const now = Date.now();
+    const docs = await docsModule.fetchBuzzDocs([...new Set(wanted)], fetchBuzzDoc, now);
+    if (docs.excerpts.length > 0) {
+      const docLines = ['', '---', '', '#### From Buzz’s current documentation'];
+      for (const excerpt of docs.excerpts) {
+        const covers = [excerpt.topic, ...excerpt.alsoCovers].join(', ');
+        docLines.push('', `**${escapeMd(excerpt.heading ?? excerpt.topic)}** — covers ${escapeMd(covers)} · [${escapeMd(docsModule.describeDocSource(excerpt, now))}](${excerpt.sourceUrl})`);
+        for (const line of excerpt.lines) {
+          docLines.push(`> ${escapeMd(line)}`);
+        }
+        for (const command of excerpt.suggestedCommands) {
+          docLines.push('', '```', command, '```');
+        }
+      }
+      docLines.push('', '_Quoted from Buzz’s documentation, not written by AtlasMind. Read any command before running it — AtlasMind does not run them, and cannot vouch for text it did not write._');
+      stream.markdown(docLines.join('\n'));
+    } else if (docs.unavailableReason) {
+      stream.markdown(`\n\n_${escapeMd(docs.unavailableReason)} The steps above still apply; only the quoted how-to is missing._`);
+    }
+  }
 
   // One button per incomplete step, in dependency order, so the first is always
   // the right next click.

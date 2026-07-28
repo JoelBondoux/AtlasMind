@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.154.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.155.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,10 +64,11 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.154.0
+## What's new in 0.155.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
 
+- **The Buzz setup guide reads Buzz's own docs.** Rather than hand-written instructions that go stale every time Buzz ships, `/buzz` quotes the current Buzz README for the parts outside AtlasMind — running a relay, installing the CLI, setting a key — with a source link and how recently it was read. Assessing *your* setup stays a deterministic check; only claims about Buzz are fetched, and anything quoted is clearly somebody else's text that AtlasMind will not run for you.
 - **A "Guide me through Buzz setup" button** on Settings → Buzz opens the walkthrough in chat, now with real how-to for the parts outside AtlasMind — including that a local relay is something *you* have to run (normally via Docker), since a valid `localhost` URL is not the same as a relay actually listening.
 - **`/buzz` sets Buzz up with you.** Ask `@atlas /buzz` and AtlasMind reads your actual configuration and tells you what is done, what is left, and what to click next — with a button for each gap. It will not switch anything on for you: every Buzz gate is off by default so that enabling it stays your call, and each button opens the relevant screen rather than changing state behind you. AtlasMind can now also tell you whether the Buzz CLI is installed, instead of letting you find out when a send fails.
 - **Pick a Buzz handle instead of pasting one.** Adding a person on the Director tab now offers the Buzz identities AtlasMind has actually seen, by the name each one published for itself — and your own identity, derived from the key already in secure storage. Nothing is ever guessed from a person's name: every option is a key that arrived on the wire, because a fabricated key would belong to somebody else.

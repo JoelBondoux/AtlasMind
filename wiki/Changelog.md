@@ -6,6 +6,19 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.155.0 — the setup guide reads Buzz's own docs
+
+- **Live documentation instead of stale prose.** `/buzz` quotes the current Buzz README for the steps outside AtlasMind — relay, CLI, agent key — with a source link and how recently it was read.
+- **Split by consequence.** Your configuration is still *checked* deterministically; only claims about Buzz are fetched. A model guessing at your setup is strictly worse than a check.
+- **Quoted, never executed.** Fetched docs are untrusted text: commands are attributed suggestions AtlasMind will not run, prose is redacted and control-stripped, and markdown links are flattened so a label cannot misrepresent where it points. The origin is pinned to the Buzz repo.
+- **Offline still works** — it falls back to built-in guidance rather than breaking.
+
+## v0.154.0 — a Buzz handle is not always a public key
+
+- **Saving a Buzz contact with a channel-UUID handle no longer warns that something failed**, and a refused binding now says the person *was* saved.
+- **"Guide me through Buzz setup"** button added to Settings → Buzz.
+- **A valid relay URL is no longer proof a relay exists** — the default `localhost` reads as settled while nothing may be listening.
+
 ## v0.153.0 — `/buzz` sets Buzz up with you
 
 - **A guided walkthrough in chat.** `@atlas /buzz` reports each setup step as done / to do / blocked / optional from your real configuration, names the next thing to click, and offers a button for it.

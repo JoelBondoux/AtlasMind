@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.155.0] - 2026-07-28
+
+### Added
+- **The Buzz setup guide now reads Buzz's own documentation.** Hand-written setup prose goes stale every time Buzz ships, and stale instructions fail in a way that looks like AtlasMind's fault. `/buzz` now quotes the current Buzz README for the steps that involve things outside AtlasMind — running a relay, installing the CLI, setting an agent key — with the source link and how long ago it was read attached to every excerpt.
+
+### Changed
+- **The split is by consequence, not by preference.** Assessing *your* machine — which gate is off, whether a key is stored, whether a relay actually answered — stays fully deterministic: those are claims about your configuration, and a model guessing at them is strictly worse than a check. Only claims about *Buzz* are fetched and cited.
+
+### Security
+- **Fetched documentation is treated as untrusted input**, because it is remote text flowing toward someone in the mood to follow instructions. Commands are surfaced as **quoted, attributed suggestions** that AtlasMind never runs and never presents as its own; prose is secret-redacted, control-character-stripped, and length-clamped; and markdown links are flattened to their text so a label cannot read like an official instruction while pointing somewhere else.
+- **The origin is pinned to the Buzz repository.** This is not a general fetcher — no setting and no fetched link can redirect it at another document — and the URL is SSRF-screened regardless.
+- **Offline is a supported state.** An unreachable network, a 404, or a document that says nothing useful all produce the built-in guidance instead. A setup guide that breaks without a network is worse than one that is merely less current.
+
 ## [0.154.0] - 2026-07-28
 
 ### Added
