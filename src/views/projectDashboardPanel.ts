@@ -6031,6 +6031,12 @@ interface DashboardDocumentsSnapshot {
   missingCount: number;
   uncovered: string[];
   summary: string;
+  /**
+   * Something worth saying about the file itself — that it was migrated
+   * forward, or that it came from a newer AtlasMind and was left untouched.
+   * Absent in the ordinary case.
+   */
+  fileNotice?: string;
 }
 
 // ── Risk oversight snapshot ──────────────────────────────────────────────────
@@ -6389,12 +6395,16 @@ async function collectDocumentsSnapshot(atlas: AtlasMindContext, workspaceRoot: 
     summary = `${parts.join(' · ')}.`;
   }
 
+  // Surfaced rather than kept internal: an explicit save *will* write over a
+  // newer-format file, so the user has to have been told it exists first.
+  const fileNotice = atlas.documentsManager?.getNotice();
   return {
     filePath, summaryPath, configured,
     filing, autoUpdate,
     totalMarkdown, markdownCapped,
     reviewDueCount, missingCount,
     uncovered, summary,
+    ...(fileNotice ? { fileNotice } : {}),
   };
 }
 

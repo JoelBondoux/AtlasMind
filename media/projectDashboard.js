@@ -3555,6 +3555,11 @@
     }
 
     const emptyState = !docs.configured && filing.length === 0 && autoUpdate.length === 0 && !editing;
+    // A file this build could not read was left on disk rather than replaced.
+    // Saying so matters because an explicit save *will* overwrite it.
+    const fileNotice = docs.fileNotice
+      ? '<div class="delivery-review-banner warn"><div class="delivery-review-body"><strong>About this file</strong><div class="list-meta">' + escapeHtml(docs.fileNotice) + '</div></div></div>'
+      : '';
 
     return `
       ${pageSectionOpen('documents')}
@@ -3565,6 +3570,7 @@
           chips,
           ...(docs.configured ? { action: { file: docs.summaryPath, hint: 'Open documents.md' }, actionLabel: 'Open runbook' } : {}),
         })}
+        ${fileNotice}
         ${emptyState ? `
           <article class="panel-card">
             <p class="section-kicker">Get started</p>

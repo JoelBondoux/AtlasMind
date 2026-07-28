@@ -22,6 +22,7 @@
  */
 
 import * as path from 'node:path';
+import { interpretVersionedDocument, type VersionedDocumentRead } from './schemaMigration.js';
 import { readFileSync } from 'node:fs';
 import { writeFile, mkdir } from 'node:fs/promises';
 import type {
@@ -674,14 +675,27 @@ export function isSoloProject(config: ProjectDirectorConfig | undefined): boolea
 // ── Persistence (node fs; vscode-free) ───────────────────────────
 
 export function readProjectDirectorConfig(workspaceRoot: string): ProjectDirectorConfig | undefined {
-  const configPath = path.join(workspaceRoot, PROJECT_DIRECTOR_SSOT_PATH);
+  return readProjectDirectorFile(workspaceRoot).config;
+}
+
+/**
+ * Read the people roster, distinguishing "no usable file" from "a file this build
+ * must not touch".
+ *
+ * `preserveExisting` is true when the file was written by a *newer* AtlasMind.
+ * It is intact and readable by that build, so seeding a default over it would
+ * destroy real work — and the plain reader cannot say so, because both cases
+ * look like `undefined`.
+ */
+export function readProjectDirectorFile(workspaceRoot: string): VersionedDocumentRead<ProjectDirectorConfig> {
+  let parsed: unknown;
   try {
-    const raw = readFileSync(configPath, 'utf8');
-    const parsed = JSON.parse(raw) as unknown;
-    return isProjectDirectorConfig(parsed) ? parsed : undefined;
+    parsed = JSON.parse(readFileSync(path.join(workspaceRoot, PROJECT_DIRECTOR_SSOT_PATH), 'utf8'));
   } catch {
-    return undefined;
+    // Absent or unparseable: there is nothing to preserve.
+    return { preserveExisting: false };
   }
+  return interpretVersionedDocument('project-director', parsed, isProjectDirectorConfig);
 }
 
 /**
@@ -844,9 +858,34 @@ export function renderProjectDirectorMarkdown(config: ProjectDirectorConfig): st
  */
 export class ProjectDirectorManager {
   private config: ProjectDirectorConfig | undefined;
+  /**
+   * True when a file exists that this build must not overwrite — it was written
+   * by a newer AtlasMind. Distinct from "no config", which is safe to seed over.
+   * This one matters most: the roster holds real people.
+   */
+  private preserveExisting = false;
+  private notice: string | undefined;
 
   constructor(private readonly workspaceRoot: string | undefined) {
-    this.config = workspaceRoot ? readProjectDirectorConfig(workspaceRoot) : undefined;
+    this.applyRead();
+  }
+
+  private applyRead(): void {
+    if (!this.workspaceRoot) {
+      this.config = undefined;
+      this.preserveExisting = false;
+      this.notice = undefined;
+      return;
+    }
+    const read = readProjectDirectorFile(this.workspaceRoot);
+    this.config = read.config;
+    this.preserveExisting = read.preserveExisting;
+    this.notice = read.notice;
+  }
+
+  /** Something worth telling the user about the file itself, if anything. */
+  getNotice(): string | undefined {
+    return this.notice;
   }
 
   getConfig(): ProjectDirectorConfig | undefined {
@@ -859,7 +898,9 @@ export class ProjectDirectorManager {
 
   /** Re-read the config from disk (e.g. after the file was edited externally). */
   reload(): ProjectDirectorConfig | undefined {
-    this.config = this.workspaceRoot ? readProjectDirectorConfig(this.workspaceRoot) : undefined;
+    // Through applyRead, so the preserve flag and notice are refreshed too —
+    // a stale flag would either block a legitimate seed or permit a clobber.
+    this.applyRead();
     return this.config;
   }
 
@@ -874,7 +915,10 @@ export class ProjectDirectorManager {
     }
     const seeded = seedProjectDirectorConfig(seed);
     this.config = seeded;
-    if (this.workspaceRoot) {
+    // Never write over a file from a newer AtlasMind: it is not corrupt, this
+    // build simply cannot read it, and replacing a roster of real people with
+    // an empty default is the worst version of this bug.
+    if (this.workspaceRoot && !this.preserveExisting) {
       try {
         await writeProjectDirectorConfig(this.workspaceRoot, seeded);
       } catch {

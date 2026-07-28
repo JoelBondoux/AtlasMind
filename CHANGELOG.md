@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.172.0] - 2026-07-28
+
+### Fixed
+- **Opening a project in an older AtlasMind no longer destroys its project memory.** Every SSOT register carries a format `version`, but readers used it only as a validity test — an unfamiliar version meant "no file", so the manager seeded a fresh default and **wrote it over** the user's file. Open a workspace in an older build than the one that wrote it and the documents registry, risk register, security register, or **people roster** was replaced with an empty one, silently. `DocumentsManager`, `ProjectDirectorManager`, `RiskOversightManager`, and `SecurityReviewManager` now refuse to seed over a file they cannot read, and say why on the page (`getNotice()`).
+
+### Added
+- **A migration mechanism, which is what a 1.0 compatibility promise needs behind it.** New pure, unit-tested `src/core/schemaMigration.ts`. Its load-bearing distinction is **invalid** (corrupt, truncated, not ours — safe to replace) versus **refused** (structurally fine, written by a newer AtlasMind — never safe to replace); the old gate collapsed both into `undefined`, which is exactly how the data loss above happened. `interpretVersionedDocument` owns that decision for every manager so nine readers cannot drift into nine different answers to "is this file safe to replace?".
+- **`applyMigrationLadder`** walks a document up one version at a time: it starts from the version found rather than the beginning, stamps the resulting version even when a step forgets to, and reports a throwing step rather than leaving a half-applied chain. It takes its bounds as arguments so it is testable *now* — otherwise the code that runs at the first real format change would ship unexercised. `SCHEMA_MIGRATIONS` is empty (every kind is still v1) and a test asserts each kind's version matches its migration count, so bumping a version without writing the migration fails the build.
+
+### Changed
+- **An explicit save still writes over a newer-format file.** The user is editing on purpose, and refusing their own edit would be its own kind of data loss — so the obligation is that they were told first, which is why the notice renders on the Documents page rather than staying internal.
+
 ## [0.171.1] - 2026-07-28
 
 ### Fixed

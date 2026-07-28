@@ -6,6 +6,11 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.172.0 — your project memory survives a version downgrade
+
+- **Fixed silent data loss.** An older AtlasMind treated a newer file's format as "no file", seeded a default, and wrote it over your documents registry, risk register, security register, or people roster. It now tells corrupt apart from newer, leaves the newer one alone, and says why.
+- **Added the migration mechanism** that lets a format change at all — the thing a 1.0 compatibility promise needs behind it.
+
 ## v0.171.1 — the dashboard renders again
 
 - **Fixed "Dashboard refresh failed — directorBoundAgentId is not defined"**, which blanked the whole Project Dashboard for any project with a Buzz contact. A rename in v0.163.0 left one call site behind.
