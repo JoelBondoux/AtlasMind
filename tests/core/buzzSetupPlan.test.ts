@@ -25,6 +25,7 @@ const FRESH: BuzzSetupState = {
   autoCreateFollowUps: false,
   mcpServerRegistered: false,
   observedIdentities: 0,
+  agentBindings: 0,
 };
 
 /** Everything required for reading Buzz. */
@@ -35,6 +36,13 @@ const READY: BuzzSetupState = {
   inboundEnabled: true,
   // The relay how-to is branched, so the local path is what these assert.
   relayMode: 'local',
+};
+
+/** Reading Buzz works, a message has been seen, and someone is bound. */
+const WALKTHROUGH_DONE: BuzzSetupState = {
+  ...READY,
+  observedIdentities: 2,
+  agentBindings: 1,
 };
 
 const step = (state: BuzzSetupState, id: string) => buildBuzzSetupPlan(state).find(s => s.id === id);
@@ -127,7 +135,16 @@ describe('buildBuzzSetupPlan', () => {
     // Nagging about a choice someone made is not help.
     expect(isBuzzInboundReady(buildBuzzSetupPlan(READY))).toBe(true);
     expect(isBuzzInboundReady(buildBuzzSetupPlan(FRESH))).toBe(false);
-    expect(nextBuzzSetupStep(buildBuzzSetupPlan(READY))).toBeUndefined();
+    expect(nextBuzzSetupStep(buildBuzzSetupPlan(WALKTHROUGH_DONE))).toBeUndefined();
+  });
+
+  it('separates "inbound works" from "the walkthrough is finished"', () => {
+    // Inbound genuinely works with nothing bound and nothing yet received, so
+    // isBuzzInboundReady must not report a gap — but the walkthrough still has
+    // something to say, which is exactly the case that used to be skipped.
+    const plan = buildBuzzSetupPlan(READY);
+    expect(isBuzzInboundReady(plan)).toBe(true);
+    expect(nextBuzzSetupStep(plan)?.id).toBe('firstAgent');
   });
 
   it('still warns that outbound sends need confirmation once the bridge is connected', () => {
@@ -142,7 +159,7 @@ describe('the plan is a plan, not an installer', () => {
     // human decision. A setup assistant that flipped those switches to be
     // helpful would remove the property they exist to provide. Every action
     // here opens a surface; the human does the enabling.
-    const allStates: BuzzSetupState[] = [FRESH, READY, { ...READY, cliOnPath: true, mcpServerRegistered: true }];
+    const allStates: BuzzSetupState[] = [FRESH, READY, WALKTHROUGH_DONE, { ...READY, cliOnPath: true, mcpServerRegistered: true }];
     const allowed = new Set([
       'atlasmind.openSettings',
       'atlasmind.openMcpServers',
@@ -167,8 +184,98 @@ describe('the plan is a plan, not an installer', () => {
   });
 
   it('never throws on hostile or missing state', () => {
-    const hostile = { ...FRESH, relayUrl: undefined as unknown as string, channelIds: undefined as unknown as string[] };
+    const hostile = {
+      ...FRESH,
+      relayUrl: undefined as unknown as string,
+      channelIds: undefined as unknown as string[],
+      observedIdentities: undefined as unknown as number,
+      agentBindings: Number.NaN,
+    };
     expect(() => buildBuzzSetupPlan(hostile)).not.toThrow();
+    // A missing count is "none", never a negative or a NaN leaking into prose.
+    expect(buildBuzzSetupPlan(hostile).find(s => s.id === 'roster')?.detail).not.toMatch(/NaN|-\d/);
+  });
+});
+
+describe('proving the first message arrives', () => {
+  const guidance = (state: BuzzSetupState, id: string) =>
+    (buildBuzzSetupPlan(state).find(s => s.id === id)?.guidance ?? []).map(l => l.text).join(' ');
+
+  it('is not satisfied by being subscribed — only by something actually arriving', () => {
+    // Every failure above has the same symptom: connects, then silently
+    // receives nothing. A wrong channel id and a quiet day look identical.
+    expect(step(READY, 'firstAgent')?.status).toBe('todo');
+    expect(step({ ...READY, observedIdentities: 1 }, 'firstAgent')?.status).toBe('done');
+  });
+
+  it('waits for the subscription before asking for a test', () => {
+    expect(step(FRESH, 'firstAgent')?.status).toBe('blocked');
+    expect(step({ ...FRESH, enabled: true, hasAgentKey: true }, 'firstAgent')?.status).toBe('blocked');
+  });
+
+  it('says the stored key already is an agent, rather than sending someone to get one', () => {
+    expect(guidance(READY, 'firstAgent')).toMatch(/already have an agent/i);
+  });
+
+  it('names the two things that actually go wrong', () => {
+    const text = guidance(READY, 'firstAgent');
+    expect(text).toMatch(/channel id/i);
+    expect(text).toMatch(/different relays|same URL/i);
+  });
+
+  it('does not put a chat command in a terminal', () => {
+    // `/buzz read` in a bash fence would come with a "put this in a terminal"
+    // button, which types it somewhere it means nothing.
+    const step = buildBuzzSetupPlan(READY).find(s => s.id === 'firstAgent');
+    expect((step?.guidance ?? []).every(line => !line.command)).toBe(true);
+    expect(guidance(READY, 'firstAgent')).toMatch(/\/buzz read/);
+  });
+});
+
+describe('putting the Buzz people in the Director roster', () => {
+  const guidance = (state: BuzzSetupState, id: string) =>
+    (buildBuzzSetupPlan(state).find(s => s.id === id)?.guidance ?? []).map(l => l.text).join(' ');
+
+  it('is part of the walkthrough, because a feed routed to nobody is not finished', () => {
+    // Reported: the guide never mentioned the roster at all, so Settings sat on
+    // "No bindings yet" with nothing ever telling anyone to fix it.
+    expect(step({ ...READY, observedIdentities: 1 }, 'roster')?.status).toBe('todo');
+    expect(nextBuzzSetupStep(buildBuzzSetupPlan({ ...READY, observedIdentities: 1 }))?.id).toBe('roster');
+  });
+
+  it('is satisfied by a single binding', () => {
+    expect(step({ ...READY, observedIdentities: 1, agentBindings: 1 }, 'roster')?.status).toBe('done');
+  });
+
+  it('waits for the subscription, since there is nothing arriving to route', () => {
+    expect(step(FRESH, 'roster')?.status).toBe('blocked');
+  });
+
+  it('opens the Director rather than binding anyone itself', () => {
+    expect(step(READY, 'roster')?.action?.command).toBe('atlasmind.openProjectDirector');
+  });
+
+  it('walks the actual form: channel, key, agent', () => {
+    const text = guidance({ ...READY, observedIdentities: 2 }, 'roster');
+    expect(text).toMatch(/Add person/i);
+    expect(text).toMatch(/Channel.*Buzz/i);
+    expect(text).toMatch(/AtlasMind agent/i);
+  });
+
+  it('offers observed identities when there are any, and an npub when there are not', () => {
+    // A key is never derived from a name: a constructed key belongs to a
+    // different real person.
+    expect(guidance({ ...READY, observedIdentities: 2 }, 'roster')).toMatch(/never derives a key from a name/i);
+    expect(guidance(READY, 'roster')).toMatch(/npub/);
+  });
+
+  it('says what happens if you skip it, rather than implying breakage', () => {
+    expect(step(READY, 'roster')?.detail).toMatch(/unassigned/i);
+  });
+
+  it('counts bound identities without inventing a total', () => {
+    expect(step({ ...READY, observedIdentities: 3, agentBindings: 1 }, 'roster')?.detail)
+      .toMatch(/1 Buzz identity is bound .* out of 3 seen/i);
   });
 });
 
@@ -177,7 +284,7 @@ describe('nextBuzzSetupStep scoping', () => {
     // The MCP bridge is blocked until the Buzz CLI is installed, but the CLI is
     // optional — sending someone off to install a binary they never need is
     // worse than saying nothing.
-    const plan = buildBuzzSetupPlan(READY);
+    const plan = buildBuzzSetupPlan(WALKTHROUGH_DONE);
     expect(plan.find(s => s.id === 'mcp')?.status).toBe('blocked');
     expect(nextBuzzSetupStep(plan)).toBeUndefined();
   });
@@ -271,8 +378,12 @@ describe('the guide is thorough about what lives outside AtlasMind', () => {
   it('numbers steps against the required sequence only', () => {
     // Counting optional steps would make the finish line move as you progress.
     const steps = buildBuzzSetupPlan(FRESH);
-    expect(buzzStepPosition(steps, 'enabled')).toMatchObject({ index: 1, total: 4 });
-    expect(buzzStepPosition(steps, 'inbound').total).toBe(4);
+    expect(buzzStepPosition(steps, 'enabled')).toMatchObject({ index: 1, total: 6 });
+    expect(buzzStepPosition(steps, 'inbound').total).toBe(6);
+    // The walkthrough runs past "subscribed": prove one message arrives, then
+    // say who it belongs to.
+    expect(buzzStepPosition(steps, 'firstAgent').index).toBe(5);
+    expect(buzzStepPosition(steps, 'roster').index).toBe(6);
   });
 
   it('renders a step as markdown with its commands in fenced blocks', () => {
@@ -280,7 +391,7 @@ describe('the guide is thorough about what lives outside AtlasMind', () => {
     const relay = steps.find(s => s.id === 'relay')!;
     const md = renderBuzzStepMarkdown(relay, buzzStepPosition(steps, 'relay'));
     // Leads with progress, not an arbitrary step number.
-    expect(md).toContain('1 of 4 done. Next:');
+    expect(md).toContain('1 of 6 done. Next:');
     expect(md).toContain('```bash');
     expect(md).toContain('docker --version');
   });
@@ -383,15 +494,15 @@ describe('buzzStepChoices', () => {
 describe('the opening line reads as progress', () => {
   it('says "step 1 of N" only when nothing is done yet', () => {
     const plan = buildBuzzSetupPlan(FRESH);
-    expect(renderBuzzStepMarkdown(plan[0]!, buzzStepPosition(plan, 'enabled'))).toContain('step 1 of 4');
+    expect(renderBuzzStepMarkdown(plan[0]!, buzzStepPosition(plan, 'enabled'))).toContain('step 1 of 6');
   });
 
   it('says what is already done when picking up mid-sequence', () => {
-    // "Step 2 of 4" as an opening line reads as though the guide lost its
+    // "Step 2 of 6" as an opening line reads as though the guide lost its
     // place, when in fact step 1 was already finished.
     const plan = buildBuzzSetupPlan({ ...FRESH, enabled: true });
     const md = renderBuzzStepMarkdown(plan.find(s => s.id === 'relay')!, buzzStepPosition(plan, 'relay'));
-    expect(md).toContain('1 of 4 done. Next:');
-    expect(md).not.toMatch(/step 2 of 4/i);
+    expect(md).toContain('1 of 6 done. Next:');
+    expect(md).not.toMatch(/step 2 of 6/i);
   });
 });

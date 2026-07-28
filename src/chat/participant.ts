@@ -2014,12 +2014,13 @@ async function handleBuzzCommand(
     return;
   }
 
-  const [{ buildBuzzSetupPlan, isBuzzInboundReady, nextBuzzSetupStep }, { hasLauncherOnPath }, { BUZZ_AGENT_KEY_SECRET }, docsModule] =
+  const [{ buildBuzzSetupPlan, isBuzzInboundReady, nextBuzzSetupStep }, { hasLauncherOnPath }, { BUZZ_AGENT_KEY_SECRET }, docsModule, { parseAgentBindings }] =
     await Promise.all([
       import('../core/buzzSetupPlan.js'),
       import('../mcp/mcpEnvironmentScanner.js'),
       import('../core/buzzSigner.js'),
       import('../core/buzzDocsSource.js'),
+      import('../core/buzzAgentBindings.js'),
     ]);
   const docsModule2 = await import('../core/buzzSetupPlan.js');
 
@@ -2046,18 +2047,22 @@ async function handleBuzzCommand(
       .some(server => server.config.id === 'mcp-server-buzz' || /buzz/i.test(server.config.name ?? '')),
     ...(atlas.buzzInbound ? { inboundStatus: atlas.buzzInbound.getStatus() } : {}),
     observedIdentities: atlas.buzzInbound?.listIdentities().length ?? 0,
+    agentBindings: parseAgentBindings(cfg.get('buzz.agentBindings')).bindings.length,
     relayMode: cfg.get<'local' | 'hosted' | 'undecided'>('buzz.relayMode', 'undecided'),
   });
 
-  const ready = isBuzzInboundReady(steps);
   const next = nextBuzzSetupStep(steps);
+  // "Ready" is the walkthrough being finished, not just inbound being wired: a
+  // feed nothing was ever seen arriving on, routed to nobody, is not a setup to
+  // congratulate someone for.
+  const ready = !next;
   const showAll = /^all$/i.test(trimmed);
 
   if (ready && !showAll) {
     stream.markdown([
       '### Buzz setup — done',
       '',
-      'Reading Buzz is fully set up. The optional extras (recording follow-ups, the CLI, the MCP bridge, the desktop app) are choices, not gaps.',
+      'Reading Buzz is set up, a message has been seen arriving, and at least one Buzz identity is bound to an AtlasMind agent. The optional extras (recording follow-ups, the CLI, the MCP bridge, the desktop app) are choices, not gaps.',
       '',
       'Ask **`/buzz all`** for the full checklist, or **`/buzz read`** to see the conversation.',
     ].join('\n'));
@@ -2070,6 +2075,12 @@ async function handleBuzzCommand(
     // the thing to do right now was indistinguishable from context.
     const position = docsModule2.buzzStepPosition(steps, next.id);
     stream.markdown(docsModule2.renderBuzzStepMarkdown(next, position));
+    // The last two steps are about making what arrives useful rather than making
+    // it arrive. Without saying so, "2 steps left" reads as though the
+    // connection itself is still broken.
+    if (isBuzzInboundReady(steps)) {
+      stream.markdown('\n\n> **The connection itself is already working** — Buzz is enabled, the relay is set, your key is stored, and the subscription is on. What is left is making what arrives useful.');
+    }
 
     if (next.action) {
       stream.button({

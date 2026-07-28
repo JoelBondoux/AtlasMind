@@ -95,6 +95,8 @@ export interface BuzzSetupState {
   inboundStatus?: string;
   /** How many Buzz identities have been observed this session. */
   observedIdentities: number;
+  /** How many usable entries `atlasmind.buzz.agentBindings` currently holds. */
+  agentBindings: number;
   /**
    * Whether the user has said how they want to run a relay. Asking once and
    * then showing only the relevant path beats presenting both and leaving them
@@ -320,7 +322,71 @@ export function buildBuzzSetupPlan(state: BuzzSetupState): BuzzSetupStep[] {
     action: { command: 'atlasmind.openSettings', title: 'Open Settings → Buzz', args: ['buzz'] },
   });
 
-  // 5 — persistence. A choice, never a requirement.
+  // 5 — proof. Every failure mode above has the same symptom: a subscription
+  // that connects and then silently receives nothing. Wrong channel id, wrong
+  // relay, a key that authenticated as somebody with nothing to read — all of
+  // them look exactly like "set up correctly, quiet day". The only thing that
+  // tells them apart is one real message arriving, so the walkthrough asks for
+  // one before calling anything finished.
+  const rosterBlocked = inboundBlocked || !state.inboundEnabled;
+  const observed = Math.max(0, Math.trunc(state.observedIdentities ?? 0));
+  const bound = Math.max(0, Math.trunc(state.agentBindings ?? 0));
+  steps.push({
+    id: 'firstAgent',
+    title: 'Get your first agent talking, and prove it arrived',
+    status: observed > 0 ? 'done' : rosterBlocked ? 'blocked' : 'todo',
+    detail: observed > 0
+      ? `Working — ${observed} Buzz ${observed === 1 ? 'identity has' : 'identities have'} been seen on the wire this session.`
+      : rosterBlocked
+        ? 'Needs the steps above first — nothing is subscribed yet.'
+        : 'Subscribed, but nothing has arrived yet. A wrong channel id, a wrong relay, and a quiet day all look identical from here, so send one message and check it lands.',
+    guidance: observed > 0 || rosterBlocked ? undefined : [
+      { text: '**You already have an agent.** The key you stored two steps ago *is* a Buzz identity — Buzz makes no distinction between a person and an agent, they are both keypairs. There is nothing else to obtain.' },
+      { text: '**1. Post something.** Open the Buzz app, go to a channel AtlasMind is watching, and send a message — "hello from Buzz" will do. If you left **Channels to watch** empty, any channel your key can read counts.' },
+      // Deliberately not a `command`: that renders in a shell fence and offers a
+      // terminal button, and `/buzz read` is a chat command, not something to type
+      // into a terminal.
+      { text: '**2. Check it arrived.** Come back to this chat and say **`/buzz read`**. That prints what AtlasMind actually received, so it answers the question directly rather than by inference.' },
+      { text: '**3a. If you see your message — that is the whole integration proven.** The relay, the key, the authentication, and the subscription are all confirmed working, and the identity you just posted under is now available to bind in the next step.' },
+      { text: '**3b. If nothing appears**, the usual cause is a channel id mismatch: the id in **Settings → Buzz → Channels to watch** is not the channel you posted in. Clear the list to watch everything, and try again.' },
+      { text: 'The next most likely cause is that AtlasMind and the Buzz app are pointed at different relays. Both must use the same URL — check the app\'s relay against **Settings → Buzz → Relay URL**.' },
+      { text: 'Note that this half is **read-only by construction**: AtlasMind can subscribe but cannot publish. Replying from AtlasMind is the optional CLI and MCP bridge steps further down — nothing here needs them.' },
+    ],
+    action: { command: 'atlasmind.openSettings', title: 'Open Settings → Buzz', args: ['buzz'] },
+  });
+
+  // 6 — who is who. Everything above gets messages *in*; this is what makes
+  // them land somewhere. Without a binding an inbound author stays unassigned —
+  // deliberately, since guessing which specialist owns a stranger's message is
+  // worse than admitting you do not know — so setup that stops at "subscribed"
+  // leaves a working feed that never reaches an agent.
+  steps.push({
+    id: 'roster',
+    title: 'Put the Buzz people in the Director roster',
+    status: bound > 0 ? 'done' : rosterBlocked ? 'blocked' : 'todo',
+    detail: bound > 0
+      ? `${bound} Buzz ${bound === 1 ? 'identity is' : 'identities are'} bound to an AtlasMind agent${
+        observed > bound ? `, out of ${observed} seen so far.` : '.'}`
+      : rosterBlocked
+        ? 'Needs the steps above first — there is nothing arriving to route yet.'
+        : observed > 0
+          ? `${observed} Buzz ${observed === 1 ? 'identity has' : 'identities have'} been seen and none are bound yet, so their work arrives unassigned.`
+          : 'Nobody is bound yet. Work from an unbound Buzz identity stays unassigned rather than being routed by guesswork.',
+    guidance: bound > 0 || rosterBlocked ? undefined : [
+      { text: 'Press the button below to open **Project Dashboard → Director**. This is AtlasMind\'s roster of the people around the project — who they are, what they own, and now which Buzz identity is theirs.' },
+      { text: 'Press **Add person** (or **Edit** on someone already there) and give them a name.' },
+      { text: 'Set **Channel** to **Buzz**. The Buzz fields only appear once you do.' },
+      ...(observed > 0
+        ? [{ text: `Pick their key from the identity list — AtlasMind offers the ${observed} ${observed === 1 ? 'identity it has' : 'identities it has'} actually seen on the relay. It never derives a key from a name: a constructed key would belong to a different real person.` }]
+        : [{ text: 'Nobody has posted yet, so there is no identity list to pick from. Paste their `npub…` key instead — ask them for it, or come back once they have posted and AtlasMind will offer it.' }]),
+      { text: 'Choose the **AtlasMind agent** that should own their work — the DevOps specialist for a build bot, a reviewer for a colleague raising defects. Leave it unset and their messages stay unassigned; nothing is guessed.' },
+      { text: 'Bind yourself too. Your own agent posts under its own key, and binding it keeps your own activity attributed rather than arriving as a stranger.' },
+      { text: 'One binding is enough to finish this step. You can add the rest as people appear.' },
+    ],
+    action: { command: 'atlasmind.openProjectDirector', title: 'Open the Director roster' },
+  });
+
+  // 7 — persistence. A choice, never a requirement.
   steps.push({
     id: 'persistence',
     title: 'Record follow-ups to project memory',
@@ -331,7 +397,7 @@ export function buildBuzzSetupPlan(state: BuzzSetupState): BuzzSetupStep[] {
     action: { command: 'atlasmind.openSettings', title: 'Open Settings → Buzz', args: ['buzz'] },
   });
 
-  // 6 — outbound, which is a different mechanism with a different dependency.
+  // 8 — outbound, which is a different mechanism with a different dependency.
   steps.push({
     id: 'cli',
     title: 'Install the Buzz CLI (only needed to send)',
@@ -381,17 +447,31 @@ export function buildBuzzSetupPlan(state: BuzzSetupState): BuzzSetupStep[] {
 export const REQUIRED_BUZZ_STEP_IDS = ['enabled', 'relay', 'agentKey', 'inbound'] as const;
 
 /**
- * The first *required* step that still needs doing, or undefined when reading
- * Buzz is fully set up.
+ * The steps the walkthrough actually walks you through, and counts.
  *
- * Scoped to the required steps on purpose. The MCP bridge is `blocked` until the
- * CLI is installed, but the CLI is optional — nominating a step whose only
+ * Deliberately longer than `REQUIRED_BUZZ_STEP_IDS`, and the difference is the
+ * point. Neither proving a message arrives nor binding people to agents is
+ * needed for the subscription to *work* — an unbound author stays unassigned,
+ * which is correct behaviour rather than a fault — so neither has any business
+ * making `isBuzzInboundReady` report a gap. But a walkthrough that stops at
+ * "subscribed" hands back a feed that was never shown to carry anything and
+ * never reaches an agent, and calls that finished. That is how the round-trip
+ * test and the roster came to be the parts of Buzz setup nobody was told about.
+ */
+export const BUZZ_WALKTHROUGH_STEP_IDS = [...REQUIRED_BUZZ_STEP_IDS, 'firstAgent', 'roster'] as const;
+
+/**
+ * The first step of the walkthrough that still needs doing, or undefined when
+ * there is nothing left to guide someone through.
+ *
+ * Scoped to the walkthrough steps on purpose. The MCP bridge is `blocked` until
+ * the CLI is installed, but the CLI is optional — nominating a step whose only
  * blocker is something you never have to do would send someone off to install a
  * binary they do not need.
  */
 export function nextBuzzSetupStep(steps: BuzzSetupStep[]): BuzzSetupStep | undefined {
-  const required = steps.filter(step => (REQUIRED_BUZZ_STEP_IDS as readonly string[]).includes(step.id));
-  return required.find(step => step.status === 'todo') ?? required.find(step => step.status === 'blocked');
+  const walkthrough = steps.filter(step => (BUZZ_WALKTHROUGH_STEP_IDS as readonly string[]).includes(step.id));
+  return walkthrough.find(step => step.status === 'todo') ?? walkthrough.find(step => step.status === 'blocked');
 }
 
 /**
@@ -447,14 +527,14 @@ export function renderBuzzStepMarkdown(
 }
 
 /**
- * Position of a step within the required sequence, for "step 2 of 4".
+ * Position of a step within the walkthrough sequence, for "step 2 of 6".
  * Optional steps are excluded — counting them would make the finish line move.
  */
 export function buzzStepPosition(
   steps: BuzzSetupStep[],
   stepId: string,
 ): { index: number; total: number; trail?: string } {
-  const required = steps.filter(step => (REQUIRED_BUZZ_STEP_IDS as readonly string[]).includes(step.id));
+  const required = steps.filter(step => (BUZZ_WALKTHROUGH_STEP_IDS as readonly string[]).includes(step.id));
   const at = required.findIndex(step => step.id === stepId);
   const index = at >= 0 ? at + 1 : required.length + 1;
   const trail = required

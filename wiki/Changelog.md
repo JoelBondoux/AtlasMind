@@ -13,6 +13,13 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 - **Quoted, never executed.** Fetched docs are untrusted text: commands are attributed suggestions AtlasMind will not run, prose is redacted and control-stripped, and markdown links are flattened so a label cannot misrepresent where it points. The origin is pinned to the Buzz repo.
 - **Offline still works** — it falls back to built-in guidance rather than breaking.
 
+## v0.161.0 — the Buzz walkthrough finishes the job
+
+- **Prove it works.** A new step asks for one real message and checks it arrived, because "subscribed" is where a wrong channel id, a wrong relay, and a quiet day all look identical. It names both usual causes.
+- **Get your first agent** turned out to need no getting: the key stored two steps earlier already *is* a Buzz identity. The guide now says so instead of implying there is something to obtain.
+- **Put the Buzz people in the Director roster.** Walks the real form so inbound work reaches a specialist rather than arriving unassigned. Offers identities actually observed on the relay; asks for an `npub…` when there are none.
+- **Neither is treated as a fault.** Reading Buzz is still tracked separately and never reported as a gap, and while only these two remain the guide says the connection itself is already working.
+
 ## v0.154.0 — a Buzz handle is not always a public key
 
 - **Saving a Buzz contact with a channel-UUID handle no longer warns that something failed**, and a refused binding now says the person *was* saved.

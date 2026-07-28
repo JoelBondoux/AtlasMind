@@ -2808,10 +2808,11 @@ async function bootstrapAtlasMind(
       const atlas = atlasContext;
       if (!atlas) { return; }
       const [{ buildBuzzSetupPlan, buzzStepChoices, buzzStepPosition, isBuzzInboundReady, nextBuzzSetupStep, renderBuzzStepMarkdown },
-        { hasLauncherOnPath }, { BUZZ_AGENT_KEY_SECRET }] = await Promise.all([
+        { hasLauncherOnPath }, { BUZZ_AGENT_KEY_SECRET }, { parseAgentBindings }] = await Promise.all([
         import('./core/buzzSetupPlan.js'),
         import('./mcp/mcpEnvironmentScanner.js'),
         import('./core/buzzSigner.js'),
+        import('./core/buzzAgentBindings.js'),
       ]);
 
       const cfg = vscode.workspace.getConfiguration('atlasmind');
@@ -2850,7 +2851,12 @@ async function bootstrapAtlasMind(
         mcpServerRegistered: (atlas.mcpServerRegistry?.listServers() ?? [])
           .some((entry: { config: { id: string; name?: string } }) =>
             entry.config.id === 'mcp-server-buzz' || /buzz/i.test(entry.config.name ?? '')),
+        // The panel guide was omitting this, so a subscription that had actually
+        // gone live still read as an unproven relay here while `/buzz` in chat
+        // reported it correctly — the same guide disagreeing with itself.
+        ...(atlas.buzzInbound ? { inboundStatus: atlas.buzzInbound.getStatus() } : {}),
         observedIdentities: atlas.buzzInbound?.listIdentities().length ?? 0,
+        agentBindings: parseAgentBindings(cfg.get('buzz.agentBindings')).bindings.length,
         relayMode: cfg.get<'local' | 'hosted' | 'undecided'>('buzz.relayMode', 'undecided'),
       });
 
@@ -2858,9 +2864,15 @@ async function bootstrapAtlasMind(
       const bridgeNote = bridgeKeySecretId && next?.id === 'agentKey'
         ? '\n\n> **You have already given this key to the Buzz MCP bridge.** Inbound reads a separate secret, so it does not see that one. Press **Reuse the key from the Buzz bridge** below and this step is done.'
         : '';
-      const body = isBuzzInboundReady(steps) || !next
-        ? '### Buzz setup — done\n\nReading Buzz is fully set up. The optional extras — recording follow-ups, the CLI, the MCP bridge, the desktop app — are choices rather than gaps.'
-        : renderBuzzStepMarkdown(next, buzzStepPosition(steps, next.id)) + bridgeNote;
+      // The last two steps are about making what arrives useful rather than
+      // making it arrive, so say so — otherwise "2 steps left" reads as though
+      // the connection itself is still broken.
+      const readyNote = next && isBuzzInboundReady(steps)
+        ? '\n\n> **The connection itself is already working** — Buzz is enabled, the relay is set, your key is stored, and the subscription is on. What is left is making what arrives useful.'
+        : '';
+      const body = !next
+        ? '### Buzz setup — done\n\nReading Buzz is set up, a message has been seen arriving, and at least one Buzz identity is bound to an AtlasMind agent. The optional extras — recording follow-ups, the CLI, the MCP bridge, the desktop app — are choices rather than gaps.'
+        : renderBuzzStepMarkdown(next, buzzStepPosition(steps, next.id)) + readyNote + bridgeNote;
 
       // Its own session. Appending to whatever thread happened to be open put a
       // setup walkthrough in the middle of unrelated work and left the thread

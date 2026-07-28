@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.161.0] - 2026-07-28
+
+### Added
+- **The Buzz walkthrough now covers proving it works, and the Director roster.** It ended at "subscribed" — the exact point where a wrong channel id, a wrong relay, and a quiet day all look the same. Two steps follow it now:
+  - **Get your first agent talking, and prove it arrived.** Says plainly that the key stored two steps earlier *is* a Buzz identity, so there is no agent to go and obtain. Post a message, run `/buzz read`, and check. Satisfied only by an identity actually being seen on the wire — being subscribed is not evidence. When nothing shows up it names the two things that are almost always wrong: a channel id that does not match the channel you posted in, and AtlasMind and the Buzz app pointed at different relays.
+  - **Put the Buzz people in the Director roster.** Walks the real form — Add person, set the channel to Buzz, pick the identity, choose the AtlasMind agent — so inbound work reaches a specialist rather than arriving unassigned. Offers the identities AtlasMind has actually observed when there are any, and asks for an `npub…` when there are none. One binding finishes the step.
+
+### Changed
+- **"Set up" now means the walkthrough is finished, not just that inbound is wired.** Reading Buzz working is still tracked separately and is never reported as a gap, and while only the last two steps remain the guide says so outright — "the connection itself is already working" — so "2 steps left" cannot be misread as a broken connection.
+- **Step numbering runs to 6.** The two new steps are counted; the optional extras (persistence, CLI, MCP bridge, desktop app) still are not, since counting choices would move the finish line as you go.
+
+### Fixed
+- **The panel guide disagreed with the chat guide about the relay.** `atlasmind.buzz.openGuide` was not passing the live subscription status into the plan, so a subscription that had genuinely gone live still read there as an unproven relay while `/buzz` in chat reported it correctly.
+
 ## [0.160.1] - 2026-07-28
 
 ### Fixed
