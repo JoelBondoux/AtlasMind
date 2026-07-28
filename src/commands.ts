@@ -382,6 +382,35 @@ export function registerCommands(
       ChatPanel.createOrShow(context, atlas, target);
     }),
 
+    /**
+     * Open a setup walkthrough — always in a **fresh chat session**.
+     *
+     * Every guide launches through here rather than each caller assembling its
+     * own `openChatPanel` target, because the two ways of getting it wrong are
+     * invisible until someone tries it: omitting `autoSubmit` leaves the command
+     * sitting unsent in the composer, and any mode other than `new-session`
+     * drops a setup walkthrough into whatever conversation happened to be open,
+     * where it inherits unrelated context and reads as a non-sequitur.
+     *
+     * Accepts a guide id (`acp`, `buzz`) or a slash command; anything
+     * unrecognised falls back to `/setup`, the index of all guides, which is a
+     * useful place to land rather than a dead end.
+     */
+    vscode.commands.registerCommand('atlasmind.openSetupGuide', async (guide?: string) => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const { findSetupGuide } = await import('./core/setupGuideRegistry.js');
+      const raw = (guide ?? '').trim();
+      const command = raw.startsWith('/')
+        ? raw
+        : findSetupGuide(raw)?.command ?? '/setup';
+      await vscode.commands.executeCommand('atlasmind.openChatPanel', {
+        draftPrompt: command,
+        autoSubmit: true,
+        sendMode: 'new-session',
+      });
+    }),
+
     vscode.commands.registerCommand('atlasmind.openChatView', async (target?: string | import('./views/chatPanel.js').ChatPanelTarget) => {
       const atlas = requireAtlas();
       if (!atlas) { return; }

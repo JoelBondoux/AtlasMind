@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.177.0] - 2026-07-28
+
+### Fixed
+- **An ACP row could show a green tick for a route the router would never take.** The Models tree derived "configured" from the provider's *seeded* `acp/claude` model — an entry that exists whether or not any agent was ever set up — and derived "enabled" from `model.enabled` alone, ignoring the provider. On an untouched install this rendered a ticked, apparently-active Claude subscription while every prompt went elsewhere. The row now reads the user's own `atlasmind.acp.agents` list, and reflects all four conditions `getCandidateModels` actually requires: an agent in settings, an enabled provider, an enabled model, and a healthy provider. Each unmet condition is named separately — they all fail identically from outside, so "not set up", "provider off", "model disabled", and "agent not responding" send you to four different places.
+- **Enabling ACP from "Use my Claude subscription" did not survive the click.** It wrote `enabled: true` straight onto the router, which changes memory only; the persisted availability state still said otherwise, so the very next `applyModelAvailabilityState` — including the refresh two lines later, and every reload — put it back. It now goes through `setProviderEnabled`, the same path the tree's own toggle uses.
+- **The generic "ACP Agents (subscription)" row is no longer hidden when every agent has a vendor row.** That row carries the provider-level enable/disable action, so dropping it removed the only way to turn ACP on from the tree.
+- **`applyModelAvailabilityState` defeated ACP's "seeded disabled" intent.** Enablement was derived purely from the persisted disabled set, which is empty on a fresh install — so ACP came back *enabled*, and with `isProviderHealthy` defaulting to `true` before the first health check, an install with no configured agent could be offered `acp/claude` as a candidate and fail the turn on "No ACP agent is configured". Enablement is now also conditioned on an agent actually existing to run.
+- **Setup guides landed in whatever conversation was already open.** "Use my ChatGPT subscription" opened chat with `/acp` sitting unsent in the composer of an unrelated session, where it inherited that conversation's context. Guides now launch in a fresh session, auto-submitted.
+
+### Added
+- **`AtlasMind: Open a Setup Guide`** (`atlasmind.openSetupGuide`) — one command that every guide launch routes through, taking a guide id or slash command. The two ways to get this wrong are invisible until someone tries it (omitting `autoSubmit` leaves the command unsent; any mode but `new-session` drops the walkthrough into the current conversation), so they are now decided in one place rather than at each call site.
+
 ## [0.176.0] - 2026-07-28
 
 ### Added
