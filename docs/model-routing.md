@@ -244,6 +244,7 @@ current budget/speed settings and inferred task profile.
 | Provider | ID | Discovery source | Notes |
 |---|---|---|---|
 | Anthropic (Claude) | `anthropic` | Runtime discovery via adapter `discoverModels()` / `listModels()` | Seeded with one fallback model until refresh completes |
+| ACP Agents (subscription) | `acp` | User-authored agent list (`atlasmind.acp.agents`); models are `acp/<id>` | Drives any Agent Client Protocol agent (`claude-agent-acp`, `codex-acp`, …) over JSON-RPC on stdio, reusing that vendor's subscription. Unlike the `claude-cli` bridge it **streams**, has **no ~26,000-character prompt ceiling** (prompts travel over stdio, not argv), and sends **images** when the agent declares `promptCapabilities.image`. Runs in restricted mode — no filesystem, no terminal, no MCP pass-through — and refuses any permission request, so it is a completion source rather than an executor. Seeded disabled; AtlasMind never installs an agent |
 | Claude Code CLI (chat only) | `claude-cli` | Adapter-managed alias list validated through local `claude auth status` | Reuses a locally installed Claude CLI login in constrained print mode, starts with `claude-cli/sonnet` until refresh confirms the CLI is ready, strips pseudo-tool markup from print responses, and surfaces a clear provider error when the CLI returns JSON without assistant text |
 | OpenAI | `openai` | Runtime discovery via `/models` through the OpenAI-compatible adapter | Seeded with one fallback model until refresh completes |
 | Google (Gemini) | `google` | Runtime discovery via AI Studio OpenAI-compatible `/models` endpoint | Seeded with one fallback model until refresh completes |
@@ -421,7 +422,7 @@ Each registered provider carries a `pricingModel` field:
 
 | Pricing Model | Description | Examples |
 |---|---|---|
-| `subscription` | Tokens included in a subscription plan — effectively free to the user | GitHub Copilot, Claude Code CLI (chat only) |
+| `subscription` | Tokens included in a subscription plan — effectively free to the user | GitHub Copilot, Claude Code CLI (chat only), ACP Agents |
 | `free` | No cost at all (local inference, free-tier APIs) | Local/Ollama |
 | `pay-per-token` | Billed per token consumed via an API key | Anthropic, OpenAI, Google, Mistral, DeepSeek, z.ai |
 

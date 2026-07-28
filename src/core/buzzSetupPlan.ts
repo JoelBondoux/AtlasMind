@@ -19,55 +19,42 @@
  * that does not exist and leaves them trusting a broken result. Every line
  * below is derived from observed state.
  *
+ * **The mechanics are shared.** Ordering, next-step selection, progress counting
+ * and rendering live in {@link ./setupWalkthrough.ts} and behave identically for
+ * every AtlasMind setup guide — only the steps below are Buzz-specific. That is
+ * deliberate: the decisions that made this guide work (derive rather than ask,
+ * one step at a time, count only what gates the outcome, never flip a switch)
+ * are not Buzz-specific either, and re-deriving them per feature is how they get
+ * lost — the second guide is always the one that quietly starts installing things.
+ *
  * Pure, `vscode`-free, and unit-tested.
  */
 
-/** How far along one setup step is. */
-export type BuzzSetupStatus =
-  /** Satisfied. */
-  | 'done'
-  /** Not satisfied, and actionable right now. */
-  | 'todo'
-  /** Not satisfied, and cannot be until an earlier step is. */
-  | 'blocked'
-  /** A deliberate choice rather than a requirement — never nagged about. */
-  | 'optional';
+import {
+  isSetupComplete,
+  nextSetupStep,
+  renderSetupStepMarkdown,
+  setupStepPosition,
+  type SetupGuidanceLine,
+  type SetupStatus,
+  type SetupStep,
+  type SetupStepPosition,
+} from './setupWalkthrough.js';
 
-export interface BuzzSetupStep {
-  id: string;
-  title: string;
-  status: BuzzSetupStatus;
-  /** One line explaining the current state, or what to do about it. */
-  detail: string;
-  /**
-   * The actual how-to, as ordered instructions rather than prose. Each line is
-   * one thing to do, so the walkthrough can present them one at a time with the
-   * command already written out — someone setting Buzz up for the first time
-   * should never have to work out what to type.
-   */
-  guidance?: BuzzGuidanceLine[];
-  /** Where to read more. Never a substitute for the guidance itself. */
-  docs?: { url: string; title: string };
-  /** A surface to open. Never a mutation. */
-  action?: { command: string; title: string; args?: unknown[] };
-}
+/** How far along one setup step is. Shared across every setup guide. */
+export type BuzzSetupStatus = SetupStatus;
 
-/** Everything the plan needs to know, gathered by the caller. */
+/** One setup step. Shared shape — see `setupWalkthrough.ts`. */
+export type BuzzSetupStep = SetupStep;
+
 /**
- * One instruction. A `command` is spelled out in full so it can be copied or
- * typed into a terminal for the user; `authored` distinguishes commands
- * AtlasMind wrote from commands quoted out of Buzz's documentation, which are
- * somebody else's text and are never offered as one-click actions.
+ * One instruction. Shared shape — see `setupWalkthrough.ts`. A `command` is
+ * spelled out in full so it can be copied or typed into a terminal for the
+ * user; `authored` distinguishes commands AtlasMind wrote from commands quoted
+ * out of Buzz's documentation, which are somebody else's text and are never
+ * offered as one-click actions.
  */
-export interface BuzzGuidanceLine {
-  text: string;
-  /** An exact command, ready to run. */
-  command?: string;
-  /** True when AtlasMind wrote this command, so it may be pre-loaded into a terminal. */
-  authored?: boolean;
-  /** A page to open for this instruction. */
-  url?: string;
-}
+export type BuzzGuidanceLine = SetupGuidanceLine;
 
 /** Which way the user has said they want to run a relay, when they have said. */
 export type BuzzRelayMode = 'local' | 'hosted' | 'undecided';
@@ -481,8 +468,7 @@ export const BUZZ_WALKTHROUGH_STEP_IDS = [...REQUIRED_BUZZ_STEP_IDS, 'firstAgent
  * binary they do not need.
  */
 export function nextBuzzSetupStep(steps: BuzzSetupStep[]): BuzzSetupStep | undefined {
-  const walkthrough = steps.filter(step => (BUZZ_WALKTHROUGH_STEP_IDS as readonly string[]).includes(step.id));
-  return walkthrough.find(step => step.status === 'todo') ?? walkthrough.find(step => step.status === 'blocked');
+  return nextSetupStep(steps, BUZZ_WALKTHROUGH_STEP_IDS);
 }
 
 /**
@@ -490,7 +476,7 @@ export function nextBuzzSetupStep(steps: BuzzSetupStep[]): BuzzSetupStep | undef
  * reporting "incomplete" for a choice someone made would be nagging, not help.
  */
 export function isBuzzInboundReady(steps: BuzzSetupStep[]): boolean {
-  return REQUIRED_BUZZ_STEP_IDS.every(id => steps.find(step => step.id === id)?.status === 'done');
+  return isSetupComplete(steps, REQUIRED_BUZZ_STEP_IDS);
 }
 
 /**
@@ -503,38 +489,9 @@ export function isBuzzInboundReady(steps: BuzzSetupStep[]): boolean {
  */
 export function renderBuzzStepMarkdown(
   step: BuzzSetupStep,
-  position: { index: number; total: number; trail?: string },
+  position: SetupStepPosition,
 ): string {
-  // "Step 2 of 4" as an opening line reads as though the guide lost its place.
-  // Leading with what is already done says why you are starting here.
-  const done = position.index - 1;
-  const heading = done > 0
-    ? `### Buzz setup — ${done} of ${position.total} done. Next: ${step.title}`
-    : `### Buzz setup — step 1 of ${position.total}: ${step.title}`;
-  const lines = [heading, '', step.detail];
-  if (position.trail) {
-    // Landing on step 3 with no sign of steps 1 and 2 reads as though the guide
-    // lost its place. Showing what is already done says why you are here.
-    lines.push('', position.trail);
-  }
-
-  if (step.guidance?.length) {
-    lines.push('');
-    for (const line of step.guidance) {
-      lines.push(`- ${line.text}`);
-      if (line.url) {
-        lines.push(`  ${line.url}`);
-      }
-      if (line.command) {
-        lines.push('', '```bash', line.command, '```');
-      }
-    }
-  }
-
-  if (step.docs) {
-    lines.push('', `Buzz's own documentation: ${step.docs.url}`);
-  }
-  return lines.join('\n');
+  return renderSetupStepMarkdown('Buzz', step, position, "Buzz's own documentation");
 }
 
 /**
@@ -544,17 +501,8 @@ export function renderBuzzStepMarkdown(
 export function buzzStepPosition(
   steps: BuzzSetupStep[],
   stepId: string,
-): { index: number; total: number; trail?: string } {
-  const required = steps.filter(step => (BUZZ_WALKTHROUGH_STEP_IDS as readonly string[]).includes(step.id));
-  const at = required.findIndex(step => step.id === stepId);
-  const index = at >= 0 ? at + 1 : required.length + 1;
-  const trail = required
-    .map((step, position) => {
-      const mark = step.id === stepId ? '▶' : step.status === 'done' ? '✅' : '⬜';
-      return `${mark} ${position + 1}. ${step.title}`;
-    })
-    .join('  ·  ');
-  return { index, total: required.length, ...(trail ? { trail } : {}) };
+): SetupStepPosition {
+  return setupStepPosition(steps, BUZZ_WALKTHROUGH_STEP_IDS, stepId);
 }
 
 /** A chip the walkthrough offers, so a question can be answered by clicking. */

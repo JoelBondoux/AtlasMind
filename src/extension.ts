@@ -1643,6 +1643,8 @@ async function bootstrapAtlasMind(
       AnthropicAdapter: providersModule.AnthropicAdapter,
       BedrockAdapter: providersModule.BedrockAdapter,
       ClaudeCliAdapter: providersModule.ClaudeCliAdapter,
+      AcpAdapter: providersModule.AcpAdapter,
+      parseAcpAgentSettings: providersModule.parseAcpAgentSettings,
       BEDROCK_ACCESS_KEY_SECRET: providersModule.BEDROCK_ACCESS_KEY_SECRET,
       BEDROCK_SECRET_KEY_SECRET: providersModule.BEDROCK_SECRET_KEY_SECRET,
       getConfiguredBedrockModelIds: providersModule.getConfiguredBedrockModelIds,
@@ -1825,6 +1827,15 @@ async function bootstrapAtlasMind(
         getBaseUrl: () => vscode.workspace.getConfiguration('atlasmind').get<string>('localOpenAiBaseUrl'),
       }),
       new startupModules.ClaudeCliAdapter(),
+      // ACP agents are user-authored and deny-by-default: with no configured
+      // agent the adapter reports no models and never spawns anything.
+      new startupModules.AcpAdapter({
+        agents: startupModules.parseAcpAgentSettings(
+          vscode.workspace.getConfiguration('atlasmind').get<unknown>('acp.agents'),
+        ),
+        ...(workspaceRootPath ? { cwd: workspaceRootPath } : {}),
+        clientVersion: context.extension?.packageJSON?.version ?? '0.0.0',
+      }),
       new startupModules.AnthropicAdapter(context.secrets),
       new startupModules.CopilotAdapter(),
       new startupModules.OpenAiCompatibleAdapter(

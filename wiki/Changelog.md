@@ -6,6 +6,23 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.171.1 — the dashboard renders again
+
+- **Fixed "Dashboard refresh failed — directorBoundAgentId is not defined"**, which blanked the whole Project Dashboard for any project with a Buzz contact. A rename in v0.163.0 left one call site behind.
+- **Added a guard** that parses every webview script and fails the build if it references an identifier that does not exist — the failure mode is a blank panel, and neither the compiler nor the unit tests could see it.
+
+## v0.171.0 — every setup process works the same way
+
+- **`/acp`** walks you through ACP setup a step at a time, ending with *prove a completion comes back* — configured and working are different things.
+- **`/setup`** lists every guide and how far along it is, so a feature that needs configuring is discoverable before it fails on you.
+- **The guides share their mechanics**, not just their look, so they cannot drift — and an allowlist now enforces that no guide can flip a switch for you.
+
+## v0.170.0 — your subscription as routable capacity (ACP)
+
+- **AtlasMind speaks the Agent Client Protocol.** Point it at an ACP agent you have installed (`claude-agent-acp`, `codex-acp`) and that vendor's subscription becomes another model the router can choose.
+- **Everything the old Claude CLI bridge could not do**: replies stream, the ~26,000-character prompt ceiling is gone, and images are sent when the agent accepts them.
+- **They answer, they do not act.** No filesystem, no terminal, no tools — and a permission request is refused rather than granted. Nothing is installed for you; nothing runs until you name a command.
+
 ## v0.169.0 — your issue tracker, inside the dashboard
 
 - **A new Issues tab** reads the repository's GitHub issues: open, unassigned, and gone-quiet counts, charts by label and assignee, and a searchable list.
