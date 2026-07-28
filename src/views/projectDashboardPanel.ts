@@ -1957,8 +1957,7 @@ export class ProjectDashboardPanel {
       return;
     }
 
-    const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('atlasmind.ssotPath', 'project_memory')
-      ?? vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
+    const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
     const filePath = path.join(workspaceRoot, ssotPath, 'roadmap', 'improvement-plan.md');
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     const existing = await fs.readFile(filePath, 'utf-8').catch(() => '');
@@ -2287,8 +2286,7 @@ export class ProjectDashboardPanel {
       return undefined;
     }
     const configuration = vscode.workspace.getConfiguration('atlasmind');
-    const ssotPath = normalizeSsotPath(configuration.get<string>('atlasmind.ssotPath', 'project_memory')
-      ?? configuration.get<string>('ssotPath', 'project_memory'));
+    const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
     const filePath = path.join(workspaceRoot, ssotPath, 'roadmap', 'improvement-plan.md');
     const existing = await fs.readFile(filePath, 'utf-8').catch(() => '');
     const gates = parseRoadmapGates(existing);
@@ -6031,6 +6029,12 @@ interface DashboardDocumentsSnapshot {
   missingCount: number;
   uncovered: string[];
   summary: string;
+  /**
+   * Something worth saying about the file itself — that it was migrated
+   * forward, or that it came from a newer AtlasMind and was left untouched.
+   * Absent in the ordinary case.
+   */
+  fileNotice?: string;
 }
 
 // ── Risk oversight snapshot ──────────────────────────────────────────────────
@@ -6389,12 +6393,16 @@ async function collectDocumentsSnapshot(atlas: AtlasMindContext, workspaceRoot: 
     summary = `${parts.join(' · ')}.`;
   }
 
+  // Surfaced rather than kept internal: an explicit save *will* write over a
+  // newer-format file, so the user has to have been told it exists first.
+  const fileNotice = atlas.documentsManager?.getNotice();
   return {
     filePath, summaryPath, configured,
     filing, autoUpdate,
     totalMarkdown, markdownCapped,
     reviewDueCount, missingCount,
     uncovered, summary,
+    ...(fileNotice ? { fileNotice } : {}),
   };
 }
 

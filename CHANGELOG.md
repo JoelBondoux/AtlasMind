@@ -6,6 +6,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.174.0] - 2026-07-28
+
+### Fixed
+- **`atlasmind.ssotPath` was read with a doubled prefix in two places.** `getConfiguration('atlasmind').get('atlasmind.ssotPath')` resolves to `atlasmind.atlasmind.ssotPath`, which is declared nowhere and is always `undefined`. A `??` fallback to the correct key meant the behaviour was right and the bug invisible — until someone tidied the fallback away.
+
+### Changed
+- **Three settings that do nothing now say so.** A settings audit found `atlasmind.remote.enabled`, `atlasmind.buzz.autonomousReplies`, and `atlasmind.buzz.autonomousReplyLimitPerHour` declared, documented, and read by **no code at all**. The Buzz pair fails safe — every send still asks for confirmation, so the effect was a false promise rather than a hole — but `remote.enabled` was worse than inert: its description claimed it controlled whether remote connections are accepted, so setting it `false` gave the impression remote control was off when the real gate is the remote-control command plus a per-workspace approval. All three descriptions now state plainly that they are not active and what the real control is. Nothing was silently wired up: enabling autonomous outbound messaging is a safety decision that deserves its own change, and `remote.enabled` defaults to `false`, so wiring it as-is would break anyone currently using remote control. Both are recorded in `improvement-plan.md` with the trade-off spelled out.
+
+### Added
+- **A guard that makes the audit permanent** (`tests/settingsIntegrity.test.ts`). A setting is a promise — it appears in the settings UI with a description saying what it does — and nothing in the build checked that the promise was kept. The suite now fails if a declared setting is read by no code, if an allowlisted not-yet-wired setting's description doesn't disclose that, or if any configuration read carries a redundant `atlasmind.` prefix. The allowlist requires a written reason per entry, so it cannot quietly become the place dead settings go to be forgotten.
+
+## [0.173.0] - 2026-07-28
+
+### Added
+- **The ACP provider has a surface.** It shipped in v0.170.0 with no UI at all — the only way to use it was hand-editing the `atlasmind.acp.agents` JSON setting, which meant a working feature was effectively invisible. It now appears in **Model Providers** alongside every other provider, marked as subscription-backed and keyless. **Configure** offers the agents whose launch command is published (`claude-agent-acp`, `codex-acp`) or accepts a command of your own, writes the setting, then **probes it and reports what is actually true** — installed, signed in, protocol version — rather than declaring success on a successful write.
+- **Three states, not two.** The provider badge distinguishes *no agent configured*, *configured but not usable* (named, but missing from PATH or signed out), and *ready*. Collapsing those would report a provider as broken when nothing had been set up, or as working when it could not run.
+- **Assignable models in the Agent editor.** "Allowed models" was a bare text field, so assigning a model meant knowing its id by heart — which made every newly added provider invisible there, ACP included. The models your *enabled* providers actually offer now appear as one-click chips (subscription-backed ones marked), appending rather than replacing so building a short list does not mean retyping the previous entry. Only enabled providers are offered: a chip for a provider that cannot run is an invitation to build an agent that never routes.
+
+### Changed
+- **`claude-cli` is documented as superseded.** ACP beats it on every axis that mattered — it streams, has no ~26,000-character argv prompt ceiling, and can carry images — so the provider notes, the routing tables, and the roadmap now say so. It is **not** removed: ACP Tier 1 has only been exercised against an injected fake process, so the CLI bridge remains the fallback until a real agent binary has completed a turn. The retirement sequence is recorded in `improvement-plan.md` rather than left as folklore.
+
+### Fixed
+- **A missing model router can no longer blank the agent editor.** `renderModelChips` degrades to an empty state instead of throwing during render — the same failure class as the dashboard crash fixed in 0.171.1, caught this time before it shipped.
+
+## [0.172.0] - 2026-07-28
+
+### Fixed
+- **Opening a project in an older AtlasMind no longer destroys its project memory.** Every SSOT register carries a format `version`, but readers used it only as a validity test — an unfamiliar version meant "no file", so the manager seeded a fresh default and **wrote it over** the user's file. Open a workspace in an older build than the one that wrote it and the documents registry, risk register, security register, or **people roster** was replaced with an empty one, silently. `DocumentsManager`, `ProjectDirectorManager`, `RiskOversightManager`, and `SecurityReviewManager` now refuse to seed over a file they cannot read, and say why on the page (`getNotice()`).
+
+### Added
+- **A migration mechanism, which is what a 1.0 compatibility promise needs behind it.** New pure, unit-tested `src/core/schemaMigration.ts`. Its load-bearing distinction is **invalid** (corrupt, truncated, not ours — safe to replace) versus **refused** (structurally fine, written by a newer AtlasMind — never safe to replace); the old gate collapsed both into `undefined`, which is exactly how the data loss above happened. `interpretVersionedDocument` owns that decision for every manager so nine readers cannot drift into nine different answers to "is this file safe to replace?".
+- **`applyMigrationLadder`** walks a document up one version at a time: it starts from the version found rather than the beginning, stamps the resulting version even when a step forgets to, and reports a throwing step rather than leaving a half-applied chain. It takes its bounds as arguments so it is testable *now* — otherwise the code that runs at the first real format change would ship unexercised. `SCHEMA_MIGRATIONS` is empty (every kind is still v1) and a test asserts each kind's version matches its migration count, so bumping a version without writing the migration fails the build.
+
+### Changed
+- **An explicit save still writes over a newer-format file.** The user is editing on purpose, and refusing their own edit would be its own kind of data loss — so the obligation is that they were told first, which is why the notice renders on the Documents page rather than staying internal.
+
 ## [0.171.1] - 2026-07-28
 
 ### Fixed

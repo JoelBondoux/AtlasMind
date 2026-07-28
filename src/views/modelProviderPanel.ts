@@ -12,6 +12,7 @@ import {
   getConfiguredBedrockRegion,
   getConfiguredLocalEndpoints,
   probeClaudeCli,
+  ACP_SETUP_URL,
 } from '../providers/index.js';
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
 import { PANEL_NAV_JS } from './panelNav.js';
@@ -29,6 +30,7 @@ const COPILOT_MULTIPLIER_SYNC_STORAGE_KEY = 'atlasmind.copilotMultiplierSync';
 
 export const PROVIDER_IDS: readonly ProviderId[] = [
   // First-party model providers
+  'acp',
   'claude-cli',
   'anthropic',
   'openai',
@@ -592,6 +594,18 @@ export class ModelProviderPanel {
     const configured = await isProviderConfigured(this.context, providerId);
     const failureCount = getProviderFailureCount(this.atlas, providerId);
     const failureBadge = failureCount > 0 ? `${failureCount} failed model${failureCount === 1 ? '' : 's'}` : undefined;
+    if (providerId === 'acp') {
+      // Three states, not two: no agent named is a different problem from an
+      // agent that is named but missing or signed out.
+      const { parseAcpAgentSettings } = await import('../providers/acp.js');
+      const agents = parseAcpAgentSettings(vscode.workspace.getConfiguration('atlasmind').get<unknown>('acp.agents'));
+      const badge = agents.length === 0
+        ? 'No agent configured'
+        : configured
+          ? `Ready: ${agents.map(agent => agent.command).join(', ')}`
+          : `Configured, not usable: ${agents[0]!.command}`;
+      return { displayName: 'ACP Agents (subscription)', badge, failureBadge };
+    }
     if (providerId === 'claude-cli') {
       return { displayName: 'Claude Code CLI (chat only)', badge: configured ? 'Chat only: local CLI ready' : 'Chat only: install CLI + sign in', failureBadge };
     }
@@ -707,11 +721,13 @@ function isPlatformProvider(providerId: ProviderId): boolean {
 }
 
 function isSubscriptionProvider(providerId: ProviderId): boolean {
-  return providerId === 'copilot' || providerId === 'claude-cli';
+  return providerId === 'copilot' || providerId === 'claude-cli' || providerId === 'acp';
 }
 
 function getProviderMetaLabel(providerId: ProviderId): string {
   switch (providerId) {
+    case 'acp':
+      return 'Agent Client Protocol';
     case 'claude-cli':
       return 'Beta session bridge';
     case 'copilot':
@@ -728,8 +744,10 @@ function getProviderMetaLabel(providerId: ProviderId): string {
 
 function getProviderNotes(providerId: ProviderId): string {
   switch (providerId) {
+    case 'acp':
+      return 'Drives an agent you have installed (claude-agent-acp, codex-acp, …) over the Agent Client Protocol, so its subscription becomes routable capacity. Streams, has no prompt-length ceiling, and runs the agent in restricted mode: no filesystem, no terminal, no tools.';
     case 'claude-cli':
-      return 'Chat-only bridge that reuses an installed Claude Code CLI login in constrained print mode, so AtlasMind remains the orchestrator and tool executor.';
+      return 'Chat-only bridge that reuses an installed Claude Code CLI login in constrained print mode, so AtlasMind remains the orchestrator and tool executor. Superseded by the ACP provider, which streams and has no ~26,000-character prompt limit — kept until ACP has been proven against a real agent binary.';
     case 'copilot':
       return 'Reuses your signed-in VS Code Copilot session instead of storing a separate AtlasMind API key.';
     case 'local':
@@ -964,6 +982,11 @@ export async function configureProvider(
   atlas: AtlasMindContext,
   provider: ProviderId,
 ): Promise<void> {
+  if (provider === 'acp') {
+    await configureAcpProvider(atlas);
+    return;
+  }
+
   if (provider === 'claude-cli') {
     const probe = await probeClaudeCli();
     if (!probe.installed) {
@@ -1070,10 +1093,106 @@ export async function configureProvider(
   atlas.modelsRefresh.fire();
 }
 
+/**
+ * Add or replace the ACP agent this workspace uses.
+ *
+ * The setup *walkthrough* deliberately never writes a setting — but this is the
+ * provider panel, where configuring the provider is the whole point of the
+ * button. Everything still happens in front of the user: they pick the agent,
+ * they see the probe result, and nothing is installed on their behalf.
+ */
+async function configureAcpProvider(atlas: AtlasMindContext): Promise<void> {
+  const { VERIFIED_ACP_AGENTS, AcpAdapter, parseAcpAgentSettings } = await import('../providers/acp.js');
+
+  const picked = await vscode.window.showQuickPick(
+    [
+      ...VERIFIED_ACP_AGENTS.map(agent => ({
+        label: agent.label,
+        description: agent.command,
+        detail: 'Launch command published in the official ACP agent list.',
+        agent,
+      })),
+      {
+        label: 'Another ACP agent…',
+        description: 'Enter the command yourself',
+        detail: 'Any agent that speaks ACP over stdio. AtlasMind never installs it for you.',
+        agent: undefined,
+      },
+    ],
+    { title: 'Which ACP agent should AtlasMind drive?', ignoreFocusOut: true },
+  );
+  if (!picked) {
+    return;
+  }
+
+  let id = picked.agent?.id ?? '';
+  let command = picked.agent?.command ?? '';
+  if (!picked.agent) {
+    const entered = await vscode.window.showInputBox({
+      title: 'ACP agent command',
+      prompt: 'The executable that starts the agent in ACP mode, e.g. my-agent-acp.',
+      ignoreFocusOut: true,
+      validateInput: value => (value ?? '').trim().length === 0 ? 'Enter the command that starts the agent.' : undefined,
+    });
+    if (!entered) {
+      return;
+    }
+    command = entered.trim();
+    id = command.replace(/[^a-zA-Z0-9-]/g, '').toLowerCase().slice(0, 32) || 'agent';
+  }
+
+  const configuration = vscode.workspace.getConfiguration('atlasmind');
+  const existing = parseAcpAgentSettings(configuration.get<unknown>('acp.agents'));
+  const next = [...existing.filter(agent => agent.id !== id), { id, command }];
+  await configuration.update('acp.agents', next, vscode.ConfigurationTarget.Workspace);
+
+  // Report what is actually true rather than declaring success on a write.
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const probe = await new AcpAdapter({
+    agents: next,
+    ...(workspaceRoot ? { cwd: workspaceRoot } : {}),
+  }).probe().catch(() => undefined);
+
+  if (!probe?.installed) {
+    const choice = await vscode.window.showWarningMessage(
+      `Saved \`${command}\` as an ACP agent, but it was not found on PATH. Install it, then run this again.`,
+      'Open the ACP agent list',
+    );
+    if (choice) {
+      await vscode.env.openExternal(vscode.Uri.parse(ACP_SETUP_URL));
+    }
+    return;
+  }
+  if (!probe.authenticated) {
+    void vscode.window.showWarningMessage(
+      `\`${command}\` is installed but not signed in. Run it once in a terminal and follow its own login, then run this again.`,
+    );
+    return;
+  }
+
+  const summary = await atlas.refreshProviderModels(true);
+  await atlas.refreshProviderHealth();
+  atlas.modelsRefresh.fire();
+  void vscode.window.showInformationMessage(
+    `\`${command}\` is ready — its models are routable as \`acp/${id}\`. Refreshed ${summary.providersUpdated} provider(s) and ${summary.modelsAvailable} model entries.`,
+  );
+}
+
 export async function isProviderConfigured(
   context: Pick<vscode.ExtensionContext, 'secrets'>,
   provider: ProviderId,
 ): Promise<boolean> {
+  if (provider === 'acp') {
+    // Configured means an agent is named *and* actually usable — a command that
+    // is not installed would otherwise read as a working provider.
+    const { AcpAdapter, parseAcpAgentSettings } = await import('../providers/acp.js');
+    const agents = parseAcpAgentSettings(vscode.workspace.getConfiguration('atlasmind').get<unknown>('acp.agents'));
+    if (agents.length === 0) {
+      return false;
+    }
+    const probe = await new AcpAdapter({ agents }).probe().catch(() => undefined);
+    return Boolean(probe?.installed && probe.authenticated);
+  }
   if (provider === 'claude-cli') {
     const probe = await probeClaudeCli();
     return probe.installed && probe.authenticated;
@@ -1106,11 +1225,15 @@ export function getProviderSecretKey(provider: ProviderId): string {
 }
 
 export function requiresApiKey(provider: ProviderId): boolean {
-  return provider !== 'claude-cli' && provider !== 'copilot' && provider !== 'local' && provider !== 'azure' && provider !== 'bedrock';
+  // ACP reuses the agent's own vendor login, so AtlasMind stores no key for it.
+  return provider !== 'claude-cli' && provider !== 'copilot' && provider !== 'local'
+    && provider !== 'azure' && provider !== 'bedrock' && provider !== 'acp';
 }
 
 export function getProviderDisplayName(provider: ProviderId): string {
   switch (provider) {
+    case 'acp':
+      return 'ACP Agents (subscription)';
     case 'claude-cli':
       return 'Claude Code CLI (chat only)';
     case 'anthropic':

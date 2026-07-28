@@ -6,6 +6,23 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.174.0 — settings that mean what they say
+
+- **Three settings did nothing.** `atlasmind.remote.enabled` and the two Buzz autonomous-reply settings were declared, documented, and read by no code. Their descriptions now say so, and say what the real control is.
+- **`remote.enabled` was the worrying one**: setting it `false` looked like switching remote control off, when the real gate is the command plus a workspace approval.
+- **A new guard fails the build** if a setting is ever declared that nothing reads, or if a config key is read with a doubled prefix.
+
+## v0.173.0 — ACP is something you can click
+
+- **ACP appears in Model Providers.** Configure picks an agent, saves it, probes it, and tells you whether it is installed and signed in — rather than saving and hoping.
+- **Allowed models is no longer a bare text box.** The models your enabled providers offer are one click away, with subscription-backed ones marked.
+- **Claude CLI is documented as superseded by ACP** — not yet removed, because ACP still has to be proven against a real agent binary. The retirement sequence is written down.
+
+## v0.172.0 — your project memory survives a version downgrade
+
+- **Fixed silent data loss.** An older AtlasMind treated a newer file's format as "no file", seeded a default, and wrote it over your documents registry, risk register, security register, or people roster. It now tells corrupt apart from newer, leaves the newer one alone, and says why.
+- **Added the migration mechanism** that lets a format change at all — the thing a 1.0 compatibility promise needs behind it.
+
 ## v0.171.1 — the dashboard renders again
 
 - **Fixed "Dashboard refresh failed — directorBoundAgentId is not defined"**, which blanked the whole Project Dashboard for any project with a Buzz contact. A rename in v0.163.0 left one call site behind.

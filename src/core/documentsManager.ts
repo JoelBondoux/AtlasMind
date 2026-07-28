@@ -25,6 +25,7 @@ import type {
   DocumentAutoUpdateEntry,
   DocumentCadence,
 } from '../types.js';
+import { interpretVersionedDocument, type VersionedDocumentRead } from './schemaMigration.js';
 
 export const DOCUMENTS_SSOT_PATH = 'project_memory/operations/documents.json';
 export const DOCUMENTS_SUMMARY_SSOT_PATH = 'project_memory/operations/documents.md';
@@ -86,13 +87,27 @@ export function seedDocumentsConfig(seed: DocumentsSeedInput): DocumentsConfig {
 // ── Persistence (node fs; vscode-free) ───────────────────────────
 
 export function readDocumentsConfig(workspaceRoot: string): DocumentsConfig | undefined {
+  return readDocumentsFile(workspaceRoot).config;
+}
+
+/**
+ * Read the registry, distinguishing "no usable file" from "a file this build
+ * must not touch".
+ *
+ * `preserveExisting` is true when the file was written by a *newer* AtlasMind:
+ * it is intact and readable by that build, so seeding a default over it would
+ * destroy real work. The plain {@link readDocumentsConfig} cannot express that
+ * — both cases look like `undefined` — which is why the seeding path uses this.
+ */
+export function readDocumentsFile(workspaceRoot: string): VersionedDocumentRead<DocumentsConfig> {
+  let parsed: unknown;
   try {
-    const raw = readFileSync(path.join(workspaceRoot, DOCUMENTS_SSOT_PATH), 'utf8');
-    const parsed = JSON.parse(raw) as unknown;
-    return isDocumentsConfig(parsed) ? parsed : undefined;
+    parsed = JSON.parse(readFileSync(path.join(workspaceRoot, DOCUMENTS_SSOT_PATH), 'utf8'));
   } catch {
-    return undefined;
+    // Absent or unparseable: there is nothing to preserve.
+    return { preserveExisting: false };
   }
+  return interpretVersionedDocument('documents', parsed, isDocumentsConfig);
 }
 
 /**
@@ -408,9 +423,28 @@ export function renderDocumentsMarkdown(config: DocumentsConfig): string {
  */
 export class DocumentsManager {
   private config: DocumentsConfig | undefined;
+  /**
+   * True when a file exists that this build must not overwrite — it was written
+   * by a newer AtlasMind. Distinct from "no config", which is safe to seed over.
+   */
+  private preserveExisting = false;
+  private notice: string | undefined;
 
   constructor(private readonly workspaceRoot: string | undefined) {
-    this.config = workspaceRoot ? readDocumentsConfig(workspaceRoot) : undefined;
+    this.applyRead();
+  }
+
+  private applyRead(): void {
+    if (!this.workspaceRoot) {
+      this.config = undefined;
+      this.preserveExisting = false;
+      this.notice = undefined;
+      return;
+    }
+    const read = readDocumentsFile(this.workspaceRoot);
+    this.config = read.config;
+    this.preserveExisting = read.preserveExisting;
+    this.notice = read.notice;
   }
 
   getConfig(): DocumentsConfig | undefined {
@@ -421,9 +455,17 @@ export class DocumentsManager {
     return this.config !== undefined;
   }
 
+  /**
+   * A message worth showing the user about the file itself — that it was
+   * migrated forward, or that it is from a newer AtlasMind and was left alone.
+   */
+  getNotice(): string | undefined {
+    return this.notice;
+  }
+
   /** Re-read the config from disk (e.g. after the file was edited externally). */
   reload(): DocumentsConfig | undefined {
-    this.config = this.workspaceRoot ? readDocumentsConfig(this.workspaceRoot) : undefined;
+    this.applyRead();
     return this.config;
   }
 
@@ -431,6 +473,11 @@ export class DocumentsManager {
    * Return the existing config, or seed + persist a starter filing system if
    * none exists yet. Persistence is best-effort: if the workspace is read-only
    * the seeded config is still returned in memory.
+   *
+   * **Never writes over a file from a newer AtlasMind.** That file is not
+   * corrupt — this build simply cannot read it — so replacing it with a default
+   * would destroy a working registry. In that case the seed is served in memory
+   * only, and the reason is available from {@link getNotice}.
    */
   async ensureSeeded(seed: DocumentsSeedInput): Promise<DocumentsConfig> {
     if (this.config) {
@@ -438,7 +485,7 @@ export class DocumentsManager {
     }
     const seeded = seedDocumentsConfig(seed);
     this.config = seeded;
-    if (this.workspaceRoot) {
+    if (this.workspaceRoot && !this.preserveExisting) {
       try {
         await writeDocumentsConfig(this.workspaceRoot, seeded);
       } catch {
@@ -449,10 +496,23 @@ export class DocumentsManager {
   }
 
   /** Persist an updated config (e.g. from the dashboard editor) and cache it. */
+  /**
+   * Persist an updated config (e.g. from the dashboard editor) and cache it.
+   *
+   * Unlike seeding, this **does** write over a newer-format file: the user is
+   * explicitly editing, and refusing their own edit would be its own kind of
+   * data loss. The obligation this creates is that they must have been told
+   * first — which is why the notice from {@link getNotice} is surfaced on the
+   * Documents page rather than kept internal.
+   */
   async save(config: DocumentsConfig): Promise<void> {
     this.config = config;
     if (this.workspaceRoot) {
       await writeDocumentsConfig(this.workspaceRoot, config);
+      // The file on disk is now this build's format, so there is nothing left
+      // to preserve and nothing left to warn about.
+      this.preserveExisting = false;
+      this.notice = undefined;
     }
   }
 }
