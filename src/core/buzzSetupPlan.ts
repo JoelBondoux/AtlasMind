@@ -315,7 +315,11 @@ export function buildBuzzSetupPlan(state: BuzzSetupState): BuzzSetupStep[] {
         : 'Holds a read-only subscription and turns activity into work items. It can never publish to Buzz.',
     guidance: inboundBlocked || state.inboundEnabled ? undefined : [
       { text: 'Open **Settings → Buzz** and tick **Watch Buzz activity**.' },
-      { text: 'Optionally paste channel ids underneath, one per line, to narrow what is watched.' },
+      // Only offered when the CLI is actually there. Naming a button that needs
+      // a binary you never installed is how a guide teaches people to distrust it.
+      ...(state.cliOnPath
+        ? [{ text: 'Then press **Fetch my channels** on that page and tick the ones to watch. It asks the Buzz CLI for the real ids, so the channel list cannot quietly disagree with the channel you post in.' }]
+        : [{ text: 'Optionally paste channel ids underneath, one per line, to narrow what is watched. (With the Buzz CLI installed — an optional step further down — a **Fetch my channels** button lists them for you instead.)' }]),
       { text: 'An empty list is **not** "no channels" — it scopes by message kind alone, so it covers every channel your key can already read.' },
       { text: 'The subscription only subscribes, authenticates, and keeps alive. It cannot publish to Buzz, by construction.' },
     ],
@@ -348,7 +352,9 @@ export function buildBuzzSetupPlan(state: BuzzSetupState): BuzzSetupStep[] {
       // into a terminal.
       { text: '**2. Check it arrived.** Come back to this chat and say **`/buzz read`**. That prints what AtlasMind actually received, so it answers the question directly rather than by inference.' },
       { text: '**3a. If you see your message — that is the whole integration proven.** The relay, the key, the authentication, and the subscription are all confirmed working, and the identity you just posted under is now available to bind in the next step.' },
-      { text: '**3b. If nothing appears**, the usual cause is a channel id mismatch: the id in **Settings → Buzz → Channels to watch** is not the channel you posted in. Clear the list to watch everything, and try again.' },
+      ...(state.cliOnPath
+        ? [{ text: '**3b. If nothing appears**, the usual cause is a channel id mismatch: the id in **Settings → Buzz → Channels to watch** is not the channel you posted in. Press **Fetch my channels** on that page — it asks the Buzz CLI for the real ids so you can tick the right one instead of guessing.' }]
+        : [{ text: '**3b. If nothing appears**, the usual cause is a channel id mismatch: the id in **Settings → Buzz → Channels to watch** is not the channel you posted in. Clear the list to watch everything, and try again.' }]),
       { text: 'The next most likely cause is that AtlasMind and the Buzz app are pointed at different relays. Both must use the same URL — check the app\'s relay against **Settings → Buzz → Relay URL**.' },
       { text: 'Note that this half is **read-only by construction**: AtlasMind can subscribe but cannot publish. Replying from AtlasMind is the optional CLI and MCP bridge steps further down — nothing here needs them.' },
     ],

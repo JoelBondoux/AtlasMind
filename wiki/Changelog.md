@@ -87,6 +87,14 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 - **Quoted, never executed.** Fetched docs are untrusted text: commands are attributed suggestions AtlasMind will not run, prose is redacted and control-stripped, and markdown links are flattened so a label cannot misrepresent where it points. The origin is pinned to the Buzz repo.
 - **Offline still works** — it falls back to built-in guidance rather than breaking.
 
+## v0.162.0 — fetch your Buzz channels instead of copying ids
+
+- **A "Fetch my channels" button** on Settings → Buzz asks the Buzz CLI which channels your key can see and offers them as a ticklist, pre-ticked with what you already watch.
+- **Why it matters:** a channel id that does not match the channel you posted in is the usual reason a working subscription receives nothing, and it is indistinguishable from a wrong relay or a quiet day.
+- **Nothing is written unless you tick and confirm.** It touches the channel list only — never a gate, never a key — and runs under the same validated relay/key configuration as the MCP bridge.
+- **The CLI's output is untrusted:** ids are constrained to an identifier charset, names are redacted and clamped, the list is capped, and unreadable entries are counted rather than hidden.
+- **A watched channel the relay did not list is kept**, since an invisible channel is far more likely a permissions gap than a deliberate removal.
+
 ## v0.161.0 — the Buzz walkthrough finishes the job
 
 - **Prove it works.** A new step asks for one real message and checks it arrived, because "subscribed" is where a wrong channel id, a wrong relay, and a quiet day all look identical. It names both usual causes.

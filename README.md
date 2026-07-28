@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.161.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.162.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,10 +64,11 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.161.0
+## What's new in 0.162.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
 
+- **Fetch your Buzz channels instead of copying ids by hand.** A **Fetch my channels** button on Settings → Buzz asks the Buzz CLI which channels your key can actually see, and offers them as a ticklist with the ones you already watch pre-ticked. A channel id that quietly does not match the channel you posted in is the most common reason a correctly configured subscription receives nothing — and it is undiagnosable from inside AtlasMind, because the wrong id, the wrong relay, and a quiet day look identical. Nothing is written unless you tick and confirm, and a channel you watch that the relay did not list is kept rather than silently dropped.
 - **The Buzz walkthrough now finishes the job.** It used to stop at "subscribed", which is the point where every remaining problem looks identical: a wrong channel id, a wrong relay, and a quiet Tuesday all present as a connection that receives nothing. Two steps follow it now. **Prove one message arrives** — post in Buzz, run `/buzz read`, and see it — with the two things that actually go wrong named and fixed on the spot. Then **put the Buzz people in the Director roster**, so what arrives reaches an agent instead of sitting unassigned. Neither is required for the subscription to work, so neither is reported as a fault; they are simply things nobody was ever told to do.
 - **MCP servers are visible in Settings.** A new **Settings → MCP Servers** page lists every server with its live connection status, tool count, and any error, and lets you enable, connect, or disconnect each one — so you can see what AtlasMind can actually reach without opening a separate panel. Adding and editing servers stays in the dedicated manager, which the page links to.
 - **Buzz setup is a walkthrough, not a wall of text.** `/buzz` takes you one step at a time, asks whether you are running Buzz locally or connecting to a hosted relay, and then shows only that path — with the exact terminal commands written out and a button that loads them into a terminal ready to run (it never presses Enter for you). It covers the Buzz desktop app and the MCP bridge too, and opens in AtlasMind's own chat rather than Copilot's.
@@ -243,6 +244,7 @@ Open the Command Palette with `Ctrl+Shift+P`.
 | `AtlasMind: Sync Testing Protocols to AI Agents` | Mirror enabled testing protocols into supported instruction files |
 | `AtlasMind: Toggle Keep Computer Awake` | Opt into an AC-aware wake lock for long-running activity |
 | `AtlasMind: Set Buzz Agent Key` | Store or remove the Buzz agent key in the OS secret store (empty value removes it) |
+| `AtlasMind: Fetch My Buzz Channels` | Ask the Buzz CLI which channels your key can see, and tick the ones to watch. Writes nothing unless you confirm |
 
 Settings-specific, sidebar, remote-control, and resource-action commands are listed in [Chat Commands](wiki/Chat-Commands.md) and [Remote Control](docs/remote-control.md).
 

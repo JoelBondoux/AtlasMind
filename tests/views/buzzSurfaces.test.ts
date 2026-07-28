@@ -19,6 +19,7 @@ import { isSettingsMessage } from '../../src/views/settingsPanel.ts';
 const settingsSource = readFileSync(path.join(process.cwd(), 'src', 'views', 'settingsPanel.ts'), 'utf8');
 const dashboardSource = readFileSync(path.join(process.cwd(), 'src', 'views', 'projectDashboardPanel.ts'), 'utf8');
 const dashboardClient = readFileSync(path.join(process.cwd(), 'media', 'projectDashboard.js'), 'utf8');
+const packageJson = readFileSync(path.join(process.cwd(), 'package.json'), 'utf8');
 
 describe('Settings → Buzz page', () => {
   const CONTROLS = [
@@ -53,6 +54,7 @@ describe('Settings → Buzz page', () => {
     { type: 'setBuzzInboundChannels', payload: 'chan-1\nchan-2' },
     { type: 'openBuzzAgentKey' },
     { type: 'openDirectorRoster' },
+    { type: 'fetchBuzzChannels' },
   ])('accepts $type at the message guard', message => {
     expect(isSettingsMessage(message)).toBe(true);
   });
@@ -211,6 +213,22 @@ describe('the guided walkthrough is reachable from the Buzz settings page', () =
     );
     // The comment above the handler names the old route; only a real call counts.
     expect(handler).not.toMatch(/executeCommand\('workbench\.action\.chat\.open'/);
+  });
+});
+
+describe('fetching the real channel ids instead of copying them by hand', () => {
+  it('offers a button on the Buzz settings page', () => {
+    expect(settingsSource).toContain('id="buzzFetchChannels"');
+    expect(settingsSource).toContain("type: 'fetchBuzzChannels'");
+    expect(settingsSource).toContain("case 'fetchBuzzChannels':");
+  });
+
+  it('runs the extension command rather than reimplementing the flow in the panel', () => {
+    expect(settingsSource).toContain("executeCommand('atlasmind.buzz.fetchChannels')");
+  });
+
+  it('is registered as a command so it is reachable from the palette too', () => {
+    expect(packageJson).toContain('atlasmind.buzz.fetchChannels');
   });
 });
 

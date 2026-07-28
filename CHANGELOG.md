@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.162.0] - 2026-07-28
+
+### Added
+- **Fetch your Buzz channels instead of copying ids by hand.** A **Fetch my channels** button on Settings → Buzz (and `AtlasMind: Fetch My Buzz Channels` in the palette) asks the Buzz CLI which channels your key can actually see and offers them as a ticklist, with the ones you already watch pre-ticked. A channel id that does not match the channel you posted in is the most common reason a correctly configured subscription receives nothing, and it cannot be diagnosed from inside AtlasMind — the wrong id, the wrong relay, and a quiet day are indistinguishable. The setup walkthrough points at the button on both the subscribe step and the "prove a message arrives" step, but only once the CLI is actually installed: naming a button that needs a binary you never installed teaches people to distrust the guide.
+
+### Security
+- **The only Buzz control that writes a setting, and every part of the write is yours.** You press the button, you tick the channels, and nothing is stored if you dismiss the picker. It touches the channel list alone — never a gate, never a key. It runs under the same validated configuration as the MCP bridge: the relay URL is normalised and remote-consent-checked, the key is read from the OS secret store and passed as an environment variable, and the binary is executed directly rather than through a shell.
+- **The CLI's output is treated as untrusted.** Channel names are written by whoever created the channel and end up in a picker; ids end up in a settings array AtlasMind later subscribes with. Parsing never throws, ids are constrained to a printable-safe identifier charset rather than accepted as arbitrary text (so whitespace, control characters, and shell-shaped strings are refused), names are secret-redacted, control-stripped and clamped, the list is capped and de-duplicated, and entries that could not be read are counted rather than silently dropped.
+- **A watched channel the relay did not list is kept, not removed.** A channel the CLI could not see is far more likely a permissions or paging gap than a deliberate removal, and dropping it would unsubscribe someone from a channel they never touched.
+
+### Changed
+- **Field names read from the CLI's source, not guessed.** `channels list --format compact` emits `{ channel_id, name }` per the compact projection in the pinned release's `channels.rs`; the parser also accepts the other obvious spellings, because tolerating a rename costs nothing and failing closed on one costs a user their channel list.
+
 ## [0.161.0] - 2026-07-28
 
 ### Added

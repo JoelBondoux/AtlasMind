@@ -3002,6 +3002,119 @@ async function bootstrapAtlasMind(
       );
       await buzzInbound.sync();
     }),
+
+    /**
+     * Ask the Buzz CLI which channels exist, and offer them to tick.
+     *
+     * A channel id that does not match the channel you posted in is the most
+     * common reason a correctly configured subscription receives nothing, and
+     * it is undiagnosable from inside AtlasMind — the wrong id, the wrong relay,
+     * and a quiet day are indistinguishable. The CLI knows the real ids, so ask
+     * it rather than sending someone to copy one out of the app by hand.
+     *
+     * This is the one Buzz command that writes a setting, and every part of that
+     * is the user's: they press the button, they tick the channels, and nothing
+     * is stored if they dismiss the picker. It touches only the channel list —
+     * never a gate, never a key.
+     */
+    vscode.commands.registerCommand('atlasmind.buzz.fetchChannels', async () => {
+      const cfg = vscode.workspace.getConfiguration('atlasmind');
+      if (!cfg.get<boolean>('buzz.enabled', false)) {
+        void vscode.window.showWarningMessage('Enable the Buzz integration first (Settings → Buzz).');
+        return;
+      }
+
+      const privateKey = (await context.secrets.get(BUZZ_AGENT_KEY_SECRET))?.trim();
+      if (!privateKey) {
+        void vscode.window.showWarningMessage(
+          'AtlasMind needs your Buzz agent key to ask the relay which channels you can see.',
+          'Set Buzz agent key…',
+        ).then(choice => {
+          if (choice) {
+            void vscode.commands.executeCommand('atlasmind.setBuzzAgentKey');
+          }
+        });
+        return;
+      }
+
+      const [{ BuzzCliBridge, loadBuzzCliBridgeConfig }, { describeBuzzChannel, parseBuzzChannelList, resolveWatchedChannels }] =
+        await Promise.all([
+          import('./mcp/buzzCliBridge.js'),
+          import('./core/buzzChannelCatalog.js'),
+        ]);
+
+      const rawWatched = cfg.get<unknown>('buzz.inboundChannels', []);
+      const watched = Array.isArray(rawWatched) ? rawWatched.filter((id): id is string => typeof id === 'string') : [];
+
+      const catalog = await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: 'AtlasMind: reading your Buzz channels…', cancellable: true },
+        async (_progress, token) => {
+          const controller = new AbortController();
+          token.onCancellationRequested(() => controller.abort());
+          try {
+            // The same validated configuration the MCP bridge runs under: the
+            // relay is normalised and remote-consent-checked, the key comes
+            // from the secret store, and the binary is executed directly rather
+            // than through a shell.
+            const bridge = new BuzzCliBridge(loadBuzzCliBridgeConfig({
+              ATLASMIND_BUZZ_ENABLED: 'true',
+              ATLASMIND_BUZZ_ALLOW_REMOTE_RELAY: cfg.get<boolean>('buzz.allowRemoteRelay', false) ? 'true' : 'false',
+              BUZZ_RELAY_URL: cfg.get<string>('buzz.relayUrl', '') || 'http://localhost:3000',
+              BUZZ_PRIVATE_KEY: privateKey,
+            }));
+            return parseBuzzChannelList(await bridge.listChannels(controller.signal));
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            void vscode.window.showErrorMessage(
+              /ENOENT|Unable to start/i.test(message)
+                ? 'AtlasMind could not run the Buzz CLI. Install it and put it on your PATH, then try again.'
+                : `AtlasMind could not read your Buzz channels: ${message}`,
+            );
+            return undefined;
+          }
+        },
+      );
+
+      if (!catalog) {
+        return;
+      }
+      if (catalog.channels.length === 0) {
+        void vscode.window.showInformationMessage(
+          'The relay returned no channels for your key. Join or create one in the Buzz app first.',
+        );
+        return;
+      }
+
+      const picked = await vscode.window.showQuickPick(
+        catalog.channels.map(channel => ({
+          label: channel.name ?? channel.id,
+          description: channel.name ? channel.id : undefined,
+          picked: watched.includes(channel.id),
+          id: channel.id,
+        })),
+        {
+          title: 'Buzz channels to watch',
+          placeHolder: catalog.skipped > 0
+            ? `${catalog.channels.length} channels (${catalog.skipped} could not be read). Tick the ones to watch.`
+            : 'Tick the channels AtlasMind should watch. Leave everything unticked to watch all of them.',
+          canPickMany: true,
+          ignoreFocusOut: true,
+        },
+      );
+      if (!picked) {
+        return; // Dismissed — nothing written.
+      }
+
+      const next = resolveWatchedChannels(watched, catalog.channels, picked.map(item => item.id));
+      await cfg.update('buzz.inboundChannels', next, vscode.ConfigurationTarget.Workspace);
+      await buzzInbound.sync();
+      void vscode.window.showInformationMessage(
+        next.length === 0
+          ? 'AtlasMind is now watching every channel your Buzz key can read.'
+          : `AtlasMind is now watching ${next.length} Buzz channel${next.length === 1 ? '' : 's'}: ${
+            next.map(id => describeBuzzChannel(catalog.channels.find(c => c.id === id) ?? { id })).join(', ')}.`,
+      );
+    }),
   );
 
   context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(event => {

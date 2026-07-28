@@ -429,6 +429,22 @@ Two surfaces call it. **Settings → Buzz** (the `buzz` page in `src/views/setti
 
 **Lifecycle.** `sync()` reconciles the subscription with current settings — start, stop, or restart when the relay or channels change — and is re-run on any `atlasmind.buzz.*` configuration change. It holds `PresenceManager`'s `buzz` keep-awake reason only while a subscription is genuinely live, releasing on stop; the lock is itself deny-by-default, so holding a reason does nothing unless the user enabled `presence.keepAwake`. Derived follow-ups merge by deterministic id, so the reconnect replay overlap and repeat sightings update nothing rather than duplicating, and a batch cap keeps a busy channel from flooding memory.
 
+### BuzzChannelCatalog (`src/core/buzzChannelCatalog.ts`)
+
+Turning `buzz channels list` into a list a person can tick.
+
+**Why it exists.** A channel id that does not match the channel you actually posted in is the most common reason a correctly configured Buzz subscription receives nothing — and it is undiagnosable from inside AtlasMind, because a wrong id, a wrong relay, and a quiet day all present identically as a connection that receives nothing. The only remedy used to be "go and copy the id out of the Buzz app". The CLI already knows the real ids, so `atlasmind.buzz.fetchChannels` asks it and offers the answer as a multi-select, pre-ticked with what is already watched.
+
+**The field names are verified, not guessed.** `channels list --format compact` emits an array of `{ channel_id, name }` — read from the compact projection written out literally in `crates/buzz-cli/src/commands/channels.rs` at the pinned release, not inferred from a jq example. The parser still accepts `channelId`, `id`, and `uuid`, because tolerating a rename costs nothing while failing closed on one costs a user their channel list.
+
+**The output is untrusted.** Channel names are written by whoever created the channel and are rendered in a picker; the id is written into a settings array AtlasMind later subscribes with. So parsing never throws (a response of an unexpected shape yields an empty catalog rather than an error), ids are constrained to a printable-safe identifier charset rather than accepted as arbitrary text — whitespace, control characters, and shell-shaped strings are refused — names are secret-redacted, control-stripped, and clamped, the list is capped and de-duplicated, and entries with no usable id are **counted rather than hidden**, because "6 of 8 channels" matters when the two that vanished may be the ones being looked for.
+
+**The write is entirely the user's.** This is the one Buzz control that changes a setting, and it changes only the channel list — never a gate, never a key. The user presses the button, ticks the channels, and nothing is stored if the picker is dismissed. It runs under the same validated configuration as the outbound bridge: `loadBuzzCliBridgeConfig` normalises the relay URL and enforces remote consent, the key comes from SecretStorage as an environment variable, and the binary is executed directly rather than through a shell.
+
+**An unlisted channel is kept.** `resolveWatchedChannels` stores exactly what was ticked, so unticking removes — but a watched id absent from the relay's listing is preserved. A channel the CLI could not see is far more likely a permissions or paging gap than a deliberate removal, and dropping it would unsubscribe someone from a channel they never touched.
+
+The setup walkthrough points at the button from both the subscribe step and the "prove a message arrives" step, but **only when the CLI is actually on PATH** — naming a button that needs a binary you never installed is how a guide teaches people to distrust it.
+
 ### BuzzSigner (`src/core/buzzSigner.ts`)
 
 BIP-340 Schnorr signing for NIP-42, filling the `BuzzEventSigner` seam. A real Buzz relay refuses to serve a subscription until the client authenticates (`auth-required: authenticate before subscribing`, observed against a live relay), so inbound sync cannot work without this.
