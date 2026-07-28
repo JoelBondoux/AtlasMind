@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.151.2] - 2026-07-28
+
+### Fixed
+- **The Settings → Buzz page did nothing.** Every control on it was inert: the switches appeared to toggle and the text fields accepted input, but nothing was ever written to configuration and neither button worked. The new message types were declared and handled but never added to the runtime allowlist that guards the webview boundary, so all of them were dropped before reaching their handler. The page type-checked and linted cleanly throughout. Now allowlisted with per-type payload validation, and covered by tests that call the guard directly rather than checking that the source mentions each message.
+- **Open the Director roster** now opens the Project Dashboard on the Director page. Same cause as above.
+- **The AtlasMind agent picker is hidden on non-Buzz channels**, instead of showing on every person regardless of channel. It was correctly marked hidden, but the row is a grid container, and that rule outranked the browser's default styling for the `hidden` attribute — so it stayed fully visible. The placeholder line that stood in its place has been removed rather than replaced.
+
 ## [0.151.1] - 2026-07-28
 
 ### Fixed

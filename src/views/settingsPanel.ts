@@ -6140,6 +6140,24 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
       });
   }
 
+  if (
+    message.type === 'setBuzzEnabled'
+    || message.type === 'setBuzzAllowRemoteRelay'
+    || message.type === 'setBuzzInboundEnabled'
+    || message.type === 'setBuzzAutoCreateFollowUps'
+  ) {
+    return typeof message.payload === 'boolean';
+  }
+
+  if (message.type === 'setBuzzRelayUrl' || message.type === 'setBuzzInboundChannels') {
+    // Empty is meaningful for both: it clears the relay, or watches by kind alone.
+    return typeof message.payload === 'string';
+  }
+
+  if (message.type === 'openBuzzAgentKey' || message.type === 'openDirectorRoster') {
+    return true;
+  }
+
   if (message.type === 'ardExportCatalog') {
     return true;
   }

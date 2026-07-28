@@ -9509,6 +9509,11 @@ const DASHBOARD_CSS = `
   .action-link.primary:hover { background: var(--vscode-button-hoverBackground, #1177bb); }
   .action-link.danger { color: var(--vscode-errorForeground, #f14c4c); }
   .stage-editor, .path-editor { grid-column: 1 / -1; margin: 6px 0 12px; border-color: var(--vscode-focusBorder, #4daafc); }
+  /* The hidden attribute must actually hide. Any author rule that sets a
+     display value (every .stage-edit-grid, .tag-row, flex or grid container
+     here) outranks the user-agent rule for [hidden], so without this an
+     element marked hidden stays fully visible. */
+  [hidden] { display: none !important; }
   .stage-edit-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin: 4px 0; }
   .stage-edit-field { display: flex; flex-direction: column; gap: 3px; font-size: 0.8em; }
   .stage-edit-field > span { color: var(--vscode-descriptionForeground); }

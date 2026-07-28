@@ -4104,13 +4104,16 @@
     return match ? match.agentId : '';
   }
 
-  /** Show the agent binding row only for a buzz channel. */
+  /**
+   * Show the agent binding row only for a buzz channel — on any other channel
+   * there is no Buzz identity to bind, so the picker is not merely inert, it is
+   * meaningless. Relies on the `[hidden] { display: none !important }` rule:
+   * the row is a `.stage-edit-grid`, whose `display: grid` would otherwise
+   * outrank the user agent's default styling for the attribute.
+   */
   function syncBuzzBindingVisibility(kind) {
     const row = document.querySelector('[data-buzz-binding]');
-    const note = document.querySelector('[data-buzz-binding-note]');
-    const isBuzz = kind === 'buzz';
-    if (row instanceof HTMLElement) { row.hidden = !isBuzz; }
-    if (note instanceof HTMLElement) { note.hidden = isBuzz; }
+    if (row instanceof HTMLElement) { row.hidden = kind !== 'buzz'; }
   }
 
   var DIRECTOR_INTENT_LABEL = { email: 'Email', schedule: 'Schedule', message: 'Message' };
@@ -4212,7 +4215,6 @@
           ${edSelect('AtlasMind agent for their Buzz messages', 'buzzAgentId', boundAgent, agentOptions)}
           <p class="list-meta">Work arriving from this Buzz identity is routed to that agent. Leave it <em>Unassigned</em> and inbound work stays unattributed rather than being guessed.${dir.buzzEnabled === false ? ' <strong>Buzz is off</strong> — the binding saves but stays inert until you enable it in Settings → Buzz.' : ''}</p>
         </div>
-        <p class="list-meta" data-buzz-binding-note ${primary.kind === 'buzz' ? 'hidden' : ''}>Choose the <strong>buzz</strong> channel to bind this person's Buzz identity to an AtlasMind agent.</p>
         <div class="stage-edit-checks">
           ${edCheck('This is me', 'isSelf', cfg.selfContactId === contact.id)}
           ${edCheck('Stakeholder', 'asStakeholder', !!stk)}
