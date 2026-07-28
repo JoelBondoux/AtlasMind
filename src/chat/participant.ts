@@ -806,6 +806,20 @@ function extractTopicTokens(text: string): string[] {
   return tokens;
 }
 
+/**
+ * Slash commands declared in `package.json` under `contributes.chatParticipants`.
+ *
+ * Kept here so a command arriving as prompt text can be recovered rather than
+ * handed to the general agent. Pinned by a test against the manifest, because
+ * the failure of a stale list is silent: the command just quietly starts
+ * behaving like a freeform question.
+ */
+export const KNOWN_SLASH_COMMANDS = new Set([
+  'agents', 'bootstrap', 'buzz', 'cost', 'director', 'discover', 'followups',
+  'import', 'loop', 'memory', 'project', 'runs', 'ship', 'skills',
+  'sync-instructions', 'vision', 'voice',
+]);
+
 async function handleChatRequest(
   request: vscode.ChatRequest,
   _chatContext: vscode.ChatContext,
@@ -814,11 +828,31 @@ async function handleChatRequest(
   atlas: AtlasMindContext,
   sessionId: string,
 ): Promise<vscode.ChatResult> {
-  const command = request.command;
+  let command = request.command;
+  let prompt = request.prompt;
   let projectOutcome: ProjectRunOutcome | undefined;
 
   if (token.isCancellationRequested) {
     return {};
+  }
+
+  // A slash command can arrive as *text* rather than as `request.command` —
+  // notably when another surface opens chat with a pre-filled query, which is
+  // how the Settings → Buzz "Guide me through setup" button works. VS Code
+  // renders the chip either way, so this is invisible until the command
+  // silently falls through to the general agent.
+  //
+  // That fall-through is the part that matters. `/buzz` is deliberately
+  // deterministic and touches no model at all; reaching the freeform path
+  // instead hands a Buzz question to an agent holding every connected tool,
+  // which is both wrong and a wider surface than the command was ever meant
+  // to have. Recovering the command here keeps that from being possible.
+  if (!command) {
+    const typed = /^\/([a-z-]+)\b[ \t]*([\s\S]*)$/i.exec(prompt.trim());
+    if (typed && KNOWN_SLASH_COMMANDS.has(typed[1]!.toLowerCase())) {
+      command = typed[1]!.toLowerCase();
+      prompt = typed[2] ?? '';
+    }
   }
 
   switch (command) {
@@ -839,11 +873,11 @@ async function handleChatRequest(
       break;
 
     case 'discover':
-      await handleDiscoverCommand(request.prompt, stream, atlas);
+      await handleDiscoverCommand(prompt, stream, atlas);
       break;
 
     case 'memory':
-      await handleMemoryCommand(request.prompt, stream, atlas);
+      await handleMemoryCommand(prompt, stream, atlas);
       break;
 
     case 'cost':
@@ -852,13 +886,13 @@ async function handleChatRequest(
 
     case 'project': {
       const { sessionContextBundle, sessionContext } = await prepareProjectRunContext(atlas, sessionId);
-      projectOutcome = await runProjectCommand(request.prompt, stream, token, atlas, sessionId, sessionContextBundle, sessionContext);
+      projectOutcome = await runProjectCommand(prompt, stream, token, atlas, sessionId, sessionContextBundle, sessionContext);
       break;
     }
 
     case 'loop': {
       const { sessionContext } = await prepareProjectRunContext(atlas, sessionId);
-      await runLoopCommand(request.prompt, stream, token, atlas, sessionId, sessionContext);
+      await runLoopCommand(prompt, stream, token, atlas, sessionId, sessionContext);
       break;
     }
 
@@ -870,16 +904,20 @@ async function handleChatRequest(
       await handleDirectorCommand(stream, atlas);
       break;
 
+    case 'buzz':
+      await handleBuzzCommand(prompt, stream, atlas, token);
+      break;
+
     case 'followups':
       await handleFollowUpsCommand(stream, atlas);
       break;
 
     case 'ship':
-      await handleShipCommand(request.prompt, stream, atlas);
+      await handleShipCommand(prompt, stream, atlas);
       break;
 
     case 'sync-instructions':
-      await handleSyncInstructionsCommand(request.prompt, stream, atlas);
+      await handleSyncInstructionsCommand(prompt, stream, atlas);
       break;
 
     case 'voice':
@@ -892,7 +930,7 @@ async function handleChatRequest(
 
     default: {
       const routedIntent = resolveAtlasChatIntent(
-        request.prompt,
+        prompt,
         atlas.sessionConversation.getTranscript(sessionId),
       );
       if (routedIntent?.kind === 'project') {
@@ -1656,6 +1694,468 @@ async function handleRunsCommand(stream: vscode.ChatResponseStream): Promise<voi
 /** Neutralise markdown control characters in user-authored text for chat output. */
 function escapeMd(value: string): string {
   return String(value ?? '').replace(/([\\`*_{}\[\]()#+\-!|])/g, '\\$1');
+}
+
+/** Targets confirmed for sending this session. Cleared when the window closes. */
+const buzzConfirmedTargets = new Set<string>();
+
+/**
+ * `/buzz read` — show the conversation, with reactions.
+ *
+ * Session-scoped and never written to disk. Tier 3 deliberately keeps message
+ * bodies out of `project_memory/` because that folder is committed; showing you
+ * a message you already have access to is a different thing entirely.
+ */
+async function handleBuzzRead(
+  stream: vscode.ChatResponseStream,
+  atlas: AtlasMindContext,
+): Promise<void> {
+  const service = atlas.buzzInbound;
+  if (!service) {
+    stream.markdown('Buzz inbound is not running. Ask **/buzz** for the setup checklist.');
+    return;
+  }
+  const messages = service.readAllConversations(20);
+  if (messages.length === 0) {
+    stream.markdown([
+      '### Buzz — nothing yet',
+      '',
+      `Subscription status: **${service.getStatus()}**.`,
+      '',
+      'Messages appear here as they arrive. If this stays empty while the status says subscribed, the relay may have no recent activity in the channels you are watching.',
+    ].join('\n'));
+    stream.button({ command: 'atlasmind.openSettings', title: 'Open Settings → Buzz', arguments: ['buzz'] });
+    return;
+  }
+
+  const identities = new Map(service.listIdentities().map(identity => [identity.pubkey, identity]));
+  const self = service.getSelfPubkey();
+  const lines = ['### Buzz — recent messages', ''];
+  for (const message of [...messages].reverse()) {
+    const identity = identities.get(message.authorPubkey);
+    const who = identity?.displayName ?? `${message.authorPubkey.slice(0, 12)}…`;
+    const mine = self && message.authorPubkey === self.toLowerCase() ? ' *(you)*' : '';
+    const when = new Date(message.createdAt * 1000).toISOString().slice(11, 16);
+    // Emoji in the body and in the reactions are shown as published — the
+    // point of forwarding them is that they arrive intact.
+    const reactions = message.reactions.length > 0
+      ? `  ${message.reactions.map(entry => `${entry.emoji} ${entry.count}`).join('  ')}`
+      : '';
+    lines.push(`**${escapeMd(who)}**${mine} · ${when}`);
+    lines.push(`${escapeMd(message.text)}${message.truncated ? ' …' : ''}${reactions}`);
+    lines.push('');
+  }
+  lines.push('_Held in memory for this session only — Buzz conversations are never written into project memory._');
+  stream.markdown(lines.join('\n'));
+  stream.markdown('\nReply with **`/buzz send <your message>`**.');
+}
+
+/**
+ * `/buzz send <message>` — post to Buzz through the guarded bridge.
+ *
+ * The confirmation policy lives in `buzzSendPolicy`: a message you wrote, aimed
+ * at a channel you chose and have already sent to this session, goes without a
+ * dialog, because you confirmed it by typing it. Everything else confirms.
+ */
+async function handleBuzzSend(
+  body: string,
+  stream: vscode.ChatResponseStream,
+  atlas: AtlasMindContext,
+): Promise<void> {
+  const [{ validateOutboundMessage }, { decideBuzzSend, describeBuzzSend }, { mcpSkillId }] = await Promise.all([
+    import('../core/buzzConversation.js'),
+    import('../core/buzzSendPolicy.js'),
+    import('../mcp/mcpServerRegistry.js'),
+  ]);
+
+  const configuration = vscode.workspace.getConfiguration('atlasmind');
+  if (!configuration.get<boolean>('buzz.enabled', false)) {
+    stream.markdown('Buzz is off. Ask **/buzz** for the setup checklist.');
+    return;
+  }
+
+  const validation = validateOutboundMessage(body);
+  if (!validation.ok || !validation.text) {
+    stream.markdown(`Not sent. ${escapeMd(validation.reason ?? 'The message could not be validated.')}`);
+    return;
+  }
+
+  const channels = (configuration.get<string[]>('buzz.inboundChannels', []) ?? []).filter(Boolean);
+  if (channels.length !== 1) {
+    stream.markdown(channels.length === 0
+      ? 'No Buzz channel is configured to send to. Add exactly one channel id under **Settings → Buzz** so there is no ambiguity about where a message goes.'
+      : `You are watching ${channels.length} channels, so AtlasMind will not guess which one to post to. Sending to the wrong channel is not recoverable.`);
+    stream.button({ command: 'atlasmind.openSettings', title: 'Open Settings → Buzz', arguments: ['buzz'] });
+    return;
+  }
+  const target = channels[0]!;
+
+  const server = (atlas.mcpServerRegistry?.listServers() ?? [])
+    .find(entry => entry.config.id === 'mcp-server-buzz' || /buzz/i.test(entry.config.name ?? ''));
+  const tool = server?.tools.find(entry => entry.name === 'buzz_post_message');
+  if (!server || !tool) {
+    stream.markdown('The Buzz Communications bridge is not connected, so there is no way to send. Ask **/buzz** — it will tell you what is missing.');
+    stream.button({ command: 'atlasmind.openMcpServers', title: 'Manage MCP servers' });
+    return;
+  }
+
+  const decision = decideBuzzSend({
+    composer: 'human',
+    target,
+    targetChosenByUser: true,
+    confirmedTargets: [...buzzConfirmedTargets],
+  });
+  if (decision.requiresConfirmation) {
+    const choice = await vscode.window.showWarningMessage(
+      describeBuzzSend(
+        { composer: 'human', target, targetChosenByUser: true, confirmedTargets: [...buzzConfirmedTargets] },
+        decision,
+        validation.text,
+      ),
+      { modal: true },
+      'Send',
+    );
+    if (choice !== 'Send') {
+      stream.markdown('Not sent.');
+      return;
+    }
+  }
+
+  const skillId = mcpSkillId(server.config.id, tool.name);
+  const skill = atlas.skillsRegistry.get(skillId);
+  if (!skill || !atlas.skillsRegistry.isEnabled(skill.id)) {
+    stream.markdown('The Buzz send tool is unavailable. Reconnect the server from MCP Servers.');
+    return;
+  }
+
+  try {
+    await skill.execute({ channel: target, content: validation.text }, atlas.skillContext);
+    if (decision.remembersTarget) {
+      buzzConfirmedTargets.add(target);
+    }
+    stream.markdown(`Sent to Buzz. ${decision.requiresConfirmation ? '' : '_(No dialog: you wrote it, you chose the channel, and you have sent here already this session.)_'}`);
+  } catch (error) {
+    stream.markdown(`Send failed: ${escapeMd(error instanceof Error ? error.message : String(error))}`);
+  }
+}
+
+/**
+ * `/buzz dm <person> <message>` — direct-message a Director contact.
+ *
+ * The contact is resolved by name from the Director roster and their Buzz key
+ * read from the `buzz` channel already on their card, so the person you added
+ * once is the person you can message. A contact whose handle is not a public
+ * key cannot be DM'd — Buzz DMs are addressed to an identity, and a channel
+ * UUID is not one.
+ */
+async function handleBuzzDirectMessage(
+  who: string,
+  body: string,
+  stream: vscode.ChatResponseStream,
+  atlas: AtlasMindContext,
+): Promise<void> {
+  const [{ validateOutboundMessage }, { decideBuzzSend, describeBuzzSend }, { mcpSkillId }, { normalizeBuzzPubkey }] =
+    await Promise.all([
+      import('../core/buzzConversation.js'),
+      import('../core/buzzSendPolicy.js'),
+      import('../mcp/mcpServerRegistry.js'),
+      import('../core/buzzSigner.js'),
+    ]);
+
+  const configuration = vscode.workspace.getConfiguration('atlasmind');
+  if (!configuration.get<boolean>('buzz.enabled', false)) {
+    stream.markdown('Buzz is off. Ask **/buzz** for the setup checklist.');
+    return;
+  }
+
+  const config = atlas.projectDirectorManager?.getConfig();
+  const needle = who.trim().toLowerCase();
+  const matches = (config?.contacts ?? []).filter(contact =>
+    contact.name.toLowerCase() === needle || contact.name.toLowerCase().includes(needle));
+  if (matches.length === 0) {
+    stream.markdown(`No one called **${escapeMd(who)}** on the Director roster. Add them there with a \`buzz\` channel first.`);
+    stream.button({ command: 'atlasmind.openProjectDirector', title: 'Open the Director roster' });
+    return;
+  }
+  if (matches.length > 1) {
+    // Guessing which colleague you meant is exactly the mistake that cannot be
+    // undone once the message is out.
+    stream.markdown(`**${escapeMd(who)}** matches ${matches.length} people: ${matches.map(c => escapeMd(c.name)).join(', ')}. Use the full name.`);
+    return;
+  }
+
+  const contact = matches[0]!;
+  const buzzLink = contact.links.find(link => link.kind === 'buzz');
+  const pubkey = buzzLink ? normalizeBuzzPubkey(buzzLink.handle) : undefined;
+  if (!pubkey) {
+    stream.markdown(buzzLink
+      ? `**${escapeMd(contact.name)}** has a Buzz handle, but it is not a public key, so there is no identity to DM. A Buzz DM is addressed to an \`npub…\` or 64-character hex key.`
+      : `**${escapeMd(contact.name)}** has no Buzz channel on their Director card. Add one with their \`npub…\` key.`);
+    stream.button({ command: 'atlasmind.openProjectDirector', title: 'Open the Director roster' });
+    return;
+  }
+
+  const validation = validateOutboundMessage(body);
+  if (!validation.ok || !validation.text) {
+    stream.markdown(`Not sent. ${escapeMd(validation.reason ?? 'The message could not be validated.')}`);
+    return;
+  }
+
+  const server = (atlas.mcpServerRegistry?.listServers() ?? [])
+    .find(entry => entry.config.id === 'mcp-server-buzz' || /buzz/i.test(entry.config.name ?? ''));
+  const tool = server?.tools.find(entry => entry.name === 'buzz_send_dm');
+  if (!server || !tool) {
+    stream.markdown('The Buzz Communications bridge is not connected, so there is no way to send a DM. Ask **/buzz**.');
+    stream.button({ command: 'atlasmind.openMcpServers', title: 'Manage MCP servers' });
+    return;
+  }
+
+  const request = {
+    composer: 'human' as const,
+    target: pubkey,
+    targetChosenByUser: true,
+    confirmedTargets: [...buzzConfirmedTargets],
+  };
+  const decision = decideBuzzSend(request);
+  if (decision.requiresConfirmation) {
+    const choice = await vscode.window.showWarningMessage(
+      describeBuzzSend(request, decision, validation.text, contact.name),
+      { modal: true },
+      'Send',
+    );
+    if (choice !== 'Send') {
+      stream.markdown('Not sent.');
+      return;
+    }
+  }
+
+  const skillId = mcpSkillId(server.config.id, tool.name);
+  const skill = atlas.skillsRegistry.get(skillId);
+  if (!skill || !atlas.skillsRegistry.isEnabled(skill.id)) {
+    stream.markdown('The Buzz DM tool is unavailable. Reconnect the server from MCP Servers.');
+    return;
+  }
+
+  try {
+    await skill.execute({ pubkey, content: validation.text }, atlas.skillContext);
+    if (decision.remembersTarget) {
+      buzzConfirmedTargets.add(pubkey);
+    }
+    stream.markdown(`DM sent to **${escapeMd(contact.name)}** on Buzz.`);
+  } catch (error) {
+    stream.markdown(`DM failed: ${escapeMd(error instanceof Error ? error.message : String(error))}`);
+  }
+}
+
+/**
+ * Read one pinned Buzz documentation URL.
+ *
+ * Bounded and total: HTTPS only, an origin the caller has already pinned, a
+ * hard timeout, and a size cap. Any failure returns undefined so the setup
+ * guide falls back to its built-in text — a walkthrough that breaks when
+ * offline is worse than one that is merely less current.
+ */
+async function fetchBuzzDoc(url: string): Promise<string | undefined> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 6_000);
+  try {
+    const response = await fetch(url, { signal: controller.signal, redirect: 'follow' });
+    if (!response.ok) {
+      return undefined;
+    }
+    const text = await response.text();
+    return text.slice(0, 512 * 1024);
+  } catch {
+    return undefined;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * `/buzz` — walk through Buzz setup and say exactly what is left.
+ *
+ * Deliberately **not** an installer. Every button opens a surface; none of them
+ * enables a gate, writes a setting, or stores a secret. Buzz is deny-by-default
+ * in three places so that switching it on is a decision a human makes, and a
+ * setup assistant that flipped those switches to be helpful would be removing
+ * the property they exist to provide.
+ *
+ * Also deliberately **not** model-generated. Every line comes from observed
+ * state, because a hallucinated setup step sends someone to configure something
+ * that does not exist and leaves them trusting a broken result.
+ */
+async function handleBuzzCommand(
+  prompt: string,
+  stream: vscode.ChatResponseStream,
+  atlas: AtlasMindContext,
+  token: vscode.CancellationToken,
+): Promise<void> {
+  const trimmed = (prompt ?? '').trim();
+  if (/^read\b/i.test(trimmed)) {
+    await handleBuzzRead(stream, atlas);
+    return;
+  }
+  const mode = /^(local|hosted)$/i.exec(trimmed);
+  if (mode) {
+    await vscode.workspace.getConfiguration('atlasmind')
+      .update('buzz.relayMode', mode[1]!.toLowerCase(), vscode.ConfigurationTarget.Workspace)
+      .then(undefined, () => undefined);
+  }
+
+  const dm = /^dm\s+(\S+)\s+([\s\S]+)$/i.exec(trimmed);
+  if (dm) {
+    await handleBuzzDirectMessage(dm[1]!, dm[2]!, stream, atlas);
+    return;
+  }
+  const send = /^send\s+([\s\S]+)$/i.exec(trimmed);
+  if (send) {
+    await handleBuzzSend(send[1]!, stream, atlas);
+    return;
+  }
+
+  const [{ buildBuzzSetupPlan, isBuzzInboundReady, nextBuzzSetupStep }, { hasLauncherOnPath }, { BUZZ_AGENT_KEY_SECRET }, docsModule, { parseAgentBindings }] =
+    await Promise.all([
+      import('../core/buzzSetupPlan.js'),
+      import('../mcp/mcpEnvironmentScanner.js'),
+      import('../core/buzzSigner.js'),
+      import('../core/buzzDocsSource.js'),
+      import('../core/buzzAgentBindings.js'),
+    ]);
+  const docsModule2 = await import('../core/buzzSetupPlan.js');
+
+  const cfg = vscode.workspace.getConfiguration('atlasmind');
+  let hasAgentKey = false;
+  try {
+    hasAgentKey = Boolean((await atlas.extensionContext.secrets.get(BUZZ_AGENT_KEY_SECRET))?.trim());
+  } catch {
+    // An unreadable secret store is reported as "no key" rather than crashing
+    // the walkthrough — the remedy is the same either way.
+  }
+
+  const rawChannels = cfg.get<unknown>('buzz.inboundChannels', []);
+  const steps = buildBuzzSetupPlan({
+    cliOnPath: hasLauncherOnPath('buzz'),
+    hasAgentKey,
+    relayUrl: cfg.get<string>('buzz.relayUrl', ''),
+    allowRemoteRelay: cfg.get<boolean>('buzz.allowRemoteRelay', false),
+    enabled: cfg.get<boolean>('buzz.enabled', false),
+    inboundEnabled: cfg.get<boolean>('buzz.inboundEnabled', false),
+    channelIds: Array.isArray(rawChannels) ? rawChannels.filter((c): c is string => typeof c === 'string') : [],
+    autoCreateFollowUps: cfg.get<boolean>('buzz.autoCreateFollowUps', false),
+    mcpServerRegistered: (atlas.mcpServerRegistry?.listServers() ?? [])
+      .some(server => server.config.id === 'mcp-server-buzz' || /buzz/i.test(server.config.name ?? '')),
+    ...(atlas.buzzInbound ? { inboundStatus: atlas.buzzInbound.getStatus() } : {}),
+    observedIdentities: atlas.buzzInbound?.listIdentities().length ?? 0,
+    agentBindings: parseAgentBindings(cfg.get('buzz.agentBindings')).bindings.length,
+    relayMode: cfg.get<'local' | 'hosted' | 'undecided'>('buzz.relayMode', 'undecided'),
+  });
+
+  const next = nextBuzzSetupStep(steps);
+  // "Ready" is the walkthrough being finished, not just inbound being wired: a
+  // feed nothing was ever seen arriving on, routed to nobody, is not a setup to
+  // congratulate someone for.
+  const ready = !next;
+  const showAll = /^all$/i.test(trimmed);
+
+  if (ready && !showAll) {
+    stream.markdown([
+      '### Buzz setup — done',
+      '',
+      'Reading Buzz is set up, a message has been seen arriving, and at least one Buzz identity is bound to an AtlasMind agent. The optional extras (recording follow-ups, the CLI, the MCP bridge, the desktop app) are choices, not gaps.',
+      '',
+      'Ask **`/buzz all`** for the full checklist, or **`/buzz read`** to see the conversation.',
+    ].join('\n'));
+    stream.button({ command: 'atlasmind.openProjectDirector', title: 'Open the Director roster' });
+    return;
+  }
+
+  if (!showAll && next) {
+    // One step at a time. The whole list at once was a wall of bullets in which
+    // the thing to do right now was indistinguishable from context.
+    const position = docsModule2.buzzStepPosition(steps, next.id);
+    stream.markdown(docsModule2.renderBuzzStepMarkdown(next, position));
+    // The last two steps are about making what arrives useful rather than making
+    // it arrive. Without saying so, "2 steps left" reads as though the
+    // connection itself is still broken.
+    if (isBuzzInboundReady(steps)) {
+      stream.markdown('\n\n> **The connection itself is already working** — Buzz is enabled, the relay is set, your key is stored, and the subscription is on. What is left is making what arrives useful.');
+    }
+
+    if (next.action) {
+      stream.button({
+        command: next.action.command,
+        title: next.action.title,
+        ...(next.action.args ? { arguments: next.action.args.map(arg => typeof arg === 'string' && /^https?:\/\//.test(arg) ? vscode.Uri.parse(arg) : arg) } : {}),
+      });
+    }
+    // A command AtlasMind wrote can be typed into a terminal for you. Pressing
+    // Enter stays yours — these clone repositories and start containers.
+    for (const line of next.guidance ?? []) {
+      if (line.command && line.authored) {
+        stream.button({
+          command: 'atlasmind.buzz.prepareCommand',
+          title: `Put \`${line.command}\` in a terminal`,
+          arguments: [line.command],
+        });
+      }
+    }
+    stream.markdown(`\n\n_Step ${position.index} of ${position.total}. Say **\`/buzz\`** again once done, or **\`/buzz all\`** to see everything._`);
+  } else {
+    const MARK: Record<string, string> = { done: '✅', todo: '⬜', blocked: '⏸️', optional: '◽' };
+    const lines = ['### Buzz setup — full checklist', ''];
+    for (const step of steps) {
+      lines.push(`${MARK[step.status] ?? '⬜'} **${escapeMd(step.title)}** — ${escapeMd(step.detail)}`);
+    }
+    lines.push('', 'AtlasMind will not switch any of this on for you: each gate is off by default so that turning it on stays your decision.');
+    stream.markdown(lines.join('\n'));
+  }
+
+  // Buzz ships releases, so the *how* is read from Buzz's own documentation
+  // rather than from prose written here that quietly goes stale. Assessing your
+  // machine stays deterministic above; only the external how-to is cited.
+  const wanted = steps.filter(step => step.status === 'todo' || step.status === 'blocked')
+    .map(step => (step.id === 'relay' ? 'relay' : step.id === 'cli' || step.id === 'mcp' ? 'cli' : step.id === 'agentKey' ? 'key' : undefined))
+    .filter((topic): topic is 'relay' | 'cli' | 'key' => topic !== undefined);
+  if (wanted.length > 0 && !token.isCancellationRequested) {
+    const now = Date.now();
+    const docs = await docsModule.fetchBuzzDocs([...new Set(wanted)], fetchBuzzDoc, now);
+    if (docs.excerpts.length > 0) {
+      const docLines = ['', '---', '', '#### From Buzz’s current documentation'];
+      for (const excerpt of docs.excerpts) {
+        const covers = [excerpt.topic, ...excerpt.alsoCovers].join(', ');
+        docLines.push('', `**${escapeMd(excerpt.heading ?? excerpt.topic)}** — covers ${escapeMd(covers)} · [${escapeMd(docsModule.describeDocSource(excerpt, now))}](${excerpt.sourceUrl})`);
+        for (const line of excerpt.lines) {
+          docLines.push(`> ${escapeMd(line)}`);
+        }
+        for (const command of excerpt.suggestedCommands) {
+          docLines.push('', '```', command, '```');
+        }
+      }
+      docLines.push('', '_Quoted from Buzz’s documentation, not written by AtlasMind. Read any command before running it — AtlasMind does not run them, and cannot vouch for text it did not write._');
+      stream.markdown(docLines.join('\n'));
+    } else if (docs.unavailableReason) {
+      stream.markdown(`\n\n_${escapeMd(docs.unavailableReason)} The steps above still apply; only the quoted how-to is missing._`);
+    }
+  }
+
+  // One button per incomplete step, in dependency order, so the first is always
+  // the right next click.
+  const seen = new Set<string>();
+  for (const step of steps) {
+    if (step.status === 'done' || !step.action || seen.has(step.action.title)) {
+      continue;
+    }
+    seen.add(step.action.title);
+    stream.button({
+      command: step.action.command,
+      title: step.action.title,
+      ...(step.action.args ? { arguments: step.action.args.map(arg => typeof arg === 'string' && /^https?:\/\//.test(arg) ? vscode.Uri.parse(arg) : arg) } : {}),
+    });
+  }
+  if (ready) {
+    stream.button({ command: 'atlasmind.openProjectDirector', title: 'Open the Director roster' });
+  }
 }
 
 async function handleDirectorCommand(
@@ -2677,6 +3177,49 @@ export function detectResponseQuickReplies(responseText: string): {
   return { followupQuestion: question };
 }
 
+/**
+ * A webview-ready quick-reply payload for the surfaces outside the main Chat
+ * panel (the dashboard ideation chat, the Ideation panel, the Vision panel).
+ *
+ * Those panels don't consume `SessionTranscriptMetadata`, so they need the pills
+ * as their own message. Pills only — a bare detected question yields nothing,
+ * matching the Chat panel, where a question with no clean options gets the text
+ * input rather than invented buttons.
+ *
+ * Both fields are **model output**: the label is rendered and the prompt is
+ * *submitted on click*, so each is length-capped and control-stripped here, at
+ * the single point where they cross into a webview.
+ */
+export interface WebviewQuickReplyPayload {
+  question: string;
+  replies: Array<{ label: string; prompt: string }>;
+}
+
+const MAX_QUICK_REPLY_PILLS = 5;
+
+export function buildQuickReplyPayload(responseText: string | undefined): WebviewQuickReplyPayload | undefined {
+  if (typeof responseText !== 'string' || responseText.trim().length === 0) {
+    return undefined;
+  }
+  const detected = detectResponseQuickReplies(responseText);
+  if (!detected?.quickReplies?.length) {
+    return undefined;
+  }
+  const clampField = (value: unknown, max: number): string => (
+    typeof value === 'string'
+      ? value.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max)
+      : ''
+  );
+  const replies = detected.quickReplies
+    .slice(0, MAX_QUICK_REPLY_PILLS)
+    .map(reply => ({ label: clampField(reply.label, 60), prompt: clampField(reply.prompt, 400) }))
+    .filter(reply => reply.label.length > 0 && reply.prompt.length > 0);
+  if (replies.length === 0) {
+    return undefined;
+  }
+  return { question: clampField(detected.followupQuestion, 300), replies };
+}
+
 export function buildAssistantResponseMetadata(
   prompt: string,
   result: Pick<TaskResult, 'agentId' | 'modelUsed' | 'costUsd' | 'inputTokens' | 'outputTokens' | 'artifacts' | 'contextCompressionSavingsUsd' | 'iterationLimitHit' | 'suggestedIterationLimit' | 'suggestedToolCallsPerTurnLimit'>,
@@ -3665,6 +4208,14 @@ export function buildFollowups(
       return [
         { prompt: '/followups', label: "What's due" },
         { prompt: '/runs', label: 'Autonomous runs' },
+      ];
+
+    case 'buzz':
+      return [
+        { prompt: '/buzz local', label: 'I want to run Buzz locally' },
+        { prompt: '/buzz hosted', label: 'I have a hosted relay' },
+        { prompt: '/buzz', label: 'Next step' },
+        { prompt: '/buzz all', label: 'Show the whole checklist' },
       ];
 
     case 'followups':

@@ -30,6 +30,8 @@
     ideationBusy: false,
     ideationStatus: 'Shape the board with notes, files, images, and a guided Atlas facilitation pass.',
     ideationResponse: '',
+    /** Pills for a facilitation pass that ended in a question; null when none. */
+    quickReplies: null,
     expandedAnalyticsIssueId: '',
     boardLens: 'default',
     relationFilter: 'all',
@@ -84,11 +86,18 @@
     }
     if (message.type === 'ideationResponseReset') {
       state.ideationResponse = '';
+      // Stale pills answer the previous question — clear them with the response.
+      state.quickReplies = null;
       render();
       return;
     }
     if (message.type === 'ideationResponseChunk') {
       state.ideationResponse += typeof message.payload === 'string' ? message.payload : '';
+      render();
+      return;
+    }
+    if (message.type === 'ideationQuickReplies') {
+      state.quickReplies = message.payload && Array.isArray(message.payload.replies) ? message.payload : null;
       render();
     }
   });
@@ -233,6 +242,17 @@
       const promptInput = document.getElementById('ideationPrompt');
       if (promptInput instanceof HTMLTextAreaElement) {
         promptInput.value = payload;
+      }
+      return;
+    }
+    if (action === 'ideation-quick-reply') {
+      // Answer and run in one tap: the pill IS the composed prompt, so it goes
+      // through the same runIdeationLoop path a typed prompt would.
+      if (payload) {
+        const promptInput = document.getElementById('ideationPrompt');
+        if (promptInput instanceof HTMLTextAreaElement) { promptInput.value = payload; }
+        state.quickReplies = null;
+        vscode.postMessage({ type: 'runIdeationLoop', payload: { prompt: payload, speakResponse: false } });
       }
       return;
     }
@@ -948,6 +968,24 @@
       '</article>';
   }
 
+  /**
+   * One-tap answers when the facilitation pass ends in a question — the same
+   * affordance the Chat panel has, so a question is never a retyping exercise.
+   * Labels are model output: escaped on the way in, like every other value here.
+   */
+  function renderQuickReplies() {
+    const payload = state.quickReplies;
+    const replies = payload && Array.isArray(payload.replies) ? payload.replies : [];
+    if (replies.length === 0) {
+      return '';
+    }
+    return '<div class="quick-reply-buttons"' + (payload.question ? ' aria-label="' + escapeAttr(payload.question) + '"' : '') + '>' +
+      replies.map(reply => '<button type="button" class="quick-reply-btn" data-action="ideation-quick-reply" data-payload="'
+        + escapeAttr(String(reply.prompt || '')) + '" title="Answer with this and run the next ideation pass">'
+        + escapeHtml(String(reply.label || reply.prompt || '')) + '</button>').join('') +
+      '</div>';
+  }
+
   function renderFeedback(snapshot) {
     return '' +
       '<article class="panel-card"' + tooltipAttrs('This is the reflection and next-step area. Review what Atlas concluded, adopt the next prompts or next cards, then decide whether the board is ready for another loop or for execution.') + '>' +
@@ -963,6 +1001,7 @@
           '</div>' +
         '</div>' +
         '<div class="ideation-response-box">' + escapeHtml(state.ideationResponse || snapshot.lastAtlasResponse || 'Atlas feedback will appear here after you run the ideation loop.').replace(/\n/g, '<br/>') + '</div>' +
+        renderQuickReplies() +
         '<div class="panel-card">' +
           '<p class="section-kicker">Next prompts</p>' +
           '<div class="ideation-chip-row">' +

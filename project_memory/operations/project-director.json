@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-07-25T00:53:22.206Z",
+  "updatedAt": "2026-07-28T02:14:47.553Z",
   "project": {
     "name": "atlasmind",
     "summary": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry."
@@ -72,6 +72,22 @@
         }
       ],
       "piiStored": false
+    },
+    {
+      "id": "contact-atlasmind-local",
+      "name": "atlasmind-local",
+      "kind": "person",
+      "title": "Buzz project channel",
+      "links": [
+        {
+          "id": "link-443a7fd2-dc28-46a6-998e-8721589f2778",
+          "kind": "buzz",
+          "label": "Local Buzz",
+          "handle": "443a7fd2-dc28-46a6-998e-8721589f2778",
+          "preferred": true
+        }
+      ],
+      "piiStored": false
     }
   ],
   "stakeholders": [],
@@ -110,7 +126,7 @@
   "settings": {
     "teamMode": "solo",
     "nudgeOnActivation": true,
-    "remindersEnabled": false,
-    "outboundEnabled": false
+    "remindersEnabled": true,
+    "outboundEnabled": true
   }
 }

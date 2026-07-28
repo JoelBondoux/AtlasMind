@@ -147,6 +147,7 @@ describe('RECOMMENDED_MCP_SERVERS', () => {
 
     expect(RECOMMENDED_MCP_SERVERS.find(server => server.id === 'mcp-server-github')?.provenance).toBe('official');
     expect(RECOMMENDED_MCP_SERVERS.find(server => server.id === 'mcp-server-slack')?.provenance).toBe('community');
+    expect(RECOMMENDED_MCP_SERVERS.find(server => server.id === 'mcp-server-buzz')?.provenance).toBe('official');
     expect(RECOMMENDED_MCP_SERVERS.find(server => server.id === 'mcp-server-postgres')?.provenance).toBe('archived');
   });
 
@@ -190,6 +191,7 @@ describe('RECOMMENDED_MCP_SERVERS', () => {
       'mcp-server-grafana',
       'mcp-server-prometheus',
       'mcp-server-jira',
+      'mcp-server-buzz',
       'mcp-server-trello',
       'mcp-server-stripe',
     ];

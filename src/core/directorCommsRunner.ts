@@ -14,7 +14,7 @@
  * Nothing here sends anything: it only classifies tools and shapes arguments.
  */
 
-import type { McpServerState } from '../types.js';
+import type { CommunicationChannelKind, McpServerState } from '../types.js';
 
 export type DirectorCommsIntent = 'email' | 'schedule' | 'message';
 
@@ -24,6 +24,10 @@ export interface ConnectorCapability {
   serverName: string;
   toolName: string;
   intent: DirectorCommsIntent;
+  /** Contact-link kind this connector is safe to receive, if provider-specific. */
+  channelKind?: CommunicationChannelKind;
+  /** Message delivery shape, used to distinguish Buzz channel posts from DMs. */
+  delivery?: 'channel' | 'dm' | 'generic';
   inputSchema: Record<string, unknown>;
 }
 
@@ -76,13 +80,36 @@ function intentRank(toolName: string, intent: DirectorCommsIntent): number {
   return 1;
 }
 
+function inferChannelKind(
+  serverName: string,
+  toolName: string,
+  intent: DirectorCommsIntent,
+): CommunicationChannelKind | undefined {
+  const haystack = `${serverName} ${toolName}`.toLowerCase();
+  if (/\bbuzz\b|buzz[_-]/.test(haystack)) { return 'buzz'; }
+  if (/\bslack\b|slack[_-]/.test(haystack)) { return 'slack'; }
+  if (/\bteams?\b|msteams|teams?[_-]/.test(haystack)) { return 'teams'; }
+  if (intent === 'email' || intent === 'schedule' || /\boutlook\b|\bmail\b|\bemail\b/.test(haystack)) {
+    return 'email';
+  }
+  return undefined;
+}
+
+function inferDelivery(toolName: string, channelKind: CommunicationChannelKind | undefined): ConnectorCapability['delivery'] {
+  if (channelKind !== 'buzz') {
+    return 'generic';
+  }
+  return /send[_-]?dm|direct[_-]?message|\bdm\b/i.test(toolName) ? 'dm' : 'channel';
+}
+
 /**
- * Detect, across the CONNECTED MCP servers, the best tool for each
- * communication intent. Returns at most one capability per intent (the
- * highest-ranked send/create tool). Disconnected servers are ignored.
+ * Detect, across the CONNECTED MCP servers, the best tool for each provider,
+ * intent, and delivery shape. Keeping provider-specific capabilities separate
+ * prevents a Buzz recipient from ever being handed to Slack merely because its
+ * tool happened to rank first.
  */
 export function detectConnectorCapabilities(servers: readonly McpServerState[]): ConnectorCapability[] {
-  const best = new Map<DirectorCommsIntent, ConnectorCapability & { rank: number }>();
+  const best = new Map<string, ConnectorCapability & { rank: number }>();
   for (const server of servers) {
     if (server.status !== 'connected') {
       continue;
@@ -92,14 +119,19 @@ export function detectConnectorCapabilities(servers: readonly McpServerState[]):
       if (!intent) {
         continue;
       }
+      const channelKind = inferChannelKind(server.config.name, tool.name, intent);
+      const delivery = inferDelivery(tool.name, channelKind);
       const rank = intentRank(tool.name, intent);
-      const current = best.get(intent);
+      const key = `${intent}:${channelKind ?? 'generic'}:${delivery}`;
+      const current = best.get(key);
       if (!current || rank > current.rank) {
-        best.set(intent, {
+        best.set(key, {
           serverId: server.config.id,
           serverName: server.config.name,
           toolName: tool.name,
           intent,
+          channelKind,
+          delivery,
           inputSchema: (tool.inputSchema as Record<string, unknown>) ?? {},
           rank,
         });
@@ -113,8 +145,28 @@ export function detectConnectorCapabilities(servers: readonly McpServerState[]):
 export function resolveCapability(
   capabilities: readonly ConnectorCapability[],
   intent: DirectorCommsIntent,
+  channelKind?: CommunicationChannelKind,
+  recipient?: string,
 ): ConnectorCapability | undefined {
-  return capabilities.find(capability => capability.intent === intent);
+  const intended = capabilities.filter(capability => capability.intent === intent);
+  if (!channelKind) {
+    return intended[0];
+  }
+  const exact = intended.filter(capability => capability.channelKind === channelKind);
+  const generic = intended.filter(capability => capability.channelKind === undefined);
+  const candidates = exact.length > 0 ? exact : generic;
+  if (channelKind === 'buzz' && recipient) {
+    const trimmed = recipient.trim();
+    const isPubkey = /^[0-9a-f]{64}$/i.test(trimmed);
+    const isChannel = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(trimmed);
+    if (!isPubkey && !isChannel) {
+      return candidates.find(capability => capability.delivery === 'generic');
+    }
+    const desiredDelivery = isPubkey ? 'dm' : 'channel';
+    return candidates.find(capability => capability.delivery === desiredDelivery)
+      ?? candidates.find(capability => capability.delivery === 'generic');
+  }
+  return candidates[0];
 }
 
 function schemaProperties(schema: Record<string, unknown> | undefined): string[] {
@@ -156,7 +208,7 @@ export function buildToolArgs(capability: ConnectorCapability, draft: CommsDraft
     set([/^body$/i, /content/i, /description/i, /notes/i], draft.body);
     set([/attendee/i, /invite/i, /^to$/i], draft.recipient);
   } else {
-    set([/channel/i, /conversation/i, /^to$/i, /recipient/i], draft.recipient);
+    set([/channel/i, /conversation/i, /^to$/i, /recipient/i, /pubkey/i], draft.recipient);
     set([/^text$/i, /^message$/i, /^body$/i, /content/i], draft.body);
   }
   return args;

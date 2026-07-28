@@ -35,7 +35,10 @@ const MAX_ENV_NAMES = 60;
 const MAX_IMPORTED = 100;
 
 /** Launch runtimes worth reporting availability for. */
-const LAUNCHERS = ['npx', 'uvx', 'node', 'docker', 'python', 'python3', 'pipx', 'gh', 'az', 'aws', 'gcloud', 'wrangler'];
+// `buzz` is not a generic launcher, but the bundled Buzz bridge shells out to
+// it, and without probing for it the only way to learn it is missing is a
+// failed call at the far end of setup.
+const LAUNCHERS = ['npx', 'uvx', 'node', 'docker', 'python', 'python3', 'pipx', 'gh', 'az', 'aws', 'gcloud', 'wrangler', 'buzz'];
 
 /** Env var names that look like credentials → route to SecretStorage, never shown. */
 const SECRET_KEY_RE = /(token|secret|key|password|passwd|pwd|\bpat\b|api[_-]?key|apikey|auth|credential|cookie|access[_-]?key|private)/i;

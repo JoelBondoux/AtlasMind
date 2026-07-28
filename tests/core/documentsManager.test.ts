@@ -1,10 +1,16 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { mkdtempSync, existsSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import * as path from 'node:path';
 import {
   sanitizeDocumentsConfig,
   seedDocumentsConfig,
   renderDocumentsMarkdown,
   normalizeRelPath,
+  newShelfPaths,
+  createShelfFolders,
 } from '../../src/core/documentsManager.ts';
+import type { DocumentsConfig } from '../../src/types.ts';
 
 describe('normalizeRelPath — path safety boundary', () => {
   it('accepts a simple workspace-relative path', () => {
@@ -117,6 +123,97 @@ describe('seedDocumentsConfig', () => {
     expect(config.version).toBe(1);
     expect(config.filing).toEqual([]);
     expect(config.autoUpdate).toEqual([]);
+  });
+});
+
+describe('newShelfPaths', () => {
+  const config = (paths: string[]): DocumentsConfig => ({
+    version: 1,
+    filing: paths.map((p, i) => ({ id: `f${i}`, label: p, path: p })),
+    autoUpdate: [],
+  });
+
+  it('reports every shelf as new when there is no previous config', () => {
+    expect(newShelfPaths(config(['docs', 'wiki']), undefined)).toEqual(['docs', 'wiki']);
+  });
+
+  it('reports only the added shelf', () => {
+    expect(newShelfPaths(config(['docs', 'wiki']), config(['docs']))).toEqual(['wiki']);
+  });
+
+  it('treats a re-pointed shelf as a new folder', () => {
+    const before: DocumentsConfig = { version: 1, filing: [{ id: 'f0', label: 'Docs', path: 'docs' }], autoUpdate: [] };
+    const after: DocumentsConfig = { version: 1, filing: [{ id: 'f0', label: 'Docs', path: 'documentation' }], autoUpdate: [] };
+    expect(newShelfPaths(after, before)).toEqual(['documentation']);
+  });
+
+  it('ignores unsafe and duplicate paths', () => {
+    const next: DocumentsConfig = {
+      version: 1,
+      filing: [
+        { id: 'a', label: 'A', path: '../escape' },
+        { id: 'b', label: 'B', path: 'docs' },
+        { id: 'c', label: 'C', path: 'docs' },
+      ],
+      autoUpdate: [],
+    };
+    expect(newShelfPaths(next, undefined)).toEqual(['docs']);
+  });
+});
+
+describe('createShelfFolders', () => {
+  const roots: string[] = [];
+  const makeRoot = (): string => {
+    const root = mkdtempSync(path.join(tmpdir(), 'atlasmind-shelves-'));
+    roots.push(root);
+    return root;
+  };
+
+  afterEach(() => {
+    while (roots.length > 0) {
+      rmSync(roots.pop()!, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    }
+  });
+
+  it('creates a nested folder and reports it', async () => {
+    const root = makeRoot();
+    const result = await createShelfFolders(root, ['docs/guides']);
+    expect(result.created).toEqual(['docs/guides']);
+    expect(result.skipped).toEqual([]);
+    expect(existsSync(path.join(root, 'docs', 'guides'))).toBe(true);
+  });
+
+  it('is a no-op for a folder that already exists', async () => {
+    const root = makeRoot();
+    await createShelfFolders(root, ['docs']);
+    const again = await createShelfFolders(root, ['docs']);
+    expect(again.created).toEqual([]);
+    expect(again.skipped).toEqual([]);
+  });
+
+  it('never disturbs a file sitting at the shelf path', async () => {
+    const root = makeRoot();
+    writeFileSync(path.join(root, 'notes.md'), 'keep me', 'utf8');
+    const result = await createShelfFolders(root, ['notes.md']);
+    expect(result.created).toEqual([]);
+    expect(result.skipped).toEqual([{ path: 'notes.md', reason: 'a file already exists at this path' }]);
+    // The file is still a file, with its content intact.
+    expect(existsSync(path.join(root, 'notes.md'))).toBe(true);
+  });
+
+  it('refuses traversal and absolute paths without creating anything', async () => {
+    const root = makeRoot();
+    const result = await createShelfFolders(root, ['../outside', '/etc/atlasmind', 'C:\\Windows\\Temp\\atlas']);
+    expect(result.created).toEqual([]);
+    expect(result.skipped).toHaveLength(3);
+    expect(result.skipped.every(s => s.reason === 'not a safe workspace-relative path')).toBe(true);
+    expect(existsSync(path.resolve(root, '..', 'outside'))).toBe(false);
+  });
+
+  it('de-duplicates requested paths', async () => {
+    const root = makeRoot();
+    const result = await createShelfFolders(root, ['docs', 'docs', ' docs ']);
+    expect(result.created).toEqual(['docs']);
   });
 });
 

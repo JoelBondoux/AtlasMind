@@ -927,7 +927,7 @@ export function buildWizardServerConfig(
   inputValues: Record<string, string>,
 ): { config: Omit<McpServerConfig, 'id'>; secrets: Record<string, string> } | null {
   let args = [...(starter.args ?? [])];
-  const env: Record<string, string> = {};
+  const env: Record<string, string> = { ...(starter.env ?? {}) };
   const secrets: Record<string, string> = {};
   const secretEnvKeys: string[] = [];
 

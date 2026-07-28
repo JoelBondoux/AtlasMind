@@ -7,11 +7,35 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { AtlasMindContext } from '../extension.js';
 import type { TaskImageAttachment } from '../types.js';
-import { buildAssistantResponseMetadata, buildWorkstationContext, reconcileAssistantResponse } from '../chat/participant.js';
+import { buildAssistantResponseMetadata, buildQuickReplyPayload, buildWorkstationContext, reconcileAssistantResponse } from '../chat/participant.js';
 import { resolvePickedImageAttachments } from '../chat/imageAttachments.js';
 import { collectTestingDashboardSnapshot, writeProjectTestingConfig, type TestingDashboardSnapshot } from './settingsPanel.js';
 import { getWebviewHtmlShell } from './webviewUtils.js';
+import {
+  buildIssueWorkPrompt,
+  describeIssueAction,
+  parseGhIssueList,
+  sanitizeIssueDraft,
+  sanitizeIssueNumber,
+  summarizeIssues,
+  type IssueRecord,
+  type IssueSummary,
+} from '../core/issueTracker.js';
 import { DASHBOARD_THEME_CSS } from './dashboardTheme.js';
+import {
+  MAX_ROADMAP_GATES,
+  MVP_GATE_ID,
+  ROADMAP_GATES_START,
+  extractItemGates,
+  formatItemGateTags,
+  normalizeGates,
+  parseRoadmapGates,
+  sanitizeGateSelection,
+  slugifyGateId,
+  stripRoadmapGatesBlock,
+  upsertRoadmapGatesBlock,
+  type RoadmapGate,
+} from '../core/roadmapGates.js';
 import { DataPrivacyManager, readDataPrivacyConfig, writeDataPrivacyConfig, defaultDataPrivacyConfig } from '../core/dataPrivacyManager.js';
 import { COMPLIANCE_PACKS } from '../core/compliancePacks.js';
 import { getProviderDataGovernance } from '../core/providerDataGovernance.js';
@@ -37,9 +61,17 @@ import {
   type DirectorCommsIntent,
   type CommsDraft,
 } from '../core/directorCommsRunner.js';
+import {
+  parseAgentBindings,
+  writeAgentBinding,
+  type BuzzAgentBinding,
+  type BuzzAgentBindingIssue,
+} from '../core/buzzAgentBindings.js';
+import { describeIdentity } from '../core/buzzDirectory.js';
+import { BUZZ_AGENT_KEY_SECRET, deriveBuzzPublicKey } from '../core/buzzSigner.js';
 import { mcpSkillId } from '../mcp/mcpServerRegistry.js';
 import { classifyToolInvocation } from '../core/toolPolicy.js';
-import { DOCUMENTS_SSOT_PATH, DOCUMENTS_SUMMARY_SSOT_PATH, sanitizeDocumentsConfig, seedDocumentsConfig } from '../core/documentsManager.js';
+import { DOCUMENTS_SSOT_PATH, DOCUMENTS_SUMMARY_SSOT_PATH, createShelfFolders, newShelfPaths, sanitizeDocumentsConfig, seedDocumentsConfig } from '../core/documentsManager.js';
 import {
   RISK_SSOT_PATH,
   RISK_SUMMARY_SSOT_PATH,
@@ -154,13 +186,16 @@ function isRoadmapNoiseItem(text: string): boolean {
 
 // The backlog lives between explicit markers; parse only that region when present
 // so "## Project Context" and "## Prioritisation Notes" never leak into the list.
+// The release-gates block is stripped first: it is a list too, and in a document
+// with no item markers its lines would otherwise be read as backlog items.
 function extractRoadmapItemsRegion(content: string): string {
-  const start = content.indexOf(ROADMAP_ITEMS_START);
-  const end = content.indexOf(ROADMAP_ITEMS_END);
+  const source = stripRoadmapGatesBlock(content);
+  const start = source.indexOf(ROADMAP_ITEMS_START);
+  const end = source.indexOf(ROADMAP_ITEMS_END);
   if (start >= 0 && end > start) {
-    return content.slice(start + ROADMAP_ITEMS_START.length, end);
+    return source.slice(start + ROADMAP_ITEMS_START.length, end);
   }
-  return content;
+  return source;
 }
 
 type ProjectDashboardMessage =
@@ -176,6 +211,14 @@ type ProjectDashboardMessage =
   | { type: 'clearIdeationImages' }
   | { type: 'saveIdeationBoard'; payload: IdeationBoardPayload }
   | { type: 'saveRoadmap'; payload: DashboardRoadmapSavePayload }
+  | { type: 'createRoadmapGate' }
+  | { type: 'deleteRoadmapGate'; payload: string }
+  | { type: 'refreshIssues' }
+  | { type: 'workOnIssue'; payload: string }
+  | { type: 'createIssue'; payload: { title: string; body?: string; labels?: string[] } }
+  | { type: 'closeIssue'; payload: { number: number } }
+  | { type: 'reopenIssue'; payload: { number: number } }
+  | { type: 'commentIssue'; payload: { number: number; body: string } }
   | { type: 'runIdeationLoop'; payload: IdeationRunPayload }
   | { type: 'runGapAnalysis' }
   | { type: 'addressGap'; payload: string }
@@ -197,6 +240,7 @@ type ProjectDashboardMessage =
   | { type: 'seedDirectorFromRepo' }
   | { type: 'saveDocumentsConfig'; payload: import('../types.js').DocumentsConfig }
   | { type: 'seedDocumentsFromRepo' }
+  | { type: 'createShelfFolder'; payload: string }
   | { type: 'runRiskAnalysis'; payload: { domain: import('../types.js').RiskDomain | 'all' } }
   | { type: 'setRiskFindingStatus'; payload: { findingId: string; status: import('../types.js').RiskStatus; note?: string } }
   | { type: 'setRiskFilter'; payload: string }
@@ -204,6 +248,7 @@ type ProjectDashboardMessage =
   | { type: 'openContactDeepLink'; payload: { contactId: string; linkId: string } }
   | { type: 'assignRunOwner'; payload: { runId: string; contactId: string } }
   | { type: 'directorSendComms'; payload: { intent: DirectorCommsIntent; contactId: string; subject?: string; body?: string; start?: string } }
+  | { type: 'setBuzzAgentBinding'; payload: { pubkey: string; agentIds: string[]; label?: string } }
   | { type: 'openExternalUrl'; payload: string };
 
 type DashboardWebviewMessage =
@@ -214,6 +259,7 @@ type DashboardWebviewMessage =
   | { type: 'ideationStatus'; payload: string }
   | { type: 'ideationResponseReset' }
   | { type: 'ideationResponseChunk'; payload: string }
+  | { type: 'ideationQuickReplies'; payload: import('../chat/participant.js').WebviewQuickReplyPayload }
   | { type: 'gapAnalysisBusy'; payload: boolean }
   | { type: 'gapAnalysisStatus'; payload: string }
   | { type: 'riskBusy'; payload: boolean }
@@ -259,7 +305,7 @@ interface DashboardStat {
  * so `createOrShow(..., 'ideation')` type-checked and rendered a blank dashboard.
  */
 const DASHBOARD_PAGE_IDS = [
-  'overview', 'score', 'gapAnalysis', 'roadmap', 'director', 'runtime', 'repo', 'testing',
+  'overview', 'score', 'gapAnalysis', 'roadmap', 'issues', 'director', 'runtime', 'repo', 'testing',
   'security', 'privacy', 'risk', 'delivery', 'documents', 'ssot', 'ideation',
 ] as const;
 
@@ -401,6 +447,14 @@ interface DashboardCommit {
   committedRelative: string;
 }
 
+/** One commit reduced to the two fields the timeline charts need. */
+interface DashboardCommitLogEntry {
+  /** `YYYY-MM-DD`. */
+  date: string;
+  /** Git author *name* only — never an address. */
+  author: string;
+}
+
 interface GitSnapshot {
   currentBranch: string;
   ahead: number;
@@ -412,6 +466,7 @@ interface GitSnapshot {
   branches: DashboardBranch[];
   commits: DashboardCommit[];
   commitDates: string[];
+  commitLog: DashboardCommitLogEntry[];
 }
 
 interface PackageSnapshot {
@@ -558,7 +613,14 @@ interface DashboardOutcomeCompleteness {
 }
 
 interface DashboardRoadmapSavePayload {
-  items: Array<{ id?: string; text: string; completed?: boolean; isMvp?: boolean }>;
+  /**
+   * `isMvp` is the original single-gate field and is still accepted: an older
+   * webview (or a queued message from one) must not silently drop an item's MVP
+   * membership. `gates` supersedes it when present.
+   */
+  items: Array<{ id?: string; text: string; completed?: boolean; isMvp?: boolean; gates?: string[] }>;
+  /** Declared release gates, when the save also changes the gate list. */
+  gates?: Array<{ id: string; label: string }>;
 }
 
 interface DashboardRoadmapItem {
@@ -568,8 +630,17 @@ interface DashboardRoadmapItem {
   focus: 'security' | 'architecture' | 'delivery' | 'feature' | 'documentation';
   priorityScore: number;
   priorityReason: string;
+  /** Retained as `gates.includes('mvp')` — the MVP gate keeps its own name. */
   isMvp: boolean;
+  /** Every declared gate this item is tagged for, in declared order. */
+  gates: string[];
   mvpCandidate: boolean;
+}
+
+interface DashboardRoadmapGateView extends RoadmapGate {
+  totalCount: number;
+  completedCount: number;
+  progressPercent: number;
 }
 
 interface DashboardMvpStep {
@@ -594,13 +665,39 @@ interface DashboardMvpSnapshot {
   planPrompt: string;
 }
 
+/**
+ * The repository's issue tracker, as the dashboard sees it.
+ *
+ * `status` is deliberately explicit rather than an empty list: "no issues" and
+ * "we could not look" are different facts, and a page that showed an empty
+ * board for a missing `gh` would report a clean tracker that nobody checked.
+ */
+interface DashboardIssuesSnapshot {
+  status: 'ready' | 'not-loaded' | 'no-cli' | 'not-authenticated' | 'no-repo' | 'error';
+  /** Plain-English state, including what to run when something is missing. */
+  detail: string;
+  /** Command that would fix a `no-cli` / `not-authenticated` / `no-repo` state. */
+  fixCommand?: string;
+  repoSlug?: string;
+  issues: IssueRecord[];
+  summary?: IssueSummary;
+  /** When the list was last fetched; absent until the first load. */
+  loadedAt?: string;
+  busy: boolean;
+}
+
 interface DashboardRoadmapSnapshot {
   filePath: string;
   items: DashboardRoadmapItem[];
   completedCount: number;
   outstandingCount: number;
   nextSuggestedWork: DashboardRoadmapItem[];
+  /** The MVP gate's route. Kept under its own name — it feeds the score. */
   mvp: DashboardMvpSnapshot;
+  /** Declared gates with their progress, in declared order (`mvp` first). */
+  gates: DashboardRoadmapGateView[];
+  /** One route per gate, keyed by gate id, so switching gates needs no round trip. */
+  gateRoutes: Record<string, DashboardMvpSnapshot>;
 }
 
 interface DashboardScoreRecommendation {
@@ -770,6 +867,49 @@ interface DashboardDirectorSnapshot {
   seeded: boolean;
   /** True when no git repository is present, so the roster cannot be seeded yet. */
   notInGitRepo: boolean;
+  /**
+   * AtlasMind agents a Buzz identity can be bound to, id + label only. Sent so
+   * the roster can offer a picker without the client guessing agent ids.
+   */
+  agentChoices: Array<{ id: string; name: string }>;
+  /**
+   * Current `atlasmind.buzz.agentBindings`, normalised. The setting stays the
+   * single source of truth — this view is a convenience editor for it, not a
+   * second store, so a binding made here and one hand-written in settings can
+   * never disagree.
+   */
+  agentBindings: BuzzAgentBinding[];
+  /** Bindings that could not be used, surfaced rather than silently dropped. */
+  agentBindingIssues: BuzzAgentBindingIssue[];
+  /** True when `atlasmind.buzz.enabled` is on, so the UI can explain an inert binding. */
+  buzzEnabled: boolean;
+  /**
+   * Buzz identities *observed* this session, so a handle can be picked instead
+   * of typed. Never a guess: each key arrived on the wire, and each name was
+   * published by its own owner. In-memory only — a roster of who spoke is not
+   * something `project_memory/` should accumulate.
+   */
+  /**
+   * Observed Buzz identities, with enough evidence attached to tell strangers
+   * apart. A truncated hex key and a channel count cannot: the picker offering
+   * three `dcbe44bf896f… (no published name) · seen in 1 channel` rows is a
+   * list nobody can choose from knowingly.
+   */
+  buzzIdentities: Array<{
+    pubkey: string;
+    label: string;
+    named: boolean;
+    channelIds: string[];
+    messageCount: number;
+    lastSeenAt: number;
+    lastMessage?: string;
+    about?: string;
+  }>;
+  /**
+   * The user's own Buzz public key, derived from the agent key already in
+   * SecretStorage. The one handle that needs no lookup at all.
+   */
+  ownBuzzPubkey?: string;
 }
 
 type DashboardGapPriority = 'P1' | 'P2' | 'P3';
@@ -806,6 +946,13 @@ interface DashboardSnapshot {
     commits: DashboardSeriesPoint[];
     runs: DashboardSeriesPoint[];
     memory: DashboardSeriesPoint[];
+    /**
+     * Per-person commit series over the same window, so the Overview charts can
+     * be filtered to one contributor and show who did the work.
+     */
+    contributors: Array<{ name: string; total: number; series: DashboardSeriesPoint[] }>;
+    /** Commits in the window across everyone, including any merged "Others". */
+    contributorTotal: number;
   };
   repo: {
     dirty: boolean;
@@ -852,6 +999,7 @@ interface DashboardSnapshot {
     delta: SsotDelta;
   };
   roadmap: DashboardRoadmapSnapshot;
+  issues: DashboardIssuesSnapshot;
   security: {
     toolApprovalMode: string;
     allowTerminalWrite: boolean;
@@ -1273,6 +1421,18 @@ export class ProjectDashboardPanel {
   private readonly disposables: vscode.Disposable[] = [];
   private ideationAttachments: TaskImageAttachment[] = [];
   private pendingNavigationTarget: DashboardPageId | undefined;
+  /**
+   * Issues are fetched on demand, never as part of a dashboard render: `gh` is a
+   * network call against a rate-limited API, and a page that refreshed it on
+   * every unrelated re-render would spend the user's quota to show a tab they
+   * may not be looking at.
+   */
+  private issuesState: DashboardIssuesSnapshot = {
+    status: 'not-loaded',
+    detail: 'Issues have not been loaded yet.',
+    issues: [],
+    busy: false,
+  };
 
   public static createOrShow(context: vscode.ExtensionContext, atlas: AtlasMindContext, targetPage?: DashboardPageId): void {
     const column = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
@@ -1422,6 +1582,24 @@ export class ProjectDashboardPanel {
       case 'saveRoadmap':
         await this.saveRoadmap(message.payload);
         return;
+      case 'createRoadmapGate':
+        await this.handleCreateRoadmapGate();
+        return;
+      case 'deleteRoadmapGate':
+        await this.handleDeleteRoadmapGate(message.payload);
+        return;
+      case 'refreshIssues':
+        await this.handleRefreshIssues();
+        return;
+      case 'workOnIssue':
+        await this.handleWorkOnIssue(message.payload);
+        return;
+      case 'createIssue':
+      case 'closeIssue':
+      case 'reopenIssue':
+      case 'commentIssue':
+        await this.handleIssueWrite(message);
+        return;
       case 'saveTestingConfig':
         {
           const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -1506,13 +1684,21 @@ export class ProjectDashboardPanel {
           // paths workspace-relative and traversal-safe) before it touches disk.
           const clean = sanitizeDocumentsConfig(message.payload);
           if (clean) {
+            // Diff against what was persisted *before* the save so only shelves
+            // that are genuinely new get a folder created for them.
+            const added = newShelfPaths(clean, this.atlas.documentsManager.getConfig());
             await this.atlas.documentsManager.save(clean);
+            await this.ensureShelfFolders(added);
             await this.syncState();
           }
         }
         return;
       case 'seedDocumentsFromRepo':
         await this.handleSeedDocuments();
+        return;
+      case 'createShelfFolder':
+        await this.ensureShelfFolders([message.payload]);
+        await this.syncState();
         return;
       case 'copyContact':
         await this.handleCopyContact(message.payload);
@@ -1525,6 +1711,9 @@ export class ProjectDashboardPanel {
         return;
       case 'directorSendComms':
         await this.handleDirectorSendComms(message.payload);
+        break;
+      case 'setBuzzAgentBinding':
+        await this.handleSetBuzzAgentBinding(message.payload);
         return;
       case 'testDataPrivacy':
         {
@@ -1565,7 +1754,7 @@ export class ProjectDashboardPanel {
           }
           const configuration = vscode.workspace.getConfiguration('atlasmind');
           const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState);
           const seedItems = snapshot.gapAnalysis.items.filter(item => !item.resolved);
           this.queueNavigation('gapAnalysis');
           await this.postMessage({ type: 'navigate', payload: 'gapAnalysis' });
@@ -1592,7 +1781,7 @@ export class ProjectDashboardPanel {
           if (!workspaceRoot || message.payload.trim().length === 0) {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState);
           const targetItem = snapshot.gapAnalysis.items.find(item => item.id === message.payload.trim() && !item.resolved && item.type !== 'praise');
           if (!targetItem) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: 'That gap could not be found. Try re-running the analysis.' });
@@ -1618,7 +1807,7 @@ export class ProjectDashboardPanel {
           if (priority !== 'P1' && priority !== 'P2' && priority !== 'P3') {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState);
           const groupedItems = snapshot.gapAnalysis.items.filter(item => !item.resolved && item.type !== 'praise' && item.priority === priority);
           if (groupedItems.length === 0) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: `No open ${priority} items are available to resolve.` });
@@ -1644,7 +1833,7 @@ export class ProjectDashboardPanel {
           if (!gapId) {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState);
           const targetItem = snapshot.gapAnalysis.items.find(item => item.id === gapId);
           if (!targetItem) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: 'Gap item not found. Try re-running the analysis.' });
@@ -1703,7 +1892,7 @@ export class ProjectDashboardPanel {
 
   private async syncState(): Promise<void> {
     try {
-      const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments);
+      const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState);
       await this.postMessage({ type: 'state', payload: snapshot });
       if (this.pendingNavigationTarget) {
         await this.postMessage({ type: 'navigate', payload: this.pendingNavigationTarget });
@@ -1771,27 +1960,352 @@ export class ProjectDashboardPanel {
     const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('atlasmind.ssotPath', 'project_memory')
       ?? vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
     const filePath = path.join(workspaceRoot, ssotPath, 'roadmap', 'improvement-plan.md');
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    const existing = await fs.readFile(filePath, 'utf-8').catch(() => '');
+
+    // Gates come from the payload when the save changes them, otherwise from the
+    // file — a plain item save must never drop a gate the user declared.
+    const declaredGates = normalizeGates(
+      Array.isArray(payload.gates)
+        ? payload.gates.map(gate => ({
+            id: slugifyGateId((gate as { id?: unknown })?.id),
+            label: typeof (gate as { label?: unknown })?.label === 'string' ? (gate as { label: string }).label : '',
+            order: 0,
+            builtIn: false,
+          }))
+        : parseRoadmapGates(existing),
+    );
+
     const sanitizedItems = (payload.items ?? [])
       .map((item, index) => {
-        // The #mvp tag is metadata: keep it out of the text and re-derive it from
-        // the flag so the round-trip stays idempotent even if the tag leaks in.
+        // Gate tags are metadata: keep them out of the text and re-derive them
+        // from the ids so the round-trip stays idempotent even if a tag leaks in.
         const rawText = typeof item.text === 'string' ? item.text : '';
-        const isMvp = item.isMvp === true || /#mvp\b/i.test(rawText);
+        const stripped = extractItemGates(rawText, declaredGates);
+        const gates = sanitizeGateSelection(
+          Array.isArray(item.gates)
+            ? item.gates
+            : [...(item.isMvp === true ? [MVP_GATE_ID] : []), ...stripped.gates],
+          declaredGates,
+        );
         return {
           id: typeof item.id === 'string' && item.id.trim().length > 0 ? item.id.trim() : `roadmap-${index + 1}`,
-          text: rawText.replace(/\s*#mvp\b/ig, '').trim(),
+          text: stripped.text,
           completed: item.completed === true,
-          isMvp,
+          isMvp: gates.includes(MVP_GATE_ID),
+          gates,
         };
       })
       .filter(item => item.text.length > 0);
 
-    await fs.mkdir(path.dirname(filePath), { recursive: true });
-    const existing = await fs.readFile(filePath, 'utf-8').catch(() => '');
-    const nextDocument = serializeDashboardRoadmapDocument(existing, sanitizedItems);
+    const nextDocument = serializeDashboardRoadmapDocument(existing, sanitizedItems, declaredGates);
     await fs.writeFile(filePath, nextDocument, 'utf-8');
 
     const ssotRoot = vscode.Uri.file(path.join(workspaceRoot, ssotPath));
+    await this.atlas.memoryManager.loadFromDisk(ssotRoot);
+    this.atlas.memoryRefresh.fire();
+    await this.syncState();
+  }
+
+  /**
+   * Declare a new release gate.
+   *
+   * The name is collected with a native input box rather than in the webview: it
+   * becomes a `#tag` in a tracked markdown file, so it is validated where the
+   * write happens (slugified, length-capped, checked against the existing gates
+   * and the maximum) and refused with a reason rather than silently corrected.
+   */
+  // ── Issues (GitHub, via the gh CLI) ─────────────────────────────
+
+  /**
+   * Load the repository's issues.
+   *
+   * Read-only and user-triggered. Each failure mode is reported as itself with
+   * the command that fixes it — "no issues" and "we could not look" are
+   * different facts, and collapsing them would report a clean tracker nobody
+   * checked.
+   */
+  private async handleRefreshIssues(): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      this.issuesState = { status: 'no-repo', detail: 'Open a workspace folder to read its issues.', issues: [], busy: false };
+      await this.syncState();
+      return;
+    }
+
+    this.issuesState = { ...this.issuesState, busy: true };
+    await this.syncState();
+
+    try {
+      const slug = (await runGh(workspaceRoot, ['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'])).trim();
+      if (!slug) {
+        this.issuesState = {
+          status: 'no-repo',
+          detail: 'This workspace has no GitHub repository that `gh` can resolve.',
+          fixCommand: 'gh repo set-default',
+          issues: [],
+          busy: false,
+        };
+        await this.syncState();
+        return;
+      }
+
+      // Closed issues are fetched too, but only recently — the page is a working
+      // board, not an archive, and an unbounded closed list is a slow request
+      // that nobody reads.
+      const raw = await runGh(workspaceRoot, [
+        'issue', 'list',
+        '--state', 'all',
+        '--limit', '100',
+        '--json', 'number,title,state,author,labels,assignees,body,url,createdAt,updatedAt,comments',
+      ]);
+      const issues = parseGhIssueList(raw);
+      this.issuesState = {
+        status: 'ready',
+        detail: `Read from ${slug}.`,
+        repoSlug: slug,
+        issues,
+        summary: summarizeIssues(issues, Date.now()),
+        loadedAt: new Date().toISOString(),
+        busy: false,
+      };
+    } catch (error) {
+      this.issuesState = { ...this.classifyIssueFailure(error), issues: [], busy: false };
+    }
+    await this.syncState();
+  }
+
+  /** Turn a `gh` failure into the specific thing that is wrong, and its fix. */
+  private classifyIssueFailure(error: unknown): Pick<DashboardIssuesSnapshot, 'status' | 'detail' | 'fixCommand'> {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/ENOENT|not recognized|command not found/i.test(message)) {
+      return {
+        status: 'no-cli',
+        detail: 'The GitHub CLI (`gh`) is not installed, so AtlasMind cannot read this repository\'s issues.',
+        fixCommand: 'winget install --id GitHub.cli',
+      };
+    }
+    if (/auth|login|credential|token/i.test(message)) {
+      return {
+        status: 'not-authenticated',
+        detail: 'The GitHub CLI is installed but not authenticated for this repository.',
+        fixCommand: 'gh auth login',
+      };
+    }
+    return {
+      status: 'error',
+      detail: `Could not read issues: ${message.slice(0, 300)}`,
+    };
+  }
+
+  /**
+   * Create, close, reopen, or comment on an issue.
+   *
+   * Every branch here is **outward-facing and usually public**, so each one is
+   * gated on a `{ modal: true }` confirmation that names the repository and the
+   * exact action, built from the same values that will be sent. The webview
+   * supplies only data — never a command — and `gh` is invoked directly, without
+   * a shell.
+   */
+  private async handleIssueWrite(message: {
+    type: 'createIssue' | 'closeIssue' | 'reopenIssue' | 'commentIssue';
+    payload: unknown;
+  }): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const slug = this.issuesState.repoSlug;
+    if (!workspaceRoot || !slug) {
+      void vscode.window.showWarningMessage('Load the issue list first so AtlasMind knows which repository to write to.');
+      return;
+    }
+
+    let args: string[];
+    let description: string;
+    let successNote: string;
+
+    if (message.type === 'createIssue') {
+      const draft = sanitizeIssueDraft(message.payload);
+      if (!draft) {
+        void vscode.window.showWarningMessage('An issue needs a title before it can be created.');
+        return;
+      }
+      args = ['issue', 'create', '--title', draft.title, '--body', draft.body || '_No description provided._'];
+      for (const label of draft.labels) {
+        args.push('--label', label);
+      }
+      description = describeIssueAction('create', slug, { title: draft.title });
+      successNote = `Created an issue on ${slug}.`;
+    } else {
+      const payload = message.payload as { number?: unknown; body?: unknown } | undefined;
+      const number = sanitizeIssueNumber(payload?.number);
+      if (number === 0) {
+        return;
+      }
+      if (message.type === 'commentIssue') {
+        const draft = sanitizeIssueDraft({ title: 'comment', body: payload?.body, labels: [] });
+        const body = draft?.body ?? '';
+        if (!body) {
+          void vscode.window.showWarningMessage('Write a comment before posting it.');
+          return;
+        }
+        args = ['issue', 'comment', String(number), '--body', body];
+        description = describeIssueAction('comment', slug, { number });
+        successNote = `Commented on #${number}.`;
+      } else if (message.type === 'closeIssue') {
+        args = ['issue', 'close', String(number)];
+        description = describeIssueAction('close', slug, { number });
+        successNote = `Closed #${number}.`;
+      } else {
+        args = ['issue', 'reopen', String(number)];
+        description = describeIssueAction('reopen', slug, { number });
+        successNote = `Reopened #${number}.`;
+      }
+    }
+
+    const confirmation = await vscode.window.showWarningMessage(
+      'Write to the issue tracker?',
+      { modal: true, detail: description },
+      'Yes, do it',
+    );
+    if (confirmation !== 'Yes, do it') {
+      return;
+    }
+
+    try {
+      await runGh(workspaceRoot, args);
+      void vscode.window.showInformationMessage(successNote);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`The issue action failed: ${detail.slice(0, 300)}`);
+    }
+    // Re-read either way: a failed write may still have partially applied, and
+    // the list is the only honest report of what the tracker now holds.
+    await this.handleRefreshIssues();
+  }
+
+  /** Hand an issue to chat as *reported content*, never as instructions. */
+  private async handleWorkOnIssue(rawNumber: unknown): Promise<void> {
+    const number = sanitizeIssueNumber(rawNumber);
+    const issue = this.issuesState.issues.find(entry => entry.number === number);
+    if (!issue) {
+      return;
+    }
+    await vscode.commands.executeCommand('atlasmind.openChatPanel', {
+      draftPrompt: buildIssueWorkPrompt(issue),
+      sendMode: 'new-session',
+    });
+  }
+
+  private async handleCreateRoadmapGate(): Promise<void> {
+    const context = await this.readRoadmapDocument();
+    if (!context) {
+      return;
+    }
+    if (context.gates.length >= MAX_ROADMAP_GATES) {
+      void vscode.window.showWarningMessage(`A roadmap can track ${MAX_ROADMAP_GATES} release gates. Remove one before adding another.`);
+      return;
+    }
+
+    const label = await vscode.window.showInputBox({
+      title: 'New release gate',
+      prompt: 'Name the release this gate represents, e.g. "Public beta" or "v1.0".',
+      placeHolder: 'Public beta',
+      validateInput: value => {
+        const id = slugifyGateId(value);
+        if (!id) {
+          return 'Use letters or numbers — the name becomes a #tag in the roadmap file.';
+        }
+        if (context.gates.some(gate => gate.id === id)) {
+          return `A gate called #${id} already exists.`;
+        }
+        return undefined;
+      },
+    });
+    if (!label) {
+      return;
+    }
+    const id = slugifyGateId(label);
+    if (!id || context.gates.some(gate => gate.id === id)) {
+      return;
+    }
+
+    const gates = normalizeGates([...context.gates, { id, label: label.trim(), order: context.gates.length, builtIn: false }]);
+    await this.writeRoadmapDocument(context, context.items, gates);
+    void vscode.window.showInformationMessage(`Release gate #${id} added. Tag backlog items with it to build its path.`);
+  }
+
+  /**
+   * Remove a release gate.
+   *
+   * Destructive to a *label*, never to work: the gate's tag is removed from every
+   * item, the items themselves are untouched, and the built-in MVP gate cannot be
+   * removed at all. Confirmed modally because it edits a tracked file.
+   */
+  private async handleDeleteRoadmapGate(gateId: string): Promise<void> {
+    const id = slugifyGateId(gateId);
+    if (!id || id === MVP_GATE_ID) {
+      return;
+    }
+    const context = await this.readRoadmapDocument();
+    if (!context) {
+      return;
+    }
+    const gate = context.gates.find(entry => entry.id === id);
+    if (!gate) {
+      return;
+    }
+    const taggedCount = context.items.filter(item => item.gates.includes(id)).length;
+    const confirmation = await vscode.window.showWarningMessage(
+      `Remove the release gate "${gate.label}" (#${id})?`,
+      {
+        modal: true,
+        detail: taggedCount > 0
+          ? `The tag will be removed from ${taggedCount} backlog item${taggedCount === 1 ? '' : 's'}. No backlog item is deleted.`
+          : 'No backlog items are tagged for it.',
+      },
+      'Remove gate',
+    );
+    if (confirmation !== 'Remove gate') {
+      return;
+    }
+
+    const gates = normalizeGates(context.gates.filter(entry => entry.id !== id));
+    const items = context.items.map(item => ({ ...item, gates: item.gates.filter(entry => entry !== id) }));
+    await this.writeRoadmapDocument(context, items, gates);
+  }
+
+  /** Read the roadmap document once, with its gates and items already parsed. */
+  private async readRoadmapDocument(): Promise<{
+    filePath: string;
+    ssotPath: string;
+    workspaceRoot: string;
+    existing: string;
+    gates: RoadmapGate[];
+    items: Array<{ id: string; text: string; completed: boolean; gates: string[] }>;
+  } | undefined> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      return undefined;
+    }
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    const ssotPath = normalizeSsotPath(configuration.get<string>('atlasmind.ssotPath', 'project_memory')
+      ?? configuration.get<string>('ssotPath', 'project_memory'));
+    const filePath = path.join(workspaceRoot, ssotPath, 'roadmap', 'improvement-plan.md');
+    const existing = await fs.readFile(filePath, 'utf-8').catch(() => '');
+    const gates = parseRoadmapGates(existing);
+    const items = parseDashboardRoadmapItems(existing, gates)
+      .map(item => ({ id: item.id, text: item.text, completed: item.completed, gates: item.gates }));
+    return { filePath, ssotPath, workspaceRoot, existing, gates, items };
+  }
+
+  private async writeRoadmapDocument(
+    context: { filePath: string; ssotPath: string; workspaceRoot: string; existing: string },
+    items: Array<{ text: string; completed: boolean; gates: string[] }>,
+    gates: RoadmapGate[],
+  ): Promise<void> {
+    await fs.mkdir(path.dirname(context.filePath), { recursive: true });
+    const nextDocument = serializeDashboardRoadmapDocument(context.existing, items, gates);
+    await fs.writeFile(context.filePath, nextDocument, 'utf-8');
+    const ssotRoot = vscode.Uri.file(path.join(context.workspaceRoot, context.ssotPath));
     await this.atlas.memoryManager.loadFromDisk(ssotRoot);
     this.atlas.memoryRefresh.fire();
     await this.syncState();
@@ -1861,8 +2375,16 @@ export class ProjectDashboardPanel {
           hasSessionContext: Boolean(sessionContext),
           imageAttachments: this.ideationAttachments,
           routingContext: { ideation: true },
+          responseText: parsed.displayResponse,
         }),
       );
+
+      // A question Atlas asks here deserves the same one-tap answer as in the
+      // Chat panel; without this the user has to retype "yes".
+      const quickReplies = buildQuickReplyPayload(parsed.displayResponse);
+      if (quickReplies) {
+        await this.postMessage({ type: 'ideationQuickReplies', payload: quickReplies });
+      }
 
       if (payload.speakResponse || configuration.get<boolean>('voice.ttsEnabled', false)) {
         this.atlas.voiceManager.speak(parsed.displayResponse);
@@ -2070,6 +2592,82 @@ export class ProjectDashboardPanel {
     }
     await this.atlas.projectDirectorManager.save(config);
     await this.syncState();
+  }
+
+  /**
+   * Bind (or unbind) a Buzz identity to an AtlasMind agent from the Director roster.
+   *
+   * The `atlasmind.buzz.agentBindings` setting remains the single source of
+   * truth; this is a convenience editor for it, so a binding made here and one
+   * typed into settings can never disagree. Three refusals, all loud:
+   *
+   *  - A key that will not normalise is **rejected, never coerced** — one wrong
+   *    bech32 character would otherwise bind work to a different real identity.
+   *  - An agent id with no matching agent is refused, so a rename cannot leave a
+   *    binding silently pointing at nothing.
+   *  - Writing fails visibly rather than leaving the roster showing a binding
+   *    the settings file does not have.
+   */
+  private async handleSetBuzzAgentBinding(payload: { pubkey: string; agentIds: string[]; label?: string }): Promise<void> {
+    const agentIds = payload.agentIds.map(id => id.trim()).filter(Boolean);
+    // Every id is checked, not just the first. A rename that broke the second
+    // of three would otherwise save silently and route nothing.
+    const unknown = agentIds.filter(id => !this.atlas.agentRegistry?.get(id));
+    if (unknown.length > 0) {
+      void vscode.window.showWarningMessage(
+        `The person was saved, but the Buzz agent binding was not: there is no AtlasMind agent named ${
+          unknown.map(id => `"${id}"`).join(', ')}.`,
+      );
+      return;
+    }
+
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    const result = writeAgentBinding(configuration.get('buzz.agentBindings'), { ...payload, agentIds });
+    if (!result.ok) {
+      // Say what did and did not happen. The person is saved by a separate
+      // message, so a refused binding must not read as a refused save.
+      void vscode.window.showWarningMessage(
+        `The person was saved, but the Buzz agent binding was not: ${result.error ?? 'the key could not be used.'}`,
+      );
+      return;
+    }
+
+    // Workspace scope: which colleague maps to which specialist is a property of
+    // this project, not of the machine.
+    const target = vscode.workspace.workspaceFolders?.length
+      ? vscode.ConfigurationTarget.Workspace
+      : vscode.ConfigurationTarget.Global;
+    try {
+      await configuration.update('buzz.agentBindings', result.value, target);
+    } catch (error) {
+      void vscode.window.showWarningMessage(`Could not save the Buzz agent binding: ${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
+    await this.syncState();
+  }
+
+  /**
+   * Create the folders for shelves that declare one.
+   *
+   * A shelf records where documents live, so it should not point at a folder the
+   * project doesn't have — but this stays create-only (`mkdir`, never a write),
+   * and a path already occupied by a file is reported rather than disturbed. The
+   * user is told what was created so a filing decision never happens invisibly.
+   */
+  private async ensureShelfFolders(relPaths: string[]): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot || relPaths.length === 0) {
+      return;
+    }
+    const result = await createShelfFolders(workspaceRoot, relPaths);
+    if (result.created.length > 0) {
+      void vscode.window.showInformationMessage(
+        `Created document ${result.created.length === 1 ? 'folder' : 'folders'}: ${result.created.join(', ')}.`,
+      );
+    }
+    for (const skip of result.skipped) {
+      void vscode.window.showWarningMessage(`Could not create the shelf folder "${skip.path}" — ${skip.reason}.`);
+    }
   }
 
   private async handleSeedDocuments(): Promise<void> {
@@ -2320,16 +2918,29 @@ export class ProjectDashboardPanel {
       return;
     }
     const intent = payload.intent;
-    const preferKinds = intent === 'message' ? ['slack', 'teams'] : ['email'];
-    const link = contact.links.find(entry => preferKinds.includes(entry.kind)) ?? contact.links[0];
+    const capabilities = detectConnectorCapabilities(this.atlas.mcpServerRegistry?.listServers() ?? []);
+    const preferKinds = intent === 'message' ? ['buzz', 'slack', 'teams'] : ['email'];
+    const preferredLinks = contact.links.filter(entry => preferKinds.includes(entry.kind));
+    const link = preferredLinks.find(entry =>
+      resolveCapability(capabilities, intent, entry.kind, entry.handle),
+    ) ?? preferredLinks[0] ?? contact.links[0];
     const recipient = link?.handle ?? '';
     if (!recipient) {
       void vscode.window.showWarningMessage(`No ${intent === 'message' ? 'chat' : intent} channel on file for ${contact.name}.`);
       return;
     }
 
-    const capabilities = detectConnectorCapabilities(this.atlas.mcpServerRegistry?.listServers() ?? []);
-    const capability = resolveCapability(capabilities, intent);
+    if (link?.kind === 'buzz') {
+      const buzzEnabled = vscode.workspace.getConfiguration('atlasmind').get<boolean>('buzz.enabled', false);
+      if (!buzzEnabled) {
+        void vscode.window.showWarningMessage(
+          'Buzz integration is off. Enable atlasmind.buzz.enabled before opening or sending to Buzz.',
+        );
+        return;
+      }
+    }
+
+    const capability = resolveCapability(capabilities, intent, link?.kind, recipient);
     if (!capability) {
       // Non-destructive fallback: open the deep-link, or explain there's no connector.
       if (link?.deepLink) {
@@ -2731,11 +3342,44 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
   }
 
   const candidate = message as Record<string, unknown>;
-  if (candidate['type'] === 'ready' || candidate['type'] === 'refresh' || candidate['type'] === 'runGapAnalysis' || candidate['type'] === 'markDeliveryReviewed' || candidate['type'] === 'reimportDelivery' || candidate['type'] === 'seedDirectorFromRepo' || candidate['type'] === 'seedDocumentsFromRepo') {
+  if (candidate['type'] === 'ready' || candidate['type'] === 'refresh' || candidate['type'] === 'runGapAnalysis' || candidate['type'] === 'markDeliveryReviewed' || candidate['type'] === 'reimportDelivery' || candidate['type'] === 'seedDirectorFromRepo' || candidate['type'] === 'seedDocumentsFromRepo' || candidate['type'] === 'createRoadmapGate') {
     return true;
   }
 
-  if ((candidate['type'] === 'openCommand' || candidate['type'] === 'openFile' || candidate['type'] === 'openRun' || candidate['type'] === 'openRunWithGoal' || candidate['type'] === 'openSession' || candidate['type'] === 'addressGap' || candidate['type'] === 'resolveGapItem' || candidate['type'] === 'resolveGapGroup' || candidate['type'] === 'openGapFiles' || candidate['type'] === 'copyContact') && typeof candidate['payload'] === 'string') {
+  if (candidate['type'] === 'refreshIssues') {
+    return true;
+  }
+
+  if (candidate['type'] === 'workOnIssue') {
+    return sanitizeIssueNumber(candidate['payload']) > 0;
+  }
+
+  // Issue writes are outward-facing and usually public, so the shape is checked
+  // here and the content is re-sanitised before it reaches `gh`. The webview
+  // never supplies a command or an argument list — only these fields.
+  if (candidate['type'] === 'createIssue') {
+    return sanitizeIssueDraft(candidate['payload']) !== undefined;
+  }
+
+  if (candidate['type'] === 'closeIssue' || candidate['type'] === 'reopenIssue') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null && sanitizeIssueNumber(payload['number']) > 0;
+  }
+
+  if (candidate['type'] === 'commentIssue') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null
+      && sanitizeIssueNumber(payload['number']) > 0
+      && typeof payload['body'] === 'string' && payload['body'].trim().length > 0;
+  }
+
+  if (candidate['type'] === 'deleteRoadmapGate') {
+    // A gate id is a slug, not free text: reject anything that would not round-trip
+    // as a `#tag` rather than coercing it into one.
+    return typeof candidate['payload'] === 'string' && slugifyGateId(candidate['payload']).length > 0;
+  }
+
+  if ((candidate['type'] === 'openCommand' || candidate['type'] === 'openFile' || candidate['type'] === 'openRun' || candidate['type'] === 'openRunWithGoal' || candidate['type'] === 'openSession' || candidate['type'] === 'addressGap' || candidate['type'] === 'resolveGapItem' || candidate['type'] === 'resolveGapGroup' || candidate['type'] === 'openGapFiles' || candidate['type'] === 'copyContact' || candidate['type'] === 'createShelfFolder') && typeof candidate['payload'] === 'string') {
     return candidate['payload'].trim().length > 0;
   }
 
@@ -2825,6 +3469,15 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return typeof p === 'object' && p !== null
       && (p['intent'] === 'email' || p['intent'] === 'schedule' || p['intent'] === 'message')
       && typeof p['contactId'] === 'string' && p['contactId'].length > 0;
+  }
+
+  if (candidate['type'] === 'setBuzzAgentBinding') {
+    const p = candidate['payload'] as Record<string, unknown> | undefined;
+    // An empty list is the unbind case, not a malformed message. Every entry
+    // must be a string: this decides which agent owns inbound work, so a
+    // non-string slipping through would reach the registry lookup as anything.
+    return typeof p === 'object' && p !== null && typeof p['pubkey'] === 'string' && p['pubkey'].length > 0
+      && Array.isArray(p['agentIds']) && p['agentIds'].every(id => typeof id === 'string');
   }
 
   if (candidate['type'] === 'requestPromotionPlan') {
@@ -2924,7 +3577,13 @@ export function normalizeDashboardPromptRequest(payload: unknown): { prompt: str
   };
 }
 
-async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachments: TaskImageAttachment[] = []): Promise<DashboardSnapshot> {
+async function collectDashboardSnapshot(
+  atlas: AtlasMindContext,
+  ideationAttachments: TaskImageAttachment[] = [],
+  // Held by the panel rather than collected here: issues come from a network
+  // call, so they are fetched on demand and simply carried through a render.
+  issues: DashboardIssuesSnapshot = { status: 'not-loaded', detail: 'Issues have not been loaded yet.', issues: [], busy: false },
+): Promise<DashboardSnapshot> {
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const workspaceName = vscode.workspace.workspaceFolders?.[0]?.name ?? 'No Workspace';
   const configuration = vscode.workspace.getConfiguration('atlasmind');
@@ -2959,6 +3618,7 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
   const documentsSnapshot = await collectDocumentsSnapshot(atlas, workspaceRoot);
   const riskSnapshot = collectRiskSnapshot(atlas, workspaceRoot);
   const runtimeTdd = summarizeRuntimeTdd(runs);
+  const contributorBreakdown = buildContributorSeries(gitSnapshot.commitLog, SERIES_DAY_RANGE);
   const costSummary = atlas.costTracker.getSummary();
   const memoryEntries = atlas.memoryManager.listEntries();
   const scanResults = atlas.memoryManager.getScanResults();
@@ -3132,6 +3792,8 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
       commits: buildDailySeries(gitSnapshot.commitDates, SERIES_DAY_RANGE),
       runs: buildDailySeries(runs.map(run => run.updatedAt), SERIES_DAY_RANGE),
       memory: buildDailySeries(memoryEntries.map(entry => entry.lastModified), SERIES_DAY_RANGE),
+      contributors: contributorBreakdown.contributors,
+      contributorTotal: contributorBreakdown.totalCommits,
     },
     repo: {
       dirty: gitSnapshot.dirty,
@@ -3197,6 +3859,7 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
       delta: ssotDelta,
     },
     roadmap: roadmapSnapshot,
+    issues,
     security: {
       toolApprovalMode,
       allowTerminalWrite,
@@ -3525,9 +4188,20 @@ async function collectGitSnapshot(workspaceRoot: string | undefined): Promise<Gi
       } satisfies DashboardCommit;
     });
 
-  const commitDates = (await runGit(workspaceRoot, ['log', `--since=${SERIES_DAY_RANGE} days ago`, '--date=short', '--pretty=format:%ad']))
+  // One log call carries both halves of the timeline: the day (for the activity
+  // chart) and the author (for the per-person breakdown). Author *names* only —
+  // the same field the commit list already shows; no addresses are read.
+  const commitLog = (await runGit(workspaceRoot, ['log', `--since=${SERIES_DAY_RANGE} days ago`, '--date=short', '--pretty=format:%ad|%an']))
     .split(/\r?\n/)
-    .filter(Boolean);
+    .filter(Boolean)
+    .map(line => {
+      const separator = line.indexOf('|');
+      return separator < 0
+        ? { date: line.trim(), author: '' }
+        : { date: line.slice(0, separator).trim(), author: line.slice(separator + 1).trim() };
+    })
+    .filter(entry => entry.date.length > 0);
+  const commitDates = commitLog.map(entry => entry.date);
 
   return {
     currentBranch,
@@ -3540,6 +4214,7 @@ async function collectGitSnapshot(workspaceRoot: string | undefined): Promise<Gi
     branches,
     commits,
     commitDates,
+    commitLog,
   };
 }
 
@@ -4310,6 +4985,26 @@ const DELIVERY_REVIEW_STATE_KEY = 'atlasmind.deliveryReview';
 const PROJECT_DIRECTOR_PII_ACK_KEY = 'atlasmind.projectDirector.piiStorageAcknowledged';
 
 /**
+ * The user's own Buzz public key, derived from the agent key in SecretStorage.
+ *
+ * Only the *public* half ever leaves this function, and only when Buzz is
+ * enabled — reading the stored secret to compute a key nobody asked for would
+ * be touching a secret without a reason. Failure is silent by design: an absent
+ * or unusable key simply means the roster offers nothing to prefill.
+ */
+async function readOwnBuzzPubkey(atlas: AtlasMindContext): Promise<string | undefined> {
+  if (!vscode.workspace.getConfiguration('atlasmind').get<boolean>('buzz.enabled', false)) {
+    return undefined;
+  }
+  try {
+    const stored = (await atlas.extensionContext.secrets.get(BUZZ_AGENT_KEY_SECRET))?.trim();
+    return stored ? await deriveBuzzPublicKey(stored) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Gather a first-draft roster from the repository: the git user (as "me"),
  * distinct git contributors, CODEOWNERS handles, the package author, and any
  * Website Studio client-intake stakeholders. Everything is optional and
@@ -4400,6 +5095,25 @@ async function collectDirectorSnapshot(
 ): Promise<DashboardDirectorSnapshot> {
   const connectors = detectConnectorCapabilities(atlas.mcpServerRegistry?.listServers() ?? [])
     .map(capability => ({ intent: capability.intent, serverName: capability.serverName, toolName: capability.toolName }));
+  const buzzConfiguration = vscode.workspace.getConfiguration('atlasmind');
+  const parsedBindings = parseAgentBindings(buzzConfiguration.get('buzz.agentBindings'));
+  const agentChoices = (atlas.agentRegistry?.listAgents() ?? [])
+    .map(agent => ({ id: agent.id, name: agent.name || agent.id }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  // Observed identities, so a handle can be picked. `named` distinguishes a
+  // published name from a key prefix standing in for one — the UI must not
+  // present the latter as though someone chose it.
+  const buzzIdentities = (atlas.buzzInbound?.listIdentities() ?? []).map(identity => ({
+    pubkey: identity.pubkey,
+    label: describeIdentity(identity),
+    named: identity.displayName !== undefined,
+    channelIds: identity.channelIds,
+    messageCount: identity.messageCount,
+    lastSeenAt: identity.lastSeenAt,
+    ...(identity.lastMessage ? { lastMessage: identity.lastMessage } : {}),
+    ...(identity.about ? { about: identity.about } : {}),
+  }));
+  const ownBuzzPubkey = await readOwnBuzzPubkey(atlas);
   const base: DashboardDirectorSnapshot = {
     configPath: PROJECT_DIRECTOR_SSOT_PATH,
     summaryPath: PROJECT_DIRECTOR_SUMMARY_SSOT_PATH,
@@ -4414,6 +5128,12 @@ async function collectDirectorSnapshot(
     connectors,
     seeded: false,
     notInGitRepo: false,
+    agentChoices,
+    agentBindings: parsedBindings.bindings,
+    agentBindingIssues: parsedBindings.issues,
+    buzzEnabled: buzzConfiguration.get<boolean>('buzz.enabled', false),
+    buzzIdentities,
+    ...(ownBuzzPubkey ? { ownBuzzPubkey } : {}),
   };
   const manager = atlas.projectDirectorManager;
   let piiAcknowledged = false;
@@ -5681,19 +6401,23 @@ async function collectDocumentsSnapshot(atlas: AtlasMindContext, workspaceRoot: 
 async function collectRoadmapSnapshot(workspaceRoot: string | undefined, ssotPath: string): Promise<DashboardRoadmapSnapshot> {
   const filePath = `${ssotPath}/roadmap/improvement-plan.md`;
   if (!workspaceRoot) {
+    const gates = normalizeGates([]);
     return {
       filePath,
       items: [],
       completedCount: 0,
       outstandingCount: 0,
       nextSuggestedWork: [],
-      mvp: buildMvpSnapshot([]),
+      mvp: buildMvpSnapshot([], MVP_GATE_ID),
+      gates: buildGateViews(gates, []),
+      gateRoutes: buildGateRoutes(gates, []),
     };
   }
 
   const absolutePath = path.join(workspaceRoot, ssotPath, 'roadmap', 'improvement-plan.md');
   const content = await fs.readFile(absolutePath, 'utf-8').catch(() => '');
-  const items = prioritizeDashboardRoadmapItems(parseDashboardRoadmapItems(content));
+  const gates = parseRoadmapGates(content);
+  const items = prioritizeDashboardRoadmapItems(parseDashboardRoadmapItems(content, gates));
 
   return {
     filePath,
@@ -5701,11 +6425,42 @@ async function collectRoadmapSnapshot(workspaceRoot: string | undefined, ssotPat
     completedCount: items.filter(item => item.completed).length,
     outstandingCount: items.filter(item => !item.completed).length,
     nextSuggestedWork: items.filter(item => !item.completed).slice(0, 5),
-    mvp: buildMvpSnapshot(items),
+    mvp: buildMvpSnapshot(items, MVP_GATE_ID),
+    gates: buildGateViews(gates, items),
+    gateRoutes: buildGateRoutes(gates, items),
   };
 }
 
-function parseDashboardRoadmapItems(content: string): Array<{ id: string; text: string; completed: boolean; isMvp: boolean }> {
+/** Per-gate progress, so the gate selector can show it without a route walk. */
+function buildGateViews(gates: RoadmapGate[], items: DashboardRoadmapItem[]): DashboardRoadmapGateView[] {
+  return gates.map(gate => {
+    const tagged = items.filter(item => item.gates.includes(gate.id));
+    const completedCount = tagged.filter(item => item.completed).length;
+    return {
+      ...gate,
+      totalCount: tagged.length,
+      completedCount,
+      progressPercent: tagged.length > 0 ? Math.round((completedCount / tagged.length) * 100) : 0,
+    };
+  });
+}
+
+/**
+ * A route per gate, computed up front.
+ *
+ * Switching gates in the UI is then instant and offline — the alternative
+ * (asking the extension to recompute the selected gate) turns a view toggle into
+ * a message round trip that can fail.
+ */
+function buildGateRoutes(gates: RoadmapGate[], items: DashboardRoadmapItem[]): Record<string, DashboardMvpSnapshot> {
+  const routes: Record<string, DashboardMvpSnapshot> = {};
+  for (const gate of gates.slice(0, MAX_ROADMAP_GATES)) {
+    routes[gate.id] = buildMvpSnapshot(items, gate.id, gate.label);
+  }
+  return routes;
+}
+
+function parseDashboardRoadmapItems(content: string, gates: RoadmapGate[]): Array<{ id: string; text: string; completed: boolean; isMvp: boolean; gates: string[] }> {
   const region = extractRoadmapItemsRegion(content);
   const seen = new Set<string>();
   return [...region.matchAll(/^\s*(?:[-*]|\d+\.)\s+(.+?)\s*$/gm)]
@@ -5713,9 +6468,11 @@ function parseDashboardRoadmapItems(content: string): Array<{ id: string; text: 
       const raw = match[1]?.trim() ?? '';
       const completed = /^(?:✅|\[x\])/i.test(raw);
       const withoutCheckbox = raw.replace(/^(?:✅|\[(?:x| )\])\s*/i, '').trim();
-      const isMvp = /#mvp\b/i.test(withoutCheckbox);
-      const text = withoutCheckbox.replace(/\s*#mvp\b/ig, '').trim();
-      return { text, completed, isMvp };
+      // Gate tags are metadata: keep them out of the displayed text and carry
+      // them as ids. Only declared gates are recognised, so an item mentioning
+      // "#2" keeps its wording.
+      const parsed = extractItemGates(withoutCheckbox, gates);
+      return { text: parsed.text, completed, isMvp: parsed.gates.includes(MVP_GATE_ID), gates: parsed.gates };
     })
     // Drop generator scaffolding (Project Context / Prioritisation Notes) …
     .filter(item => !isRoadmapNoiseItem(item.text))
@@ -5732,7 +6489,7 @@ function parseDashboardRoadmapItems(content: string): Array<{ id: string; text: 
     .map((item, index) => ({ id: `roadmap-${index + 1}`, ...item }));
 }
 
-function prioritizeDashboardRoadmapItems(items: Array<{ id: string; text: string; completed: boolean; isMvp?: boolean }>): DashboardRoadmapItem[] {
+function prioritizeDashboardRoadmapItems(items: Array<{ id: string; text: string; completed: boolean; isMvp?: boolean; gates?: string[] }>): DashboardRoadmapItem[] {
   return items
     .map((item, index, allItems) => {
       const normalized = item.text.toLowerCase();
@@ -5771,9 +6528,14 @@ function prioritizeDashboardRoadmapItems(items: Array<{ id: string; text: string
         || focus === 'architecture'
         || /\b(core|auth|foundation|foundational|baseline|essential|launch|ship|release|minimum viable|mvp|must|critical|first)\b/i.test(normalized);
 
+      const gates = Array.isArray(item.gates) ? [...item.gates] : [];
+      if (item.isMvp === true && !gates.includes(MVP_GATE_ID)) {
+        gates.push(MVP_GATE_ID);
+      }
       return {
         ...item,
-        isMvp: item.isMvp === true,
+        gates,
+        isMvp: gates.includes(MVP_GATE_ID),
         mvpCandidate: !item.completed && foundational,
         focus,
         priorityScore: orderBoost + focusBoost,
@@ -5839,15 +6601,27 @@ function orderMvpItems(items: DashboardRoadmapItem[]): DashboardRoadmapItem[] {
   });
 }
 
-function buildMvpSnapshot(items: DashboardRoadmapItem[]): DashboardMvpSnapshot {
-  const tagged = items.filter(item => item.isMvp);
+/**
+ * The route to a single gate.
+ *
+ * The MVP gate keeps its heuristic fallback — an untagged project still gets a
+ * suggested foundation path, which is how the section earns its place before
+ * anyone has tagged anything. A **user-created** gate does not: guessing which
+ * items belong to someone's "v2" would be inventing a release plan, so an empty
+ * gate is reported as empty.
+ */
+function buildMvpSnapshot(items: DashboardRoadmapItem[], gateId: string = MVP_GATE_ID, gateLabel = 'MVP'): DashboardMvpSnapshot {
+  const isMvpGate = gateId === MVP_GATE_ID;
+  const tagged = items.filter(item => item.gates.includes(gateId));
   const hasTaggedItems = tagged.length > 0;
 
-  // Hybrid: explicit #mvp tags define the path; otherwise fall back to the
-  // strongest heuristic candidates so the section is still useful unconfigured.
+  // Hybrid (MVP gate only): explicit tags define the path; otherwise fall back to
+  // the strongest heuristic candidates so the section is still useful unconfigured.
   const pathItems = hasTaggedItems
     ? tagged
-    : orderMvpItems(items.filter(item => item.mvpCandidate)).slice(0, 5);
+    : isMvpGate
+      ? orderMvpItems(items.filter(item => item.mvpCandidate)).slice(0, 5)
+      : [];
 
   const route = orderMvpItems(pathItems).map((item, index) => toMvpStep(item, index + 1));
   const completedCount = route.filter(step => step.completed).length;
@@ -5855,27 +6629,34 @@ function buildMvpSnapshot(items: DashboardRoadmapItem[]): DashboardMvpSnapshot {
   const progressPercent = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
   const nextStep = route.find(step => !step.completed);
 
-  // Heuristic candidates not already on the path, offered as "add to MVP".
+  // Heuristic candidates not already on the path, offered as "add to this gate".
+  // Only for the MVP gate — the heuristic recognises foundational work, which is
+  // not a claim about which release something belongs to.
   const pathIds = new Set(pathItems.map(item => item.id));
-  const candidates = hasTaggedItems
+  const candidates = hasTaggedItems && isMvpGate
     ? orderMvpItems(items.filter(item => item.mvpCandidate && !pathIds.has(item.id)))
         .slice(0, 5)
         .map((item, index) => toMvpStep(item, index + 1))
     : [];
 
   const outstanding = route.filter(step => !step.completed);
+  const label = isMvpGate ? 'MVP' : gateLabel;
   let summary: string;
   if (totalCount === 0) {
-    summary = 'No MVP path yet. Tag the roadmap items that define your minimum viable product with “Mark MVP”.';
+    summary = isMvpGate
+      ? 'No MVP path yet. Tag the roadmap items that define your minimum viable product with “Mark MVP”.'
+      : `Nothing is tagged for ${label} yet. Tag the backlog items that belong to this release to build its path.`;
   } else if (!hasTaggedItems) {
     summary = `No items tagged for MVP yet — showing ${totalCount} suggested foundation${totalCount === 1 ? '' : 's'}. ${nextStep ? `Start with: ${nextStep.text}.` : ''}`.trim();
   } else if (outstanding.length === 0) {
-    summary = `All ${totalCount} MVP milestone${totalCount === 1 ? '' : 's'} complete — the minimum viable product is in reach.`;
+    summary = isMvpGate
+      ? `All ${totalCount} MVP milestone${totalCount === 1 ? '' : 's'} complete — the minimum viable product is in reach.`
+      : `All ${totalCount} ${label} milestone${totalCount === 1 ? '' : 's'} complete.`;
   } else {
-    summary = `${completedCount} of ${totalCount} MVP milestone${totalCount === 1 ? '' : 's'} complete${nextStep ? ` — next: ${nextStep.text}.` : '.'}`;
+    summary = `${completedCount} of ${totalCount} ${label} milestone${totalCount === 1 ? '' : 's'} complete${nextStep ? ` — next: ${nextStep.text}.` : '.'}`;
   }
 
-  const planPrompt = buildMvpPlanPrompt(outstanding, hasTaggedItems);
+  const planPrompt = buildMvpPlanPrompt(outstanding, hasTaggedItems, label);
 
   return {
     hasTaggedItems,
@@ -5890,26 +6671,36 @@ function buildMvpSnapshot(items: DashboardRoadmapItem[]): DashboardMvpSnapshot {
   };
 }
 
-function buildMvpPlanPrompt(outstanding: DashboardMvpStep[], hasTaggedItems: boolean): string {
+function buildMvpPlanPrompt(outstanding: DashboardMvpStep[], hasTaggedItems: boolean, gateLabel = 'MVP'): string {
+  const isMvp = gateLabel === 'MVP';
+  const target = isMvp ? 'a minimum viable product' : `the ${gateLabel} release`;
   if (outstanding.length === 0) {
-    return 'Review the roadmap in project_memory/roadmap/improvement-plan.md and recommend what the next minimum-viable-product milestone should be, given that the currently tracked MVP items are all complete. Keep it concise and call out the single best next step.';
+    return `Review the roadmap in project_memory/roadmap/improvement-plan.md and recommend what the next ${isMvp ? 'minimum-viable-product' : gateLabel} milestone should be, given that the currently tracked ${gateLabel} items are all complete. Keep it concise and call out the single best next step.`;
   }
   const list = outstanding.map((step, index) => `${index + 1}. ${step.text}`).join('\n');
   const tagNote = hasTaggedItems
-    ? 'These are the roadmap items currently tagged for the MVP path:'
-    : 'No items are tagged for MVP yet; these are the foundational roadmap items the dashboard suggests for the MVP path:';
+    ? `These are the roadmap items currently tagged for the ${gateLabel} path:`
+    : `No items are tagged for ${gateLabel} yet; these are the foundational roadmap items the dashboard suggests for the ${gateLabel} path:`;
   return [
-    'Plan the fastest safe route to a minimum viable product for this project.',
+    `Plan the fastest safe route to ${target} for this project.`,
     tagNote,
     list,
     'Recommend an ordered sequence that front-loads foundational, security, and architectural work, calls out dependencies between the items, and identifies the single best next step to take now. Keep the response concise.',
   ].join('\n\n');
 }
 
-function serializeDashboardRoadmapDocument(existing: string, items: Array<{ text: string; completed: boolean; isMvp?: boolean }>): string {
+function serializeDashboardRoadmapDocument(
+  existing: string,
+  items: Array<{ text: string; completed: boolean; isMvp?: boolean; gates?: string[] }>,
+  gates: RoadmapGate[] = normalizeGates([]),
+): string {
+  const declaredGates = normalizeGates(gates);
   const normalizedItems = items.filter(item => item.text.trim().length > 0);
   const itemLines = normalizedItems.length > 0
-    ? normalizedItems.map(item => `- [${item.completed ? 'x' : ' '}] ${item.text.trim()}${item.isMvp ? ' #mvp' : ''}`)
+    ? normalizedItems.map(item => {
+        const selected = item.gates ?? (item.isMvp ? [MVP_GATE_ID] : []);
+        return `- [${item.completed ? 'x' : ' '}] ${item.text.trim()}${formatItemGateTags(selected, declaredGates)}`;
+      })
     : ['- [ ] Add the first prioritized roadmap item here.'];
 
   const section = [
@@ -5919,15 +6710,23 @@ function serializeDashboardRoadmapDocument(existing: string, items: Array<{ text
     ROADMAP_ITEMS_END,
   ].join('\n');
 
+  // The gates block is only written once a project has gates beyond the built-in
+  // MVP one, so a roadmap that never uses them is left exactly as it was.
+  const withGates = (document: string): string => (
+    declaredGates.length > 1 || document.includes(ROADMAP_GATES_START)
+      ? upsertRoadmapGatesBlock(document, declaredGates, ROADMAP_ITEMS_END)
+      : document
+  );
+
   if (existing.includes(ROADMAP_ITEMS_START) && existing.includes(ROADMAP_ITEMS_END)) {
-    return existing.replace(
+    return withGates(existing.replace(
       new RegExp(`${escapeRegExp(ROADMAP_ITEMS_START)}[\\s\\S]*?${escapeRegExp(ROADMAP_ITEMS_END)}`, 'g'),
       [ROADMAP_ITEMS_START, ...itemLines, ROADMAP_ITEMS_END].join('\n'),
-    );
+    ));
   }
 
   const preservedNotes = existing.trim().length > 0 ? `\n\n## Existing Notes\n${existing.trim()}\n` : '\n';
-  return [
+  return withGates([
     '# Developer Roadmap',
     '',
     'This file is the developer-facing backlog AtlasMind should absorb into SSOT and consult when deciding what to tackle next.',
@@ -5942,7 +6741,7 @@ function serializeDashboardRoadmapDocument(existing: string, items: Array<{ text
     '3. User-facing outcomes and the manual order of this backlog.',
     '4. Delivery hygiene such as tests, CI, release notes, and docs.',
     preservedNotes.trimEnd(),
-  ].filter(Boolean).join('\n');
+  ].filter(Boolean).join('\n'));
 }
 
 /**
@@ -6227,6 +7026,60 @@ async function countFiles(directoryPath: string): Promise<number> {
     total += 1;
   });
   return total;
+}
+
+/**
+ * Per-contributor commit series for the Overview charts.
+ *
+ * Exported for tests: the capping behaviour is the part worth pinning. A
+ * repository with a long tail of one-commit authors would otherwise produce a
+ * pie chart of unreadable slivers, so everyone past the cap is merged into a
+ * single **Others** entry that still counts their commits — a chart that
+ * silently dropped contributors would misreport who did the work.
+ *
+ * Names come from git's author field and are clamped; no addresses are read.
+ */
+export function buildContributorSeries(
+  entries: Array<{ date: string; author: string }>,
+  days: number,
+  maxContributors = 8,
+): { contributors: Array<{ name: string; total: number; series: DashboardSeriesPoint[] }>; totalCommits: number; otherCount: number } {
+  const byAuthor = new Map<string, string[]>();
+  let totalCommits = 0;
+  for (const entry of entries) {
+    if (!entry || typeof entry.date !== 'string' || entry.date.trim().length === 0) {
+      continue;
+    }
+    const name = (typeof entry.author === 'string' ? entry.author : '').replace(/\s+/g, ' ').trim().slice(0, 60) || 'Unknown';
+    const dates = byAuthor.get(name) ?? [];
+    dates.push(entry.date);
+    byAuthor.set(name, dates);
+    totalCommits += 1;
+  }
+
+  const ranked = [...byAuthor.entries()]
+    .map(([name, dates]) => ({ name, dates, total: dates.length }))
+    // Ties broken by name so the order (and therefore the colours) is stable
+    // between renders rather than depending on Map insertion.
+    .sort((left, right) => right.total - left.total || left.name.localeCompare(right.name));
+
+  const kept = ranked.slice(0, Math.max(1, maxContributors));
+  const overflow = ranked.slice(Math.max(1, maxContributors));
+  const contributors = kept.map(entry => ({
+    name: entry.name,
+    total: entry.total,
+    series: buildDailySeries(entry.dates, days),
+  }));
+  if (overflow.length > 0) {
+    const overflowDates = overflow.flatMap(entry => entry.dates);
+    contributors.push({
+      name: `Others (${overflow.length})`,
+      total: overflowDates.length,
+      series: buildDailySeries(overflowDates, days),
+    });
+  }
+
+  return { contributors, totalCommits, otherCount: overflow.reduce((sum, entry) => sum + entry.total, 0) };
 }
 
 function buildDailySeries(timestamps: string[], days: number): DashboardSeriesPoint[] {
@@ -6944,6 +7797,7 @@ function emptyGitSnapshot(): GitSnapshot {
     branches: [],
     commits: [],
     commitDates: [],
+    commitLog: [],
   };
 }
 
@@ -7921,6 +8775,90 @@ const DASHBOARD_CSS = `
     font-variant-numeric: tabular-nums;
   }
 
+  /* ── Donut charts (contributor mix, route to release) ─────────────
+     SVG arcs rather than a chart library or a canvas, so the rings inherit
+     theme colours, stay crisp at any zoom, and carry a <title> per slice. */
+  .donut-block {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+  }
+
+  .donut-chart {
+    width: 148px;
+    height: 148px;
+    flex: 0 0 auto;
+  }
+
+  .donut-track { stroke: color-mix(in srgb, var(--dash-muted) 22%, transparent); }
+  .donut-slice { transition: stroke-width 140ms ease, opacity 140ms ease; }
+  .donut-slice.is-active { filter: brightness(1.12); }
+  .donut-good { stroke: var(--dash-good); }
+  .donut-warn { stroke: var(--dash-warn); }
+  .donut-critical { stroke: var(--dash-critical); }
+  .donut-accent { stroke: var(--dash-accent-strong); }
+  .donut-muted { stroke: color-mix(in srgb, var(--dash-muted) 55%, transparent); }
+
+  .donut-center-value {
+    fill: var(--vscode-foreground);
+    font-size: 20px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .donut-center-label {
+    fill: var(--dash-muted);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .donut-legend {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .donut-legend-percent {
+    color: var(--dash-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  button.dist-legend-item {
+    border: 1px solid transparent;
+    border-radius: 999px;
+    padding: 2px 8px;
+    background: transparent;
+    cursor: pointer;
+    font: inherit;
+    font-size: 11px;
+    text-align: left;
+  }
+
+  button.dist-legend-item:hover { border-color: color-mix(in srgb, var(--dash-accent-strong) 50%, var(--dash-border)); }
+
+  button.dist-legend-item.is-active {
+    border-color: color-mix(in srgb, var(--dash-accent-strong) 70%, var(--dash-border));
+    background: color-mix(in srgb, var(--dash-accent-strong) 14%, transparent);
+  }
+
+  .chart-range--filter { margin-top: 14px; }
+  .chart-grid--mix { margin-top: 16px; }
+
+  /* An issue body is somebody else's prose: give it room but keep it visibly
+     quoted so it never reads as AtlasMind's own text. */
+  .issue-body {
+    white-space: pre-wrap;
+    border-left: 2px solid var(--dash-border);
+    padding-left: 10px;
+    margin-top: 6px;
+    opacity: 0.9;
+  }
+
   .dist-swatch {
     width: 9px;
     height: 9px;
@@ -8260,6 +9198,80 @@ const DASHBOARD_CSS = `
 
   .roadmap-item.is-mvp {
     border-left: 3px solid color-mix(in srgb, var(--dash-accent-strong) 70%, var(--dash-border));
+  }
+
+  /* ── Roadmap: release gates ───────────────────────────────────────
+     A gate selector above the route card and one toggle per gate on each
+     backlog item. With only the built-in MVP gate this reads as the single
+     control it replaces; it grows into a release plan without a menu. */
+  .gate-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .gate-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--dash-border);
+    background: transparent;
+    color: var(--dash-muted);
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+  }
+
+  .gate-chip:hover { border-color: color-mix(in srgb, var(--dash-accent-strong) 55%, var(--dash-border)); }
+
+  .gate-chip.is-active {
+    border-color: color-mix(in srgb, var(--dash-accent-strong) 75%, var(--dash-border));
+    background: color-mix(in srgb, var(--dash-accent-strong) 18%, transparent);
+    color: color-mix(in srgb, var(--dash-accent-strong) 90%, var(--tint-away) 10%);
+    font-weight: 600;
+  }
+
+  .gate-chip-count { opacity: 0.75; font-variant-numeric: tabular-nums; }
+  .gate-chip--add { border-style: dashed; }
+
+  .gate-toggle-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: 10px;
+  }
+
+  .gate-toggle-hint {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--dash-muted);
+  }
+
+  .gate-toggle {
+    padding: 3px 9px;
+    border-radius: 999px;
+    border: 1px dashed var(--dash-border);
+    background: transparent;
+    color: var(--dash-muted);
+    font: inherit;
+    font-size: 10.5px;
+    cursor: pointer;
+  }
+
+  .gate-toggle:hover { border-color: color-mix(in srgb, var(--dash-accent-strong) 55%, var(--dash-border)); }
+
+  .gate-toggle.is-on {
+    border-style: solid;
+    border-color: color-mix(in srgb, var(--dash-accent-strong) 70%, var(--dash-border));
+    background: color-mix(in srgb, var(--dash-accent-strong) 16%, transparent);
+    color: color-mix(in srgb, var(--dash-accent-strong) 88%, var(--tint-away) 12%);
+    font-weight: 600;
   }
 
   .roadmap-item {
@@ -9345,6 +10357,26 @@ const DASHBOARD_CSS = `
   .methodology-toggle-label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
   .methodology-name-cell { width: 60%; }
 
+  /* ── Testing: per-policy coverage board ───────────────────────────
+     Each enabled policy gets a card whose left edge carries its status, so the
+     shape of the board is readable before any label is: a column of green edges
+     is a covered suite, a run of red ones is the gap the page exists to show. */
+  .policy-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; margin-top: 12px; }
+  .policy-card { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.28)); background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); border-left-width: 3px; border-left-style: solid; }
+  .policy-card.status-covered { border-left-color: var(--dash-good, #4ec9b0); }
+  .policy-card.status-tooling-only { border-left-color: var(--dash-warn, #cca700); }
+  .policy-card.status-missing { border-left-color: var(--dash-critical, #f14c4c); }
+  .policy-card.status-not-file-evident { border-left-color: var(--vscode-widget-border, rgba(127,127,127,0.4)); opacity: 0.82; }
+  .policy-card.has-failures { box-shadow: 0 0 0 1px color-mix(in srgb, var(--dash-critical, #f14c4c) 45%, transparent) inset; }
+  .policy-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  .policy-card-head strong { font-size: 0.92em; }
+  .policy-card-detail { font-size: 0.8em; line-height: 1.4; color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
+  .policy-card-signals { font-size: 0.76em; color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
+  .policy-card .tag-row { margin-top: 2px; gap: 6px; }
+  .policy-report-line { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 0.84em; margin-top: 4px; }
+  .policy-report-line code { font-size: 0.92em; overflow-wrap: anywhere; }
+  .policy-failure-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+
   /* ── Delivery: Stages & Promotion ─────────────────────────────── */
   .stage-pipeline-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
   .stage-pipeline-header .tag-row { margin-top: 6px; }
@@ -9412,7 +10444,21 @@ const DASHBOARD_CSS = `
   .action-link.primary:hover { background: var(--vscode-button-hoverBackground, #1177bb); }
   .action-link.danger { color: var(--vscode-errorForeground, #f14c4c); }
   .stage-editor, .path-editor { grid-column: 1 / -1; margin: 6px 0 12px; border-color: var(--vscode-focusBorder, #4daafc); }
+  /* The hidden attribute must actually hide. Any author rule that sets a
+     display value (every .stage-edit-grid, .tag-row, flex or grid container
+     here) outranks the user-agent rule for [hidden], so without this an
+     element marked hidden stays fully visible. */
+  [hidden] { display: none !important; }
   .stage-edit-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin: 4px 0; }
+  /* One communication channel. A person may need several, so the rows repeat. */
+  .director-link-row { align-items: end; }
+  /* The agent binding is a checklist, not one choice: a correspondent can span
+     more than one specialism. Collapsed by default so the form stays readable. */
+  .director-agent-picker { border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, rgba(127,127,127,0.4)));
+    border-radius: 6px; background: var(--vscode-input-background); padding: 4px 7px; }
+  .director-agent-picker > summary { cursor: pointer; padding: 2px 0; color: var(--vscode-input-foreground); }
+  .director-agent-options { display: flex; flex-direction: column; gap: 3px; max-height: 190px; overflow-y: auto; padding: 6px 0 2px; }
+  .director-agent-options .stage-edit-check { margin: 0; }
   .stage-edit-field { display: flex; flex-direction: column; gap: 3px; font-size: 0.8em; }
   .stage-edit-field > span { color: var(--vscode-descriptionForeground); }
   .stage-edit-field input[type="text"], .stage-edit-field input[type="number"], .stage-edit-field textarea, .stage-edit-field select {

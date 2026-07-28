@@ -257,6 +257,24 @@ describe('MCP guided wizard: buildWizardServerConfig', () => {
     expect(JSON.stringify(built?.config)).not.toContain('xoxb-123');
   });
 
+  it('builds the bundled Buzz bridge without persisting its private key', () => {
+    const starter = getRecommendedMcpStarterDetails('mcp-server-buzz');
+    const built = buildWizardServerConfig('Buzz Communications', starter, {
+      BUZZ_PRIVATE_KEY: 'a'.repeat(64),
+      BUZZ_CLI_PATH: 'C:\\Tools\\buzz.exe',
+    });
+
+    expect(built?.config.command).toBe('node');
+    expect(built?.config.args).toEqual(['${extensionPath}/out/mcp/buzzCommsServer.js']);
+    expect(built?.config.env).toMatchObject({
+      BUZZ_CLI_PATH: 'C:\\Tools\\buzz.exe',
+      BUZZ_RELAY_URL: '${config:atlasmind.buzz.relayUrl}',
+      ATLASMIND_BUZZ_ENABLED: '${config:atlasmind.buzz.enabled}',
+    });
+    expect(built?.config.secretEnvKeys).toEqual(['BUZZ_PRIVATE_KEY']);
+    expect(JSON.stringify(built?.config)).not.toContain('a'.repeat(64));
+  });
+
   it('returns null when a required input is missing', () => {
     const starter = getRecommendedMcpStarterDetails('mcp-server-slack');
     const built = buildWizardServerConfig('Slack MCP Server', starter, { SLACK_TEAM_ID: 'T123' });
@@ -1254,7 +1272,7 @@ describe('panel refresh flows', () => {
     );
 
     mocks.state.workspaceFolders = undefined;
-    rmSync(tempRoot, { recursive: true, force: true });
+    rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
 
   it('shows interim thinking updates while a chat-panel request is still running', async () => {
@@ -2788,7 +2806,7 @@ describe('panel refresh flows', () => {
     // The #mvp tag is metadata and must never appear in the displayed step text.
     expect(mvp.route.every(step => !/#mvp/i.test(step.text))).toBe(true);
 
-    rmSync(tempRoot, { recursive: true, force: true });
+    rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
 
   it('persists the #mvp tag when an item is marked for the MVP path', async () => {
@@ -2840,7 +2858,87 @@ describe('panel refresh flows', () => {
     const written = readFileSync(roadmapFile, 'utf-8');
     expect(written).toContain('- [ ] Ship onboarding flow #mvp');
 
-    rmSync(tempRoot, { recursive: true, force: true });
+    rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  });
+
+  it('persists a user-declared release gate and tags items for it', async () => {
+    const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'atlasmind-gate-save-'));
+    const roadmapDir = path.join(tempRoot, 'project_memory', 'roadmap');
+    mkdirSync(roadmapDir, { recursive: true });
+    const roadmapFile = path.join(roadmapDir, 'improvement-plan.md');
+    writeFileSync(roadmapFile, [
+      '## Prioritized Backlog',
+      '<!-- atlasmind:roadmap-items:start -->',
+      '- [ ] Ship onboarding flow #mvp',
+      '- [ ] Add team billing',
+      '<!-- atlasmind:roadmap-items:end -->',
+      '',
+      '## Prioritisation Notes',
+    ].join('\n'));
+    mocks.state.workspaceFolders = [{ name: 'Temp', uri: { fsPath: tempRoot, path: tempRoot } }];
+
+    ProjectDashboardPanel.createOrShow(
+      { extensionUri: { fsPath: '/ext', path: '/ext' } } as never,
+      {
+        agentsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        skillsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        modelsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        memoryRefresh: { event: vi.fn(() => ({ dispose: () => undefined })), fire: vi.fn() },
+        toolApprovalManager: { isAutopilot: vi.fn().mockReturnValue(false), onAutopilotChange: vi.fn(() => () => undefined) },
+        modelRouter: { listProviders: vi.fn().mockReturnValue([]), isProviderHealthy: vi.fn().mockReturnValue(true) },
+        agentRegistry: { listAgents: vi.fn().mockReturnValue([]), isEnabled: vi.fn().mockReturnValue(true) },
+        skillsRegistry: { listSkills: vi.fn().mockReturnValue([]), isEnabled: vi.fn().mockReturnValue(true) },
+        sessionConversation: {
+          listSessions: vi.fn().mockReturnValue([]),
+          getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+        },
+        projectRunHistory: { listRunsAsync: vi.fn().mockResolvedValue([]) },
+        costTracker: {
+          getSummary: vi.fn().mockReturnValue({ totalCostUsd: 0, totalRequests: 0, totalInputTokens: 0, totalOutputTokens: 0 }),
+          getRecords: vi.fn().mockReturnValue([]),
+        },
+        memoryManager: {
+          listEntries: vi.fn().mockReturnValue([]),
+          getScanResults: vi.fn().mockReturnValue(new Map()),
+          loadFromDisk: vi.fn().mockResolvedValue(undefined),
+        },
+      } as never,
+    );
+
+    const panel = ProjectDashboardPanel.currentPanel as unknown as { handleMessage(message: unknown): Promise<void> };
+    await panel.handleMessage({
+      type: 'saveRoadmap',
+      payload: {
+        gates: [{ id: 'beta', label: 'Public beta' }],
+        items: [
+          { id: 'roadmap-1', text: 'Ship onboarding flow', completed: false, gates: ['mvp', 'beta'] },
+          { id: 'roadmap-2', text: 'Add team billing', completed: false, gates: ['beta'] },
+        ],
+      },
+    });
+
+    const written = readFileSync(roadmapFile, 'utf-8');
+    // The gate is declared in its own managed block…
+    expect(written).toContain('- `#beta` — Public beta');
+    // …items carry their tags in declared order (mvp first)…
+    expect(written).toContain('- [ ] Ship onboarding flow #mvp #beta');
+    expect(written).toContain('- [ ] Add team billing #beta');
+    // …and the rest of the document is untouched.
+    expect(written).toContain('## Prioritisation Notes');
+
+    // An unknown gate id from the webview is dropped rather than written as a tag.
+    await panel.handleMessage({
+      type: 'saveRoadmap',
+      payload: {
+        gates: [{ id: 'beta', label: 'Public beta' }],
+        items: [{ id: 'roadmap-1', text: 'Ship onboarding flow', completed: false, gates: ['ghost'] }],
+      },
+    });
+    expect(readFileSync(roadmapFile, 'utf-8')).toContain('- [ ] Ship onboarding flow\n');
+
+    rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
 
   it('runs the allowlisted Cost Dashboard command but ignores non-allowlisted commands', async () => {

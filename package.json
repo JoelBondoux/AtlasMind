@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.145.7",
+  "version": "0.169.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -104,6 +104,10 @@
           {
             "name": "director",
             "description": "Project Director status: stakeholders, team, responsibilities, assignments, and follow-ups"
+          },
+          {
+            "name": "buzz",
+            "description": "Buzz: setup checklist, or `read` the conversation, or `send <message>`"
           },
           {
             "name": "followups",
@@ -234,6 +238,30 @@
         "command": "atlasmind.togglePresence",
         "title": "AtlasMind: Toggle Keep Computer Awake",
         "icon": "$(zap)"
+      },
+      {
+        "command": "atlasmind.buzz.reuseBridgeKey",
+        "title": "AtlasMind: Reuse the Buzz Key From the MCP Bridge",
+        "enablement": "false"
+      },
+      {
+        "command": "atlasmind.buzz.prepareCommand",
+        "title": "AtlasMind: Prepare a Buzz Setup Command",
+        "enablement": "false"
+      },
+      {
+        "command": "atlasmind.buzz.openGuide",
+        "title": "AtlasMind: Guide Me Through Buzz Setup"
+      },
+      {
+        "command": "atlasmind.setBuzzAgentKey",
+        "title": "AtlasMind: Set Buzz Agent Key",
+        "icon": "$(key)"
+      },
+      {
+        "command": "atlasmind.buzz.fetchChannels",
+        "title": "AtlasMind: Fetch My Buzz Channels",
+        "icon": "$(list-selection)"
       },
       {
         "command": "atlasmind.skills.addSkill",
@@ -1140,6 +1168,27 @@
           "description": "Allow ARD Agent Finders that use http:// or localhost (e.g. the ARD conformance demo registry). When false, discovery requires HTTPS and rejects private/loopback addresses to prevent SSRF.",
           "markdownDescription": "Allow ARD Agent Finders that use `http://` or `localhost` — for example the [ARD conformance demo](https://github.com/ards-project/ard-spec) registry.\n\nWhen `false` (default), discovery requires HTTPS and rejects private / loopback / link-local addresses to prevent SSRF. This setting only relaxes the check for finders **you** explicitly marked insecure; followed referral URLs are always screened."
         },
+        "atlasmind.chat.revealOnApprovalRequest": {
+          "type": "boolean",
+          "default": true,
+          "description": "Bring the AtlasMind chat panel forward when a tool approval is waiting. A notification is shown either way — turning this off only stops the panel taking focus.",
+          "markdownDescription": "Bring the AtlasMind chat panel forward when a tool approval needs an answer.\n\nAn approval **blocks the run until it is answered**, and the approval bar lives in this panel — which you may not be looking at. Without this, the run appears to hang.\n\nA dismissible notification naming the waiting action is shown regardless, so turning this off only stops the panel taking focus; it never leaves you unaware. Nothing is announced while the panel is already on screen."
+        },
+        "atlasmind.buzz.relayMode": {
+          "type": "string",
+          "default": "undecided",
+          "enum": [
+            "undecided",
+            "local",
+            "hosted"
+          ],
+          "enumDescriptions": [
+            "Not yet chosen — the setup guide will ask.",
+            "You run a Buzz relay on this machine (needs Docker).",
+            "Someone else runs the relay; you connect to their wss:// URL."
+          ],
+          "description": "Which way you run Buzz, so the setup guide shows only the path that applies. Set by answering the guide; it changes guidance only and connects nothing."
+        },
         "atlasmind.buzz.enabled": {
           "type": "boolean",
           "default": false,
@@ -1151,6 +1200,50 @@
           "default": "ws://localhost:3000",
           "description": "Buzz relay URL (BUZZ_RELAY_URL). Defaults to a local self-hosted relay (ws://localhost:3000). A remote relay sends project data off-machine and additionally requires atlasmind.buzz.allowRemoteRelay.",
           "markdownDescription": "Buzz relay URL — the `BUZZ_RELAY_URL` a connected Buzz surface targets.\n\nDefaults to a **local, self-hosted** relay (`ws://localhost:3000`), matching AtlasMind's local-first, self-sovereign posture. Pointing at a **remote** relay sends project data off-machine, so it is additionally gated behind `atlasmind.buzz.allowRemoteRelay` and the redaction/consent boundary."
+        },
+        "atlasmind.buzz.inboundEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Subscribe to Buzz activity and turn it into AtlasMind work items. Off by default; also requires atlasmind.buzz.enabled. The subscription is read-only — it can never post to Buzz.",
+          "markdownDescription": "Hold a **read-only** subscription to your Buzz relay and derive AtlasMind work items from the activity.\n\nOff by default, and additionally requires `atlasmind.buzz.enabled` — nothing connects on upgrade. The subscription sends only subscribe/authenticate/keep-alive frames and **can never publish to Buzz**.\n\nConversations are **derived, never mirrored**: an inbound message becomes a follow-up with a pointer back to the Buzz thread, never the message body. Recording those follow-ups into project memory additionally requires `atlasmind.buzz.autoCreateFollowUps`.\n\nAn authenticating relay needs an agent key — run **AtlasMind: Set Buzz Agent Key**."
+        },
+        "atlasmind.buzz.inboundChannels": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Buzz channel ids (UUIDs) to subscribe to. Empty means every channel your agent key can read.",
+          "markdownDescription": "Buzz **channel ids** (UUIDs) the inbound subscription should watch, scoping the subscription to just those channels.\n\nLeave empty to receive activity from every channel your agent key can read. Get an id from `buzz channels list`."
+        },
+        "atlasmind.buzz.autoCreateFollowUps": {
+          "type": "boolean",
+          "default": false,
+          "description": "Record inbound Buzz activity as Project Director follow-ups. Off by default: project memory is git-tracked, so AtlasMind reports inbound items rather than writing them until you opt in.",
+          "markdownDescription": "Record derived inbound Buzz activity as **Project Director follow-ups**.\n\nOff by default, deliberately: `project_memory/` is **git-tracked**, so writing to it from a network event is something you should opt into rather than inherit from an upgrade. While off, inbound activity is reported without being persisted.\n\nOnly a short, sanitised title and a pointer back to the Buzz thread are ever stored — never the message body."
+        },
+        "atlasmind.buzz.agentBindings": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Map a Buzz identity (npub or 64-character hex) to an AtlasMind agent id, so inbound work from that Buzz agent lands with the right specialist.",
+          "markdownDescription": "Assign specific **AtlasMind agents** to specific **Buzz agents**.\n\nMaps a Buzz identity to an AtlasMind agent id, so inbound work from that identity is attributed to the right specialist — a Buzz build-bot's messages can land with your DevOps agent instead of arriving unattributed.\n\n```json\n{\n  \"npub1abc…\": \"devops-engineer\",\n  \"7e7e9c42…\": \"security-specialist\"\n}\n```\n\nKeys accept an `npub…` or a 64-character hex key (the bech32 checksum is validated, so a mistyped npub is rejected rather than binding to the wrong identity; an `nsec` secret key is refused). An unbound identity simply stays unassigned — AtlasMind never guesses an agent.\n\nThis is a **local routing preference only**. Buzz still owns the keypair, the directory, and the authorship ledger."
+        },
+        "atlasmind.buzz.autonomousReplies": {
+          "type": "boolean",
+          "default": false,
+          "description": "Let AtlasMind agents reply to Buzz identities you have bound to an agent, without confirming each message. Off by default. Only applies to bound agents — anyone unbound is treated as a person and still needs confirmation.",
+          "markdownDescription": "Allow **agent-to-agent** Buzz replies to go out without a confirmation dialog, so an AtlasMind specialist can hold a loop with a Buzz agent.\n\nOff by default, and deliberately narrow:\n\n- It applies **only** to recipients listed in `atlasmind.buzz.agentBindings`. That binding is your declaration that the identity is an agent — AtlasMind never infers it, and an unbound identity is treated as a person who may act on what it reads.\n- It is **rate-bounded** per recipient by `atlasmind.buzz.autonomousReplyLimitPerHour`. A loop that re-fires on every inbound event is the realistic failure, and there is no unsend.\n- Inbound Buzz messages are **untrusted input**. An agent that reads a message and replies autonomously gives its author partial influence over what AtlasMind then says to others. Arm this only where that is acceptable."
+        },
+        "atlasmind.buzz.autonomousReplyLimitPerHour": {
+          "type": "number",
+          "default": 10,
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Maximum autonomous Buzz replies per recipient per hour. Once reached, the next message needs confirmation.",
+          "markdownDescription": "Cap on autonomous replies **per recipient per hour** when `atlasmind.buzz.autonomousReplies` is on.\n\nWhen the cap is reached the next message falls back to a confirmation dialog rather than being dropped, so a stuck loop becomes visible instead of silent."
         },
         "atlasmind.buzz.allowRemoteRelay": {
           "type": "boolean",
@@ -1838,6 +1931,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@noble/secp256k1": "^3.1.0",
     "ws": "^8.21.1",
     "zod": "^4.4.3"
   },

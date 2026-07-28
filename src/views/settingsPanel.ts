@@ -17,6 +17,8 @@ import type { ArdDiscoveredResource, ArdDiscoveryEndpoint } from '../types.js';
 import { getDisplayCurrency, getExchangeRate } from '../core/currencyFormatter.js';
 import { isLocalSyncStale, LOCAL_MODEL_SYNC_CACHE_KEY, syncLocalModels, type LocalModelSyncResult } from '../providers/localModelSync.js';
 import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
+import { deriveTestingPolicyCoverage, parseJUnitReport, type TestingPolicyCoverage, type TestingPolicyTestFile } from '../core/testingPolicyCoverage.js';
+import { parseAgentBindings } from '../core/buzzAgentBindings.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -77,6 +79,13 @@ const SETTINGS_HELP = {
   projectDependencyMonitoringProviders: 'Selects which dependency monitoring providers AtlasMind scaffolds. Examples: Dependabot for GitHub-native repos, Renovate for advanced grouping, Snyk for security-led review, or Azure DevOps for pipeline-centric teams.',
   projectDependencyMonitoringSchedule: 'Default cadence for generated dependency monitoring automation. Examples: daily for security-sensitive services, weekly for normal review cycles, or monthly for stable products.',
   projectDependencyMonitoringIssueTemplate: 'Adds a dependency review issue template during governance scaffolding. Keep it on when updates need formal review or compliance evidence, and off for lightweight personal repos.',
+  buzzEnabled: 'Master switch for the Buzz integration. Off by default: nothing connects, reads, or sends until you turn it on. Every other Buzz setting is inert while this is off.',
+  buzzRelayUrl: 'The Buzz relay to connect to. Defaults to a local, self-hosted relay (ws://localhost:3000). A hosted relay must be encrypted (wss://) and additionally requires Allow remote relay.',
+  buzzAllowRemoteRelay: 'Permits the relay URL to point off-machine. Leave it off to keep project communications on a loopback relay. Turning it on means project data leaves this machine, under the same redaction boundary AtlasMind applies to any external send.',
+  buzzInboundEnabled: 'Hold a read-only subscription to the relay and derive work items from Buzz activity. The subscription can never publish to Buzz. Requires the master switch, and an agent key when the relay demands authentication.',
+  buzzInboundChannels: 'Which Buzz channels to watch, one channel id per line. Leave it empty and the subscription is scoped only by message kind, so it covers every channel your agent key can already read. List channels to narrow it.',
+  buzzAutoCreateFollowUps: 'Records derived follow-ups into project_memory/, which is git-tracked. Off by default and deliberately separate from the subscription switch, so watching a channel never starts committing records about colleagues by itself. Message bodies are never stored — only a follow-up and a pointer back to the thread.',
+  buzzAgentBindings: 'Routes work from a given Buzz identity to a chosen AtlasMind agent. Edited per person on the Project Dashboard → Director tab, or by hand here. A local routing preference only: Buzz still owns the keypair and directory.',
   experimentalSkillLearningEnabled: 'Enables Atlas-generated custom skill drafts. Keep it off in production workspaces and enable it only in sandboxes where generated artifacts will be manually reviewed.',
   maxToolIterations: 'Maximum tool-call loop iterations before AtlasMind stops and surfaces Continue and Cancel actions. Examples: 10 for conservative environments, 20 for the default balance, or 25 for complex multi-step workflows. Higher values allow deeper automation but increase latency and cost.',
   loopEnabled: 'Enable the autonomous goal-seeking Mission Loop (the /loop chat command and Mission Control). When off, AtlasMind will not start any looping run.',
@@ -152,6 +161,12 @@ export interface TestingDashboardSnapshot {
   projectTestingConfig: import('../types.js').ProjectTestingConfig | undefined;
   /** Agents available for methodology assignment. */
   availableAgentSummaries: Array<{ id: string; name: string }>;
+  /**
+   * Per-enabled-policy evidence: what has tests, what has none, and what is
+   * failing according to the project's own test report. See
+   * {@link ../core/testingPolicyCoverage.ts}.
+   */
+  policyCoverage: TestingPolicyCoverage;
 }
 
 interface LocalHardwareSnapshot {
@@ -204,7 +219,7 @@ interface LocalModelRecommendationPayload {
  * The nav markup below is grouped to match; this list is the canonical order
  * and the source of `SettingsPageId`.
  */
-export const SETTINGS_PAGE_IDS = ['overview', 'agents', 'models', 'discovery', 'chat', 'ai-instructions', 'safety', 'testing', 'project', 'loop', 'experimental'] as const;
+export const SETTINGS_PAGE_IDS = ['overview', 'agents', 'models', 'discovery', 'mcp', 'buzz', 'chat', 'ai-instructions', 'safety', 'testing', 'project', 'loop', 'experimental'] as const;
 export type SettingsPageId = (typeof SETTINGS_PAGE_IDS)[number];
 export interface SettingsPanelTarget {
   page?: SettingsPageId;
@@ -226,6 +241,22 @@ type SettingsMessage =
   | { type: 'setAutoVerifyAfterWrite'; payload: boolean }
   | { type: 'setAutoVerifyScripts'; payload: string }
   | { type: 'setAutoVerifyTimeoutMs'; payload: number }
+  | { type: 'setBuzzEnabled'; payload: boolean }
+  | { type: 'setBuzzRelayUrl'; payload: string }
+  | { type: 'setBuzzAllowRemoteRelay'; payload: boolean }
+  | { type: 'setBuzzInboundEnabled'; payload: boolean }
+  | { type: 'setBuzzInboundChannels'; payload: string }
+  | { type: 'setBuzzAutoCreateFollowUps'; payload: boolean }
+  // Named rather than a generic "run this command id": the webview boundary is
+  // untrusted, and an allowlist of two is one by construction.
+  | { type: 'openBuzzAgentKey' }
+  | { type: 'openDirectorRoster' }
+  | { type: 'openBuzzGuide' }
+  | { type: 'fetchBuzzChannels' }
+  | { type: 'setMcpServerEnabled'; payload: { id: string; enabled: boolean } }
+  | { type: 'connectMcpServer'; payload: string }
+  | { type: 'disconnectMcpServer'; payload: string }
+  | { type: 'openMcpManager' }
   | { type: 'setVoiceTtsEnabled'; payload: boolean }
   | { type: 'setVoiceRate'; payload: number }
   | { type: 'setVoicePitch'; payload: number }
@@ -812,6 +843,102 @@ export class SettingsPanel {
 
       case 'setProjectChangedFileReferenceLimit':
         await configuration.update('projectChangedFileReferenceLimit', message.payload, vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'setBuzzEnabled':
+        await configuration.update('buzz.enabled', message.payload, vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'setBuzzRelayUrl': {
+        const relayUrl = message.payload.trim();
+        // Validate the shape at the boundary. The transport separately refuses
+        // plaintext to a remote host; this only stops an unusable value being
+        // stored, so a typo surfaces here rather than as a connection failure.
+        if (relayUrl && !/^(wss?|https?):\/\/[^\s]+$/i.test(relayUrl)) {
+          void vscode.window.showWarningMessage('Buzz relay URL must start with ws://, wss://, http:// or https://.');
+          return;
+        }
+        await configuration.update('buzz.relayUrl', relayUrl, vscode.ConfigurationTarget.Workspace);
+        return;
+      }
+
+      case 'setBuzzAllowRemoteRelay':
+        await configuration.update('buzz.allowRemoteRelay', message.payload, vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'setBuzzInboundEnabled':
+        await configuration.update('buzz.inboundEnabled', message.payload, vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'setBuzzInboundChannels': {
+        // One id per line. Blank lines are dropped rather than stored as empty
+        // channel ids, and the list is capped so a paste cannot balloon it.
+        const channels = message.payload
+          .split(/\r?\n/)
+          .map(line => line.trim())
+          .filter(line => line.length > 0 && line.length <= 200)
+          .slice(0, 50);
+        await configuration.update('buzz.inboundChannels', channels, vscode.ConfigurationTarget.Workspace);
+        return;
+      }
+
+      case 'setBuzzAutoCreateFollowUps':
+        await configuration.update('buzz.autoCreateFollowUps', message.payload, vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'openBuzzAgentKey':
+        await vscode.commands.executeCommand('atlasmind.setBuzzAgentKey');
+        return;
+
+      case 'openDirectorRoster':
+        await vscode.commands.executeCommand('atlasmind.openProjectDirector');
+        return;
+
+      case 'setMcpServerEnabled': {
+        const registry = this.atlasContext?.mcpServerRegistry;
+        if (!registry) { return; }
+        registry.updateServer(message.payload.id, { enabled: message.payload.enabled });
+        // Disabling should actually stop the server, not just relabel it.
+        if (!message.payload.enabled) {
+          await registry.disconnectServer(message.payload.id).catch(() => undefined);
+        }
+        this.panel.webview.html = this.getHtml();
+        return;
+      }
+
+      case 'connectMcpServer':
+        await this.atlasContext?.mcpServerRegistry?.connectServer(message.payload).catch((error: unknown) => {
+          void vscode.window.showWarningMessage(`Could not connect: ${error instanceof Error ? error.message : String(error)}`);
+        });
+        this.panel.webview.html = this.getHtml();
+        return;
+
+      case 'disconnectMcpServer':
+        await this.atlasContext?.mcpServerRegistry?.disconnectServer(message.payload).catch(() => undefined);
+        this.panel.webview.html = this.getHtml();
+        return;
+
+      case 'openMcpManager':
+        // Adding, editing, and secret entry stay in the dedicated panel. Two
+        // implementations of one flow drift, and the one that drifts is the one
+        // nobody is looking at.
+        await vscode.commands.executeCommand('atlasmind.openMcpServers');
+        return;
+
+      case 'fetchBuzzChannels':
+        // Asks the Buzz CLI which channels exist and offers them to tick. The
+        // only Buzz control here that writes a setting — and every part of that
+        // write is the user's: this button, then the picker, then nothing at all
+        // if they dismiss it. It touches the channel list only, never a gate.
+        await vscode.commands.executeCommand('atlasmind.buzz.fetchChannels');
+        return;
+
+      case 'openBuzzGuide':
+        // AtlasMind's own chat panel, not VS Code's. Routing through
+        // `workbench.action.chat.open` put a Buzz question in front of Copilot's
+        // participant picker and, because the slash command arrived as text,
+        // straight into the general agent.
+        await vscode.commands.executeCommand('atlasmind.buzz.openGuide');
         return;
 
       case 'setProjectRunReportFolder': {
@@ -1735,6 +1862,29 @@ export class SettingsPanel {
     const experimentalSkillLearningEnabled = configuration.get<boolean>('experimentalSkillLearningEnabled', false);
     const maxToolIterations = getPositiveInteger(configuration.get<number>('maxToolIterations'), 20);
 
+    // MCP servers, read live so the page shows what is actually connected
+    // rather than what was configured.
+    const mcpServers = (this.atlasContext?.mcpServerRegistry?.listServers() ?? []).map(entry => ({
+      id: entry.config.id,
+      name: entry.config.name || entry.config.id,
+      transport: entry.config.transport,
+      enabled: entry.config.enabled !== false,
+      status: entry.status,
+      error: entry.error,
+      toolCount: entry.tools.length,
+    }));
+
+    // Buzz. Each switch is read independently so the page can show the real
+    // stored value even when a parent gate makes it inert — hiding a stored
+    // `true` behind a disabled parent would misrepresent what is configured.
+    const buzzEnabled = configuration.get<boolean>('buzz.enabled', false);
+    const buzzRelayUrl = escapeHtml(configuration.get<string>('buzz.relayUrl', '') || '');
+    const buzzAllowRemoteRelay = configuration.get<boolean>('buzz.allowRemoteRelay', false);
+    const buzzInboundEnabled = configuration.get<boolean>('buzz.inboundEnabled', false);
+    const buzzInboundChannels = escapeHtml((configuration.get<string[]>('buzz.inboundChannels', []) ?? []).join('\n'));
+    const buzzAutoCreateFollowUps = configuration.get<boolean>('buzz.autoCreateFollowUps', false);
+    const parsedBuzzBindings = parseAgentBindings(configuration.get('buzz.agentBindings'));
+
     // Mission Loop defaults.
     const loopEnabled = configuration.get<boolean>('loop.enabled', true);
     const loopDefaultMaxIterations = getPositiveInteger(configuration.get<number>('loop.defaultMaxIterations'), 8);
@@ -1796,6 +1946,8 @@ export class SettingsPanel {
             <button type="button" class="nav-link ${initialPage === 'agents' ? 'active' : ''}" id="tab-agents" data-page-target="agents" data-search="agents manage agents built-in custom roles prompts instructions rubrics completion criteria global immutable guardrails safety policy skills models budget auto-update automation" role="tab" aria-selected="${initialPage === 'agents' ? 'true' : 'false'}" aria-controls="page-agents" ${initialPage === 'agents' ? '' : 'tabindex="-1"'}>Agents</button>
             <button type="button" class="nav-link ${initialPage === 'models' ? 'active' : ''}" id="tab-models" data-page-target="models" data-search="models integrations providers local endpoint local endpoints ollama lm studio azure bedrock personality profile role tone memory posture voice vision exa specialist" role="tab" aria-selected="${initialPage === 'models' ? 'true' : 'false'}" aria-controls="page-models" ${initialPage === 'models' ? '' : 'tabindex="-1"'}>Models & Integrations</button>
             <button type="button" class="nav-link ${initialPage === 'discovery' ? 'active' : ''}" id="tab-discovery" data-page-target="discovery" data-search="resource discovery ard agent finders mcp servers agents skills apis search install publish catalog manifest registry" role="tab" aria-selected="${initialPage === 'discovery' ? 'true' : 'false'}" aria-controls="page-discovery" ${initialPage === 'discovery' ? '' : 'tabindex="-1"'}>Resource Discovery</button>
+            <button type="button" class="nav-link ${initialPage === 'mcp' ? 'active' : ''}" id="tab-mcp" data-page-target="mcp" data-search="mcp servers model context protocol tools connect disconnect stdio http bridge" role="tab" aria-selected="${initialPage === 'mcp' ? 'true' : 'false'}" aria-controls="page-mcp" ${initialPage === 'mcp' ? '' : 'tabindex="-1"'}>MCP Servers</button>
+            <button type="button" class="nav-link ${initialPage === 'buzz' ? 'active' : ''}" id="tab-buzz" data-page-target="buzz" data-search="buzz nostr relay inbound subscription follow-ups agent bindings npub agent key channels remote relay" role="tab" aria-selected="${initialPage === 'buzz' ? 'true' : 'false'}" aria-controls="page-buzz" ${initialPage === 'buzz' ? '' : 'tabindex="-1"'}>Buzz</button>
           </div>
           <div class="nav-group" role="presentation">
             <span class="nav-group-label" aria-hidden="true">Interaction</span>
@@ -2401,6 +2553,154 @@ export class SettingsPanel {
                   <input id="loopGoalAchievedConfidenceThreshold" type="number" min="0" max="1" step="0.05" value="${loopGoalAchievedConfidenceThreshold}" />
                 </div>
                 <p class="info-note">A goal is only accepted as achieved with passing verification and at least this evaluator confidence, so a low-confidence verdict can never falsely declare success.</p>
+              </article>
+            </div>
+          </section>
+
+          <section id="page-mcp" class="settings-page ${initialPage === 'mcp' ? 'active fallback-visible' : ''}" role="tabpanel" aria-labelledby="tab-mcp" tabindex="0">
+            <div class="page-header">
+              <p class="page-kicker">MCP Servers</p>
+              <h2>Tools AtlasMind can reach</h2>
+              <p>Each connected server contributes tools that agents may call. Enabling or connecting one here widens what AtlasMind can do, so the list shows what is actually running rather than what was once configured.</p>
+            </div>
+
+            <div class="page-grid">
+              ${mcpServers.length === 0
+                ? `<article class="settings-card">
+                    <div class="card-header"><p class="card-kicker">Nothing connected</p><h3>No MCP servers yet</h3></div>
+                    <p class="muted-line">Add one from the full manager — it has the browse-by-category list, transport setup, and secret entry.</p>
+                    <div class="button-stack"><button type="button" class="secondary-button" id="mcpOpenManager">Open the MCP manager</button></div>
+                  </article>`
+                : mcpServers.map(server => `
+                  <article class="settings-card">
+                    <div class="card-header">
+                      <p class="card-kicker">${escapeHtml(server.transport)} · ${escapeHtml(server.status)}${server.toolCount > 0 ? ` · ${server.toolCount} tool${server.toolCount === 1 ? '' : 's'}` : ''}</p>
+                      <h3>${escapeHtml(server.name)}</h3>
+                    </div>
+                    ${server.error ? `<p class="warning-note">${escapeHtml(server.error)}</p>` : ''}
+                    <label class="checkbox-card">
+                      <input type="checkbox" data-mcp-enable="${escapeHtml(server.id)}" ${server.enabled ? 'checked' : ''}>
+                      <span>
+                        <strong>Enabled</strong>
+                        <span class="muted-line">Turning this off disconnects the server and withdraws its tools.</span>
+                      </span>
+                    </label>
+                    <div class="button-stack">
+                      ${server.status === 'connected'
+                        ? `<button type="button" class="secondary-button" data-mcp-disconnect="${escapeHtml(server.id)}">Disconnect</button>`
+                        : `<button type="button" class="secondary-button" data-mcp-connect="${escapeHtml(server.id)}" ${server.enabled ? '' : 'disabled'}>Connect</button>`}
+                    </div>
+                  </article>`).join('')}
+            </div>
+
+            ${mcpServers.length > 0 ? `<article class="settings-card">
+              <div class="card-header"><p class="card-kicker">Adding and editing</p><h3>Full MCP manager</h3></div>
+              <p class="muted-line">Adding a server, changing its transport or arguments, and entering secrets all live in the dedicated panel. They are deliberately not duplicated here — two implementations of one flow drift, and the one that drifts is the one nobody is looking at.</p>
+              <div class="button-stack"><button type="button" class="secondary-button" id="mcpOpenManager">Open the MCP manager</button></div>
+            </article>` : ''}
+          </section>
+
+          <section id="page-buzz" class="settings-page ${initialPage === 'buzz' ? 'active fallback-visible' : ''}" role="tabpanel" aria-labelledby="tab-buzz" tabindex="0">
+            <div class="page-header">
+              <p class="page-kicker">Buzz</p>
+              <h2>Work with your Buzz workspace</h2>
+              <p>Buzz owns identity and messaging; AtlasMind owns reasoning and execution. Each switch below is off until you turn it on, and each one only takes effect when the one above it is already on.</p>
+            </div>
+
+            <article class="settings-card" id="buzzGuideCard">
+              <div class="card-header">
+                <p class="card-kicker">Not sure where to start?</p>
+                <h3>Walk me through it</h3>
+              </div>
+              <p class="muted-line">Opens a guided checklist in chat, built from what is actually configured here: what is done, what is left, and what to do next — including the parts that live outside this page, like running a relay or installing the CLI. It reports; it never switches anything on for you.</p>
+              <div class="button-stack">
+                <button type="button" class="secondary-button" id="buzzOpenGuide">Guide me through Buzz setup</button>
+              </div>
+            </article>
+
+            <div class="page-grid">
+              <article class="settings-card">
+                <div class="card-header">
+                  <p class="card-kicker">Connection</p>
+                  <h3>${renderHeadingWithHelp('Relay', 'buzzEnabled')}</h3>
+                </div>
+                <label class="checkbox-card">
+                  <input id="buzzEnabled" type="checkbox" ${buzzEnabled ? 'checked' : ''}>
+                  <span>
+                    <strong>${renderHeadingWithHelp('Enable the Buzz integration', 'buzzEnabled')}</strong>
+                    <span class="muted-line">The master switch. Everything else on this page stays inert until this is on.</span>
+                  </span>
+                </label>
+                <div class="field-grid" data-buzz-depends="buzzEnabled">
+                  ${renderFieldLabel('buzzRelayUrl', 'Relay URL', 'buzzRelayUrl')}
+                  <input id="buzzRelayUrl" type="text" value="${buzzRelayUrl}" placeholder="ws://localhost:3000" />
+                </div>
+                <label class="checkbox-card" data-buzz-depends="buzzEnabled">
+                  <input id="buzzAllowRemoteRelay" type="checkbox" ${buzzAllowRemoteRelay ? 'checked' : ''}>
+                  <span>
+                    <strong>${renderHeadingWithHelp('Allow a remote relay', 'buzzAllowRemoteRelay')}</strong>
+                    <span class="muted-line">Needed for a hosted Buzz. Project data then leaves this machine.</span>
+                  </span>
+                </label>
+                <p class="info-note">A relay that is not on this machine must be encrypted — a plaintext <code>ws://</code> URL to a remote host is refused, because it would expose both your colleagues' messages and the authentication challenge in transit.</p>
+              </article>
+
+              <article class="settings-card">
+                <div class="card-header">
+                  <p class="card-kicker">Inbound</p>
+                  <h3>${renderHeadingWithHelp('Read-only subscription', 'buzzInboundEnabled')}</h3>
+                </div>
+                <label class="checkbox-card" data-buzz-depends="buzzEnabled">
+                  <input id="buzzInboundEnabled" type="checkbox" ${buzzInboundEnabled ? 'checked' : ''}>
+                  <span>
+                    <strong>${renderHeadingWithHelp('Watch Buzz activity', 'buzzInboundEnabled')}</strong>
+                    <span class="muted-line">Subscribes and derives work items. It can never publish to Buzz.</span>
+                  </span>
+                </label>
+                <div class="field-grid" data-buzz-depends="buzzInboundEnabled">
+                  ${renderFieldLabel('buzzInboundChannels', 'Channels to watch', 'buzzInboundChannels')}
+                  <textarea id="buzzInboundChannels" rows="3" placeholder="One channel id per line">${buzzInboundChannels}</textarea>
+                </div>
+                <p class="info-note">An empty list is <strong>not</strong> "no channels" — it scopes the subscription by message kind alone, covering every channel your agent key can already read. List channel ids to narrow it. An authenticating relay needs an agent key before it will accept a subscription at all.</p>
+                <p class="info-note">Rather than copying ids out of the Buzz app, press <strong>Fetch my channels</strong> and tick them. It asks the Buzz CLI for the real ids, so a channel id that quietly does not match the channel you posted in — the usual reason a working subscription receives nothing — stops being possible. Needs the CLI installed and your agent key stored; nothing is saved unless you tick and confirm.</p>
+                <div class="button-stack">
+                  <button type="button" class="secondary-button" id="buzzFetchChannels">Fetch my channels</button>
+                  <button type="button" class="secondary-button" id="buzzSetAgentKey">Set Buzz agent key…</button>
+                </div>
+              </article>
+
+              <article class="settings-card settings-card-warning" data-buzz-depends="buzzInboundEnabled">
+                <div class="card-header">
+                  <p class="card-kicker">Persistence</p>
+                  <h3>${renderHeadingWithHelp('Record follow-ups to project memory', 'buzzAutoCreateFollowUps')}</h3>
+                </div>
+                <label class="checkbox-card">
+                  <input id="buzzAutoCreateFollowUps" type="checkbox" ${buzzAutoCreateFollowUps ? 'checked' : ''}>
+                  <span>
+                    <strong>${renderHeadingWithHelp('Save derived follow-ups', 'buzzAutoCreateFollowUps')}</strong>
+                    <span class="muted-line">Writes into <code>project_memory/</code>, which is tracked by git.</span>
+                  </span>
+                </label>
+                <p class="warning-note">Deliberately separate from the switch above: watching a channel should never, on its own, start committing records about your colleagues' conversations. Conversations are <strong>derived, never mirrored</strong> — a message becomes a follow-up with a pointer back to the Buzz thread, never the message body.</p>
+              </article>
+
+              <article class="settings-card">
+                <div class="card-header">
+                  <p class="card-kicker">Routing</p>
+                  <h3>${renderHeadingWithHelp('Agent bindings', 'buzzAgentBindings')}</h3>
+                </div>
+                ${parsedBuzzBindings.bindings.length
+                  ? `<ul class="plain-list">${parsedBuzzBindings.bindings.map(binding =>
+                      `<li><code>${escapeHtml(`${binding.pubkey.slice(0, 12)}…`)}</code> → <strong>${escapeHtml(binding.agentIds.join(', '))}</strong>${binding.agentIds.length > 1 ? ' <span class="muted-line">(first owns the work)</span>' : ''}${binding.label ? ` <span class="muted-line">${escapeHtml(binding.label)}</span>` : ''}</li>`).join('')}</ul>`
+                  : '<p class="muted-line">No bindings yet. Work from an unbound Buzz identity stays unassigned rather than being routed by guesswork.</p>'}
+                ${parsedBuzzBindings.issues.length
+                  ? `<p class="warning-note">${parsedBuzzBindings.issues.map(issue =>
+                      `Ignored <code>${escapeHtml(issue.input)}</code> — ${escapeHtml(issue.reason)}`).join('<br>')}</p>`
+                  : ''}
+                <p class="info-note">Bind a person to an agent on the <strong>Project Dashboard → Director</strong> tab: give them the <code>buzz</code> channel, paste their <code>npub…</code> key, and pick an agent.</p>
+                <div class="button-stack">
+                  <button type="button" class="secondary-button" id="buzzOpenDirector">Open the Director roster</button>
+                </div>
               </article>
             </div>
           </section>
@@ -3498,6 +3798,10 @@ export class SettingsPanel {
         .ard-result-meta { color: var(--atlas-panel-muted); font-size: 0.82rem; margin-top: 4px; }
         .ard-result-desc { margin: 8px 0; }
         .ard-result-url { font-size: 0.82rem; margin-top: 4px; }
+        .plain-list { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 4px; }
+        .plain-list li { font-size: 0.86rem; }
+        /* A gate whose parent switch is off: still readable, visibly not in force. */
+        .settings-page [data-buzz-depends].is-inert { opacity: 0.55; }
         .ard-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
         .ard-chip {
           background: var(--atlas-panel-accent-soft);
@@ -4340,6 +4644,136 @@ export class SettingsPanel {
             voiceOutputDeviceId.addEventListener('change', emitVoiceOutputDeviceId);
             voiceOutputDeviceId.addEventListener('blur', emitVoiceOutputDeviceId);
           }
+
+          // MCP servers. Delegated because the cards are re-rendered whenever a
+          // connection changes, so per-element listeners would be lost.
+          document.querySelectorAll('[data-mcp-enable]').forEach(element => {
+            if (element instanceof HTMLInputElement) {
+              element.addEventListener('change', () => {
+                vscode.postMessage({
+                  type: 'setMcpServerEnabled',
+                  payload: { id: element.getAttribute('data-mcp-enable'), enabled: element.checked },
+                });
+              });
+            }
+          });
+          document.querySelectorAll('[data-mcp-connect]').forEach(element => {
+            element.addEventListener('click', () => {
+              vscode.postMessage({ type: 'connectMcpServer', payload: element.getAttribute('data-mcp-connect') });
+            });
+          });
+          document.querySelectorAll('[data-mcp-disconnect]').forEach(element => {
+            element.addEventListener('click', () => {
+              vscode.postMessage({ type: 'disconnectMcpServer', payload: element.getAttribute('data-mcp-disconnect') });
+            });
+          });
+          document.querySelectorAll('#mcpOpenManager').forEach(element => {
+            element.addEventListener('click', () => {
+              vscode.postMessage({ type: 'openMcpManager' });
+            });
+          });
+
+          // Buzz. The gates are nested, so a dependent control is dimmed and
+          // disabled while its parent is off — it still shows the value that is
+          // stored, because hiding a stored 'on' would misreport the config.
+          const buzzEnabledInput = document.getElementById('buzzEnabled');
+          const buzzInboundEnabledInput = document.getElementById('buzzInboundEnabled');
+
+          function syncBuzzGates() {
+            const gateOn = {
+              buzzEnabled: buzzEnabledInput instanceof HTMLInputElement && buzzEnabledInput.checked,
+              buzzInboundEnabled: buzzInboundEnabledInput instanceof HTMLInputElement && buzzInboundEnabledInput.checked,
+            };
+            // Inbound is only live when the master switch is too, so a dependent
+            // of inbound is inert whenever either is off.
+            gateOn.buzzInboundEnabled = gateOn.buzzInboundEnabled && gateOn.buzzEnabled;
+            document.querySelectorAll('[data-buzz-depends]').forEach(element => {
+              const parent = element.getAttribute('data-buzz-depends');
+              const live = parent === 'buzzInboundEnabled' ? gateOn.buzzInboundEnabled : gateOn.buzzEnabled;
+              element.classList.toggle('is-inert', !live);
+              element.querySelectorAll('input, textarea, select, button').forEach(control => {
+                if (control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement
+                  || control instanceof HTMLSelectElement || control instanceof HTMLButtonElement) {
+                  control.disabled = !live;
+                }
+              });
+            });
+          }
+
+          if (buzzEnabledInput instanceof HTMLInputElement) {
+            buzzEnabledInput.addEventListener('change', () => {
+              vscode.postMessage({ type: 'setBuzzEnabled', payload: buzzEnabledInput.checked });
+              syncBuzzGates();
+            });
+          }
+          if (buzzInboundEnabledInput instanceof HTMLInputElement) {
+            buzzInboundEnabledInput.addEventListener('change', () => {
+              vscode.postMessage({ type: 'setBuzzInboundEnabled', payload: buzzInboundEnabledInput.checked });
+              syncBuzzGates();
+            });
+          }
+
+          const buzzAllowRemoteRelay = document.getElementById('buzzAllowRemoteRelay');
+          if (buzzAllowRemoteRelay instanceof HTMLInputElement) {
+            buzzAllowRemoteRelay.addEventListener('change', () => {
+              vscode.postMessage({ type: 'setBuzzAllowRemoteRelay', payload: buzzAllowRemoteRelay.checked });
+            });
+          }
+
+          const buzzAutoCreateFollowUps = document.getElementById('buzzAutoCreateFollowUps');
+          if (buzzAutoCreateFollowUps instanceof HTMLInputElement) {
+            buzzAutoCreateFollowUps.addEventListener('change', () => {
+              vscode.postMessage({ type: 'setBuzzAutoCreateFollowUps', payload: buzzAutoCreateFollowUps.checked });
+            });
+          }
+
+          const buzzRelayUrl = document.getElementById('buzzRelayUrl');
+          if (buzzRelayUrl instanceof HTMLInputElement) {
+            const emitBuzzRelayUrl = () => {
+              vscode.postMessage({ type: 'setBuzzRelayUrl', payload: buzzRelayUrl.value });
+            };
+            buzzRelayUrl.addEventListener('change', emitBuzzRelayUrl);
+            buzzRelayUrl.addEventListener('blur', emitBuzzRelayUrl);
+          }
+
+          const buzzInboundChannels = document.getElementById('buzzInboundChannels');
+          if (buzzInboundChannels instanceof HTMLTextAreaElement) {
+            const emitBuzzChannels = () => {
+              vscode.postMessage({ type: 'setBuzzInboundChannels', payload: buzzInboundChannels.value });
+            };
+            buzzInboundChannels.addEventListener('change', emitBuzzChannels);
+            buzzInboundChannels.addEventListener('blur', emitBuzzChannels);
+          }
+
+          const buzzSetAgentKey = document.getElementById('buzzSetAgentKey');
+          if (buzzSetAgentKey instanceof HTMLButtonElement) {
+            buzzSetAgentKey.addEventListener('click', () => {
+              vscode.postMessage({ type: 'openBuzzAgentKey' });
+            });
+          }
+
+          const buzzOpenGuide = document.getElementById('buzzOpenGuide');
+          if (buzzOpenGuide instanceof HTMLButtonElement) {
+            buzzOpenGuide.addEventListener('click', () => {
+              vscode.postMessage({ type: 'openBuzzGuide' });
+            });
+          }
+
+          const buzzFetchChannels = document.getElementById('buzzFetchChannels');
+          if (buzzFetchChannels instanceof HTMLButtonElement) {
+            buzzFetchChannels.addEventListener('click', () => {
+              vscode.postMessage({ type: 'fetchBuzzChannels' });
+            });
+          }
+
+          const buzzOpenDirector = document.getElementById('buzzOpenDirector');
+          if (buzzOpenDirector instanceof HTMLButtonElement) {
+            buzzOpenDirector.addEventListener('click', () => {
+              vscode.postMessage({ type: 'openDirectorRoster' });
+            });
+          }
+
+          syncBuzzGates();
 
           const projectDependencyMonitoringEnabled = document.getElementById('projectDependencyMonitoringEnabled');
           if (projectDependencyMonitoringEnabled instanceof HTMLInputElement) {
@@ -5258,6 +5692,13 @@ export function collectTestingDashboardSnapshot(
       verificationScripts,
       projectTestingConfig: undefined,
       availableAgentSummaries,
+      policyCoverage: deriveTestingPolicyCoverage({
+        enabledMethodologies: [],
+        testFiles: [],
+        dependencies: [],
+        scripts: [],
+        configFiles: [],
+      }),
     };
   }
 
@@ -5266,6 +5707,11 @@ export function collectTestingDashboardSnapshot(
   let packageScripts: string[] = [];
   let frameworkLabel = 'Workspace tests';
   const configFiles: string[] = [];
+  // Every script and dependency name, not just the test-shaped ones: the policy
+  // readout below asks "is this policy's tooling installed at all", which the
+  // display-filtered lists cannot answer.
+  let allScriptNames: string[] = [];
+  let dependencyNames: string[] = [];
   const packageJsonPath = path.join(workspaceRoot, 'package.json');
   if (existsSync(packageJsonPath)) {
     configFiles.push('package.json');
@@ -5275,7 +5721,12 @@ export function collectTestingDashboardSnapshot(
         dependencies?: Record<string, string>;
         devDependencies?: Record<string, string>;
       };
-      packageScripts = Object.keys(packageJson.scripts ?? {})
+      allScriptNames = Object.keys(packageJson.scripts ?? {}).slice(0, 200);
+      dependencyNames = [
+        ...Object.keys(packageJson.dependencies ?? {}),
+        ...Object.keys(packageJson.devDependencies ?? {}),
+      ].slice(0, 500);
+      packageScripts = allScriptNames
         .filter(name => /(test|coverage|vitest|jest|playwright|cypress|watch)/i.test(name))
         .slice(0, 8);
       frameworkLabel = inferTestingFramework(packageJson);
@@ -5296,7 +5747,9 @@ export function collectTestingDashboardSnapshot(
   let unitFiles = 0;
   let integrationFiles = 0;
   let e2eFiles = 0;
+  let newestTestFileMs = 0;
   const discoveredTests: TestingCaseSummary[] = [];
+  const policyTestFiles: TestingPolicyTestFile[] = [];
 
   const fileSummaries = discoveredFiles.map(filePath => {
     const relativePath = toWorkspaceRelativePath(workspaceRoot, filePath);
@@ -5304,8 +5757,13 @@ export function collectTestingDashboardSnapshot(
     const fileText = safeReadTextFile(filePath);
     const suites = countPatternMatches(fileText, /\bdescribe\s*\(/g);
     const cases = countPatternMatches(fileText, /\b(?:it|test)(?:\.(?:only|skip|todo|fails|concurrent))?(?:\.each\([^)]*\))?\s*\(/g);
+    // Tests that exist but do not run. Locally derivable and always available,
+    // unlike a failure count — a skipped test is a gap the panel should show.
+    const skipped = countPatternMatches(fileText, /\b(?:it|test|describe)\.(?:skip|todo)\s*\(|\bx(?:it|describe)\s*\(|@(?:pytest\.mark\.)?skip|@unittest\.skip|#\[ignore\]|\bt\.Skip\(/g);
     const modified = statSync(filePath).mtime;
     const lastModifiedLabel = `Updated ${modified.toISOString().slice(0, 10)}`;
+    newestTestFileMs = Math.max(newestTestFileMs, modified.getTime());
+    policyTestFiles.push({ relativePath, cases, skipped });
 
     totalSuites += suites;
     totalCases += cases;
@@ -5325,6 +5783,26 @@ export function collectTestingDashboardSnapshot(
       cases,
       lastModifiedLabel,
     } satisfies TestingFileSummary;
+  });
+
+  const enabledMethodologies = (projectTestingConfig?.methodologies ?? [])
+    .filter(entry => entry.enabled)
+    .map(entry => entry.id);
+  const discoveredReport = findTestResultReport(workspaceRoot);
+  const parsedReport = discoveredReport ? parseJUnitReport(discoveredReport.text) : undefined;
+  const policyCoverage = deriveTestingPolicyCoverage({
+    // Nothing enabled yet means the two Atlas defaults, matching what the
+    // strategy table shows in that state rather than an empty board.
+    enabledMethodologies: enabledMethodologies.length > 0 ? enabledMethodologies : ['tdd', 'unit'],
+    testFiles: policyTestFiles,
+    dependencies: dependencyNames,
+    scripts: allScriptNames,
+    configFiles: [...configFiles, ...probePolicyConfigFiles(workspaceRoot)],
+    ...(parsedReport && discoveredReport
+      ? { report: { ...parsedReport, relativePath: discoveredReport.relativePath, generatedAtMs: discoveredReport.generatedAtMs } }
+      : {}),
+    ...(newestTestFileMs > 0 ? { newestTestFileMs } : {}),
+    frameworkLabel,
   });
 
   const coverageInfoPath = path.join(workspaceRoot, 'coverage', 'lcov.info');
@@ -5362,7 +5840,84 @@ export function collectTestingDashboardSnapshot(
     verificationScripts,
     projectTestingConfig,
     availableAgentSummaries,
+    policyCoverage,
   };
+}
+
+/**
+ * Config and CI files that evidence a testing policy's tooling.
+ *
+ * A fixed probe list rather than a walk: this runs on every dashboard render, and
+ * the paths a tool writes are well known. Returns workspace-relative paths only.
+ */
+function probePolicyConfigFiles(workspaceRoot: string): string[] {
+  const candidates = [
+    'cypress.config.ts', 'cypress.config.js', 'wdio.conf.ts', 'wdio.conf.js',
+    'stryker.conf.json', 'stryker.conf.js', 'stryker.conf.mjs', '.stryker-tmp',
+    'backstop.json', '.percy.yml', '.percy.yaml', 'loki.config.js',
+    'semgrep.yml', 'semgrep.yaml', '.semgrep.yml', '.snyk', '.gitleaks.toml', 'SECURITY.md',
+    'openapi.yaml', 'openapi.yml', 'openapi.json', 'asyncapi.yaml', 'swagger.json',
+    '.spectral.yaml', '.spectral.yml', 'redocly.yaml',
+    '.gitlab-ci.yml', 'azure-pipelines.yml', 'Jenkinsfile', '.travis.yml', 'bitbucket-pipelines.yml',
+    'setup.cfg', 'pytest.ini', 'tox.ini',
+  ];
+  const found = candidates.filter(candidate => existsSync(path.join(workspaceRoot, candidate)));
+  // Directories are reported with a trailing slash so a `^\.github/workflows/`
+  // style marker matches without needing to enumerate the workflow files.
+  for (const dir of ['.github/workflows', '.circleci', 'pacts', 'features']) {
+    if (existsSync(path.join(workspaceRoot, dir))) {
+      found.push(`${dir}/`);
+    }
+  }
+  return found;
+}
+
+/**
+ * Find the newest machine-readable test report the project has produced.
+ *
+ * A fixed candidate list plus a shallow scan of the handful of directories
+ * runners conventionally write to — never a workspace walk. Nothing is executed
+ * to create one: if the project has not written a report, the panel says so
+ * rather than implying a clean run.
+ */
+function findTestResultReport(workspaceRoot: string): { relativePath: string; text: string; generatedAtMs: number } | undefined {
+  const MAX_REPORT_SIZE = 8_000_000;
+  const candidates = [
+    'junit.xml', 'test-results.xml', 'test-report.xml', 'report.xml',
+    'test-results/junit.xml', 'test-results/results.xml', 'test-results/test-results.xml',
+    'reports/junit.xml', 'coverage/junit.xml',
+  ];
+  for (const dir of ['test-results', 'reports', 'target/surefire-reports', 'build/test-results/test', 'TestResults']) {
+    try {
+      const entries = readdirSync(path.join(workspaceRoot, dir), { withFileTypes: true, encoding: 'utf8' });
+      for (const entry of entries.slice(0, 40)) {
+        if (entry.isFile() && entry.name.toLowerCase().endsWith('.xml')) {
+          candidates.push(`${dir}/${entry.name}`);
+        }
+      }
+    } catch {
+      // Directory absent or unreadable — nothing to add.
+    }
+  }
+
+  let best: { relativePath: string; text: string; generatedAtMs: number } | undefined;
+  for (const relativePath of [...new Set(candidates)].slice(0, 60)) {
+    const absolute = path.join(workspaceRoot, relativePath);
+    try {
+      const stat = statSync(absolute);
+      if (!stat.isFile() || stat.size === 0 || stat.size > MAX_REPORT_SIZE) {
+        continue;
+      }
+      if (best && stat.mtimeMs <= best.generatedAtMs) {
+        continue;
+      }
+      const text = readFileSync(absolute, 'utf8');
+      best = { relativePath, text, generatedAtMs: stat.mtimeMs };
+    } catch {
+      // Unreadable or missing — skip it.
+    }
+  }
+  return best;
 }
 
 export function extractIndividualTests(
@@ -5875,6 +6430,37 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
         const item = m as Record<string, unknown>;
         return typeof item['id'] === 'string' && typeof item['enabled'] === 'boolean';
       });
+  }
+
+  if (
+    message.type === 'setBuzzEnabled'
+    || message.type === 'setBuzzAllowRemoteRelay'
+    || message.type === 'setBuzzInboundEnabled'
+    || message.type === 'setBuzzAutoCreateFollowUps'
+  ) {
+    return typeof message.payload === 'boolean';
+  }
+
+  if (message.type === 'setBuzzRelayUrl' || message.type === 'setBuzzInboundChannels') {
+    // Empty is meaningful for both: it clears the relay, or watches by kind alone.
+    return typeof message.payload === 'string';
+  }
+
+  if (message.type === 'openBuzzAgentKey' || message.type === 'openDirectorRoster'
+    || message.type === 'openBuzzGuide' || message.type === 'fetchBuzzChannels'
+    || message.type === 'openMcpManager') {
+    return true;
+  }
+
+  if (message.type === 'connectMcpServer' || message.type === 'disconnectMcpServer') {
+    return typeof message.payload === 'string' && message.payload.trim().length > 0;
+  }
+
+  if (message.type === 'setMcpServerEnabled') {
+    const payload = message.payload as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null
+      && typeof payload['id'] === 'string' && payload['id'].trim().length > 0
+      && typeof payload['enabled'] === 'boolean';
   }
 
   if (message.type === 'ardExportCatalog') {

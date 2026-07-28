@@ -109,6 +109,15 @@ The **Auto-assess project** button scans the workspace — package.json dependen
 
 The **Project Dashboard → Testing** page includes a methodology toggle matrix with immediate save. Toggling a methodology writes directly to `project_memory/index/testing-config.json`. An **Open Testing Strategy →** link navigates to the Settings Panel for agent assignment and model overrides.
 
+Above the matrix, the **Policy coverage** board reports what each *enabled* methodology has to show for itself:
+
+- **Tested** — test files matching that policy exist, with their file, case, skipped, and failing counts.
+- **No tests yet** — the policy's tooling is installed (dependency, script, or config detected) but nothing in the tree tests with it.
+- **Nothing found** — enabled with no tooling and no tests. A **Write tests with Atlas** action proposes the smallest useful set.
+- **Practice — not file-evident** — exploratory, black-box, gray-box, white-box, V-model, test-design, and agile testing leave no artifact to detect, so they are labelled rather than counted as gaps.
+
+Failing tests are read from the newest JUnit-style report the project has written (`test-results/junit.xml`, `junit.xml`, `target/surefire-reports/*.xml`, and similar) and attributed to the policy that owns the file, with a per-policy **Fix with Atlas** action. AtlasMind never runs a test command to populate this: if the project has produced no report, the page states that pass/fail is *unknown* and shows the command for the detected framework, because "0 failing" from a run that never happened is worse than no number. A report that predates your newest test file is marked **May be out of date**. Skipped-test counts are derived from the test files themselves, so that signal is available with or without a report.
+
 #### Agent Testing Roles
 
 The **Agent Editor** shows a **Testing Roles** section below Skills. When a methodology is assigned to the agent in `testing-config.json`, the section renders read-only chips for each methodology plus per-methodology model override inputs. When no methodologies are assigned, a **Configure in Testing Strategy →** link opens the Settings Panel Testing page.

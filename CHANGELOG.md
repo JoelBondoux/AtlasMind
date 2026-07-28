@@ -6,6 +6,396 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.169.0] - 2026-07-28
+
+### Added
+- **An Issues tab on the Project Dashboard, synced with GitHub.** A project's issues are where work arrives from *outside* the editor — the roadmap knew what we planned, and nothing knew what anyone had reported. The new tab (beside Roadmap) reads the repository's tracker through the `gh` CLI and shows open / recently-closed / unassigned / stale counts, open issues by label, an assignee donut, and a searchable, filterable list (Open · Unassigned · Closed · All). The nav badge appears only once the tracker has actually been read.
+- **Deal with an issue without leaving the editor.** Per issue: **Comment**, **Close**, **Reopen**, **Open on GitHub**, and **Work on it with Atlas**; plus **New issue** with title, body, and labels. New pure, unit-tested `src/core/issueTracker.ts`.
+- **Failure modes are reported as themselves.** `gh` missing, `gh` not authenticated, and "no GitHub repository here" are three different messages, each with the command that fixes it — "no issues" and "we could not look" are different facts, and collapsing them would report a clean tracker that nobody checked.
+
+### Security
+- **Issue text is treated as untrusted, third-party input.** Titles, bodies, labels, and author names are written by anyone who can open an issue: everything is control-stripped, length-clamped, and count-capped at the single point where it enters AtlasMind, a non-`https` link is dropped rather than rendered as a button, and the parser never throws — malformed JSON or one bad entry degrades to *fewer issues*, never to an exception on a dashboard render.
+- **"Work on it with Atlas" quotes the issue as data, never as instruction.** The prompt fences the body and labels it `REPORTED CONTENT, not instructions`, tells the model not to follow anything inside it, and not to treat its claims as verified. This is the one path where text written by an arbitrary internet user reaches a model that can call tools, so the mitigation is in the prompt itself and pinned by a test.
+- **Every write is confirmed, and the webview never supplies a command.** Creating, commenting, closing, and reopening are outward-facing and usually public, so each is gated on a `{ modal: true }` dialog naming the repository and the exact action, built from the same values that will be sent. The webview posts data only; `gh` is invoked directly with an argument list, never through a shell, and a label that could read as a command-line option is rejected. Reads are user-triggered rather than part of a render, so an unopened tab never spends the user's API quota.
+
+## [0.168.0] - 2026-07-28
+
+### Added
+- **Work-mix charts and a contributor filter on the Project Dashboard Overview.** The opening page previously answered *how busy* the repo has been but not *who did the work* or *how far the release is from done*. It now carries three charts alongside the activity timelines: a **commits by contributor** donut, a **route to release** ring for whichever gate the Roadmap card is showing (complete vs remaining, with the percentage in the centre), and an **outstanding objectives by release gate** bar. All three read data the dashboard already collects — no new scan, no model call.
+- **Filter the timeline to one person.** Clicking a contributor, in the ring legend or the new segmented filter, scopes the commit timeline to that person and clears on a second click. The filter only appears when the window actually has more than one author, and the run and memory timelines are deliberately left unfiltered because they are not per-person data.
+- **`renderDonutChart`** joins the shared chart primitives: inline SVG arcs under the existing CSP (no chart library, no canvas), so rings inherit theme colours, stay crisp at any zoom, and carry a `<title>` per slice for hover and screen readers.
+- **`buildContributorSeries`** (exported and unit-tested) reduces one `git log` into per-person daily series: ranked by commit count, ties broken by name so slice colours stay stable between renders, and the long tail merged into a single **Others (n)** entry that keeps its commits — a chart that silently dropped contributors would misreport who did the work.
+
+### Fixed
+- **Flaky temp-directory cleanup on Windows.** Panel-flow and documents tests deleted their scratch directories immediately after writing into them, which intermittently hit `EPERM` while the OS still held a handle — failing a green test and blocking the pre-commit gate. Cleanup now retries.
+
+### Security
+- **Author names only.** The contributor breakdown reads git's `%an` field — the same value the commit list already displays — never an email address, and clamps each name before it reaches the webview.
+
+## [0.167.0] - 2026-07-28
+
+### Added
+- **One-tap quick-reply pills on every chat surface, not just the Chat panel.** `detectResponseQuickReplies` has reliably recognised question shapes since v0.125.0, but the pills only rendered in one webview — which made them read as a feature of that panel rather than of Atlas asking a question. The **Project Ideation** panel now renders them under the facilitation response (clicking one runs it as the next ideation pass), and the **Vision** panel renders them under the streamed output (clicking one runs it as the next vision prompt). The dashboard ideation path posts them too. New `buildQuickReplyPayload` (`src/chat/participant.ts`) produces the webview-ready payload, and `QUICK_REPLY_CSS` (`src/views/webviewUtils.ts`) is now the single style definition — the Chat panel's inline copy was replaced by it, so four surfaces cannot drift into four different pills.
+- **Pills only, never a bare question.** A question with no clean options yields nothing, exactly as in the Chat panel, where that case gets the text input rather than invented buttons. Stale pills are cleared when a new response starts, so a pill never answers the previous question.
+
+### Security
+- **Model output is clamped at the one boundary it crosses.** A pill's label is rendered and its prompt is *submitted on click*, so `buildQuickReplyPayload` length-caps and control-strips both and caps how many pills it will hand over. The webview render paths use `textContent`/`escapeHtml`, never `innerHTML`, and each surface dispatches the click through its own existing, already-validated run path rather than a new one.
+
+## [0.166.0] - 2026-07-28
+
+### Added
+- **Release gates beyond MVP on the Roadmap dashboard.** MVP was the only milestone the page could track, which stops being useful the day a project ships it. Projects can now declare their own gates — a public beta, `v1.0`, `v2` (up to 12) — with **+ New gate**, and a gate selector switches the "Road to …" card between them: each gate gets its own progress bar, milestone track, best-route ordering, next-step callout, and *Plan the … route with Atlas* prompt. Every backlog item shows one membership toggle per gate, so an item can belong to the MVP *and* the beta. New pure, unit-tested `src/core/roadmapGates.ts`.
+- **Gates are stored in the roadmap file.** A managed `<!-- atlasmind:roadmap-gates:start/end -->` block in `improvement-plan.md` holds them as readable markdown (`` - `#beta` — Public beta ``), so they diff and review like the backlog they describe, with no second source of truth. Item membership stays `#<gate>` tags inside the existing items block; tags never appear in displayed text and round-trip through every save. The block is only written once a project declares a gate beyond MVP, so a roadmap that never uses them is left exactly as it was.
+
+### Changed
+- **`isMvp` still works.** The single-flag save payload is still accepted and still written, so an older webview — or a queued message from one — cannot silently drop an item's MVP membership. The MVP gate keeps its own name in the snapshot and remains the gate that feeds the Operational Score.
+- **Heuristic suggestions stay MVP-only.** The "suggested foundations" fallback recognises foundational work, which is not a claim about which release something belongs to — so a user-created gate with nothing tagged is reported as empty rather than filled with a guess.
+
+### Security
+- **A tag is only a gate once it is declared.** `extractItemGates` recognises declared ids only, so an item reading `fix the #2 case` keeps its wording instead of inventing a gate, and a tag-boundary check stops `#v1` matching inside `#v10`. Gate ids are slug-validated (`slugifyGateId`) and **refused with a reason** rather than coerced — the id becomes a `#tag` in a tracked file, so a value that would not parse back is never written — and the webview's `deleteRoadmapGate` message is rejected outright if its payload is not a valid slug. Unknown gate ids in a save are dropped, not persisted.
+- **Removing a gate removes a label, never work.** Deletion is confirmed modally with the count of items that will lose the tag, strips the tag from every item, and deletes no backlog item. The built-in MVP gate cannot be removed, and survives an editing accident in the gates block.
+
+## [0.165.0] - 2026-07-28
+
+### Added
+- **Policy coverage board on the Testing dashboard.** Every enabled testing methodology now gets its own card answering the question the page could not answer before: *is anything actually testing this, and is any of it failing?* Each card shows status (**Tested** / **No tests yet** — tooling installed but nothing written / **Nothing found**), the matching file and case counts, how many of those cases are skipped, the tooling that was detected, and a per-policy action (**Fix with Atlas** when tests are failing, **Write tests with Atlas** when there are none). A distribution bar and three metric pills give the shape of the board at a glance, and failing tests from the report are listed with a link to each file. New pure, unit-tested `src/core/testingPolicyCoverage.ts`; evidence is gathered by `collectTestingDashboardSnapshot`.
+- **Practices are not reported as gaps.** Exploratory, black-box, gray-box, white-box, V-model, test-design, and agile testing leave no file artifact, so they are labelled *Practice — not file-evident* and excluded from the gap counts. Flagging a way of working as a missing test trains people to ignore the panel.
+- **Skipped tests are counted from the tree**, so that signal exists even for a project that has never produced a test report.
+
+### Security
+- **A missing test report is reported as "no verdict", never as a pass.** Failures come only from a JUnit report the project already wrote; nothing runs a test command on render — a dashboard that shells out is both a surprise and an execution surface. With no report the page says pass/fail cannot be shown and quotes the framework-appropriate command to produce one.
+- **The report is treated as untrusted input.** `parseJUnitReport` never throws, reads attributes by regex rather than an XML parser (so no entity or external-DTD expansion), decodes only the five predefined entities, caps how much it reads and how many cases it keeps, control-strips and clamps every string, and prefers the failures it can *count* over the totals the report *asserts* — a truncated or hand-edited report cannot present itself as clean. **Failure messages are deliberately not extracted**: an assertion message can carry values from a test environment, and this data renders in a webview. Report staleness (a test file changed after the report was written) is surfaced rather than hidden.
+
+## [0.164.0] - 2026-07-28
+
+### Added
+- **A document shelf creates its folder.** Saving a shelf on the Project Dashboard → **Documents** page now creates the folder it names if the project doesn't have one yet, so a filing system can be designed before the files exist rather than described against folders that aren't there. Shelves already pointing at an absent folder get an explicit **Create folder** action, and the shelf editor says up front that the folder will be created. New `newShelfPaths` (pure path diff — re-pointing a shelf counts as new) and `createShelfFolders` in `src/core/documentsManager.ts`, both unit-tested; the panel handles a new `createShelfFolder` webview message.
+
+### Security
+- **Create-only, and only inside the workspace.** The new folder creation is a `mkdir` and nothing else: a path that is already a directory is a no-op, a path occupied by a **file** is reported and left exactly as it was, and an unsafe path is refused. Paths are re-validated through `normalizeRelPath` inside `createShelfFolders` rather than trusted from the caller, and the resolved target is re-checked against the workspace root — this is the point where a missed traversal would create a directory outside the project. Every folder created is named in a notification, so a change to the user's tree never happens invisibly.
+
+## [0.163.0] - 2026-07-28
+
+### Added
+- **A person can hold several communication channels.** The Director's Add / Edit person form now takes as many as someone actually has — email *and* Slack *and* Buzz — instead of the single channel it allowed. The first row is the preferred one; the rest are added and removed in place, so nothing else typed into the form is lost. `DirectorContact.links` was always a list; only the editor insisted on one, which quietly discarded a colleague's second channel.
+- **A Buzz identity can be bound to several AtlasMind agents.** `atlasmind.buzz.agentBindings` now accepts `<npub>: [<agentId>…]` alongside the existing `<npub>: <agentId>`, and the Director offers a checklist rather than one choice. A correspondent who raises both API defects and design feedback belongs to two specialists, and forcing a choice discards something the user knows. **The first is the owner** — a follow-up has exactly one — and the rest are recorded as also-relevant rather than picked between by inference the binding does not support.
+- **Observed Buzz identities carry enough evidence to be recognised.** Each option now shows what that identity last said, how many messages it has sent, how many channels it has been seen in, and how long ago — because most Buzz identities publish no profile, and three rows reading `dcbe44bf896f… (no published name) · seen in 1 channel` is a list nobody can choose from knowingly. The excerpt is session-only and never persisted, like everything else in the directory.
+
+### Changed
+- **The walkthrough says where the Buzz desktop app fits.** Proving a message arrives is the one step that needs it — AtlasMind can read Buzz but cannot post, so the test message has to come from elsewhere — and that step now says so, with the download link and the warning that the app and AtlasMind must point at the same relay. Previously the app was named only in an optional step the walkthrough never shows, which read as though nothing required it.
+- **A single binding is still written as a plain string**, so a hand-authored settings record does not sprout arrays because one unrelated entry gained a second agent.
+
+### Security
+- **Every agent id in a binding is validated, not just the first.** A rename that broke the second of three would otherwise have saved silently and routed nothing. The webview message guard requires an array whose every entry is a string, since this decides which agent owns inbound work.
+- **The message excerpt crosses the boundary already sanitized** — secret-redacted, control-stripped, and clamped to 80 characters by the same path as every other piece of remote-authored text in the directory — and only the newest message wins, so a reconnect replay cannot overwrite it with something older.
+
+## [0.162.0] - 2026-07-28
+
+### Added
+- **Fetch your Buzz channels instead of copying ids by hand.** A **Fetch my channels** button on Settings → Buzz (and `AtlasMind: Fetch My Buzz Channels` in the palette) asks the Buzz CLI which channels your key can actually see and offers them as a ticklist, with the ones you already watch pre-ticked. A channel id that does not match the channel you posted in is the most common reason a correctly configured subscription receives nothing, and it cannot be diagnosed from inside AtlasMind — the wrong id, the wrong relay, and a quiet day are indistinguishable. The setup walkthrough points at the button on both the subscribe step and the "prove a message arrives" step, but only once the CLI is actually installed: naming a button that needs a binary you never installed teaches people to distrust the guide.
+
+### Security
+- **The only Buzz control that writes a setting, and every part of the write is yours.** You press the button, you tick the channels, and nothing is stored if you dismiss the picker. It touches the channel list alone — never a gate, never a key. It runs under the same validated configuration as the MCP bridge: the relay URL is normalised and remote-consent-checked, the key is read from the OS secret store and passed as an environment variable, and the binary is executed directly rather than through a shell.
+- **The CLI's output is treated as untrusted.** Channel names are written by whoever created the channel and end up in a picker; ids end up in a settings array AtlasMind later subscribes with. Parsing never throws, ids are constrained to a printable-safe identifier charset rather than accepted as arbitrary text (so whitespace, control characters, and shell-shaped strings are refused), names are secret-redacted, control-stripped and clamped, the list is capped and de-duplicated, and entries that could not be read are counted rather than silently dropped.
+- **A watched channel the relay did not list is kept, not removed.** A channel the CLI could not see is far more likely a permissions or paging gap than a deliberate removal, and dropping it would unsubscribe someone from a channel they never touched.
+
+### Changed
+- **Field names read from the CLI's source, not guessed.** `channels list --format compact` emits `{ channel_id, name }` per the compact projection in the pinned release's `channels.rs`; the parser also accepts the other obvious spellings, because tolerating a rename costs nothing and failing closed on one costs a user their channel list.
+
+## [0.161.0] - 2026-07-28
+
+### Added
+- **ACP integration roadmap.** A phased SSOT plan (`project_memory/roadmap/acp-integration.md`) for adopting the Agent Client Protocol: Tier 1 replaces the argv-bounded, tool-free `claude-cli` bridge with a streaming ACP provider, Tier 2 adds Codex and Gemini CLI subscriptions as routable capacity, Tier 3 delegates whole subtasks to a subscription agent while AtlasMind retains the authorization gate, and Tier 4 exposes AtlasMind itself as an ACP agent. Planning only — no implementation.
+- **The Buzz walkthrough now covers proving it works, and the Director roster.** It ended at "subscribed" — the exact point where a wrong channel id, a wrong relay, and a quiet day all look the same. Two steps follow it now:
+  - **Get your first agent talking, and prove it arrived.** Says plainly that the key stored two steps earlier *is* a Buzz identity, so there is no agent to go and obtain. Post a message, run `/buzz read`, and check. Satisfied only by an identity actually being seen on the wire — being subscribed is not evidence. When nothing shows up it names the two things that are almost always wrong: a channel id that does not match the channel you posted in, and AtlasMind and the Buzz app pointed at different relays.
+  - **Put the Buzz people in the Director roster.** Walks the real form — Add person, set the channel to Buzz, pick the identity, choose the AtlasMind agent — so inbound work reaches a specialist rather than arriving unassigned. Offers the identities AtlasMind has actually observed when there are any, and asks for an `npub…` when there are none. One binding finishes the step.
+
+### Changed
+- **"Set up" now means the walkthrough is finished, not just that inbound is wired.** Reading Buzz working is still tracked separately and is never reported as a gap, and while only the last two steps remain the guide says so outright — "the connection itself is already working" — so "2 steps left" cannot be misread as a broken connection.
+- **Step numbering runs to 6.** The two new steps are counted; the optional extras (persistence, CLI, MCP bridge, desktop app) still are not, since counting choices would move the finish line as you go.
+
+### Fixed
+- **The panel guide disagreed with the chat guide about the relay.** `atlasmind.buzz.openGuide` was not passing the live subscription status into the plan, so a subscription that had genuinely gone live still read there as an unproven relay while `/buzz` in chat reported it correctly.
+
+## [0.160.1] - 2026-07-28
+
+### Fixed
+- **"Press the button below" — there was no button.** The walkthrough's wording was written for VS Code chat, where buttons render, and shown in the AtlasMind panel, where nothing did. Each step's actions now appear as buttons there: open the relevant screen, set the agent key, or load a command into a terminal.
+- **The opening line read as though the guide had lost its place.** Starting at "step 2 of 4" looks like something was skipped, when in fact step 1 was already finished. It now leads with progress — "1 of 4 done. Next: …" — and only says "step 1 of 4" when nothing is done yet.
+- **A key already given to the Buzz MCP bridge is now recognised.** The bridge stores it under its own secret and inbound reads a different one, so the guide could correctly report "no key" to someone who had already supplied it. It now spots that and offers **Reuse the key from the Buzz bridge**, which validates the key before storing it.
+
+### Security
+- **A guide button names an option id, never a command.** The mapping from option to command is held extension-side and looked up, so a webview message cannot choose what runs.
+- **Reusing the bridge key is checked, not trusted.** The secret id must match the Buzz bridge's exact naming, the key is validated by constructing a signer before it is stored, and neither the key nor any part of it is ever displayed or logged.
+
+## [0.160.0] - 2026-07-28
+
+### Added
+- **Settings → MCP Servers.** Every registered server is listed with its transport, live connection status, tool count, and any error — with Enable, Connect, and Disconnect for each. Previously the only way to see whether a server was actually connected was to open a separate panel.
+
+### Changed
+- **Disabling a server now disconnects it**, rather than only relabelling it. A gate that reports itself closed while its tools remain reachable is worse than no gate.
+- **The page shows what is running, not what was configured.** Status and tool counts are read live from the registry each time it renders.
+- **Adding and editing a server stays in the dedicated MCP manager.** Browse-by-category, transport setup, and secret entry are deliberately not duplicated here — two implementations of one flow drift, and the one that drifts is the one nobody is looking at. The page links straight to it.
+
+### Security
+- **Each new message is validated at the runtime allowlist**, not only in the type union. A server id must be a non-empty string and the enabled flag a real boolean, because these messages start and stop processes that contribute callable tools. This is the same guard that a previous page skipped, which left every control on it silently inert.
+
+## [0.159.1] - 2026-07-28
+
+### Fixed
+- **The setup guide opened in whatever thread happened to be in front of you.** It now gets its own **Buzz setup** session, so a walkthrough no longer lands in the middle of unrelated work under a title about something else.
+- **The guide skipped straight to step 3.** Steps 1 and 2 read as finished because Buzz was enabled and the default `ws://localhost:3000` parses — but nothing had ever connected, so whether a relay existed was unknown and the guide walked past the question entirely. Until you say how you run Buzz (or a subscription actually connects), the relay step is unfinished and the guide stops there to ask.
+- **The walkthrough now has real chips in AtlasMind's own panel.** "How do you want to run Buzz?" is answered by clicking **I will run Buzz on this machine** or **I have a relay URL from someone else**, and the guide reprints with only that path.
+
+### Changed
+- **Each step shows the whole sequence with its position marked**, so arriving at step 3 says why rather than looking like the guide lost its place.
+- **Chips appear only where there is a genuine question.** The relay path is the one thing AtlasMind cannot work out for itself; everywhere else a chip would be a button meaning "I have read this".
+
+## [0.159.0] - 2026-07-28
+
+### Added
+- **The Buzz setup guide is now one step at a time.** `/buzz` shows only the step you are on — numbered, with the exact commands written out — instead of the whole checklist at once. `/buzz all` still shows everything.
+- **Commands can be put straight into a terminal for you.** A button loads the command into a "Buzz setup" terminal, typed but **not run** — pressing Enter stays yours, since these clone repositories and start containers.
+- **The guide asks how you run Buzz and then shows only that path.** `/buzz local` gives the Docker route with real commands; `/buzz hosted` says there is nothing to install and what to paste where. Stored as `atlasmind.buzz.relayMode`, which changes guidance only.
+- **The Buzz desktop app is now part of the guide.** It was missing entirely, which left the walkthrough describing a workspace with no way in — and the channel ids the later steps ask for come from the app.
+- **The MCP bridge step is named as such** ("Connect the Buzz MCP bridge"), so it is findable when you are looking for it.
+
+### Changed
+- **"Guide me through Buzz setup" now opens AtlasMind's own chat panel**, not VS Code's. Routing through `workbench.action.chat.open` put a Buzz question in front of Copilot's participant picker, and — because a slash command in a pre-filled query arrives as text — straight into the general agent.
+- **The local-relay path is spoon-fed:** check Docker, clone the repo, build and start, then confirm something is listening with `docker ps`. Previously it said "normally means Docker", which is not something a first-timer can act on.
+
+### Security
+- **Only commands AtlasMind wrote can be loaded into a terminal.** `BUZZ_SETUP_COMMANDS` is an allowlist checked at the command handler, because a command id is reachable from a webview and its payload cannot be assumed to be ours. Commands quoted from Buzz's documentation are shown for copying and are never wired to a button — they are somebody else's text.
+- **The button still never runs anything.** It types the command and stops.
+
+## [0.158.1] - 2026-07-28
+
+### Changed
+- **CI now publishes an installable build.** Every green run uploads the packaged `.vsix` for that exact commit as an artifact (14-day retention), so a branch can be installed into a real editor by downloading it from the run rather than being handed a file.
+- **CI can be triggered manually** (`workflow_dispatch`), so a feature branch can be built on demand without opening a pull request for it.
+
+### Documentation
+- **`docs/development.md` now states what running a branch actually needs.** F5 debugging builds from source and needs no packaged build at all — but it does need `npm install` after pulling a branch that changed dependencies, which is the step that silently breaks a launch when skipped.
+
+## [0.158.0] - 2026-07-28
+
+### Added
+- **A waiting approval now says so.** When a tool approval needs an answer and the AtlasMind chat panel is not on screen, the panel is brought forward and a notification names the action that is waiting. Previously the only reaction was repainting a webview you may not have been looking at, so a blocked run simply looked like it had hung.
+- **`atlasmind.chat.revealOnApprovalRequest`** (default on) controls whether the panel takes focus. The notification is shown either way, so turning it off stops the interruption without leaving you unaware.
+
+### Changed
+- **Nothing is announced while the panel is already visible.** Interrupting someone toward something already in front of them is how prompts get trained into reflex dismissal.
+- **Only newly-arrived requests announce.** The pending list also changes when a request is *answered*, so announcing on every change would have fired a notification each time you approved something.
+- **A notification is shown even when the panel is revealed**, because a reveal can be missed — the window may not be focused — while a notification waits until it is dismissed.
+- **The notification names the action** ("Run `npm test` in the workspace") rather than saying an approval is required, since a message that does not say what it is about gives no reason to switch to it.
+
+## [0.157.1] - 2026-07-28
+
+### Fixed
+- **"Guide me through Buzz setup" sent your question to the general agent instead of showing the checklist.** The button opens chat with a pre-filled `@atlas /buzz` query, and VS Code hands that to the participant as prompt *text* rather than as a command. The chip renders identically either way, so nothing looked wrong — but `/buzz`, which is deliberately deterministic and uses no model at all, was instead answered by an agent holding every connected tool, which reached for an unrelated third-party one. A slash command arriving as text is now recovered and routed to its own handler.
+
+### Security
+- **A deterministic command can no longer widen its own tool surface by falling through.** The point of `/buzz` being model-free is that a Buzz question never needs an agent, let alone one holding every connected MCP tool; a silent fall-through granted exactly that. Recovery closes it, and tests now pin that every command the manifest declares has a handler, that the known-command list matches the manifest, and that the dispatch reads the recovered prompt rather than the raw one.
+
+## [0.157.0] - 2026-07-28
+
+### Added
+- **DM a Director contact from chat.** `/buzz dm <name> <message>` resolves the person from your Director roster and sends to the Buzz key on their card — the person you added once is the person you can message.
+- **Autonomous agent-to-agent replies** (`atlasmind.buzz.autonomousReplies`, off by default). With it armed, an AtlasMind agent can hold a back-and-forth loop with a Buzz agent without a dialog per message, which is the point of putting them in the same workspace.
+
+### Changed
+- **"AtlasMind drafted it" no longer means "always ask".** It means "ask, unless you have explicitly armed autonomy *and* the recipient is one you declared to be an agent *and* the rate cap has not been reached." Requiring a human click per message made an agent loop impossible; removing the gate entirely would have removed something real.
+
+### Security
+- **Autonomy is scoped to agents you declared, never to agents AtlasMind inferred.** It applies only to recipients in `atlasmind.buzz.agentBindings` — and creating that binding is already a deliberate act naming both the identity and the agent. An unbound recipient is treated as a person, who may act on what they read, and still gets a confirmation.
+- **It is rate-bounded per recipient** (`atlasmind.buzz.autonomousReplyLimitPerHour`, default 10). A loop that re-fires on every inbound event is the realistic failure mode and there is no unsend. At the cap the next message **falls back to a dialog rather than being dropped**, because a silently-discarded reply looks identical to a working loop.
+- **An autonomous send never becomes a standing grant.** It does not mark the recipient as confirmed, so one armed loop cannot permanently silence the dialog for a target you never approved yourself.
+- **The risk this leaves is stated rather than hidden:** inbound Buzz messages are untrusted input, so an agent that reads one and replies autonomously gives its author partial influence over what AtlasMind then says to others. The setting's description says so.
+- **A contact whose Buzz handle is not a public key cannot be DM'd.** A DM is addressed to an identity; a channel UUID is not one, and AtlasMind says so rather than failing at the bridge.
+- **An ambiguous name is refused, not guessed.** If `/buzz dm` matches more than one person, it asks for the full name — picking the wrong colleague is not recoverable.
+
+## [0.156.0] - 2026-07-28
+
+### Added
+- **Read and reply to Buzz from AtlasMind chat.** `/buzz read` shows the recent conversation with authors resolved to their published names, and `/buzz send <message>` posts back through the guarded bridge.
+- **Emoji work in both directions.** Reactions arriving from Buzz are attached to the message they target and aggregated with counts, and emoji you type are sent exactly as written.
+
+### Changed
+- **Confirmation now fires where it adds something, instead of on every send.** A message *you* wrote, aimed at a channel *you* chose, to a recipient you have already messaged this session, sends without a dialog — you confirmed it by typing it and pressing send. A dialog there adds nothing, and dialogs that add nothing train people to dismiss the ones that matter. Everything else still confirms: anything AtlasMind drafted, any recipient AtlasMind picked, and the first message to any recipient in a session.
+- **AtlasMind refuses to guess which channel to post to.** With more than one channel configured, `/buzz send` stops rather than choosing — sending to the wrong channel cannot be undone.
+
+### Security
+- **Conversations are held in memory for the session and never written to disk.** Tier 3 keeps message bodies out of `project_memory/` because it is git-tracked; this is the same rule, not an exception to it. "Derive, don't mirror" governs what is *stored*, and was never a rule against looking at a message.
+- **A secret in an outgoing message is a refusal, not a redaction.** Quietly sending a redacted version would be the worst outcome available: you would believe you had sent one thing while your colleagues read another.
+- **Emoji are handled as a correctness problem.** Truncation walks whole code points and backs off trailing joiners, variation selectors, and skin-tone modifiers, so a trimmed message never ends in a broken glyph or a replacement character. Reactions compare on the full published sequence, so 👍 and 👍🏽 stay distinct — they are different reactions by different people. Outbound length is counted in code points, so an emoji-heavy message is not rejected at half its stated limit.
+- **The session grant is scoped to one recipient**, is never created by an AtlasMind-chosen target, and is cleared when the window closes.
+
+## [0.155.0] - 2026-07-28
+
+### Added
+- **The Buzz setup guide now reads Buzz's own documentation.** Hand-written setup prose goes stale every time Buzz ships, and stale instructions fail in a way that looks like AtlasMind's fault. `/buzz` now quotes the current Buzz README for the steps that involve things outside AtlasMind — running a relay, installing the CLI, setting an agent key — with the source link and how long ago it was read attached to every excerpt.
+
+### Changed
+- **The split is by consequence, not by preference.** Assessing *your* machine — which gate is off, whether a key is stored, whether a relay actually answered — stays fully deterministic: those are claims about your configuration, and a model guessing at them is strictly worse than a check. Only claims about *Buzz* are fetched and cited.
+
+### Security
+- **Fetched documentation is treated as untrusted input**, because it is remote text flowing toward someone in the mood to follow instructions. Commands are surfaced as **quoted, attributed suggestions** that AtlasMind never runs and never presents as its own; prose is secret-redacted, control-character-stripped, and length-clamped; and markdown links are flattened to their text so a label cannot read like an official instruction while pointing somewhere else.
+- **The origin is pinned to the Buzz repository.** This is not a general fetcher — no setting and no fetched link can redirect it at another document — and the URL is SSRF-screened regardless.
+- **Offline is a supported state.** An unreachable network, a 404, or a document that says nothing useful all produce the built-in guidance instead. A setup guide that breaks without a network is worse than one that is merely less current.
+
+## [0.154.0] - 2026-07-28
+
+### Added
+- **"Guide me through Buzz setup" on the Settings → Buzz page.** Opens the `/buzz` walkthrough in chat rather than duplicating it in the panel, so there is one plan rendered where you can ask about it.
+- **The walkthrough now covers the parts that live outside AtlasMind.** Each incomplete step carries real how-to: what a local relay actually requires (you have to run one, normally via Docker — nothing in AtlasMind starts it), what a hosted relay needs instead, which kind of key the agent-key prompt wants and why an `npub` is refused, and what an empty channel list really does.
+
+### Fixed
+- **Saving a Buzz contact whose handle is not a public key no longer warns that something failed.** A channel UUID or workspace URL is a perfectly valid Buzz handle; only an *identity* is an `npub`. AtlasMind now only attempts a binding when there is one to make, and the person form says plainly that a non-key handle has no identity to bind rather than producing an error on save.
+- **A refused binding no longer reads as a refused save.** The warning now says the person *was* saved and only the binding was not — the two are separate operations, and the old wording implied the whole save had failed.
+
+### Changed
+- **A valid relay URL is no longer treated as proof a relay exists.** The default `ws://localhost:3000` reads as settled while nothing may be listening on that port, and the symptom is a subscription that never goes live. The setup guide now keeps showing how to run one until a connection has actually succeeded, and says so explicitly: "the configured target rather than a confirmed one."
+- **Setup guidance disappears once a step is genuinely finished**, because advice on completed steps is what makes people stop reading the steps that still matter.
+
+## [0.153.0] - 2026-07-28
+
+### Added
+- **`/buzz` walks you through setting Buzz up.** Ask `@atlas /buzz` and you get an ordered checklist built from what is actually configured: the master switch, the relay, your agent key, the read-only subscription, then the optional extras. Each step says done, to do, blocked, or optional, names the next thing to click, and offers a button that takes you straight there.
+- **AtlasMind can now tell you whether the Buzz CLI is installed.** `buzz` was added to the environment scanner's PATH probe, so a missing CLI is reported during setup rather than discovered later as a failed send.
+
+### Changed
+- **The setup walkthrough distinguishes what you need from what you might want.** Reading Buzz needs four things; the CLI, the MCP bridge, and follow-up persistence are extras. A step that is blocked only by something optional is never nominated as your next action — sending someone off to install a binary they do not need is worse than saying nothing.
+
+### Security
+- **The walkthrough is a plan, never an installer.** Every button opens a surface — the Settings page, the key prompt, the MCP manager, the download page. Nothing in it enables a gate, writes a setting, stores a secret, or connects anything. Buzz is deny-by-default in three places precisely so that turning it on is a decision a human makes; a setup assistant that flipped those switches to be helpful would remove the property they exist to provide. A test pins the action allowlist.
+- **It is derived, not generated.** Every line comes from observed state rather than from a model, because a hallucinated setup step sends someone to configure something that does not exist and leaves them trusting a broken result.
+- **It reports refusals with the reason.** A plaintext relay URL pointing off-machine is shown as refused *and why* — plaintext would expose colleagues' messages and the login challenge in transit — rather than as a step that simply will not go green.
+
+## [0.152.0] - 2026-07-28
+
+### Added
+- **Pick a Buzz handle instead of pasting one.** The Director's Add / Edit person form now offers the Buzz identities AtlasMind has actually observed, shown by the name each identity published for itself. Choosing one fills the Handle field. Typing a key by hand still works — this saves the paste, it is not the only way in.
+- **Your own Buzz identity needs no lookup at all.** It is derived from the agent key already in SecretStorage and offered as "You" at the top of the picker, so the one handle AtlasMind can compute is no longer one you have to paste.
+- **Names come from the relay.** AtlasMind now reads NIP-01 profile metadata (kind 0) for the identities it has seen, so the picker shows "Joel" rather than `dcbe44bf896f…`. Identities with no published name are labelled as such rather than given an invented one.
+
+### Security
+- **No key is ever derived from a person.** There is no function from a name to a public key; constructing one would produce a plausible key belonging to a **different real person**, silently routing a colleague's work to a stranger. Every option in the picker is evidence — a key that arrived on the wire, and a name its own owner published.
+- **Display names are untrusted input.** A name is remote-controlled text rendered in AtlasMind's UI, so it is secret-redacted, control-character-stripped, and length-clamped as it enters the directory — not as it leaves, where one missed call site would be a hole. Malformed profile JSON yields no name rather than an error.
+- **The observed-identity roster is never persisted.** A record of who spoke and when is exactly what `project_memory/` must not accumulate, being git-tracked. The directory lives in memory for the session and is rebuilt from the subscription.
+- **The stored agent key is read only when Buzz is enabled**, and only its public half ever leaves the derivation. A failure there is silent by design, so an unusable key can never become an error message containing it.
+- **Kind 0 was verified against a live relay, not assumed.** It is the standard Nostr metadata kind and is **absent from Buzz's own registry**, so whether a Buzz relay serves it was an open question — the same shape of question that produced the kind-9/40002 mistake. Confirmed present, carrying `display_name`, before any code depended on it.
+- **Profile lookups are bounded and debounced.** They are author-scoped (a kind-0 filter with no authors would pull every profile on the relay), capped at 50 authors per request, and coalesced so a busy channel re-subscribes once rather than per message. The lookup reuses the authenticated connection rather than opening a second one, and the message subscription is preserved alongside it so inbound work never stops.
+
+## [0.151.2] - 2026-07-28
+
+### Fixed
+- **The Settings → Buzz page did nothing.** Every control on it was inert: the switches appeared to toggle and the text fields accepted input, but nothing was ever written to configuration and neither button worked. The new message types were declared and handled but never added to the runtime allowlist that guards the webview boundary, so all of them were dropped before reaching their handler. The page type-checked and linted cleanly throughout. Now allowlisted with per-type payload validation, and covered by tests that call the guard directly rather than checking that the source mentions each message.
+- **Open the Director roster** now opens the Project Dashboard on the Director page. Same cause as above.
+- **The AtlasMind agent picker is hidden on non-Buzz channels**, instead of showing on every person regardless of channel. It was correctly marked hidden, but the row is a grid container, and that rule outranked the browser's default styling for the `hidden` attribute — so it stayed fully visible. The placeholder line that stood in its place has been removed rather than replaced.
+
+## [0.151.1] - 2026-07-28
+
+### Fixed
+- **A new test failed on Windows because it pinned Unix line endings.** One assertion matched a multi-line import block as a literal `\n`-joined string, so it could never match a CRLF checkout — the assertion was wrong, not the code. It now matches the import without pinning line endings, verified against a CRLF copy of the sources. Nothing shipped to users changes.
+
+## [0.151.0] - 2026-07-28
+
+### Added
+- **Buzz has its own Settings page.** Every `atlasmind.buzz.*` switch is now visible and clickable under **Settings → Buzz**: enable Buzz, set the relay URL, allow a remote relay, subscribe to inbound, choose which channels to watch, and record follow-ups to project memory. Previously they could only be reached by hand-editing settings JSON.
+- **Bind an AtlasMind agent to someone's Buzz identity while adding them.** The Project Dashboard → Director "Add / Edit person" form now offers an **AtlasMind agent** picker when the person's channel is `buzz`. Pick an agent and work arriving from that Buzz identity is routed to it. The binding also shows on the person's card, so the roster answers "who handles their messages" at a glance.
+- **Set the Buzz agent key and jump to the Director roster** straight from the Settings → Buzz page.
+
+### Changed
+- **The nested Buzz gates are visible as nested.** A switch whose parent is off is shown dimmed and disabled rather than looking live, while still displaying the value that is actually stored — a stored `true` hidden behind an off parent would misreport the configuration.
+
+### Security
+- **The Director's agent picker writes through the same validation as a hand-edited setting.** Binding by click and binding by hand share one pure helper, so the UI cannot invent its own merge rules: a mistyped `npub` is refused with a reason rather than coerced onto a different identity, an `nsec` is refused by name, and a binding naming an agent that does not exist is rejected instead of silently pointing at nothing.
+- **`atlasmind.buzz.agentBindings` remains the single source of truth.** The roster is a convenience editor for that setting, not a second store, so a binding made in the dashboard and one typed into settings can never disagree. Bindings are stored in settings rather than in the roster because `project_memory/` is git-tracked and the binding is a local routing preference.
+- **Editing one binding leaves every other binding untouched**, and the setting keeps whichever shape the user already wrote — a hand-authored record does not silently become an array.
+- **No generic command runner was added to the webview.** The two new buttons post named messages mapped to fixed commands; a message carrying an arbitrary command id would be an injection surface.
+- **The relay URL is validated at the boundary**, so an unusable value surfaces immediately instead of appearing later as a connection failure. The separate rule refusing plaintext to a remote host still lives at the transport, where wiring cannot bypass it.
+
+## [0.150.0] - 2026-07-28
+
+### Added
+- **Buzz inbound is wired up and can be switched on (Buzz integration, Tier 3).** With `atlasmind.buzz.enabled` and the new `atlasmind.buzz.inboundEnabled`, AtlasMind holds a live read-only subscription to your Buzz relay, authenticates to it, stays connected across drops, and turns channel activity into work items. `atlasmind.buzz.inboundChannels` scopes it to specific channels.
+- **Assign AtlasMind agents to Buzz agents.** `atlasmind.buzz.agentBindings` maps a Buzz identity to an AtlasMind agent id, so inbound work from a known Buzz agent lands with the right specialist instead of arriving unattributed — a Buzz build-bot's messages can go to your DevOps agent. Keys accept either the `npub…` or hex form.
+- **`AtlasMind: Set Buzz Agent Key`** stores (or removes) the key used to authenticate to the relay, in the OS secret store.
+
+### Security
+- **Three gates, all off by default.** Inbound needs both `buzz.enabled` and `buzz.inboundEnabled`, so upgrading never starts a network subscription. *Recording* what arrives needs a third opt-in, `buzz.autoCreateFollowUps` — project memory is git-tracked, so writing to it from a network event is a decision to make deliberately, not one to inherit. While that is off, inbound activity is reported without being written.
+- **A mistyped Buzz identity cannot bind work to the wrong agent.** Binding keys are checksum-validated, so a mistyped `npub` is rejected rather than silently resolving to a different identity; a secret key pasted where a public one belongs is refused outright. Unusable bindings are reported rather than dropped silently, and an unbound identity stays unassigned — an agent is never guessed.
+- **Agent bindings are a local routing preference, not identity.** Buzz keeps ownership of the keypair, the directory, and the authorship ledger; AtlasMind only records a preference.
+- **The wake lock is held only while genuinely connected**, and released on stop. It remains deny-by-default in its own right, so holding a reason does nothing unless keep-awake is enabled.
+- **Recorded follow-ups cannot duplicate.** They merge by an id derived from the Buzz event, so the deliberate reconnect replay overlap and repeat sightings update nothing, with a per-batch cap so a busy channel cannot flood project memory.
+
+## [0.149.2] - 2026-07-28
+
+### Fixed
+- **Buzz inbound was listening on the wrong event kind and would have received nothing.** Buzz's own registry defines two channel-message kinds and reads as though the newer one supersedes the older; a live relay proved otherwise, storing only the older kind. The wrong choice fails in the worst possible way — the connection authenticates, subscribes, and reports itself healthy while silently receiving no messages ever. Both kinds are now subscribed and understood, so either deployment works. Found by querying a real relay for what it actually stores rather than inferring it from source.
+
+## [0.149.1] - 2026-07-27
+
+### Fixed
+- **Buzz authentication now signs once per connection.** An authenticating relay normally prompts twice on connect — with its own challenge, and again when refusing the optimistic subscription — and both prompts produced a signature, because the "already authenticating" guard was only set after signing finished rather than before it started. One signature is now produced and one frame sent.
+
+## [0.149.0] - 2026-07-27
+
+### Added
+- **Buzz inbound can authenticate (Buzz integration, Tier 3).** BIP-340 Schnorr signing for NIP-42, filling the seam `BuzzClient` left open. Running the client against a real Buzz relay showed it refuses to serve a subscription until the client authenticates, so this is what makes a live inbound subscription possible at all.
+- **A deliberately small dependency, loaded only when used.** `@noble/secp256k1` is 170 KB with no dependencies of its own — chosen over the full `@noble/curves` suite (1.87 MB plus an 889 KB dependency) because Nostr needs exactly one curve. It is imported the first time a signature is needed, so anyone who never uses Buzz pays nothing at activation. Node's built-in crypto supplies the hashing, so nothing further is pulled in.
+
+### Security
+- **A remote Buzz relay must be encrypted.** A Buzz workspace need not be local, and an unencrypted socket to a **hosted** relay would expose colleagues' message content and the authentication challenge in transit, so it is now refused outright. Loopback is exempt because it never leaves the machine. The rule sits at the transport layer, so no future wiring can reintroduce it, and it matches what the outbound path already enforced.
+- **A mistyped agent key fails loudly instead of signing as someone else.** An `nsec` is decoded with its bech32 checksum verified, and an `npub` — a public key, and the likely mistake — is rejected by name. The key is validated when the signer is created rather than mid-handshake, every signature is checked against the derived public key before the event leaves the signer, and secret material never reaches a log, an error message, or a serialised value.
+- **Cross-validated against the published specification.** The bech32 decoder and the signing library are tested against the canonical NIP-19 key-pair vectors: decoding one and deriving the other must reproduce the spec's own values.
+
+## [0.148.1] - 2026-07-27
+
+### Fixed
+- **A stopped Buzz subscription is now genuinely inert.** Frames already in flight when the client stopped were still being handled, so a relay that repeated an `auth-required` refusal could restart the authentication path the client had just terminated on — producing a stopped → authenticating → stopped cycle and reporting the same terminal error twice. Found by running the client against a real Buzz relay; frames arriving after a stop are now ignored, and a terminal refusal is reported once.
+
+## [0.148.0] - 2026-07-27
+
+### Added
+- **The Buzz inbound subscription itself (`BuzzClient`).** AtlasMind can now hold a live connection to a Buzz relay — connect, authenticate, subscribe, receive, and on a drop, back off and resume where it left off. It drives the Tier-3 foundation modules and owns only the state machine: it parses no frames, invents no delays, and stores no conversation.
+- **A real transport, with no new dependency.** `ws` was already an AtlasMind dependency, so inbound sync adds none. The relay URL is accepted in either form — the CLI-style `http(s)` base or `ws(s)` — so a single `atlasmind.buzz.relayUrl` setting serves both the outbound bridge and the inbound socket, and the two halves cannot drift apart.
+- **Tested against a real WebSocket server, not only a mock.** 26 unit tests drive the state machine through a fake socket with an injected clock (deterministic, no timers), and 9 integration tests run the real client against a real in-process WebSocket server — covering the genuine handshake, real ping/pong, a real NIP-42 exchange, and a hard TCP drop with no closing handshake, after which the client reconnects on its own.
+
+### Security
+- **The inbound subscription is read-only by construction.** It sends only subscribe, close, authenticate, and keep-alive frames — never an event — so a read connection cannot become a write path to Buzz. A test asserts it.
+- **Nothing connects until asked.** Constructing a client opens no socket; starting it is an explicit, separate step that the caller gates on the inbound toggle.
+- **A relay demanding authentication stops with an explanation.** Schnorr signing is a deliberate seam AtlasMind has not yet filled, so an authenticating relay produces a typed, named stop rather than a silent failure or an endless reconnect loop. The same applies when signing fails or the relay rejects the signature.
+- **Malformed frames are counted and ignored, never acted on**, and a socket that cannot even be created is treated as a failed attempt and backed off rather than throwing into the extension host.
+
+## [0.147.0] - 2026-07-27
+
+### Added
+- **The protocol foundation for reading Buzz activity back into AtlasMind (Buzz integration, Tier 3).** Complements the Tier-1b outbound bridge with the read side. Buzz is Nostr-based, so its transport is a published open specification rather than a Buzz invention — which is why this layer could be built and fully tested without a live relay. Three new pure, `vscode`-free services: `BuzzProtocol` (NIP-01 framing, NIP-42 auth, and Buzz's event kinds), `BuzzConnectionPolicy` (liveness and reconnect), and `BuzzInboundDerivation` (turning activity into work items). They are not yet wired to a socket.
+- **Connection presence — the half a wake lock cannot provide.** Keeping the machine awake does nothing when the WebSocket silently drops, so AtlasMind now has a keep-alive/liveness policy, capped exponential-backoff reconnect with jitter, and a resume plan that re-subscribes tracked filters and re-announces presence. A fresh socket keeps none of the previous connection's state, so reconnecting alone would leave an agent silently absent while appearing connected.
+- **Buzz's event kinds, read from its own registry** at the same pinned tag the CLI bridge uses — including the two traps that are easy to get wrong: channel metadata is kind 39000 (not the legacy 41), and a channel message is kind 40002 (not 9, nor the earlier 10002). Subscribing to the wrong one yields a connection that works and receives nothing, so both are asserted in tests.
+
+### Security
+- **External conversations are derived, never mirrored.** Project memory is git-tracked, so an inbound message becomes a follow-up carrying a **pointer back to the Buzz thread** and a short sanitised title — never the message body, which would commit colleagues' conversations into your repository. Buzz remains the message system-of-record. Text that does cross the boundary is secret-redacted (`nsec` keys, long hex, `sk-`/`ghp_`/`xoxb-` tokens), stripped of control characters that could corrupt a Markdown mirror, and length-clamped.
+- **Relay input is treated as untrusted.** Frame parsing never throws: oversized, non-JSON, and structurally invalid frames degrade to a typed unknown frame, and event validation returns nothing rather than coercing a malformed event into a half-trusted one. Signature verification is explicitly *not* performed client-side — it is the relay's job under NIP-42 — so a structurally valid event is never mistaken for an authenticated one.
+- **A rejected key is not retried.** A relay refusal meaning "authenticated, but this key is still not allowed" stops reconnection instead of looping, since retrying cannot change the outcome. The recoverable "not authenticated yet" case reconnects and re-runs authentication.
+- **A kind-less relay query is refused at construction.** Buzz rejects a filter without `kinds` with a 403, which is confusing to debug at runtime, so subscriptions cannot be built without them.
+- **Thread links keep the existing allowlist.** Built only from an `https` base with the channel id percent-encoded, so a crafted pointer can neither produce a launchable non-https URI nor traverse the path.
+
+## [0.146.0] - 2026-07-27
+
+### Added
+- **Buzz Tier 1b live communications.** AtlasMind now ships a bundled, communication-only stdio MCP server (`buzzCommsServer.ts`) backed by an isolated, unit-tested `BuzzCliBridge`. The guided MCP catalogue configures the official pinned Buzz CLI v0.4.26 and exposes only bounded channel listing, channel posting, thread reading, and direct messaging—never Buzz shell, file-edit, workflow, repository, or administration tools.
+- **Guided Buzz connector setup.** The MCP wizard stores `BUZZ_PRIVATE_KEY` and an optional NIP-OA `BUZZ_AUTH_TAG` in VS Code SecretStorage, carries only non-secret relay/CLI metadata in the saved server config, and launches the extension-bundled bridge through an extension-path template.
+
+### Changed
+- **Director connector routing is provider-aware.** Messaging capabilities remain separate by contact-link kind and Buzz delivery shape, so a Buzz recipient cannot be handed to Slack or Teams merely because another connector's tool ranked first. Buzz channel UUIDs route to `buzz_post_message`; 64-character public keys route to `buzz_send_dm`.
+- **Buzz's published v0.4.26 CLI contract is now the pinned integration seam.** The roadmap and documentation now reflect the official JSON commands and their HTTP(S) CLI relay base, while preserving the boundary that Buzz owns identity/messaging and AtlasMind owns reasoning/execution.
+
+### Security
+- **The Buzz bridge fails closed.** It requires `atlasmind.buzz.enabled`, rejects remote relays unless `atlasmind.buzz.allowRemoteRelay` is enabled, requires TLS for remote relays, rejects credential/query-bearing relay URLs, verifies the pinned v0.4.26 communication command/flag contract before the MCP handshake, invokes the CLI without a shell, sends message bodies only over stdin, bounds input/output/time, validates UUIDs/event IDs/pubkeys, and redacts private keys/authorization grants from errors. Director sends still require the per-project `outboundEnabled` gate and an explicit modal confirmation.
+
 ## [0.145.7] - 2026-07-27
 
 ### Security

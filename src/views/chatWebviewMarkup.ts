@@ -1,4 +1,4 @@
-import { getWebviewHtmlShell } from './webviewUtils.js';
+import { getWebviewHtmlShell, QUICK_REPLY_CSS } from './webviewUtils.js';
 
 /**
  * Static chat webview markup, shared by the desktop ChatPanel and the web remote
@@ -94,6 +94,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
               <section id="runInspector" class="run-inspector hidden"></section>
               <section id="pendingApprovals" class="approval-stack hidden" aria-live="polite"></section>
               <section id="pendingLoopDecision" class="approval-stack hidden" aria-live="polite"></section>
+              <section id="pendingGuideChoice" class="approval-stack hidden" aria-live="polite"></section>
             </main>
             <div id="imageLightbox" class="media-lightbox hidden" aria-hidden="true">
               <div class="media-lightbox-panel">
@@ -1587,34 +1588,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           color: var(--vscode-descriptionForeground, var(--vscode-foreground));
           border-color: var(--vscode-widget-border, #444);
         }
-        /* Quick-reply pill buttons — immediate-submit, no Proceed step required */
-        .quick-reply-buttons {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          flex-wrap: wrap;
-          margin-right: 6px;
-        }
-        .quick-reply-btn {
-          appearance: none;
-          border-radius: 999px;
-          padding: 4px 14px;
-          font-size: 0.75rem;
-          line-height: 1.35;
-          cursor: pointer;
-          font-weight: 600;
-          border: 1px solid color-mix(in srgb, var(--vscode-button-background) 70%, var(--vscode-widget-border, #444));
-          background: color-mix(in srgb, var(--vscode-button-background) 14%, transparent);
-          color: var(--vscode-foreground);
-          transition: background 100ms ease, border-color 100ms ease, transform 80ms ease;
-        }
-        .quick-reply-btn:hover {
-          background: color-mix(in srgb, var(--vscode-button-background) 28%, transparent);
-          border-color: var(--vscode-button-background);
-        }
-        .quick-reply-btn:active {
-          transform: scale(0.96);
-        }
+${QUICK_REPLY_CSS}
         .iteration-limit-actions {
           flex: 1 0 100%;
           width: min(100%, 680px);

@@ -255,6 +255,16 @@ The Project page in AtlasMind Settings includes a destructive **Purge Project Me
 
 This action is intended for deliberate resets, not routine cleanup.
 
+## External conversations are derived, never mirrored
+
+Project memory is git-tracked, so anything written into SSOT is committed to the repository. That makes "what may enter memory" a privacy decision, not just a storage one — and the rule for external conversation systems is **derive, don't mirror**.
+
+Buzz inbound derivation (`src/core/buzzInboundDerivation.ts`) is the reference implementation: an inbound message becomes a `FollowUp` work item carrying a **pointer back to the original thread** plus a short, sanitised title. The message body is never stored, and the derived record has no `content` field at all. Buzz remains the message system-of-record; AtlasMind records only that there is something to act on and where to find it.
+
+Everything crossing that boundary is sanitised first: secret-shaped material (`nsec…` keys, 64-char hex, `sk-`/`ghp_`/`xoxb-` tokens) is redacted, control characters are stripped so a crafted message cannot corrupt a Markdown mirror, and text is length-clamped. Derivation never invents a link to a stakeholder or run that the source event does not support.
+
+Apply the same rule to any future external-conversation integration: store the pointer and a derived summary, never the transcript.
+
 ## Security
 
 ### Memory Scanner

@@ -9,6 +9,12 @@ import { promisify } from 'util';
 import { pathToFileURL } from 'url';
 import { sanitizeTerminalOutput } from './utils/terminalOutput.js';
 import { PresenceManager } from './core/presenceManager.js';
+import { BUZZ_AGENT_KEY_SECRET } from './core/buzzSigner.js';
+import { BuzzInboundService } from './core/buzzInboundService.js';
+import { BUZZ_SETUP_COMMANDS } from './core/buzzSetupPlan.js';
+
+/** The walkthrough lives in its own thread rather than interrupting another. */
+const BUZZ_GUIDE_SESSION_TITLE = 'Buzz setup';
 import type { ProjectMemoryFreshnessStatus } from './bootstrap/bootstrapper.js';
 import type { SessionConversation, SessionPolicySnapshot } from './chat/sessionConversation.js';
 import type { VoiceManager } from './voice/voiceManager.js';
@@ -213,6 +219,11 @@ export interface AtlasMindContext {
   deliveryRefresh: vscode.EventEmitter<void>;
   /** People model: stakeholders, team, responsibilities, assignments, follow-ups. */
   projectDirectorManager: ProjectDirectorManager;
+  /**
+   * The live inbound Buzz subscription, when one exists. Present so surfaces can
+   * offer the identities it has *observed* — never so they can start it.
+   */
+  buzzInbound?: BuzzInboundService;
   /** Fires when project-director.json changes on disk, so the dashboard can re-sync. */
   projectDirectorRefresh: vscode.EventEmitter<void>;
   /** Document filing system + the docs kept updated automatically. */
@@ -2726,6 +2737,28 @@ async function bootstrapAtlasMind(
   };
   presenceManager.applyConfig(readPresenceConfig());
   updatePresenceStatusBar();
+
+  // Buzz inbound: deny-by-default, so constructing this connects nothing. It
+  // holds the keep-awake reason only while a subscription is genuinely live.
+  const buzzInbound = new BuzzInboundService({
+    secrets: context.secrets,
+    presence: presenceManager,
+    log: (message) => outputChannel.appendLine(`[buzz] ${message}`),
+  });
+  // Exposed so surfaces can offer the identities it has observed. Assigned
+  // after construction because the context is assembled earlier in activate().
+  if (atlasContext) {
+    atlasContext.buzzInbound = buzzInbound;
+  }
+  void buzzInbound.sync();
+  context.subscriptions.push(
+    buzzInbound,
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration('atlasmind.buzz')) {
+        void buzzInbound.sync();
+      }
+    }),
+  );
   context.subscriptions.push(
     presenceStatusBar,
     presenceManager,
@@ -2750,6 +2783,337 @@ async function bootstrapAtlasMind(
       void vscode.window.showInformationMessage(next
         ? 'AtlasMind will keep this computer awake while an activity needs the agent online.'
         : 'AtlasMind will no longer keep this computer awake.');
+    }),
+    /**
+     * Put a setup command into a terminal, ready to run — but do not run it.
+     *
+     * Spoon-feeding the command is the point: someone setting Buzz up for the
+     * first time should not have to work out what to type. Pressing Enter stays
+     * theirs, because these commands clone repositories and start containers,
+     * and a button that did that silently would be a very different thing from
+     * a button that saves you typing.
+     *
+     * Only commands AtlasMind itself wrote reach here — anything quoted from
+     * Buzz's documentation is displayed for copying and never wired to a
+     * button, since it is somebody else's text.
+     */
+    /**
+     * Show the Buzz setup walkthrough in AtlasMind's own chat panel.
+     *
+     * Deterministic: the step is derived from observed configuration and
+     * written straight into the transcript, so no model is asked anything and
+     * no tools are in scope. A setup question never needed an agent.
+     */
+    vscode.commands.registerCommand('atlasmind.buzz.openGuide', async () => {
+      const atlas = atlasContext;
+      if (!atlas) { return; }
+      const [{ buildBuzzSetupPlan, buzzStepChoices, buzzStepPosition, isBuzzInboundReady, nextBuzzSetupStep, renderBuzzStepMarkdown },
+        { hasLauncherOnPath }, { BUZZ_AGENT_KEY_SECRET }, { parseAgentBindings }] = await Promise.all([
+        import('./core/buzzSetupPlan.js'),
+        import('./mcp/mcpEnvironmentScanner.js'),
+        import('./core/buzzSigner.js'),
+        import('./core/buzzAgentBindings.js'),
+      ]);
+
+      const cfg = vscode.workspace.getConfiguration('atlasmind');
+      let hasAgentKey = false;
+      try {
+        hasAgentKey = Boolean((await context.secrets.get(BUZZ_AGENT_KEY_SECRET))?.trim());
+      } catch { /* an unreadable store reads as "no key"; the remedy is the same */ }
+
+      // The same key can already have been given to the Buzz MCP bridge, which
+      // stores it under its own secret. Inbound reads a different one, so the
+      // guide was correctly saying "no key" to someone who had supplied it —
+      // technically right and completely unhelpful. Find it and offer to reuse it.
+      const buzzServer = (atlas.mcpServerRegistry?.listServers() ?? [])
+        .find((entry: { config: { id: string; name?: string } }) =>
+          entry.config.id === 'mcp-server-buzz' || /buzz/i.test(entry.config.name ?? ''));
+      let bridgeKeySecretId: string | undefined;
+      if (!hasAgentKey && buzzServer) {
+        const candidate = `atlasmind.mcp.${buzzServer.config.id}.BUZZ_PRIVATE_KEY`;
+        try {
+          if ((await context.secrets.get(candidate))?.trim()) {
+            bridgeKeySecretId = candidate;
+          }
+        } catch { /* unreadable is the same as absent here */ }
+      }
+
+      const rawChannels = cfg.get<unknown>('buzz.inboundChannels', []);
+      const steps = buildBuzzSetupPlan({
+        cliOnPath: hasLauncherOnPath('buzz'),
+        hasAgentKey,
+        relayUrl: cfg.get<string>('buzz.relayUrl', ''),
+        allowRemoteRelay: cfg.get<boolean>('buzz.allowRemoteRelay', false),
+        enabled: cfg.get<boolean>('buzz.enabled', false),
+        inboundEnabled: cfg.get<boolean>('buzz.inboundEnabled', false),
+        channelIds: Array.isArray(rawChannels) ? rawChannels.filter((c): c is string => typeof c === 'string') : [],
+        autoCreateFollowUps: cfg.get<boolean>('buzz.autoCreateFollowUps', false),
+        mcpServerRegistered: (atlas.mcpServerRegistry?.listServers() ?? [])
+          .some((entry: { config: { id: string; name?: string } }) =>
+            entry.config.id === 'mcp-server-buzz' || /buzz/i.test(entry.config.name ?? '')),
+        // The panel guide was omitting this, so a subscription that had actually
+        // gone live still read as an unproven relay here while `/buzz` in chat
+        // reported it correctly — the same guide disagreeing with itself.
+        ...(atlas.buzzInbound ? { inboundStatus: atlas.buzzInbound.getStatus() } : {}),
+        observedIdentities: atlas.buzzInbound?.listIdentities().length ?? 0,
+        agentBindings: parseAgentBindings(cfg.get('buzz.agentBindings')).bindings.length,
+        relayMode: cfg.get<'local' | 'hosted' | 'undecided'>('buzz.relayMode', 'undecided'),
+      });
+
+      const next = nextBuzzSetupStep(steps);
+      const bridgeNote = bridgeKeySecretId && next?.id === 'agentKey'
+        ? '\n\n> **You have already given this key to the Buzz MCP bridge.** Inbound reads a separate secret, so it does not see that one. Press **Reuse the key from the Buzz bridge** below and this step is done.'
+        : '';
+      // The last two steps are about making what arrives useful rather than
+      // making it arrive, so say so — otherwise "2 steps left" reads as though
+      // the connection itself is still broken.
+      const readyNote = next && isBuzzInboundReady(steps)
+        ? '\n\n> **The connection itself is already working** — Buzz is enabled, the relay is set, your key is stored, and the subscription is on. What is left is making what arrives useful.'
+        : '';
+      const body = !next
+        ? '### Buzz setup — done\n\nReading Buzz is set up, a message has been seen arriving, and at least one Buzz identity is bound to an AtlasMind agent. The optional extras — recording follow-ups, the CLI, the MCP bridge, the desktop app — are choices rather than gaps.'
+        : renderBuzzStepMarkdown(next, buzzStepPosition(steps, next.id)) + readyNote + bridgeNote;
+
+      // Its own session. Appending to whatever thread happened to be open put a
+      // setup walkthrough in the middle of unrelated work and left the thread
+      // titled after something else entirely.
+      const existing = atlas.sessionConversation.listSessions()
+        .find(session => session.title === BUZZ_GUIDE_SESSION_TITLE);
+      const sessionId = existing?.id ?? atlas.sessionConversation.createSession(BUZZ_GUIDE_SESSION_TITLE);
+      atlas.sessionConversation.selectSession(sessionId);
+      atlas.sessionConversation.appendMessage('assistant', body, sessionId);
+      await vscode.commands.executeCommand('atlasmind.openChatPanel', { sessionId });
+
+      // The one question the guide cannot answer for itself, asked as chips.
+      const { ChatPanel } = await import('./views/chatPanel.js');
+      const relayMode = cfg.get<'local' | 'hosted' | 'undecided'>('buzz.relayMode', 'undecided');
+      const choices = next ? buzzStepChoices(next, relayMode) : [];
+      if (choices.length > 0) {
+        await ChatPanel.currentPanel?.setGuideChoice({
+          id: 'buzz-relay-mode',
+          title: 'How do you want to run Buzz?',
+          detail: 'The two paths need different things, so I will show only the one that applies.',
+          options: choices,
+        });
+      } else if (next) {
+        // The step's own actions, as buttons. Ids only cross the boundary; the
+        // commands they map to are held extension-side.
+        const actions = new Map<string, { command: string; args?: unknown[] }>();
+        const options: Array<{ id: string; label: string }> = [];
+        if (bridgeKeySecretId && next.id === 'agentKey') {
+          actions.set('reuse-bridge-key', { command: 'atlasmind.buzz.reuseBridgeKey', args: [bridgeKeySecretId] });
+          options.push({ id: 'reuse-bridge-key', label: 'Reuse the key from the Buzz bridge' });
+        }
+        if (next.action) {
+          actions.set('primary', { command: next.action.command, ...(next.action.args ? { args: next.action.args } : {}) });
+          options.push({ id: 'primary', label: next.action.title });
+        }
+        for (const line of next.guidance ?? []) {
+          if (line.command && line.authored) {
+            actions.set(line.command, { command: 'atlasmind.buzz.prepareCommand', args: [line.command] });
+            options.push({ id: line.command, label: `Put \`${line.command}\` in a terminal` });
+          }
+        }
+        await ChatPanel.currentPanel?.setGuideChoice(
+          options.length > 0
+            ? { id: 'buzz-guide', title: `Step ${buzzStepPosition(steps, next.id).index}: ${next.title}`, options }
+            : undefined,
+          actions,
+        );
+      } else {
+        await ChatPanel.currentPanel?.setGuideChoice(undefined);
+      }
+    }),
+
+    /**
+     * Copy the key already stored for the Buzz MCP bridge into the secret that
+     * inbound reads.
+     *
+     * The two are separate secrets for good reason — one belongs to a server
+     * definition, one to the extension — but they hold the same key, and asking
+     * someone to paste it twice because of an internal boundary is the kind of
+     * thing that makes a setup guide feel broken. The button press is the
+     * consent; both stores are the OS secret store, and nothing is displayed.
+     */
+    vscode.commands.registerCommand('atlasmind.buzz.reuseBridgeKey', async (secretId?: string) => {
+      // Only a Buzz bridge secret, and only ever read from SecretStorage: a
+      // command id is reachable from a webview, so the argument is checked
+      // rather than trusted.
+      if (typeof secretId !== 'string' || !/^atlasmind\.mcp\.[\w-]+\.BUZZ_PRIVATE_KEY$/.test(secretId)) {
+        void vscode.window.showWarningMessage('That is not a Buzz bridge key, so nothing was copied.');
+        return;
+      }
+      const value = (await context.secrets.get(secretId))?.trim();
+      if (!value) {
+        void vscode.window.showWarningMessage('No key is stored for the Buzz bridge.');
+        return;
+      }
+      const { createBuzzEventSigner } = await import('./core/buzzSigner.js');
+      const check = await createBuzzEventSigner(value);
+      if (!check.ok) {
+        // Never echo the key itself, only why it cannot be used.
+        void vscode.window.showWarningMessage(`The bridge's key cannot be used for inbound: ${check.reason}`);
+        return;
+      }
+      await context.secrets.store(BUZZ_AGENT_KEY_SECRET, value);
+      void vscode.window.showInformationMessage('Buzz agent key set from the bridge configuration.');
+      await vscode.commands.executeCommand('atlasmind.buzz.openGuide');
+    }),
+
+    vscode.commands.registerCommand('atlasmind.buzz.prepareCommand', async (command?: string) => {
+      const text = typeof command === 'string' ? command.trim() : '';
+      // The allowlist is the safety property: a command id is reachable from a
+      // webview, so the payload cannot be trusted to be one AtlasMind authored.
+      if (!text || !BUZZ_SETUP_COMMANDS.includes(text)) {
+        void vscode.window.showWarningMessage('That is not a known AtlasMind setup command, so it was not prepared.');
+        return;
+      }
+      const terminal = vscode.window.terminals.find((entry) => entry.name === 'Buzz setup')
+        ?? vscode.window.createTerminal({ name: 'Buzz setup' });
+      terminal.show(true);
+      // `false` types the command without submitting it.
+      terminal.sendText(text, false);
+    }),
+
+    vscode.commands.registerCommand('atlasmind.setBuzzAgentKey', async () => {
+      const existing = await context.secrets.get(BUZZ_AGENT_KEY_SECRET);
+      const entered = await vscode.window.showInputBox({
+        title: 'AtlasMind: Buzz agent key',
+        prompt: existing
+          ? 'Replace the stored Buzz agent key, or submit an empty value to remove it.'
+          : 'Paste the Nostr secret key (nsec…) AtlasMind should sign Buzz messages with.',
+        placeHolder: 'nsec1…',
+        password: true,
+        ignoreFocusOut: true,
+      });
+      if (entered === undefined) {
+        return; // Cancelled — leave any stored key untouched.
+      }
+      const trimmed = entered.trim();
+      if (!trimmed) {
+        await context.secrets.delete(BUZZ_AGENT_KEY_SECRET);
+        void vscode.window.showInformationMessage('AtlasMind removed the stored Buzz agent key.');
+        await buzzInbound.sync();
+        return;
+      }
+      await context.secrets.store(BUZZ_AGENT_KEY_SECRET, trimmed);
+      void vscode.window.showInformationMessage(
+        'AtlasMind stored the Buzz agent key in the OS secret store. It is passed to Buzz as an environment variable or used to sign relay authentication, and is never written to settings or project memory.',
+      );
+      await buzzInbound.sync();
+    }),
+
+    /**
+     * Ask the Buzz CLI which channels exist, and offer them to tick.
+     *
+     * A channel id that does not match the channel you posted in is the most
+     * common reason a correctly configured subscription receives nothing, and
+     * it is undiagnosable from inside AtlasMind — the wrong id, the wrong relay,
+     * and a quiet day are indistinguishable. The CLI knows the real ids, so ask
+     * it rather than sending someone to copy one out of the app by hand.
+     *
+     * This is the one Buzz command that writes a setting, and every part of that
+     * is the user's: they press the button, they tick the channels, and nothing
+     * is stored if they dismiss the picker. It touches only the channel list —
+     * never a gate, never a key.
+     */
+    vscode.commands.registerCommand('atlasmind.buzz.fetchChannels', async () => {
+      const cfg = vscode.workspace.getConfiguration('atlasmind');
+      if (!cfg.get<boolean>('buzz.enabled', false)) {
+        void vscode.window.showWarningMessage('Enable the Buzz integration first (Settings → Buzz).');
+        return;
+      }
+
+      const privateKey = (await context.secrets.get(BUZZ_AGENT_KEY_SECRET))?.trim();
+      if (!privateKey) {
+        void vscode.window.showWarningMessage(
+          'AtlasMind needs your Buzz agent key to ask the relay which channels you can see.',
+          'Set Buzz agent key…',
+        ).then(choice => {
+          if (choice) {
+            void vscode.commands.executeCommand('atlasmind.setBuzzAgentKey');
+          }
+        });
+        return;
+      }
+
+      const [{ BuzzCliBridge, loadBuzzCliBridgeConfig }, { describeBuzzChannel, parseBuzzChannelList, resolveWatchedChannels }] =
+        await Promise.all([
+          import('./mcp/buzzCliBridge.js'),
+          import('./core/buzzChannelCatalog.js'),
+        ]);
+
+      const rawWatched = cfg.get<unknown>('buzz.inboundChannels', []);
+      const watched = Array.isArray(rawWatched) ? rawWatched.filter((id): id is string => typeof id === 'string') : [];
+
+      const catalog = await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: 'AtlasMind: reading your Buzz channels…', cancellable: true },
+        async (_progress, token) => {
+          const controller = new AbortController();
+          token.onCancellationRequested(() => controller.abort());
+          try {
+            // The same validated configuration the MCP bridge runs under: the
+            // relay is normalised and remote-consent-checked, the key comes
+            // from the secret store, and the binary is executed directly rather
+            // than through a shell.
+            const bridge = new BuzzCliBridge(loadBuzzCliBridgeConfig({
+              ATLASMIND_BUZZ_ENABLED: 'true',
+              ATLASMIND_BUZZ_ALLOW_REMOTE_RELAY: cfg.get<boolean>('buzz.allowRemoteRelay', false) ? 'true' : 'false',
+              BUZZ_RELAY_URL: cfg.get<string>('buzz.relayUrl', '') || 'http://localhost:3000',
+              BUZZ_PRIVATE_KEY: privateKey,
+            }));
+            return parseBuzzChannelList(await bridge.listChannels(controller.signal));
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            void vscode.window.showErrorMessage(
+              /ENOENT|Unable to start/i.test(message)
+                ? 'AtlasMind could not run the Buzz CLI. Install it and put it on your PATH, then try again.'
+                : `AtlasMind could not read your Buzz channels: ${message}`,
+            );
+            return undefined;
+          }
+        },
+      );
+
+      if (!catalog) {
+        return;
+      }
+      if (catalog.channels.length === 0) {
+        void vscode.window.showInformationMessage(
+          'The relay returned no channels for your key. Join or create one in the Buzz app first.',
+        );
+        return;
+      }
+
+      const picked = await vscode.window.showQuickPick(
+        catalog.channels.map(channel => ({
+          label: channel.name ?? channel.id,
+          description: channel.name ? channel.id : undefined,
+          picked: watched.includes(channel.id),
+          id: channel.id,
+        })),
+        {
+          title: 'Buzz channels to watch',
+          placeHolder: catalog.skipped > 0
+            ? `${catalog.channels.length} channels (${catalog.skipped} could not be read). Tick the ones to watch.`
+            : 'Tick the channels AtlasMind should watch. Leave everything unticked to watch all of them.',
+          canPickMany: true,
+          ignoreFocusOut: true,
+        },
+      );
+      if (!picked) {
+        return; // Dismissed — nothing written.
+      }
+
+      const next = resolveWatchedChannels(watched, catalog.channels, picked.map(item => item.id));
+      await cfg.update('buzz.inboundChannels', next, vscode.ConfigurationTarget.Workspace);
+      await buzzInbound.sync();
+      void vscode.window.showInformationMessage(
+        next.length === 0
+          ? 'AtlasMind is now watching every channel your Buzz key can read.'
+          : `AtlasMind is now watching ${next.length} Buzz channel${next.length === 1 ? '' : 's'}: ${
+            next.map(id => describeBuzzChannel(catalog.channels.find(c => c.id === id) ?? { id })).join(', ')}.`,
+      );
     }),
   );
 

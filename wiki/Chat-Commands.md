@@ -19,6 +19,10 @@ Short continuation prompts such as `Proceed`, `Continue`, or `Proceed autonomous
 | `/loop` | Run an autonomous goal-seeking **Mission Loop** within a closed budget envelope; pauses for approval at configurable checkpoints |
 | `/runs` | Open the Project Run Center to review recent autonomous runs |
 | `/director` | Project Director status: stakeholders, team, responsibilities, assignments, and follow-ups (open/overdue) |
+| `/buzz read` | Recent Buzz messages with authors resolved to their published names and emoji reactions aggregated. Session-scoped; never written to project memory. |
+| `/buzz send <message>` | Post to your watched Buzz channel. Refuses to guess when more than one channel is configured. |
+| `/buzz dm <name> <message>` | DM a Director contact using the Buzz key on their card. An ambiguous name is refused, not guessed. |
+| `/buzz` | Guided Buzz setup, six steps: enable it → have a relay → store your agent key → subscribe → **prove a message actually arrives** → **put the Buzz people in the Director roster**. Each is reported as done / to do / blocked / optional from observed state, with the next thing to click offered as a button. The last two are not needed for the subscription to work and are never reported as faults — but a guide that stopped at "subscribed" handed back a feed nothing was shown to arrive on, routed to nobody. **It never switches anything on for you** — each Buzz gate is off by default so that enabling it stays your decision, and every button opens a surface rather than changing state. |
 | `/followups` | List open follow-ups grouped by overdue / due soon / upcoming |
 | `/ship` | Run the project's default publish/release routine. `/ship <id>` runs a named routine |
 | `/sync-instructions` | Two-way sync AI instruction sets across tools and AtlasMind, resolving significant conflicts in chat |
@@ -291,6 +295,8 @@ These are also available from the Command Palette (`Ctrl+Shift+P`):
 | `AtlasMind: Focus Chat View` | Reveals the embedded Atlas chat workspace inside the AtlasMind sidebar container; active request status names the currently routed model |
 | `AtlasMind: Open Chat Panel` | Opens a dedicated AtlasMind conversation panel outside the built-in VS Code Chat view. Active request status names the currently routed model. Shortcut: `Ctrl+Alt+I` (`Cmd+Alt+I` on macOS) |
 | `AtlasMind: Toggle Autopilot` | Enables or disables the session-wide tool approval bypass without reloading the extension |
+| `AtlasMind: Set Buzz Agent Key` | Stores the Nostr secret key (`nsec…`) AtlasMind signs Buzz relay authentication with, in VS Code **SecretStorage**. Submitting an empty value removes it; cancelling leaves it untouched. Never written to settings or project memory. Falls back to an ambient `BUZZ_PRIVATE_KEY` when nothing is stored |
+| `AtlasMind: Fetch My Buzz Channels` | Asks the Buzz CLI which channels your key can see and offers them as a ticklist, pre-ticked with what you already watch. The only Buzz control that writes a setting, and it writes only the channel list — never a gate, never a key — and only after you tick and confirm. Needs the CLI installed and an agent key stored. CLI output is treated as untrusted: ids are constrained to an identifier charset, names redacted and clamped, the list capped and de-duplicated. A watched channel the relay did not list is kept rather than dropped |
 | `AtlasMind: Toggle Keep Computer Awake` | Toggles `atlasmind.presence.keepAwake` — keep this computer awake (prevent system sleep) while an activity needs the agent online (Mission Loop / Remote Control gateway / Buzz presence). Deny-by-default, AC-power-gated, and auto-releasing |
 | `AtlasMind: Manage Model Providers` | Add routed provider credentials, configure Azure/Bedrock/local providers, refresh models, health checks |
 | `AtlasMind: Dismiss Provider Notifications` | Clears the Models view auto-paused badge for the current session without re-enabling paused providers |

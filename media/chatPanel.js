@@ -14,6 +14,7 @@
   const runCountBadge = document.getElementById('runCount');
   const pendingApprovals = document.getElementById('pendingApprovals');
   const pendingLoopDecision = document.getElementById('pendingLoopDecision');
+  const pendingGuideChoice = document.getElementById('pendingGuideChoice');
   const transcript = document.getElementById('transcript');
   const runInspector = document.getElementById('runInspector');
   const promptInput = document.getElementById('promptInput');
@@ -1637,6 +1638,43 @@
     card.appendChild(actions);
 
     pendingLoopDecision.appendChild(card);
+  }
+
+  // The setup walkthrough asks its one real question here — which way you run
+  // Buzz — so it can be answered by clicking rather than by typing a command.
+  function renderGuideChoice(choice) {
+    if (!pendingGuideChoice) {
+      return;
+    }
+    pendingGuideChoice.innerHTML = '';
+    var hasChoice = choice && Array.isArray(choice.options) && choice.options.length > 0;
+    pendingGuideChoice.classList.toggle('hidden', !hasChoice);
+    if (!hasChoice) {
+      return;
+    }
+
+    var card = document.createElement('div');
+    card.className = 'approval-card';
+
+    var title = document.createElement('div');
+    title.className = 'approval-card-title';
+    title.textContent = choice.title || 'Choose one';
+    card.appendChild(title);
+
+    if (choice.detail) {
+      var detail = document.createElement('div');
+      detail.className = 'approval-detail';
+      detail.textContent = choice.detail;
+      card.appendChild(detail);
+    }
+
+    var actions = document.createElement('div');
+    actions.className = 'approval-actions';
+    for (var i = 0; i < choice.options.length; i += 1) {
+      actions.appendChild(createLoopDecisionButton(choice.id, choice.options[i]));
+    }
+    card.appendChild(actions);
+    pendingGuideChoice.appendChild(card);
   }
 
   function createLoopDecisionButton(decisionId, option) {
@@ -3786,6 +3824,7 @@
       renderRuns(standaloneRuns, state.selectedRunId || (state.selectedRun ? state.selectedRun.id : undefined));
       renderPendingApprovals(state.pendingToolApprovals);
       renderLoopDecision(state.pendingLoopDecision);
+      renderGuideChoice(state.pendingGuideChoice);
       renderPendingRunReview(state.pendingRunReview, state.selectedRunId || (state.selectedRun ? state.selectedRun.id : undefined));
       renderAttachments(state.attachments);
       renderOpenFiles(state.openFiles);
