@@ -835,6 +835,31 @@ export function registerBuiltInAgents(agentRegistry: AgentRegistry): void {
 export function seedDefaultProviders(modelRouter: ModelRouter): void {
   const defaults: ProviderConfig[] = [
     {
+      /**
+       * ACP agents supply subscription-backed capacity over the Agent Client
+       * Protocol. Seeded **disabled**: the launch command is user-authored, so
+       * until someone configures an agent under `atlasmind.acp.agents` there is
+       * nothing to spawn and the router must not route to it.
+       */
+      id: 'acp',
+      displayName: 'ACP Agents (subscription)',
+      apiKeySettingKey: 'atlasmind.provider.acp.apiKey',
+      enabled: false,
+      pricingModel: 'subscription',
+      models: [
+        {
+          id: 'acp/claude',
+          provider: 'acp',
+          name: 'Claude Agent via ACP',
+          contextWindow: 200000,
+          inputPricePer1k: 0,
+          outputPricePer1k: 0,
+          capabilities: ['chat', 'code', 'reasoning'],
+          enabled: true,
+        },
+      ],
+    },
+    {
       id: 'claude-cli',
       displayName: 'Claude Code CLI (chat only)',
       apiKeySettingKey: 'atlasmind.provider.claude-cli.apiKey',

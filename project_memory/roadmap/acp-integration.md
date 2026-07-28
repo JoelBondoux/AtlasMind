@@ -68,7 +68,7 @@ session resumption.
 
 ---
 
-## Tier 1 — ACP-as-provider: retire the argv-bounded bridge
+## Tier 1 — ACP-as-provider: retire the argv-bounded bridge  ✅ **SHIPPED v0.170.0**
 
 **Goal:** ACP replaces `claude-cli` as the Claude-subscription path, with strictly more capability
 and no new security surface.

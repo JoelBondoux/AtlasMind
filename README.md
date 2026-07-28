@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.169.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.171.1</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,10 +64,12 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.169.0
+## What's new in 0.171.1
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
 
+- **Every setup process now works the way the Buzz one does.** `/acp` walks you through ACP setup a step at a time — name an agent, install it, sign in, enable the provider, and then **prove a completion actually comes back**, because configured and working are different things the settings screen cannot tell apart. `/setup` lists every guide with how far along it is, so a feature that needs configuring is discoverable before you hit the failure it causes. The two guides share their mechanics rather than resembling each other, so they cannot drift — and neither installs or enables anything for you: every button opens the screen where you decide.
+- **Use your Claude or Codex subscription as routable capacity.** AtlasMind can now drive coding agents over the [Agent Client Protocol](https://agentclientprotocol.com) — the emerging standard that is to coding agents what LSP is to language servers. Point it at an agent you have installed (`claude-agent-acp`, `codex-acp`) and its subscription becomes another model the router can choose. It replaces the old Claude CLI bridge on every axis that mattered: replies **stream** instead of arriving in one lump, the **~26,000-character prompt ceiling is gone** (prompts travel over a pipe, not a command line, so long context arrives intact rather than silently truncated), and **images** are sent when the agent accepts them. Agents run with no filesystem, no terminal, and no tools — they answer, they do not act — and if one asks for permission to do something, AtlasMind refuses rather than granting it. Nothing is installed for you, and nothing is enabled until you name a command yourself.
 - **Your issue tracker, inside the dashboard.** A new **Issues** tab reads the repository's GitHub issues: what is open, what nobody has picked up, and what has gone quiet for a month, with charts by label and assignee. You can comment, close, reopen, or open a new issue without leaving the editor — each one shown to you in full and confirmed before it is sent, because a tracker is public. **Work on it with Atlas** hands the issue to chat as a *report to check*, explicitly not as instructions, since an issue is written by whoever filed it.
 - **The dashboard opens with charts of who did the work and how far each release has to go.** A donut of **commits by contributor** (click a name to scope the commit timeline to that person), a **route to release** ring for whichever gate the Roadmap card is showing, and a bar of **outstanding objectives by release gate** — so the first screen answers who, what is left, and how far, not just how busy the repo has been. Everything is drawn from git history and the roadmap you already keep: no new scan, no model call, and author names only.
 - **When Atlas asks a question, you can answer it with one tap — everywhere.** One-tap reply pills existed only in the main Chat panel, which made them look like a feature of that panel rather than of Atlas asking. The Ideation panel and the Vision panel now show them too: click **Yes**, or the option you want, and it runs. Where a question has no clean options you still get the text box rather than invented buttons, which is exactly how chat has always behaved.
@@ -210,6 +212,8 @@ Use these in AtlasMind chat as `@atlas /<command>`.
 | `/runs` | Open recent autonomous runs and checkpoints |
 | `/director` | Review stakeholders, team, responsibilities, assignments, and follow-ups |
 | `/buzz` | Walk through Buzz setup: what is done, what is left, and what to click next |
+| `/setup` | List every setup guide and how far along each one is |
+| `/acp` | Walk through ACP agent setup: name it, install it, sign in, enable it, prove it answers |
 | `/followups` | Group open follow-ups by urgency |
 | `/ship [routine]` | Run the default or named project routine from project memory |
 | `/sync-instructions` | Reconcile and mirror supported AI instruction files |
