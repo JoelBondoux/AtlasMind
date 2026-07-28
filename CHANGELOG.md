@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.181.0] - 2026-07-28
+
+### Added
+- **AtlasMind now has one guided GitHub workflow, and the dashboard teaches it.** Project Dashboard → **Workflow** lays out eight stages — issue intake, branch naming, development, pull requests, CI, release, maintenance, and the automation layer above them — showing where this repository actually stands in each. Every stage and every step carries a **?** that opens *why this exists*, *how to do it*, and *what people usually get wrong*, written for somebody meeting a professional workflow for the first time rather than for somebody confirming one they already know. There is a glossary for the terms that get assumed: integration branch, protected branch, conventional commits, SemVer, flake, lead time, technical debt.
+
+  The page also charts delivery health — issue ageing and assignment, branch inventory and naming conformance, CI check state, commit-convention conformance, changelog drift, and a weighted health score. It costs nothing to open: everything is derived from state the dashboard already gathers, with no network call on the render path, because `gh` is rate-limited and a page that spent your quota to explain itself would be a poor trade.
+
+  Two honesty rules run through all of it. **A component that could not be measured is omitted from the score and named**, never counted as zero — otherwise a project that has not connected GitHub looks catastrophic, which is false and discouraging at the worst moment. And **no report means no verdict, never "0 failing"** — a test suite that did not run is not one that passed, and conflating them is how a green dashboard hides a broken pipeline.
+
+- **The workflow is specified, not just implemented.** [`docs/guided-github-workflow.md`](docs/guided-github-workflow.md) is the normative document: eight stage contracts with declared triggers, inputs, owning agents, GitHub surfaces, deterministic outputs, gates and automation levels; two profiles (solo and small studio) as presets over one schema rather than two prose documents; the workflow-as-editable-data model; the automation ladder; and a worked end-to-end example. It is explicit about where determinism ends — plan decomposition is produced by a language model and is not reproducible, and the specification says so rather than implying a guarantee it cannot keep.
+
+- **`atlasmind.workflow.*` settings, all deny-by-default.** A master switch, a personal automation ceiling, and four capability gates (issue writes, pull-request writes, release writes, protected-ref writes). The effective level for any stage is the *minimum* of four independent gates, all defaulting closed — which is what makes "full automation is possible, never default" true by construction rather than by policy. Your personal settings can only ever lower the level, never raise it. Some things never automate at any level: force-pushing, deleting a tag or release, re-running a CI job, editing a CI workflow file, and merging a dependency update.
+
+- **Three new core modules, pure and unit-tested.** `workflowCurriculum.ts` holds the teaching content as reviewable data — derived from observed state, never model-generated, because a hallucinated workflow step is worse than no step at all. `workflowMetrics.ts` derives every number, with `MetricVerdict` making "not measured" a *type* rather than a convention so a renderer cannot forget to handle it. `ghClient.ts` is now the single boundary to the GitHub CLI, replacing three ad-hoc call sites — argv arrays with no shell, no stored credential, and failures that name their fix.
+
+### Fixed
+- **Nine contradictions in AtlasMind's own documented workflow.** Nine documents described this project's GitHub process and disagreed with each other. Now one specification states the rules and every other file points at it, naming values only.
+
+  Among them: pull requests were documented as targeting both `main` and `develop`; reviews were documented as both required and not required (they described different *profiles* — this repository is `solo`, so zero approvals with genuinely required CI); the release was documented as both Actions-driven and manual; a `Release — tag merged main version` workflow was cited that does not exist; `.github/workflows/integration-monitor.yml` was cited but only the script exists, run on demand via `npm run monitor:integrations`; and CI was documented as running on `main` when it runs on `main` and `develop` plus manual dispatch.
+
+- **A live double-publish hazard in the documented release routine.** `npm run publish:release` is `vsce publish && npm run tag:release` — it publishes *and* pushes the tag, and the tag push then triggers `publish.yml`, which runs `publish:release` **again** and fails on "version already exists". Following the documented step 7 caused it every time. The routine now ends at `npm run tag:release` and lets CI publish; `publish:release` is documented as an emergency local path only. Fixing the chain in code so only one path can publish is tracked as C5.2 in the roadmap.
+
+- **Six files claimed `project_memory/` is excluded from `main` and "enforced by `.gitignore`".** Both halves were false: 90 of its files are tracked on `origin/main`, and `.gitignore` says *"track curated SSOT"*, excluding only `sessions/`, `temp/`, `project-run-*.json`, and `.delivery-lock.json`. What keeps it out of the shipped extension is `.vscodeignore`.
+
+- **`project_memory/routines/publishing-routine.md` could not run as written.** Its package step was `atlasmind-${VERSION}.vsix`, which is not a command, and it used `${BRANCH}` and `${VERSION}` tokens that are never substituted — only `${message}` and `${version}` are — so they ran literally.
+
+- **Two live wiki links pointed at a page that never existed.** `wiki/Project-Planner.md` and `wiki/Tool-Execution.md` both linked `[[Delivery]]`; the page now exists and documents the guarded promotion pipeline, its five gates, and its safety boundaries.
+
 ## [0.180.2] - 2026-07-28
 
 ### Changed

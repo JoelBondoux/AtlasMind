@@ -6,6 +6,15 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.181.0 — one guided GitHub workflow, and a dashboard that teaches it
+
+- **Project Dashboard → [[GitHub Workflow|Workflow]]** lays out eight stages — issue intake, branch naming, development, pull requests, CI, release, maintenance, automation — and shows where your repository stands in each. Every step carries a **?** opening *why it exists*, *how to do it*, and *what people get wrong*, written for somebody meeting a professional workflow for the first time. Plus a glossary for the terms that usually get assumed.
+- **It charts delivery health** — issue ageing, branch naming conformance, CI state, commit conventions, changelog drift, and a weighted score — with no network call on the render path, so opening it costs nothing.
+- **Two honesty rules throughout.** A component that could not be measured is *omitted and named*, never scored zero. And no test report means *no verdict*, never "0 failing" — a suite that did not run is not a suite that passed.
+- **Deny-by-default automation.** Six `atlasmind.workflow.*` settings; the effective level for a stage is the *minimum* of four independent gates, all closed by default. Your settings can only lower it. Force-pushing, deleting tags, re-running CI jobs, editing workflow files, and merging dependency updates never automate at any level.
+- **Nine contradictions fixed** in AtlasMind's own documented workflow, including a **live double-publish hazard** — the documented release step ran `publish:release`, which publishes *and* tags, and the tag push then made CI publish again. Also six files claiming `project_memory/` is excluded from `main` (it is tracked there; `.vscodeignore` is what keeps it out of the extension), and two wiki links to a [[Delivery]] page that never existed.
+- Specification: [`docs/guided-github-workflow.md`](https://github.com/JoelBondoux/AtlasMind/blob/main/docs/guided-github-workflow.md).
+
 ## v0.180.0 — the installer declines what it cannot actually do
 
 - **On Linux it would have failed for almost everyone.** Elevation uses `sudo -n` — fail rather than prompt — because an extension host has no terminal to ask for a password in. That works for root and passwordless sudo and fails instantly for everyone else.

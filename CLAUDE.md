@@ -54,17 +54,21 @@ When you make any of the following changes, update the corresponding documentati
 - **`develop`** is the default branch for all implementation work and the normal push target.
 - **`main`** is protected — updated only by intentional Marketplace release promotion from `develop`.
 - Never push directly to `main`. Always push to `origin/develop`.
+- Feature PRs target `develop`. `develop` → `main` is the release promotion, not a feature PR.
+- The workflow itself is specified in `docs/guided-github-workflow.md`; this repository's values (branches, labels, required checks, secrets) are in `docs/github-workflow.md`. Do not restate a rule from either — point at it.
 
 ### Publishing Routine
-When asked to publish or ship a release, follow these steps in order:
+The release is **Actions-driven**. When asked to publish or ship a release, follow these steps in order:
 
 1. **Commit** all changes to the current working branch with a conventional commit message and version bump.
 2. **Merge to `develop`**: `git checkout develop && git pull origin develop && git merge <branch> --no-ff && git push origin develop`
 3. **Compile**: `npm run compile` — must produce zero TypeScript errors.
 4. **Package**: `npm run package` — produces `atlasmind-<version>.vsix`. Fix any packaging errors before proceeding.
-5. **Open PR to `main`**: `gh pr create --base main --head develop` — main is protected and requires a PR; never force-push.
-6. **Wait for PR merge**: do NOT publish until the PR has been merged into `main` and CI checks pass. Confirm the merge before continuing.
-7. **Publish**: `NODE_OPTIONS="--use-system-ca" npm run publish:release` — publishes to the VS Code Marketplace via `vsce`, then automatically creates and pushes the `v<version>` git release tag (`.github/scripts/tag-release.mjs`, idempotent). Only run this after step 6 is complete. If the tag push fails after a successful publish, re-run `npm run tag:release`.
+5. **Open the release PR**: trigger the `Release — promote develop to main` workflow from the Actions tab. It creates or reuses the `develop` → `main` PR and enables squash auto-merge. (`gh pr create --base main --head develop` is the manual equivalent if Actions is unavailable; never force-push.)
+6. **Wait for PR merge**: do NOT tag until the PR has merged into `main` and CI checks pass. Confirm the merge before continuing.
+7. **Tag**: `npm run tag:release` — pushes `v<version>`. The tag push triggers `Release — publish Marketplace from tag`, which publishes via `vsce` and creates the GitHub Release entry.
+
+**Do not run `npm run publish:release` for a normal release.** It is `vsce publish && npm run tag:release`: it publishes *and* pushes the tag, and the tag push then triggers CI to run `publish:release` again, which fails on "version already exists". Reserve it for an emergency local publish when Actions is unavailable.
 
 ## Architecture Quick Reference
 

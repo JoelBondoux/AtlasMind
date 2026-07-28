@@ -1,5 +1,5 @@
 
-> **Note:** The `project_memory/` folder is only present in development and feature branches. It is excluded from the `main` branch and all release builds. This is enforced by `.gitignore` and documented in the contribution guidelines.
+> **Note:** The `project_memory/` folder is **tracked in git and is present on `main`** — only `sessions/`, `temp/`, `project-run-*.json`, and `.delivery-lock.json` are gitignored. What keeps it out of published Marketplace packages is `.vscodeignore`, not `.gitignore`.
 
 # Tool Execution & Safety
 

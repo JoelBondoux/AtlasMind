@@ -259,7 +259,7 @@ Scaffolding is non-destructive and will not overwrite existing files.
 - Test runner: Vitest 4.
 - Baseline unit tests currently cover core services (`ModelRouter`, `CostTracker`).
 - Coverage reports are generated via `npm run test:coverage`.
-- CI runs compile, lint, test, and coverage on push and pull requests to `main`.
+- CI runs compile, lint, test, and coverage on push and pull requests to **`main` and `develop`**, and on manual `workflow_dispatch`.
 
 ## Security Reporting
 
@@ -268,15 +268,17 @@ Scaffolding is non-destructive and will not overwrite existing files.
 
 ## GitHub Governance
 
-- Use feature branches and open pull requests into `main`.
+The workflow itself is specified in **[The Guided GitHub Workflow](guided-github-workflow.md)**;
+this repository's instantiation of it — branches, labels, required checks, secrets — is in
+[github-workflow.md](github-workflow.md). Those two are authoritative. What follows names values
+only.
+
+- Feature branches are created from **`develop`**, and pull requests target **`develop`**. `develop` → `main` is the release promotion, not a feature PR.
+- This repository runs the **`solo` profile**, so `main` requires a pull request and passing checks but **zero approving reviews**. Requiring self-approval trains a maintainer to dismiss a gate; CI is the reviewer instead, which is why its checks are genuinely required.
 - Follow `.github/pull_request_template.md` for release and quality checklists.
 - Use `.github/ISSUE_TEMPLATE/` for bug and feature intake.
 - Keep ownership mappings updated in `.github/CODEOWNERS`.
-- Configure branch protection in GitHub settings:
-	- Require pull requests before merging
-	- Require status checks to pass
-	- Require at least one review
-	- Require conversation resolution before merge
+- Branch protection values for `main` and `develop` are listed in [github-workflow.md](github-workflow.md).
 
 ## Packaging
 

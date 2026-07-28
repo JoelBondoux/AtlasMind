@@ -58,6 +58,7 @@
       id: 'work',
       label: 'The work',
       pages: [
+        ['workflow', 'Workflow'],
         ['roadmap', 'Roadmap'],
         ['issues', 'Issues'],
         ['director', 'Director'],
@@ -150,6 +151,14 @@
     privacyTest: { kind: 'text', value: '' },
     privacyTestResult: null,
     privacyExpandedProviders: {},
+    // Which "?" explanations are open, by step id.
+    //
+    // Held here rather than relying on a native <details open> attribute,
+    // because render() rebuilds every page's innerHTML on every render —
+    // including host status pushes the user did not trigger — which would snap
+    // every open explanation shut mid-read. The module closure survives that;
+    // the DOM does not.
+    workflowHelpOpen: {},
     editingStageId: '',
     confirmRemoveStageId: '',
     editingPathId: '',
@@ -174,6 +183,9 @@
   // scroll position instead of restoring the previous page's.
   let focusTabAfterRender = '';
   let resetScrollAfterRender = false;
+  // A CSS selector for one control to re-focus after the next render. Consumed
+  // and cleared by render(), so it never leaks into an unrelated update.
+  let refocusAfterRender = '';
 
   refreshButton?.addEventListener('click', () => {
     vscode.postMessage({ type: 'refresh' });
@@ -713,6 +725,14 @@
     if (action === 'privacy-provider-expand') {
       const current = privacyProviderExpandedById(payload);
       state.privacyExpandedProviders[payload] = !current;
+      render();
+      return;
+    }
+    if (action === 'workflow-help') {
+      state.workflowHelpOpen[payload] = !state.workflowHelpOpen[payload];
+      // Re-focus this exact toggle after the rebuild, so a keyboard user who
+      // opened an explanation is still standing on the control they pressed.
+      refocusAfterRender = 'button[data-action="workflow-help"][data-payload="' + cssEscape(payload) + '"]';
       render();
       return;
     }
@@ -1388,6 +1408,14 @@
       return;
     }
 
+    // A selector for one control to re-focus after this render, set by whichever
+    // handler triggered it. The `activeId` mechanism below only covers three
+    // hardcoded inputs; anything else — such as a "?" toggle — would silently
+    // lose focus on every activation, which makes the control keyboard-hostile
+    // in exactly the way a teaching surface must not be.
+    const refocusSelector = refocusAfterRender;
+    refocusAfterRender = '';
+
     // --- Preserve focus and cursor position for test search and roadmap textarea ---
     let activeId = null, cursorPos = null, isTextarea = false;
     const active = document.activeElement;
@@ -1448,6 +1476,7 @@
         ${renderOverview(snapshot)}
         ${renderScore(snapshot)}
         ${renderGapAnalysis(snapshot)}
+        ${renderWorkflow(snapshot)}
         ${renderRoadmap(snapshot)}
         ${renderIssues(snapshot)}
         ${renderDirector(snapshot)}
@@ -1462,6 +1491,14 @@
         ${renderSsot(snapshot)}
         ${renderPromotionModal()}
       `;
+
+      // --- Re-focus a control that asked to keep focus across its own render ---
+      if (refocusSelector) {
+        const target = root.querySelector(refocusSelector);
+        if (target && typeof target.focus === 'function') {
+          target.focus({ preventScroll: true });
+        }
+      }
 
       // --- Restore focus and cursor position if needed ---
       if (activeId) {
@@ -2949,6 +2986,338 @@
         </div>
       </article>
     `;
+  }
+
+  // ── Workflow ───────────────────────────────────────────────────────────
+  // The guided GitHub workflow: what the eight stages are, why each exists,
+  // how far this repository has got, and what the numbers say.
+  //
+  // Written for somebody who has not done this before. Every step carries a "?"
+  // opening its why/how/what-goes-wrong, and every empty state explains what the
+  // thing is *for* rather than reporting that it is empty — the opposite of the
+  // convention elsewhere on this dashboard, deliberately, because a blank
+  // Workflow page is most likely being read by the person who most needs it.
+
+  const WF_MARK = { done: '✅', todo: '⬜', blocked: '⛔', optional: '🔹' };
+  const WF_STATUS_WORD = { done: 'done', todo: 'to do', blocked: 'blocked', optional: 'optional' };
+
+  /** A "?" toggle plus, when open, the explanation panel it controls. */
+  function renderWorkflowHelp(id, payload) {
+    const open = state.workflowHelpOpen[id] === true;
+    const button = `<button type="button" class="wf-help-toggle" data-action="workflow-help" data-payload="${escapeAttr(id)}"
+      aria-expanded="${open ? 'true' : 'false'}" aria-controls="wf-help-${escapeAttr(id)}"
+      aria-label="${open ? 'Hide' : 'Show'} the explanation for ${escapeAttr(payload.label || 'this step')}">?</button>`;
+    if (!open) { return { button, panel: '' }; }
+
+    const section = (heading, body) => body ? `<h5>${escapeHtml(heading)}</h5>${body}` : '';
+    const lines = (payload.how || []).map(line => {
+      const text = `<li>${escapeHtml(line.text || '')}`;
+      const command = line.command
+        ? `<div><code>${escapeHtml(line.command)}</code></div>`
+        : '';
+      // A URL is rendered as text, not an anchor: the dashboard's CSP requires
+      // a nonce for scripts and external navigation goes through the host, so a
+      // raw href would either be dead or a hole.
+      const url = line.url ? `<div class="wf-unknown">${escapeHtml(line.url)}</div>` : '';
+      return `${text}${command}${url}</li>`;
+    }).join('');
+
+    const mistakes = (payload.commonMistakes || []).length
+      ? `<div class="wf-help-panel wf-help-mistakes"><h5>What goes wrong</h5><ul>${
+        payload.commonMistakes.map(item => `<li>${escapeHtml(item)}</li>`).join('')
+      }</ul></div>`
+      : '';
+
+    const terms = (payload.glossary || [])
+      .map(key => (snapshotGlossary() || {})[key])
+      .filter(Boolean);
+    const glossary = terms.length
+      ? section('Terms', `<dl class="wf-glossary">${terms.map(entry =>
+        `<dt>${escapeHtml(entry.term)}</dt><dd>${escapeHtml(entry.definition)}</dd>`).join('')}</dl>`)
+      : '';
+
+    const panel = `
+      <div class="wf-help-panel" id="wf-help-${escapeAttr(id)}" role="region">
+        ${section('Why this matters', `<p>${escapeHtml(payload.why || '')}</p>`)}
+        ${lines ? section('How to do it', `<ol>${lines}</ol>`) : ''}
+        ${glossary}
+      </div>
+      ${mistakes}`;
+    return { button, panel };
+  }
+
+  /** Glossary lookup, keyed, from the current snapshot. */
+  let wfGlossaryCache = null;
+  function snapshotGlossary() { return wfGlossaryCache; }
+
+  /** A metric verdict: the number, or an honest account of why there isn't one. */
+  function renderVerdict(verdict, format) {
+    if (verdict && verdict.known === true) {
+      return escapeHtml(format ? format(verdict.value) : String(verdict.value));
+    }
+    const reason = verdict && verdict.reason ? verdict.reason : 'Not measured.';
+    const hint = verdict && verdict.fixHint ? ' ' + verdict.fixHint : '';
+    return `<span class="wf-unknown" title="${escapeAttr(reason + hint)}">—</span>`;
+  }
+
+  function renderWorkflow(snapshot) {
+    const wf = snapshot.guidedWorkflow;
+    if (!wf) {
+      return `${pageSectionOpen('workflow')}<div class="dashboard-empty"><div>
+        <strong>The guided workflow is not available</strong>
+        <p class="section-copy">AtlasMind could not read this workspace's state. Open a folder containing a git repository to see the workflow.</p>
+      </div></div></section>`;
+    }
+    wfGlossaryCache = (wf.glossary || []).reduce((all, entry) => {
+      all[entry.key] = entry; return all;
+    }, {});
+
+    const progress = wf.progress || { done: 0, total: 0, finished: false };
+    const pct = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
+
+    const intro = renderPageIntro({
+      kicker: 'Guided workflow',
+      title: 'The eight stages, and where you are in them',
+      summary: progress.total === 0
+        ? 'The workflow could not be assessed for this workspace yet.'
+        : `${progress.done} of ${progress.total} steps done (${pct}%). ${
+          wf.next ? `Next: ${wf.next.stepTitle}, in ${wf.next.stageName}.` : 'Every step is complete.'
+        } Press ? on any step to see why it exists and how to do it.`,
+      chips: [
+        { label: `${wf.profile} profile`, tone: 'accent' },
+        { label: wf.enabled ? `automation: ${wf.automationLevel}` : 'automation: off', tone: wf.enabled ? 'warn' : 'good' },
+      ],
+    });
+
+    const strip = renderFlowStrip((wf.stages || []).map(stage => ({
+      label: String(stage.ordinal),
+      sub: stage.name.split(' ')[0],
+      icon: WF_MARK[stage.status] || '⬜',
+      status: stage.status === 'done' ? 'ok' : stage.status === 'blocked' ? 'fail' : 'pending',
+      title: `${stage.name} — ${WF_STATUS_WORD[stage.status] || stage.status}. ${stage.blurb}`,
+    })));
+
+    const stages = (wf.stages || []).map(stage => {
+      const stageHelp = renderWorkflowHelp(`stage.${stage.id}`, {
+        label: stage.name,
+        why: stage.why,
+        how: [
+          { text: `Owned by \`${stage.ownerAgentId}\`.${
+            (stage.supportingAgentIds || []).length ? ` Supported by ${stage.supportingAgentIds.join(', ')}.` : ''
+          }` },
+          { text: (stage.githubSurface || []).length
+            ? `Uses: ${stage.githubSurface.join(', ')}.`
+            : 'Touches no GitHub surface at all — this stage is deliberately local.' },
+          { text: stage.determinism },
+        ],
+      });
+
+      const steps = (stage.steps || []).map(step => {
+        const help = renderWorkflowHelp(step.id, step);
+        return `
+          <div class="wf-step">
+            <span class="wf-step-mark" aria-hidden="true">${WF_MARK[step.status] || '⬜'}</span>
+            <div class="wf-step-body">
+              <div class="wf-step-title">
+                <span class="visually-hidden">${escapeHtml(WF_STATUS_WORD[step.status] || step.status)}: </span>
+                ${escapeHtml(step.title)}
+                ${step.proficiency && step.proficiency !== 'core'
+                  ? `<span class="wf-proficiency">${escapeHtml(step.proficiency)}</span>` : ''}
+                ${help.button}
+              </div>
+              <div class="wf-step-detail">${escapeHtml(step.detail || '')}</div>
+              ${help.panel}
+            </div>
+          </div>`;
+      }).join('');
+
+      return `
+        <article class="wf-stage">
+          <div class="wf-stage-head">
+            <span class="wf-stage-ordinal">${escapeHtml(String(stage.ordinal))}</span>
+            <h4>${escapeHtml(stage.name)}</h4>
+            <span class="tag ${stage.status === 'done' ? 'tag-good' : stage.status === 'blocked' ? 'tag-critical' : ''}">${
+              escapeHtml(WF_STATUS_WORD[stage.status] || stage.status)}</span>
+            ${stageHelp.button}
+          </div>
+          <p class="stat-detail">${escapeHtml(stage.blurb)}</p>
+          ${stageHelp.panel}
+          ${steps}
+        </article>`;
+    }).join('');
+
+    const issues = wf.issues;
+    const branches = wf.branches || { nonConforming: [] };
+    const ci = wf.ci || {};
+    const release = wf.release || { conformance: {} };
+    const health = wf.health || {};
+
+    // Health. Omitted components are named rather than silently folded in, so a
+    // score of 80 cannot be mistaken for "80% of everything is fine".
+    const healthCard = `
+      <article class="panel-card">
+        <p class="card-kicker">Workflow health</p>
+        ${health.score && health.score.known
+          ? renderScoreRing(health.score.value)
+          : `<div class="dashboard-empty"><div>
+              <strong>Not enough measured yet</strong>
+              <p class="section-copy">${escapeHtml((health.score && health.score.reason) || 'Nothing measurable yet.')}</p>
+            </div></div>`}
+        <div class="stack-list">
+          ${(health.components || []).map(component => `
+            <div class="row-head">
+              <span>${escapeHtml(component.label)}</span>
+              <span>${renderVerdict(component.score, value => `${value}%`)}</span>
+            </div>`).join('')}
+        </div>
+        ${(health.omitted || []).length
+          ? `<p class="stat-detail wf-unknown">Not counted in the score: ${escapeHtml(health.omitted.join(', '))}. A component that could not be measured is left out rather than scored zero.</p>`
+          : ''}
+      </article>`;
+
+    const issuesCard = issues
+      ? `<article class="panel-card">
+          <p class="card-kicker">Issues</p>
+          <div class="mini-grid">
+            ${renderMetricPill('Open', String(issues.open))}
+            ${renderMetricPill('Unassigned', String(issues.unassigned), { tone: issues.unassigned > 0 ? 'warn' : 'good' })}
+            ${renderMetricPill('Stale', String(issues.stale), { tone: issues.stale > 0 ? 'warn' : 'good' })}
+          </div>
+          ${renderDistributionBar('wf-issue-age', issues.ageDistribution || [], {
+            title: 'Open issues by age',
+            caption: 'Ageing is the signal, not the total',
+            emptyLabel: 'No open issues to age.',
+          })}
+          ${(issues.byLabel || []).length
+            ? renderDonutChart('wf-issue-labels', issues.byLabel, { emptyLabel: 'No labels on open issues.' })
+            : ''}
+        </article>`
+      : `<article class="panel-card">
+          <p class="card-kicker">Issues</p>
+          <div class="dashboard-empty"><div>
+            <strong>Issues have not been loaded</strong>
+            <p class="section-copy">Issue intake is stage 1 of the workflow: it is where an intention becomes something with a number that every later stage can point at. AtlasMind does not fetch them automatically because the GitHub API is rate-limited.</p>
+            <button type="button" class="action-link" data-action="page" data-payload="issues">Open the Issues tab to load them</button>
+          </div></div>
+        </article>`;
+
+    const branchCard = `
+      <article class="panel-card">
+        <p class="card-kicker">Branches</p>
+        <div class="mini-grid">
+          ${renderMetricPill('Total', String(branches.total || 0))}
+          ${renderMetricPill('Stale', String(branches.stale || 0), { tone: (branches.stale || 0) > 0 ? 'warn' : 'good' })}
+          ${renderMetricPill('Naming', renderVerdictText(branches.conformanceRate, value => `${value}%`))}
+        </div>
+        ${renderDistributionBar('wf-branch-age', branches.ageDistribution || [], {
+          title: 'Branches by last commit',
+          caption: 'A branch nobody has touched in a month is usually finished or abandoned',
+          emptyLabel: 'No branches with a recorded commit date.',
+        })}
+        ${(branches.nonConforming || []).length
+          ? `<p class="stat-detail">Not matching <code>&lt;type&gt;/&lt;issue&gt;-&lt;slug&gt;</code>: ${
+            escapeHtml(branches.nonConforming.slice(0, 8).join(', '))}${branches.nonConforming.length > 8 ? '…' : ''}</p>`
+          : '<p class="stat-detail">Every branch matches the naming convention.</p>'}
+      </article>`;
+
+    // CI. The "no checks" state says so and offers the fix — never "0% passing",
+    // because a commit with no checks has not failed, it has not been checked.
+    const ciCard = `
+      <article class="panel-card">
+        <p class="card-kicker">Continuous integration</p>
+        ${ci.state === 'none'
+          ? `<div class="dashboard-empty"><div>
+              <strong>No check runs read for this commit</strong>
+              <p class="section-copy">CI is the only reviewer that never gets tired and never approves something because it is Friday. AtlasMind reports no verdict rather than implying a green build.</p>
+            </div></div>`
+          : `<div class="mini-grid">
+              ${renderMetricPill('Passing', String(ci.passing || 0), { tone: 'good' })}
+              ${renderMetricPill('Failing', String(ci.failing || 0), { tone: (ci.failing || 0) > 0 ? 'critical' : 'good' })}
+              ${renderMetricPill('Pass rate', renderVerdictText(ci.passRate, value => `${value}%`))}
+            </div>
+            ${renderDistributionBar('wf-ci', ci.byCheck || [], {
+              title: 'Checks on the head commit',
+              caption: 'Worst state wins — one failure makes the commit red',
+              emptyLabel: 'No checks reported.',
+            })}`}
+      </article>`;
+
+    const releaseCard = `
+      <article class="panel-card">
+        <p class="card-kicker">Release readiness</p>
+        <div class="mini-grid">
+          ${renderMetricPill('Version', release.version || '—')}
+          ${renderMetricPill('Commit conventions', renderVerdictText(release.conformance && release.conformance.rate, value => `${value}%`))}
+        </div>
+        ${release.drift
+          ? `<p class="stat-detail">${escapeHtml(release.drift)} The changelog section is used verbatim as the release notes, so a missing entry blocks a clean release.</p>`
+          : '<p class="stat-detail">The changelog covers the current version.</p>'}
+        ${(release.conformance && (release.conformance.examples || []).length)
+          ? `<p class="stat-detail wf-unknown">Recent commits outside the convention: ${
+            escapeHtml(release.conformance.examples.join(' · '))}</p>`
+          : ''}
+        ${(release.conformance && (release.conformance.byType || []).length)
+          ? renderDonutChart('wf-commit-types', release.conformance.byType, { emptyLabel: 'No conventional commits yet.' })
+          : ''}
+      </article>`;
+
+    // The four gates, shown rather than merely honoured. Somebody learning why
+    // "full automation is possible, never default" holds needs to see that the
+    // switches are independent and all default closed.
+    const ladderCard = `
+      <article class="panel-card">
+        <p class="card-kicker">What AtlasMind may do</p>
+        <p class="stat-detail">The effective level for any stage is the <em>lowest</em> of four independent gates. All four default closed, which is what keeps unattended action off until you deliberately allow it.</p>
+        <div class="stack-list">
+          <div class="row-head">
+            <span>Master switch</span>
+            <span class="tag ${wf.enabled ? 'tag-warn' : 'tag-good'}">${wf.enabled ? 'on' : 'off'}</span>
+          </div>
+          <div class="row-head">
+            <span>Your ceiling</span>
+            <span class="tag">${escapeHtml(wf.automationLevel || 'observe')}</span>
+          </div>
+          ${(wf.capabilities || []).map(capability => `
+            <div class="row-head" title="${escapeAttr(capability.detail)}">
+              <span>${escapeHtml(capability.label)}</span>
+              <span class="tag ${capability.enabled ? 'tag-warn' : 'tag-good'}">${capability.enabled ? 'allowed' : 'off'}</span>
+            </div>`).join('')}
+        </div>
+        <button type="button" class="action-link" data-action="command" data-payload="atlasmind.openSettings">Open settings</button>
+      </article>`;
+
+    const activity = renderChartCard(
+      'wf-commits',
+      'Commit activity',
+      'Commits per day. The shape matters more than the total — long flat stretches usually mean work is queued somewhere rather than that nobody was working.',
+      (wf.commitSeries || []).map(point => ({ label: point.label, value: point.value })),
+      'workflow',
+    );
+
+    return `${pageSectionOpen('workflow')}
+      ${intro}
+      ${strip}
+      <div class="panel-grid">
+        ${healthCard}
+        ${ladderCard}
+        ${issuesCard}
+        ${branchCard}
+        ${ciCard}
+        ${releaseCard}
+      </div>
+      ${activity}
+      <section>
+        <p class="section-kicker">The eight stages</p>
+        ${stages}
+      </section>
+    </section>`;
+  }
+
+  /** Plain-text verdict, for slots that cannot take markup. */
+  function renderVerdictText(verdict, format) {
+    return verdict && verdict.known === true
+      ? (format ? format(verdict.value) : String(verdict.value))
+      : '—';
   }
 
   function renderRoadmap(snapshot) {
@@ -6155,6 +6524,17 @@
 
   function escapeAttr(value) {
     return escapeHtml(value).replace(/`/g, '&#96;');
+  }
+
+  /**
+   * Escape a value for use inside a CSS attribute selector.
+   *
+   * Step ids are ours and contain only word characters and dots, but building a
+   * selector from data without escaping is the kind of thing that is safe until
+   * somebody adds an id with a quote in it.
+   */
+  function cssEscape(value) {
+    return String(value).replace(/["\\]/g, '\\$&');
   }
 
   vscode.postMessage({ type: 'ready' });

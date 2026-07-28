@@ -1,11 +1,11 @@
 # Project Memory Rule (main branch)
 
-**Important:** The `project_memory/` folder and its contents are only present in development and feature branches. They are excluded from the `main` branch and all release builds. This is enforced by `.gitignore` and documented in the contribution guidelines. Do not expect `project_memory/` to exist on `main` or in published Marketplace packages.
+**Important:** The `project_memory/` folder is **tracked in git and is present on `main`** — only `sessions/`, `temp/`, `project-run-*.json`, and `.delivery-lock.json` are gitignored. What keeps it out of published Marketplace packages is `.vscodeignore`, not `.gitignore`, so do not expect `project_memory/` inside an installed extension.
 
 If you need to reference SSOT memory or session context, use the `atlasmind.ssotPath` setting, which defaults to `project_memory`. For more details, see the [Memory System](Memory-System.md) documentation.
 
 
-> **Note:** The `project_memory/` folder is only present in development and feature branches. It is excluded from the `main` branch and all release builds. This is enforced by `.gitignore` and documented in the contribution guidelines.
+> **Note:** The `project_memory/` folder is **tracked in git and is present on `main`** — only `sessions/`, `temp/`, `project-run-*.json`, and `.delivery-lock.json` are gitignored. What keeps it out of published Marketplace packages is `.vscodeignore`, not `.gitignore`.
 
 # User Environment Tracking
 
@@ -215,6 +215,13 @@ Integration with [Buzz](https://buzz.xyz) — the open-source, Nostr-based works
 | `atlasmind.buzz.inboundChannels` | string[] | `[]` | Buzz channel ids (UUIDs) to watch. Empty = every channel the agent key can read. |
 | `atlasmind.buzz.autoCreateFollowUps` | boolean | `false` | Record inbound activity as follow-ups. Off by default — `project_memory/` is git-tracked, so this is opt-in. |
 | `atlasmind.acp.agents` | array | `[]` | ACP agents to use as subscription-backed capacity: `[{"id": "claude", "command": "claude-agent-acp"}]`. Empty by default; you name a command you already have installed. By default a completion source only — no MCP pass-through, permission requests refused. |
+| `atlasmind.workflow.enabled` | boolean | `false` | Master switch for [[GitHub Workflow\|the guided GitHub workflow]]. Off by default: the Workflow page still teaches and measures, it simply never acts. Turning it on does not by itself permit anything — the effective level for a stage is the *minimum* of this, your ceiling, the matching capability switch, and the stage's own declared level. All four default closed. |
+| `atlasmind.workflow.profile` | string | `solo` | `solo`, `studio`, or `custom`. Solo requires **zero** approvals and makes CI the reviewer, because requiring self-approval trains you to dismiss a gate. Studio requires at least one approver distinct from the author. A profile *seeds* a configuration; it does not govern one. |
+| `atlasmind.workflow.maxAutomationLevel` | string | `observe` | Your personal ceiling: `off`, `observe`, `draft`, `propose`, `auto`. Can only ever **lower** the project's declared level, never raise it. |
+| `atlasmind.workflow.allowIssueWrites` | boolean | `false` | Permit issue create / comment / edit / close / reopen. Every write still confirms first, naming the repository and the exact action. AtlasMind never auto-closes an issue — closing somebody's report is a social act, not a cleanup task. |
+| `atlasmind.workflow.allowPullRequestWrites` | boolean | `false` | Permit PR creation, review and merge. Incoming review comments are treated as untrusted input regardless of this setting: anyone who can comment can write text designed to read as an instruction, so review bodies are always sanitized and fenced before an agent sees them. |
+| `atlasmind.workflow.allowReleaseWrites` | boolean | `false` | Permit version bump and changelog entry. Tagging and publishing stay human-triggered even with this on, and release notes are the changelog section **verbatim** — never model-generated. |
+| `atlasmind.workflow.allowProtectedRefWrites` | boolean | `false` | A hard ceiling rather than an ordinary preference. With it off, unattended automation is *unreachable* for any stage whose base is protected. AtlasMind never force-pushes regardless. |
 | `atlasmind.acp.toolsEnabled` | boolean | `false` | Let ACP agents run their own tools, approving each operation. Off by default. AtlasMind never accepts an agent's "always allow" — it answers "allow once", so no grant ends up somewhere you cannot revoke it — and a missing approval gate denies rather than opens. |
 | `atlasmind.acp.mcpServers` | array | `[]` | MCP servers an ACP agent may use, by name. Empty by default. Servers holding SecretStorage credentials and HTTP/SSE servers are never forwarded. |
 | `atlasmind.buzz.agentBindings` | object | `{}` | Assign AtlasMind agents to Buzz agents: `{"npub1…": "devops-engineer"}`, or several with `{"npub1…": ["api-designer", "ux-reviewer"]}`. The first owns the work; the rest are recorded as also-relevant. Unbound identities stay unassigned. |

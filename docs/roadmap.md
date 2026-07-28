@@ -48,7 +48,7 @@ These initiatives close the gap between AtlasMind and best-in-class AI dev tools
 - Scheduled / background autonomous agents — cron-style and background runs that report back (e.g. nightly dependency-update + test routine), building on existing `/ship` routines.
 
 **Professional developers**
-- PR-native review loop: open a GitHub PR and get inline review comments from the Security/Code Reviewer agents, with iteration (evolving the GitHub Operator agent into a review-on-PR workflow).
+- **The guided GitHub workflow** — one canonical, deterministic, eight-stage workflow (issue intake → branch → develop → PR → CI → release → maintenance → automation), surfaced as a teaching-and-instrumentation page on the Project Dashboard and adapting to the project's enabled testing protocols. Tier 1 landed in 0.181.0; PR-native review (real `gh`-backed PR creation, inline review comments from the Security/Code Reviewer agents, CI-check review and conflict triage) is Tier 2, and CI failure classification plus release automation are Tier 3. Specified in [guided-github-workflow.md](guided-github-workflow.md); phased plan in [`project_memory/roadmap/guided-github-workflow.md`](../project_memory/roadmap/guided-github-workflow.md).
 - Eval / regression harness for agents: pin "golden" tasks and detect when an agent definition or model swap regresses quality (mitigates the risk of the auto-update cadence).
 - Monorepo / multi-root workspace awareness: per-package SSOT scoping and routing.
 - Context window / token budget visualizer: show what's in context and let users prune it.
@@ -113,7 +113,7 @@ Three items are existential leverage rather than nice-to-haves:
 > A shipping, open-source competitor ([SUPACODE](https://supacode.sh/)) — a native-macOS "command center" that runs 50+ CLI coding agents in parallel, each in its own `git worktree` — validates the *timing* of items already on this roadmap. It is mainly a **prioritization signal**, not a source of new ideas. Full analysis: `project_memory/ideas/supacode-competitive-analysis.md`.
 
 - **Promote worktree isolation toward near-term.** AtlasMind already runs parallel subtask batches (`taskScheduler.ts`, `Promise.all`, cap 5) but on a **single shared working tree** — a latent write-race that is a correctness bug under the safety-first rule. Worktree-per-batch isolation (concentration bet #3) is the fix and is buildable now, not a 0–12-month bet.
-- **PR-native GitHub automation.** Reinforces the "PR-native review loop" item (above) — real `gh`-backed PR creation, CI-check review, and conflict triage, beyond today's git primitives.
+- **PR-native GitHub automation.** Now tracked as Tier 2–3 of [the guided GitHub workflow](../project_memory/roadmap/guided-github-workflow.md) rather than as a separate bet — real `gh`-backed PR creation, CI-check review, and conflict triage, beyond today's git primitives.
 - **Parallel "command center" UX (net-new framing).** A multi-lane view of N concurrent runs/worktrees with per-lane status and diff/approve, making parallel fan-out legible — complements the single-run Mission Control / Project Run Center.
 - **Not pursuing:** becoming a generic BYO-CLI-agent multiplexer — that is SUPACODE's category and undercuts AtlasMind's integrated routing / memory / cost / privacy differentiators.
 

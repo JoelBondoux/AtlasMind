@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.180.2",
+  "version": "0.181.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -1957,6 +1957,60 @@
           "maximum": 65535,
           "description": "Localhost port for the remote-control server. Use 0 to pick a free port automatically.",
           "markdownDescription": "Localhost port for the remote-control server. AtlasMind binds the server to `127.0.0.1` on this port.\n\nExamples:\n- Pick a free port automatically (recommended): `0`\n- Pin a stable port so the web client's saved URL keeps working: `38917`\n\nOnly pin a port if you need the `ws://localhost:PORT` URL to stay constant across restarts."
+        },
+        "atlasmind.workflow.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Master switch for the guided GitHub workflow. Off by default: the Workflow dashboard still teaches and measures, but AtlasMind takes no action on your repository.",
+          "markdownDescription": "**Off by default — this is the master switch.**\n\nWith it off, the Workflow page of the Project Dashboard is fully usable: it explains all eight stages, shows how far your repository has got, and charts the numbers. It simply never *acts*.\n\nTurning it on does not, by itself, let AtlasMind do anything. The effective automation level for any stage is the **minimum** of four independent gates:\n\n1. this master switch,\n2. `#atlasmind.workflow.maxAutomationLevel#` — your personal ceiling,\n3. the matching capability switch (`allowIssueWrites`, `allowPullRequestWrites`, `allowReleaseWrites`),\n4. the level declared for that stage in the project's workflow configuration.\n\nAll four default closed, which is what makes full automation *possible* without ever making it the default. See [the specification](https://github.com/JoelBondoux/AtlasMind/blob/main/docs/guided-github-workflow.md)."
+        },
+        "atlasmind.workflow.profile": {
+          "type": "string",
+          "enum": [
+            "solo",
+            "studio",
+            "custom"
+          ],
+          "default": "solo",
+          "description": "Which workflow profile to teach and measure against. 'solo' expects one person to be author, reviewer and releaser; 'studio' expects authorship and approval to be separable.",
+          "markdownDescription": "Which profile the Workflow page teaches against.\n\n- **`solo`** — one human is author, reviewer and releaser. Zero required approvals, because requiring your own approval is theatre and trains you to dismiss a gate. CI becomes the reviewer, which is why its checks stop being optional.\n- **`studio`** — 3–10 people, authorship and approval separable. At least one approver distinct from the author. This is the one place the two profiles differ in *kind* rather than in degree.\n- **`custom`** — you have declared your own stage values and neither preset should be assumed.\n\nA profile **seeds**; it does not govern. Once a project's workflow configuration exists, that file wins, and changing this setting never silently rewrites it."
+        },
+        "atlasmind.workflow.maxAutomationLevel": {
+          "type": "string",
+          "enum": [
+            "off",
+            "observe",
+            "draft",
+            "propose",
+            "auto"
+          ],
+          "default": "observe",
+          "description": "Your personal ceiling on what AtlasMind may do in the workflow. Can only lower the project's declared level, never raise it. Defaults to 'observe' — read and display only.",
+          "markdownDescription": "**Your personal ceiling. Defaults to `observe`.**\n\nFive rungs, each strictly more capable than the last:\n\n| Rung | AtlasMind may |\n|---|---|\n| `off` | nothing |\n| `observe` | read state, compute metrics, display |\n| `draft` | produce an artifact and show it |\n| `propose` | act, after an explicit confirmation naming the repository and the exact action |\n| `auto` | act unattended, still inside the stage's gates |\n\nThis setting can only **lower** the effective level, never raise it. You may run the whole workflow at `observe` on your machine while the repository declares `propose`; you cannot run at `auto` if the repository says otherwise.\n\nSome things never automate at any rung: force-pushing, deleting a tag or release, re-running a CI job, editing a CI workflow file, and merging a dependency update."
+        },
+        "atlasmind.workflow.allowIssueWrites": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow AtlasMind to create, comment on, edit, close or reopen GitHub issues. Off by default; every write still asks for confirmation naming the repository and the exact action.",
+          "markdownDescription": "**Off by default.** Permits stage 1 (Planning & Issue Intake) and stage 7 (Maintenance) to write to your issue tracker.\n\nEven with this on, every write is outward-facing and public, so each one asks for a confirmation naming the repository and the exact action. AtlasMind never auto-closes an issue — closing somebody's report is a social act, not a cleanup task.\n\nRequires `#atlasmind.workflow.enabled#` and a stage level of `propose` or higher."
+        },
+        "atlasmind.workflow.allowPullRequestWrites": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow AtlasMind to create pull requests, post reviews, and merge. Off by default; every write still asks for confirmation.",
+          "markdownDescription": "**Off by default.** Permits stage 4 (Pull Requests & Reviews) to write.\n\nA pull request is a public proposal, so every creation, review and merge asks for confirmation first. Note that review comments arriving *from* GitHub are treated as untrusted input regardless of this setting — anyone who can comment can write text designed to be read as an instruction, so review bodies are always sanitized and fenced before an agent sees them.\n\nRequires `#atlasmind.workflow.enabled#` and a stage level of `propose` or higher."
+        },
+        "atlasmind.workflow.allowReleaseWrites": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow AtlasMind to prepare releases — version bump, changelog entry, tag and GitHub Release. Off by default; tagging and publishing stay human-triggered.",
+          "markdownDescription": "**Off by default.** Permits stage 6 (Release Automation) to write.\n\nEven with this on, `draft` is the maximum in the shipped default: AtlasMind prepares the version bump and the changelog entry, and **tagging and publishing stay human-triggered**.\n\nRelease notes are the changelog section for that version, *verbatim* — never generated by a model. A release note is a durable public claim, and the changelog is where that claim was already reviewed.\n\nRequires `#atlasmind.workflow.enabled#`."
+        },
+        "atlasmind.workflow.allowProtectedRefWrites": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow AtlasMind to write to a protected branch. Off by default and rarely correct — a protected branch exists precisely so that changes reach it only through a reviewed pull request.",
+          "markdownDescription": "**Off by default, and this is a hard ceiling rather than an ordinary preference.**\n\nA protected branch exists precisely so that changes reach it only through a pull request that passed its checks. Enabling this removes the protection at the moment it would have helped, so it should be enabled only for a specific, temporary reason.\n\nWith this off, `auto` is *unreachable* for any stage whose base is protected — not discouraged, unreachable.\n\nAtlasMind never force-pushes regardless of this setting. Where a force is unavoidable it uses a lease, and to a protected branch it refuses outright."
         },
         "atlasmind.acp.toolsEnabled": {
           "type": "boolean",

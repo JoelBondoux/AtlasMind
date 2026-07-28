@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.180.2</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.181.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,9 +64,15 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.180.2
+## What's new in 0.181.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
+
+- **One guided GitHub workflow — and a dashboard page that teaches it.** Project Dashboard → **Workflow** lays out eight stages, from issue intake to release and maintenance, and shows where your repository actually stands in each. Every stage and step carries a **?** opening *why this exists*, *how to do it*, and *what people usually get wrong* — written for somebody meeting a professional workflow for the first time, not only for somebody confirming one they already know, with a glossary for the terms that normally get assumed. The same page charts delivery health: issue ageing, branch naming conformance, CI state, commit conventions, changelog drift, and a weighted score. It adapts to the testing protocols your project has enabled, and it costs nothing to open — nothing on the render path touches the network.
+
+  Two rules run through it. A component that could not be measured is **omitted from the score and named**, never counted as zero; and **no test report means no verdict, never "0 failing"**, because a suite that did not run is not a suite that passed. Automation is deny-by-default: the effective level for any stage is the *minimum* of four independent gates that all start closed, and your own settings can only ever lower it. Force-pushing, deleting tags, re-running CI jobs, editing workflow files, and merging dependency updates never automate at any level. See the [workflow specification](docs/guided-github-workflow.md).
+
+  The same pass fixed nine contradictions in AtlasMind's own documented process — including a live hazard where the documented release step published *and* pushed a tag, and the tag push then made CI publish again.
 
 - **AtlasMind can install the ACP adapter for you — and the setup guide now works with no AI configured at all.** Telling someone to run `npm install -g …` is not help if they have never installed Node, which anyone arriving via "use the Claude subscription I already pay for" has no reason to have. AtlasMind now works out the whole chain — the runtime you are missing *and* the adapter — lists every command with what it is for, and runs them in order only if you say so. Nothing is generated or scraped: each command is fixed in AtlasMind's own source, none of it goes through a shell, and Rust's `curl … | sh` installer is deliberately not used. Separately, `/acp` used to do nothing useful in the AtlasMind chat panel — the panel doesn't handle slash commands, so it went to a model, and on a fresh machine that meant the built-in echo model replying "Answered from context." Setup guides are derived rather than generated, so they now render directly with no model involved, which is exactly what you need when nothing is set up yet.
 
@@ -202,6 +208,10 @@ Open Project Ideation to build a visual decision board, explore constraints and 
 
 Website Studio connects client intake, information architecture, design review, platform readiness, and delivery planning. See the [Website Studio guide](docs/website-studio.md).
 
+### Follow a professional GitHub workflow — and learn it
+
+Project Dashboard → **Workflow** is the guided eight-stage workflow: issue intake, branch naming, development, pull requests, CI, release, maintenance, and the automation layer above them. Every stage and step carries a **?** explaining why it exists, how to do it, and what people usually get wrong — so it works as a teaching surface for someone learning professional practice, not only as a checklist for someone who already knows it. It adapts to the testing protocols your project has enabled, and charts delivery health alongside the guidance. See the [workflow specification](docs/guided-github-workflow.md).
+
 ### Keep the project organised
 
 Project Dashboard brings roadmap, issues, documents, delivery stages, privacy, risk, stakeholders, assignments, and follow-ups into one operational surface.
@@ -333,6 +343,7 @@ Start with [Architecture](docs/architecture.md), [Development](docs/development.
 
 - [Getting Started](wiki/Getting-Started.md)
 - [Architecture](docs/architecture.md)
+- [The Guided GitHub Workflow](docs/guided-github-workflow.md)
 - [Agents & Skills](docs/agents-and-skills.md)
 - [Model Routing](docs/model-routing.md)
 - [Configuration Reference](docs/configuration.md)

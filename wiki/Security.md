@@ -22,7 +22,7 @@ AtlasMind is designed with a **safety-first** principle: the extension defaults 
 ### 2. File System Sandbox
 
 
-> **Note:** The `project_memory/` folder is only present in development and feature branches. It is excluded from the `main` branch and all release builds. This is enforced by `.gitignore` and documented in the contribution guidelines.
+> **Note:** The `project_memory/` folder is **tracked in git and is present on `main`** — only `sessions/`, `temp/`, `project-run-*.json`, and `.delivery-lock.json` are gitignored. What keeps it out of published Marketplace packages is `.vscodeignore`, not `.gitignore`.
 
 **Managed-block writers.** The outbound testing-protocol sync (`src/utils/testingProtocolSync.ts`) and the framework scaffolder (`src/core/testingScaffolder.ts`) are strictly non-destructive. The protocol sync only writes to instruction files that *already exist*, only ever replaces its own delimited block (`<!-- atlasmind:testing-protocols:start -->` … `:end -->`) while preserving all surrounding content, skips JSON-config files (which cannot host a markdown block), and routes every path through the shared `isSafeRelativePath` / `resolveRelativePath` traversal guard. The scaffolder creates starter files only when absent (never overwriting), never mutates `package.json`, and is modal-confirmed before running.
 

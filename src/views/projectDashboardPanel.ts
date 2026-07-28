@@ -21,6 +21,32 @@ import {
   type IssueRecord,
   type IssueSummary,
 } from '../core/issueTracker.js';
+import {
+  buildWorkflowCurriculum,
+  glossaryEntry,
+  nextWorkflowStep,
+  referencedGlossaryKeys,
+  summarizeWorkflowProgress,
+  type WorkflowObservedState,
+  type WorkflowProgress,
+  type WorkflowStageDefinition,
+  type WorkflowStageId,
+} from '../core/workflowCurriculum.js';
+import {
+  deriveBranchMetrics,
+  deriveCiMetrics,
+  deriveIssueMetrics,
+  deriveReleaseMetrics,
+  deriveWorkflowHealth,
+  known,
+  unknown,
+  type BranchMetrics,
+  type CiMetrics,
+  type HealthComponent,
+  type IssueMetrics,
+  type ReleaseMetrics,
+  type WorkflowHealth,
+} from '../core/workflowMetrics.js';
 import { DASHBOARD_THEME_CSS } from './dashboardTheme.js';
 import {
   MAX_ROADMAP_GATES,
@@ -305,7 +331,7 @@ interface DashboardStat {
  * so `createOrShow(..., 'ideation')` type-checked and rendered a blank dashboard.
  */
 const DASHBOARD_PAGE_IDS = [
-  'overview', 'score', 'gapAnalysis', 'roadmap', 'issues', 'director', 'runtime', 'repo', 'testing',
+  'overview', 'score', 'gapAnalysis', 'workflow', 'roadmap', 'issues', 'director', 'runtime', 'repo', 'testing',
   'security', 'privacy', 'risk', 'delivery', 'documents', 'ssot', 'ideation',
 ] as const;
 
@@ -686,6 +712,47 @@ interface DashboardIssuesSnapshot {
   busy: boolean;
 }
 
+/**
+ * The Workflow page's payload.
+ *
+ * Everything here is derived from data the dashboard already gathers — git
+ * state, package state, governance files, testing configuration, CI workflow
+ * files — so opening the page costs no network call. That is deliberate: `gh`
+ * is rate-limited, and a teaching surface that spent the user's quota to
+ * explain itself would be a poor trade.
+ *
+ * The curriculum and the metrics are computed in pure modules
+ * (`workflowCurriculum.ts`, `workflowMetrics.ts`) and simply carried through
+ * here, so the numbers on this page are unit-tested rather than eyeballed.
+ */
+interface DashboardGuidedWorkflowSnapshot {
+  stages: WorkflowStageDefinition[];
+  progress: WorkflowProgress;
+  /** The next actionable step, or absent when the workflow is complete. */
+  next?: { stageId: WorkflowStageId; stepId: string; stageName: string; stepTitle: string };
+  /** Only the glossary entries this curriculum actually references. */
+  glossary: Array<{ key: string; term: string; definition: string }>;
+  profile: 'solo' | 'studio' | 'custom';
+  /** Deny-by-default: false until the user turns the workflow on. */
+  enabled: boolean;
+  automationLevel: string;
+  /**
+   * The capability gates, and where each currently stands.
+   *
+   * Surfaced rather than merely honoured, because the page teaches the ladder:
+   * somebody learning why "full automation is possible, never default" is true
+   * needs to see the four independent switches, not just be told they exist.
+   */
+  capabilities: Array<{ id: string; label: string; enabled: boolean; detail: string }>;
+  issues?: IssueMetrics;
+  branches: BranchMetrics;
+  ci: CiMetrics;
+  release: ReleaseMetrics;
+  health: WorkflowHealth;
+  /** Commits per day over the standard window, for the activity chart. */
+  commitSeries: DashboardSeriesPoint[];
+}
+
 interface DashboardRoadmapSnapshot {
   filePath: string;
   items: DashboardRoadmapItem[];
@@ -999,6 +1066,7 @@ interface DashboardSnapshot {
     delta: SsotDelta;
   };
   roadmap: DashboardRoadmapSnapshot;
+  guidedWorkflow: DashboardGuidedWorkflowSnapshot;
   issues: DashboardIssuesSnapshot;
   security: {
     toolApprovalMode: string;
@@ -3575,6 +3643,195 @@ export function normalizeDashboardPromptRequest(payload: unknown): { prompt: str
   };
 }
 
+/**
+ * Assemble the Workflow page from state the dashboard already holds.
+ *
+ * No network call, no file read: every input is something a sibling collector
+ * gathered for another page. The page therefore costs nothing to open, which is
+ * what lets it be the first thing somebody looks at.
+ *
+ * The honesty rules from `workflowMetrics.ts` carry through unchanged — an
+ * unmeasured component is omitted from the health score rather than counted as
+ * zero, and a repository with no CI reports "no checks" rather than "0% passing".
+ */
+function buildGuidedWorkflowSnapshot(input: {
+  configuration: vscode.WorkspaceConfiguration;
+  gitSnapshot: GitSnapshot;
+  packageVersion: string;
+  ciWorkflowCount: number;
+  testing: TestingDashboardSnapshot;
+  issues: DashboardIssuesSnapshot;
+  changelogPresent: boolean;
+  prTemplatePresent: boolean;
+  codeownersPresent: boolean;
+  issueTemplateCount: number;
+  commitSeries: DashboardSeriesPoint[];
+}): DashboardGuidedWorkflowSnapshot {
+  const now = Date.now();
+  const profile = normalizeWorkflowProfile(input.configuration.get<string>('workflow.profile', 'solo'));
+  const enabled = input.configuration.get<boolean>('workflow.enabled', false);
+  const automationLevel = input.configuration.get<string>('workflow.maxAutomationLevel', 'observe');
+
+  const enabledMethodologies = (input.testing.projectTestingConfig?.methodologies ?? [])
+    .filter(entry => entry.enabled)
+    .map(entry => entry.id);
+
+  const branches = deriveBranchMetrics(
+    input.gitSnapshot.branches.map(branch => ({ name: branch.name, lastCommitAt: branch.lastCommitAt })),
+    now,
+  );
+
+  // Issues come from a network call the user may never have triggered. An
+  // un-loaded tracker is *absent*, not empty — reporting "0 open issues" for a
+  // list nobody fetched would be a confident lie.
+  const issueMetrics = input.issues.status === 'ready'
+    ? deriveIssueMetrics(
+      input.issues.issues.map(issue => ({
+        number: issue.number,
+        state: issue.state,
+        labels: issue.labels,
+        assignees: issue.assignees,
+        createdAt: issue.createdAt,
+        updatedAt: issue.updatedAt,
+      })),
+      now,
+    )
+    : undefined;
+
+  // Phase 1 has no check-run fetch on the render path, so CI reports honestly
+  // that it has not looked rather than implying a green build.
+  const ci = deriveCiMetrics([]);
+
+  const release = deriveReleaseMetrics({
+    version: input.packageVersion,
+    changelogVersions: input.changelogPresent ? [input.packageVersion] : [],
+    commitsSinceTag: 0,
+    commitSubjects: input.gitSnapshot.commits.map(commit => commit.subject),
+  });
+
+  const observed: WorkflowObservedState = {
+    ...(input.issues.repoSlug === undefined ? {} : { repoSlug: input.issues.repoSlug }),
+    ...(input.issues.status === 'no-cli' ? { ghInstalled: false } : {}),
+    ...(input.issues.status === 'not-authenticated' ? { ghInstalled: true, ghAuthenticated: false } : {}),
+    ...(input.issues.status === 'ready' ? { ghInstalled: true, ghAuthenticated: true } : {}),
+    ...(issueMetrics === undefined ? {} : {
+      openIssueCount: issueMetrics.open,
+      unassignedIssueCount: issueMetrics.unassigned,
+      staleIssueCount: issueMetrics.stale,
+    }),
+    hasIssueTemplates: input.issueTemplateCount > 0,
+    declaredLabelCount: issueMetrics ? issueMetrics.byLabel.length : 0,
+    currentBranch: input.gitSnapshot.currentBranch,
+    integrationBranch: 'develop',
+    protectedBranches: ['main'],
+    workingTreeClean: !input.gitSnapshot.dirty,
+    nonConformingBranchCount: branches.nonConforming.length,
+    enabledTestingMethodologyIds: enabledMethodologies,
+    hasTestFiles: input.testing.totalFiles > 0,
+    hasPullRequestTemplate: input.prTemplatePresent,
+    hasCodeOwners: input.codeownersPresent,
+    ciWorkflowCount: input.ciWorkflowCount,
+    ciStatus: 'none',
+    // The report's *presence* is the signal — there is no "found" flag, because
+    // a report that could not be read is indistinguishable from one that does
+    // not exist, and both mean "no verdict".
+    hasTestReport: input.testing.policyCoverage?.report !== undefined,
+    currentVersion: input.packageVersion,
+    hasChangelog: input.changelogPresent,
+    changelogHasCurrentVersion: release.changelogCurrent,
+    commitsSinceLastTag: release.commitsSinceTag,
+    hasDebtRegister: false,
+    workflowConfigPresent: false,
+    workflowEnabled: enabled,
+    profile,
+  };
+
+  const stages = buildWorkflowCurriculum(observed);
+  const progress = summarizeWorkflowProgress(stages);
+  const next = nextWorkflowStep(stages);
+
+  // Only the parts that could actually be measured contribute. `governance` is
+  // always measurable because it reads local files; the rest may be absent, and
+  // absent is reported rather than scored.
+  const components: HealthComponent[] = [
+    {
+      key: 'setup',
+      label: 'Workflow setup',
+      score: progress.total > 0 ? known(Math.round((progress.done / progress.total) * 100)) : unknown('No steps evaluated.'),
+      weight: 3,
+    },
+    { key: 'branches', label: 'Branch naming', score: branches.conformanceRate, weight: 1 },
+    { key: 'commits', label: 'Commit conventions', score: release.conformance.rate, weight: 2 },
+    { key: 'ci', label: 'CI pass rate', score: ci.passRate, weight: 2 },
+    {
+      key: 'issues',
+      label: 'Issue hygiene',
+      score: issueMetrics === undefined
+        ? unknown('Issues have not been loaded.', 'Open the Issues tab to fetch them.')
+        : issueMetrics.open === 0
+          ? unknown('No open issues to assess.')
+          : known(Math.round(((issueMetrics.open - issueMetrics.stale) / issueMetrics.open) * 100)),
+      weight: 1,
+    },
+  ];
+
+  return {
+    stages,
+    progress,
+    ...(next === undefined ? {} : {
+      next: {
+        stageId: next.stage.id,
+        stepId: next.step.id,
+        stageName: next.stage.name,
+        stepTitle: next.step.title,
+      },
+    }),
+    glossary: referencedGlossaryKeys(stages).flatMap(key => {
+      const entry = glossaryEntry(key);
+      return entry ? [{ key, term: entry.term, definition: entry.definition }] : [];
+    }),
+    profile,
+    enabled,
+    automationLevel,
+    capabilities: [
+      {
+        id: 'atlasmind.workflow.allowIssueWrites',
+        label: 'Issue writes',
+        enabled: input.configuration.get<boolean>('workflow.allowIssueWrites', false),
+        detail: 'Create, comment on, edit, close or reopen issues. Every write still confirms first.',
+      },
+      {
+        id: 'atlasmind.workflow.allowPullRequestWrites',
+        label: 'Pull request writes',
+        enabled: input.configuration.get<boolean>('workflow.allowPullRequestWrites', false),
+        detail: 'Open pull requests, post reviews, merge. Every write still confirms first.',
+      },
+      {
+        id: 'atlasmind.workflow.allowReleaseWrites',
+        label: 'Release writes',
+        enabled: input.configuration.get<boolean>('workflow.allowReleaseWrites', false),
+        detail: 'Bump the version and write the changelog entry. Tagging and publishing stay human-triggered.',
+      },
+      {
+        id: 'atlasmind.workflow.allowProtectedRefWrites',
+        label: 'Protected branch writes',
+        enabled: input.configuration.get<boolean>('workflow.allowProtectedRefWrites', false),
+        detail: 'A hard ceiling. With this off, unattended automation is unreachable for any stage whose base is protected.',
+      },
+    ],
+    ...(issueMetrics === undefined ? {} : { issues: issueMetrics }),
+    branches,
+    ci,
+    release,
+    health: deriveWorkflowHealth(components),
+    commitSeries: input.commitSeries,
+  };
+}
+
+function normalizeWorkflowProfile(value: string | undefined): 'solo' | 'studio' | 'custom' {
+  return value === 'studio' || value === 'custom' ? value : 'solo';
+}
+
 async function collectDashboardSnapshot(
   atlas: AtlasMindContext,
   ideationAttachments: TaskImageAttachment[] = [],
@@ -3857,6 +4114,19 @@ async function collectDashboardSnapshot(
       delta: ssotDelta,
     },
     roadmap: roadmapSnapshot,
+    guidedWorkflow: buildGuidedWorkflowSnapshot({
+      configuration,
+      gitSnapshot,
+      packageVersion: packageSnapshot.version,
+      ciWorkflowCount: workflowSnapshot.length,
+      testing: testingSnapshot,
+      issues,
+      changelogPresent,
+      prTemplatePresent,
+      codeownersPresent,
+      issueTemplateCount,
+      commitSeries: buildDailySeries(gitSnapshot.commitDates, SERIES_DAY_RANGE),
+    }),
     issues,
     security: {
       toolApprovalMode,
@@ -8907,6 +9177,125 @@ const DASHBOARD_CSS = `
   .risk-coverage[open] > summary::before { transform: rotate(90deg); }
   .risk-coverage > summary:hover { color: var(--vscode-foreground); }
   .risk-coverage .stat-detail { margin: 4px 0 0; }
+
+  /* ── Workflow help affordance ─────────────────────────────────────────
+     The "?" that opens the why/how for a step.
+
+     A real <button>, not a <span> with a title attribute, for three reasons: a
+     native tooltip is unreachable by keyboard, truncated by the OS, and cannot
+     hold a paragraph — and this content is the point of the page rather than a
+     hint about it. Being a button also means it inherits the shared
+     :focus-visible ring instead of needing its own. */
+  .wf-help-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    margin-left: 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--dash-accent-strong);
+    background: transparent;
+    border: 1px solid color-mix(in srgb, var(--dash-accent-strong) 55%, var(--dash-border));
+    cursor: pointer;
+    vertical-align: middle;
+    transition: background var(--dash-dur-fast) var(--dash-ease), color var(--dash-dur-fast) var(--dash-ease);
+  }
+
+  .wf-help-toggle:hover,
+  .wf-help-toggle[aria-expanded="true"] {
+    background: color-mix(in srgb, var(--dash-accent-strong) 18%, transparent);
+    color: var(--vscode-foreground);
+  }
+
+  /* The expanded panel. Indented and rule-marked so a long explanation reads as
+     an aside rather than as the next section of the page. */
+  .wf-help-panel {
+    margin: 8px 0 4px 0;
+    padding: 10px 14px;
+    border-left: 2px solid color-mix(in srgb, var(--dash-accent-strong) 45%, var(--dash-border));
+    background: color-mix(in srgb, var(--dash-accent-strong) 6%, transparent);
+    border-radius: 0 var(--dash-radius) var(--dash-radius) 0;
+  }
+
+  .wf-help-panel h5 {
+    margin: 0 0 4px;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--dash-muted);
+  }
+
+  .wf-help-panel h5:not(:first-child) { margin-top: 12px; }
+  .wf-help-panel p { margin: 0 0 6px; font-size: 12px; line-height: 1.6; max-width: 78ch; }
+  .wf-help-panel ol,
+  .wf-help-panel ul { margin: 0; padding-left: 18px; font-size: 12px; line-height: 1.6; max-width: 78ch; }
+  .wf-help-panel li { margin-bottom: 4px; }
+  .wf-help-panel code {
+    font-family: var(--dash-mono);
+    font-size: 11px;
+    padding: 1px 4px;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--dash-border) 45%, transparent);
+  }
+
+  /* Mistakes are visually distinct from the how-to. Somebody skimming for "what
+     goes wrong" should be able to find it without reading the steps. */
+  .wf-help-mistakes { border-left-color: color-mix(in srgb, var(--dash-warn) 55%, var(--dash-border)); }
+  .wf-help-mistakes li { color: color-mix(in srgb, var(--dash-warn) 75%, var(--dash-body)); }
+
+  .wf-stage {
+    border: 1px solid var(--dash-border);
+    border-radius: var(--dash-radius);
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    background: var(--dash-panel);
+  }
+
+  .wf-stage-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .wf-stage-head h4 { margin: 0; font-size: 14px; }
+  .wf-stage-ordinal {
+    font-family: var(--dash-mono);
+    font-size: 11px;
+    color: var(--dash-muted);
+    min-width: 18px;
+  }
+
+  .wf-step {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 6px 0;
+    border-top: 1px solid color-mix(in srgb, var(--dash-border) 55%, transparent);
+  }
+
+  .wf-step:first-of-type { border-top: none; }
+  .wf-step-mark { font-size: 12px; line-height: 1.6; }
+  .wf-step-body { flex: 1; min-width: 0; }
+  .wf-step-title { font-size: 13px; font-weight: 600; }
+  .wf-step-detail { font-size: 12px; color: var(--dash-muted); margin-top: 2px; line-height: 1.5; }
+
+  .wf-proficiency {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--dash-muted);
+    border: 1px solid var(--dash-border);
+    border-radius: 999px;
+    padding: 0 6px;
+  }
+
+  /* A metric with no verdict. Deliberately quiet rather than alarming: "not
+     measured" is not a failure, and styling it like one would train people to
+     ignore the styling. */
+  .wf-unknown { color: var(--dash-muted); font-style: italic; }
+
+  .wf-glossary dt { font-size: 12px; font-weight: 600; margin-top: 8px; }
+  .wf-glossary dd { font-size: 12px; color: var(--dash-muted); margin: 2px 0 0; line-height: 1.6; max-width: 78ch; }
 
   /* ── Release strip ────────────────────────────────────────────────────
      One tick per recorded promotion, oldest left. Turns "read eight rows" into

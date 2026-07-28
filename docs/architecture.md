@@ -291,6 +291,38 @@ The repository's issue tracker, read into the Project Dashboard → **Issues** p
 
 **Reads on demand; writes behind a confirmation.** The list comes from a rate-limited network call, so it is fetched when the user asks and cached on the panel — never refreshed as part of an unrelated render. Creating, commenting, closing, and reopening are outward-facing and usually public, so each is gated on a `{ modal: true }` confirmation built by `describeIssueAction` from the same values that will be sent; the webview supplies data only, never a command or an argument list, and `gh` is executed directly rather than through a shell. Failure modes are reported as themselves with the command that fixes them (`gh` missing, not authenticated, no GitHub repo) — "no issues" and "we could not look" are different facts, and collapsing them would report a clean tracker that nobody checked.
 
+### WorkflowCurriculum (`src/core/workflowCurriculum.ts`)
+
+The eight-stage guided GitHub workflow as *teachable data*, backing the Project Dashboard → **Workflow** page. `docs/guided-github-workflow.md` is the normative specification; this module is its machine-readable form and the source of every word the page shows.
+
+**Derived, never model-generated.** A hallucinated workflow step is worse than no step at all, because somebody would follow it. Status comes from observed repository state — a file exists, a command answered, a count is what it is — and the prose is written in source and reviewed like code.
+
+**The teaching payload is a first-class field.** `WorkflowStep` extends `SetupStep` with required `why` and `how`, plus optional `commonMistakes` and `glossary` references. That shape exists because the audience includes somebody learning professional practice for the first time, and a step that says only *what* to do has not done its job. `commonMistakes` is separate from `how` because recognising the failure is a different skill from following the happy path.
+
+**Built on the setup-walkthrough model rather than beside it.** `setupWalkthrough.ts` already had status, progress counting and next-step selection, pure and tested, and had no webview consumer — only chat. Reusing it is what stops the chat guidance and the dashboard guidance drifting apart, which is the same failure the specification exists to fix. The `isOpeningAction` allowlist carries over: a guide opens surfaces, it never flips the switches it exists to explain.
+
+**Absent evidence is never "done".** `statusFrom` reports `todo` for undetermined evidence rather than `done` — "not known" and "not done" are different, and only one is the user's problem. `deriveStageStatus` and `summarizeWorkflowProgress` exclude `optional` steps, so a stage is not unfinished because somebody declined something they were told was a choice; an empty curriculum reports **unfinished**, never finished.
+
+### WorkflowMetrics (`src/core/workflowMetrics.ts`)
+
+Every statistic on the Workflow page, derived purely so each is testable against fixtures rather than inspected by eye in a webview. No I/O, no `vscode`, and no clock — `now` is always a parameter, so a windowed metric is reproducible in a test.
+
+**`MetricVerdict` does most of the work.** A metric is either *known* or it is not, and "not known" carries a reason and often the command that would produce the data. This exists because the most damaging thing a delivery dashboard can do is render a confident zero for something it never measured: a test suite that did not run is not one that passed, and a repository with no merged pull requests has no median review latency — displaying "0 hours" would be a lie that looks like an achievement. Making absence a *type* means a renderer cannot forget to handle it.
+
+Consequences that follow from that one decision: `median` refuses below `MIN_SAMPLES_FOR_MEDIAN` (3) so one data point is never reported as a project characteristic; `percentage` has no verdict on a zero denominator; `deriveCiMetrics` on an empty check list reports `none` with a fix hint rather than 0% passing; and `deriveWorkflowHealth` **omits** unmeasured components and redistributes their weight, returning the omissions by name so a score of 80 cannot read as "80% of everything is fine".
+
+Output shapes match the dashboard's existing render primitives — series for `renderChartCard`, slices for `renderDonutChart`, segments for `renderDistributionBar` — so the instrumentation wall is assembled from components that already exist. `deriveBranchMetrics` exempts integration and release branches from naming conformance, because a permanent unfixable gap teaches people to ignore gaps; `deriveCommitConformance` excludes platform-generated merge commits, which would otherwise penalise a team for using squash merges.
+
+### GhClient (`src/core/ghClient.ts`)
+
+The single boundary between AtlasMind and the GitHub CLI. Before it there were three independent `gh` call sites — one in the dashboard panel, one in the bootstrapper, and one that built a command *string* for later shell execution — and three call sites means three answers to "is this argument escaped?", only one of which needs to be wrong.
+
+**No shell, ever.** Every call is `execFile(cmd, args)` with an argv array, so a repository name, an issue title, or a branch name may contain a semicolon or a backtick without becoming a second command. `assertNoShellMetacharacters` sits on top of that and can never fire in correct code — which is the point: it converts a future refactor that reintroduces string composition from a silent vulnerability into a loud failure at the call site.
+
+**AtlasMind holds no credential.** It shells to an already-authenticated `gh`, so the user's GitHub authorisation is managed by GitHub's own tooling, lives in the OS keychain, and is revocable there. There is no token setting and adding one would move a secret AtlasMind does not need into a place it does not belong.
+
+**A failure names its fix.** `classifyGhFailure` distinguishes not-installed, not-authenticated, rate-limited, forbidden, not-found and timeout, each with the command that resolves it — ordered most-specific first, because a rate-limit message mentions tokens and sending somebody to re-authenticate when they are merely throttled wastes their time. Every method returns a result rather than throwing: a dashboard that throws on a network failure disappears exactly when you wanted it to say what was wrong. The process runner is injected, so the module is unit-tested without a `gh` binary.
+
 ### RoadmapGates (`src/core/roadmapGates.ts`)
 
 The release milestones a roadmap item can be tagged for. The Roadmap page only ever knew one — `#mvp` — which is the right first gate and the wrong only gate: a project that has shipped its MVP still needs to say "this belongs to the public beta" or "this is v2", and had nowhere to record it. `mvp` stays built in (always present, never removable, still the gate that feeds the Operational Score), and up to `MAX_ROADMAP_GATES` (12) further gates can be declared.
