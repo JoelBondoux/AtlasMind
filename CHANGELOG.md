@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.177.1] - 2026-07-28
+
+### Security
+- **`@modelcontextprotocol/sdk` 1.29.0 → 1.30.0** (Dependabot #143).
+
+### Changed
+- **`eslint` 10.7.0 → 10.8.0** and **`@types/node` 26.1.1 → 26.1.2** (Dependabot #142).
+- **TypeScript deliberately held at `^6.0.3`.** The same Dependabot group proposed `^7.0.2`, which was not taken: `@typescript-eslint/parser@8.65.0` declares `typescript: ">=4.8.4 <6.1.0"`, so 7.x falls outside its supported range and breaks linting. Verified against the installed parser rather than assumed. The bump becomes safe once typescript-eslint publishes a release that peers on 7.x.
+- Lockfile regenerated so the installed tree matches: typescript 6.0.3, eslint 10.8.0, @types/node 26.1.2, @modelcontextprotocol/sdk 1.30.0. Compile, lint, and all 2427 tests pass against it, and `npm audit` reports no vulnerabilities.
+
 ## [0.177.0] - 2026-07-28
 
 ### Fixed

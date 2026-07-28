@@ -6,6 +6,17 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.177.1 — dependency updates
+
+- **`@modelcontextprotocol/sdk` 1.29.0 → 1.30.0** (security), plus `eslint` 10.8.0 and `@types/node` 26.1.2.
+- **TypeScript stays on 6.x.** The same update group proposed 7.0.2; `@typescript-eslint/parser@8.65.0` peers on `typescript >=4.8.4 <6.1.0`, so 7.x breaks linting. Revisit when typescript-eslint supports it.
+
+## v0.177.0 — an ACP row can no longer claim a route the router will not take
+
+- **The Models sidebar was ticking a Claude subscription green on installs where no agent was configured.** It read a seeded placeholder model rather than your settings, and ignored whether the provider was switched on. It now reflects all four conditions routing actually requires, and names whichever one is missing.
+- **Enabling ACP from "Use my Claude subscription" did not stick** — it was written to memory only, and the next refresh undid it.
+- **Setup guides open in a new chat session**, auto-submitted, via a single `atlasmind.openSetupGuide` command, instead of dropping an unsent `/acp` into whatever conversation happened to be open.
+
 ## v0.176.0 — the subscription can act, one approval at a time
 
 - **ACP agents can now run their own tools** (`atlasmind.acp.toolsEnabled`, off by default). The agent does the work in its own process; AtlasMind decides whether each operation may proceed. Delegated execution is never delegated authorization.
