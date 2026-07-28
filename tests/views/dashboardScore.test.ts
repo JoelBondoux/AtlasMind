@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildScoreBreakdown } from '../../src/views/projectDashboardPanel.ts';
+import { buildContributorSeries, buildScoreBreakdown } from '../../src/views/projectDashboardPanel.ts';
 
 type ScoreInput = Parameters<typeof buildScoreBreakdown>[0];
 
@@ -252,5 +252,73 @@ describe('buildScoreBreakdown — normalisation invariant', () => {
       risk: { ...makeInput().risk, assessed: true, score: 0 },
     }));
     expect(normalize(breakdown.components)).toBe(0);
+  });
+});
+
+describe('buildContributorSeries', () => {
+  const day = (offset: number): string => {
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    date.setDate(date.getDate() - offset);
+    return date.toISOString().slice(0, 10);
+  };
+
+  it('ranks contributors by commit count and builds a series each', () => {
+    const result = buildContributorSeries([
+      { date: day(0), author: 'Ada' },
+      { date: day(1), author: 'Ada' },
+      { date: day(1), author: 'Grace' },
+    ], 7);
+    expect(result.contributors.map(c => c.name)).toEqual(['Ada', 'Grace']);
+    expect(result.contributors[0]!.total).toBe(2);
+    expect(result.contributors[0]!.series).toHaveLength(7);
+    expect(result.totalCommits).toBe(3);
+    expect(result.otherCount).toBe(0);
+  });
+
+  it('merges the long tail into one Others entry rather than dropping it', () => {
+    // A chart that silently omitted contributors would misreport who did the
+    // work, so the overflow keeps its commits and says how many people it is.
+    const entries = Array.from({ length: 12 }, (_, i) => ({ date: day(0), author: `Dev ${i}` }));
+    const result = buildContributorSeries(entries, 7, 3);
+    expect(result.contributors).toHaveLength(4);
+    expect(result.contributors[3]!.name).toBe('Others (9)');
+    expect(result.contributors[3]!.total).toBe(9);
+    expect(result.otherCount).toBe(9);
+    const charted = result.contributors.reduce((sum, entry) => sum + entry.total, 0);
+    expect(charted).toBe(result.totalCommits);
+  });
+
+  it('orders ties by name so slice colours are stable between renders', () => {
+    const result = buildContributorSeries([
+      { date: day(0), author: 'Zoe' },
+      { date: day(0), author: 'Ada' },
+    ], 7);
+    expect(result.contributors.map(c => c.name)).toEqual(['Ada', 'Zoe']);
+  });
+
+  it('labels a missing author rather than dropping the commit', () => {
+    const result = buildContributorSeries([{ date: day(0), author: '' }], 7);
+    expect(result.contributors[0]!.name).toBe('Unknown');
+    expect(result.totalCommits).toBe(1);
+  });
+
+  it('ignores entries with no usable date', () => {
+    const result = buildContributorSeries([
+      { date: '', author: 'Ada' },
+      { date: day(0), author: 'Ada' },
+    ], 7);
+    expect(result.totalCommits).toBe(1);
+  });
+
+  it('clamps a long author name', () => {
+    const result = buildContributorSeries([{ date: day(0), author: 'a'.repeat(200) }], 7);
+    expect(result.contributors[0]!.name.length).toBeLessThanOrEqual(60);
+  });
+
+  it('returns an empty-but-valid result for no commits', () => {
+    const result = buildContributorSeries([], 7);
+    expect(result.contributors).toEqual([]);
+    expect(result.totalCommits).toBe(0);
   });
 });

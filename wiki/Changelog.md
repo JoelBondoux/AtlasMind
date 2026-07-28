@@ -6,6 +6,40 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.169.0 — your issue tracker, inside the dashboard
+
+- **A new Issues tab** reads the repository's GitHub issues: open, unassigned, and gone-quiet counts, charts by label and assignee, and a searchable list.
+- **Deal with them in place**: comment, close, reopen, or open a new issue — each shown in full and confirmed before it is sent, because a tracker is public.
+- **"Work on it with Atlas"** hands the issue to chat as a report to check, explicitly not as instructions.
+
+## v0.168.0 — who did the work, and how far the release has to go
+
+- **Three charts on the Overview**: commits by contributor, route to the selected release gate, and outstanding objectives by gate — from git history and the roadmap you already keep.
+- **Click a contributor to filter the commit timeline** to that person; click again to clear. The filter only appears when there is more than one author.
+- **Author names only**, never addresses, and the long tail of one-commit authors is merged into "Others (n)" rather than dropped.
+
+## v0.167.0 — answer with one tap, everywhere
+
+- **Quick-reply pills reach the Ideation and Vision panels.** They were a Chat-panel-only affordance, which made them look like a property of that panel instead of of Atlas asking a question.
+- **Still pills only.** A question with no clean options gets the text box, not invented buttons — the same behaviour chat has always had.
+
+## v0.166.0 — the roadmap plans more than one release
+
+- **Release gates beyond MVP.** Declare a public beta, a v1.0, a v2 — and switch the "Road to…" card between them. Each gate gets its own progress, milestone track, best route, and plan-with-Atlas prompt, and an item can sit on more than one.
+- **Stored where the backlog is.** Gates are readable markdown in `improvement-plan.md`, so they diff and review like everything else in project memory.
+- **Removing a gate removes a label.** The tag comes off every item; no backlog item is deleted, and MVP cannot be removed.
+
+## v0.165.0 — what each testing policy has to show for itself
+
+- **A card per enabled policy** on the Testing tab: tested, tooling-only, or nothing found — plus case counts, skipped counts, failing tests, and a per-policy action to write or fix them.
+- **Practices are labelled, not flagged.** Exploratory, black-box, V-model and friends leave no files behind, so they are never counted as missing tests.
+- **No report means no verdict.** Failures are read only from a report your project wrote; with none, the page says so and shows the command to produce one instead of a "0 failing" nothing measured. It never runs your tests for you.
+
+## v0.164.0 — a shelf creates its folder
+
+- **Documents → add a shelf, get the folder.** Saving a shelf now creates the folder it names, so a filing system can be designed before the files exist. Shelves still pointing at a missing folder get a **Create folder** button.
+- **Create-only.** An existing folder is left alone, a file sitting at the shelf path is reported rather than touched, an unsafe path is refused, and every folder created is named in a notification.
+
 ## v0.160.1 — the buttons the guide kept promising
 
 - **"Press the button below" — there was no button.** The walkthrough's wording was written for VS Code chat, where buttons render, and shown in the AtlasMind panel, where nothing did. Each step's actions now appear as buttons there: open the relevant screen, set the agent key, or load a command into a terminal.

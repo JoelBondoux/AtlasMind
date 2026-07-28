@@ -3177,6 +3177,49 @@ export function detectResponseQuickReplies(responseText: string): {
   return { followupQuestion: question };
 }
 
+/**
+ * A webview-ready quick-reply payload for the surfaces outside the main Chat
+ * panel (the dashboard ideation chat, the Ideation panel, the Vision panel).
+ *
+ * Those panels don't consume `SessionTranscriptMetadata`, so they need the pills
+ * as their own message. Pills only — a bare detected question yields nothing,
+ * matching the Chat panel, where a question with no clean options gets the text
+ * input rather than invented buttons.
+ *
+ * Both fields are **model output**: the label is rendered and the prompt is
+ * *submitted on click*, so each is length-capped and control-stripped here, at
+ * the single point where they cross into a webview.
+ */
+export interface WebviewQuickReplyPayload {
+  question: string;
+  replies: Array<{ label: string; prompt: string }>;
+}
+
+const MAX_QUICK_REPLY_PILLS = 5;
+
+export function buildQuickReplyPayload(responseText: string | undefined): WebviewQuickReplyPayload | undefined {
+  if (typeof responseText !== 'string' || responseText.trim().length === 0) {
+    return undefined;
+  }
+  const detected = detectResponseQuickReplies(responseText);
+  if (!detected?.quickReplies?.length) {
+    return undefined;
+  }
+  const clampField = (value: unknown, max: number): string => (
+    typeof value === 'string'
+      ? value.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max)
+      : ''
+  );
+  const replies = detected.quickReplies
+    .slice(0, MAX_QUICK_REPLY_PILLS)
+    .map(reply => ({ label: clampField(reply.label, 60), prompt: clampField(reply.prompt, 400) }))
+    .filter(reply => reply.label.length > 0 && reply.prompt.length > 0);
+  if (replies.length === 0) {
+    return undefined;
+  }
+  return { question: clampField(detected.followupQuestion, 300), replies };
+}
+
 export function buildAssistantResponseMetadata(
   prompt: string,
   result: Pick<TaskResult, 'agentId' | 'modelUsed' | 'costUsd' | 'inputTokens' | 'outputTokens' | 'artifacts' | 'contextCompressionSavingsUsd' | 'iterationLimitHit' | 'suggestedIterationLimit' | 'suggestedToolCallsPerTurnLimit'>,

@@ -138,6 +138,44 @@ export function getWebviewHtmlShell(options: WebviewShellOptions): string {
 </html>`;
 }
 
+/**
+ * Quick-reply pill styling, shared by every surface that can ask a question.
+ *
+ * One-tap answers were a Chat-panel-only affordance, which made them read as a
+ * property of that panel rather than of Atlas asking a question. Defined once
+ * here so the Chat panel, the dashboard ideation chat, the Ideation panel, and
+ * the Vision panel cannot drift into four slightly different pills.
+ */
+export const QUICK_REPLY_CSS = `
+        /* Quick-reply pill buttons — immediate-submit, no Proceed step required */
+        .quick-reply-buttons {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          flex-wrap: wrap;
+          margin-right: 6px;
+        }
+        .quick-reply-btn {
+          appearance: none;
+          border-radius: 999px;
+          padding: 4px 14px;
+          font-size: 0.75rem;
+          line-height: 1.35;
+          cursor: pointer;
+          font-weight: 600;
+          border: 1px solid color-mix(in srgb, var(--vscode-button-background) 70%, var(--vscode-widget-border, #444));
+          background: color-mix(in srgb, var(--vscode-button-background) 14%, transparent);
+          color: var(--vscode-foreground);
+          transition: background 100ms ease, border-color 100ms ease, transform 80ms ease;
+        }
+        .quick-reply-btn:hover {
+          background: color-mix(in srgb, var(--vscode-button-background) 28%, transparent);
+          border-color: var(--vscode-button-background);
+        }
+        .quick-reply-btn:active {
+          transform: scale(0.96);
+        }`;
+
 export function escapeHtml(text: string): string {
   return text
     .replace(/&/g, '&amp;')

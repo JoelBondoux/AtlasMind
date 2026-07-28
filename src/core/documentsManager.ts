@@ -18,7 +18,7 @@
 
 import * as path from 'node:path';
 import { readFileSync } from 'node:fs';
-import { writeFile, mkdir } from 'node:fs/promises';
+import { writeFile, mkdir, stat } from 'node:fs/promises';
 import type {
   DocumentsConfig,
   DocumentFilingEntry,
@@ -108,6 +108,86 @@ export async function writeDocumentsConfig(workspaceRoot: string, config: Docume
     writeFile(configPath, JSON.stringify(updated, null, 2), 'utf-8'),
     writeFile(summaryPath, renderDocumentsMarkdown(updated), 'utf-8'),
   ]);
+}
+
+// ── Shelf folders ────────────────────────────────────────────────
+
+export interface ShelfFolderResult {
+  /** Workspace-relative folders that were created by this call. */
+  created: string[];
+  /** Folders that were left alone, with the reason why. */
+  skipped: { path: string; reason: string }[];
+}
+
+/**
+ * Which shelf folders in `next` are new relative to `previous`.
+ *
+ * Compared by **path**, not id: re-pointing an existing shelf at a different
+ * folder is as much a new folder as adding a shelf is. Pure, so the caller
+ * decides whether anything touches disk.
+ */
+export function newShelfPaths(next: DocumentsConfig, previous: DocumentsConfig | undefined): string[] {
+  const before = new Set(
+    (previous?.filing ?? []).map(entry => normalizeRelPath(entry.path)).filter(Boolean),
+  );
+  const out: string[] = [];
+  for (const entry of next.filing) {
+    const rel = normalizeRelPath(entry.path);
+    if (rel && !before.has(rel) && !out.includes(rel)) {
+      out.push(rel);
+    }
+  }
+  return out;
+}
+
+/**
+ * Create the folders a set of shelves declares.
+ *
+ * Deliberately **create-only**: a shelf says where documents live, so declaring
+ * one should make that folder exist — but nothing here writes, moves, or
+ * replaces content. A path that is already a directory is a no-op; a path
+ * occupied by a *file* is reported as skipped rather than disturbed; a path that
+ * is not a safe workspace-relative path is refused. Paths are re-validated here
+ * (not trusted from the caller) and the resolved target is re-checked against
+ * the workspace root, since this is the point where an unsafe path would become
+ * a directory outside the project.
+ */
+export async function createShelfFolders(workspaceRoot: string, relPaths: string[]): Promise<ShelfFolderResult> {
+  const created: string[] = [];
+  const skipped: { path: string; reason: string }[] = [];
+  const root = path.resolve(workspaceRoot);
+
+  for (const raw of dedupe(relPaths).slice(0, MAX_ENTRIES)) {
+    const rel = normalizeRelPath(raw);
+    if (!rel) {
+      skipped.push({ path: clampStr(raw, MAX_PATH) || '(empty)', reason: 'not a safe workspace-relative path' });
+      continue;
+    }
+    const abs = path.resolve(root, rel);
+    // Defence in depth: normalizeRelPath already rejects traversal, but this is
+    // the boundary where a miss would create a directory outside the project.
+    if (abs !== root && !abs.startsWith(root + path.sep)) {
+      skipped.push({ path: rel, reason: 'resolves outside the workspace' });
+      continue;
+    }
+    try {
+      const info = await stat(abs);
+      if (!info.isDirectory()) {
+        skipped.push({ path: rel, reason: 'a file already exists at this path' });
+      }
+      continue; // Already a directory — nothing to do.
+    } catch {
+      // Does not exist yet — fall through and create it.
+    }
+    try {
+      await mkdir(abs, { recursive: true });
+      created.push(rel);
+    } catch (error) {
+      skipped.push({ path: rel, reason: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  return { created, skipped };
 }
 
 // ── Validation / sanitisation ────────────────────────────────────

@@ -3,6 +3,9 @@
   // Plain-language explainer surfaced as a tooltip on every "Mark MVP" control so
   // novice developers understand what tagging an item actually does.
   const MVP_HELP_TEXT = 'Mark MVP — MVP stands for Minimum Viable Product: the smallest set of features needed for a first usable release. Tagging an item adds it to the "Road to MVP" plan above and tells Atlas to prioritise it.';
+  // The same explanation, generalised: MVP is the built-in first gate, and a
+  // project past it needs somewhere to say "this belongs to the beta" instead.
+  const GATE_HELP_TEXT = 'Release gates are the milestones your backlog is working towards — MVP is the built-in first one, and you can add your own (a public beta, v1.0, v2). Tagging an item puts it on that release\'s path. An item can belong to more than one, and removing a gate never deletes any work.';
   const root = document.getElementById('dashboard-root');
   const refreshButton = document.getElementById('dashboard-refresh');
   const versionStrip = document.getElementById('dashboard-version-strip');
@@ -56,6 +59,7 @@
       label: 'The work',
       pages: [
         ['roadmap', 'Roadmap'],
+        ['issues', 'Issues'],
         ['director', 'Director'],
         ['runtime', 'Runtime'],
       ],
@@ -129,6 +133,16 @@
       runs: '',
       memory: '',
     },
+    /** Which release gate the Road-to card is showing. '' = the first (MVP). */
+    activeRoadmapGate: 'mvp',
+    /** '' = everyone; otherwise a git author name from the contributor chart. */
+    contributorFilter: '',
+    /** Issues page: 'open' | 'unassigned' | 'closed' | 'all'. */
+    issueFilter: 'open',
+    issueSearch: '',
+    issueDraftOpen: false,
+    /** Issue number whose comment box is open, or 0. */
+    issueCommentFor: 0,
     activeTestCategory: 'all',
     selectedTestId: '',
     testSearch: '',
@@ -350,6 +364,13 @@
       render();
       return;
     }
+    if (action === 'contributor-filter') {
+      // Clicking the active contributor clears the filter, so the ring and the
+      // segmented control are both a toggle rather than a one-way trip.
+      state.contributorFilter = state.contributorFilter === payload ? '' : (payload || '');
+      render();
+      return;
+    }
     if (action === 'test-category') {
       state.activeTestCategory = payload || 'all';
       render();
@@ -440,19 +461,112 @@
       return;
     }
     if (action === 'roadmap-delete') {
-      persistRoadmapItems(getRoadmapItems().filter(item => item.id !== payload));
+      persistRoadmapItems(roadmapItemsForSave().filter(item => item.id !== payload));
       return;
     }
     if (action === 'roadmap-toggle') {
-      persistRoadmapItems(getRoadmapItems().map(item => item.id === payload ? { ...item, completed: !item.completed } : item));
+      persistRoadmapItems(roadmapItemsForSave().map(item => item.id === payload ? { ...item, completed: !item.completed } : item));
+      return;
+    }
+    if (action === 'roadmap-gate-toggle') {
+      // payload is "<itemId>::<gateId>" — one control per gate per item.
+      const parts = String(payload || '').split('::');
+      if (parts.length === 2 && parts[0] && parts[1]) { toggleItemGate(parts[0], parts[1]); }
       return;
     }
     if (action === 'roadmap-mvp-toggle') {
-      persistRoadmapItems(getRoadmapItems().map(item => item.id === payload ? { ...item, isMvp: !item.isMvp } : item));
+      toggleItemGate(payload, 'mvp');
       return;
     }
     if (action === 'roadmap-mvp-add') {
-      persistRoadmapItems(getRoadmapItems().map(item => item.id === payload ? { ...item, isMvp: true } : item));
+      // "Add to <gate>" adds to whichever gate the card is currently showing.
+      const gate = activeRoadmapGate();
+      persistRoadmapItems(roadmapItemsForSave().map(item => item.id === payload && item.gates.indexOf(gate.id) < 0
+        ? { ...item, gates: [...item.gates, gate.id] }
+        : item));
+      return;
+    }
+    if (action === 'roadmap-gate-select') {
+      state.activeRoadmapGate = String(payload || 'mvp');
+      render();
+      return;
+    }
+    if (action === 'roadmap-gate-new') {
+      vscode.postMessage({ type: 'createRoadmapGate' });
+      return;
+    }
+    if (action === 'roadmap-gate-delete') {
+      vscode.postMessage({ type: 'deleteRoadmapGate', payload: payload });
+      return;
+    }
+    // ── Issues ────────────────────────────────────────────────────
+    // Reads are a plain message; every *write* posts data only and is confirmed
+    // extension-side, because it lands on a tracker other people can see.
+    if (action === 'issues-refresh') {
+      vscode.postMessage({ type: 'refreshIssues' });
+      return;
+    }
+    if (action === 'issues-filter') {
+      state.issueFilter = payload || 'open';
+      render();
+      return;
+    }
+    if (action === 'issues-work') {
+      vscode.postMessage({ type: 'workOnIssue', payload: payload });
+      return;
+    }
+    if (action === 'issues-new') {
+      state.issueDraftOpen = true;
+      render();
+      return;
+    }
+    if (action === 'issues-new-cancel') {
+      state.issueDraftOpen = false;
+      render();
+      return;
+    }
+    if (action === 'issues-create') {
+      const root = document.getElementById('issue-composer');
+      const read = field => {
+        const el = root ? root.querySelector('[data-issue-field="' + field + '"]') : null;
+        return el ? String(el.value || '').trim() : '';
+      };
+      const title = read('title');
+      if (!title) { return; }
+      state.issueDraftOpen = false;
+      vscode.postMessage({
+        type: 'createIssue',
+        payload: {
+          title: title,
+          body: read('body'),
+          labels: read('labels').split(',').map(label => label.trim()).filter(Boolean),
+        },
+      });
+      render();
+      return;
+    }
+    if (action === 'issues-comment') {
+      const number = Number(payload) || 0;
+      state.issueCommentFor = state.issueCommentFor === number ? 0 : number;
+      render();
+      return;
+    }
+    if (action === 'issues-comment-send') {
+      const editor = document.getElementById('issue-comment-editor');
+      const field = editor ? editor.querySelector('[data-issue-field="comment"]') : null;
+      const body = field ? String(field.value || '').trim() : '';
+      if (!body) { return; }
+      state.issueCommentFor = 0;
+      vscode.postMessage({ type: 'commentIssue', payload: { number: Number(payload) || 0, body: body } });
+      render();
+      return;
+    }
+    if (action === 'issues-close') {
+      vscode.postMessage({ type: 'closeIssue', payload: { number: Number(payload) || 0 } });
+      return;
+    }
+    if (action === 'issues-reopen') {
+      vscode.postMessage({ type: 'reopenIssue', payload: { number: Number(payload) || 0 } });
       return;
     }
     if (action === 'documents-seed') {
@@ -490,6 +604,10 @@
     }
     if (action === 'documents-save-filing') {
       saveDocFilingDraft();
+      return;
+    }
+    if (action === 'documents-create-folder') {
+      vscode.postMessage({ type: 'createShelfFolder', payload: payload });
       return;
     }
     if (action === 'documents-save-auto') {
@@ -976,6 +1094,10 @@
       state.testSearch = target.value;
       render();
     }
+    if (target instanceof HTMLInputElement && target.id === 'issue-search-input') {
+      state.issueSearch = target.value;
+      render();
+    }
     if (target instanceof HTMLInputElement && target.id === 'privacy-rule-value') {
       state.privacyDraftRule.value = target.value;
       return;
@@ -1269,7 +1391,7 @@
     // --- Preserve focus and cursor position for test search and roadmap textarea ---
     let activeId = null, cursorPos = null, isTextarea = false;
     const active = document.activeElement;
-    if (active && (active.id === 'test-search-input' || (active instanceof HTMLTextAreaElement && active.hasAttribute('data-roadmap-draft')))) {
+    if (active && (active.id === 'test-search-input' || active.id === 'issue-search-input' || (active instanceof HTMLTextAreaElement && active.hasAttribute('data-roadmap-draft')))) {
       activeId = active.id || (active.hasAttribute('data-roadmap-draft') ? 'roadmap-draft' : null);
       isTextarea = active instanceof HTMLTextAreaElement;
       if (typeof active.selectionStart === 'number') {
@@ -1327,6 +1449,7 @@
         ${renderScore(snapshot)}
         ${renderGapAnalysis(snapshot)}
         ${renderRoadmap(snapshot)}
+        ${renderIssues(snapshot)}
         ${renderDirector(snapshot)}
         ${renderRuntime(snapshot)}
         ${renderRepo(snapshot)}
@@ -1343,8 +1466,8 @@
       // --- Restore focus and cursor position if needed ---
       if (activeId) {
         let el = null;
-        if (activeId === 'test-search-input') {
-          el = document.getElementById('test-search-input');
+        if (activeId === 'test-search-input' || activeId === 'issue-search-input') {
+          el = document.getElementById(activeId);
         } else if (activeId === 'roadmap-draft') {
           el = document.querySelector('textarea[data-roadmap-draft]');
         }
@@ -1420,6 +1543,16 @@
     if (snapshot.risk && snapshot.risk.openCount > 0) {
       set('risk', snapshot.risk.openCount, 'warn',
         `${snapshot.risk.openCount} open risk finding${snapshot.risk.openCount === 1 ? '' : 's'}`);
+    }
+
+    // Only once the tracker has actually been read: a badge derived from an
+    // unloaded list would report a quiet tracker nobody looked at.
+    const issues = snapshot.issues;
+    if (issues && issues.status === 'ready' && issues.summary) {
+      set('issues', issues.summary.openCount, issues.summary.staleCount > 0 ? 'warn' : 'accent',
+        `${issues.summary.openCount} open issue${issues.summary.openCount === 1 ? '' : 's'}`
+        + (issues.summary.unassignedCount > 0 ? `, ${issues.summary.unassignedCount} unassigned` : '')
+        + (issues.summary.staleCount > 0 ? `, ${issues.summary.staleCount} stale` : ''));
     }
 
     if (snapshot.director && snapshot.director.overdueCount > 0) {
@@ -1550,19 +1683,141 @@
         pageTarget: 'gapAnalysis',
       });
     }
+    const contributors = Array.isArray(snapshot.charts.contributors) ? snapshot.charts.contributors : [];
+    const activeContributor = contributors.find(entry => entry.name === state.contributorFilter);
+    // The commit chart follows the contributor filter; the other two timelines
+    // are not per-person data, so filtering them would be a lie.
+    const commitSeries = activeContributor ? activeContributor.series : snapshot.charts.commits;
+    const commitTitle = activeContributor ? `Commit Activity — ${activeContributor.name}` : 'Commit Activity';
+
     return `
       ${pageSectionOpen('overview')}
         <div class="stats-grid">
           ${stats.map(stat => renderStatCard(stat)).join('')}
         </div>
         ${renderChartRange('Activity over time')}
+        ${renderContributorFilter(contributors)}
         <div class="chart-grid">
-          ${renderChartCard('commits', 'Commit Activity', 'Recent git commit velocity across the selected time window.', snapshot.charts.commits, 'overview')}
+          ${renderChartCard('commits', commitTitle, activeContributor
+            ? `Commits by ${activeContributor.name} across the selected time window.`
+            : 'Recent git commit velocity across the selected time window.', commitSeries, 'overview')}
           ${renderChartCard('runs', 'Run Activity', 'Autonomous run updates recorded in Project Run History.', snapshot.charts.runs, 'overview')}
           ${renderChartCard('memory', 'SSOT Activity', 'Indexed memory update cadence across the current SSOT root.', snapshot.charts.memory, 'overview')}
         </div>
+        ${renderWorkMixCharts(snapshot, contributors)}
         ${renderOverviewNextActions(snapshot)}
       </section>
+    `;
+  }
+
+  // Contributor filter. Rendered only when more than one person shows up in the
+  // window — a solo project gets no control it cannot use.
+  function renderContributorFilter(contributors) {
+    if (contributors.length < 2) {
+      return '';
+    }
+    return `
+      <div class="chart-range chart-range--filter">
+        <div>
+          <p class="section-kicker">Filter by contributor</p>
+          <div class="stat-detail">Scopes the commit timeline and highlights that person's share of the work.</div>
+        </div>
+        <div class="segmented" role="group" aria-label="Contributor filter">
+          <button type="button" data-action="contributor-filter" data-payload="" class="${state.contributorFilter ? '' : 'active'}" aria-pressed="${state.contributorFilter ? 'false' : 'true'}">Everyone</button>
+          ${contributors.map(entry => `<button type="button" data-action="contributor-filter" data-payload="${escapeAttr(entry.name)}" class="${state.contributorFilter === entry.name ? 'active' : ''}" aria-pressed="${state.contributorFilter === entry.name ? 'true' : 'false'}" title="${escapeAttr(`${entry.name}: ${entry.total} commit${entry.total === 1 ? '' : 's'}`)}">${escapeHtml(entry.name)}</button>`).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Who did the work, and how far the releases are from done.
+   *
+   * All three charts read data the dashboard already has (git authorship and the
+   * roadmap's release gates), so nothing here costs a model call or a new scan.
+   */
+  function renderWorkMixCharts(snapshot, contributors) {
+    const roadmap = snapshot.roadmap || { items: [], gates: [] };
+    const items = Array.isArray(roadmap.items) ? roadmap.items : [];
+    const gates = Array.isArray(roadmap.gates) ? roadmap.gates : [];
+    const outstanding = items.filter(item => !item.completed);
+    const untagged = outstanding.filter(item => !Array.isArray(item.gates) || item.gates.length === 0).length;
+
+    const contributorSlices = contributors.map((entry, index) => ({
+      label: entry.name,
+      value: entry.total,
+      tone: SLICE_TONES[index % SLICE_TONES.length],
+      active: state.contributorFilter === entry.name,
+      action: 'contributor-filter',
+      payload: entry.name,
+      title: `Filter the commit timeline to ${entry.name}`,
+    }));
+
+    // Route to the release the Roadmap card is currently showing, so the two
+    // surfaces agree about which gate is under discussion.
+    const selectedGate = gates.find(gate => gate.id === state.activeRoadmapGate) || gates[0];
+    const gateRemaining = selectedGate ? Math.max(0, selectedGate.totalCount - selectedGate.completedCount) : 0;
+
+    const objectiveSlices = gates.map((gate, index) => ({
+      label: gate.label,
+      value: items.filter(item => !item.completed && Array.isArray(item.gates) && item.gates.indexOf(gate.id) >= 0).length,
+      tone: SLICE_TONES[index % SLICE_TONES.length],
+    }));
+    if (untagged > 0) {
+      objectiveSlices.push({ label: 'Untagged', value: untagged, tone: 'muted' });
+    }
+
+    return `
+      <div class="chart-grid chart-grid--mix">
+        <article class="chart-card">
+          <div class="chart-head">
+            <div>
+              <p class="chart-kicker">Who did the work</p>
+              <h3>Commits by contributor</h3>
+              <div class="stat-detail">Last ${escapeHtml(String(Math.max(state.timescale, (snapshot.charts.commits || []).length)))} days of git history. Click a name to filter the timeline above.</div>
+            </div>
+          </div>
+          ${renderDonutChart('contributors', contributorSlices, {
+            centerValue: formatNumber(snapshot.charts.contributorTotal || 0),
+            centerLabel: 'commits',
+            emptyLabel: 'No commits in this window.',
+          })}
+        </article>
+        <article class="chart-card">
+          <div class="chart-head">
+            <div>
+              <p class="chart-kicker">Route to release</p>
+              <h3>${escapeHtml(selectedGate ? `Road to ${selectedGate.label}` : 'Road to MVP')}</h3>
+              <div class="stat-detail">Milestones tagged for this release, complete versus remaining.</div>
+            </div>
+          </div>
+          ${renderDonutChart('gate-progress', [
+            { label: 'Complete', value: selectedGate ? selectedGate.completedCount : 0, tone: 'good' },
+            { label: 'Remaining', value: gateRemaining, tone: 'warn' },
+          ], {
+            centerValue: `${selectedGate ? selectedGate.progressPercent : 0}%`,
+            centerLabel: 'done',
+            emptyLabel: 'Nothing is tagged for this release yet.',
+          })}
+          <div class="tag-row">
+            <button type="button" class="action-link" data-action="page" data-payload="roadmap">Open the roadmap</button>
+          </div>
+        </article>
+        <article class="chart-card">
+          <div class="chart-head">
+            <div>
+              <p class="chart-kicker">Outstanding objectives</p>
+              <h3>Backlog by release gate</h3>
+              <div class="stat-detail">${escapeHtml(`${outstanding.length} outstanding item${outstanding.length === 1 ? '' : 's'}${untagged > 0 ? `, ${untagged} not on any release` : ''}.`)}</div>
+            </div>
+          </div>
+          ${renderDistributionBar('overview-objectives', objectiveSlices, {
+            title: 'Outstanding by gate',
+            caption: `${outstanding.length} open`,
+            emptyLabel: 'Nothing outstanding in the backlog.',
+          })}
+        </article>
+      </div>
     `;
   }
 
@@ -2030,6 +2285,9 @@
             { label: `${testing.totalFiles} files`, tone: testing.totalFiles > 0 ? 'good' : 'warn' },
             { label: testing.verificationEnabled ? 'Verification on' : 'Verification off', tone: testing.verificationEnabled ? 'good' : 'warn' },
             { label: testing.coveragePercent ? `Coverage ${testing.coveragePercent}` : 'No coverage report', tone: testing.coveragePercent ? 'good' : 'accent' },
+            // Failing/gap chips only when there is something to say: an
+            // absent report is reported as unknown, never as a pass.
+            ...(policyChips(testing)),
           ],
           action: { command: 'atlasmind.openSettingsTesting' },
           actionLabel: 'Testing settings',
@@ -2163,8 +2421,146 @@
           </article>
         </div>
 
+        ${renderPolicyCoverage(testing)}
+
         ${renderMethodologyStrategy(testing)}
       </section>
+    `;
+  }
+
+  function policyChips(testing) {
+    const coverage = testing.policyCoverage;
+    if (!coverage || !Array.isArray(coverage.rows) || coverage.rows.length === 0) {
+      return [];
+    }
+    const chips = [];
+    if (coverage.report) {
+      chips.push(coverage.report.failed > 0
+        ? { label: `${coverage.report.failed} failing`, tone: 'critical' }
+        : { label: 'Last report clean', tone: 'good' });
+    } else {
+      chips.push({ label: 'No test report', tone: 'warn' });
+    }
+    const gaps = coverage.toolingOnlyCount + coverage.missingCount;
+    if (gaps > 0) {
+      chips.push({ label: `${gaps} polic${gaps === 1 ? 'y' : 'ies'} untested`, tone: 'warn' });
+    }
+    if (coverage.totalSkipped > 0) {
+      chips.push({ label: `${coverage.totalSkipped} skipped`, tone: 'warn' });
+    }
+    return chips;
+  }
+
+  // ── Per-policy coverage board ────────────────────────────────────
+  // Answers, for every policy the project switched on: is anything testing it,
+  // and is any of it failing? Deliberately distinguishes "no tests" from "no
+  // report to read" — a panel that renders 0 failures when nothing ran is worse
+  // than one that admits it has no verdict.
+  function renderPolicyCoverage(testing) {
+    const coverage = testing.policyCoverage;
+    if (!coverage || !Array.isArray(coverage.rows)) {
+      return '';
+    }
+    const rows = coverage.rows;
+    const report = coverage.report;
+    const failingRows = rows.filter(row => row.failedCount > 0);
+    const gapRows = rows.filter(row => row.status === 'missing' || row.status === 'tooling-only');
+
+    const reportLine = report
+      ? `
+        <div class="policy-report-line">
+          <span class="tag ${report.failed > 0 ? 'tag-critical' : 'tag-good'}">${report.failed > 0 ? escapeHtml(`${report.failed} failing`) : 'All passing'}</span>
+          <span class="list-meta">${escapeHtml(`${report.tests} test${report.tests === 1 ? '' : 's'} across ${report.suites} suite${report.suites === 1 ? '' : 's'}${report.skipped > 0 ? `, ${report.skipped} skipped` : ''}`)}</span>
+          <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(report.relativePath)}">${escapeHtml(report.relativePath)}</button>
+          ${report.stale ? `<span class="tag tag-warn" title="${escapeAttr(report.staleDetail || '')}">May be out of date</span>` : ''}
+        </div>`
+      : `
+        <div class="policy-report-line">
+          <span class="tag tag-warn">No test report</span>
+          <span class="list-meta">Pass/fail cannot be shown until a run writes one. This is not a clean result — it is no result.</span>
+        </div>
+        <div class="policy-report-line"><code>${escapeHtml(coverage.reportHint)}</code></div>`;
+
+    const cards = rows.map(row => {
+      const tone = row.failedCount > 0 ? 'tag-critical'
+        : row.status === 'covered' ? 'tag-good'
+        : row.status === 'tooling-only' ? 'tag-warn'
+        : row.status === 'missing' ? 'tag-critical'
+        : '';
+      const counts = [];
+      if (row.status !== 'not-file-evident') {
+        counts.push(`${row.fileCount} file${row.fileCount === 1 ? '' : 's'}`);
+        if (row.caseCount > 0) { counts.push(`${row.caseCount} case${row.caseCount === 1 ? '' : 's'}`); }
+        if (row.skippedCount > 0) { counts.push(`${row.skippedCount} skipped`); }
+        if (row.failedCount > 0) { counts.push(`${row.failedCount} failing`); }
+      }
+      return `
+        <div class="policy-card status-${escapeAttr(row.status)}${row.failedCount > 0 ? ' has-failures' : ''}">
+          <div class="policy-card-head">
+            <strong>${escapeHtml(row.label)}</strong>
+            <span class="tag ${tone}">${escapeHtml(row.failedCount > 0 ? `${row.failedCount} failing` : row.statusLabel)}</span>
+          </div>
+          ${counts.length > 0 ? `<div class="policy-card-signals">${escapeHtml(counts.join(' · '))}</div>` : ''}
+          <div class="policy-card-detail">${escapeHtml(row.detail)}</div>
+          ${(row.toolingSignals || []).length > 0 ? `<div class="policy-card-signals">Tooling: ${escapeHtml(row.toolingSignals.join(', '))}</div>` : ''}
+          <div class="tag-row">
+            ${row.exampleFile ? `<button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(row.exampleFile)}">Open a test</button>` : ''}
+            <button type="button" class="action-link${row.status === 'missing' || row.failedCount > 0 ? ' primary' : ''}" data-action="prompt" data-payload="${escapeAttr(row.actionPrompt)}">${escapeHtml(row.failedCount > 0 ? 'Fix with Atlas' : row.status === 'covered' ? 'Review with Atlas' : 'Write tests with Atlas')}</button>
+          </div>
+        </div>`;
+    }).join('');
+
+    const failureItems = [
+      ...failingRows.flatMap(row => (row.failures || []).map(failure => ({ ...failure, policy: row.label }))),
+      ...(coverage.unattributedFailures || []).map(failure => ({ ...failure, policy: 'Unattributed' })),
+    ].slice(0, 25);
+
+    return `
+      <article class="panel-card" style="margin-top:16px">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap">
+          <div>
+            <p class="section-kicker">Policy coverage</p>
+            <h3>What each enabled policy has to show</h3>
+          </div>
+          <span class="tag ${gapRows.length > 0 || failingRows.length > 0 ? 'tag-warn' : 'tag-good'}">${escapeHtml(`${coverage.coveredCount}/${coverage.activeCount} with tests`)}</span>
+        </div>
+        <div class="stat-detail">${escapeHtml(coverage.summary)}</div>
+        ${reportLine}
+        <div class="panel-grid" style="margin-top:12px">
+          ${renderDistributionBar('policy-coverage', [
+            { label: 'Tested', value: coverage.coveredCount, tone: 'good' },
+            { label: 'Tooling only', value: coverage.toolingOnlyCount, tone: 'warn' },
+            { label: 'Nothing found', value: coverage.missingCount, tone: 'critical' },
+            { label: 'Practice (not file-evident)', value: coverage.practiceCount, tone: 'muted' },
+          ], {
+            title: 'Enabled policies by evidence',
+            caption: `${coverage.activeCount} enabled`,
+            emptyLabel: 'No testing policies are enabled yet.',
+          })}
+          <div class="mini-grid">
+            ${renderMetricPill('Failing tests', report ? String(report.failed) : 'Unknown', { tone: report ? (report.failed > 0 ? 'critical' : 'good') : 'warn' })}
+            ${renderMetricPill('Skipped in tree', String(coverage.totalSkipped || 0), { tone: (coverage.totalSkipped || 0) > 0 ? 'warn' : 'good' })}
+            ${renderMetricPill('Policies with no tests', String(gapRows.length), { tone: gapRows.length > 0 ? 'warn' : 'good' })}
+          </div>
+        </div>
+        <div class="policy-grid">${cards || '<div class="dashboard-empty">Enable the policies this project follows to see what each has to show for itself.</div>'}</div>
+        ${failureItems.length > 0 ? `
+          <p class="section-kicker" style="margin-top:16px">Failing tests in the last report</p>
+          <div class="policy-failure-list">
+            ${failureItems.map(failure => `
+              <div class="recent-item">
+                <div class="row-head">
+                  <strong>${escapeHtml(failure.name)}</strong>
+                  <span class="tag-group">
+                    <span class="tag tag-critical">${escapeHtml(failure.kind === 'error' ? 'error' : 'failed')}</span>
+                    <span class="tag">${escapeHtml(failure.policy)}</span>
+                  </span>
+                </div>
+                ${failure.suite ? `<div class="list-meta">${escapeHtml(failure.suite)}</div>` : ''}
+                ${failure.file ? `<div class="tag-row"><button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(failure.file)}">${escapeHtml(failure.file)}</button></div>` : ''}
+              </div>`).join('')}
+          </div>` : ''}
+      </article>
     `;
   }
 
@@ -2384,6 +2780,177 @@
     `;
   }
 
+  // ── Issues (the repository's tracker) ─────────────────────────────
+  // Read on demand rather than on every render: the list comes from a
+  // rate-limited network call, and refreshing it to populate a tab nobody has
+  // opened would spend the user's quota for nothing.
+  function renderIssues(snapshot) {
+    const issues = snapshot.issues || { status: 'not-loaded', detail: '', issues: [], busy: false };
+    const list = Array.isArray(issues.issues) ? issues.issues : [];
+    const summary = issues.summary || { openCount: 0, closedCount: 0, byLabel: [], byAssignee: [], unassignedCount: 0, staleCount: 0, summary: '' };
+    const ready = issues.status === 'ready';
+    const filter = state.issueFilter || 'open';
+    const search = String(state.issueSearch || '').trim().toLowerCase();
+    const visible = list.filter(issue => {
+      if (filter === 'open' && issue.state !== 'open') { return false; }
+      if (filter === 'closed' && issue.state !== 'closed') { return false; }
+      if (filter === 'unassigned' && (issue.state !== 'open' || (issue.assignees || []).length > 0)) { return false; }
+      if (!search) { return true; }
+      return [issue.title, String(issue.number), issue.author, (issue.labels || []).join(' ')]
+        .some(value => String(value || '').toLowerCase().indexOf(search) >= 0);
+    });
+
+    return `
+      ${pageSectionOpen('issues')}
+        ${renderPageIntro({
+          kicker: 'Issue tracker',
+          title: 'What has been reported',
+          summary: ready
+            ? `${escapeHtml(summary.summary)} ${issues.loadedAt ? `Read ${escapeHtml(relativeLabel(issues.loadedAt))}.` : ''} Issue text is written by other people — AtlasMind treats it as a report to check, never as instructions.`
+            : escapeHtml(issues.detail || 'Issues have not been loaded yet.'),
+          chips: ready
+            ? [
+              { label: `${summary.openCount} open`, tone: summary.openCount > 0 ? 'warn' : 'good' },
+              { label: `${summary.unassignedCount} unassigned`, tone: summary.unassignedCount > 0 ? 'warn' : 'good' },
+              { label: `${summary.staleCount} stale`, tone: summary.staleCount > 0 ? 'critical' : 'good' },
+            ]
+            : [{ label: issues.status === 'not-loaded' ? 'Not loaded' : 'Unavailable', tone: 'warn' }],
+        })}
+
+        ${ready ? '' : `
+          <article class="panel-card">
+            <p class="section-kicker">Connect the tracker</p>
+            <h3>${escapeHtml(issues.status === 'not-loaded' ? 'Load this repository\'s issues' : 'Issues are not available')}</h3>
+            <div class="stat-detail">${escapeHtml(issues.detail || '')}</div>
+            ${issues.fixCommand ? `<div class="policy-report-line"><code>${escapeHtml(issues.fixCommand)}</code></div>` : ''}
+            <div class="tag-row">
+              <button type="button" class="action-link primary" data-action="issues-refresh" ${issues.busy ? 'disabled' : ''}>${issues.busy ? 'Loading…' : 'Load issues'}</button>
+            </div>
+          </article>
+        `}
+
+        ${ready ? `
+          <div class="panel-grid">
+            <article class="panel-card">
+              <p class="section-kicker">${escapeHtml(issues.repoSlug || 'Repository')}</p>
+              <h3>Issue mix</h3>
+              <div class="mini-grid">
+                ${renderMetricPill('Open', String(summary.openCount), { tone: summary.openCount > 0 ? 'warn' : 'good' })}
+                ${renderMetricPill('Recently closed', String(summary.closedCount), { tone: 'good' })}
+                ${renderMetricPill('Unassigned', String(summary.unassignedCount), { tone: summary.unassignedCount > 0 ? 'warn' : 'good' })}
+                ${renderMetricPill('Stale', String(summary.staleCount), { tone: summary.staleCount > 0 ? 'critical' : 'good' })}
+              </div>
+              ${renderDistributionBar('issue-labels', (summary.byLabel || []).map((entry, index) => ({
+                label: entry.label,
+                value: entry.count,
+                tone: SLICE_TONES[index % SLICE_TONES.length],
+              })), {
+                title: 'Open issues by label',
+                caption: `${summary.openCount} open`,
+                emptyLabel: 'No labels on the open issues.',
+              })}
+              <div class="tag-row">
+                <button type="button" class="action-link" data-action="issues-refresh" ${issues.busy ? 'disabled' : ''}>${issues.busy ? 'Refreshing…' : 'Refresh'}</button>
+                <button type="button" class="action-link" data-action="issues-new">New issue</button>
+              </div>
+            </article>
+            <article class="panel-card">
+              <p class="section-kicker">Who is carrying it</p>
+              <h3>Open issues by assignee</h3>
+              ${renderDonutChart('issue-assignees', [
+                ...(summary.byAssignee || []).map((entry, index) => ({
+                  label: entry.name,
+                  value: entry.count,
+                  tone: SLICE_TONES[index % SLICE_TONES.length],
+                })),
+                ...(summary.unassignedCount > 0 ? [{ label: 'Unassigned', value: summary.unassignedCount, tone: 'muted' }] : []),
+              ], {
+                centerValue: String(summary.openCount),
+                centerLabel: 'open',
+                emptyLabel: 'Nothing open to assign.',
+              })}
+            </article>
+          </div>
+
+          ${state.issueDraftOpen ? renderIssueComposer() : ''}
+
+          <article class="list-card">
+            <div class="row-head">
+              <div>
+                <p class="section-kicker">Tracker</p>
+                <h3>${escapeHtml(`${visible.length} issue${visible.length === 1 ? '' : 's'}`)}</h3>
+              </div>
+              <div class="segmented" role="group" aria-label="Issue filter">
+                ${[['open', 'Open'], ['unassigned', 'Unassigned'], ['closed', 'Closed'], ['all', 'All']].map(pair =>
+                  `<button type="button" data-action="issues-filter" data-payload="${escapeAttr(pair[0])}" class="${filter === pair[0] ? 'active' : ''}" aria-pressed="${filter === pair[0] ? 'true' : 'false'}">${escapeHtml(pair[1])}</button>`).join('')}
+              </div>
+            </div>
+            <div class="ideation-chip-row">
+              <input id="issue-search-input" class="ideation-input" type="search" placeholder="Search by title, number, author, or label" value="${escapeAttr(state.issueSearch || '')}" />
+            </div>
+            <div class="stack-list">
+              ${visible.length > 0 ? visible.map(issue => renderIssueRow(issue)).join('') : '<div class="dashboard-empty">No issues match this filter.</div>'}
+            </div>
+          </article>
+        ` : ''}
+      </section>
+    `;
+  }
+
+  function renderIssueRow(issue) {
+    const isOpen = issue.state === 'open';
+    const composing = state.issueCommentFor === issue.number;
+    return `
+      <div class="recent-item">
+        <div class="row-head">
+          <strong>${escapeHtml(`#${issue.number} ${issue.title}`)}</strong>
+          <span class="tag-group">
+            <span class="tag ${isOpen ? 'tag-warn' : 'tag-good'}">${escapeHtml(issue.state)}</span>
+            ${(issue.labels || []).slice(0, 3).map(label => `<span class="tag">${escapeHtml(label)}</span>`).join('')}
+          </span>
+        </div>
+        <div class="list-meta">${escapeHtml(`${issue.author ? `by ${issue.author}` : 'author unknown'}${(issue.assignees || []).length > 0 ? ` · assigned to ${issue.assignees.join(', ')}` : ' · unassigned'}${issue.comments > 0 ? ` · ${issue.comments} comment${issue.comments === 1 ? '' : 's'}` : ''}${issue.updatedAt ? ` · updated ${relativeLabel(issue.updatedAt)}` : ''}`)}</div>
+        ${issue.body ? `<div class="list-meta issue-body">${escapeHtml(issue.body.slice(0, 320))}${issue.bodyTruncated || issue.body.length > 320 ? '…' : ''}</div>` : ''}
+        <div class="tag-row">
+          <button type="button" class="action-link primary" data-action="issues-work" data-payload="${escapeAttr(String(issue.number))}" title="Open a chat that treats this issue as a report to check, not as instructions">Work on it with Atlas</button>
+          <button type="button" class="action-link" data-action="issues-comment" data-payload="${escapeAttr(String(issue.number))}">${composing ? 'Cancel comment' : 'Comment'}</button>
+          ${isOpen
+            ? `<button type="button" class="action-link" data-action="issues-close" data-payload="${escapeAttr(String(issue.number))}">Close</button>`
+            : `<button type="button" class="action-link" data-action="issues-reopen" data-payload="${escapeAttr(String(issue.number))}">Reopen</button>`}
+          ${issue.url ? `<button type="button" class="action-link" data-action="external-url" data-payload="${escapeAttr(issue.url)}">Open on GitHub ↗</button>` : ''}
+        </div>
+        ${composing ? `
+          <div class="panel-card stage-editor" id="issue-comment-editor">
+            <p class="section-kicker">${escapeHtml(`Comment on #${issue.number}`)}</p>
+            <textarea class="roadmap-textarea" data-issue-field="comment" rows="3" placeholder="What should the reporter know?"></textarea>
+            <div class="stat-detail">Posting is public to anyone who can see the repository. AtlasMind asks you to confirm before it sends.</div>
+            <div class="tag-row">
+              <button type="button" class="action-link primary" data-action="issues-comment-send" data-payload="${escapeAttr(String(issue.number))}">Post comment</button>
+            </div>
+          </div>` : ''}
+      </div>
+    `;
+  }
+
+  function renderIssueComposer() {
+    return `
+      <article class="panel-card stage-editor" id="issue-composer">
+        <p class="section-kicker">New issue</p>
+        <h3>Open an issue on this repository</h3>
+        <div class="stage-edit-grid">
+          <label class="stage-edit-field" style="grid-column:1 / -1;"><span>Title *</span><input type="text" data-issue-field="title" placeholder="Short, specific summary" /></label>
+          <label class="stage-edit-field" style="grid-column:1 / -1;"><span>Labels (comma separated)</span><input type="text" data-issue-field="labels" placeholder="bug, docs" /></label>
+        </div>
+        <textarea class="roadmap-textarea" data-issue-field="body" rows="5" placeholder="What happened, what you expected, and how to reproduce it."></textarea>
+        <div class="stat-detail">This posts to the repository's public tracker. AtlasMind shows you exactly what will be sent and asks you to confirm first.</div>
+        <div class="stage-edit-actions">
+          <button type="button" class="action-link primary" data-action="issues-create">Create issue</button>
+          <button type="button" class="action-link" data-action="issues-new-cancel">Cancel</button>
+        </div>
+      </article>
+    `;
+  }
+
   function renderRoadmap(snapshot) {
     const roadmap = snapshot.roadmap || { items: [], nextSuggestedWork: [], completedCount: 0, outstandingCount: 0, filePath: 'project_memory/roadmap/improvement-plan.md' };
     const roadmapDone = roadmap.items.length > 0
@@ -2457,22 +3024,34 @@
     if (state.editingRoadmapId === item.id) {
       return renderRoadmapEditor(item.id);
     }
-    const mvpTooltip = item.isMvp
-      ? 'Remove this item from the MVP path. MVP = Minimum Viable Product: the smallest set of work needed for a first usable release.'
-      : MVP_HELP_TEXT;
+    const gates = getRoadmapGates();
+    const itemGates = Array.isArray(item.gates) ? item.gates : (item.isMvp ? ['mvp'] : []);
+    // One chip per declared gate: with a single (MVP) gate this reads exactly as
+    // the old Mark-MVP button did, and it scales to a real release plan without
+    // a menu. Wording stays explicit about what a click does.
+    const gateChips = gates.map(gate => {
+      const on = itemGates.indexOf(gate.id) >= 0;
+      const tooltip = gate.id === 'mvp'
+        ? (on ? 'Remove this item from the MVP path. MVP = Minimum Viable Product: the smallest set of work needed for a first usable release.' : MVP_HELP_TEXT)
+        : (on ? `Remove this item from the ${gate.label} release.` : `Put this item on the ${gate.label} release.`);
+      return `<button type="button" class="gate-toggle${on ? ' is-on' : ''}" data-action="roadmap-gate-toggle" data-payload="${escapeAttr(`${item.id}::${gate.id}`)}" title="${escapeAttr(tooltip)}" aria-pressed="${on ? 'true' : 'false'}">${escapeHtml(gate.label)}</button>`;
+    }).join('');
     return `
       <div class="recent-item roadmap-item ${item.isMvp ? 'is-mvp' : ''}" draggable="true" data-roadmap-id="${escapeAttr(item.id)}">
         <div class="row-head">
           <span class="drag-handle" title="Drag to reorder — position sets Atlas's default priority" aria-hidden="true">⠿</span>
           <strong>${escapeHtml(item.text)}</strong>
           <span class="tag-group">
-            ${item.isMvp ? '<span class="tag tag-mvp" title="This item is on your Minimum Viable Product path">MVP</span>' : ''}
+            ${gates.filter(gate => itemGates.indexOf(gate.id) >= 0).map(gate => `<span class="tag tag-mvp" title="${escapeAttr(`This item is on the ${gate.label} path`)}">${escapeHtml(gate.label)}</span>`).join('')}
             <span class="tag ${item.completed ? 'tag-good' : item.focus === 'security' ? 'tag-critical' : item.focus === 'architecture' ? 'tag-warn' : ''}">${escapeHtml(item.completed ? 'done' : item.focus)}</span>
           </span>
         </div>
         <div class="list-meta">${escapeHtml(item.priorityReason)}</div>
+        <div class="gate-toggle-row" role="group" aria-label="Release gates for this item">
+          <span class="gate-toggle-hint" title="${escapeAttr(GATE_HELP_TEXT)}">Release:</span>
+          ${gateChips}
+        </div>
         <div class="tag-row">
-          <button type="button" class="action-link" data-action="roadmap-mvp-toggle" data-payload="${escapeAttr(item.id)}" title="${escapeAttr(mvpTooltip)}">${item.isMvp ? 'Unmark MVP' : 'Mark MVP'}</button>
           <button type="button" class="action-link" data-action="roadmap-toggle" data-payload="${escapeAttr(item.id)}">${item.completed ? 'Mark active' : 'Mark done'}</button>
           <button type="button" class="action-link" data-action="roadmap-edit" data-payload="${escapeAttr(item.id)}">Edit</button>
           <button type="button" class="action-link" data-action="roadmap-delete" data-payload="${escapeAttr(item.id)}">Delete</button>
@@ -2481,8 +3060,33 @@
     `;
   }
 
+  // Release-gate selector. The MVP gate is the built-in one and always first;
+  // everything else is a user-declared release the backlog can be tagged for.
+  function renderGateSelector(roadmap) {
+    const gates = getRoadmapGates();
+    const active = activeRoadmapGate();
+    return `
+      <div class="gate-bar" role="tablist" aria-label="Release gates">
+        ${gates.map(gate => `
+          <button type="button" role="tab" aria-selected="${gate.id === active.id ? 'true' : 'false'}"
+            class="gate-chip${gate.id === active.id ? ' is-active' : ''}"
+            data-action="roadmap-gate-select" data-payload="${escapeAttr(gate.id)}"
+            title="${escapeAttr(`${gate.label}: ${gate.completedCount} of ${gate.totalCount} tagged items complete`)}">
+            <span class="gate-chip-label">${escapeHtml(gate.label)}</span>
+            <span class="gate-chip-count">${escapeHtml(`${gate.completedCount}/${gate.totalCount}`)}</span>
+          </button>`).join('')}
+        <button type="button" class="gate-chip gate-chip--add" data-action="roadmap-gate-new" title="Declare another release gate, e.g. a public beta or v2">+ New gate</button>
+        ${!active.builtIn ? `<button type="button" class="action-link danger" data-action="roadmap-gate-delete" data-payload="${escapeAttr(active.id)}" title="Remove this gate. No backlog item is deleted.">Remove ${escapeHtml(active.label)}</button>` : ''}
+      </div>
+    `;
+  }
+
   function renderMvpSection(roadmap) {
-    const mvp = roadmap.mvp || { route: [], candidates: [], totalCount: 0, completedCount: 0, progressPercent: 0, hasTaggedItems: false, summary: '', planPrompt: '' };
+    const active = activeRoadmapGate();
+    const routes = roadmap.gateRoutes && typeof roadmap.gateRoutes === 'object' ? roadmap.gateRoutes : {};
+    const mvp = routes[active.id] || roadmap.mvp || { route: [], candidates: [], totalCount: 0, completedCount: 0, progressPercent: 0, hasTaggedItems: false, summary: '', planPrompt: '' };
+    const isMvpGate = active.id === 'mvp';
+    const gateLabel = isMvpGate ? 'MVP' : active.label;
     const route = Array.isArray(mvp.route) ? mvp.route : [];
     const candidates = Array.isArray(mvp.candidates) ? mvp.candidates : [];
     const outstanding = route.filter(step => !step.completed);
@@ -2490,28 +3094,31 @@
     const nextStep = mvp.nextStep;
     const hasPath = mvp.totalCount > 0;
     return `
+      ${renderGateSelector(roadmap)}
       <div class="panel-grid mvp-grid">
         <article class="panel-card mvp-card">
-          <p class="section-kicker">Road to MVP</p>
-          <h3>Minimum viable product <span class="mvp-help" title="${escapeAttr(MVP_HELP_TEXT)}" aria-label="What is an MVP?">ⓘ</span></h3>
+          <p class="section-kicker">Road to ${escapeHtml(gateLabel)}</p>
+          <h3>${escapeHtml(isMvpGate ? 'Minimum viable product' : gateLabel)} ${isMvpGate ? `<span class="mvp-help" title="${escapeAttr(MVP_HELP_TEXT)}" aria-label="What is an MVP?">ⓘ</span>` : `<span class="mvp-help" title="${escapeAttr(GATE_HELP_TEXT)}" aria-label="What is a release gate?">ⓘ</span>`}</h3>
           <div class="stat-detail">${escapeHtml(mvp.summary || '')}</div>
           ${hasPath ? `
             <div class="mini-grid">
               ${renderMetricPill('On path', String(mvp.totalCount))}
               ${renderMetricPill('Completed', String(mvp.completedCount))}
               ${renderMetricPill('Remaining', String(remaining))}
-              ${renderMetricPill('To MVP', `${mvp.progressPercent}%`)}
+              ${renderMetricPill(`To ${gateLabel}`, `${mvp.progressPercent}%`)}
             </div>
-            <div class="mvp-progress" role="progressbar" aria-valuenow="${mvp.progressPercent}" aria-valuemin="0" aria-valuemax="100" aria-label="Progress to MVP">
-              <div class="mvp-progress-fill" data-anim-key="mvp-progress" data-anim-to="${Math.max(0, Math.min(100, mvp.progressPercent))}%" style="width:0%"></div>
+            <div class="mvp-progress" role="progressbar" aria-valuenow="${mvp.progressPercent}" aria-valuemin="0" aria-valuemax="100" aria-label="${escapeAttr(`Progress to ${gateLabel}`)}">
+              <div class="mvp-progress-fill" data-anim-key="mvp-progress-${escapeAttr(active.id)}" data-anim-to="${Math.max(0, Math.min(100, mvp.progressPercent))}%" style="width:0%"></div>
             </div>
             ${renderMvpTrack(route)}
             ${!mvp.hasTaggedItems ? '<div class="list-meta">These are suggested foundations. Use “Mark MVP” on a backlog item below to define your own MVP path.</div>' : ''}
           ` : `
-            <div class="dashboard-empty">No MVP path defined yet. Tag the backlog items that make up your minimum viable product with “Mark MVP”, or let Atlas suggest a route.</div>
+            <div class="dashboard-empty">${escapeHtml(isMvpGate
+              ? 'No MVP path defined yet. Tag the backlog items that make up your minimum viable product with “Mark MVP”, or let Atlas suggest a route.'
+              : `Nothing is tagged for ${gateLabel} yet. Use the ${gateLabel} chip on a backlog item below to put it on this release.`)}</div>
           `}
           <div class="tag-row">
-            <button type="button" class="action-link" data-action="prompt" data-payload="${escapeAttr(mvp.planPrompt || '')}">Plan the MVP route with Atlas</button>
+            <button type="button" class="action-link" data-action="prompt" data-payload="${escapeAttr(mvp.planPrompt || '')}">${escapeHtml(`Plan the ${gateLabel} route with Atlas`)}</button>
             <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(roadmap.filePath)}">Open roadmap file</button>
           </div>
         </article>
@@ -2523,7 +3130,7 @@
               <span class="mvp-next-kicker">Next step</span>
               <strong>${escapeHtml(nextStep.text)}</strong>
               <span class="list-meta">${escapeHtml(nextStep.rationale)}</span>
-            </div>` : (hasPath ? '<div class="list-meta">Every MVP milestone is complete — choose the next outcome to pursue.</div>' : '')}
+            </div>` : (hasPath ? `<div class="list-meta">${escapeHtml(`Every ${gateLabel} milestone is complete — choose the next outcome to pursue.`)}</div>` : '')}
           <div class="stack-list">
             ${outstanding.length > 0
               ? outstanding.map(step => `
@@ -2534,16 +3141,16 @@
                   </div>
                   <div class="list-meta">${escapeHtml(step.rationale)}</div>
                 </div>`).join('')
-              : (hasPath ? '' : '<div class="dashboard-empty">Once items are on the MVP path, the recommended route appears here.</div>')}
+              : (hasPath ? '' : `<div class="dashboard-empty">${escapeHtml(`Once items are on the ${gateLabel} path, the recommended route appears here.`)}</div>`)}
           </div>
           ${candidates.length > 0 ? `
-            <p class="section-kicker">Suggested for MVP</p>
+            <p class="section-kicker">${escapeHtml(`Suggested for ${gateLabel}`)}</p>
             <div class="stack-list">
               ${candidates.map(step => `
                 <div class="recent-item">
                   <div class="row-head">
                     <strong>${escapeHtml(step.text)}</strong>
-                    <button type="button" class="action-link" data-action="roadmap-mvp-add" data-payload="${escapeAttr(step.id)}">Add to MVP</button>
+                    <button type="button" class="action-link" data-action="roadmap-mvp-add" data-payload="${escapeAttr(step.id)}">${escapeHtml(`Add to ${gateLabel}`)}</button>
                   </div>
                   <div class="list-meta">${escapeHtml(step.rationale)}</div>
                 </div>`).join('')}
@@ -2602,7 +3209,7 @@
 
     const items = getRoadmapItems().map(item => ({ id: item.id, text: item.text, completed: !!item.completed, isMvp: !!item.isMvp }));
     if (state.editingRoadmapId === 'new') {
-      items.unshift({ id: createRoadmapItemId(text), text, completed: false, isMvp: false });
+      items.unshift({ id: createRoadmapItemId(text), text, completed: false, gates: [] });
     } else {
       const target = items.find(item => item.id === state.editingRoadmapId);
       if (target) {
@@ -2623,17 +3230,48 @@
           id: item.id || `roadmap-${index + 1}`,
           text: item.text,
           completed: !!item.completed,
-          isMvp: !!item.isMvp,
+          // Both are sent: `gates` is the truth, `isMvp` keeps the MVP path
+          // readable to anything still reading the original single flag.
+          gates: Array.isArray(item.gates) ? item.gates : (item.isMvp ? ['mvp'] : []),
+          isMvp: Array.isArray(item.gates) ? item.gates.indexOf('mvp') >= 0 : !!item.isMvp,
         })),
       },
     });
+  }
+
+  function roadmapItemsForSave() {
+    return getRoadmapItems().map(item => ({
+      id: item.id,
+      text: item.text,
+      completed: !!item.completed,
+      gates: Array.isArray(item.gates) ? item.gates.slice() : (item.isMvp ? ['mvp'] : []),
+    }));
+  }
+
+  function getRoadmapGates() {
+    const gates = state.snapshot && state.snapshot.roadmap ? state.snapshot.roadmap.gates : null;
+    return Array.isArray(gates) && gates.length > 0 ? gates : [{ id: 'mvp', label: 'MVP', order: 0, builtIn: true, totalCount: 0, completedCount: 0, progressPercent: 0 }];
+  }
+
+  function activeRoadmapGate() {
+    const gates = getRoadmapGates();
+    const selected = gates.find(gate => gate.id === state.activeRoadmapGate);
+    return selected || gates[0];
+  }
+
+  function toggleItemGate(itemId, gateId) {
+    persistRoadmapItems(roadmapItemsForSave().map(item => {
+      if (item.id !== itemId) { return item; }
+      const has = item.gates.indexOf(gateId) >= 0;
+      return { ...item, gates: has ? item.gates.filter(id => id !== gateId) : [...item.gates, gateId] };
+    }));
   }
 
   function moveRoadmapItem(sourceId, targetId) {
     if (!sourceId || !targetId || sourceId === targetId) {
       return;
     }
-    const items = getRoadmapItems().map(item => ({ id: item.id, text: item.text, completed: !!item.completed, isMvp: !!item.isMvp }));
+    const items = roadmapItemsForSave();
     const fromIndex = items.findIndex(item => item.id === sourceId);
     const toIndex = items.findIndex(item => item.id === targetId);
     if (fromIndex < 0 || toIndex < 0) {
@@ -3023,6 +3661,7 @@
         <div class="list-meta"><code>${escapeHtml(pathLabel)}</code></div>
         ${entry.description ? `<div class="list-meta">${escapeHtml(entry.description)}</div>` : ''}
         <div class="tag-row">
+          ${entry.exists ? '' : `<button type="button" class="action-link primary" data-action="documents-create-folder" data-payload="${escapeAttr(entry.path)}" title="Create this folder in the workspace">Create folder</button>`}
           <button type="button" class="action-link" data-action="documents-edit-filing" data-payload="${escapeAttr(entry.id)}">Edit</button>
           <button type="button" class="action-link danger" data-action="documents-delete-filing" data-payload="${escapeAttr(entry.id)}">Delete</button>
         </div>
@@ -3042,6 +3681,7 @@
           <label class="stage-edit-field"><span>Glob (optional)</span><input type="text" data-doc-field="pattern" value="${escapeAttr(e.pattern || '')}" placeholder="**/*.md" /></label>
           <label class="stage-edit-field" style="grid-column:1 / -1;"><span>Description</span><input type="text" data-doc-field="description" value="${escapeAttr(e.description || '')}" placeholder="What lives on this shelf" /></label>
         </div>
+        <div class="stat-detail">The folder is created for you if it doesn't exist yet. Existing files are never touched.</div>
         <div class="stage-edit-actions">
           <button type="button" class="action-link primary" data-action="documents-save-filing">Save shelf</button>
           <button type="button" class="action-link" data-action="documents-cancel">Cancel</button>
@@ -5019,6 +5659,68 @@
         <div class="segmented" role="group" aria-label="Chart range">
           ${[7, 30, 90].map(days => `<button type="button" data-action="timescale" data-payload="${days}" class="${state.timescale === days ? 'active' : ''}" aria-pressed="${state.timescale === days ? 'true' : 'false'}">${days}D</button>`).join('')}
         </div>
+      </div>
+    `;
+  }
+
+  // Fixed slice palette. Index-based rather than hashed from the label, so the
+  // same contributor keeps the same colour between renders and the legend and
+  // the ring can never disagree.
+  const SLICE_TONES = ['accent', 'good', 'warn', 'critical', 'muted'];
+
+  /**
+   * A donut chart drawn as SVG arcs — no chart library, and no canvas, so it
+   * inherits theme colours and stays readable at any zoom.
+   *
+   * Slices are clickable when given an action, which is what makes the
+   * contributor ring double as the Overview's filter control.
+   */
+  function renderDonutChart(id, slices, opts) {
+    const options = opts || {};
+    const usable = (slices || []).filter(slice => Number(slice.value) > 0);
+    const total = usable.reduce((sum, slice) => sum + Number(slice.value), 0);
+    if (total <= 0) {
+      return '<div class="dist-empty">' + escapeHtml(options.emptyLabel || 'Nothing to chart yet.') + '</div>';
+    }
+
+    const radius = 60;
+    const circumference = 2 * Math.PI * radius;
+    let offset = 0;
+    const rings = usable.map((slice, index) => {
+      const value = Number(slice.value);
+      const length = (value / total) * circumference;
+      const tone = slice.tone || SLICE_TONES[index % SLICE_TONES.length];
+      const dash = length + ' ' + (circumference - length);
+      const ring = '<circle class="donut-slice donut-' + escapeAttr(tone) + (slice.active ? ' is-active' : '') + '"'
+        + ' cx="80" cy="80" r="' + radius + '" fill="none" stroke-width="' + (slice.active ? 26 : 20) + '"'
+        + ' stroke-dasharray="' + dash + '" stroke-dashoffset="' + (-offset) + '"'
+        + ' data-anim-key="donut:' + escapeAttr(id) + ':' + escapeAttr(String(index)) + '"'
+        + '><title>' + escapeHtml(slice.label + ': ' + value + ' (' + Math.round((value / total) * 100) + '%)') + '</title></circle>';
+      offset += length;
+      return ring;
+    }).join('');
+
+    const legend = usable.map((slice, index) => {
+      const tone = slice.tone || SLICE_TONES[index % SLICE_TONES.length];
+      const percent = Math.round((Number(slice.value) / total) * 100);
+      const label = '<span class="dist-swatch dist-' + escapeAttr(tone) + '" aria-hidden="true"></span>'
+        + '<span class="dist-legend-label">' + escapeHtml(slice.label) + '</span>'
+        + '<strong>' + escapeHtml(formatNumber(slice.value)) + '</strong>'
+        + '<span class="donut-legend-percent">' + escapeHtml(String(percent)) + '%</span>';
+      return slice.action
+        ? '<button type="button" class="dist-legend-item is-actionable' + (slice.active ? ' is-active' : '') + '" data-action="' + escapeAttr(slice.action) + '" data-payload="' + escapeAttr(slice.payload || '') + '" title="' + escapeAttr(slice.title || ('Filter to ' + slice.label)) + '">' + label + '</button>'
+        : '<span class="dist-legend-item">' + label + '</span>';
+    }).join('');
+
+    return `
+      <div class="donut-block">
+        <svg class="donut-chart" viewBox="0 0 160 160" role="img" aria-label="${escapeAttr(usable.map(slice => slice.label + ': ' + slice.value).join(', '))}">
+          <circle class="donut-track" cx="80" cy="80" r="${radius}" fill="none" stroke-width="20"></circle>
+          <g transform="rotate(-90 80 80)">${rings}</g>
+          ${options.centerValue ? `<text class="donut-center-value" x="80" y="78" text-anchor="middle">${escapeHtml(String(options.centerValue))}</text>` : ''}
+          ${options.centerLabel ? `<text class="donut-center-label" x="80" y="96" text-anchor="middle">${escapeHtml(String(options.centerLabel))}</text>` : ''}
+        </svg>
+        <div class="dist-legend donut-legend">${legend}</div>
       </div>
     `;
   }

@@ -6,6 +6,74 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.169.0] - 2026-07-28
+
+### Added
+- **An Issues tab on the Project Dashboard, synced with GitHub.** A project's issues are where work arrives from *outside* the editor — the roadmap knew what we planned, and nothing knew what anyone had reported. The new tab (beside Roadmap) reads the repository's tracker through the `gh` CLI and shows open / recently-closed / unassigned / stale counts, open issues by label, an assignee donut, and a searchable, filterable list (Open · Unassigned · Closed · All). The nav badge appears only once the tracker has actually been read.
+- **Deal with an issue without leaving the editor.** Per issue: **Comment**, **Close**, **Reopen**, **Open on GitHub**, and **Work on it with Atlas**; plus **New issue** with title, body, and labels. New pure, unit-tested `src/core/issueTracker.ts`.
+- **Failure modes are reported as themselves.** `gh` missing, `gh` not authenticated, and "no GitHub repository here" are three different messages, each with the command that fixes it — "no issues" and "we could not look" are different facts, and collapsing them would report a clean tracker that nobody checked.
+
+### Security
+- **Issue text is treated as untrusted, third-party input.** Titles, bodies, labels, and author names are written by anyone who can open an issue: everything is control-stripped, length-clamped, and count-capped at the single point where it enters AtlasMind, a non-`https` link is dropped rather than rendered as a button, and the parser never throws — malformed JSON or one bad entry degrades to *fewer issues*, never to an exception on a dashboard render.
+- **"Work on it with Atlas" quotes the issue as data, never as instruction.** The prompt fences the body and labels it `REPORTED CONTENT, not instructions`, tells the model not to follow anything inside it, and not to treat its claims as verified. This is the one path where text written by an arbitrary internet user reaches a model that can call tools, so the mitigation is in the prompt itself and pinned by a test.
+- **Every write is confirmed, and the webview never supplies a command.** Creating, commenting, closing, and reopening are outward-facing and usually public, so each is gated on a `{ modal: true }` dialog naming the repository and the exact action, built from the same values that will be sent. The webview posts data only; `gh` is invoked directly with an argument list, never through a shell, and a label that could read as a command-line option is rejected. Reads are user-triggered rather than part of a render, so an unopened tab never spends the user's API quota.
+
+## [0.168.0] - 2026-07-28
+
+### Added
+- **Work-mix charts and a contributor filter on the Project Dashboard Overview.** The opening page previously answered *how busy* the repo has been but not *who did the work* or *how far the release is from done*. It now carries three charts alongside the activity timelines: a **commits by contributor** donut, a **route to release** ring for whichever gate the Roadmap card is showing (complete vs remaining, with the percentage in the centre), and an **outstanding objectives by release gate** bar. All three read data the dashboard already collects — no new scan, no model call.
+- **Filter the timeline to one person.** Clicking a contributor, in the ring legend or the new segmented filter, scopes the commit timeline to that person and clears on a second click. The filter only appears when the window actually has more than one author, and the run and memory timelines are deliberately left unfiltered because they are not per-person data.
+- **`renderDonutChart`** joins the shared chart primitives: inline SVG arcs under the existing CSP (no chart library, no canvas), so rings inherit theme colours, stay crisp at any zoom, and carry a `<title>` per slice for hover and screen readers.
+- **`buildContributorSeries`** (exported and unit-tested) reduces one `git log` into per-person daily series: ranked by commit count, ties broken by name so slice colours stay stable between renders, and the long tail merged into a single **Others (n)** entry that keeps its commits — a chart that silently dropped contributors would misreport who did the work.
+
+### Fixed
+- **Flaky temp-directory cleanup on Windows.** Panel-flow and documents tests deleted their scratch directories immediately after writing into them, which intermittently hit `EPERM` while the OS still held a handle — failing a green test and blocking the pre-commit gate. Cleanup now retries.
+
+### Security
+- **Author names only.** The contributor breakdown reads git's `%an` field — the same value the commit list already displays — never an email address, and clamps each name before it reaches the webview.
+
+## [0.167.0] - 2026-07-28
+
+### Added
+- **One-tap quick-reply pills on every chat surface, not just the Chat panel.** `detectResponseQuickReplies` has reliably recognised question shapes since v0.125.0, but the pills only rendered in one webview — which made them read as a feature of that panel rather than of Atlas asking a question. The **Project Ideation** panel now renders them under the facilitation response (clicking one runs it as the next ideation pass), and the **Vision** panel renders them under the streamed output (clicking one runs it as the next vision prompt). The dashboard ideation path posts them too. New `buildQuickReplyPayload` (`src/chat/participant.ts`) produces the webview-ready payload, and `QUICK_REPLY_CSS` (`src/views/webviewUtils.ts`) is now the single style definition — the Chat panel's inline copy was replaced by it, so four surfaces cannot drift into four different pills.
+- **Pills only, never a bare question.** A question with no clean options yields nothing, exactly as in the Chat panel, where that case gets the text input rather than invented buttons. Stale pills are cleared when a new response starts, so a pill never answers the previous question.
+
+### Security
+- **Model output is clamped at the one boundary it crosses.** A pill's label is rendered and its prompt is *submitted on click*, so `buildQuickReplyPayload` length-caps and control-strips both and caps how many pills it will hand over. The webview render paths use `textContent`/`escapeHtml`, never `innerHTML`, and each surface dispatches the click through its own existing, already-validated run path rather than a new one.
+
+## [0.166.0] - 2026-07-28
+
+### Added
+- **Release gates beyond MVP on the Roadmap dashboard.** MVP was the only milestone the page could track, which stops being useful the day a project ships it. Projects can now declare their own gates — a public beta, `v1.0`, `v2` (up to 12) — with **+ New gate**, and a gate selector switches the "Road to …" card between them: each gate gets its own progress bar, milestone track, best-route ordering, next-step callout, and *Plan the … route with Atlas* prompt. Every backlog item shows one membership toggle per gate, so an item can belong to the MVP *and* the beta. New pure, unit-tested `src/core/roadmapGates.ts`.
+- **Gates are stored in the roadmap file.** A managed `<!-- atlasmind:roadmap-gates:start/end -->` block in `improvement-plan.md` holds them as readable markdown (`` - `#beta` — Public beta ``), so they diff and review like the backlog they describe, with no second source of truth. Item membership stays `#<gate>` tags inside the existing items block; tags never appear in displayed text and round-trip through every save. The block is only written once a project declares a gate beyond MVP, so a roadmap that never uses them is left exactly as it was.
+
+### Changed
+- **`isMvp` still works.** The single-flag save payload is still accepted and still written, so an older webview — or a queued message from one — cannot silently drop an item's MVP membership. The MVP gate keeps its own name in the snapshot and remains the gate that feeds the Operational Score.
+- **Heuristic suggestions stay MVP-only.** The "suggested foundations" fallback recognises foundational work, which is not a claim about which release something belongs to — so a user-created gate with nothing tagged is reported as empty rather than filled with a guess.
+
+### Security
+- **A tag is only a gate once it is declared.** `extractItemGates` recognises declared ids only, so an item reading `fix the #2 case` keeps its wording instead of inventing a gate, and a tag-boundary check stops `#v1` matching inside `#v10`. Gate ids are slug-validated (`slugifyGateId`) and **refused with a reason** rather than coerced — the id becomes a `#tag` in a tracked file, so a value that would not parse back is never written — and the webview's `deleteRoadmapGate` message is rejected outright if its payload is not a valid slug. Unknown gate ids in a save are dropped, not persisted.
+- **Removing a gate removes a label, never work.** Deletion is confirmed modally with the count of items that will lose the tag, strips the tag from every item, and deletes no backlog item. The built-in MVP gate cannot be removed, and survives an editing accident in the gates block.
+
+## [0.165.0] - 2026-07-28
+
+### Added
+- **Policy coverage board on the Testing dashboard.** Every enabled testing methodology now gets its own card answering the question the page could not answer before: *is anything actually testing this, and is any of it failing?* Each card shows status (**Tested** / **No tests yet** — tooling installed but nothing written / **Nothing found**), the matching file and case counts, how many of those cases are skipped, the tooling that was detected, and a per-policy action (**Fix with Atlas** when tests are failing, **Write tests with Atlas** when there are none). A distribution bar and three metric pills give the shape of the board at a glance, and failing tests from the report are listed with a link to each file. New pure, unit-tested `src/core/testingPolicyCoverage.ts`; evidence is gathered by `collectTestingDashboardSnapshot`.
+- **Practices are not reported as gaps.** Exploratory, black-box, gray-box, white-box, V-model, test-design, and agile testing leave no file artifact, so they are labelled *Practice — not file-evident* and excluded from the gap counts. Flagging a way of working as a missing test trains people to ignore the panel.
+- **Skipped tests are counted from the tree**, so that signal exists even for a project that has never produced a test report.
+
+### Security
+- **A missing test report is reported as "no verdict", never as a pass.** Failures come only from a JUnit report the project already wrote; nothing runs a test command on render — a dashboard that shells out is both a surprise and an execution surface. With no report the page says pass/fail cannot be shown and quotes the framework-appropriate command to produce one.
+- **The report is treated as untrusted input.** `parseJUnitReport` never throws, reads attributes by regex rather than an XML parser (so no entity or external-DTD expansion), decodes only the five predefined entities, caps how much it reads and how many cases it keeps, control-strips and clamps every string, and prefers the failures it can *count* over the totals the report *asserts* — a truncated or hand-edited report cannot present itself as clean. **Failure messages are deliberately not extracted**: an assertion message can carry values from a test environment, and this data renders in a webview. Report staleness (a test file changed after the report was written) is surfaced rather than hidden.
+
+## [0.164.0] - 2026-07-28
+
+### Added
+- **A document shelf creates its folder.** Saving a shelf on the Project Dashboard → **Documents** page now creates the folder it names if the project doesn't have one yet, so a filing system can be designed before the files exist rather than described against folders that aren't there. Shelves already pointing at an absent folder get an explicit **Create folder** action, and the shelf editor says up front that the folder will be created. New `newShelfPaths` (pure path diff — re-pointing a shelf counts as new) and `createShelfFolders` in `src/core/documentsManager.ts`, both unit-tested; the panel handles a new `createShelfFolder` webview message.
+
+### Security
+- **Create-only, and only inside the workspace.** The new folder creation is a `mkdir` and nothing else: a path that is already a directory is a no-op, a path occupied by a **file** is reported and left exactly as it was, and an unsafe path is refused. Paths are re-validated through `normalizeRelPath` inside `createShelfFolders` rather than trusted from the caller, and the resolved target is re-checked against the workspace root — this is the point where a missed traversal would create a directory outside the project. Every folder created is named in a notification, so a change to the user's tree never happens invisibly.
+
 ## [0.163.0] - 2026-07-28
 
 ### Added
