@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.157.1",
+  "version": "0.158.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -1148,6 +1148,12 @@
           "default": false,
           "description": "Allow ARD Agent Finders that use http:// or localhost (e.g. the ARD conformance demo registry). When false, discovery requires HTTPS and rejects private/loopback addresses to prevent SSRF.",
           "markdownDescription": "Allow ARD Agent Finders that use `http://` or `localhost` — for example the [ARD conformance demo](https://github.com/ards-project/ard-spec) registry.\n\nWhen `false` (default), discovery requires HTTPS and rejects private / loopback / link-local addresses to prevent SSRF. This setting only relaxes the check for finders **you** explicitly marked insecure; followed referral URLs are always screened."
+        },
+        "atlasmind.chat.revealOnApprovalRequest": {
+          "type": "boolean",
+          "default": true,
+          "description": "Bring the AtlasMind chat panel forward when a tool approval is waiting. A notification is shown either way — turning this off only stops the panel taking focus.",
+          "markdownDescription": "Bring the AtlasMind chat panel forward when a tool approval needs an answer.\n\nAn approval **blocks the run until it is answered**, and the approval bar lives in this panel — which you may not be looking at. Without this, the run appears to hang.\n\nA dismissible notification naming the waiting action is shown regardless, so turning this off only stops the panel taking focus; it never leaves you unaware. Nothing is announced while the panel is already on screen."
         },
         "atlasmind.buzz.enabled": {
           "type": "boolean",

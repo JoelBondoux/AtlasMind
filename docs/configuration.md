@@ -173,6 +173,16 @@ Agent Finder definitions are stored in `globalState` and managed from the Resour
 
 ## Buzz (agentic comms)
 
+### Chat attention
+
+| Setting | Type | Default | Description |
+|---|---|---:|---|
+| `atlasmind.chat.revealOnApprovalRequest` | `boolean` | `true` | Bring the AtlasMind chat panel forward when a tool approval is waiting. |
+
+An approval **blocks the run until it is answered**, and the approval bar lives in the AtlasMind chat panel — which you may not be looking at, since VS Code has its own chat and you may be in an editor or another window entirely. Without an announcement the run simply appears to hang.
+
+A notification naming the waiting action is shown regardless of this setting, so turning it off stops the panel taking focus without leaving you unaware. Nothing is announced while the panel is already on screen, and only newly-arrived requests announce — the pending list also changes when a request is answered.
+
 Integration with [Buzz](https://buzz.xyz) — the open-source, Nostr-based workspace for humans and AI agents. All settings are deny-by-default; nothing connects to Buzz until you opt in. See `project_memory/roadmap/buzz-integration.md` for the phased roadmap.
 
 | Setting | Type | Default | Description |

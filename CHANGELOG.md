@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.158.0] - 2026-07-28
+
+### Added
+- **A waiting approval now says so.** When a tool approval needs an answer and the AtlasMind chat panel is not on screen, the panel is brought forward and a notification names the action that is waiting. Previously the only reaction was repainting a webview you may not have been looking at, so a blocked run simply looked like it had hung.
+- **`atlasmind.chat.revealOnApprovalRequest`** (default on) controls whether the panel takes focus. The notification is shown either way, so turning it off stops the interruption without leaving you unaware.
+
+### Changed
+- **Nothing is announced while the panel is already visible.** Interrupting someone toward something already in front of them is how prompts get trained into reflex dismissal.
+- **Only newly-arrived requests announce.** The pending list also changes when a request is *answered*, so announcing on every change would have fired a notification each time you approved something.
+- **A notification is shown even when the panel is revealed**, because a reveal can be missed — the window may not be focused — while a notification waits until it is dismissed.
+- **The notification names the action** ("Run `npm test` in the workspace") rather than saying an approval is required, since a message that does not say what it is about gives no reason to switch to it.
+
 ## [0.157.1] - 2026-07-28
 
 ### Fixed

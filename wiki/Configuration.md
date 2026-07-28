@@ -189,6 +189,14 @@ Agent Finders ship **disabled** and are managed from the Resource Discovery tab 
 
 ---
 
+## Chat Attention
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `atlasmind.chat.revealOnApprovalRequest` | boolean | `true` | Bring the AtlasMind chat panel forward when a tool approval is waiting. A notification naming the action is shown either way, so turning this off stops the interruption without leaving you unaware. Nothing is announced while the panel is already on screen. |
+
+---
+
 ## Buzz (agentic comms)
 
 Integration with [Buzz](https://buzz.xyz) — the open-source, Nostr-based workspace for humans and AI agents. Deny-by-default; nothing connects until you opt in. See [[Architecture]] and the `project_memory/roadmap/buzz-integration.md` roadmap.
