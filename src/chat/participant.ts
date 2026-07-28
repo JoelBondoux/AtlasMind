@@ -1996,6 +1996,13 @@ async function handleBuzzCommand(
     await handleBuzzRead(stream, atlas);
     return;
   }
+  const mode = /^(local|hosted)$/i.exec(trimmed);
+  if (mode) {
+    await vscode.workspace.getConfiguration('atlasmind')
+      .update('buzz.relayMode', mode[1]!.toLowerCase(), vscode.ConfigurationTarget.Workspace)
+      .then(undefined, () => undefined);
+  }
+
   const dm = /^dm\s+(\S+)\s+([\s\S]+)$/i.exec(trimmed);
   if (dm) {
     await handleBuzzDirectMessage(dm[1]!, dm[2]!, stream, atlas);
@@ -2014,6 +2021,7 @@ async function handleBuzzCommand(
       import('../core/buzzSigner.js'),
       import('../core/buzzDocsSource.js'),
     ]);
+  const docsModule2 = await import('../core/buzzSetupPlan.js');
 
   const cfg = vscode.workspace.getConfiguration('atlasmind');
   let hasAgentKey = false;
@@ -2038,38 +2046,59 @@ async function handleBuzzCommand(
       .some(server => server.config.id === 'mcp-server-buzz' || /buzz/i.test(server.config.name ?? '')),
     ...(atlas.buzzInbound ? { inboundStatus: atlas.buzzInbound.getStatus() } : {}),
     observedIdentities: atlas.buzzInbound?.listIdentities().length ?? 0,
+    relayMode: cfg.get<'local' | 'hosted' | 'undecided'>('buzz.relayMode', 'undecided'),
   });
 
-  const MARK: Record<string, string> = { done: '✅', todo: '⬜', blocked: '⏸️', optional: '◽' };
   const ready = isBuzzInboundReady(steps);
   const next = nextBuzzSetupStep(steps);
+  const showAll = /^all$/i.test(trimmed);
 
-  const lines = [
-    '### Set up Buzz',
-    '',
-    ready
-      ? '**Reading Buzz is set up.** Anything below marked ◽ is an optional extra, not something missing.'
-      : `**${steps.filter(s => s.status === 'done').length} of ${steps.filter(s => s.status !== 'optional').length} required steps done.** Start with **${escapeMd(next?.title ?? '')}**.`,
-    '',
-  ];
-  for (const step of steps) {
-    lines.push(`${MARK[step.status] ?? '⬜'} **${escapeMd(step.title)}**  `);
-    lines.push(`   ${escapeMd(step.detail)}`);
-    // Guidance is already written as markdown and is authored here, not
-    // model-generated, so it is intentionally not escaped.
-    for (const line of step.guidance ?? []) {
-      lines.push(`   - ${line}`);
-    }
-    if (step.docs && step.status !== 'done') {
-      lines.push(`   - [${escapeMd(step.docs.title)}](${step.docs.url})`);
-    }
+  if (ready && !showAll) {
+    stream.markdown([
+      '### Buzz setup — done',
+      '',
+      'Reading Buzz is fully set up. The optional extras (recording follow-ups, the CLI, the MCP bridge, the desktop app) are choices, not gaps.',
+      '',
+      'Ask **`/buzz all`** for the full checklist, or **`/buzz read`** to see the conversation.',
+    ].join('\n'));
+    stream.button({ command: 'atlasmind.openProjectDirector', title: 'Open the Director roster' });
+    return;
   }
-  const observed = steps.length > 0 ? (atlas.buzzInbound?.listIdentities().length ?? 0) : 0;
-  if (ready && observed > 0) {
-    lines.push('', `Seen **${observed}** Buzz identit${observed === 1 ? 'y' : 'ies'} so far — they are offered when you add a person on the Director tab.`);
+
+  if (!showAll && next) {
+    // One step at a time. The whole list at once was a wall of bullets in which
+    // the thing to do right now was indistinguishable from context.
+    const position = docsModule2.buzzStepPosition(steps, next.id);
+    stream.markdown(docsModule2.renderBuzzStepMarkdown(next, position));
+
+    if (next.action) {
+      stream.button({
+        command: next.action.command,
+        title: next.action.title,
+        ...(next.action.args ? { arguments: next.action.args.map(arg => typeof arg === 'string' && /^https?:\/\//.test(arg) ? vscode.Uri.parse(arg) : arg) } : {}),
+      });
+    }
+    // A command AtlasMind wrote can be typed into a terminal for you. Pressing
+    // Enter stays yours — these clone repositories and start containers.
+    for (const line of next.guidance ?? []) {
+      if (line.command && line.authored) {
+        stream.button({
+          command: 'atlasmind.buzz.prepareCommand',
+          title: `Put \`${line.command}\` in a terminal`,
+          arguments: [line.command],
+        });
+      }
+    }
+    stream.markdown(`\n\n_Step ${position.index} of ${position.total}. Say **\`/buzz\`** again once done, or **\`/buzz all\`** to see everything._`);
+  } else {
+    const MARK: Record<string, string> = { done: '✅', todo: '⬜', blocked: '⏸️', optional: '◽' };
+    const lines = ['### Buzz setup — full checklist', ''];
+    for (const step of steps) {
+      lines.push(`${MARK[step.status] ?? '⬜'} **${escapeMd(step.title)}** — ${escapeMd(step.detail)}`);
+    }
+    lines.push('', 'AtlasMind will not switch any of this on for you: each gate is off by default so that turning it on stays your decision.');
+    stream.markdown(lines.join('\n'));
   }
-  lines.push('', 'AtlasMind will not switch any of this on for you: each gate is off by default so that turning it on stays your decision.');
-  stream.markdown(lines.join('\n'));
 
   // Buzz ships releases, so the *how* is read from Buzz's own documentation
   // rather than from prose written here that quietly goes stale. Assessing your
@@ -4129,9 +4158,10 @@ export function buildFollowups(
 
     case 'buzz':
       return [
-        { prompt: '/buzz read', label: 'Read the conversation' },
-        { prompt: '/director', label: 'Open Project Director' },
-        { prompt: '/followups', label: "What's due" },
+        { prompt: '/buzz local', label: 'I want to run Buzz locally' },
+        { prompt: '/buzz hosted', label: 'I have a hosted relay' },
+        { prompt: '/buzz', label: 'Next step' },
+        { prompt: '/buzz all', label: 'Show the whole checklist' },
       ];
 
     case 'followups':

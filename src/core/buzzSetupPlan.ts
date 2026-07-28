@@ -40,11 +40,12 @@ export interface BuzzSetupStep {
   /** One line explaining the current state, or what to do about it. */
   detail: string;
   /**
-   * The actual how-to, when the step needs more than a sentence. Kept as
-   * discrete lines so both the chat walkthrough and the Settings page can
-   * render them without re-wrapping prose.
+   * The actual how-to, as ordered instructions rather than prose. Each line is
+   * one thing to do, so the walkthrough can present them one at a time with the
+   * command already written out — someone setting Buzz up for the first time
+   * should never have to work out what to type.
    */
-  guidance?: string[];
+  guidance?: BuzzGuidanceLine[];
   /** Where to read more. Never a substitute for the guidance itself. */
   docs?: { url: string; title: string };
   /** A surface to open. Never a mutation. */
@@ -52,6 +53,25 @@ export interface BuzzSetupStep {
 }
 
 /** Everything the plan needs to know, gathered by the caller. */
+/**
+ * One instruction. A `command` is spelled out in full so it can be copied or
+ * typed into a terminal for the user; `authored` distinguishes commands
+ * AtlasMind wrote from commands quoted out of Buzz's documentation, which are
+ * somebody else's text and are never offered as one-click actions.
+ */
+export interface BuzzGuidanceLine {
+  text: string;
+  /** An exact command, ready to run. */
+  command?: string;
+  /** True when AtlasMind wrote this command, so it may be pre-loaded into a terminal. */
+  authored?: boolean;
+  /** A page to open for this instruction. */
+  url?: string;
+}
+
+/** Which way the user has said they want to run a relay, when they have said. */
+export type BuzzRelayMode = 'local' | 'hosted' | 'undecided';
+
 export interface BuzzSetupState {
   /** Is the pinned Buzz CLI on PATH? Needed only for outbound. */
   cliOnPath: boolean;
@@ -75,10 +95,19 @@ export interface BuzzSetupState {
   inboundStatus?: string;
   /** How many Buzz identities have been observed this session. */
   observedIdentities: number;
+  /**
+   * Whether the user has said how they want to run a relay. Asking once and
+   * then showing only the relevant path beats presenting both and leaving them
+   * to work out which half applies.
+   */
+  relayMode?: BuzzRelayMode;
 }
 
 /** The pinned CLI release the bundled bridge is built against. */
 export const BUZZ_CLI_RELEASE_URL = 'https://github.com/block/buzz/releases/tag/v0.4.26';
+
+/** Packaged desktop builds — the app a person actually reads Buzz in. */
+export const BUZZ_APP_RELEASE_URL = 'https://github.com/block/buzz/releases/latest';
 
 /**
  * Client statuses that prove a relay actually answered. Anything else means the
@@ -86,6 +115,22 @@ export const BUZZ_CLI_RELEASE_URL = 'https://github.com/block/buzz/releases/tag/
  * which looks settled while nothing may be listening on the port.
  */
 const CONNECTED_STATUSES = ['subscribed', 'live'];
+
+/**
+ * Every command AtlasMind offers to type into a terminal for you.
+ *
+ * An allowlist rather than a filter: `atlasmind.buzz.prepareCommand` is a
+ * registered command id and therefore reachable from a webview, so its payload
+ * cannot be assumed to be one of ours. Commands quoted from Buzz's docs are
+ * deliberately absent — they are somebody else's text and are shown for copying
+ * only.
+ */
+export const BUZZ_SETUP_COMMANDS: readonly string[] = [
+  'docker --version',
+  'git clone https://github.com/block/buzz.git',
+  'docker ps',
+  'buzz --version',
+];
 
 /** The project itself — the authority on how to run a relay. */
 export const BUZZ_PROJECT_URL = 'https://github.com/block/buzz';
@@ -137,9 +182,9 @@ export function buildBuzzSetupPlan(state: BuzzSetupState): BuzzSetupStep[] {
       ? 'Buzz is enabled for this workspace.'
       : 'Off by default. Nothing connects, reads, or sends until you turn this on.',
     guidance: state.enabled ? undefined : [
-      'Open **Settings → Buzz** and tick **Enable the Buzz integration**.',
-      'This alone connects nothing. It only stops every other Buzz setting being inert.',
-      'The setting is workspace-scoped, so enabling it here does not enable it in your other projects.',
+      { text: 'Press the button below to open **Settings → Buzz**.' },
+      { text: 'Tick **Enable the Buzz integration** at the top of the page.' },
+      { text: 'That is the whole step. It connects nothing on its own — it only stops every other Buzz setting being inert. The setting is workspace-scoped, so your other projects are unaffected.' },
     ],
     action: { command: 'atlasmind.openSettings', title: 'Open Settings → Buzz', args: ['buzz'] },
   });
@@ -154,25 +199,40 @@ export function buildBuzzSetupPlan(state: BuzzSetupState): BuzzSetupStep[] {
         : remote
           ? `Connecting to ${relayUrl} (remote, encrypted).`
           : `Connecting to ${relayUrl} (local).`;
-  const relayGuidance = insecure
+  const relayMode = state.relayMode ?? 'undecided';
+  const relayGuidance: BuzzGuidanceLine[] = insecure
     ? [
-      `\`${relayUrl}\` is off-machine but unencrypted, so AtlasMind refuses it.`,
-      'Plaintext would put your colleagues\' messages and the login challenge on the wire in the clear.',
-      'Change the scheme to `wss://` — or point at a local relay instead.',
+      { text: `\`${relayUrl}\` is off-machine but unencrypted, so AtlasMind refuses it — plaintext would put your colleagues' messages and the login challenge on the wire in the clear.` },
+      { text: 'Change the scheme from `ws://` to `wss://` in **Settings → Buzz → Relay URL**.' },
     ]
     : remote && !state.allowRemoteRelay
       ? [
-        `\`${relayUrl}\` is not on this machine, so it needs a second, explicit consent.`,
-        'Tick **Allow a remote relay** in Settings → Buzz.',
-        'Be deliberate about it: project communications will leave your machine.',
+        { text: `\`${relayUrl}\` is not on this machine, so it needs one more explicit consent.` },
+        { text: 'In **Settings → Buzz**, tick **Allow a remote relay**.' },
+        { text: 'Be deliberate: project communications will leave your machine.' },
       ]
-      : [
-        '**Two ways to run this, and they need different things:**',
-        '**A hosted relay** — someone else runs it. Paste its `wss://` URL and tick **Allow a remote relay**. Nothing to install.',
-        '**A local relay** — you run it yourself, which is the default (`ws://localhost:3000`) and keeps everything on your machine. This is not automatic: **something has to actually be listening on that port**, and nothing in AtlasMind starts it.',
-        'Running one locally normally means **Docker** — the Buzz project is the authority on the current image and command, so follow its instructions rather than a command copied from here.',
-        'If nothing is listening, the symptom is a subscription that never becomes live. Check with `docker ps` that your relay container is up.',
-      ];
+      : relayMode === 'hosted'
+        ? [
+          { text: 'Someone else runs the relay, so there is nothing to install.' },
+          { text: 'Ask whoever runs it for the relay URL. It starts `wss://`.' },
+          { text: 'Paste it into **Settings → Buzz → Relay URL**, and tick **Allow a remote relay** just below it.' },
+          { text: 'That is the whole step — no Docker, no clone, no build.' },
+        ]
+        : relayMode === 'local'
+          ? [
+            { text: '**1. Check you have Docker.** Run this; any version number means you are fine.', command: 'docker --version', authored: true },
+            { text: 'If that says "command not found", install Docker Desktop first, then come back.', url: 'https://docs.docker.com/get-docker/' },
+            { text: '**2. Get the Buzz source.** It is the relay, so you need the repository.', command: 'git clone https://github.com/block/buzz.git', authored: true },
+            { text: '**3. Build and start it.** Buzz\'s own README is the authority on these — they are quoted below with a link, because they change as Buzz ships and a stale command copied from here would fail in a way that looks like AtlasMind\'s fault.' },
+            { text: '**4. Confirm something is actually listening.** You should see a Buzz container running.', command: 'docker ps', authored: true },
+            { text: 'Then leave the relay running and come back here. The default `ws://localhost:3000` already points at it, so there is nothing to change in Settings.' },
+          ]
+          : [
+            { text: '**First decide how you want to run Buzz.** The two paths need completely different things, so pick one and I will show only that.' },
+            { text: '**Hosted** — someone else runs the relay. You paste a `wss://` URL and tick one box. Nothing to install.' },
+            { text: '**Local** — you run it on this machine. Needs Docker and a few terminal commands, and keeps everything on your machine. This is the default.' },
+            { text: 'Use the buttons below to choose.' },
+          ];
   const relayStatus: BuzzSetupStatus = !relayUrl || insecure || (remote && !state.allowRemoteRelay) ? 'todo' : 'done';
   // A valid URL is not a relay. The default points at localhost, which reads as
   // "already working" while nothing may be listening — and AtlasMind cannot
@@ -193,6 +253,24 @@ export function buildBuzzSetupPlan(state: BuzzSetupState): BuzzSetupStep[] {
     action: { command: 'atlasmind.openSettings', title: 'Open Settings → Buzz', args: ['buzz'] },
   });
 
+  // 2b — the app. Not required for AtlasMind to work, but it is how a person
+  // reads Buzz at all, and it is where the channel ids in the next steps come
+  // from. Leaving it out made the guide describe a workspace with no way in.
+  steps.push({
+    id: 'app',
+    title: 'Install the Buzz app (recommended)',
+    status: 'optional',
+    detail: 'AtlasMind reads and writes Buzz; the app is how *you* read it — and where the channel ids AtlasMind needs come from.',
+    guidance: [
+      { text: 'Download the packaged build for your OS — `.exe` on Windows, `.dmg` on macOS, `.AppImage`/`.deb` on Linux. Install it like any other app.', url: BUZZ_APP_RELEASE_URL },
+      { text: 'Point it at the same relay as AtlasMind. By default it already uses `ws://localhost:3000`; for a hosted relay, set `BUZZ_RELAY_URL` before launching or switch the relay inside the app.' },
+      { text: 'Join or create a channel there. **Copy its id** — that is what goes into **Settings → Buzz → Channels to watch**.' },
+      { text: 'You can skip this if a colleague has already given you a relay URL and a channel id.' },
+    ],
+    docs: { url: BUZZ_PROJECT_URL, title: 'Buzz — getting started' },
+    action: { command: 'vscode.open', title: 'Download the Buzz app', args: [BUZZ_APP_RELEASE_URL] },
+  });
+
   // 3 — identity. A real relay refuses to serve a subscription without it.
   steps.push({
     id: 'agentKey',
@@ -202,11 +280,11 @@ export function buildBuzzSetupPlan(state: BuzzSetupState): BuzzSetupStep[] {
       ? 'A key is stored in the OS secret store.'
       : 'Most relays refuse to serve a subscription until you authenticate. Your key is kept in the OS secret store, never in settings or source.',
     guidance: state.hasAgentKey ? undefined : [
-      'Run **AtlasMind: Set Buzz Agent Key** and paste your agent identity key.',
-      'It takes an `nsec1…` or a 64-character hex **secret** key. An `npub` is the public half and cannot sign, so it is refused by name.',
-      'The Buzz CLI generates one if you do not have it — see the Buzz project for the current command.',
-      'The checksum is verified when you paste it, so a mistyped key fails immediately rather than silently authenticating as somebody else.',
-      'It goes into the OS secret store (Keychain / Credential Manager / libsecret) — never into settings, source, or a log.',
+      { text: '**If you already have a key**, press the button below and paste it. That is the whole step.' },
+      { text: 'It wants an `nsec1…` or a 64-character hex **secret** key. An `npub` is the public half and cannot sign, so it is refused by name rather than failing later.' },
+      { text: '**If you do not have one yet**, the Buzz CLI generates one — see Buzz\'s own documentation for the current command, quoted below.' },
+      { text: 'The checksum is verified as you paste, so a mistyped key fails immediately instead of quietly authenticating as somebody else.' },
+      { text: 'It is stored in your OS secret store (Keychain / Credential Manager / libsecret). Never in settings, never in source, never in a log.' },
     ],
     docs: { url: BUZZ_PROJECT_URL, title: 'Buzz — agent identity' },
     action: { command: 'atlasmind.setBuzzAgentKey', title: 'Set Buzz agent key…' },
@@ -227,10 +305,10 @@ export function buildBuzzSetupPlan(state: BuzzSetupState): BuzzSetupStep[] {
             : '. No channels listed, so this covers every channel your key can read.'}`
         : 'Holds a read-only subscription and turns activity into work items. It can never publish to Buzz.',
     guidance: inboundBlocked || state.inboundEnabled ? undefined : [
-      'Tick **Watch Buzz activity** in Settings → Buzz.',
-      'Optionally list channel ids, one per line, to narrow what is watched.',
-      'An empty list is **not** "no channels" — it scopes by message kind alone, so it covers every channel your key can already read.',
-      'The subscription sends only subscribe / authenticate / keep-alive frames. It cannot publish to Buzz, by construction.',
+      { text: 'Open **Settings → Buzz** and tick **Watch Buzz activity**.' },
+      { text: 'Optionally paste channel ids underneath, one per line, to narrow what is watched.' },
+      { text: 'An empty list is **not** "no channels" — it scopes by message kind alone, so it covers every channel your key can already read.' },
+      { text: 'The subscription only subscribes, authenticates, and keeps alive. It cannot publish to Buzz, by construction.' },
     ],
     action: { command: 'atlasmind.openSettings', title: 'Open Settings → Buzz', args: ['buzz'] },
   });
@@ -255,10 +333,10 @@ export function buildBuzzSetupPlan(state: BuzzSetupState): BuzzSetupStep[] {
       ? 'Found on PATH.'
       : 'Not on PATH. Reading Buzz does not need it — only sending does, through the bundled bridge. Install v0.4.26, the version the bridge is pinned to.',
     guidance: state.cliOnPath ? undefined : [
-      'Skip this entirely if you only want AtlasMind to *read* Buzz.',
-      'Download **v0.4.26** — the bridge validates the CLI against that release\'s command surface, so a newer build may not match.',
-      'Put it on your `PATH`, or set the `BUZZ_CLI_PATH` input when you add the MCP server.',
-      'Re-run this checklist afterwards to confirm AtlasMind can see it.',
+      { text: '**Skip this entirely if you only want AtlasMind to read Buzz.** Sending is the only thing that needs it.' },
+      { text: 'Download **v0.4.26** — the bridge checks the CLI against that release\'s command surface, so a newer build may not match.', url: BUZZ_CLI_RELEASE_URL },
+      { text: 'Put it on your `PATH`, or set `BUZZ_CLI_PATH` when you add the MCP server in the next step.' },
+      { text: 'Check AtlasMind can see it:', command: 'buzz --version', authored: true },
     ],
     docs: { url: BUZZ_CLI_RELEASE_URL, title: 'Buzz CLI v0.4.26' },
     action: state.cliOnPath
@@ -268,7 +346,7 @@ export function buildBuzzSetupPlan(state: BuzzSetupState): BuzzSetupStep[] {
 
   steps.push({
     id: 'mcp',
-    title: 'Connect the Buzz Communications bridge (only needed to send)',
+    title: 'Connect the Buzz MCP bridge (only needed to send)',
     status: state.mcpServerRegistered ? 'done' : state.cliOnPath ? 'optional' : 'blocked',
     detail: state.mcpServerRegistered
       ? 'Registered. Sends still require the Director’s per-project outbound toggle and a confirmation for each message.'
@@ -276,11 +354,11 @@ export function buildBuzzSetupPlan(state: BuzzSetupState): BuzzSetupStep[] {
         ? 'Adds channel posting, thread reading, and DMs. AtlasMind pre-fills the whole server definition; you supply the key.'
         : 'Needs the Buzz CLI first.',
     guidance: state.mcpServerRegistered || !state.cliOnPath ? undefined : [
-      'Open **Manage MCP Servers → Browse by category → Buzz Communications**.',
-      'AtlasMind pre-fills the command, arguments, and environment, and wires the relay URL and both Buzz gates to your settings automatically.',
-      'You supply the agent key (stored as a secret) and, if the CLI is not on `PATH`, its location.',
-      'The bridge exposes only channel listing/posting, thread reading, and DMs — never Buzz shell, file, or admin tools.',
-      'Sending still requires the Director\'s per-project outbound toggle *and* a confirmation dialog for each message.',
+      { text: 'Press the button below to open **Manage MCP Servers**.' },
+      { text: 'Choose **Browse by category → Buzz Communications**.' },
+      { text: 'AtlasMind pre-fills the command, arguments, and environment, and wires your relay URL and both Buzz gates automatically. You supply the agent key, and the CLI location if it is not on `PATH`.' },
+      { text: 'The bridge exposes only channel listing/posting, thread reading, and DMs — never Buzz shell, file, or admin tools.' },
+      { text: 'Sending still needs the Director\'s per-project outbound toggle *and* a confirmation for each message.' },
     ],
     action: { command: 'atlasmind.openMcpServers', title: 'Manage MCP servers' },
   });
@@ -315,4 +393,51 @@ export function nextBuzzSetupStep(steps: BuzzSetupStep[]): BuzzSetupStep | undef
  */
 export function isBuzzInboundReady(steps: BuzzSetupStep[]): boolean {
   return REQUIRED_BUZZ_STEP_IDS.every(id => steps.find(step => step.id === id)?.status === 'done');
+}
+
+/**
+ * Render one step as markdown: what to do now, in order, with the commands
+ * written out.
+ *
+ * Shared so the chat participant and the AtlasMind chat panel show the same
+ * words — two hand-maintained copies of a setup guide drift, and the one that
+ * drifts is always the one somebody is following.
+ */
+export function renderBuzzStepMarkdown(
+  step: BuzzSetupStep,
+  position: { index: number; total: number },
+): string {
+  const lines = [
+    `### Buzz setup — step ${position.index} of ${position.total}: ${step.title}`,
+    '',
+    step.detail,
+  ];
+
+  if (step.guidance?.length) {
+    lines.push('');
+    for (const line of step.guidance) {
+      lines.push(`- ${line.text}`);
+      if (line.url) {
+        lines.push(`  ${line.url}`);
+      }
+      if (line.command) {
+        lines.push('', '```bash', line.command, '```');
+      }
+    }
+  }
+
+  if (step.docs) {
+    lines.push('', `Buzz's own documentation: ${step.docs.url}`);
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Position of a step within the required sequence, for "step 2 of 4".
+ * Optional steps are excluded — counting them would make the finish line move.
+ */
+export function buzzStepPosition(steps: BuzzSetupStep[], stepId: string): { index: number; total: number } {
+  const required = steps.filter(step => (REQUIRED_BUZZ_STEP_IDS as readonly string[]).includes(step.id));
+  const at = required.findIndex(step => step.id === stepId);
+  return { index: at >= 0 ? at + 1 : required.length + 1, total: required.length };
 }

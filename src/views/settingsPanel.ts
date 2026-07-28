@@ -883,9 +883,11 @@ export class SettingsPanel {
         return;
 
       case 'openBuzzGuide':
-        // Hand off to the chat walkthrough rather than duplicating it here:
-        // one plan, rendered in the place that can hold a conversation about it.
-        await vscode.commands.executeCommand('workbench.action.chat.open', { query: '@atlas /buzz' });
+        // AtlasMind's own chat panel, not VS Code's. Routing through
+        // `workbench.action.chat.open` put a Buzz question in front of Copilot's
+        // participant picker and, because the slash command arrived as text,
+        // straight into the general agent.
+        await vscode.commands.executeCommand('atlasmind.buzz.openGuide');
         return;
 
       case 'setProjectRunReportFolder': {
