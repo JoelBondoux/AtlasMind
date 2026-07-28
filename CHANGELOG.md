@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.178.0] - 2026-07-28
+
+### Fixed
+- **The action icons on an ACP row acted on the wrong provider.** `AcpBridgeTreeItem` carried the vendor it sits beneath in a property called `providerId`, and the models tree identifies its command argument by shape (`'providerId' in item`) — so the row was accepted as a provider row and acted on under the vendor's id. On "Anthropic — Claude subscription" the visibility toggle flipped **Anthropic's API provider** (and, with no `enabled` field to negate, could only ever switch it *on*), the info action reported on Anthropic, and configure prompted for an Anthropic API key. The property is now `vendorId`, the row has its own `acp-bridge-` context value so those menus no longer attach, and both shape guards additionally require the `model-` context value — relying on the absence of a property is how this happened.
+- **"model disabled" was reported when no model existed at all.** Only `acp/claude` is seeded, so a freshly configured Codex agent has no model row until discovery runs. Calling that "disabled" sent the user looking for a switch that does not exist; it is now "refresh to finish", and clicking the row does the refresh.
+
+### Added
+- **A way to set ACP up from the sidebar.** The row could report that a subscription route was unfinished but offered no control that did anything about it — every action it had pointed at the vendor's API provider. Unfinished rows now carry a plug icon and act on click, taking whichever step is actually next: run the install-and-sign-in check (offering the walkthrough when the adapter is absent), turn the provider on, or refresh to discover the model. Ready rows keep opening Model Providers.
+- Distinct icons per state — `plug` for not-yet-set-up (connectable, not broken), `sync` for awaiting discovery, `circle-slash` for switched off, `warning` for a failed health check.
+
 ## [0.177.1] - 2026-07-28
 
 ### Security

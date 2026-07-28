@@ -1146,7 +1146,7 @@ export async function configureProvider(
  * (this is the common one — offer the guide rather than reporting a failure at
  * someone who has not been told there was anything to install).
  */
-async function useSubscriptionForProvider(atlas: AtlasMindContext, providerId: ProviderId): Promise<void> {
+export async function useSubscriptionForProvider(atlas: AtlasMindContext, providerId: ProviderId): Promise<void> {
   const { findAcpBridge, AcpAdapter, parseAcpAgentSettings } = await import('../providers/acp.js');
   const bridge = findAcpBridge(providerId);
   if (!bridge) {

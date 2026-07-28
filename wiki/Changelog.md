@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.178.0 — setting ACP up from the sidebar, with buttons that hit the right target
+
+- **The action icons on an ACP row acted on the wrong provider.** The row carried the vendor it sits under in a property called `providerId`, and the tree identifies its command argument by shape — so the visibility toggle on "Anthropic — Claude subscription" flipped *Anthropic's API provider*, and configure prompted for an Anthropic API key. Renamed to `vendorId`, given its own context value, and both shape guards now also require a `model-` context value.
+- **There is now a way to set ACP up from the sidebar.** Unfinished rows show a plug icon and act on click, taking whichever step is next: check the adapter, enable the provider, or refresh to discover the model.
+- **"model disabled" no longer appears when no model exists.** A freshly configured Codex agent has no model row until discovery runs; that now reads "refresh to finish".
+
 ## v0.177.1 — dependency updates
 
 - **`@modelcontextprotocol/sdk` 1.29.0 → 1.30.0** (security), plus `eslint` 10.8.0 and `@types/node` 26.1.2.

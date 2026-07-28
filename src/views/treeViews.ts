@@ -1458,26 +1458,65 @@ function getShortModelId(modelId: string): string {
  */
 export class AcpBridgeTreeItem extends vscode.TreeItem {
   constructor(
-    public readonly providerId: string,
+    /**
+     * The vendor whose API row this sits under — `anthropic`, `openai`.
+     *
+     * Deliberately **not** called `providerId`. The models tree's command
+     * handlers identify their argument by duck typing (`'providerId' in item`),
+     * so a row carrying that property was accepted as a provider row and acted
+     * on under the vendor's id: the visibility toggle on
+     * "Anthropic — Claude subscription" flipped *Anthropic's API provider*, and
+     * the info and configure actions reported and prompted for Anthropic too.
+     * The property name was the bug, so the name is the fix.
+     */
+    public readonly vendorId: string,
     public readonly agentId: string,
     label: string,
     description: string | undefined,
     tooltip: string,
-    enabled: boolean,
+    state: AcpBridgeState,
     collapsibleState: vscode.TreeItemCollapsibleState,
   ) {
     super(label, collapsibleState);
     this.description = description;
     this.tooltip = tooltip;
-    this.contextValue = 'model-provider-acp-bridge';
-    this.iconPath = new vscode.ThemeIcon(
-      enabled ? 'check' : 'circle-outline',
-      new vscode.ThemeColor(enabled ? 'testing.iconPassed' : 'testing.iconQueued'),
-    );
-    this.command = {
-      command: 'atlasmind.openModelProviders',
-      title: 'Open Model Providers',
-    };
+    // Its own namespace, so the `/^model-/` menu contributions do not attach.
+    // Actions for this row are declared against `acp-bridge-` explicitly.
+    this.contextValue = state === 'ready' ? 'acp-bridge-ready' : 'acp-bridge-incomplete';
+    this.iconPath = acpBridgeIcon(state);
+    this.command = state === 'ready'
+      ? { command: 'atlasmind.openModelProviders', title: 'Open Model Providers' }
+      // Clicking an unfinished row should start finishing it, not open a screen
+      // and leave the user to work out which control applies.
+      : { command: 'atlasmind.acp.setUpBridge', title: 'Set up', arguments: [{ vendorId, agentId }] };
+  }
+}
+
+/** Which of the conditions routing needs is currently unmet, if any. */
+export type AcpBridgeState = 'not-set-up' | 'provider-off' | 'not-discovered' | 'model-disabled' | 'unhealthy' | 'ready';
+
+/**
+ * Built on demand rather than as a module constant.
+ *
+ * A `new vscode.ThemeIcon(...)` at module scope runs on import, which makes the
+ * whole module unimportable anywhere the API is not fully present — the tests
+ * being the immediate case, but the same is true of any early-activation path.
+ */
+function acpBridgeIcon(state: AcpBridgeState): vscode.ThemeIcon {
+  switch (state) {
+    // `plug` reads as "connectable" where a warning triangle would read as
+    // broken. Nothing is wrong with an ACP route nobody has set up yet.
+    case 'not-set-up':
+      return new vscode.ThemeIcon('plug', new vscode.ThemeColor('descriptionForeground'));
+    case 'not-discovered':
+      return new vscode.ThemeIcon('sync', new vscode.ThemeColor('testing.iconQueued'));
+    case 'provider-off':
+    case 'model-disabled':
+      return new vscode.ThemeIcon('circle-slash', new vscode.ThemeColor('testing.iconQueued'));
+    case 'unhealthy':
+      return new vscode.ThemeIcon('warning', new vscode.ThemeColor('testing.iconFailed'));
+    case 'ready':
+      return new vscode.ThemeIcon('check', new vscode.ThemeColor('testing.iconPassed'));
   }
 }
 
@@ -1660,14 +1699,18 @@ class ModelsTreeProvider implements vscode.TreeDataProvider<ModelsTreeNode> {
 
       const configured = configuredAgentIds.has(bridge.agentId);
       const models = (acpProvider?.models ?? []).filter(model => acpAgentIdOf(model.id) === bridge.agentId);
-      const modelEnabled = models.some(model => model.enabled);
-      // Routable, not merely present. `getCandidateModels` requires all four:
-      // an agent in settings, an enabled provider, an enabled model, and a
-      // healthy provider. A tick that reflected only `model.enabled` promised a
-      // route the router would never take — which is exactly how an ACP entry
-      // could sit there looking active while every prompt went elsewhere.
-      const healthy = isProviderHealthy(this.atlas, ACP_PROVIDER_ID);
-      const routable = configured && providerEnabled && modelEnabled && healthy;
+      // Routable, not merely present. `getCandidateModels` requires all of: an
+      // agent in settings, an enabled provider, a discovered and enabled model,
+      // and a healthy provider. A tick that reflected only `model.enabled`
+      // promised a route the router would never take — which is exactly how an
+      // ACP entry sat there looking active while every prompt went elsewhere.
+      const state = resolveAcpBridgeState({
+        configured,
+        providerEnabled,
+        modelCount: models.length,
+        modelEnabled: models.some(model => model.enabled),
+        healthy: isProviderHealthy(this.atlas, ACP_PROVIDER_ID),
+      });
       if (configured) {
         bridged.add(bridge.agentId);
       }
@@ -1676,9 +1719,9 @@ class ModelsTreeProvider implements vscode.TreeDataProvider<ModelsTreeNode> {
         row.providerId,
         bridge.agentId,
         `${row.label as string} — ${bridge.subscriptionName}`,
-        describeAcpBridgeState(configured, providerEnabled, modelEnabled, healthy),
-        describeAcpBridgeTooltip(row.label as string, bridge, configured, providerEnabled, modelEnabled, healthy),
-        routable,
+        describeAcpBridgeState(state),
+        describeAcpBridgeTooltip(row.label as string, bridge, state),
+        state,
         configured && models.length > 0
           ? vscode.TreeItemCollapsibleState.Collapsed
           : vscode.TreeItemCollapsibleState.None,
@@ -1700,26 +1743,47 @@ class ModelsTreeProvider implements vscode.TreeDataProvider<ModelsTreeNode> {
   }
 }
 
-/** Why a bridge row is or is not usable, in the words that name the next step. */
-export function describeAcpBridgeState(
-  configured: boolean,
-  providerEnabled: boolean,
-  modelEnabled: boolean,
-  healthy: boolean,
-): string {
-  if (!configured) {
-    return '(ACP — not set up)';
+/**
+ * Which condition is unmet, in the order the user has to fix them.
+ *
+ * `not-discovered` is separate from `model-disabled` because they look identical
+ * and mean opposite things. Only `acp/claude` is seeded, so a freshly configured
+ * Codex agent has *no* model row until discovery runs — reporting that as
+ * "model disabled" sent the user hunting for a switch that does not exist. One
+ * needs a refresh; the other needs a toggle.
+ */
+export function resolveAcpBridgeState(input: {
+  configured: boolean;
+  providerEnabled: boolean;
+  modelCount: number;
+  modelEnabled: boolean;
+  healthy: boolean;
+}): AcpBridgeState {
+  if (!input.configured) {
+    return 'not-set-up';
   }
-  if (!providerEnabled) {
-    return '(ACP — provider off)';
+  if (!input.providerEnabled) {
+    return 'provider-off';
   }
-  if (!modelEnabled) {
-    return '(ACP — model disabled)';
+  if (input.modelCount === 0) {
+    return 'not-discovered';
   }
-  if (!healthy) {
-    return '(⚠ ACP — agent not responding)';
+  if (!input.modelEnabled) {
+    return 'model-disabled';
   }
-  return '(ACP)';
+  return input.healthy ? 'ready' : 'unhealthy';
+}
+
+/** The state, in the words that name the next step. */
+export function describeAcpBridgeState(state: AcpBridgeState): string {
+  switch (state) {
+    case 'not-set-up': return '(ACP — set up)';
+    case 'provider-off': return '(ACP — provider off)';
+    case 'not-discovered': return '(ACP — refresh to finish)';
+    case 'model-disabled': return '(ACP — model disabled)';
+    case 'unhealthy': return '(⚠ ACP — agent not responding)';
+    case 'ready': return '(ACP)';
+  }
 }
 
 /**
@@ -1732,30 +1796,30 @@ export function describeAcpBridgeState(
 function describeAcpBridgeTooltip(
   vendorLabel: string,
   bridge: { command: string; subscriptionName: string },
-  configured: boolean,
-  providerEnabled: boolean,
-  modelEnabled: boolean,
-  healthy: boolean,
+  state: AcpBridgeState,
 ): string {
-  if (!configured) {
-    return `You can use your ${bridge.subscriptionName} here instead of API credit.\n`
-      + `Open Model Providers to set it up — AtlasMind will walk you through installing ${bridge.command}.`;
+  switch (state) {
+    case 'not-set-up':
+      return `Use your ${bridge.subscriptionName} for ${vendorLabel} models instead of paying per token.\n\n`
+        + `Click this row to set it up. AtlasMind checks whether ${bridge.command} is installed and signed in, `
+        + 'and walks you through it if not — nothing is installed for you.';
+    case 'provider-off':
+      return `${bridge.command} is configured, but the ACP provider is switched off, so the router will not choose it.\n\n`
+        + 'Click to turn it on.';
+    case 'not-discovered':
+      return `${bridge.command} is configured and the provider is on, but no model has been discovered for it yet.\n\n`
+        + 'Click to refresh — that is usually all this needs.';
+    case 'model-disabled':
+      return `${bridge.command} is ready, but its model is disabled, so the router will skip it.\n\n`
+        + 'Enable it from the model row beneath this one.';
+    case 'unhealthy':
+      return `${bridge.command} is configured and enabled, but its last health check failed, so the router is skipping it.\n\n`
+        + 'The usual causes are the command not being on PATH, or the agent not being signed in. '
+        + 'Run it once in a terminal to see which.';
+    case 'ready':
+      return `Reach ${vendorLabel} models through your ${bridge.subscriptionName} over ACP, instead of paying per token.\n`
+        + `Command: ${bridge.command}`;
   }
-  if (!providerEnabled) {
-    return `${bridge.command} is configured, but the ACP provider is switched off, so the router will not choose it.\n`
-      + 'Enable "ACP Agents (subscription)" below to start using it.';
-  }
-  if (!modelEnabled) {
-    return `${bridge.command} is configured and the provider is on, but this model is disabled.\n`
-      + 'Enable it from the model row beneath this one.';
-  }
-  if (!healthy) {
-    return `${bridge.command} is configured and enabled, but its last health check failed, so the router is skipping it.\n`
-      + 'The usual causes are the command not being installed on PATH, or the agent not being signed in. '
-      + 'Run it once in a terminal to see which.';
-  }
-  return `Reach ${vendorLabel} models through your ${bridge.subscriptionName} over ACP, instead of paying per token.\n`
-    + `Command: ${bridge.command}`;
 }
 
 /** Router health for a provider, tolerant of a stubbed router in tests. */

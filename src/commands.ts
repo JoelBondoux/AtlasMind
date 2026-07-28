@@ -411,6 +411,60 @@ export function registerCommands(
       });
     }),
 
+    /**
+     * Finish setting up the ACP route for one vendor, from the Models tree.
+     *
+     * The sidebar could report that a subscription route was unfinished but
+     * offered no way to finish it — the provider-level actions it inherited all
+     * pointed at the vendor's *API* provider, so there was no control on the row
+     * that did what the row was about.
+     *
+     * Whatever is missing, this is the single next step: not configured runs the
+     * install-and-sign-in check (offering the walkthrough when the adapter is
+     * absent), provider off turns it on, and a configured agent with no
+     * discovered model refreshes.
+     */
+    vscode.commands.registerCommand('atlasmind.acp.setUpBridge', async (item?: { vendorId?: string; agentId?: string }) => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const vendorId = typeof item?.vendorId === 'string' ? item.vendorId : '';
+      if (!vendorId) {
+        await vscode.commands.executeCommand('atlasmind.openModelProviders');
+        return;
+      }
+
+      const acpProvider = atlas.modelRouter.listProviders().find(provider => provider.id === 'acp');
+      const { parseAcpAgentSettings, findAcpBridge } = await import('./providers/acp.js');
+      const bridge = findAcpBridge(vendorId);
+      const configured = bridge
+        ? parseAcpAgentSettings(vscode.workspace.getConfiguration('atlasmind').get<unknown>('acp.agents'))
+          .some(agent => agent.id === bridge.agentId)
+        : false;
+
+      // Already configured and merely switched off: flipping it is the whole
+      // job, and routing through the probe would re-ask a question already
+      // answered.
+      if (configured && acpProvider && !acpProvider.enabled) {
+        await atlas.setProviderEnabled('acp', true);
+        await atlas.refreshProviderModels(true);
+        await atlas.refreshProviderHealth();
+        atlas.modelsRefresh.fire();
+        void vscode.window.showInformationMessage('ACP is enabled. Its models are now available to the router.');
+        return;
+      }
+
+      if (configured && acpProvider?.enabled) {
+        await atlas.refreshProviderModels(true);
+        await atlas.refreshProviderHealth();
+        atlas.modelsRefresh.fire();
+        return;
+      }
+
+      const { useSubscriptionForProvider } = await import('./views/modelProviderPanel.js');
+      await useSubscriptionForProvider(atlas, vendorId as ProviderId);
+      atlas.modelsRefresh.fire();
+    }),
+
     vscode.commands.registerCommand('atlasmind.openChatView', async (target?: string | import('./views/chatPanel.js').ChatPanelTarget) => {
       const atlas = requireAtlas();
       if (!atlas) { return; }
@@ -1295,12 +1349,30 @@ export function registerCommands(
   );
 }
 
+/**
+ * These identify a tree item by shape, and the shape is not unique.
+ *
+ * `AcpBridgeTreeItem` once carried a `providerId` holding the *vendor* it sits
+ * beneath, which made it indistinguishable from a provider row: the visibility
+ * toggle on "Anthropic — Claude subscription" flipped Anthropic's API provider,
+ * and the info action reported on it. That row no longer has the property, but
+ * relying on its absence alone is how the bug happened, so both guards also
+ * require the `model-` context value — the same namespace the `when` clauses in
+ * `package.json` use to decide these commands are offered at all.
+ */
+function isModelContextValue(item: unknown): boolean {
+  const contextValue = (item as { contextValue?: unknown } | null)?.contextValue;
+  return typeof contextValue === 'string' && contextValue.startsWith('model-');
+}
+
 function isModelProviderTreeItem(item: unknown): item is ModelProviderTreeItem {
-  return typeof item === 'object' && item !== null && 'providerId' in item && !('modelId' in item);
+  return typeof item === 'object' && item !== null
+    && 'providerId' in item && !('modelId' in item) && isModelContextValue(item);
 }
 
 function isModelTreeItem(item: unknown): item is ModelTreeItem {
-  return typeof item === 'object' && item !== null && 'providerId' in item && 'modelId' in item;
+  return typeof item === 'object' && item !== null
+    && 'providerId' in item && 'modelId' in item && isModelContextValue(item);
 }
 
 function buildAgentSummary(atlas: AtlasMindContext, agent: AgentDefinition): string {
