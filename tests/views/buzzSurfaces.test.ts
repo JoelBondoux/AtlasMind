@@ -106,7 +106,9 @@ describe('Director roster agent binding', () => {
 
   it('routes the write through the shared pure helper rather than merging inline', () => {
     expect(dashboardSource).toContain('writeAgentBinding(');
-    expect(dashboardSource).toContain("import {\n  parseAgentBindings,\n  writeAgentBinding,");
+    // Matched without pinning line endings: a CRLF checkout is a legitimate
+    // working copy, not a failure.
+    expect(dashboardSource).toMatch(/import\s*{[^}]*\bwriteAgentBinding\b[^}]*}\s*from\s*'\.\.\/core\/buzzAgentBindings\.js'/);
   });
 
   it('reports a refused binding rather than failing silently', () => {

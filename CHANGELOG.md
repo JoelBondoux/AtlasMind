@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.151.1] - 2026-07-28
+
+### Fixed
+- **A new test failed on Windows because it pinned Unix line endings.** One assertion matched a multi-line import block as a literal `\n`-joined string, so it could never match a CRLF checkout — the assertion was wrong, not the code. It now matches the import without pinning line endings, verified against a CRLF copy of the sources. Nothing shipped to users changes.
+
 ## [0.151.0] - 2026-07-28
 
 ### Added
