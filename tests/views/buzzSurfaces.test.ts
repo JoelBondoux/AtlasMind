@@ -200,8 +200,17 @@ describe('the guided walkthrough is reachable from the Buzz settings page', () =
     expect(settingsSource).toContain("message.type === 'openBuzzGuide'");
   });
 
-  it('hands off to the one plan rather than duplicating it in the panel', () => {
-    expect(settingsSource).toContain("'@atlas /buzz'");
+  it('opens AtlasMind own chat panel, not VS Code chat', () => {
+    // Routing through `workbench.action.chat.open` put a Buzz question in front
+    // of Copilot's participant picker, and the slash command arrived as text.
+    expect(settingsSource).toContain("executeCommand('atlasmind.buzz.openGuide')");
+    // Scoped to this handler: other buttons legitimately open VS Code chat.
+    const handler = settingsSource.slice(
+      settingsSource.indexOf("case 'openBuzzGuide':"),
+      settingsSource.indexOf("case 'setProjectRunReportFolder'"),
+    );
+    // The comment above the handler names the old route; only a real call counts.
+    expect(handler).not.toMatch(/executeCommand\('workbench\.action\.chat\.open'/);
   });
 });
 

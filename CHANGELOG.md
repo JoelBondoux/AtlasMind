@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.159.0] - 2026-07-28
+
+### Added
+- **The Buzz setup guide is now one step at a time.** `/buzz` shows only the step you are on — numbered, with the exact commands written out — instead of the whole checklist at once. `/buzz all` still shows everything.
+- **Commands can be put straight into a terminal for you.** A button loads the command into a "Buzz setup" terminal, typed but **not run** — pressing Enter stays yours, since these clone repositories and start containers.
+- **The guide asks how you run Buzz and then shows only that path.** `/buzz local` gives the Docker route with real commands; `/buzz hosted` says there is nothing to install and what to paste where. Stored as `atlasmind.buzz.relayMode`, which changes guidance only.
+- **The Buzz desktop app is now part of the guide.** It was missing entirely, which left the walkthrough describing a workspace with no way in — and the channel ids the later steps ask for come from the app.
+- **The MCP bridge step is named as such** ("Connect the Buzz MCP bridge"), so it is findable when you are looking for it.
+
+### Changed
+- **"Guide me through Buzz setup" now opens AtlasMind's own chat panel**, not VS Code's. Routing through `workbench.action.chat.open` put a Buzz question in front of Copilot's participant picker, and — because a slash command in a pre-filled query arrives as text — straight into the general agent.
+- **The local-relay path is spoon-fed:** check Docker, clone the repo, build and start, then confirm something is listening with `docker ps`. Previously it said "normally means Docker", which is not something a first-timer can act on.
+
+### Security
+- **Only commands AtlasMind wrote can be loaded into a terminal.** `BUZZ_SETUP_COMMANDS` is an allowlist checked at the command handler, because a command id is reachable from a webview and its payload cannot be assumed to be ours. Commands quoted from Buzz's documentation are shown for copying and are never wired to a button — they are somebody else's text.
+- **The button still never runs anything.** It types the command and stops.
+
 ## [0.158.1] - 2026-07-28
 
 ### Changed

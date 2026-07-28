@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.158.1",
+  "version": "0.159.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -1154,6 +1154,21 @@
           "default": true,
           "description": "Bring the AtlasMind chat panel forward when a tool approval is waiting. A notification is shown either way — turning this off only stops the panel taking focus.",
           "markdownDescription": "Bring the AtlasMind chat panel forward when a tool approval needs an answer.\n\nAn approval **blocks the run until it is answered**, and the approval bar lives in this panel — which you may not be looking at. Without this, the run appears to hang.\n\nA dismissible notification naming the waiting action is shown regardless, so turning this off only stops the panel taking focus; it never leaves you unaware. Nothing is announced while the panel is already on screen."
+        },
+        "atlasmind.buzz.relayMode": {
+          "type": "string",
+          "default": "undecided",
+          "enum": [
+            "undecided",
+            "local",
+            "hosted"
+          ],
+          "enumDescriptions": [
+            "Not yet chosen — the setup guide will ask.",
+            "You run a Buzz relay on this machine (needs Docker).",
+            "Someone else runs the relay; you connect to their wss:// URL."
+          ],
+          "description": "Which way you run Buzz, so the setup guide shows only the path that applies. Set by answering the guide; it changes guidance only and connects nothing."
         },
         "atlasmind.buzz.enabled": {
           "type": "boolean",

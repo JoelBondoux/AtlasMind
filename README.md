@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.158.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.159.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,10 +64,11 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.158.1
+## What's new in 0.159.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
 
+- **Buzz setup is a walkthrough, not a wall of text.** `/buzz` takes you one step at a time, asks whether you are running Buzz locally or connecting to a hosted relay, and then shows only that path — with the exact terminal commands written out and a button that loads them into a terminal ready to run (it never presses Enter for you). It covers the Buzz desktop app and the MCP bridge too, and opens in AtlasMind's own chat rather than Copilot's.
 - **A blocked run no longer looks like a hung one.** When a tool approval is waiting and the AtlasMind panel is not on screen, the panel comes forward and a notification names what needs an answer — because the approval bar lives in that panel, and you might be in VS Code's own chat, an editor, or another window. It stays quiet when the panel is already visible.
 - **DM people from chat, and let agents talk to each other.** `/buzz dm <name> <message>` messages someone straight from your Director roster. And `atlasmind.buzz.autonomousReplies` (off by default) lets an AtlasMind agent hold a loop with a Buzz agent without a dialog per message — scoped only to identities you explicitly bound to an agent, rate-capped per recipient, and still confirming for anyone unbound, who is treated as a person.
 - **Talk to Buzz from AtlasMind chat.** `/buzz read` shows the conversation with real names and emoji reactions; `/buzz send <message>` replies through the guarded bridge. Confirmation now fires where it earns its place — anything AtlasMind drafted, any recipient it picked, and the first message to anyone in a session — rather than on every message you type yourself, because a dialog you always click through protects nothing.

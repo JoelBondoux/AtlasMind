@@ -11,6 +11,7 @@ import { sanitizeTerminalOutput } from './utils/terminalOutput.js';
 import { PresenceManager } from './core/presenceManager.js';
 import { BUZZ_AGENT_KEY_SECRET } from './core/buzzSigner.js';
 import { BuzzInboundService } from './core/buzzInboundService.js';
+import { BUZZ_SETUP_COMMANDS } from './core/buzzSetupPlan.js';
 import type { ProjectMemoryFreshnessStatus } from './bootstrap/bootstrapper.js';
 import type { SessionConversation, SessionPolicySnapshot } from './chat/sessionConversation.js';
 import type { VoiceManager } from './voice/voiceManager.js';
@@ -2780,6 +2781,83 @@ async function bootstrapAtlasMind(
         ? 'AtlasMind will keep this computer awake while an activity needs the agent online.'
         : 'AtlasMind will no longer keep this computer awake.');
     }),
+    /**
+     * Put a setup command into a terminal, ready to run — but do not run it.
+     *
+     * Spoon-feeding the command is the point: someone setting Buzz up for the
+     * first time should not have to work out what to type. Pressing Enter stays
+     * theirs, because these commands clone repositories and start containers,
+     * and a button that did that silently would be a very different thing from
+     * a button that saves you typing.
+     *
+     * Only commands AtlasMind itself wrote reach here — anything quoted from
+     * Buzz's documentation is displayed for copying and never wired to a
+     * button, since it is somebody else's text.
+     */
+    /**
+     * Show the Buzz setup walkthrough in AtlasMind's own chat panel.
+     *
+     * Deterministic: the step is derived from observed configuration and
+     * written straight into the transcript, so no model is asked anything and
+     * no tools are in scope. A setup question never needed an agent.
+     */
+    vscode.commands.registerCommand('atlasmind.buzz.openGuide', async () => {
+      const atlas = atlasContext;
+      if (!atlas) { return; }
+      const [{ buildBuzzSetupPlan, buzzStepPosition, isBuzzInboundReady, nextBuzzSetupStep, renderBuzzStepMarkdown },
+        { hasLauncherOnPath }, { BUZZ_AGENT_KEY_SECRET }] = await Promise.all([
+        import('./core/buzzSetupPlan.js'),
+        import('./mcp/mcpEnvironmentScanner.js'),
+        import('./core/buzzSigner.js'),
+      ]);
+
+      const cfg = vscode.workspace.getConfiguration('atlasmind');
+      let hasAgentKey = false;
+      try {
+        hasAgentKey = Boolean((await context.secrets.get(BUZZ_AGENT_KEY_SECRET))?.trim());
+      } catch { /* an unreadable store reads as "no key"; the remedy is the same */ }
+
+      const rawChannels = cfg.get<unknown>('buzz.inboundChannels', []);
+      const steps = buildBuzzSetupPlan({
+        cliOnPath: hasLauncherOnPath('buzz'),
+        hasAgentKey,
+        relayUrl: cfg.get<string>('buzz.relayUrl', ''),
+        allowRemoteRelay: cfg.get<boolean>('buzz.allowRemoteRelay', false),
+        enabled: cfg.get<boolean>('buzz.enabled', false),
+        inboundEnabled: cfg.get<boolean>('buzz.inboundEnabled', false),
+        channelIds: Array.isArray(rawChannels) ? rawChannels.filter((c): c is string => typeof c === 'string') : [],
+        autoCreateFollowUps: cfg.get<boolean>('buzz.autoCreateFollowUps', false),
+        mcpServerRegistered: (atlas.mcpServerRegistry?.listServers() ?? [])
+          .some((entry: { config: { id: string; name?: string } }) =>
+            entry.config.id === 'mcp-server-buzz' || /buzz/i.test(entry.config.name ?? '')),
+        observedIdentities: atlas.buzzInbound?.listIdentities().length ?? 0,
+        relayMode: cfg.get<'local' | 'hosted' | 'undecided'>('buzz.relayMode', 'undecided'),
+      });
+
+      const next = nextBuzzSetupStep(steps);
+      const body = isBuzzInboundReady(steps) || !next
+        ? '### Buzz setup — done\n\nReading Buzz is fully set up. The optional extras — recording follow-ups, the CLI, the MCP bridge, the desktop app — are choices rather than gaps.'
+        : renderBuzzStepMarkdown(next, buzzStepPosition(steps, next.id));
+
+      atlas.sessionConversation.appendMessage('assistant', body);
+      await vscode.commands.executeCommand('atlasmind.openChatPanel');
+    }),
+
+    vscode.commands.registerCommand('atlasmind.buzz.prepareCommand', async (command?: string) => {
+      const text = typeof command === 'string' ? command.trim() : '';
+      // The allowlist is the safety property: a command id is reachable from a
+      // webview, so the payload cannot be trusted to be one AtlasMind authored.
+      if (!text || !BUZZ_SETUP_COMMANDS.includes(text)) {
+        void vscode.window.showWarningMessage('That is not a known AtlasMind setup command, so it was not prepared.');
+        return;
+      }
+      const terminal = vscode.window.terminals.find((entry) => entry.name === 'Buzz setup')
+        ?? vscode.window.createTerminal({ name: 'Buzz setup' });
+      terminal.show(true);
+      // `false` types the command without submitting it.
+      terminal.sendText(text, false);
+    }),
+
     vscode.commands.registerCommand('atlasmind.setBuzzAgentKey', async () => {
       const existing = await context.secrets.get(BUZZ_AGENT_KEY_SECRET);
       const entered = await vscode.window.showInputBox({

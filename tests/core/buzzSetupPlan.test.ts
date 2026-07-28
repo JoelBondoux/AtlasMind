@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  BUZZ_SETUP_COMMANDS,
   buildBuzzSetupPlan,
+  buzzStepPosition,
+  renderBuzzStepMarkdown,
   isBuzzInboundReady,
   isInsecureRemoteRelay,
   isRemoteRelay,
@@ -29,6 +32,8 @@ const READY: BuzzSetupState = {
   hasAgentKey: true,
   enabled: true,
   inboundEnabled: true,
+  // The relay how-to is branched, so the local path is what these assert.
+  relayMode: 'local',
 };
 
 const step = (state: BuzzSetupState, id: string) => buildBuzzSetupPlan(state).find(s => s.id === id);
@@ -183,32 +188,102 @@ describe('nextBuzzSetupStep scoping', () => {
 });
 
 describe('the guide is thorough about what lives outside AtlasMind', () => {
-  it('explains that a local relay is something you have to run', () => {
-    // The default relay URL is localhost, which reads as "already working".
-    // Nothing in AtlasMind starts a relay, and the symptom of an absent one is
-    // a subscription that simply never goes live.
-    const guidance = (buildBuzzSetupPlan(READY).find(s => s.id === 'relay')?.guidance ?? []).join(' ');
-    expect(guidance).toMatch(/something has to actually be listening/i);
-    expect(guidance).toMatch(/docker/i);
-    expect(guidance).toMatch(/nothing in atlasmind starts it/i);
+  const text = (state: BuzzSetupState, id: string) =>
+    (buildBuzzSetupPlan(state).find(s => s.id === id)?.guidance ?? []).map(l => l.text).join(' ');
+  const commands = (state: BuzzSetupState, id: string) =>
+    (buildBuzzSetupPlan(state).find(s => s.id === id)?.guidance ?? []).map(l => l.command).filter(Boolean);
+
+  it('asks which way you run Buzz before explaining either', () => {
+    // Presenting both paths at once left the reader to work out which half
+    // applied to them. Asking once and showing one path is less to read and
+    // less to get wrong.
+    const undecided = text({ ...READY, relayMode: 'undecided' }, 'relay');
+    expect(undecided).toMatch(/decide how you want to run Buzz/i);
+    expect(undecided).toMatch(/hosted/i);
+    expect(undecided).toMatch(/local/i);
   });
 
-  it('covers the hosted alternative too, since Buzz need not be local', () => {
-    const guidance = (buildBuzzSetupPlan(READY).find(s => s.id === 'relay')?.guidance ?? []).join(' ');
-    expect(guidance).toMatch(/hosted relay/i);
-    expect(guidance).toMatch(/wss:\/\//);
+  it('spoon-feeds the local path with real commands', () => {
+    // "Normally means Docker" is not something a first-timer can act on.
+    const local = commands({ ...READY, relayMode: 'local' }, 'relay');
+    expect(local).toContain('docker --version');
+    expect(local).toContain('git clone https://github.com/block/buzz.git');
+    expect(local).toContain('docker ps');
+  });
+
+  it('tells the hosted path there is nothing to install', () => {
+    const hosted = text({ ...READY, relayMode: 'hosted' }, 'relay');
+    expect(hosted).toMatch(/nothing to install/i);
+    expect(hosted).toMatch(/wss:\/\//);
+    expect(commands({ ...READY, relayMode: 'hosted' }, 'relay')).toHaveLength(0);
+  });
+
+  it('only offers a terminal button for commands AtlasMind wrote', () => {
+    // Commands quoted from Buzz's docs are somebody else's text and must never
+    // become a one-click action.
+    for (const mode of ['local', 'hosted', 'undecided'] as const) {
+      for (const step of buildBuzzSetupPlan({ ...READY, relayMode: mode })) {
+        for (const line of step.guidance ?? []) {
+          if (line.authored) {
+            expect(BUZZ_SETUP_COMMANDS, `unlisted command ${line.command}`).toContain(line.command);
+          }
+        }
+      }
+    }
   });
 
   it('does not invent a Docker command it cannot verify', () => {
-    // Naming an image or a command that has drifted would be worse than the
-    // link: it would fail in a way that looks like AtlasMind's fault.
-    const guidance = (buildBuzzSetupPlan(READY).find(s => s.id === 'relay')?.guidance ?? []).join(' ');
-    expect(guidance).not.toMatch(/docker run\s+\S/i);
+    // Naming an image or invocation that has drifted would fail in a way that
+    // looks like AtlasMind's fault, so the build/run steps stay quoted.
+    const local = commands({ ...READY, relayMode: 'local' }, 'relay').join(' ');
+    expect(local).not.toMatch(/docker run\s+\S/i);
     expect(buildBuzzSetupPlan(READY).find(s => s.id === 'relay')?.docs?.url).toContain('github.com/block/buzz');
   });
 
+  it('does not treat a valid localhost URL as proof a relay exists', () => {
+    // ws://localhost:3000 reads as settled while nothing may be listening, and
+    // the symptom is a subscription that never goes live.
+    const unproven = buildBuzzSetupPlan(READY).find(s => s.id === 'relay');
+    expect(unproven?.detail).toMatch(/has not connected yet/i);
+
+    const proven = buildBuzzSetupPlan({ ...READY, inboundStatus: 'live' }).find(s => s.id === 'relay');
+    expect(proven?.detail).not.toMatch(/has not connected yet/i);
+    expect(proven?.guidance).toBeUndefined();
+  });
+
+  it('includes the desktop app, and says why it matters', () => {
+    // Without it the guide described a workspace with no way in — and the
+    // channel ids the next steps ask for come from the app.
+    const app = buildBuzzSetupPlan(READY).find(s => s.id === 'app');
+    expect(app?.status).toBe('optional');
+    expect((app?.guidance ?? []).map(l => l.text).join(' ')).toMatch(/copy its id/i);
+    expect((app?.guidance ?? []).some(l => l.url?.includes('releases'))).toBe(true);
+  });
+
+  it('names the MCP bridge as the thing needed to send', () => {
+    const mcp = buildBuzzSetupPlan(READY).find(s => s.id === 'mcp');
+    expect(mcp?.title).toMatch(/MCP/);
+    expect(mcp?.title).toMatch(/only needed to send/i);
+  });
+
+  it('numbers steps against the required sequence only', () => {
+    // Counting optional steps would make the finish line move as you progress.
+    const steps = buildBuzzSetupPlan(FRESH);
+    expect(buzzStepPosition(steps, 'enabled')).toEqual({ index: 1, total: 4 });
+    expect(buzzStepPosition(steps, 'inbound').total).toBe(4);
+  });
+
+  it('renders a step as markdown with its commands in fenced blocks', () => {
+    const steps = buildBuzzSetupPlan({ ...FRESH, relayMode: 'local', enabled: true });
+    const relay = steps.find(s => s.id === 'relay')!;
+    const md = renderBuzzStepMarkdown(relay, buzzStepPosition(steps, 'relay'));
+    expect(md).toContain('step 2 of 4');
+    expect(md).toContain('```bash');
+    expect(md).toContain('docker --version');
+  });
+
   it('says what kind of key the agent-key prompt wants', () => {
-    const guidance = (buildBuzzSetupPlan(FRESH).find(s => s.id === 'agentKey')?.guidance ?? []).join(' ');
+    const guidance = (buildBuzzSetupPlan(FRESH).find(s => s.id === 'agentKey')?.guidance ?? []).map(l => l.text).join(' ');
     expect(guidance).toMatch(/nsec1/);
     expect(guidance).toMatch(/npub.*cannot sign|cannot sign/i);
     expect(guidance).toMatch(/secret store/i);
@@ -216,7 +291,7 @@ describe('the guide is thorough about what lives outside AtlasMind', () => {
 
   it('corrects the empty-channel-list misreading where someone will hit it', () => {
     const guidance = (buildBuzzSetupPlan({ ...FRESH, enabled: true, hasAgentKey: true })
-      .find(s => s.id === 'inbound')?.guidance ?? []).join(' ');
+      .find(s => s.id === 'inbound')?.guidance ?? []).map(l => l.text).join(' ');
     expect(guidance).toMatch(/not.*no channels/i);
   });
 
@@ -237,7 +312,7 @@ describe('the guide is thorough about what lives outside AtlasMind', () => {
     // symptom is a subscription that never goes live. A string is not a relay.
     const unproven = buildBuzzSetupPlan(READY).find(s => s.id === 'relay');
     expect(unproven?.detail).toMatch(/has not connected yet/i);
-    expect(unproven?.guidance?.join(' ')).toMatch(/docker/i);
+    expect((unproven?.guidance ?? []).map(l => l.text).join(' ')).toMatch(/docker/i);
 
     const proven = buildBuzzSetupPlan({ ...READY, inboundStatus: 'live' }).find(s => s.id === 'relay');
     expect(proven?.detail).not.toMatch(/has not connected yet/i);
@@ -245,7 +320,7 @@ describe('the guide is thorough about what lives outside AtlasMind', () => {
   });
 
   it('tells you the CLI is skippable if you only want to read', () => {
-    const guidance = (buildBuzzSetupPlan(READY).find(s => s.id === 'cli')?.guidance ?? []).join(' ');
+    const guidance = (buildBuzzSetupPlan(READY).find(s => s.id === 'cli')?.guidance ?? []).map(l => l.text).join(' ');
     expect(guidance).toMatch(/skip this entirely/i);
   });
 });

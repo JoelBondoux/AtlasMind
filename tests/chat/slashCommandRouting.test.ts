@@ -57,12 +57,17 @@ describe('slash command routing', () => {
   });
 });
 
-describe('the Buzz guide button reaches the Buzz command', () => {
+describe('slash commands opened from other surfaces', () => {
   const settingsSource = readFileSync(path.join(process.cwd(), 'src', 'views', 'settingsPanel.ts'), 'utf8');
 
-  it('opens chat with a query the participant can recover', () => {
-    expect(settingsSource).toContain("'@atlas /buzz'");
-    // The recovery path is what makes that query safe to rely on.
-    expect(KNOWN_SLASH_COMMANDS.has('buzz')).toBe(true);
+  it('still recovers the pre-filled queries other buttons use', () => {
+    // The Buzz guide no longer routes through VS Code chat, but this one still
+    // does — and it has exactly the same latent bug, so the recovery path has
+    // to keep covering it.
+    const prefilled = [...settingsSource.matchAll(/'@atlas \/([a-z-]+)'/g)].map(m => m[1]!);
+    expect(prefilled.length).toBeGreaterThan(0);
+    for (const command of prefilled) {
+      expect(KNOWN_SLASH_COMMANDS.has(command), `/${command} is pre-filled but unrecoverable`).toBe(true);
+    }
   });
 });
