@@ -414,11 +414,13 @@ export function renderBuzzStepMarkdown(
   step: BuzzSetupStep,
   position: { index: number; total: number; trail?: string },
 ): string {
-  const lines = [
-    `### Buzz setup — step ${position.index} of ${position.total}: ${step.title}`,
-    '',
-    step.detail,
-  ];
+  // "Step 2 of 4" as an opening line reads as though the guide lost its place.
+  // Leading with what is already done says why you are starting here.
+  const done = position.index - 1;
+  const heading = done > 0
+    ? `### Buzz setup — ${done} of ${position.total} done. Next: ${step.title}`
+    : `### Buzz setup — step 1 of ${position.total}: ${step.title}`;
+  const lines = [heading, '', step.detail];
   if (position.trail) {
     // Landing on step 3 with no sign of steps 1 and 2 reads as though the guide
     // lost its place. Showing what is already done says why you are here.

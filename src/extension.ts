@@ -2820,6 +2820,23 @@ async function bootstrapAtlasMind(
         hasAgentKey = Boolean((await context.secrets.get(BUZZ_AGENT_KEY_SECRET))?.trim());
       } catch { /* an unreadable store reads as "no key"; the remedy is the same */ }
 
+      // The same key can already have been given to the Buzz MCP bridge, which
+      // stores it under its own secret. Inbound reads a different one, so the
+      // guide was correctly saying "no key" to someone who had supplied it —
+      // technically right and completely unhelpful. Find it and offer to reuse it.
+      const buzzServer = (atlas.mcpServerRegistry?.listServers() ?? [])
+        .find((entry: { config: { id: string; name?: string } }) =>
+          entry.config.id === 'mcp-server-buzz' || /buzz/i.test(entry.config.name ?? ''));
+      let bridgeKeySecretId: string | undefined;
+      if (!hasAgentKey && buzzServer) {
+        const candidate = `atlasmind.mcp.${buzzServer.config.id}.BUZZ_PRIVATE_KEY`;
+        try {
+          if ((await context.secrets.get(candidate))?.trim()) {
+            bridgeKeySecretId = candidate;
+          }
+        } catch { /* unreadable is the same as absent here */ }
+      }
+
       const rawChannels = cfg.get<unknown>('buzz.inboundChannels', []);
       const steps = buildBuzzSetupPlan({
         cliOnPath: hasLauncherOnPath('buzz'),
@@ -2838,9 +2855,12 @@ async function bootstrapAtlasMind(
       });
 
       const next = nextBuzzSetupStep(steps);
+      const bridgeNote = bridgeKeySecretId && next?.id === 'agentKey'
+        ? '\n\n> **You have already given this key to the Buzz MCP bridge.** Inbound reads a separate secret, so it does not see that one. Press **Reuse the key from the Buzz bridge** below and this step is done.'
+        : '';
       const body = isBuzzInboundReady(steps) || !next
         ? '### Buzz setup — done\n\nReading Buzz is fully set up. The optional extras — recording follow-ups, the CLI, the MCP bridge, the desktop app — are choices rather than gaps.'
-        : renderBuzzStepMarkdown(next, buzzStepPosition(steps, next.id));
+        : renderBuzzStepMarkdown(next, buzzStepPosition(steps, next.id)) + bridgeNote;
 
       // Its own session. Appending to whatever thread happened to be open put a
       // setup walkthrough in the middle of unrelated work and left the thread
@@ -2856,14 +2876,76 @@ async function bootstrapAtlasMind(
       const { ChatPanel } = await import('./views/chatPanel.js');
       const relayMode = cfg.get<'local' | 'hosted' | 'undecided'>('buzz.relayMode', 'undecided');
       const choices = next ? buzzStepChoices(next, relayMode) : [];
-      await ChatPanel.currentPanel?.setGuideChoice(choices.length > 0
-        ? {
+      if (choices.length > 0) {
+        await ChatPanel.currentPanel?.setGuideChoice({
           id: 'buzz-relay-mode',
           title: 'How do you want to run Buzz?',
           detail: 'The two paths need different things, so I will show only the one that applies.',
           options: choices,
+        });
+      } else if (next) {
+        // The step's own actions, as buttons. Ids only cross the boundary; the
+        // commands they map to are held extension-side.
+        const actions = new Map<string, { command: string; args?: unknown[] }>();
+        const options: Array<{ id: string; label: string }> = [];
+        if (bridgeKeySecretId && next.id === 'agentKey') {
+          actions.set('reuse-bridge-key', { command: 'atlasmind.buzz.reuseBridgeKey', args: [bridgeKeySecretId] });
+          options.push({ id: 'reuse-bridge-key', label: 'Reuse the key from the Buzz bridge' });
         }
-        : undefined);
+        if (next.action) {
+          actions.set('primary', { command: next.action.command, ...(next.action.args ? { args: next.action.args } : {}) });
+          options.push({ id: 'primary', label: next.action.title });
+        }
+        for (const line of next.guidance ?? []) {
+          if (line.command && line.authored) {
+            actions.set(line.command, { command: 'atlasmind.buzz.prepareCommand', args: [line.command] });
+            options.push({ id: line.command, label: `Put \`${line.command}\` in a terminal` });
+          }
+        }
+        await ChatPanel.currentPanel?.setGuideChoice(
+          options.length > 0
+            ? { id: 'buzz-guide', title: `Step ${buzzStepPosition(steps, next.id).index}: ${next.title}`, options }
+            : undefined,
+          actions,
+        );
+      } else {
+        await ChatPanel.currentPanel?.setGuideChoice(undefined);
+      }
+    }),
+
+    /**
+     * Copy the key already stored for the Buzz MCP bridge into the secret that
+     * inbound reads.
+     *
+     * The two are separate secrets for good reason — one belongs to a server
+     * definition, one to the extension — but they hold the same key, and asking
+     * someone to paste it twice because of an internal boundary is the kind of
+     * thing that makes a setup guide feel broken. The button press is the
+     * consent; both stores are the OS secret store, and nothing is displayed.
+     */
+    vscode.commands.registerCommand('atlasmind.buzz.reuseBridgeKey', async (secretId?: string) => {
+      // Only a Buzz bridge secret, and only ever read from SecretStorage: a
+      // command id is reachable from a webview, so the argument is checked
+      // rather than trusted.
+      if (typeof secretId !== 'string' || !/^atlasmind\.mcp\.[\w-]+\.BUZZ_PRIVATE_KEY$/.test(secretId)) {
+        void vscode.window.showWarningMessage('That is not a Buzz bridge key, so nothing was copied.');
+        return;
+      }
+      const value = (await context.secrets.get(secretId))?.trim();
+      if (!value) {
+        void vscode.window.showWarningMessage('No key is stored for the Buzz bridge.');
+        return;
+      }
+      const { createBuzzEventSigner } = await import('./core/buzzSigner.js');
+      const check = await createBuzzEventSigner(value);
+      if (!check.ok) {
+        // Never echo the key itself, only why it cannot be used.
+        void vscode.window.showWarningMessage(`The bridge's key cannot be used for inbound: ${check.reason}`);
+        return;
+      }
+      await context.secrets.store(BUZZ_AGENT_KEY_SECRET, value);
+      void vscode.window.showInformationMessage('Buzz agent key set from the bridge configuration.');
+      await vscode.commands.executeCommand('atlasmind.buzz.openGuide');
     }),
 
     vscode.commands.registerCommand('atlasmind.buzz.prepareCommand', async (command?: string) => {

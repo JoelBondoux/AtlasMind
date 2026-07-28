@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.160.1] - 2026-07-28
+
+### Fixed
+- **"Press the button below" — there was no button.** The walkthrough's wording was written for VS Code chat, where buttons render, and shown in the AtlasMind panel, where nothing did. Each step's actions now appear as buttons there: open the relevant screen, set the agent key, or load a command into a terminal.
+- **The opening line read as though the guide had lost its place.** Starting at "step 2 of 4" looks like something was skipped, when in fact step 1 was already finished. It now leads with progress — "1 of 4 done. Next: …" — and only says "step 1 of 4" when nothing is done yet.
+- **A key already given to the Buzz MCP bridge is now recognised.** The bridge stores it under its own secret and inbound reads a different one, so the guide could correctly report "no key" to someone who had already supplied it. It now spots that and offers **Reuse the key from the Buzz bridge**, which validates the key before storing it.
+
+### Security
+- **A guide button names an option id, never a command.** The mapping from option to command is held extension-side and looked up, so a webview message cannot choose what runs.
+- **Reusing the bridge key is checked, not trusted.** The secret id must match the Buzz bridge's exact naming, the key is validated by constructing a signer before it is stored, and neither the key nor any part of it is ever displayed or logged.
+
 ## [0.160.0] - 2026-07-28
 
 ### Added

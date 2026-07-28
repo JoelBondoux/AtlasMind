@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.160.0",
+  "version": "0.160.1",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -238,6 +238,20 @@
         "command": "atlasmind.togglePresence",
         "title": "AtlasMind: Toggle Keep Computer Awake",
         "icon": "$(zap)"
+      },
+      {
+        "command": "atlasmind.buzz.reuseBridgeKey",
+        "title": "AtlasMind: Reuse the Buzz Key From the MCP Bridge",
+        "enablement": "false"
+      },
+      {
+        "command": "atlasmind.buzz.prepareCommand",
+        "title": "AtlasMind: Prepare a Buzz Setup Command",
+        "enablement": "false"
+      },
+      {
+        "command": "atlasmind.buzz.openGuide",
+        "title": "AtlasMind: Guide Me Through Buzz Setup"
       },
       {
         "command": "atlasmind.setBuzzAgentKey",

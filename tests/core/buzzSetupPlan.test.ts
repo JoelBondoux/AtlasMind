@@ -279,7 +279,8 @@ describe('the guide is thorough about what lives outside AtlasMind', () => {
     const steps = buildBuzzSetupPlan({ ...FRESH, relayMode: 'local', enabled: true });
     const relay = steps.find(s => s.id === 'relay')!;
     const md = renderBuzzStepMarkdown(relay, buzzStepPosition(steps, 'relay'));
-    expect(md).toContain('step 2 of 4');
+    // Leads with progress, not an arbitrary step number.
+    expect(md).toContain('1 of 4 done. Next:');
     expect(md).toContain('```bash');
     expect(md).toContain('docker --version');
   });
@@ -376,5 +377,21 @@ describe('buzzStepChoices', () => {
     for (const step of plan.filter(s => s.id !== 'relay')) {
       expect(buzzStepChoices(step, 'undecided'), step.id).toEqual([]);
     }
+  });
+});
+
+describe('the opening line reads as progress', () => {
+  it('says "step 1 of N" only when nothing is done yet', () => {
+    const plan = buildBuzzSetupPlan(FRESH);
+    expect(renderBuzzStepMarkdown(plan[0]!, buzzStepPosition(plan, 'enabled'))).toContain('step 1 of 4');
+  });
+
+  it('says what is already done when picking up mid-sequence', () => {
+    // "Step 2 of 4" as an opening line reads as though the guide lost its
+    // place, when in fact step 1 was already finished.
+    const plan = buildBuzzSetupPlan({ ...FRESH, enabled: true });
+    const md = renderBuzzStepMarkdown(plan.find(s => s.id === 'relay')!, buzzStepPosition(plan, 'relay'));
+    expect(md).toContain('1 of 4 done. Next:');
+    expect(md).not.toMatch(/step 2 of 4/i);
   });
 });
