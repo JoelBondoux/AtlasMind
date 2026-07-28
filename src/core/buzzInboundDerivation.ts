@@ -22,6 +22,7 @@
  */
 
 import { BUZZ_KIND, findTagValue, type NostrEvent } from './buzzProtocol.js';
+import { resolveBoundAgent, type BuzzAgentBinding } from './buzzAgentBindings.js';
 import type { FollowUp } from '../types.js';
 
 /** Max characters of derived title text retained. Titles summarise; they don't mirror. */
@@ -71,6 +72,11 @@ export interface DerivedWorkItem {
   followUp: FollowUp;
   /** Where in Buzz this came from, so the UI can link back to the real thread. */
   pointer: BuzzThreadPointer;
+  /**
+   * The AtlasMind agent bound to the event's author, when the project
+   * configured one. Undefined means *no preference* — never a guess.
+   */
+  agentId?: string;
 }
 
 export type DerivationResult =
@@ -82,6 +88,11 @@ export interface DerivationContext {
   now: Date;
   /** Contact whose Buzz identity matches the event author, when known. */
   withContactId?: string;
+  /**
+   * Buzz-identity → AtlasMind-agent bindings, so work from a known Buzz agent
+   * can land with the right specialist. Unbound authors stay unassigned.
+   */
+  agentBindings?: BuzzAgentBinding[];
   /** Days until the derived follow-up is due. */
   dueInDays?: number;
 }
@@ -165,7 +176,14 @@ export function deriveWorkItemFromEvent(
     ...(context.withContactId ? { withContactId: context.withContactId } : {}),
   };
 
-  return { ok: true, item: { followUp, pointer } };
+  const bound = context.agentBindings?.length
+    ? resolveBoundAgent(context.agentBindings, event.pubkey)
+    : undefined;
+
+  return {
+    ok: true,
+    item: { followUp, pointer, ...(bound ? { agentId: bound.agentId } : {}) },
+  };
 }
 
 /**

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.149.2</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.150.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,10 +64,11 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.149.2
+## What's new in 0.150.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
 
+- **Buzz activity can become AtlasMind work.** Switch on inbound and AtlasMind holds a live, read-only subscription to your Buzz relay, turning channel activity into follow-ups with a pointer back to the thread. You can also **assign AtlasMind agents to specific Buzz agents**, so work from a known Buzz bot lands with the right specialist. Three separate opt-ins gate it — enabling Buzz, subscribing, and recording — because project memory is committed to your repository.
 - **Buzz inbound can now authenticate.** AtlasMind signs the NIP-42 challenge a real Buzz relay demands, so a live subscription is possible at all — a relay refuses to serve one otherwise. The signing library is tiny (170 KB, no dependencies of its own) and is loaded only the first time a signature is needed, so if you never use Buzz it costs you nothing. Your agent key stays in the OS secret store, is checksum-validated so a mistyped key fails loudly instead of signing as someone else, and never reaches a log or an error message.
 - **Hosted Buzz workspaces are handled safely.** A Buzz relay doesn't have to be local. Connecting to a **remote** one now requires an encrypted connection — plaintext to a hosted relay would expose colleagues' messages in transit — matching the rule the outbound path already applied.
 - **Reading Buzz activity back in.** AtlasMind can now hold a live subscription to a Buzz relay: it authenticates, subscribes, keeps itself genuinely in contact (a wake lock can't save a dropped socket, so there's a keep-alive with backoff reconnect), and turns activity into follow-ups. External conversations are **derived, never mirrored** — a message becomes a follow-up with a pointer back to the thread, never the message body, because project memory is committed to your repository and a mirrored channel would put colleagues' chat in your git history. The subscription is **read-only by construction**: it can never publish to Buzz. Authentication and the message contract are now verified against a real Buzz relay; what remains before it is switched on is the wiring — an opt-in toggle and follow-up persistence.
@@ -229,6 +230,7 @@ Open the Command Palette with `Ctrl+Shift+P`.
 | `AtlasMind: Scaffold Testing Framework` | Create a stack-aware testing starter |
 | `AtlasMind: Sync Testing Protocols to AI Agents` | Mirror enabled testing protocols into supported instruction files |
 | `AtlasMind: Toggle Keep Computer Awake` | Opt into an AC-aware wake lock for long-running activity |
+| `AtlasMind: Set Buzz Agent Key` | Store or remove the Buzz agent key in the OS secret store (empty value removes it) |
 
 Settings-specific, sidebar, remote-control, and resource-action commands are listed in [Chat Commands](wiki/Chat-Commands.md) and [Remote Control](docs/remote-control.md).
 

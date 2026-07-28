@@ -33,6 +33,15 @@ import { createHash, createHmac } from 'node:crypto';
 import type { BuzzEventSigner } from './buzzClient.js';
 import type { NostrEvent, UnsignedNostrEvent } from './buzzProtocol.js';
 
+/**
+ * SecretStorage key holding the Buzz agent's Nostr secret key for **inbound**.
+ *
+ * Separate from the outbound `BuzzCliBridge`, which receives its key through the
+ * MCP server entry's `secretEnvKeys` — that one is scoped to the connector, so
+ * inbound needs its own slot. Never a setting, never in project memory.
+ */
+export const BUZZ_AGENT_KEY_SECRET = 'atlasmind.buzz.privateKey';
+
 /** The bech32 alphabet (BIP-173). Excludes `1`, `b`, `i`, and `o`. */
 const BECH32_ALPHABET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
 
@@ -214,6 +223,42 @@ export function parseBuzzSecretKey(input: string): Uint8Array | undefined {
   }
   const bytes = wordsToBytes(decoded.words);
   return bytes && bytes.length === 32 ? bytes : undefined;
+}
+
+/**
+ * Normalise a Buzz **public** key to lowercase 32-byte hex.
+ *
+ * Accepts a bech32 `npub…` (NIP-19) or bare hex, so a user can bind an agent
+ * using whichever form Buzz showed them. The bech32 checksum is validated, so a
+ * mistyped npub is rejected rather than silently normalising to the wrong
+ * identity — which for an agent binding would route work to the wrong place.
+ *
+ * Returns undefined for anything else, including an `nsec` — pasting a *secret*
+ * key where a public one belongs is a mistake worth refusing loudly.
+ */
+export function normalizeBuzzPubkey(input: string): string | undefined {
+  const text = (input ?? '').trim();
+  if (!text) {
+    return undefined;
+  }
+
+  if (HEX_32_BYTES.test(text)) {
+    return text.toLowerCase();
+  }
+
+  const decoded = bech32Decode(text);
+  if (!decoded || decoded.hrp !== 'npub') {
+    return undefined;
+  }
+  const bytes = wordsToBytes(decoded.words);
+  if (!bytes || bytes.length !== 32) {
+    return undefined;
+  }
+  let hex = '';
+  for (const byte of bytes) {
+    hex += byte.toString(16).padStart(2, '0');
+  }
+  return hex;
 }
 
 /**

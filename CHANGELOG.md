@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.150.0] - 2026-07-28
+
+### Added
+- **Buzz inbound is wired up and can be switched on (Buzz integration, Tier 3).** With `atlasmind.buzz.enabled` and the new `atlasmind.buzz.inboundEnabled`, AtlasMind holds a live read-only subscription to your Buzz relay, authenticates to it, stays connected across drops, and turns channel activity into work items. `atlasmind.buzz.inboundChannels` scopes it to specific channels.
+- **Assign AtlasMind agents to Buzz agents.** `atlasmind.buzz.agentBindings` maps a Buzz identity to an AtlasMind agent id, so inbound work from a known Buzz agent lands with the right specialist instead of arriving unattributed — a Buzz build-bot's messages can go to your DevOps agent. Keys accept either the `npub…` or hex form.
+- **`AtlasMind: Set Buzz Agent Key`** stores (or removes) the key used to authenticate to the relay, in the OS secret store.
+
+### Security
+- **Three gates, all off by default.** Inbound needs both `buzz.enabled` and `buzz.inboundEnabled`, so upgrading never starts a network subscription. *Recording* what arrives needs a third opt-in, `buzz.autoCreateFollowUps` — project memory is git-tracked, so writing to it from a network event is a decision to make deliberately, not one to inherit. While that is off, inbound activity is reported without being written.
+- **A mistyped Buzz identity cannot bind work to the wrong agent.** Binding keys are checksum-validated, so a mistyped `npub` is rejected rather than silently resolving to a different identity; a secret key pasted where a public one belongs is refused outright. Unusable bindings are reported rather than dropped silently, and an unbound identity stays unassigned — an agent is never guessed.
+- **Agent bindings are a local routing preference, not identity.** Buzz keeps ownership of the keypair, the directory, and the authorship ledger; AtlasMind only records a preference.
+- **The wake lock is held only while genuinely connected**, and released on stop. It remains deny-by-default in its own right, so holding a reason does nothing unless keep-awake is enabled.
+- **Recorded follow-ups cannot duplicate.** They merge by an id derived from the Buzz event, so the deliberate reconnect replay overlap and repeat sightings update nothing, with a per-batch cap so a busy channel cannot flood project memory.
+
 ## [0.149.2] - 2026-07-28
 
 ### Fixed

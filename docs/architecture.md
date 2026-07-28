@@ -399,6 +399,16 @@ The inbound subscription itself — the piece that *drives* the three modules ab
 
 **Hosted relays.** A Buzz workspace need not be local. `toWebSocketUrl` therefore refuses an **unencrypted socket to a remote host** — plaintext to a hosted relay would expose colleagues' message content and the NIP-42 challenge/response in transit. Loopback is exempt because it never leaves the machine. The rule lives at the transport rather than in a policy caller, so no future wiring can reintroduce a plaintext remote connection, and it matches what the outbound `BuzzCliBridge` already enforces.
 
+### BuzzAgentBindings + BuzzInboundService (`src/core/buzzAgentBindings.ts`, `src/core/buzzInboundService.ts`)
+
+The wiring that turns the Tier-3 modules into a running feature, plus the mapping that gives inbound work an owner.
+
+**Assigning AtlasMind agents to Buzz agents.** Buzz gives every participant — human or agent — a Nostr keypair; AtlasMind has its own roster of specialists. `atlasmind.buzz.agentBindings` maps one to the other, so a message from a Buzz build-bot lands with the DevOps agent instead of arriving unattributed. It stays on AtlasMind's side of the governing contract: a **local routing preference**, not identity. Buzz still owns the keypair, the directory, and the authorship ledger; nothing is minted, mirrored, or verified here. Keys accept `npub…` or hex and are normalised through the bech32 decoder, so the two forms are interchangeable and a **mistyped npub is rejected rather than binding to a different identity** — silently routing work to the wrong agent would be worse than failing. An `nsec` is refused outright. Unusable bindings are *reported*, never dropped silently, and an unbound author stays unassigned because inferring an agent would be a claim the event doesn't support.
+
+**Deny-by-default, two gates deep.** `BuzzInboundService` connects nothing unless both `atlasmind.buzz.enabled` and `atlasmind.buzz.inboundEnabled` are on, so upgrading never starts a network subscription. Persistence is a *third* gate: `autoCreateFollowUps` defaults off, because `project_memory/` is git-tracked and writing to it from a network event is something to opt into rather than inherit. While off, inbound activity is reported without being written.
+
+**Lifecycle.** `sync()` reconciles the subscription with current settings — start, stop, or restart when the relay or channels change — and is re-run on any `atlasmind.buzz.*` configuration change. It holds `PresenceManager`'s `buzz` keep-awake reason only while a subscription is genuinely live, releasing on stop; the lock is itself deny-by-default, so holding a reason does nothing unless the user enabled `presence.keepAwake`. Derived follow-ups merge by deterministic id, so the reconnect replay overlap and repeat sightings update nothing rather than duplicating, and a batch cap keeps a busy channel from flooding memory.
+
 ### BuzzSigner (`src/core/buzzSigner.ts`)
 
 BIP-340 Schnorr signing for NIP-42, filling the `BuzzEventSigner` seam. A real Buzz relay refuses to serve a subscription until the client authenticates (`auth-required: authenticate before subscribing`, observed against a live relay), so inbound sync cannot work without this.

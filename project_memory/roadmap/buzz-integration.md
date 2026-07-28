@@ -3,8 +3,9 @@
 > **Status:** Tier 1b implementation complete; a real-relay smoke test remains before the live-send
 > gate is closed. Tier 2 guided connector shipped and ARD discovery still planned. Tier 3's
 > protocol/policy/derivation **foundation** shipped (v0.147.0) and its `BuzzClient` subscription
-> (v0.148.0), NIP-42 Schnorr signing (v0.149.0), and **real-relay validation (v0.149.2 — which caught
-> a wrong message kind)**. Only the wiring remains — see the Tier-3 logs. Tier 4 planned.
+> (v0.148.0), NIP-42 Schnorr signing (v0.149.0), **real-relay validation (v0.149.2 — which caught a
+> wrong message kind)**, and the wiring + agent bindings (v0.150.0). **Tier 3 is complete and
+> switchable-on.** Tier 4 planned.
 > **Owner:** AtlasMind core. **Created:** 2026-07-25.
 > This is the SSOT north star for integrating Buzz into AtlasMind. Build incrementally,
 > respecting the entry criteria between tiers. Nothing here overrides AtlasMind's
@@ -335,6 +336,46 @@ event), and 39000 is channel metadata. Both were previously unverified.
 **Lesson for the remaining tiers:** reading a registry tells you what kinds *exist*, not which one a
 deployment *uses*. Ask the relay. `--discover` in the probe does exactly this and should be re-run
 against any new Buzz version before trusting a kind number.
+
+### Tier 3 wiring + agent bindings (2026-07-28, v0.150.0) — **Tier 3 complete**
+
+`BuzzInboundService` connects the verified modules to the editor: settings, the agent key from
+SecretStorage, the `hold('buzz')`/`release('buzz')` wake lock, and follow-up persistence. `sync()`
+reconciles on any `atlasmind.buzz.*` change.
+
+**Three gates, all deny-by-default** — deliberately more than the roadmap's minimum:
+1. `buzz.enabled` — the Tier-1 master switch.
+2. `buzz.inboundEnabled` — subscribe at all.
+3. `buzz.autoCreateFollowUps` — *record* what arrives. Separate on purpose: `project_memory/` is
+   git-tracked, so a network event writing into it is a decision to make, not one to inherit from an
+   upgrade. While off, inbound activity is reported and not persisted.
+
+**New: AtlasMind agents ↔ Buzz agents** (`atlasmind.buzz.agentBindings`, requested by the owner).
+Maps a Buzz identity to an AtlasMind agent id so inbound work lands with the right specialist.
+Deliberate design choices:
+- **A local routing preference, not identity.** Buzz keeps the keypair, the directory, and the
+  authorship ledger — this stays on AtlasMind's side of the governing contract, and is emphatically
+  *not* a step toward becoming a directory (that would violate the Tier-4 boundary too).
+- `npub`/hex both accepted and normalised through the already-verified bech32 decoder, so the forms
+  are interchangeable. A **mistyped npub is rejected** rather than normalising to a different
+  identity — silently routing work to the wrong agent is worse than failing. An `nsec` pasted where a
+  public key belongs is refused by name.
+- Unusable bindings are **reported**, never dropped silently; an unbound author stays **unassigned**
+  rather than being guessed at.
+
+**Follow-ups merge by an id derived from the event**, so the deliberate reconnect replay overlap and
+repeat sightings update nothing rather than duplicating, with a per-batch cap.
+
+**Remaining across the whole integration:**
+- Tier 1b's real-relay **smoke test for outbound** (Joel's, still open).
+- Tier 2's **ARD Agent Finder** — still blocked on whether Buzz publishes a verifiable
+  `ai-catalog.json`.
+- The **p-gate** remains confirmed only indirectly: auth intercepts a kind-less query before the gate
+  can answer. Re-run `--discover` on a relay without auth to close it.
+- **Tier 4** (agent keypairs, signed A2A handoffs, revocation) — unstarted, and gated on a threat
+  model + security review. Note the new agent bindings are a *natural stepping stone*: they already
+  express "this AtlasMind agent corresponds to that Buzz identity", which Tier 4 would extend from a
+  reference into a custodied keypair.
 
 **Still owed for Tier 3:**
 1. ~~**Schnorr signing**~~ — **done in v0.149.0.** `buildAuthEventTemplate` returns an *unsigned*

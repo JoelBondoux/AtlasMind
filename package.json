@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.149.2",
+  "version": "0.150.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -234,6 +234,11 @@
         "command": "atlasmind.togglePresence",
         "title": "AtlasMind: Toggle Keep Computer Awake",
         "icon": "$(zap)"
+      },
+      {
+        "command": "atlasmind.setBuzzAgentKey",
+        "title": "AtlasMind: Set Buzz Agent Key",
+        "icon": "$(key)"
       },
       {
         "command": "atlasmind.skills.addSkill",
@@ -1151,6 +1156,36 @@
           "default": "ws://localhost:3000",
           "description": "Buzz relay URL (BUZZ_RELAY_URL). Defaults to a local self-hosted relay (ws://localhost:3000). A remote relay sends project data off-machine and additionally requires atlasmind.buzz.allowRemoteRelay.",
           "markdownDescription": "Buzz relay URL — the `BUZZ_RELAY_URL` a connected Buzz surface targets.\n\nDefaults to a **local, self-hosted** relay (`ws://localhost:3000`), matching AtlasMind's local-first, self-sovereign posture. Pointing at a **remote** relay sends project data off-machine, so it is additionally gated behind `atlasmind.buzz.allowRemoteRelay` and the redaction/consent boundary."
+        },
+        "atlasmind.buzz.inboundEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Subscribe to Buzz activity and turn it into AtlasMind work items. Off by default; also requires atlasmind.buzz.enabled. The subscription is read-only — it can never post to Buzz.",
+          "markdownDescription": "Hold a **read-only** subscription to your Buzz relay and derive AtlasMind work items from the activity.\n\nOff by default, and additionally requires `atlasmind.buzz.enabled` — nothing connects on upgrade. The subscription sends only subscribe/authenticate/keep-alive frames and **can never publish to Buzz**.\n\nConversations are **derived, never mirrored**: an inbound message becomes a follow-up with a pointer back to the Buzz thread, never the message body. Recording those follow-ups into project memory additionally requires `atlasmind.buzz.autoCreateFollowUps`.\n\nAn authenticating relay needs an agent key — run **AtlasMind: Set Buzz Agent Key**."
+        },
+        "atlasmind.buzz.inboundChannels": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Buzz channel ids (UUIDs) to subscribe to. Empty means every channel your agent key can read.",
+          "markdownDescription": "Buzz **channel ids** (UUIDs) the inbound subscription should watch, scoping the subscription to just those channels.\n\nLeave empty to receive activity from every channel your agent key can read. Get an id from `buzz channels list`."
+        },
+        "atlasmind.buzz.autoCreateFollowUps": {
+          "type": "boolean",
+          "default": false,
+          "description": "Record inbound Buzz activity as Project Director follow-ups. Off by default: project memory is git-tracked, so AtlasMind reports inbound items rather than writing them until you opt in.",
+          "markdownDescription": "Record derived inbound Buzz activity as **Project Director follow-ups**.\n\nOff by default, deliberately: `project_memory/` is **git-tracked**, so writing to it from a network event is something you should opt into rather than inherit from an upgrade. While off, inbound activity is reported without being persisted.\n\nOnly a short, sanitised title and a pointer back to the Buzz thread are ever stored — never the message body."
+        },
+        "atlasmind.buzz.agentBindings": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Map a Buzz identity (npub or 64-character hex) to an AtlasMind agent id, so inbound work from that Buzz agent lands with the right specialist.",
+          "markdownDescription": "Assign specific **AtlasMind agents** to specific **Buzz agents**.\n\nMaps a Buzz identity to an AtlasMind agent id, so inbound work from that identity is attributed to the right specialist — a Buzz build-bot's messages can land with your DevOps agent instead of arriving unattributed.\n\n```json\n{\n  \"npub1abc…\": \"devops-engineer\",\n  \"7e7e9c42…\": \"security-specialist\"\n}\n```\n\nKeys accept an `npub…` or a 64-character hex key (the bech32 checksum is validated, so a mistyped npub is rejected rather than binding to the wrong identity; an `nsec` secret key is refused). An unbound identity simply stays unassigned — AtlasMind never guesses an agent.\n\nThis is a **local routing preference only**. Buzz still owns the keypair, the directory, and the authorship ledger."
         },
         "atlasmind.buzz.allowRemoteRelay": {
           "type": "boolean",

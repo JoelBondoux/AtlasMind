@@ -6,6 +6,14 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.150.0 — Buzz inbound switched on + agent bindings (Tier 3)
+
+- **Inbound is wired and usable.** `atlasmind.buzz.inboundEnabled` (plus `buzz.enabled`) holds a live read-only subscription that authenticates, survives drops, and turns channel activity into work items. `inboundChannels` scopes it.
+- **Assign AtlasMind agents to Buzz agents.** `atlasmind.buzz.agentBindings` maps a Buzz identity (`npub…` or hex) to an AtlasMind agent id, so inbound work lands with the right specialist rather than unattributed.
+- **New command:** `AtlasMind: Set Buzz Agent Key`.
+- **Three gates, all off by default.** Enabling, subscribing, and *recording* are separate opt-ins — project memory is git-tracked, so writes from a network event are never inherited from an upgrade.
+- **A mistyped identity can't misroute work.** Binding keys are checksum-validated; an `nsec` is refused; unusable bindings are reported, not dropped; unbound identities stay unassigned.
+
 ## v0.149.2 — Buzz inbound listened on the wrong kind
 
 - **A live relay corrected a wrong assumption.** Buzz's registry defines two channel-message kinds and reads as though the newer supersedes the older; the relay stores only the older one. Subscribing to the newer alone authenticates, subscribes, and receives nothing forever — a failure that looks perfectly healthy.

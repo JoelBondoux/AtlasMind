@@ -9,6 +9,8 @@ import { promisify } from 'util';
 import { pathToFileURL } from 'url';
 import { sanitizeTerminalOutput } from './utils/terminalOutput.js';
 import { PresenceManager } from './core/presenceManager.js';
+import { BUZZ_AGENT_KEY_SECRET } from './core/buzzSigner.js';
+import { BuzzInboundService } from './core/buzzInboundService.js';
 import type { ProjectMemoryFreshnessStatus } from './bootstrap/bootstrapper.js';
 import type { SessionConversation, SessionPolicySnapshot } from './chat/sessionConversation.js';
 import type { VoiceManager } from './voice/voiceManager.js';
@@ -2726,6 +2728,23 @@ async function bootstrapAtlasMind(
   };
   presenceManager.applyConfig(readPresenceConfig());
   updatePresenceStatusBar();
+
+  // Buzz inbound: deny-by-default, so constructing this connects nothing. It
+  // holds the keep-awake reason only while a subscription is genuinely live.
+  const buzzInbound = new BuzzInboundService({
+    secrets: context.secrets,
+    presence: presenceManager,
+    log: (message) => outputChannel.appendLine(`[buzz] ${message}`),
+  });
+  void buzzInbound.sync();
+  context.subscriptions.push(
+    buzzInbound,
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration('atlasmind.buzz')) {
+        void buzzInbound.sync();
+      }
+    }),
+  );
   context.subscriptions.push(
     presenceStatusBar,
     presenceManager,
@@ -2750,6 +2769,33 @@ async function bootstrapAtlasMind(
       void vscode.window.showInformationMessage(next
         ? 'AtlasMind will keep this computer awake while an activity needs the agent online.'
         : 'AtlasMind will no longer keep this computer awake.');
+    }),
+    vscode.commands.registerCommand('atlasmind.setBuzzAgentKey', async () => {
+      const existing = await context.secrets.get(BUZZ_AGENT_KEY_SECRET);
+      const entered = await vscode.window.showInputBox({
+        title: 'AtlasMind: Buzz agent key',
+        prompt: existing
+          ? 'Replace the stored Buzz agent key, or submit an empty value to remove it.'
+          : 'Paste the Nostr secret key (nsec…) AtlasMind should sign Buzz messages with.',
+        placeHolder: 'nsec1…',
+        password: true,
+        ignoreFocusOut: true,
+      });
+      if (entered === undefined) {
+        return; // Cancelled — leave any stored key untouched.
+      }
+      const trimmed = entered.trim();
+      if (!trimmed) {
+        await context.secrets.delete(BUZZ_AGENT_KEY_SECRET);
+        void vscode.window.showInformationMessage('AtlasMind removed the stored Buzz agent key.');
+        await buzzInbound.sync();
+        return;
+      }
+      await context.secrets.store(BUZZ_AGENT_KEY_SECRET, trimmed);
+      void vscode.window.showInformationMessage(
+        'AtlasMind stored the Buzz agent key in the OS secret store. It is passed to Buzz as an environment variable or used to sign relay authentication, and is never written to settings or project memory.',
+      );
+      await buzzInbound.sync();
     }),
   );
 

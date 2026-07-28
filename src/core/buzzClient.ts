@@ -58,6 +58,7 @@ import {
   deriveWorkItems,
   type DerivedWorkItem,
 } from './buzzInboundDerivation.js';
+import type { BuzzAgentBinding } from './buzzAgentBindings.js';
 
 /** Minimal socket surface, modelled on the subset of `ws` this client needs. */
 export interface BuzzSocket {
@@ -111,7 +112,7 @@ export interface BuzzClientOptions {
   /** Absent signer ⇒ a relay demanding NIP-42 auth stops the client with a reason. */
   signer?: BuzzEventSigner;
   subscriptionId?: string;
-  derivation?: { withContactId?: string; dueInDays?: number };
+  derivation?: { withContactId?: string; dueInDays?: number; agentBindings?: BuzzAgentBinding[] };
   reconnect?: ReconnectOptions;
   random?: () => number;
   idleBeforePingMs?: number;
@@ -330,6 +331,7 @@ export class BuzzClient {
       now: new Date(this.scheduler.now()),
       ...(this.options.derivation?.withContactId ? { withContactId: this.options.derivation.withContactId } : {}),
       ...(this.options.derivation?.dueInDays !== undefined ? { dueInDays: this.options.derivation.dueInDays } : {}),
+      ...(this.options.derivation?.agentBindings?.length ? { agentBindings: this.options.derivation.agentBindings } : {}),
     });
 
     if (items.length > 0) {
