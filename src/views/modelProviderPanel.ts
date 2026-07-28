@@ -1172,7 +1172,7 @@ async function useSubscriptionForProvider(atlas: AtlasMindContext, providerId: P
       'Copy the install command',
     );
     if (choice === 'Open the setup guide') {
-      await vscode.commands.executeCommand('atlasmind.openChatPanel', { draftPrompt: '/acp', sendMode: 'send' });
+      await vscode.commands.executeCommand('atlasmind.openSetupGuide', 'acp');
     } else if (choice === 'Copy the install command') {
       await vscode.env.clipboard.writeText(bridge.install);
       void vscode.window.showInformationMessage('Install command copied. Run it in a terminal, then press this button again.');
@@ -1196,19 +1196,27 @@ async function useSubscriptionForProvider(atlas: AtlasMindContext, providerId: P
       vscode.ConfigurationTarget.Workspace,
     );
   }
-  // Enabling is the point of the click, so do it through the real API rather
-  // than leaving the user to find the toggle they did not know existed.
-  const acpProvider = atlas.modelRouter.getProviderConfig?.('acp');
-  if (acpProvider && !acpProvider.enabled) {
-    atlas.modelRouter.registerProvider({ ...acpProvider, enabled: true });
-  }
+  // Enabling is the point of the click, so do it through `setProviderEnabled`
+  // — the same path the tree's toggle uses. Writing `enabled: true` straight
+  // onto the router only changed memory: the persisted availability state still
+  // said otherwise, and the very next `applyModelAvailabilityState` (including
+  // the refresh two lines below, and every reload) put it back. The provider
+  // looked enabled and was never routed to.
+  await atlas.setProviderEnabled('acp', true);
 
   const summary = await atlas.refreshProviderModels(true);
   await atlas.refreshProviderHealth();
   atlas.modelsRefresh.fire();
+
+  // Health is what the router checks last and the user sees least. Saying so
+  // here is the difference between "configured" and "actually usable".
+  const healthy = atlas.modelRouter.isProviderHealthy?.('acp') ?? true;
   void vscode.window.showInformationMessage(
-    `Your ${bridge.subscriptionName} is now available to AtlasMind as \`acp/${bridge.agentId}\`. `
-    + `Refreshed ${summary.providersUpdated} provider(s) and ${summary.modelsAvailable} model entries.`,
+    healthy
+      ? `Your ${bridge.subscriptionName} is now available to AtlasMind as \`acp/${bridge.agentId}\`. `
+        + `Refreshed ${summary.providersUpdated} provider(s) and ${summary.modelsAvailable} model entries.`
+      : `\`acp/${bridge.agentId}\` is configured and enabled, but its first health check did not pass, so the router will skip it for now. `
+        + `Run \`${bridge.command}\` once in a terminal to see what it reports.`,
   );
 }
 

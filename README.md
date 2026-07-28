@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.176.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.177.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,9 +64,11 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.176.0
+## What's new in 0.177.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
+
+- **An ACP entry can no longer look active while every prompt goes elsewhere.** The Models sidebar was ticking a Claude subscription green on installs where no agent had ever been configured — it was reading a seeded placeholder model rather than your actual settings, and ignoring whether the provider was even switched on. It now shows the four things that have to be true for the router to pick it, and names whichever one is missing: not set up, provider off, model disabled, or agent not responding. Enabling it from "Use my Claude subscription" also now sticks — it was being written to memory only, and the next refresh silently undid it. And setup guides open in a **new chat session** instead of dropping a half-written `/acp` into whatever conversation you had open.
 
 - **Your Claude or ChatGPT subscription can now do the work, not just describe it.** ACP agents shipped able to answer and nothing else. Turn on **Let subscription agents act** (Settings → Safety, off by default) and the agent can edit files, run commands, search, and fetch — with AtlasMind asking you before each operation and recording what ran. The agent does the work in its own process; AtlasMind decides whether it may. Two things it will not do on your behalf: it never accepts an agent's *"always allow"* — it answers *"allow once"* instead, because a standing grant would live inside the agent where you could not find or revoke it — and it never forwards an MCP server whose credentials you gave AtlasMind to keep. Each vendor's ACP route now also appears as its own row in the Models sidebar, directly under that vendor's API entry, so "the other way to reach Claude" is visible rather than filed under an acronym.
 
@@ -238,6 +240,7 @@ Open the Command Palette with `Ctrl+Shift+P`.
 |---|---|
 | `AtlasMind: Getting Started` | Open the guided onboarding walkthrough |
 | `AtlasMind: Open Chat Panel` | Open the larger detached Atlas chat |
+| `AtlasMind: Open a Setup Guide` | Start a setup walkthrough (`acp`, `buzz`) in a fresh chat session |
 | `AtlasMind: Focus Chat View` | Return focus to the sidebar chat |
 | `AtlasMind: Open Settings Panel` | Open the multi-page AtlasMind settings workspace |
 | `AtlasMind: Manage Model Providers` | Connect providers, credentials, and quotas |

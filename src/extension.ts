@@ -763,8 +763,30 @@ function applyModelAvailabilityState(
   disabledProviderIds: Set<string>,
   disabledModelIds: Set<string>,
 ): void {
+  // ACP is seeded `enabled: false` because its launch command is user-authored
+  // and there is nothing to spawn until one is named. That seed does not survive
+  // this function: enablement is derived purely from the persisted disabled set,
+  // which on a fresh install is empty — so every provider, ACP included, came
+  // back enabled. Combined with `isProviderHealthy` defaulting to `true` before
+  // the first health check, an install with no configured agent could offer
+  // `acp/claude` as a routing candidate and fail the turn on "No ACP agent is
+  // configured".
+  //
+  // The condition that actually matters is not what was persisted but whether an
+  // agent exists to run, so it is enforced here, at the one choke point every
+  // caller passes through.
+  const hasAcpAgent = (() => {
+    try {
+      const raw = vscode.workspace.getConfiguration('atlasmind').get<unknown>('acp.agents');
+      return Array.isArray(raw) && raw.length > 0;
+    } catch {
+      return false;
+    }
+  })();
+
   for (const provider of modelRouter.listProviders()) {
-    const providerEnabled = !disabledProviderIds.has(provider.id);
+    const providerEnabled = !disabledProviderIds.has(provider.id)
+      && (provider.id !== 'acp' || hasAcpAgent);
     modelRouter.registerProvider({
       ...provider,
       enabled: providerEnabled,
