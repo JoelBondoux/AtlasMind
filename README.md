@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.173.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.174.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,10 +64,11 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.173.0
+## What's new in 0.174.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
 
+- **Three settings that did nothing now say so.** A settings audit found that `atlasmind.remote.enabled` and the two Buzz autonomous-reply settings were declared, documented, and read by no code at all. The Buzz ones failed safe — every message still asked for confirmation — but `remote.enabled` was worse than useless: setting it to `false` gave the impression you had switched remote control off when the real gate is the command plus a workspace approval. Their descriptions now say plainly that they are not active and what the real control is, and a new guard fails the build if another setting is ever declared that nothing reads.
 - **ACP agents are now something you can click.** The ACP provider shipped with no surface: the only way to use it was hand-editing a JSON setting. It now appears in **Model Providers** like any other — **Configure** offers the agents whose launch command is published, or takes your own, then probes it and tells you whether it is installed and signed in rather than just saving and hoping. And **Allowed models** in the Agent editor is no longer a bare text box: the models your enabled providers actually offer are one click away, with subscription-backed ones marked, so a provider you configured is discoverable instead of something you had to know the id of.
 - **Your project memory is no longer at risk from opening it in an older AtlasMind.** Files in `project_memory/` carry a format version, but every reader treated an unfamiliar version as *no file at all* — so an older build would seed a fresh default and **write it over** your documents registry, delivery pipeline, risk register, or people roster, silently. AtlasMind now tells the difference between a file that is corrupt (safe to replace) and one written by a newer version (left exactly as it was, with the reason shown on the page). This is also the mechanism that lets a format change at all, which is what a 1.0 compatibility promise needs behind it.
 - **Every setup process now works the way the Buzz one does.** `/acp` walks you through ACP setup a step at a time — name an agent, install it, sign in, enable the provider, and then **prove a completion actually comes back**, because configured and working are different things the settings screen cannot tell apart. `/setup` lists every guide with how far along it is, so a feature that needs configuring is discoverable before you hit the failure it causes. The two guides share their mechanics rather than resembling each other, so they cannot drift — and neither installs or enables anything for you: every button opens the screen where you decide.

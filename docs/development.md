@@ -66,6 +66,8 @@ npm run lint
 
 ## Test
 
+**Settings are guarded too.** A setting is a promise: it shows in the VS Code settings UI with a description saying what it does. `tests/settingsIntegrity.test.ts` fails the build if a declared setting is read by no code, if a configuration key is read with a redundant `atlasmind.` prefix (`getConfiguration('atlasmind').get('atlasmind.x')` silently resolves to `atlasmind.atlasmind.x`), or if a setting on the not-yet-wired allowlist has a description that reads like a working feature. Adding to that allowlist requires a written reason, so it cannot become the place dead settings go to be forgotten.
+
 **Webview scripts are guarded by a parser, not by the compiler.** `media/*.js` is a string handed to a browser: never type-checked, never imported by a test. A renamed function therefore leaves its old call site behind silently, and the failure arrives as a render-time `ReferenceError` that takes down the entire panel ("Dashboard refresh failed — …is not defined"). `tests/views/webviewIdentifierIntegrity.test.ts` parses each script with acorn and asserts every identifier it reads is bound — declared in the file, a parameter, or a real browser/host global. When it fails, the fix is either the rename you missed or, for a genuine new DOM global, an addition to its `HOST_GLOBALS` list.
 
 

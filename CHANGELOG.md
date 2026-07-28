@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.174.0] - 2026-07-28
+
+### Fixed
+- **`atlasmind.ssotPath` was read with a doubled prefix in two places.** `getConfiguration('atlasmind').get('atlasmind.ssotPath')` resolves to `atlasmind.atlasmind.ssotPath`, which is declared nowhere and is always `undefined`. A `??` fallback to the correct key meant the behaviour was right and the bug invisible — until someone tidied the fallback away.
+
+### Changed
+- **Three settings that do nothing now say so.** A settings audit found `atlasmind.remote.enabled`, `atlasmind.buzz.autonomousReplies`, and `atlasmind.buzz.autonomousReplyLimitPerHour` declared, documented, and read by **no code at all**. The Buzz pair fails safe — every send still asks for confirmation, so the effect was a false promise rather than a hole — but `remote.enabled` was worse than inert: its description claimed it controlled whether remote connections are accepted, so setting it `false` gave the impression remote control was off when the real gate is the remote-control command plus a per-workspace approval. All three descriptions now state plainly that they are not active and what the real control is. Nothing was silently wired up: enabling autonomous outbound messaging is a safety decision that deserves its own change, and `remote.enabled` defaults to `false`, so wiring it as-is would break anyone currently using remote control. Both are recorded in `improvement-plan.md` with the trade-off spelled out.
+
+### Added
+- **A guard that makes the audit permanent** (`tests/settingsIntegrity.test.ts`). A setting is a promise — it appears in the settings UI with a description saying what it does — and nothing in the build checked that the promise was kept. The suite now fails if a declared setting is read by no code, if an allowlisted not-yet-wired setting's description doesn't disclose that, or if any configuration read carries a redundant `atlasmind.` prefix. The allowlist requires a written reason per entry, so it cannot quietly become the place dead settings go to be forgotten.
+
 ## [0.173.0] - 2026-07-28
 
 ### Added

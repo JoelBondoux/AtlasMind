@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.174.0 — settings that mean what they say
+
+- **Three settings did nothing.** `atlasmind.remote.enabled` and the two Buzz autonomous-reply settings were declared, documented, and read by no code. Their descriptions now say so, and say what the real control is.
+- **`remote.enabled` was the worrying one**: setting it `false` looked like switching remote control off, when the real gate is the command plus a workspace approval.
+- **A new guard fails the build** if a setting is ever declared that nothing reads, or if a config key is read with a doubled prefix.
+
 ## v0.173.0 — ACP is something you can click
 
 - **ACP appears in Model Providers.** Configure picks an agent, saves it, probes it, and tells you whether it is installed and signed in — rather than saving and hoping.

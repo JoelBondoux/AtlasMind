@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.173.0",
+  "version": "0.174.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -1283,15 +1283,15 @@
         "atlasmind.buzz.autonomousReplies": {
           "type": "boolean",
           "default": false,
-          "description": "Let AtlasMind agents reply to Buzz identities you have bound to an agent, without confirming each message. Off by default. Only applies to bound agents — anyone unbound is treated as a person and still needs confirmation.",
-          "markdownDescription": "Allow **agent-to-agent** Buzz replies to go out without a confirmation dialog, so an AtlasMind specialist can hold a loop with a Buzz agent.\n\nOff by default, and deliberately narrow:\n\n- It applies **only** to recipients listed in `atlasmind.buzz.agentBindings`. That binding is your declaration that the identity is an agent — AtlasMind never infers it, and an unbound identity is treated as a person who may act on what it reads.\n- It is **rate-bounded** per recipient by `atlasmind.buzz.autonomousReplyLimitPerHour`. A loop that re-fires on every inbound event is the realistic failure, and there is no unsend.\n- Inbound Buzz messages are **untrusted input**. An agent that reads a message and replies autonomously gives its author partial influence over what AtlasMind then says to others. Arm this only where that is acceptable."
+          "description": "⚠️ Not yet active — this setting is declared but nothing reads it, so changing it currently has no effect. When wired, it will let AtlasMind agents reply to Buzz identities you have bound to an agent without confirming each message. Until then every Buzz send still asks for confirmation — the safe direction, but not what this switch implies.",
+          "markdownDescription": "**Not yet active.** This setting is declared but nothing reads it, so changing it has no effect today: every Buzz send still asks for confirmation.\n\nWhen it is wired it will allow **agent-to-agent** Buzz replies to go out without a dialog, so an AtlasMind specialist can hold a loop with a Buzz agent. The design is deliberately narrow:\n\n- It will apply **only** to recipients listed in `atlasmind.buzz.agentBindings`. That binding is your declaration that the identity is an agent — AtlasMind never infers it, and an unbound identity is treated as a person who may act on what it reads.\n- It will be **rate-bounded** per recipient by `atlasmind.buzz.autonomousReplyLimitPerHour`. A loop that re-fires on every inbound event is the realistic failure, and there is no unsend.\n- Inbound Buzz messages are **untrusted input**. An agent that reads a message and replies autonomously gives its author partial influence over what AtlasMind then says to others. Arm this only where that is acceptable."
         },
         "atlasmind.buzz.autonomousReplyLimitPerHour": {
           "type": "number",
           "default": 10,
           "minimum": 1,
           "maximum": 100,
-          "description": "Maximum autonomous Buzz replies per recipient per hour. Once reached, the next message needs confirmation.",
+          "description": "⚠️ Not yet active — this setting is declared but nothing reads it, so changing it currently has no effect. When autonomous replies are wired, this will cap them per recipient per hour; once reached, the next message needs confirmation.",
           "markdownDescription": "Cap on autonomous replies **per recipient per hour** when `atlasmind.buzz.autonomousReplies` is on.\n\nWhen the cap is reached the next message falls back to a confirmation dialog rather than being dropped, so a stuck loop becomes visible instead of silent."
         },
         "atlasmind.buzz.allowRemoteRelay": {
@@ -1913,8 +1913,8 @@
         "atlasmind.remote.enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Allow this desktop AtlasMind instance to accept remote-control connections from the web build over a localhost WebSocket.",
-          "markdownDescription": "Allow this desktop AtlasMind instance to accept remote-control connections from the web build (vscode.dev / github.dev / code-server) over a localhost WebSocket. This is the master switch for the remote-control server.\n\nThe server still only listens after you run **AtlasMind: Enable Remote Control**, approve the workspace for remote control, and a pairing token exists. It binds to `127.0.0.1` only.\n\nExamples:\n- Default, no remote access: `false`\n- Local development where you drive the desktop instance from a browser tab on the same machine: `true`\n\nKeep this off unless you are actively pairing a web client. See the Remote Control documentation for the full security model."
+          "description": "⚠️ Not the control that starts or stops remote control — this setting currently has no effect. The remote-control server starts only when you run the AtlasMind remote-control command and approve this workspace, and it stops when you disable it there. Turning this off does not disable remote control.",
+          "markdownDescription": "**This is not the control that starts or stops remote control, and it currently has no effect.**\n\nThe remote-control server starts only when you run the AtlasMind remote-control command *and* approve this workspace at the prompt; it stops when you disable it from the same place. Setting this to `false` does **not** disable remote control — check the status-bar indicator, which reflects what is actually running."
         },
         "atlasmind.remote.mode": {
           "type": "string",
