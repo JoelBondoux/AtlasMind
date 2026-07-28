@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.178.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.178.1</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,9 +64,11 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.178.0
+## What's new in 0.178.1
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
+
+- **Choosing an ACP agent now actually starts setting it up.** Picking "Claude Agent" from the ACP card used to save the command, notice it wasn't installed, and tell you so in a toast whose only button opened a documentation index — which read as "this button just opens a website". You now get the exact install command, a copy button, and the step-by-step guide. The card's primary button also no longer says **Set API Key**: ACP stores no key, it reuses the agent's own login, so it now says **Choose Agent** — which is what it does.
 
 - **You can now set up a subscription route from the sidebar, and its buttons act on the right thing.** The ACP rows in the Models tree had no control that did anything about the state they were reporting — worse, the icons they inherited targeted the *vendor's API provider*, so the visibility toggle on "Anthropic — Claude subscription" flipped Anthropic itself. Unfinished rows now show a plug icon and act on click, taking whichever step is genuinely next: check the adapter is installed and signed in, switch the provider on, or refresh to pick up the model.
 

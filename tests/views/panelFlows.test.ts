@@ -134,7 +134,13 @@ vi.mock('vscode', () => ({
   },
 }));
 
-import { ModelProviderPanel, isProviderConfigured } from '../../src/views/modelProviderPanel.ts';
+import {
+  ModelProviderPanel,
+  PROVIDER_IDS,
+  getProviderActionLabel,
+  isProviderConfigured,
+  requiresApiKey,
+} from '../../src/views/modelProviderPanel.ts';
 import { ProjectRunCenterPanel } from '../../src/views/projectRunCenterPanel.ts';
 import { AgentManagerPanel } from '../../src/views/agentManagerPanel.ts';
 import { ChatPanel, getStatusDrivenComposerMode, isOneShotComposerMode } from '../../src/views/chatPanel.ts';
@@ -3510,5 +3516,29 @@ describe('mission control panel', () => {
     mocks.executeCommand.mockClear();
     mocks.state.webviewMessageHandler?.({ type: 'openRunCenter' });
     expect(mocks.executeCommand).toHaveBeenCalledWith('atlasmind.openProjectRunCenter');
+  });
+});
+
+describe('provider card buttons promise what the button actually does', () => {
+  it('never offers "Set API Key" for a provider that stores no key', () => {
+    // The ACP card carried this label while `requiresApiKey('acp')` was false,
+    // so its primary button advertised a credential prompt that never appears —
+    // and hid the agent picker that is the real first step. The rule is general:
+    // the two must not disagree for any provider.
+    for (const provider of PROVIDER_IDS) {
+      if (!requiresApiKey(provider)) {
+        expect(getProviderActionLabel(provider)).not.toBe('Set API Key');
+      }
+    }
+  });
+
+  it('does offer "Set API Key" wherever a key genuinely is stored', () => {
+    // Guards the inverse: relabelling every button would satisfy the rule above
+    // while making key-based providers just as unclear.
+    for (const provider of PROVIDER_IDS) {
+      if (requiresApiKey(provider)) {
+        expect(getProviderActionLabel(provider)).toBe('Set API Key');
+      }
+    }
   });
 });
