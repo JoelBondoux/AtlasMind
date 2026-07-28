@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.171.0] - 2026-07-28
+
+### Added
+- **`/acp` — a guided ACP setup walkthrough, in the same shape as `/buzz`.** Five steps: name an agent → install it → sign in → enable the provider → **prove a completion comes back**. State is derived from your actual configuration rather than asked for, one step is shown at a time with the command written out, and the checklist says done / to do / blocked / optional for each. New `src/core/acpSetupPlan.ts`, unit-tested.
+- **`/setup` — the index of every setup guide and how far along each one is.** A feature that needs configuring should be discoverable *before* you hit the failure that configuring it would have prevented. `/setup acp` and `/setup buzz` jump straight into a guide. New `src/core/setupGuideRegistry.ts`; each guide's progress is computed from that guide's own plan, so the index cannot claim a guide is finished while the guide disagrees.
+- **Setup guides now share their mechanics rather than resembling each other.** New `src/core/setupWalkthrough.ts` owns the step model, next-step selection, progress counting, and markdown rendering for every guide; `buzzSetupPlan.ts` delegates to it (all 62 of its existing tests unchanged) and `acpSetupPlan.ts` is built on it. The decisions that made the Buzz guide work — derive rather than ask, one step at a time, count only what gates the outcome, never flip a switch — are not Buzz-specific, and re-deriving them per feature is how they get lost.
+- **The last step of each guide proves the thing works**, not just that it is configured. `/buzz` refuses to stop at "subscribed"; `/acp` refuses to stop at "enabled". A provider can be correctly wired and never have answered, which is why that step is in the walkthrough but deliberately *not* in `isAcpProviderReady` — reporting it as a fault would be wrong, and reporting it as finished worse.
+
+### Security
+- **A plan is still never an installer, and now that is enforced.** `isOpeningAction` is an allowlist of the commands a setup step may offer: panels, settings pages, docs links, a command pre-loaded into a terminal you press Enter on, and prompts that ask you for a value (dismissing one stores nothing). It admits `atlasmind.setBuzzAgentKey` by name while refusing `atlasmind.setBuzzEnabled` — the first asks you for a value, the second would decide one for you. Both shipped guides are asserted clean in every state, so a future guide cannot quietly add an action that changes something on your behalf.
+- **`/acp` reports only published launch commands.** Install commands are marked as somebody else's text (`authored: false`) so they are quoted for you to read rather than offered as a one-click action, and Gemini CLI is absent because it publishes no invocation to quote.
+
 ## [0.170.0] - 2026-07-28
 
 ### Added

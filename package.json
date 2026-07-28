@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.170.0",
+  "version": "0.171.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -108,6 +108,14 @@
           {
             "name": "buzz",
             "description": "Buzz: setup checklist, or `read` the conversation, or `send <message>`"
+          },
+          {
+            "name": "acp",
+            "description": "ACP agents: a step-by-step setup walkthrough for subscription-backed agent capacity"
+          },
+          {
+            "name": "setup",
+            "description": "Every setup guide and how far along each one is; `/setup <name>` opens one"
           },
           {
             "name": "followups",

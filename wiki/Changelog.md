@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.171.0 — every setup process works the same way
+
+- **`/acp`** walks you through ACP setup a step at a time, ending with *prove a completion comes back* — configured and working are different things.
+- **`/setup`** lists every guide and how far along it is, so a feature that needs configuring is discoverable before it fails on you.
+- **The guides share their mechanics**, not just their look, so they cannot drift — and an allowlist now enforces that no guide can flip a switch for you.
+
 ## v0.170.0 — your subscription as routable capacity (ACP)
 
 - **AtlasMind speaks the Agent Client Protocol.** Point it at an ACP agent you have installed (`claude-agent-acp`, `codex-acp`) and that vendor's subscription becomes another model the router can choose.

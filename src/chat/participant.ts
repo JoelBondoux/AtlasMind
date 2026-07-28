@@ -815,8 +815,8 @@ function extractTopicTokens(text: string): string[] {
  * behaving like a freeform question.
  */
 export const KNOWN_SLASH_COMMANDS = new Set([
-  'agents', 'bootstrap', 'buzz', 'cost', 'director', 'discover', 'followups',
-  'import', 'loop', 'memory', 'project', 'runs', 'ship', 'skills',
+  'acp', 'agents', 'bootstrap', 'buzz', 'cost', 'director', 'discover', 'followups',
+  'import', 'loop', 'memory', 'project', 'runs', 'setup', 'ship', 'skills',
   'sync-instructions', 'vision', 'voice',
 ]);
 
@@ -906,6 +906,14 @@ async function handleChatRequest(
 
     case 'buzz':
       await handleBuzzCommand(prompt, stream, atlas, token);
+      break;
+
+    case 'acp':
+      await handleAcpCommand(prompt, stream, atlas);
+      break;
+
+    case 'setup':
+      await handleSetupCommand(prompt, stream, atlas, token);
       break;
 
     case 'followups':
@@ -1985,6 +1993,193 @@ async function fetchBuzzDoc(url: string): Promise<string | undefined> {
  * state, because a hallucinated setup step sends someone to configure something
  * that does not exist and leaves them trusting a broken result.
  */
+/**
+ * Gather the Buzz setup state.
+ *
+ * Extracted from the `/buzz` handler so `/setup` can report Buzz's progress
+ * without rendering its walkthrough — one gatherer, so the index and the guide
+ * can never disagree about how far along it is.
+ */
+async function collectBuzzSetupSteps(atlas: AtlasMindContext): Promise<import('../core/setupWalkthrough.js').SetupStep[]> {
+  const [{ buildBuzzSetupPlan }, { hasLauncherOnPath }, { BUZZ_AGENT_KEY_SECRET }, { parseAgentBindings }] =
+    await Promise.all([
+      import('../core/buzzSetupPlan.js'),
+      import('../mcp/mcpEnvironmentScanner.js'),
+      import('../core/buzzSigner.js'),
+      import('../core/buzzAgentBindings.js'),
+    ]);
+
+  const cfg = vscode.workspace.getConfiguration('atlasmind');
+  let hasAgentKey = false;
+  try {
+    hasAgentKey = Boolean((await atlas.extensionContext.secrets.get(BUZZ_AGENT_KEY_SECRET))?.trim());
+  } catch {
+    // An unreadable secret store is reported as "no key" rather than crashing
+    // the walkthrough — the remedy is the same either way.
+  }
+
+  const rawChannels = cfg.get<unknown>('buzz.inboundChannels', []);
+  return buildBuzzSetupPlan({
+    cliOnPath: hasLauncherOnPath('buzz'),
+    hasAgentKey,
+    relayUrl: cfg.get<string>('buzz.relayUrl', ''),
+    allowRemoteRelay: cfg.get<boolean>('buzz.allowRemoteRelay', false),
+    enabled: cfg.get<boolean>('buzz.enabled', false),
+    inboundEnabled: cfg.get<boolean>('buzz.inboundEnabled', false),
+    channelIds: Array.isArray(rawChannels) ? rawChannels.filter((c): c is string => typeof c === 'string') : [],
+    autoCreateFollowUps: cfg.get<boolean>('buzz.autoCreateFollowUps', false),
+    mcpServerRegistered: (atlas.mcpServerRegistry?.listServers() ?? [])
+      .some(server => server.config.id === 'mcp-server-buzz' || /buzz/i.test(server.config.name ?? '')),
+    ...(atlas.buzzInbound ? { inboundStatus: atlas.buzzInbound.getStatus() } : {}),
+    observedIdentities: atlas.buzzInbound?.listIdentities().length ?? 0,
+    agentBindings: parseAgentBindings(cfg.get('buzz.agentBindings')).bindings.length,
+    relayMode: cfg.get<'local' | 'hosted' | 'undecided'>('buzz.relayMode', 'undecided'),
+  });
+}
+
+/**
+ * Gather the ACP setup state from what is actually configured.
+ *
+ * Derived, never asked for — the same rule the Buzz guide follows. The probe is
+ * the only part that costs anything, and it is skipped entirely when no agent
+ * has been named, because there would be nothing to probe *for*.
+ */
+async function collectAcpSetupSteps(atlas: AtlasMindContext): Promise<import('../core/setupWalkthrough.js').SetupStep[]> {
+  const [{ buildAcpSetupPlan }, { parseAcpAgentSettings, AcpAdapter }, { ACP_PROTOCOL_VERSION }] = await Promise.all([
+    import('../core/acpSetupPlan.js'),
+    import('../providers/acp.js'),
+    import('../providers/acpProtocol.js'),
+  ]);
+
+  const cfg = vscode.workspace.getConfiguration('atlasmind');
+  const agents = parseAcpAgentSettings(cfg.get<unknown>('acp.agents'));
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+
+  let probe: { installed: boolean; authenticated: boolean; protocolVersion?: number; message?: string } | undefined;
+  if (agents.length > 0) {
+    const adapter = new AcpAdapter({ agents, ...(workspaceRoot ? { cwd: workspaceRoot } : {}) });
+    probe = await adapter.probe().catch(() => undefined);
+  }
+
+  const providerEnabled = atlas.modelRouter.listProviders()
+    .some(provider => provider.id === 'acp' && provider.enabled);
+
+  return buildAcpSetupPlan({
+    configuredAgents: agents.map(agent => ({ id: agent.id, command: agent.command, ...(agent.label ? { label: agent.label } : {}) })),
+    ...(probe ? { installed: probe.installed, authenticated: probe.authenticated } : {}),
+    ...(probe?.protocolVersion !== undefined ? { protocolVersion: probe.protocolVersion } : {}),
+    ...(probe?.message ? { probeMessage: probe.message } : {}),
+    clientProtocolVersion: ACP_PROTOCOL_VERSION,
+    providerEnabled,
+    // "Has it ever answered here" is read from cost records, which is the only
+    // evidence that survives a reload — and evidence, rather than a claim.
+    hasCompletedATurn: atlas.costTracker.getRecords().some(record => (record.model ?? '').startsWith('acp/')),
+  });
+}
+
+/**
+ * `/acp` — the ACP setup walkthrough.
+ *
+ * Deliberately the same shape as `/buzz`: one step at a time, derived state,
+ * the command written out, and nothing switched on for you. The mechanics are
+ * literally shared (`setupWalkthrough.ts`), so the two cannot drift.
+ */
+async function handleAcpCommand(
+  prompt: string,
+  stream: vscode.ChatResponseStream,
+  atlas: AtlasMindContext,
+): Promise<void> {
+  const trimmed = (prompt ?? '').trim();
+  const showAll = /^all$/i.test(trimmed);
+  const [{ ACP_SETUP_GUIDE, isAcpProviderReady, REQUIRED_ACP_STEP_IDS }, walkthrough] = await Promise.all([
+    import('../core/acpSetupPlan.js'),
+    import('../core/setupWalkthrough.js'),
+  ]);
+
+  const steps = await collectAcpSetupSteps(atlas);
+  const next = walkthrough.nextSetupStep(steps, ACP_SETUP_GUIDE.stepIds);
+
+  if (!next && !showAll) {
+    stream.markdown([
+      '### ACP setup — done',
+      '',
+      'An ACP agent is configured, installed, signed in, enabled for routing, and has answered at least once. Its subscription is now capacity the router can choose.',
+      '',
+      'Ask **`/acp all`** for the full checklist.',
+    ].join('\n'));
+    stream.button({ command: 'atlasmind.openModelProviderPanel', title: 'Open model providers' });
+    return;
+  }
+
+  if (!showAll && next) {
+    const position = walkthrough.setupStepPosition(steps, ACP_SETUP_GUIDE.stepIds, next.id);
+    stream.markdown(walkthrough.renderSetupStepMarkdown('ACP', next, position, "The Agent Client Protocol's documentation"));
+    // The last step is about proving it works rather than making it work.
+    // Without saying so, "1 step left" reads as though it is still broken.
+    if (isAcpProviderReady(steps)) {
+      stream.markdown('\n\n> **The provider itself is already wired** — an agent is named, installed, signed in, and enabled. What is left is confirming a reply actually comes back.');
+    }
+    if (next.action && walkthrough.isOpeningAction(next.action.command)) {
+      stream.button({
+        command: next.action.command,
+        title: next.action.title,
+        ...(next.action.args ? { arguments: next.action.args } : {}),
+      });
+    }
+    stream.markdown(`\n\n_Step ${position.index} of ${position.total}. Say **\`/acp\`** again once done, or **\`/acp all\`** to see everything._`);
+    // Required steps are what gate routing; the proof step is separate.
+    void REQUIRED_ACP_STEP_IDS;
+    return;
+  }
+
+  const MARK: Record<string, string> = { done: '✅', todo: '⬜', blocked: '⏸️', optional: '◽' };
+  const lines = ['### ACP setup — full checklist', ''];
+  for (const step of steps) {
+    lines.push(`${MARK[step.status] ?? '⬜'} **${escapeMd(step.title)}** — ${escapeMd(step.detail)}`);
+  }
+  lines.push('', 'AtlasMind installs nothing and enables nothing for you: you name a command you already have, and the provider stays off until you turn it on.');
+  stream.markdown(lines.join('\n'));
+}
+
+/**
+ * `/setup` — the index of every setup guide, with how far along each one is.
+ *
+ * Exists because a feature that needs configuring should be discoverable before
+ * someone hits the failure that configuring it would have prevented.
+ */
+async function handleSetupCommand(
+  prompt: string,
+  stream: vscode.ChatResponseStream,
+  atlas: AtlasMindContext,
+  token: vscode.CancellationToken,
+): Promise<void> {
+  const trimmed = (prompt ?? '').trim().toLowerCase();
+  const [{ SETUP_GUIDES, findSetupGuide, buildSetupIndex }, walkthrough] = await Promise.all([
+    import('../core/setupGuideRegistry.js'),
+    import('../core/setupWalkthrough.js'),
+  ]);
+
+  // `/setup acp` is a shortcut into that guide rather than a second dialect.
+  const requested = trimmed ? findSetupGuide(trimmed) : undefined;
+  if (requested?.id === 'acp') {
+    await handleAcpCommand('', stream, atlas);
+    return;
+  }
+  if (requested?.id === 'buzz') {
+    await handleBuzzCommand('', stream, atlas, token);
+    return;
+  }
+
+  const plans: Array<{ guideId: string; steps: import('../core/setupWalkthrough.js').SetupStep[] }> = [];
+  plans.push({ guideId: 'acp', steps: await collectAcpSetupSteps(atlas).catch(() => []) });
+  plans.push({ guideId: 'buzz', steps: await collectBuzzSetupSteps(atlas).catch(() => []) });
+
+  stream.markdown(walkthrough.renderSetupIndexMarkdown(buildSetupIndex(plans)));
+  if (trimmed && !requested) {
+    stream.markdown(`\n\n_No setup guide called \`${escapeMd(trimmed)}\`. Available: ${SETUP_GUIDES.map(guide => `\`${guide.id}\``).join(', ')}._`);
+  }
+}
+
 async function handleBuzzCommand(
   prompt: string,
   stream: vscode.ChatResponseStream,
@@ -2014,42 +2209,14 @@ async function handleBuzzCommand(
     return;
   }
 
-  const [{ buildBuzzSetupPlan, isBuzzInboundReady, nextBuzzSetupStep }, { hasLauncherOnPath }, { BUZZ_AGENT_KEY_SECRET }, docsModule, { parseAgentBindings }] =
+  const [{ isBuzzInboundReady, nextBuzzSetupStep }, docsModule] =
     await Promise.all([
       import('../core/buzzSetupPlan.js'),
-      import('../mcp/mcpEnvironmentScanner.js'),
-      import('../core/buzzSigner.js'),
       import('../core/buzzDocsSource.js'),
-      import('../core/buzzAgentBindings.js'),
     ]);
   const docsModule2 = await import('../core/buzzSetupPlan.js');
 
-  const cfg = vscode.workspace.getConfiguration('atlasmind');
-  let hasAgentKey = false;
-  try {
-    hasAgentKey = Boolean((await atlas.extensionContext.secrets.get(BUZZ_AGENT_KEY_SECRET))?.trim());
-  } catch {
-    // An unreadable secret store is reported as "no key" rather than crashing
-    // the walkthrough — the remedy is the same either way.
-  }
-
-  const rawChannels = cfg.get<unknown>('buzz.inboundChannels', []);
-  const steps = buildBuzzSetupPlan({
-    cliOnPath: hasLauncherOnPath('buzz'),
-    hasAgentKey,
-    relayUrl: cfg.get<string>('buzz.relayUrl', ''),
-    allowRemoteRelay: cfg.get<boolean>('buzz.allowRemoteRelay', false),
-    enabled: cfg.get<boolean>('buzz.enabled', false),
-    inboundEnabled: cfg.get<boolean>('buzz.inboundEnabled', false),
-    channelIds: Array.isArray(rawChannels) ? rawChannels.filter((c): c is string => typeof c === 'string') : [],
-    autoCreateFollowUps: cfg.get<boolean>('buzz.autoCreateFollowUps', false),
-    mcpServerRegistered: (atlas.mcpServerRegistry?.listServers() ?? [])
-      .some(server => server.config.id === 'mcp-server-buzz' || /buzz/i.test(server.config.name ?? '')),
-    ...(atlas.buzzInbound ? { inboundStatus: atlas.buzzInbound.getStatus() } : {}),
-    observedIdentities: atlas.buzzInbound?.listIdentities().length ?? 0,
-    agentBindings: parseAgentBindings(cfg.get('buzz.agentBindings')).bindings.length,
-    relayMode: cfg.get<'local' | 'hosted' | 'undecided'>('buzz.relayMode', 'undecided'),
-  });
+  const steps = await collectBuzzSetupSteps(atlas);
 
   const next = nextBuzzSetupStep(steps);
   // "Ready" is the walkthrough being finished, not just inbound being wired: a
