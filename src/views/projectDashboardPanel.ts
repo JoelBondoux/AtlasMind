@@ -51,9 +51,21 @@ import {
   type WorkflowHealth,
 } from '../core/workflowMetrics.js';
 import {
+  describePullRequestAction,
   parseGhPullRequestList,
   type PullRequestRecord,
 } from '../core/pullRequestTracker.js';
+import { PROTECTED_BRANCH_NAMES } from '../core/branchNaming.js';
+import {
+  FIRST_WRITING_LEVEL,
+  explainAutomationLevel,
+  normalizeAutomationLevel,
+  permits,
+  permitsProtectedRefWrite,
+  type AutomationDecision,
+  type AutomationLevel,
+  type WorkflowCapability,
+} from '../core/workflowAutomation.js';
 import { DASHBOARD_THEME_CSS } from './dashboardTheme.js';
 import {
   MAX_ROADMAP_GATES,
@@ -252,6 +264,10 @@ type ProjectDashboardMessage =
   | { type: 'closeIssue'; payload: { number: number } }
   | { type: 'reopenIssue'; payload: { number: number } }
   | { type: 'commentIssue'; payload: { number: number; body: string } }
+  | { type: 'createPullRequest'; payload: { title: string; body?: string; base: string; head: string; draft?: boolean } }
+  | { type: 'reviewPullRequest'; payload: { number: number; verdict: 'approve' | 'request-changes' | 'comment'; body?: string } }
+  | { type: 'mergePullRequest'; payload: { number: number; base: string } }
+  | { type: 'closePullRequest'; payload: { number: number } }
   | { type: 'runIdeationLoop'; payload: IdeationRunPayload }
   | { type: 'runGapAnalysis' }
   | { type: 'addressGap'; payload: string }
@@ -1688,6 +1704,12 @@ export class ProjectDashboardPanel {
       case 'commentIssue':
         await this.handleIssueWrite(message);
         return;
+      case 'createPullRequest':
+      case 'reviewPullRequest':
+      case 'mergePullRequest':
+      case 'closePullRequest':
+        await this.handlePullRequestWrite(message);
+        return;
       case 'saveTestingConfig':
         {
           const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -2284,6 +2306,164 @@ export class ProjectDashboardPanel {
     }
     // Re-read either way: a failed write may still have partially applied, and
     // the list is the only honest report of what the tracker now holds.
+    await this.handleRefreshIssues();
+  }
+
+  /**
+   * The effective automation level for a workflow action, and why.
+   *
+   * Read at the moment of acting rather than carried from a snapshot: a setting
+   * changed while a panel was open must take effect on the next action, not on
+   * the next reload. The webview never supplies the level — it asks to act, and
+   * this decides whether it may.
+   */
+  private automationFor(capability: WorkflowCapability, stageLevel: AutomationLevel): AutomationDecision {
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    const capabilitySetting = capability === 'issueWrites'
+      ? 'workflow.allowIssueWrites'
+      : capability === 'pullRequestWrites'
+        ? 'workflow.allowPullRequestWrites'
+        : 'workflow.allowReleaseWrites';
+    return explainAutomationLevel({
+      masterEnabled: configuration.get<boolean>('workflow.enabled', false),
+      userCeiling: normalizeAutomationLevel(configuration.get<string>('workflow.maxAutomationLevel', 'observe')),
+      capabilityEnabled: configuration.get<boolean>(capabilitySetting, false),
+      stageLevel,
+    });
+  }
+
+  /**
+   * Create a pull request, review it, or merge it.
+   *
+   * Two gates, in this order. First the **automation ladder** — the effective
+   * level must reach `propose`, and a refusal names the switch that caused it so
+   * nobody has to toggle four settings at random. Then the **modal
+   * confirmation**, naming the repository and the exact action, built from the
+   * same values that will be sent.
+   *
+   * A merge carries a third gate: the base branch may be protected, and a
+   * protected target is a *veto*, not a level to raise. The webview supplies
+   * only data — never a command — and `gh` runs without a shell.
+   */
+  private async handlePullRequestWrite(message: {
+    type: 'createPullRequest' | 'reviewPullRequest' | 'mergePullRequest' | 'closePullRequest';
+    payload: unknown;
+  }): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const slug = this.issuesState.repoSlug;
+    if (!workspaceRoot || !slug) {
+      void vscode.window.showWarningMessage('Load the issue list first so AtlasMind knows which repository to write to.');
+      return;
+    }
+
+    // Stage level comes from the project's declared workflow. Until the
+    // configuration file lands (Tier 4), the stage's shipped default applies —
+    // which is `draft`, so a write needs the user to raise it deliberately.
+    const decision = this.automationFor('pullRequestWrites', 'auto');
+    if (!permits(decision.level, FIRST_WRITING_LEVEL)) {
+      void vscode.window.showWarningMessage(
+        `AtlasMind is not permitted to write pull requests right now (level: ${decision.level}).`,
+        { modal: true, detail: decision.detail },
+      );
+      return;
+    }
+
+    const payload = (message.payload ?? {}) as Record<string, unknown>;
+    const number = sanitizeIssueNumber(payload['number']);
+
+    let args: string[];
+    let description: string;
+    let successNote: string;
+
+    if (message.type === 'createPullRequest') {
+      const title = typeof payload['title'] === 'string' ? payload['title'].trim() : '';
+      const body = typeof payload['body'] === 'string' ? payload['body'] : '';
+      const base = typeof payload['base'] === 'string' ? payload['base'].trim() : '';
+      const head = typeof payload['head'] === 'string' ? payload['head'].trim() : '';
+      if (!title || !base || !head) {
+        void vscode.window.showWarningMessage('A pull request needs a title, a base, and a head branch.');
+        return;
+      }
+      args = ['pr', 'create', '--base', base, '--head', head, '--title', title, '--body', body || '_No description provided._'];
+      if (payload['draft'] === true) {
+        args.push('--draft');
+      }
+      description = describePullRequestAction('create', slug, { title, base, head });
+      successNote = `Opened a pull request on ${slug}.`;
+    } else if (number === 0) {
+      return;
+    } else if (message.type === 'reviewPullRequest') {
+      const verdict = payload['verdict'];
+      const comment = typeof payload['body'] === 'string' ? payload['body'].trim() : '';
+      if (verdict === 'approve') {
+        args = ['pr', 'review', String(number), '--approve'];
+        if (comment) {
+          args.push('--body', comment);
+        }
+        description = describePullRequestAction('approve', slug, { number });
+        successNote = `Approved #${number}.`;
+      } else if (verdict === 'request-changes') {
+        if (!comment) {
+          // GitHub requires one, and so does courtesy: "changes requested" with
+          // no explanation is a rejection the author cannot act on.
+          void vscode.window.showWarningMessage('Requesting changes needs a comment explaining what to change.');
+          return;
+        }
+        args = ['pr', 'review', String(number), '--request-changes', '--body', comment];
+        description = describePullRequestAction('request-changes', slug, { number });
+        successNote = `Requested changes on #${number}.`;
+      } else {
+        if (!comment) {
+          void vscode.window.showWarningMessage('Write a comment before posting it.');
+          return;
+        }
+        args = ['pr', 'review', String(number), '--comment', '--body', comment];
+        description = describePullRequestAction('comment', slug, { number });
+        successNote = `Commented on #${number}.`;
+      }
+    } else if (message.type === 'mergePullRequest') {
+      const base = typeof payload['base'] === 'string' ? payload['base'].trim() : '';
+      const protection = permitsProtectedRefWrite({
+        targetIsProtected: PROTECTED_BRANCH_NAMES.has(base),
+        allowProtectedRefWrites: vscode.workspace
+          .getConfiguration('atlasmind')
+          .get<boolean>('workflow.allowProtectedRefWrites', false),
+      });
+      if (!protection.allowed) {
+        void vscode.window.showWarningMessage(
+          `Merging into \`${base}\` is not permitted.`,
+          { modal: true, detail: protection.detail ?? '' },
+        );
+        return;
+      }
+      // Squash by default: it keeps the integration branch readable, and the
+      // branch's intermediate steps are the part nobody reads later.
+      args = ['pr', 'merge', String(number), '--squash'];
+      description = describePullRequestAction('merge', slug, { number, base });
+      successNote = `Merged #${number}.`;
+    } else {
+      args = ['pr', 'close', String(number)];
+      description = describePullRequestAction('close', slug, { number });
+      successNote = `Closed #${number} without merging.`;
+    }
+
+    const confirmation = await vscode.window.showWarningMessage(
+      'Write to GitHub?',
+      { modal: true, detail: description },
+      'Yes, do it',
+    );
+    if (confirmation !== 'Yes, do it') {
+      return;
+    }
+
+    try {
+      await runGh(workspaceRoot, args);
+      void vscode.window.showInformationMessage(successNote);
+    } catch (error) {
+      void vscode.window.showWarningMessage(`The pull request action failed: ${ghFailureOf(error).detail}`);
+    }
+    // Re-read either way: a failed write may still have partially applied, and
+    // the list is the only honest report of what GitHub now holds.
     await this.handleRefreshIssues();
   }
 
@@ -3463,6 +3643,46 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
   // never supplies a command or an argument list — only these fields.
   if (candidate['type'] === 'createIssue') {
     return sanitizeIssueDraft(candidate['payload']) !== undefined;
+  }
+
+  // Pull-request writes carry the same rule as issue writes: the shape is
+  // checked here, the content is re-sanitised before it reaches `gh`, and the
+  // webview supplies only these fields — never a command or an argument list.
+  if (candidate['type'] === 'createPullRequest') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    if (typeof payload !== 'object' || payload === null) {
+      return false;
+    }
+    // A ref is a git ref, not free text: anything else is refused here rather
+    // than sanitised into something that might still be a valid ref elsewhere.
+    const ref = (value: unknown): boolean =>
+      typeof value === 'string' && value.length > 0 && value.length <= 255 && !/[~^:\s\\?*[\]]|\.\./.test(value);
+    return typeof payload['title'] === 'string'
+      && payload['title'].trim().length > 0
+      && ref(payload['base'])
+      && ref(payload['head'])
+      && (payload['body'] === undefined || typeof payload['body'] === 'string')
+      && (payload['draft'] === undefined || typeof payload['draft'] === 'boolean');
+  }
+
+  if (candidate['type'] === 'reviewPullRequest') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null
+      && sanitizeIssueNumber(payload['number']) > 0
+      && (payload['verdict'] === 'approve' || payload['verdict'] === 'request-changes' || payload['verdict'] === 'comment')
+      && (payload['body'] === undefined || typeof payload['body'] === 'string');
+  }
+
+  if (candidate['type'] === 'mergePullRequest') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null
+      && sanitizeIssueNumber(payload['number']) > 0
+      && typeof payload['base'] === 'string';
+  }
+
+  if (candidate['type'] === 'closePullRequest') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null && sanitizeIssueNumber(payload['number']) > 0;
   }
 
   if (candidate['type'] === 'closeIssue' || candidate['type'] === 'reopenIssue') {

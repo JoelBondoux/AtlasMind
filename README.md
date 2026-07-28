@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.182.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.183.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,9 +64,15 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.182.0
+## What's new in 0.183.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
+
+- **The automation ladder, and pull requests you can act on.** AtlasMind can now open, review, merge and close pull requests from the dashboard — the first thing it does that other people can see. Three gates in order: the automation ladder must reach `propose`, a protected base branch is a **veto** rather than a level anyone can raise, and a modal names the repository and the exact action before anything is sent.
+
+  The ladder itself became real in this release. 0.181.0 shipped the settings and showed their state; nothing evaluated them. The effective level for a stage is now genuinely the *minimum* of four independent gates that all start closed, and your own settings can only ever lower it — which is what makes "full automation is possible, never default" true by construction rather than by policy. Every refusal names the gate that caused it, so you are never left toggling four settings at random.
+
+  Draft pull requests are **synthesised, not generated**: the title comes from the conventional-commit classification of the commit range, reusing the same function that decides your version bump so the two can never disagree, and the body fills your own template while preserving every heading — including ones AtlasMind has never seen, because a team's checklist is theirs. Same range plus same template gives a byte-identical draft, with no model anywhere in the path.
 
 - **Pull requests, branch naming, and one door to `gh`.** The Workflow page now reads your pull requests and charts review health — open and awaiting-review counts, median time to first review and to merge, size distribution, merge throughput. Review text is *fenced* before any agent sees it: a review comment is written by whoever can comment, and "address this feedback" is exactly the path that hands that text to a model holding tools. Branch names now derive from the issue they serve (`feat/142-guided-github-workflow`) — pure, predictable, and structurally incapable of producing a protected branch name.
 

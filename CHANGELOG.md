@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.183.0] - 2026-07-28
+
+### Added
+- **The automation ladder is now real.** 0.181.0 shipped six `atlasmind.workflow.*` settings and displayed their state; nothing evaluated them. `workflowAutomation.ts` is the precedence rule the specification promised — `effective = min(master, ceiling, capability, stage)` — with every gate defaulting closed. That is what makes *"full automation is possible, never default"* true by construction rather than by policy: a project's workflow file may request `auto`, and if any one of the four disagrees, `auto` does not happen. Personal settings can only ever **lower** the result, so a repository cannot force unattended action onto somebody's machine and a developer cannot grant themselves more than the repository allows.
+
+  Two decisions inside it are worth knowing. A disabled capability switch caps at `draft` rather than zeroing the stage — turning off "may write pull requests" should stop the writing, not stop AtlasMind explaining and preparing. And every refusal **names the gate that caused it**, because "you cannot do that" with no reason sends somebody to toggle four settings at random. An unrecognised level reads as `off`: a settings file with a typo must never be read as consent.
+
+- **Pull requests can be opened, reviewed, merged and closed from the dashboard** — the first thing AtlasMind does that changes something outside the editor and is visible to other people. Every write passes three gates in order: the automation ladder must reach `propose`; a protected base is a **veto** rather than a level anyone can raise; and a modal confirmation names the repository and the exact action, built from the same values that will be sent. The webview supplies data only — refs are validated as git refs and refused outright rather than sanitised, since a "cleaned" ref can still be a valid ref pointing somewhere else.
+
+- **Pull-request drafts are synthesised, never generated.** `buildPullRequestDraft` derives a title from the conventional-commit classification of the commit range — **reusing `classifyBumpLevel`** rather than adding a second parser of the same format, because two parsers eventually disagree and the disagreement surfaces as a release whose version does not match its own pull-request title. The body fills the repository's own template: recognised headings get content, everything else is preserved verbatim including headings AtlasMind has never seen, because a team's checklist is theirs. Same range plus same template produces a byte-identical draft, with no model in the path. Labels come only from the declared taxonomy, and an unmatched one is dropped **and reported** rather than invented.
+
+### Fixed
+- **A breaking change declared in a commit body was being read as a patch.** The draft title split every commit to its first line before classifying it — but conventional commits declare a breaking change with a `BREAKING CHANGE:` footer in the *body*, so the marker never reached the classifier. Full messages are now classified and only first lines are used for display.
+
 ## [0.182.0] - 2026-07-28
 
 ### Added

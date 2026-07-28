@@ -1,6 +1,6 @@
 # Guided GitHub Workflow — Phased Roadmap
 
-> **Status:** Tier 1 shipped v0.181.0; Tier 2 in progress. **Owner:** AtlasMind core. **Created:** 2026-07-28.
+> **Status:** Tier 1 shipped v0.181.0; Tier 2 shipped v0.183.0 (C3.4 and C3.6 outstanding); Tier 3 next. **Owner:** AtlasMind core. **Created:** 2026-07-28.
 > This is the SSOT implementation plan for [`docs/guided-github-workflow.md`](../../docs/guided-github-workflow.md),
 > which is the normative specification. Where the two disagree, the specification wins and this
 > file is wrong. Build incrementally, respecting the entry criteria between tiers. Nothing here
@@ -61,9 +61,10 @@ config executed through the promotion runner's own audited path — not spawned 
 `gh repo create`.
 
 **Not present anywhere in `src/`:** any `gh run` call, any `gh release` call, any CI log retrieval,
-any tech-debt model. Pull requests are **read** as of v0.182.0 (`pullRequestTracker.ts`,
-`gh pr list`); writing them is the rest of Tier 2. Branch naming landed in v0.182.0
-(`branchNaming.ts`).
+any tech-debt model — all of which is Tier 3 and 4. Pull requests are read (v0.182.0) **and written**
+(v0.183.0: `gh pr create/review/merge/close`, behind the ladder and a modal). Branch naming landed in
+v0.182.0. The automation ladder itself — `min(master, ceiling, capability, stage)` — landed in
+v0.183.0 as `workflowAutomation.ts`; before that the settings existed but nothing evaluated them.
 
 **Already built and directly reusable:** `issueTracker.ts` (pure parse/sanitize/summarize plus the
 untrusted-content prompt fence); `promotionRunner.ts` (`classifyBumpLevel`, `bumpVersion`,
@@ -155,7 +156,7 @@ nothing to GitHub.
 
 ---
 
-## Tier 2 — branches and pull requests  *(in progress)*
+## Tier 2 — branches and pull requests  ✅ **SHIPPED v0.182.0–v0.183.0**  *(C3.4, C3.6 outstanding)*
 
 **Entry criteria:** ✅ met in v0.182.0 — Tier 1 shipped, and `ghClient` is now the only `gh` exec path (pinned by `tests/core/ghExecBoundary.test.ts`).
 **Exit criteria:** a pull request can be drafted, opened, reviewed and merged from the dashboard,

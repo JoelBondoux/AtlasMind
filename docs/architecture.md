@@ -313,6 +313,22 @@ Consequences that follow from that one decision: `median` refuses below `MIN_SAM
 
 Output shapes match the dashboard's existing render primitives — series for `renderChartCard`, slices for `renderDonutChart`, segments for `renderDistributionBar` — so the instrumentation wall is assembled from components that already exist. `deriveBranchMetrics` exempts integration and release branches from naming conformance, because a permanent unfixable gap teaches people to ignore gaps; `deriveCommitConformance` excludes platform-generated merge commits, which would otherwise penalise a team for using squash merges.
 
+### WorkflowAutomation (`src/core/workflowAutomation.ts`)
+
+Where the specification's central claim is kept: **full automation is possible, never default.** That has to be true by construction rather than by policy, and the mechanism is a minimum over four independent gates that all default closed — `effective = min(master, userCeiling, capability, stage)`. A project's committed workflow file may request `auto`; if any one of the four disagrees, `auto` does not happen. Personal settings can only *lower* the result, so a repository cannot force unattended action onto somebody's machine and a developer cannot grant themselves more than the repository allows. An exhaustive test walks the whole lattice rather than arguing the property.
+
+Three decisions carry weight. **A disabled capability caps at `draft`** rather than zeroing the stage — turning off "may write pull requests" should stop the writing, not stop AtlasMind explaining and preparing, and `propose` is exactly where writing begins. **Every refusal names its binding gate**, because "you cannot do that" with no reason sends somebody to toggle four settings at random. And **an unrecognised level reads as `off`** — a settings file with a typo must never be read as consent.
+
+Hard ceilings sit outside the ladder deliberately: force-pushing, deleting a tag or release, re-running CI, editing a CI workflow or the workflow config, and merging a dependency update are excluded at *every* rung, so their messages must not imply a setting exists that would permit them. `permitsProtectedRefWrite` is likewise a veto on a *target* rather than a cap on a level — with it off, `auto` is unreachable for a protected base, not merely discouraged.
+
+### PullRequestDraft (`src/core/pullRequestDraft.ts`)
+
+Removes the two steps people skip — writing the body and linking the issue — without letting a model author either. The determinism requirement is exact: the same commit range plus the same template produces a byte-identical draft.
+
+**The title reuses `classifyBumpLevel`** rather than parsing commits again. That function already reads conventional commits to decide a version bump; a second parser of the same format would eventually disagree with it, and the disagreement would surface as a release whose version does not match its own pull-request title. A single conventional commit keeps its subject verbatim — a human already wrote the best available description.
+
+**The template is filled, never replaced.** Recognised headings receive content; everything else is preserved exactly, including headings this module has never seen, because a team's checklist is theirs and a drafter that quietly dropped a custom section would be worse than one that left the body empty. The `- Closes #<issue-number>` placeholder is substituted rather than appended to, so a pull request never ships containing a literal `<issue-number>`; where there is no issue, the body says so, because a silent omission reads as an oversight. Labels come only from the declared taxonomy, and an unmatched one is dropped *and reported*.
+
 ### PullRequestTracker (`src/core/pullRequestTracker.ts`)
 
 The sibling of `issueTracker.ts`, built to the same discipline because the threat is the same one: **a pull-request body and a review comment are third-party text.** Anyone who can comment can write a paragraph designed to be read as an instruction by an AI assistant, and "address this review feedback" is precisely the workflow that hands that paragraph to a model holding tools.

@@ -6,6 +6,14 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.183.0 — the automation ladder, and pull requests you can act on
+
+- **The ladder is now real.** 0.181.0 shipped the settings and displayed them; nothing evaluated them. The effective level for a stage is now genuinely `min(master, ceiling, capability, stage)`, every gate closed by default — which is what makes *"full automation is possible, never default"* true by construction rather than by policy. Your own settings can only ever **lower** it.
+- **Every refusal names the gate that caused it**, because "you cannot do that" with no reason sends you to toggle four settings at random. A disabled capability caps at `draft` rather than silencing the stage: turning off "may write" should stop the writing, not stop the explaining.
+- **Pull requests can be opened, reviewed, merged and closed** from the dashboard — the first thing AtlasMind does that other people can see. Three gates in order: the ladder must reach `propose`, a protected base is a **veto** rather than a level to raise, and a modal names the repository and the exact action.
+- **Drafts are synthesised, not generated.** Title from the conventional-commit classification of the range — reusing the same function that decides the version bump, so the two can never disagree. Body fills your own template, preserving every heading including ones AtlasMind has never seen. Same range plus same template ⇒ byte-identical draft, no model in the path.
+- **Fixed:** a `BREAKING CHANGE:` footer in a commit *body* was being read as a patch, because the title logic split commits to their first line before classifying them.
+
 ## v0.182.0 — pull requests, branch naming, and one door to `gh`
 
 - **Pull requests are read and measured** on the Workflow page: open and awaiting-review counts, median time to first review and to merge, size distribution, merge throughput. As everywhere on that page, *not loaded* is its own state — never a row of zeroes.
