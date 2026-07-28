@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.169.0 — your issue tracker, inside the dashboard
+
+- **A new Issues tab** reads the repository's GitHub issues: open, unassigned, and gone-quiet counts, charts by label and assignee, and a searchable list.
+- **Deal with them in place**: comment, close, reopen, or open a new issue — each shown in full and confirmed before it is sent, because a tracker is public.
+- **"Work on it with Atlas"** hands the issue to chat as a report to check, explicitly not as instructions.
+
 ## v0.168.0 — who did the work, and how far the release has to go
 
 - **Three charts on the Overview**: commits by contributor, route to the selected release gate, and outstanding objectives by gate — from git history and the roadmap you already keep.

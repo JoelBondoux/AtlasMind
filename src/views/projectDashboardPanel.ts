@@ -11,6 +11,16 @@ import { buildAssistantResponseMetadata, buildQuickReplyPayload, buildWorkstatio
 import { resolvePickedImageAttachments } from '../chat/imageAttachments.js';
 import { collectTestingDashboardSnapshot, writeProjectTestingConfig, type TestingDashboardSnapshot } from './settingsPanel.js';
 import { getWebviewHtmlShell } from './webviewUtils.js';
+import {
+  buildIssueWorkPrompt,
+  describeIssueAction,
+  parseGhIssueList,
+  sanitizeIssueDraft,
+  sanitizeIssueNumber,
+  summarizeIssues,
+  type IssueRecord,
+  type IssueSummary,
+} from '../core/issueTracker.js';
 import { DASHBOARD_THEME_CSS } from './dashboardTheme.js';
 import {
   MAX_ROADMAP_GATES,
@@ -203,6 +213,12 @@ type ProjectDashboardMessage =
   | { type: 'saveRoadmap'; payload: DashboardRoadmapSavePayload }
   | { type: 'createRoadmapGate' }
   | { type: 'deleteRoadmapGate'; payload: string }
+  | { type: 'refreshIssues' }
+  | { type: 'workOnIssue'; payload: string }
+  | { type: 'createIssue'; payload: { title: string; body?: string; labels?: string[] } }
+  | { type: 'closeIssue'; payload: { number: number } }
+  | { type: 'reopenIssue'; payload: { number: number } }
+  | { type: 'commentIssue'; payload: { number: number; body: string } }
   | { type: 'runIdeationLoop'; payload: IdeationRunPayload }
   | { type: 'runGapAnalysis' }
   | { type: 'addressGap'; payload: string }
@@ -289,7 +305,7 @@ interface DashboardStat {
  * so `createOrShow(..., 'ideation')` type-checked and rendered a blank dashboard.
  */
 const DASHBOARD_PAGE_IDS = [
-  'overview', 'score', 'gapAnalysis', 'roadmap', 'director', 'runtime', 'repo', 'testing',
+  'overview', 'score', 'gapAnalysis', 'roadmap', 'issues', 'director', 'runtime', 'repo', 'testing',
   'security', 'privacy', 'risk', 'delivery', 'documents', 'ssot', 'ideation',
 ] as const;
 
@@ -649,6 +665,27 @@ interface DashboardMvpSnapshot {
   planPrompt: string;
 }
 
+/**
+ * The repository's issue tracker, as the dashboard sees it.
+ *
+ * `status` is deliberately explicit rather than an empty list: "no issues" and
+ * "we could not look" are different facts, and a page that showed an empty
+ * board for a missing `gh` would report a clean tracker that nobody checked.
+ */
+interface DashboardIssuesSnapshot {
+  status: 'ready' | 'not-loaded' | 'no-cli' | 'not-authenticated' | 'no-repo' | 'error';
+  /** Plain-English state, including what to run when something is missing. */
+  detail: string;
+  /** Command that would fix a `no-cli` / `not-authenticated` / `no-repo` state. */
+  fixCommand?: string;
+  repoSlug?: string;
+  issues: IssueRecord[];
+  summary?: IssueSummary;
+  /** When the list was last fetched; absent until the first load. */
+  loadedAt?: string;
+  busy: boolean;
+}
+
 interface DashboardRoadmapSnapshot {
   filePath: string;
   items: DashboardRoadmapItem[];
@@ -962,6 +999,7 @@ interface DashboardSnapshot {
     delta: SsotDelta;
   };
   roadmap: DashboardRoadmapSnapshot;
+  issues: DashboardIssuesSnapshot;
   security: {
     toolApprovalMode: string;
     allowTerminalWrite: boolean;
@@ -1383,6 +1421,18 @@ export class ProjectDashboardPanel {
   private readonly disposables: vscode.Disposable[] = [];
   private ideationAttachments: TaskImageAttachment[] = [];
   private pendingNavigationTarget: DashboardPageId | undefined;
+  /**
+   * Issues are fetched on demand, never as part of a dashboard render: `gh` is a
+   * network call against a rate-limited API, and a page that refreshed it on
+   * every unrelated re-render would spend the user's quota to show a tab they
+   * may not be looking at.
+   */
+  private issuesState: DashboardIssuesSnapshot = {
+    status: 'not-loaded',
+    detail: 'Issues have not been loaded yet.',
+    issues: [],
+    busy: false,
+  };
 
   public static createOrShow(context: vscode.ExtensionContext, atlas: AtlasMindContext, targetPage?: DashboardPageId): void {
     const column = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
@@ -1538,6 +1588,18 @@ export class ProjectDashboardPanel {
       case 'deleteRoadmapGate':
         await this.handleDeleteRoadmapGate(message.payload);
         return;
+      case 'refreshIssues':
+        await this.handleRefreshIssues();
+        return;
+      case 'workOnIssue':
+        await this.handleWorkOnIssue(message.payload);
+        return;
+      case 'createIssue':
+      case 'closeIssue':
+      case 'reopenIssue':
+      case 'commentIssue':
+        await this.handleIssueWrite(message);
+        return;
       case 'saveTestingConfig':
         {
           const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -1692,7 +1754,7 @@ export class ProjectDashboardPanel {
           }
           const configuration = vscode.workspace.getConfiguration('atlasmind');
           const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState);
           const seedItems = snapshot.gapAnalysis.items.filter(item => !item.resolved);
           this.queueNavigation('gapAnalysis');
           await this.postMessage({ type: 'navigate', payload: 'gapAnalysis' });
@@ -1719,7 +1781,7 @@ export class ProjectDashboardPanel {
           if (!workspaceRoot || message.payload.trim().length === 0) {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState);
           const targetItem = snapshot.gapAnalysis.items.find(item => item.id === message.payload.trim() && !item.resolved && item.type !== 'praise');
           if (!targetItem) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: 'That gap could not be found. Try re-running the analysis.' });
@@ -1745,7 +1807,7 @@ export class ProjectDashboardPanel {
           if (priority !== 'P1' && priority !== 'P2' && priority !== 'P3') {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState);
           const groupedItems = snapshot.gapAnalysis.items.filter(item => !item.resolved && item.type !== 'praise' && item.priority === priority);
           if (groupedItems.length === 0) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: `No open ${priority} items are available to resolve.` });
@@ -1771,7 +1833,7 @@ export class ProjectDashboardPanel {
           if (!gapId) {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState);
           const targetItem = snapshot.gapAnalysis.items.find(item => item.id === gapId);
           if (!targetItem) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: 'Gap item not found. Try re-running the analysis.' });
@@ -1830,7 +1892,7 @@ export class ProjectDashboardPanel {
 
   private async syncState(): Promise<void> {
     try {
-      const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments);
+      const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState);
       await this.postMessage({ type: 'state', payload: snapshot });
       if (this.pendingNavigationTarget) {
         await this.postMessage({ type: 'navigate', payload: this.pendingNavigationTarget });
@@ -1953,6 +2015,186 @@ export class ProjectDashboardPanel {
    * write happens (slugified, length-capped, checked against the existing gates
    * and the maximum) and refused with a reason rather than silently corrected.
    */
+  // ── Issues (GitHub, via the gh CLI) ─────────────────────────────
+
+  /**
+   * Load the repository's issues.
+   *
+   * Read-only and user-triggered. Each failure mode is reported as itself with
+   * the command that fixes it — "no issues" and "we could not look" are
+   * different facts, and collapsing them would report a clean tracker nobody
+   * checked.
+   */
+  private async handleRefreshIssues(): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      this.issuesState = { status: 'no-repo', detail: 'Open a workspace folder to read its issues.', issues: [], busy: false };
+      await this.syncState();
+      return;
+    }
+
+    this.issuesState = { ...this.issuesState, busy: true };
+    await this.syncState();
+
+    try {
+      const slug = (await runGh(workspaceRoot, ['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'])).trim();
+      if (!slug) {
+        this.issuesState = {
+          status: 'no-repo',
+          detail: 'This workspace has no GitHub repository that `gh` can resolve.',
+          fixCommand: 'gh repo set-default',
+          issues: [],
+          busy: false,
+        };
+        await this.syncState();
+        return;
+      }
+
+      // Closed issues are fetched too, but only recently — the page is a working
+      // board, not an archive, and an unbounded closed list is a slow request
+      // that nobody reads.
+      const raw = await runGh(workspaceRoot, [
+        'issue', 'list',
+        '--state', 'all',
+        '--limit', '100',
+        '--json', 'number,title,state,author,labels,assignees,body,url,createdAt,updatedAt,comments',
+      ]);
+      const issues = parseGhIssueList(raw);
+      this.issuesState = {
+        status: 'ready',
+        detail: `Read from ${slug}.`,
+        repoSlug: slug,
+        issues,
+        summary: summarizeIssues(issues, Date.now()),
+        loadedAt: new Date().toISOString(),
+        busy: false,
+      };
+    } catch (error) {
+      this.issuesState = { ...this.classifyIssueFailure(error), issues: [], busy: false };
+    }
+    await this.syncState();
+  }
+
+  /** Turn a `gh` failure into the specific thing that is wrong, and its fix. */
+  private classifyIssueFailure(error: unknown): Pick<DashboardIssuesSnapshot, 'status' | 'detail' | 'fixCommand'> {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/ENOENT|not recognized|command not found/i.test(message)) {
+      return {
+        status: 'no-cli',
+        detail: 'The GitHub CLI (`gh`) is not installed, so AtlasMind cannot read this repository\'s issues.',
+        fixCommand: 'winget install --id GitHub.cli',
+      };
+    }
+    if (/auth|login|credential|token/i.test(message)) {
+      return {
+        status: 'not-authenticated',
+        detail: 'The GitHub CLI is installed but not authenticated for this repository.',
+        fixCommand: 'gh auth login',
+      };
+    }
+    return {
+      status: 'error',
+      detail: `Could not read issues: ${message.slice(0, 300)}`,
+    };
+  }
+
+  /**
+   * Create, close, reopen, or comment on an issue.
+   *
+   * Every branch here is **outward-facing and usually public**, so each one is
+   * gated on a `{ modal: true }` confirmation that names the repository and the
+   * exact action, built from the same values that will be sent. The webview
+   * supplies only data — never a command — and `gh` is invoked directly, without
+   * a shell.
+   */
+  private async handleIssueWrite(message: {
+    type: 'createIssue' | 'closeIssue' | 'reopenIssue' | 'commentIssue';
+    payload: unknown;
+  }): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const slug = this.issuesState.repoSlug;
+    if (!workspaceRoot || !slug) {
+      void vscode.window.showWarningMessage('Load the issue list first so AtlasMind knows which repository to write to.');
+      return;
+    }
+
+    let args: string[];
+    let description: string;
+    let successNote: string;
+
+    if (message.type === 'createIssue') {
+      const draft = sanitizeIssueDraft(message.payload);
+      if (!draft) {
+        void vscode.window.showWarningMessage('An issue needs a title before it can be created.');
+        return;
+      }
+      args = ['issue', 'create', '--title', draft.title, '--body', draft.body || '_No description provided._'];
+      for (const label of draft.labels) {
+        args.push('--label', label);
+      }
+      description = describeIssueAction('create', slug, { title: draft.title });
+      successNote = `Created an issue on ${slug}.`;
+    } else {
+      const payload = message.payload as { number?: unknown; body?: unknown } | undefined;
+      const number = sanitizeIssueNumber(payload?.number);
+      if (number === 0) {
+        return;
+      }
+      if (message.type === 'commentIssue') {
+        const draft = sanitizeIssueDraft({ title: 'comment', body: payload?.body, labels: [] });
+        const body = draft?.body ?? '';
+        if (!body) {
+          void vscode.window.showWarningMessage('Write a comment before posting it.');
+          return;
+        }
+        args = ['issue', 'comment', String(number), '--body', body];
+        description = describeIssueAction('comment', slug, { number });
+        successNote = `Commented on #${number}.`;
+      } else if (message.type === 'closeIssue') {
+        args = ['issue', 'close', String(number)];
+        description = describeIssueAction('close', slug, { number });
+        successNote = `Closed #${number}.`;
+      } else {
+        args = ['issue', 'reopen', String(number)];
+        description = describeIssueAction('reopen', slug, { number });
+        successNote = `Reopened #${number}.`;
+      }
+    }
+
+    const confirmation = await vscode.window.showWarningMessage(
+      'Write to the issue tracker?',
+      { modal: true, detail: description },
+      'Yes, do it',
+    );
+    if (confirmation !== 'Yes, do it') {
+      return;
+    }
+
+    try {
+      await runGh(workspaceRoot, args);
+      void vscode.window.showInformationMessage(successNote);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`The issue action failed: ${detail.slice(0, 300)}`);
+    }
+    // Re-read either way: a failed write may still have partially applied, and
+    // the list is the only honest report of what the tracker now holds.
+    await this.handleRefreshIssues();
+  }
+
+  /** Hand an issue to chat as *reported content*, never as instructions. */
+  private async handleWorkOnIssue(rawNumber: unknown): Promise<void> {
+    const number = sanitizeIssueNumber(rawNumber);
+    const issue = this.issuesState.issues.find(entry => entry.number === number);
+    if (!issue) {
+      return;
+    }
+    await vscode.commands.executeCommand('atlasmind.openChatPanel', {
+      draftPrompt: buildIssueWorkPrompt(issue),
+      sendMode: 'new-session',
+    });
+  }
+
   private async handleCreateRoadmapGate(): Promise<void> {
     const context = await this.readRoadmapDocument();
     if (!context) {
@@ -3104,6 +3346,33 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return true;
   }
 
+  if (candidate['type'] === 'refreshIssues') {
+    return true;
+  }
+
+  if (candidate['type'] === 'workOnIssue') {
+    return sanitizeIssueNumber(candidate['payload']) > 0;
+  }
+
+  // Issue writes are outward-facing and usually public, so the shape is checked
+  // here and the content is re-sanitised before it reaches `gh`. The webview
+  // never supplies a command or an argument list — only these fields.
+  if (candidate['type'] === 'createIssue') {
+    return sanitizeIssueDraft(candidate['payload']) !== undefined;
+  }
+
+  if (candidate['type'] === 'closeIssue' || candidate['type'] === 'reopenIssue') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null && sanitizeIssueNumber(payload['number']) > 0;
+  }
+
+  if (candidate['type'] === 'commentIssue') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null
+      && sanitizeIssueNumber(payload['number']) > 0
+      && typeof payload['body'] === 'string' && payload['body'].trim().length > 0;
+  }
+
   if (candidate['type'] === 'deleteRoadmapGate') {
     // A gate id is a slug, not free text: reject anything that would not round-trip
     // as a `#tag` rather than coercing it into one.
@@ -3308,7 +3577,13 @@ export function normalizeDashboardPromptRequest(payload: unknown): { prompt: str
   };
 }
 
-async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachments: TaskImageAttachment[] = []): Promise<DashboardSnapshot> {
+async function collectDashboardSnapshot(
+  atlas: AtlasMindContext,
+  ideationAttachments: TaskImageAttachment[] = [],
+  // Held by the panel rather than collected here: issues come from a network
+  // call, so they are fetched on demand and simply carried through a render.
+  issues: DashboardIssuesSnapshot = { status: 'not-loaded', detail: 'Issues have not been loaded yet.', issues: [], busy: false },
+): Promise<DashboardSnapshot> {
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const workspaceName = vscode.workspace.workspaceFolders?.[0]?.name ?? 'No Workspace';
   const configuration = vscode.workspace.getConfiguration('atlasmind');
@@ -3584,6 +3859,7 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
       delta: ssotDelta,
     },
     roadmap: roadmapSnapshot,
+    issues,
     security: {
       toolApprovalMode,
       allowTerminalWrite,
@@ -8572,6 +8848,16 @@ const DASHBOARD_CSS = `
 
   .chart-range--filter { margin-top: 14px; }
   .chart-grid--mix { margin-top: 16px; }
+
+  /* An issue body is somebody else's prose: give it room but keep it visibly
+     quoted so it never reads as AtlasMind's own text. */
+  .issue-body {
+    white-space: pre-wrap;
+    border-left: 2px solid var(--dash-border);
+    padding-left: 10px;
+    margin-top: 6px;
+    opacity: 0.9;
+  }
 
   .dist-swatch {
     width: 9px;
