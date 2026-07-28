@@ -125,24 +125,63 @@ verified and pinned.
 **Goal:** hand an entire subtask to a subscription agent while AtlasMind keeps orchestration, memory,
 and — critically — the authorization gate.
 
-- AtlasMind implements the **full ACP Client surface**:
-  - `session/request_permission` → resolved through `src/core/toolApprovalManager.ts` +
-    `src/core/toolPolicy.ts`. **Fails closed** on any unknown or unmapped permission kind.
-  - `session/update` tool-call events → the existing tool-progress UI and `ProjectRunHistory`.
-  - Plan updates → the Planner surface.
-- **MCP pass-through:** servers from `McpServerRegistry` are handed to the agent at `session/new`, so a
-  delegated agent operates on AtlasMind's *curated* tool surface rather than an arbitrary one.
-- **The double-loop hazard — load-bearing.** The Orchestrator already runs its own tool loop
-  (`src/core/orchestrator.ts`, from ~line 2210). Nesting that inside an ACP agent's own loop puts two
-  agentic loops in contention over one workspace. Delegation must be a **distinct execution path** in
-  which the Orchestrator stands down — never an extra tool round inside the existing loop.
-- **Checkpoint before delegation** (`CheckpointManager`). An external process editing the workspace
-  needs a rollback point that AtlasMind created and controls.
-- Deny-by-default `atlasmind.acp.delegatedExecution` (`false`). cwd pinned to the workspace; changed
-  files reconciled back into the run record.
+**Status: the authorization half shipped in v0.176.0. The delegated-subtask execution path did not.**
+An agent can now act and every action is gated; what does not yet exist is a way to hand it a *whole
+subtask* and reconcile the result. Those are separable, and shipping the gate first is the right
+order — the alternative is an execution path with nothing behind it.
 
-**Entry criteria:** Tiers 1–2 stable; a threat model + security review of delegated authorization
-(what an agent can reach that AtlasMind's own tools cannot); proven fail-closed permission mapping.
+### Shipped (v0.176.0)
+
+- [x] `session/request_permission` answered through `src/providers/acpPermission.ts` +
+      `ToolApprovalManager`. Fails closed on an unreadable request, a missing policy, a policy that
+      throws, and any option kind it cannot recognise (unknown kinds are dropped, never coerced).
+- [x] ACP `ToolKind` → AtlasMind `ToolRiskCategory`, so an existing bypass carries the same meaning
+      for a delegated agent as for a subtask. `ToolKind::Other` is `#[serde(other)]` in the schema, so
+      it is the *unidentifiable* bucket and maps to highest risk.
+- [x] **Never selects `allow_always`** — that grant lives in the agent's own persistent state, where
+      AtlasMind can neither display nor revoke it. Declines outright when it is the only way to
+      approve.
+- [x] **MCP pass-through** at `session/new`, behind an explicit per-server allowlist
+      (`atlasmind.acp.mcpServers`, empty by default). Servers holding SecretStorage credentials and
+      HTTP/SSE servers are never forwarded, and the reason is logged.
+- [x] `session/update` tool-call events parsed (`tool_call`, `tool_call_update`) and surfaced, rather
+      than dropped as uninterpreted "other".
+- [x] Deny-by-default `atlasmind.acp.toolsEnabled` (`false`), with a control on Settings → Safety.
+- [x] The double-loop hazard is *avoided rather than solved*: `request.tools` is still refused, so the
+      Orchestrator's loop can never nest inside the agent's. The two loops cannot currently meet
+      because there is no path on which they would.
+
+### Outstanding
+
+- [ ] **The delegated-subtask path itself.** Today an ACP agent acts within an ordinary completion
+      turn. Handing it a *subtask* — with the Orchestrator standing down as a distinct execution path,
+      not an extra tool round — is unbuilt. This is the item that makes the tier "differentiating";
+      everything above is the safety floor it needs.
+- [ ] **Checkpoint before delegation** (`CheckpointManager`). Needed the moment a subtask path exists:
+      an external process editing the workspace needs a rollback point AtlasMind created.
+- [ ] **Changed files reconciled back into the run record**, and tool-call events routed to the
+      tool-progress UI + `ProjectRunHistory` rather than only the output channel.
+- [ ] **Plan updates → the Planner surface** (`plan` session updates are still passed through as
+      `other`).
+- [ ] **Verify against a real ACP binary.** Still outstanding from Tier 1 and now more load-bearing:
+      the whole permission path has been tested against a fake agent only. A live `claude-agent-acp`
+      run is the first thing to do before trusting any of this in anger.
+- [ ] Threat model + security review of delegated authorization — specifically *what an agent can
+      reach that AtlasMind's own tools cannot*, which the `fs`/`terminal` reasoning below makes
+      sharper rather than answers.
+
+### Decided: `fs` and `terminal` client capabilities stay `false`
+
+They do not sandbox the agent. A coding agent like `claude-code-acp` carries its own filesystem and
+shell access; declaring `fs: false` declines to *proxy* the I/O, it does not withhold it. The flags
+decide **who performs** an operation, not **whether** it may happen — so the entire safety budget went
+to `session/request_permission`, which decides the latter. Turning them on would add a real write path
+and a real command-execution path inside AtlasMind, each needing its own path-traversal and lifetime
+handling, in exchange for no capability the agent lacks. Revisit only if a surface needs to *show*
+agent I/O (unsaved buffers, embedded terminals) — that is a UI reason, not a security one.
+
+**Entry criteria for the outstanding items:** proven fail-closed permission mapping (done, against a
+fake agent) and a live-binary verification (not done).
 
 ---
 

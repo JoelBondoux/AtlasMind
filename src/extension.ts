@@ -1645,6 +1645,9 @@ async function bootstrapAtlasMind(
       ClaudeCliAdapter: providersModule.ClaudeCliAdapter,
       AcpAdapter: providersModule.AcpAdapter,
       parseAcpAgentSettings: providersModule.parseAcpAgentSettings,
+      acpToolRisk: providersModule.acpToolRisk,
+      describeAcpToolCall: providersModule.describeAcpToolCall,
+      selectAcpMcpServers: providersModule.selectAcpMcpServers,
       BEDROCK_ACCESS_KEY_SECRET: providersModule.BEDROCK_ACCESS_KEY_SECRET,
       BEDROCK_SECRET_KEY_SECRET: providersModule.BEDROCK_SECRET_KEY_SECRET,
       getConfiguredBedrockModelIds: providersModule.getConfiguredBedrockModelIds,
@@ -1820,6 +1823,13 @@ async function bootstrapAtlasMind(
       ? new startupModules.CheckpointManager(workspaceRootPath, context.globalStorageUri.fsPath)
       : undefined;
     const skillContext = buildSkillExecutionContext(memoryManager, memoryRefresh, checkpointManager, context.secrets);
+    // Resolved once the registries further down exist. The ACP gate is only ever
+    // consulted during a live turn, long after activation finishes — but until
+    // it is assigned it denies, so a startup failure cannot leave an agent
+    // running unsupervised.
+    let acpAuthorize: ((request: import('./providers/acpProtocol.js').AcpPermissionRequest) => Promise<boolean>) | undefined;
+    let acpMcpServers: () => import('./providers/acpProtocol.js').AcpMcpServer[] = () => [];
+
     const providerAdapters = [
       new startupModules.LocalEchoAdapter({
         secrets: context.secrets,
@@ -1835,6 +1845,18 @@ async function bootstrapAtlasMind(
         ),
         ...(workspaceRootPath ? { cwd: workspaceRootPath } : {}),
         clientVersion: context.extension?.packageJSON?.version ?? '0.0.0',
+        // Delegated execution is never delegated authorization: the agent runs
+        // its own tools, but every one of them has to come back through here.
+        permissionPolicy: async request => (acpAuthorize ? acpAuthorize(request) : false),
+        getMcpServers: () => acpMcpServers(),
+        // What the agent actually did, as it does it. Approval covers what may
+        // run; this is the record of what ran, which is the half you need after
+        // the fact rather than before it.
+        onToolEvent: event => {
+          outputChannel.appendLine(
+            `[acp] ${event.isUpdate ? 'tool update' : 'tool call'} (${event.status}): ${startupModules.describeAcpToolCall(event)}`,
+          );
+        },
       }),
       new startupModules.AnthropicAdapter(context.secrets),
       new startupModules.CopilotAdapter(),
@@ -2302,6 +2324,65 @@ async function bootstrapAtlasMind(
       context.secrets,
     );
     mcpServerRegistry.loadFromStorage();
+
+    // ── ACP delegated execution: the authorization gate ───────────
+    //
+    // Two independent switches, both off by default. `acp.agents` decides
+    // whether ACP can produce completions at all; `acp.toolsEnabled` decides
+    // whether an agent may *act*. Splitting them means using a Claude
+    // subscription for chat never implies letting Claude run commands.
+    acpMcpServers = () => {
+      const config = vscode.workspace.getConfiguration('atlasmind');
+      if (config.get<boolean>('acp.toolsEnabled') !== true) {
+        return [];
+      }
+      const allowlist = config.get<unknown>('acp.mcpServers');
+      const names = Array.isArray(allowlist)
+        ? allowlist.filter((entry): entry is string => typeof entry === 'string')
+        : [];
+      const { servers, skipped } = startupModules.selectAcpMcpServers(
+        mcpServerRegistry.listServers().map(state => state.config),
+        names,
+      );
+      for (const entry of skipped) {
+        outputChannel.appendLine(`[acp] not sharing MCP server "${entry.name}": ${entry.reason}`);
+      }
+      return servers;
+    };
+
+    acpAuthorize = async request => {
+      const config = vscode.workspace.getConfiguration('atlasmind');
+      if (config.get<boolean>('acp.toolsEnabled') !== true) {
+        return false;
+      }
+
+      const { category, risk } = startupModules.acpToolRisk(request.toolCall.kind);
+      const description = startupModules.describeAcpToolCall(request.toolCall);
+      outputChannel.appendLine(`[acp] permission requested (${risk} risk, ${category}): ${description}`);
+
+      // An existing bypass counts. A user who allowed workspace writes for this
+      // task decided about writing to their workspace, and it means the same
+      // thing whether the write comes from an AtlasMind subtask or a delegated
+      // agent — the taxonomy is shared precisely so this holds.
+      if (toolApprovalManager.shouldBypass(undefined, category)) {
+        outputChannel.appendLine('[acp] allowed by an existing approval bypass');
+        return true;
+      }
+
+      // Modal, because the agent is blocked waiting on the answer and a
+      // dismissible toast would silently become a refusal the user never saw.
+      const choice = await vscode.window.showWarningMessage(
+        `${request.toolCall.title || 'An ACP agent'} wants to act on your workspace.`,
+        {
+          modal: true,
+          detail: `${description}\n\nRisk: ${risk} (${category}).\n\nThis runs inside the ACP agent, not inside AtlasMind. Allow it only if you expected this step.`,
+        },
+        'Allow once',
+      );
+      const allowed = choice === 'Allow once';
+      outputChannel.appendLine(`[acp] ${allowed ? 'allowed once by the user' : 'declined'}`);
+      return allowed;
+    };
 
     // ── Agentic Resource Discovery (ARD) ──────────────────────────
     const ardRegistry = new startupModules.ArdRegistry(

@@ -114,7 +114,7 @@ AtlasMind/
 │   ├── mcp/              MCP client/registry plus bundled Buzz CLI communications bridge/server
 │   ├── ard/              Agentic Resource Discovery: `ardClient.ts`, `ardRegistry.ts`, `ardInstaller.ts`, `ardCatalogExporter.ts`
 │   ├── memory/           SSOT memory manager
-│   ├── providers/        LLM provider adapters (for example `anthropic.ts`, `claude-cli.ts`, `copilot.ts`); also `acp.ts` + `acpProtocol.ts` (Agent Client Protocol), `copilotMultiplierSync.ts`, `localModelSync.ts`, and `localModelRecommendationRegistry.ts`
+│   ├── providers/        LLM provider adapters (for example `anthropic.ts`, `claude-cli.ts`, `copilot.ts`); also `acp.ts` + `acpProtocol.ts` + `acpPermission.ts` (Agent Client Protocol), `copilotMultiplierSync.ts`, `localModelSync.ts`, and `localModelRecommendationRegistry.ts`
 │   ├── skills/           Built-in skill handlers (for example `dockerCli.ts`, `terminalRun.ts`, `gitApplyPatch.ts`)
 │   ├── views/            Webview panels and tree views (including `personalityProfilePanel.ts`, `modelComparisonPanel.ts`, `missionControlPanel.ts`, `websiteStudioPanel.ts`)
 │   ├── voice/            TTS/STT: `voiceManager.ts` bridge, `hostSpeechSynthesizer.ts` (OS TTS), `localTranscriber.ts` (on-device Whisper STT)

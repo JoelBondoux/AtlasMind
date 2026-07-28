@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.176.0] - 2026-07-28
+
+### Added
+- **ACP agents can now act, one approved operation at a time.** Tier 1 ran agents as a completion source with tools refused outright — safe, but it meant a Claude subscription could answer a question and nothing more. `atlasmind.acp.toolsEnabled` (off by default) lets the agent run its own tools, with every operation routed back through AtlasMind for approval. **Delegated execution is never delegated authorization:** the agent performs the work, AtlasMind decides whether it may.
+- **`src/providers/acpPermission.ts`** — the authorization policy, pure and unit-tested. Maps ACP's `ToolKind` onto AtlasMind's existing `ToolRiskCategory`, so a bypass the user already granted for `workspace-write` means the same thing whether the write comes from an AtlasMind subtask or a delegated agent.
+- **`atlasmind.acp.mcpServers`** — an explicit per-server allowlist for what an ACP agent may reach. Empty by default.
+- **Tool-call visibility.** `tool_call` and `tool_call_update` notifications were previously dropped as uninterpreted "other". They are now parsed and surfaced, because an executing agent whose actions are invisible is the failure mode worth engineering against.
+- **Each vendor's ACP route is its own row in the Models tree**, sitting directly beneath that vendor's API entry — "Anthropic — Claude subscription (ACP)". A single `ACP` node was accurate and useless: it filed a Claude subscription under a protocol acronym several rows from the Anthropic entry it is an alternative to. The row shows even when unconfigured, since it is also how the option is discovered.
+- **A "Let subscription agents act" card on the Settings → Safety page**, and ACP terms indexed in the settings search, so searching `acp`, `claude subscription`, or `agent client protocol` finds both the setup path and the authorization switch.
+
+### Fixed
+- **ACP models were never routed for vision, despite being able to receive images.** `buildPromptBlocks` sent image content blocks whenever the agent declared `promptCapabilities.image`, but `discoverModels` declared only `chat`, `code`, and `reasoning` — and the router excludes any model missing a required capability, so a vision task could never reach an ACP model. `vision` is now declared once a handshake has actually reported image support, read from the probe cache rather than by spawning a process per render.
+
+### Security
+- **AtlasMind never accepts an agent's "always allow" option.** Where an agent offers `allow_always`, AtlasMind answers `allow_once` instead — a standing grant made on the wire is remembered inside the agent's own persistent state, where the user can neither see nor revoke it. If `allow_always` is the *only* way to approve, AtlasMind declines the operation rather than granting a permission it cannot withdraw.
+- **A missing authorization gate denies rather than opens.** An `AcpAdapter` constructed without a `permissionPolicy` refuses every permission request, so a wiring mistake produces an agent that cannot act rather than one that acts unsupervised. A policy that throws is likewise a refusal.
+- **MCP servers holding SecretStorage credentials are never forwarded to an ACP agent.** Handing over a server means the agent's process launches it with its environment; resolving `secretEnvKeys` would copy a key the user gave *AtlasMind* into a third-party process as a side effect of ticking a checkbox. Such servers are skipped and the reason logged. HTTP/SSE servers are held back too, their headers being bearer tokens.
+- **`ToolKind::Other` is treated as the highest risk, not the lowest.** The schema marks it `#[serde(other)]`, so anything a newer agent invents deserializes there — "a kind this build cannot identify" is precisely the case that must prompt, and it maps to the same category as running a command.
+- **Unreadable permission requests are refused, never guessed.** No parseable options, no option of the needed kind, or an unparseable body all produce a JSON-RPC error rather than a fabricated selection, because inventing an `optionId` would be inventing consent.
+- Filesystem and terminal client capabilities remain declared `false` even with tools enabled. They do not sandbox the agent — a coding agent carries its own file and shell access — so they decide *who performs* an operation, not *whether* it may happen. Turning them on would add a write path and a command-execution path inside AtlasMind in exchange for no capability the agent lacks; the permission gate is where the authority actually lives.
+
+### Changed
+- The `atlasmind.acp.agents` setting description no longer promises restricted mode unconditionally, since that now holds only while `acp.toolsEnabled` is off. A settings page is the worst place to keep a stale security claim.
+- The refusal message for `request.tools` now distinguishes AtlasMind's own function-calling loop (which ACP has no channel for, and which stays refused) from the agent's own tools (which Tier 3 enables).
+- Permission and MCP wire shapes were read from the ACP schema crate rather than the rendered docs, which truncate before those definitions. Two details would have been wrong if guessed: `RequestPermissionOutcome` is internally tagged by a field itself named `outcome`, giving a double-nested response; and `McpServer::Stdio` is `#[serde(untagged)]`, so a stdio entry carries no `type` discriminator.
+
 ## [0.175.0] - 2026-07-28
 
 ### Added

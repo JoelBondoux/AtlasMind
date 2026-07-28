@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.175.0",
+  "version": "0.176.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -1278,7 +1278,7 @@
             }
           },
           "description": "ACP agents AtlasMind may use as subscription-backed completion capacity. Empty by default — nothing is spawned until you name a command you have installed.",
-          "markdownDescription": "Agents AtlasMind can drive over the [Agent Client Protocol](https://agentclientprotocol.com), using **your existing subscription** instead of pay-per-token API credit.\n\nEach entry names a command **you have already installed**. AtlasMind never downloads, installs, or `npx`-fetches an agent, and the list is empty by default.\n\n```json\n[\n  { \"id\": \"claude\", \"command\": \"claude-agent-acp\" },\n  { \"id\": \"codex\", \"command\": \"codex-acp\" }\n]\n```\n\nThose two commands are the ones named in ACP's own agent list. Other ACP agents work too — supply whatever command starts them in ACP mode.\n\nAgents run in **restricted mode**: no filesystem access, no terminal, and no MCP servers are passed through. They are a completion source, not an executor, and AtlasMind refuses any permission request they make. Compared with the older `claude-cli` bridge this streams, has no ~26,000-character prompt ceiling, and can send images when the agent declares support."
+          "markdownDescription": "Agents AtlasMind can drive over the [Agent Client Protocol](https://agentclientprotocol.com) (ACP), using **your existing subscription** instead of pay-per-token API credit.\n\nEach entry names a command **you have already installed**. AtlasMind never downloads, installs, or `npx`-fetches an agent, and the list is empty by default.\n\n```json\n[\n  { \"id\": \"claude\", \"command\": \"claude-agent-acp\" },\n  { \"id\": \"codex\", \"command\": \"codex-acp\" }\n]\n```\n\nThose two commands are the ones named in ACP's own agent list. Other ACP agents work too — supply whatever command starts them in ACP mode.\n\nBy default agents run as a **completion source, not an executor**: no MCP servers are passed through and every permission request they make is refused. Set `#atlasmind.acp.toolsEnabled#` to let them act, one approved operation at a time.\n\nCompared with the older `claude-cli` bridge this streams, has no ~26,000-character prompt ceiling, and can send images when the agent declares support."
         },
         "atlasmind.buzz.autonomousReplies": {
           "type": "boolean",
@@ -1937,6 +1937,21 @@
           "maximum": 65535,
           "description": "Localhost port for the remote-control server. Use 0 to pick a free port automatically.",
           "markdownDescription": "Localhost port for the remote-control server. AtlasMind binds the server to `127.0.0.1` on this port.\n\nExamples:\n- Pick a free port automatically (recommended): `0`\n- Pin a stable port so the web client's saved URL keeps working: `38917`\n\nOnly pin a port if you need the `ws://localhost:PORT` URL to stay constant across restarts."
+        },
+        "atlasmind.acp.toolsEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow ACP agents (Claude subscription, Codex/ChatGPT subscription) to run their own tools, asking your approval for each operation. Off by default: agents answer questions but cannot act.",
+          "markdownDescription": "**Off by default.** Lets an ACP agent — a Claude or ChatGPT subscription driven over the [Agent Client Protocol](https://agentclientprotocol.com) — actually *do* things: edit files, run commands, search, fetch.\n\nEvery operation still needs your approval. When the agent asks, AtlasMind shows what it wants to do and waits; nothing runs unless you allow it.\n\nTwo things worth knowing before turning this on:\n\n- **The work happens inside the agent's process, not inside AtlasMind.** AtlasMind decides *whether* each operation may proceed, and shows you what ran, but the agent performs it with whatever access it already has.\n- **AtlasMind never grants a permanent permission.** Where an agent offers \"always allow\", AtlasMind declines it and answers \"allow once\" instead — a standing grant would live in the agent's own state, where you could not find or revoke it.\n\nWith this off, agents still work for chat, code, and reasoning; they simply cannot act. See also `#atlasmind.acp.mcpServers#`."
+        },
+        "atlasmind.acp.mcpServers": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "description": "Names of MCP servers ACP agents may use. Empty by default — an agent gets no MCP servers unless you name them here. Requires atlasmind.acp.toolsEnabled.",
+          "markdownDescription": "Which of your MCP servers an ACP agent may connect to, **by name**. Empty by default, and only consulted when `#atlasmind.acp.toolsEnabled#` is on.\n\nNaming a server here means the agent's process launches that server's command with its environment. Two kinds are held back even when listed, and AtlasMind says so in its output channel:\n\n- **Servers whose credentials live in VS Code SecretStorage.** Forwarding those would copy a key you gave *AtlasMind* into another vendor's process as a side effect of ticking a box. Such a server keeps working normally through AtlasMind's own tools.\n- **HTTP/SSE servers**, whose headers carry bearer tokens. Only stdio servers are shared."
         }
       }
     }

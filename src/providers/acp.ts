@@ -37,8 +37,11 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import type { CompletionRequest, CompletionResponse, DiscoveredModel, ProviderAdapter } from './adapter.js';
 import {
+  ACP_PERMISSION_METHOD,
   ACP_PROTOCOL_VERSION,
   buildInitializeRequest,
+  buildPermissionCancelledResponse,
+  buildPermissionSelectedResponse,
   buildSessionCancelNotification,
   buildSessionNewRequest,
   buildSessionPromptRequest,
@@ -46,13 +49,18 @@ import {
   encodeAcpFrame,
   parseAcpFrame,
   parseInitializeResult,
+  parsePermissionRequest,
   parseSessionId,
   parseSessionUpdate,
   parseStopReason,
   toFinishReason,
   type AcpInitializeResult,
+  type AcpMcpServer,
+  type AcpPermissionRequest,
   type AcpPromptBlock,
+  type AcpToolCall,
 } from './acpProtocol.js';
+import { resolveAcpPermission } from './acpPermission.js';
 
 export const ACP_PROVIDER_ID = 'acp';
 export const ACP_SETUP_URL = 'https://agentclientprotocol.com/get-started/agents';
@@ -145,7 +153,30 @@ export interface AcpProbeResult {
   agentName?: string;
   command?: string;
   message?: string;
+  /**
+   * `promptCapabilities.image`, learned from the handshake.
+   *
+   * This is what lets `discoverModels` declare `vision` truthfully. It cannot be
+   * a static fact about the agent id: whether `claude-agent-acp` accepts images
+   * depends on the installed build, and asserting a capability the local binary
+   * does not have produces a failed turn rather than a skipped one.
+   */
+  supportsImages?: boolean;
+  /** `promptCapabilities.audio`. Reported for diagnostics; nothing sends audio. */
+  supportsAudio?: boolean;
 }
+
+/**
+ * Asks the user whether a delegated ACP agent may perform one operation.
+ *
+ * Injected rather than imported so the adapter stays `vscode`-free: the real
+ * implementation shows a modal and consults `ToolApprovalManager`, and the tests
+ * pass a function. **No policy means no permission** — see {@link AcpAdapter}.
+ */
+export type AcpPermissionPolicy = (request: AcpPermissionRequest) => Promise<boolean>;
+
+/** Notified as the agent announces and updates tool calls, so they are visible. */
+export type AcpToolEventListener = (event: AcpToolCall) => void;
 
 /** Minimal child-process surface, so tests can drive a fake. */
 export interface AcpProcessHandle {
@@ -176,6 +207,29 @@ export class AcpAdapter implements ProviderAdapter {
       timeoutMs?: number;
       clientVersion?: string;
       spawnProcess?: AcpProcessFactory;
+      /**
+       * MCP servers to hand the agent at `session/new`.
+       *
+       * Absent, or returning nothing, means the agent gets none — the default.
+       * The list is an explicit user allowlist, not "everything AtlasMind has
+       * connected": these entries carry commands and environment variables into
+       * a third-party process.
+       *
+       * A getter rather than a value, matching `LocalEchoAdapter`'s
+       * `getEndpoints`: it is read per session, so revoking a server in settings
+       * takes effect on the next turn instead of the next window reload.
+       */
+      getMcpServers?: () => AcpMcpServer[];
+      /**
+       * The authorization gate for delegated execution.
+       *
+       * **Omitting it is a denial, not a bypass.** With no policy, every
+       * `session/request_permission` is refused, exactly as at Tier 1 — so a
+       * caller that forgets to wire the gate gets an agent that cannot act,
+       * rather than one that acts unsupervised.
+       */
+      permissionPolicy?: AcpPermissionPolicy;
+      onToolEvent?: AcpToolEventListener;
     },
   ) {}
 
@@ -194,17 +248,38 @@ export class AcpAdapter implements ProviderAdapter {
     return this.agents().map(agent => `${ACP_PROVIDER_ID}/${agent.id}`);
   }
 
+  /**
+   * Model metadata for the router.
+   *
+   * `vision` is declared **only** when a handshake has actually reported
+   * `promptCapabilities.image`, and is read from the probe cache rather than by
+   * spawning: this runs on every tree render, and a process per render is not a
+   * price a capability list should cost. The consequence is that vision appears
+   * once the agent has been probed (health check, provider panel, setup plan)
+   * and not before — the conservative direction, since a model wrongly *offered*
+   * for vision fails the turn, while one wrongly withheld merely routes
+   * elsewhere.
+   *
+   * `function_calling` is deliberately never declared. ACP has no way to expose
+   * AtlasMind's own `ToolDefinition`s to the agent, so a task requiring that
+   * must not be routed here — see the refusal in {@link run}.
+   */
   async discoverModels(): Promise<DiscoveredModel[]> {
-    return this.agents().map(agent => ({
-      id: `${ACP_PROVIDER_ID}/${agent.id}`,
-      name: agent.label ?? agent.id,
-      // Subscription-backed: priced at zero per token, which is *why* the router
-      // must not let it win budget mode by default — that gate lives in
-      // modelRouter's subscription handling, not here.
-      inputPricePer1k: 0,
-      outputPricePer1k: 0,
-      capabilities: ['chat', 'code', 'reasoning'],
-    }));
+    return this.agents().map(agent => {
+      const known = peekAcpProbe(this.probeCacheKey(agent));
+      return {
+        id: `${ACP_PROVIDER_ID}/${agent.id}`,
+        name: agent.label ?? agent.id,
+        // Subscription-backed: priced at zero per token, which is *why* the router
+        // must not let it win budget mode by default — that gate lives in
+        // modelRouter's subscription handling, not here.
+        inputPricePer1k: 0,
+        outputPricePer1k: 0,
+        capabilities: known?.supportsImages
+          ? ['chat', 'code', 'reasoning', 'vision']
+          : ['chat', 'code', 'reasoning'],
+      };
+    });
   }
 
   async healthCheck(): Promise<boolean> {
@@ -234,8 +309,9 @@ export class AcpAdapter implements ProviderAdapter {
       };
     }
 
+    const cacheKey = this.probeCacheKey(target);
+    // A fake process factory means a test; caching across tests would leak state.
     const cacheable = !this.options?.spawnProcess;
-    const cacheKey = `${target.command}|${(target.args ?? []).join(' ')}|${this.options?.cwd ?? ''}`;
     if (cacheable) {
       const cached = acpProbeCache.get(cacheKey);
       if (cached && Date.now() - cached.at < ACP_PROBE_TTL_MS) {
@@ -248,6 +324,10 @@ export class AcpAdapter implements ProviderAdapter {
       acpProbeCache.set(cacheKey, { at: Date.now(), result });
     }
     return result;
+  }
+
+  private probeCacheKey(agent: AcpAgentConfig): string {
+    return `${agent.command}|${(agent.args ?? []).join(' ')}|${this.options?.cwd ?? ''}`;
   }
 
   private agents(): AcpAgentConfig[] {
@@ -282,6 +362,8 @@ export class AcpAdapter implements ProviderAdapter {
         protocolVersion: initialized.protocolVersion,
         ...(initialized.agentName ? { agentName: initialized.agentName } : {}),
         command: agent.command,
+        supportsImages: initialized.supportsImages,
+        supportsAudio: initialized.supportsAudio,
         ...(initialized.authMethods.length > 0
           ? { message: `${agent.command} is installed but not authenticated. Sign in with the agent's own login flow (${initialized.authMethods.join(', ')}).` }
           : {}),
@@ -308,14 +390,31 @@ export class AcpAdapter implements ProviderAdapter {
       throw new Error('No ACP agent is configured. Add one under atlasmind.acp.agents.');
     }
 
-    // Tools are the Orchestrator's, and this tier's agent has none. Saying so is
-    // better than accepting a tools array and silently ignoring it, which would
-    // let a caller believe a tool loop was available.
+    // Two different things are called "tools", and conflating them is the trap.
+    //
+    // `request.tools` is AtlasMind's own function-calling loop: here are schemas,
+    // call one, hand back `toolCalls`, and the Orchestrator runs it. ACP has no
+    // channel for that — a client cannot inject function definitions into an
+    // agent's turn — so this stays refused however much of Tier 3 is enabled.
+    //
+    // What Tier 3 adds is the *agent's* tools: its own built-ins plus any MCP
+    // servers passed at session/new, executed inside the agent and authorized
+    // one at a time through `session/request_permission`. That is the
+    // Orchestrator standing down and delegating, not nesting its loop inside
+    // another one.
     if (request.tools && request.tools.length > 0) {
-      throw new Error('The ACP provider runs agents in restricted mode (no tools). Route tool-using tasks to a provider that supports them.');
+      throw new Error('ACP agents cannot run AtlasMind\'s own tool definitions — the protocol has no way to pass them in. The agent executes its own tools instead, gated by approval. Route function-calling tasks to a provider that supports them.');
     }
 
-    const session = new AcpSession(agent, this.spawnFactory(), this.options?.cwd, this.clientVersion(), this.options?.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+    const session = new AcpSession(
+      agent,
+      this.spawnFactory(),
+      this.options?.cwd,
+      this.clientVersion(),
+      this.options?.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+      this.options?.permissionPolicy,
+      this.options?.onToolEvent,
+    );
     try {
       const initialized = await session.initialize();
       if (!initialized.compatible) {
@@ -324,7 +423,16 @@ export class AcpAdapter implements ProviderAdapter {
       if (initialized.authMethods.length > 0) {
         throw new Error(`${agent.command} is not authenticated. Sign in with the agent's own login flow first.`);
       }
-      await session.newSession();
+      // A getter that throws must not silently become "no servers" — but it also
+      // must not take down a turn, so it degrades to the deny-by-default empty
+      // list, which is the same thing an unconfigured install sends.
+      let mcpServers: AcpMcpServer[] = [];
+      try {
+        mcpServers = this.options?.getMcpServers?.() ?? [];
+      } catch {
+        mcpServers = [];
+      }
+      await session.newSession(mcpServers);
       const turn = await session.prompt(buildPromptBlocks(request, initialized), onTextChunk, request.signal);
       return {
         content: turn.text,
@@ -348,6 +456,19 @@ export class AcpAdapter implements ProviderAdapter {
 }
 
 const acpProbeCache = new Map<string, { at: number; result: AcpProbeResult }>();
+
+/**
+ * Read a cached probe without triggering one.
+ *
+ * `discoverModels` needs to know whether the agent takes images, but it is
+ * called on every render of every surface that lists models. Spawning there
+ * would make a capability list cost a process each time, so this returns what is
+ * already known and `undefined` otherwise.
+ */
+function peekAcpProbe(cacheKey: string): AcpProbeResult | undefined {
+  const cached = acpProbeCache.get(cacheKey);
+  return cached && Date.now() - cached.at < ACP_PROBE_TTL_MS ? cached.result : undefined;
+}
 
 /** Exported for tests: clears the probe TTL cache. */
 export function resetAcpProbeCache(): void {
@@ -424,6 +545,8 @@ class AcpSession {
     private readonly cwd: string | undefined,
     private readonly clientVersion: string,
     private readonly timeoutMs: number,
+    private readonly permissionPolicy?: AcpPermissionPolicy,
+    private readonly onToolEvent?: AcpToolEventListener,
   ) {
     this.process = spawnProcess(agent, cwd);
     this.process.onStdout(chunk => this.ingest(chunk));
@@ -445,11 +568,11 @@ class AcpSession {
     return parseInitializeResult(result);
   }
 
-  async newSession(): Promise<void> {
+  async newSession(mcpServers: AcpMcpServer[]): Promise<void> {
     // The spec requires an absolute cwd. Falling back to the process cwd is
     // correct and observable; inventing a path would not be.
     const cwd = this.cwd ?? process.cwd();
-    const result = await this.request(buildSessionNewRequest(this.nextId, cwd));
+    const result = await this.request(buildSessionNewRequest(this.nextId, cwd, mcpServers));
     this.sessionId = parseSessionId(result);
     if (!this.sessionId) {
       throw new Error('The ACP agent did not return a session id.');
@@ -559,10 +682,15 @@ class AcpSession {
         return;
       }
       case 'request': {
-        // The agent is asking AtlasMind for something. At this tier the only
-        // honest answer is "not supported": a permission request in particular
-        // must FAIL CLOSED — answering it would be authorizing a tool call
-        // through a path that has no policy behind it. That is Tier 3 work.
+        // The agent is asking AtlasMind for something. `session/request_permission`
+        // is the one method with an answer; everything else (fs/*, terminal/*,
+        // elicitation/*) is refused, because AtlasMind declared it cannot do
+        // those in `initialize` and an agent asking anyway is not a reason to
+        // start.
+        if (frame.method === ACP_PERMISSION_METHOD) {
+          void this.answerPermission(frame.id, frame.params);
+          return;
+        }
         this.rejectAgentRequest(frame.id, frame.method);
         return;
       }
@@ -570,6 +698,76 @@ class AcpSession {
         // Unusable line (a banner, a partial, a malformed frame) — ignored by
         // design; a subprocess writing prose to stdout must not fail a turn.
         return;
+    }
+  }
+
+  /**
+   * Answer a `session/request_permission` request.
+   *
+   * The order of the guards is the policy. Before anything is asked of the user
+   * the request must be *readable*, and before any approval can be granted a
+   * policy must *exist* — a missing gate is a denial, never an open door. Only
+   * then does the decision reach the user, and only an explicit `true` can
+   * produce a selection of an allow option.
+   *
+   * Nothing here throws. This runs on the stdout read loop, where an exception
+   * would strand the turn holding a permission the agent is still waiting on;
+   * a failure to decide has to become a refusal on the wire instead.
+   */
+  private async answerPermission(id: number, params: Record<string, unknown>): Promise<void> {
+    let request: AcpPermissionRequest | undefined;
+    try {
+      request = parsePermissionRequest(params);
+    } catch {
+      request = undefined;
+    }
+
+    if (!request) {
+      this.rejectAgentRequestWith(id, 'AtlasMind could not read that permission request, so it was refused.');
+      return;
+    }
+
+    // Announce the pending call before prompting: the approval dialog is about
+    // to describe it, and the run log should already show what was asked.
+    this.emitToolEvent(request.toolCall);
+
+    if (!this.permissionPolicy) {
+      this.rejectAgentRequestWith(
+        id,
+        'AtlasMind is running this agent without tool authorization enabled, so the operation was declined.',
+      );
+      return;
+    }
+
+    let approved = false;
+    try {
+      approved = await this.permissionPolicy(request) === true;
+    } catch {
+      // A gate that failed is a gate that did not approve.
+      approved = false;
+    }
+
+    if (this.disposed) {
+      return;
+    }
+
+    const resolution = resolveAcpPermission(request, approved);
+    if (resolution.action === 'select') {
+      this.process.writeLine(buildPermissionSelectedResponse(id, resolution.optionId));
+      return;
+    }
+    if (resolution.action === 'cancelled') {
+      this.process.writeLine(buildPermissionCancelledResponse(id));
+      return;
+    }
+    this.rejectAgentRequestWith(id, resolution.message);
+  }
+
+  private emitToolEvent(toolCall: AcpToolCall): void {
+    try {
+      this.onToolEvent?.(toolCall);
+    } catch {
+      // A listener that throws must not take the turn down with it.
     }
   }
 
@@ -585,11 +783,30 @@ class AcpSession {
     })}\n`);
   }
 
+  /**
+   * JSON-RPC error reply for a request we understood but will not grant.
+   *
+   * `-32603` (internal error) rather than `-32601`: the method exists and was
+   * handled — the answer is no. Reporting "method not found" for a refusal would
+   * invite an agent to conclude the client is too old and retry differently.
+   */
+  private rejectAgentRequestWith(id: number, message: string): void {
+    this.process.writeLine(`${JSON.stringify({
+      jsonrpc: '2.0',
+      id,
+      error: { code: -32603, message },
+    })}\n`);
+  }
+
   private applyUpdate(params: Record<string, unknown>): void {
     const update = parseSessionUpdate(params);
     if (update.kind === 'text') {
       this.text += update.text;
       this.onText?.(update.text);
+      return;
+    }
+    if (update.kind === 'tool_call') {
+      this.emitToolEvent(update.toolCall);
       return;
     }
     if (update.kind === 'usage') {
