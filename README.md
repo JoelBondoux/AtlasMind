@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.177.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.178.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,9 +64,11 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.177.1
+## What's new in 0.178.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
+
+- **You can now set up a subscription route from the sidebar, and its buttons act on the right thing.** The ACP rows in the Models tree had no control that did anything about the state they were reporting — worse, the icons they inherited targeted the *vendor's API provider*, so the visibility toggle on "Anthropic — Claude subscription" flipped Anthropic itself. Unfinished rows now show a plug icon and act on click, taking whichever step is genuinely next: check the adapter is installed and signed in, switch the provider on, or refresh to pick up the model.
 
 - **An ACP entry can no longer look active while every prompt goes elsewhere.** The Models sidebar was ticking a Claude subscription green on installs where no agent had ever been configured — it was reading a seeded placeholder model rather than your actual settings, and ignoring whether the provider was even switched on. It now shows the four things that have to be true for the router to pick it, and names whichever one is missing: not set up, provider off, model disabled, or agent not responding. Enabling it from "Use my Claude subscription" also now sticks — it was being written to memory only, and the next refresh silently undid it. And setup guides open in a **new chat session** instead of dropping a half-written `/acp` into whatever conversation you had open.
 

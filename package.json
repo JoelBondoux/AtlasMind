@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.177.1",
+  "version": "0.178.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -363,6 +363,12 @@
         "command": "atlasmind.models.configureProvider",
         "title": "Configure Model Provider",
         "icon": "$(settings-gear)"
+      },
+      {
+        "command": "atlasmind.acp.setUpBridge",
+        "title": "AtlasMind: Set Up This Subscription (ACP)",
+        "category": "AtlasMind",
+        "icon": "$(plug)"
       },
       {
         "command": "atlasmind.models.refreshProvider",
@@ -839,6 +845,11 @@
           "command": "atlasmind.models.assignToAgent",
           "when": "view == atlasmind.modelsView && viewItem =~ /^model-/",
           "group": "inline@5"
+        },
+        {
+          "command": "atlasmind.acp.setUpBridge",
+          "when": "view == atlasmind.modelsView && viewItem == acp-bridge-incomplete",
+          "group": "inline@1"
         }
       ],
       "commandPalette": [
@@ -944,6 +955,10 @@
         },
         {
           "command": "atlasmind.memory.showReview",
+          "when": "false"
+        },
+        {
+          "command": "atlasmind.acp.setUpBridge",
           "when": "false"
         }
       ]

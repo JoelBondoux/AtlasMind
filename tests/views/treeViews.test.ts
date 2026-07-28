@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { describeAcpBridgeState, registerTreeViews } from '../../src/views/treeViews';
+import { describeAcpBridgeState, resolveAcpBridgeState, registerTreeViews } from '../../src/views/treeViews';
 import * as vscode from 'vscode';
 
 vi.mock('vscode', () => ({
@@ -47,35 +47,52 @@ describe('registerTreeViews', () => {
   });
 });
 
-describe('describeAcpBridgeState — the row must not claim a route the router will not take', () => {
-  // The four conditions `getCandidateModels` actually requires. All of them fail
-  // the same way from outside — prompts quietly go somewhere else — so each has
-  // to be named separately or the user checks the wrong screen.
-  it('reports every unmet condition distinctly, and only says plain (ACP) when all four hold', () => {
-    expect(describeAcpBridgeState(false, false, false, false)).toBe('(ACP — not set up)');
-    expect(describeAcpBridgeState(true, false, true, true)).toBe('(ACP — provider off)');
-    expect(describeAcpBridgeState(true, true, false, true)).toBe('(ACP — model disabled)');
-    expect(describeAcpBridgeState(true, true, true, false)).toBe('(⚠ ACP — agent not responding)');
-    expect(describeAcpBridgeState(true, true, true, true)).toBe('(ACP)');
+describe('resolveAcpBridgeState — the row must not claim a route the router will not take', () => {
+  const ready = { configured: true, providerEnabled: true, modelCount: 1, modelEnabled: true, healthy: true };
+
+  it('reports every unmet condition distinctly', () => {
+    expect(resolveAcpBridgeState({ ...ready, configured: false })).toBe('not-set-up');
+    expect(resolveAcpBridgeState({ ...ready, providerEnabled: false })).toBe('provider-off');
+    expect(resolveAcpBridgeState({ ...ready, modelCount: 0, modelEnabled: false })).toBe('not-discovered');
+    expect(resolveAcpBridgeState({ ...ready, modelEnabled: false })).toBe('model-disabled');
+    expect(resolveAcpBridgeState({ ...ready, healthy: false })).toBe('unhealthy');
+    expect(resolveAcpBridgeState(ready)).toBe('ready');
   });
 
-  it('never reports plain (ACP) unless every condition is met', () => {
+  it('separates "no model discovered yet" from "model disabled"', () => {
+    // They look identical and mean opposite things: only `acp/claude` is seeded,
+    // so a freshly configured Codex agent has no model row until discovery runs.
+    // Calling that "disabled" sent the user looking for a switch that does not
+    // exist. One needs a refresh, the other a toggle.
+    expect(resolveAcpBridgeState({ ...ready, modelCount: 0, modelEnabled: false })).toBe('not-discovered');
+    expect(resolveAcpBridgeState({ ...ready, modelCount: 1, modelEnabled: false })).toBe('model-disabled');
+  });
+
+  it('never reports ready unless every condition is met', () => {
     // The regression this pins: a seeded, enabled `acp/claude` model under a
     // disabled provider previously showed a green tick on an untouched install.
     for (let mask = 0; mask < 15; mask += 1) {
-      const state = describeAcpBridgeState(
-        (mask & 1) !== 0,
-        (mask & 2) !== 0,
-        (mask & 4) !== 0,
-        (mask & 8) !== 0,
-      );
-      expect(state).not.toBe('(ACP)');
+      const state = resolveAcpBridgeState({
+        configured: (mask & 1) !== 0,
+        providerEnabled: (mask & 2) !== 0,
+        modelCount: 1,
+        modelEnabled: (mask & 4) !== 0,
+        healthy: (mask & 8) !== 0,
+      });
+      expect(state).not.toBe('ready');
     }
   });
 
   it('names "not set up" ahead of every other cause', () => {
     // Configuration is the first thing to fix; reporting "provider off" to
     // someone who never configured an agent sends them to the wrong switch.
-    expect(describeAcpBridgeState(false, true, true, true)).toBe('(ACP — not set up)');
+    expect(resolveAcpBridgeState({ ...ready, configured: false, providerEnabled: false, healthy: false }))
+      .toBe('not-set-up');
+  });
+
+  it('labels the unfinished states with the next step, not the fault', () => {
+    expect(describeAcpBridgeState('not-set-up')).toBe('(ACP — set up)');
+    expect(describeAcpBridgeState('not-discovered')).toBe('(ACP — refresh to finish)');
+    expect(describeAcpBridgeState('ready')).toBe('(ACP)');
   });
 });
