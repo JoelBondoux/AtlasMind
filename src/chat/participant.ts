@@ -806,6 +806,20 @@ function extractTopicTokens(text: string): string[] {
   return tokens;
 }
 
+/**
+ * Slash commands declared in `package.json` under `contributes.chatParticipants`.
+ *
+ * Kept here so a command arriving as prompt text can be recovered rather than
+ * handed to the general agent. Pinned by a test against the manifest, because
+ * the failure of a stale list is silent: the command just quietly starts
+ * behaving like a freeform question.
+ */
+export const KNOWN_SLASH_COMMANDS = new Set([
+  'agents', 'bootstrap', 'buzz', 'cost', 'director', 'discover', 'followups',
+  'import', 'loop', 'memory', 'project', 'runs', 'ship', 'skills',
+  'sync-instructions', 'vision', 'voice',
+]);
+
 async function handleChatRequest(
   request: vscode.ChatRequest,
   _chatContext: vscode.ChatContext,
@@ -814,11 +828,31 @@ async function handleChatRequest(
   atlas: AtlasMindContext,
   sessionId: string,
 ): Promise<vscode.ChatResult> {
-  const command = request.command;
+  let command = request.command;
+  let prompt = request.prompt;
   let projectOutcome: ProjectRunOutcome | undefined;
 
   if (token.isCancellationRequested) {
     return {};
+  }
+
+  // A slash command can arrive as *text* rather than as `request.command` —
+  // notably when another surface opens chat with a pre-filled query, which is
+  // how the Settings → Buzz "Guide me through setup" button works. VS Code
+  // renders the chip either way, so this is invisible until the command
+  // silently falls through to the general agent.
+  //
+  // That fall-through is the part that matters. `/buzz` is deliberately
+  // deterministic and touches no model at all; reaching the freeform path
+  // instead hands a Buzz question to an agent holding every connected tool,
+  // which is both wrong and a wider surface than the command was ever meant
+  // to have. Recovering the command here keeps that from being possible.
+  if (!command) {
+    const typed = /^\/([a-z-]+)\b[ \t]*([\s\S]*)$/i.exec(prompt.trim());
+    if (typed && KNOWN_SLASH_COMMANDS.has(typed[1]!.toLowerCase())) {
+      command = typed[1]!.toLowerCase();
+      prompt = typed[2] ?? '';
+    }
   }
 
   switch (command) {
@@ -839,11 +873,11 @@ async function handleChatRequest(
       break;
 
     case 'discover':
-      await handleDiscoverCommand(request.prompt, stream, atlas);
+      await handleDiscoverCommand(prompt, stream, atlas);
       break;
 
     case 'memory':
-      await handleMemoryCommand(request.prompt, stream, atlas);
+      await handleMemoryCommand(prompt, stream, atlas);
       break;
 
     case 'cost':
@@ -852,13 +886,13 @@ async function handleChatRequest(
 
     case 'project': {
       const { sessionContextBundle, sessionContext } = await prepareProjectRunContext(atlas, sessionId);
-      projectOutcome = await runProjectCommand(request.prompt, stream, token, atlas, sessionId, sessionContextBundle, sessionContext);
+      projectOutcome = await runProjectCommand(prompt, stream, token, atlas, sessionId, sessionContextBundle, sessionContext);
       break;
     }
 
     case 'loop': {
       const { sessionContext } = await prepareProjectRunContext(atlas, sessionId);
-      await runLoopCommand(request.prompt, stream, token, atlas, sessionId, sessionContext);
+      await runLoopCommand(prompt, stream, token, atlas, sessionId, sessionContext);
       break;
     }
 
@@ -871,7 +905,7 @@ async function handleChatRequest(
       break;
 
     case 'buzz':
-      await handleBuzzCommand(request.prompt, stream, atlas, token);
+      await handleBuzzCommand(prompt, stream, atlas, token);
       break;
 
     case 'followups':
@@ -879,11 +913,11 @@ async function handleChatRequest(
       break;
 
     case 'ship':
-      await handleShipCommand(request.prompt, stream, atlas);
+      await handleShipCommand(prompt, stream, atlas);
       break;
 
     case 'sync-instructions':
-      await handleSyncInstructionsCommand(request.prompt, stream, atlas);
+      await handleSyncInstructionsCommand(prompt, stream, atlas);
       break;
 
     case 'voice':
@@ -896,7 +930,7 @@ async function handleChatRequest(
 
     default: {
       const routedIntent = resolveAtlasChatIntent(
-        request.prompt,
+        prompt,
         atlas.sessionConversation.getTranscript(sessionId),
       );
       if (routedIntent?.kind === 'project') {

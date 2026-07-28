@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.157.1] - 2026-07-28
+
+### Fixed
+- **"Guide me through Buzz setup" sent your question to the general agent instead of showing the checklist.** The button opens chat with a pre-filled `@atlas /buzz` query, and VS Code hands that to the participant as prompt *text* rather than as a command. The chip renders identically either way, so nothing looked wrong — but `/buzz`, which is deliberately deterministic and uses no model at all, was instead answered by an agent holding every connected tool, which reached for an unrelated third-party one. A slash command arriving as text is now recovered and routed to its own handler.
+
+### Security
+- **A deterministic command can no longer widen its own tool surface by falling through.** The point of `/buzz` being model-free is that a Buzz question never needs an agent, let alone one holding every connected MCP tool; a silent fall-through granted exactly that. Recovery closes it, and tests now pin that every command the manifest declares has a handler, that the known-command list matches the manifest, and that the dispatch reads the recovered prompt rather than the raw one.
+
 ## [0.157.0] - 2026-07-28
 
 ### Added
