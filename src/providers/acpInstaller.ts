@@ -189,11 +189,36 @@ export interface AcpInstallProbe {
    * back to a real filesystem check when the caller does not supply one.
    */
   fileExists?: (path: string) => boolean;
-  /**
-   * Whether this process already has the rights a system package manager needs.
-   * Defaults to a real `getuid()` check; supplied by tests.
-   */
-  isRoot?: boolean;
+}
+
+/**
+ * Whether a runtime step needs rights this process cannot obtain.
+ *
+ * Split out and given `isRoot` explicitly because the alternative caused a
+ * real bug: the planner briefly carried its own notion of "am I root" while
+ * `buildRuntimeInstallInvocation` independently consulted `process.getuid()`.
+ * On Windows `getuid` is undefined, so the two agreed by accident and the
+ * mistake was invisible; on Linux they disagreed, and a plan could have
+ * declared a step runnable while the argv it produced was a `sudo -n` command
+ * that fails without a terminal. There is one source of that fact now, read at
+ * the single call site, and this stays pure so both branches are testable.
+ *
+ * The builder returns a bare command in two very different situations — we are
+ * root (which works), or sudo was not found (which fails with "are you root?")
+ * — so the argv alone cannot distinguish them, and `isRoot` decides.
+ */
+export function requiresUnobtainableElevation(
+  packageManager: RecommendedRuntimePackageManager,
+  invocation: { command: string; args: readonly string[] },
+  isRoot: boolean,
+): boolean {
+  if (!ELEVATING_PACKAGE_MANAGERS.has(packageManager)) {
+    return false;
+  }
+  // `sudo -n` is non-interactive by necessity — there is no terminal to prompt
+  // in — so it fails immediately unless sudo is already passwordless.
+  const usesSudo = /(^|[\\/])sudo$/i.test(invocation.command) || invocation.args[0] === 'sudo';
+  return usesSudo || !isRoot;
 }
 
 /**
@@ -378,8 +403,9 @@ function planRuntimeStep(recipe: AcpAgentRecipe, probe: AcpInstallProbe): AcpIns
       option.packageId,
       option.extraPackages ?? [],
     );
-    const isRoot = probe.isRoot ?? (typeof process.getuid === 'function' && process.getuid() === 0);
-    const requiresElevation = ELEVATING_PACKAGE_MANAGERS.has(option.packageManager) && !isRoot;
+    // The same `getuid` the invocation builder consults, read once here.
+    const isRoot = typeof process.getuid === 'function' && process.getuid() === 0;
+    const requiresElevation = requiresUnobtainableElevation(option.packageManager, invocation, isRoot);
     return {
       purpose: `Install ${option.displayName}, which ${recipe.displayName} needs`,
       // Rendered from the invocation actually built, so what is shown and what

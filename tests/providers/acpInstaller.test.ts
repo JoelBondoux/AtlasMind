@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { planAcpAgentInstall, runAcpInstallPlan, type AcpInstallPlan } from '../../src/providers/acpInstaller.ts';
+import { formatCommandLine, planAcpAgentInstall, requiresUnobtainableElevation, runAcpInstallPlan, type AcpInstallPlan } from '../../src/providers/acpInstaller.ts';
 
 /** A machine with exactly the listed commands on PATH. */
 function machine(platform: string, present: string[]) {
@@ -45,33 +45,64 @@ describe('planAcpAgentInstall — planning performs nothing', () => {
   it('REFUSES to offer a run that needs a password it cannot ask for', () => {
     // `buildRuntimeInstallInvocation` elevates with `sudo -n` — fail rather
     // than prompt — which is the only correct choice from an extension host
-    // with no terminal. So on Linux the step works for root and passwordless
-    // sudo and fails instantly for everyone else. Offering the button anyway
-    // would teach most Linux users the feature is broken.
-    const plan = planAcpAgentInstall('codex', { ...machine('linux', ['apt-get', 'sudo']), isRoot: false });
-    expect(plan.status).toBe('manual');
+    // with no terminal. So the step works for root and passwordless sudo and
+    // fails instantly for everyone else. Offering the button anyway would teach
+    // most Linux users the feature is broken.
+    //
+    // Asserted as a consistency property rather than a fixed verdict, because
+    // the honest answer depends on the machine: a root container genuinely can
+    // run this, and demanding "manual" there would assert wrong behaviour. The
+    // semantics themselves are covered exhaustively against the pure helper
+    // below.
+    const plan = planAcpAgentInstall('codex', machine('linux', ['apt-get', 'sudo']));
     if (plan.status === 'manual') {
       expect(plan.reason).toMatch(/administrator rights/i);
       // Still tells them exactly what to run themselves.
       expect(plan.humanCommand).toContain('apt-get install -y cargo');
       expect(plan.humanCommand).toContain('cargo install codex-acp');
+    } else {
+      // Planned only where it can actually run — i.e. as root, with no sudo.
+      expect(plannable(plan).steps.some(step => step.requiresElevation)).toBe(false);
     }
   });
 
-  it('does plan it when already running as root', () => {
-    const plan = plannable(planAcpAgentInstall('codex', { ...machine('linux', ['apt-get']), isRoot: true }));
-    expect(plan.steps[0]!.humanCommand).toContain('apt-get install -y cargo');
-    expect(plan.steps[0]!.requiresElevation).toBeUndefined();
-  });
-
-  it('still plans brew, which needs no elevation on either platform', () => {
+  it('still plans brew, which needs no elevation on any platform', () => {
     // Homebrew installs into a prefix the user owns and refuses to run under
     // sudo, so it is the one system package manager AtlasMind can drive.
-    const plan = plannable(planAcpAgentInstall('claude', { ...machine('darwin', ['brew']), isRoot: false }));
+    const plan = plannable(planAcpAgentInstall('claude', machine('darwin', ['brew'])));
     expect(plan.steps[0]!.humanCommand).toContain('brew install node');
     expect(plan.steps[0]!.requiresElevation).toBeUndefined();
   });
+});
 
+describe('requiresUnobtainableElevation — one source of "am I root"', () => {
+  // The planner briefly carried its own `isRoot` while the invocation builder
+  // consulted `process.getuid()` independently. On Windows getuid is undefined,
+  // so the two agreed by accident and the split was invisible until Linux CI
+  // disagreed. Both branches are now testable on any platform.
+  const bare = { command: '/usr/bin/apt-get', args: ['install', '-y', 'nodejs'] };
+  const elevated = { command: '/usr/bin/sudo', args: ['-n', '/usr/bin/apt-get', 'install', '-y', 'nodejs'] };
+
+  it('treats sudo as unobtainable even when running as root, because -n cannot prompt', () => {
+    expect(requiresUnobtainableElevation('apt-get', elevated, true)).toBe(true);
+    expect(requiresUnobtainableElevation('apt-get', elevated, false)).toBe(true);
+  });
+
+  it('allows a bare system-manager command only when actually root', () => {
+    // The builder returns a bare command both when we are root (works) and when
+    // sudo is missing (fails with "are you root?"); only `isRoot` separates them.
+    expect(requiresUnobtainableElevation('apt-get', bare, true)).toBe(false);
+    expect(requiresUnobtainableElevation('apt-get', bare, false)).toBe(true);
+  });
+
+  it('never demands elevation for the package managers that do not need it', () => {
+    for (const manager of ['brew', 'winget'] as const) {
+      expect(requiresUnobtainableElevation(manager, bare, false)).toBe(false);
+    }
+  });
+});
+
+describe('planAcpAgentInstall — degrading rather than guessing', () => {
   it('falls back to manual when no supported package manager exists', () => {
     const plan = planAcpAgentInstall('claude', machine('linux', []));
     expect(plan.status).toBe('manual');
@@ -270,12 +301,13 @@ describe('humanCommand is the consent, so it cannot diverge from the argv', () =
   });
 
   it('shows sudo exactly when sudo is used, and not otherwise', () => {
-    // As root no elevation is added, so none may be displayed either — the
-    // previous hand-written string printed `sudo` unconditionally on Linux.
-    const plan = plannable(planAcpAgentInstall('codex', { ...machine('linux', ['apt-get']), isRoot: true }));
-    const step = plan.steps[0]!;
-    const usesSudo = step.command.endsWith('sudo') || step.args[0] === 'sudo';
-    expect(step.humanCommand.startsWith('sudo ')).toBe(usesSudo);
-    expect(usesSudo).toBe(false);
+    // The previous hand-written string printed `sudo` unconditionally on Linux,
+    // whether or not the invocation used it. Asserted through the formatter so
+    // the answer is the same on every platform rather than depending on whether
+    // this runner has sudo.
+    expect(formatCommandLine('/usr/bin/sudo', ['-n', 'apt-get', 'install', '-y', 'nodejs']))
+      .toBe('sudo -n apt-get install -y nodejs');
+    expect(formatCommandLine('/usr/bin/apt-get', ['install', '-y', 'nodejs']))
+      .toBe('apt-get install -y nodejs');
   });
 });

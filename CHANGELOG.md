@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.180.1] - 2026-07-28
+
+### Fixed
+- **Two independent notions of "am I root", caught by CI on Ubuntu and macOS.** 0.180.0 gave the planner its own `isRoot` input while `buildRuntimeInstallInvocation` went on consulting `process.getuid()` internally. On Windows `getuid` is undefined, so the two agreed by accident and the split was invisible — Windows CI passed while both Unix runners failed. Worse than the test failure: a plan could have declared a step runnable while the argv it produced was a `sudo -n` command that fails without a terminal.
+
+  There is now one source of that fact, read once at the single call site, and the decision moved into an exported pure function (`requiresUnobtainableElevation`) so both branches are testable on any platform. It also corrects a case 0.180.0 got wrong: `sudo -n` cannot prompt **even when running as root**, so an argv containing sudo is now always treated as unobtainable rather than only when non-root.
+
+### Changed
+- The elevation integration test asserts a consistency property rather than a fixed verdict. A root container genuinely *can* run a system install, so demanding "manual" everywhere would have asserted wrong behaviour for it; the semantics are covered exhaustively against the pure helper instead.
+
 ## [0.180.0] - 2026-07-28
 
 ### Fixed
