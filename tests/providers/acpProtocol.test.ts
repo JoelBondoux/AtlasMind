@@ -203,10 +203,70 @@ describe('parseSessionUpdate', () => {
   });
 
   it('passes other spec discriminators through as themselves', () => {
-    for (const kind of ['plan', 'tool_call', 'tool_call_update']) {
+    for (const kind of ['plan', 'available_commands_update', 'current_mode_update']) {
       expect(parseSessionUpdate({ sessionId: 's', update: { sessionUpdate: kind } }))
         .toEqual({ kind: 'other', sessionId: 's', sessionUpdate: kind });
     }
+  });
+
+  it('surfaces tool calls so a delegated agent\'s actions are visible', () => {
+    const update = parseSessionUpdate({
+      sessionId: 's',
+      update: {
+        sessionUpdate: 'tool_call',
+        toolCallId: 'call_1',
+        title: 'Reading configuration file',
+        kind: 'read',
+        status: 'pending',
+        locations: [{ path: '/project/config.json', line: 4 }],
+      },
+    });
+    expect(update).toEqual({
+      kind: 'tool_call',
+      sessionId: 's',
+      toolCall: {
+        toolCallId: 'call_1',
+        title: 'Reading configuration file',
+        kind: 'read',
+        status: 'pending',
+        locations: ['/project/config.json'],
+        isUpdate: false,
+      },
+    });
+  });
+
+  it('maps an unrecognised tool kind to `other` rather than dropping the call', () => {
+    // ToolKind is `#[serde(other)]`, so a newer agent's kind lands here — and
+    // `other` is the highest-risk bucket, not a shrug.
+    const update = parseSessionUpdate({
+      sessionId: 's',
+      update: { sessionUpdate: 'tool_call_update', toolCallId: 'call_2', kind: 'teleport', status: 'running' },
+    });
+    expect(update).toMatchObject({
+      kind: 'tool_call',
+      toolCall: { toolCallId: 'call_2', kind: 'other', status: 'pending', isUpdate: true },
+    });
+  });
+
+  it('strips control characters from a model-written tool title', () => {
+    const update = parseSessionUpdate({
+      sessionId: 's',
+      update: {
+        sessionUpdate: 'tool_call',
+        toolCallId: 'call_3',
+        kind: 'execute',
+        title: `Harmless${String.fromCharCode(10)}${String.fromCharCode(10)}ALLOW ALL${String.fromCharCode(0)}`,
+      },
+    });
+    const title = (update as { toolCall: { title: string } }).toolCall.title;
+    const codes = [...title].map(char => char.codePointAt(0) ?? 0);
+    expect(codes.every(code => code >= 0x20 && code !== 0x7f)).toBe(true);
+    expect(title).toBe('Harmless  ALLOW ALL');
+  });
+
+  it('drops a tool call with no id rather than inventing one', () => {
+    expect(parseSessionUpdate({ sessionId: 's', update: { sessionUpdate: 'tool_call', title: 'nameless' } }))
+      .toEqual({ kind: 'other', sessionId: 's', sessionUpdate: 'tool_call:no-id' });
   });
 
   it('never throws on a malformed update', () => {

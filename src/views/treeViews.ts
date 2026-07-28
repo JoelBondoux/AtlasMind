@@ -2,7 +2,8 @@ import * as vscode from 'vscode';
 import { getValidatedSsotPath } from '../bootstrap/bootstrapper.js';
 import type { AtlasMindContext } from '../extension.js';
 import { SSOT_FOLDERS } from '../types.js';
-import type { AgentDefinition, ArdDiscoveredResource, ArdDiscoveryEndpoint, McpServerState, MemoryEntry, ProjectRunRecord, SkillDefinition, SkillScanResult } from '../types.js';
+import type { AgentDefinition, ArdDiscoveredResource, ArdDiscoveryEndpoint, McpServerState, MemoryEntry, ProjectRunRecord, ProviderConfig, SkillDefinition, SkillScanResult } from '../types.js';
+import { ACP_PROVIDER_ID, findAcpBridge } from '../providers/acp.js';
 import { countOverdueFollowUps, deriveFollowUpUrgency, resolveTeamMode } from '../core/projectDirectorManager.js';
 import type { SessionConversationSummary, SessionFolderSummary } from '../chat/sessionConversation.js';
 import { ChatViewProvider } from './chatPanel.js';
@@ -1440,7 +1441,52 @@ function getShortModelId(modelId: string): string {
   return slashIndex >= 0 ? modelId.slice(slashIndex + 1) : modelId;
 }
 
-type ModelsTreeNode = ModelProviderTreeItem | ModelTreeItem | vscode.TreeItem;
+/**
+ * The ACP route for one vendor, shown as its own line beside that vendor's API
+ * entry.
+ *
+ * A single "ACP" node would be technically accurate — the router does hold one
+ * `acp` provider — and practically useless: it files a Claude subscription under
+ * a protocol acronym, several rows away from the Anthropic entry it is an
+ * alternative to. Someone deciding *how to reach Claude* wants those two
+ * choices adjacent, which is what this node makes possible.
+ *
+ * It carries a distinct `contextValue` so the provider-level enable/disable
+ * actions do **not** attach to it: those act on the whole `acp` provider, and
+ * offering them here would let "disable the Claude subscription" silently switch
+ * off Codex too. Enabling is per-model, on the child rows.
+ */
+export class AcpBridgeTreeItem extends vscode.TreeItem {
+  constructor(
+    public readonly providerId: string,
+    public readonly agentId: string,
+    label: string,
+    description: string | undefined,
+    tooltip: string,
+    enabled: boolean,
+    collapsibleState: vscode.TreeItemCollapsibleState,
+  ) {
+    super(label, collapsibleState);
+    this.description = description;
+    this.tooltip = tooltip;
+    this.contextValue = 'model-provider-acp-bridge';
+    this.iconPath = new vscode.ThemeIcon(
+      enabled ? 'check' : 'circle-outline',
+      new vscode.ThemeColor(enabled ? 'testing.iconPassed' : 'testing.iconQueued'),
+    );
+    this.command = {
+      command: 'atlasmind.openModelProviders',
+      title: 'Open Model Providers',
+    };
+  }
+}
+
+type ModelsTreeNode = ModelProviderTreeItem | ModelTreeItem | AcpBridgeTreeItem | vscode.TreeItem;
+
+/** The agent id in a model id like `acp/claude`. */
+function acpAgentIdOf(modelId: string): string {
+  return modelId.startsWith('acp/') ? modelId.slice(4) : '';
+}
 
 class ModelsTreeProvider implements vscode.TreeDataProvider<ModelsTreeNode> {
   private readonly _onDidChangeTreeData = new vscode.EventEmitter<ModelsTreeNode | undefined>();
@@ -1488,7 +1534,7 @@ class ModelsTreeProvider implements vscode.TreeDataProvider<ModelsTreeNode> {
         };
       }));
 
-      return items
+      const ordered = items
         .sort((left, right) => {
           if (left.configured !== right.configured) {
             return left.configured ? -1 : 1;
@@ -1496,6 +1542,25 @@ class ModelsTreeProvider implements vscode.TreeDataProvider<ModelsTreeNode> {
           return left.index - right.index;
         })
         .map(entry => entry.item);
+
+      return this.withAcpBridgeRows(ordered, providers);
+    }
+
+    if (element instanceof AcpBridgeTreeItem) {
+      const provider = providers.find(candidate => candidate.id === ACP_PROVIDER_ID);
+      const models = (provider?.models ?? []).filter(model => acpAgentIdOf(model.id) === element.agentId);
+      return models.map(model => {
+        const failure = getModelFailure(this.atlas, model.id);
+        return new ModelTreeItem(
+          ACP_PROVIDER_ID,
+          model.id,
+          model.name,
+          buildModelTreeDescription(model.id, false, !!failure),
+          `${model.name}\nID: ${model.id}\nReached over ACP using your subscription\nCapabilities: ${model.capabilities.join(', ')}`,
+          model.enabled,
+          !!failure,
+        );
+      });
     }
 
     if (element instanceof ModelProviderTreeItem) {
@@ -1537,6 +1602,76 @@ class ModelsTreeProvider implements vscode.TreeDataProvider<ModelsTreeNode> {
     }
 
     return [];
+  }
+
+  /**
+   * Slot each vendor's ACP route in directly after that vendor's API row.
+   *
+   * Placement is the whole point: adjacency is what turns "what is ACP?" into
+   * "oh — this is the other way to reach Claude". A bridge with no configured
+   * agent is still shown, greyed, because the row is also how someone discovers
+   * the option exists; hiding it until configured would mean only people who
+   * already knew about ACP would ever find it.
+   *
+   * The generic `acp` provider row is dropped once every one of its agents has
+   * a vendor row, so the same model never appears twice.
+   */
+  private withAcpBridgeRows(rows: ModelsTreeNode[], providers: ProviderConfig[]): ModelsTreeNode[] {
+    const acpProvider = providers.find(candidate => candidate.id === ACP_PROVIDER_ID);
+    const configuredAgentIds = new Set((acpProvider?.models ?? []).map(model => acpAgentIdOf(model.id)));
+
+    const bridged = new Set<string>();
+    const out: ModelsTreeNode[] = [];
+
+    for (const row of rows) {
+      // Hold the generic ACP row back until we know whether anything is left for it.
+      if (row instanceof ModelProviderTreeItem && row.providerId === ACP_PROVIDER_ID) {
+        continue;
+      }
+
+      out.push(row);
+      if (!(row instanceof ModelProviderTreeItem)) {
+        continue;
+      }
+      const bridge = findAcpBridge(row.providerId);
+      if (!bridge) {
+        continue;
+      }
+
+      const configured = configuredAgentIds.has(bridge.agentId);
+      const models = (acpProvider?.models ?? []).filter(model => acpAgentIdOf(model.id) === bridge.agentId);
+      const enabled = models.some(model => model.enabled);
+      if (configured) {
+        bridged.add(bridge.agentId);
+      }
+
+      out.push(new AcpBridgeTreeItem(
+        row.providerId,
+        bridge.agentId,
+        `${row.label as string} — ${bridge.subscriptionName}`,
+        configured ? '(ACP)' : '(ACP — not set up)',
+        configured
+          ? `Reach ${row.label as string} models through your ${bridge.subscriptionName} over ACP, instead of paying per token.\nCommand: ${bridge.command}`
+          : `You can use your ${bridge.subscriptionName} here instead of API credit.\nOpen Model Providers to set it up — AtlasMind will walk you through installing ${bridge.command}.`,
+        enabled,
+        configured && models.length > 0
+          ? vscode.TreeItemCollapsibleState.Collapsed
+          : vscode.TreeItemCollapsibleState.None,
+      ));
+    }
+
+    // Any ACP agent the user configured by hand that no vendor row claims — a
+    // Gemini CLI, say — still needs somewhere to live.
+    const unbridged = [...configuredAgentIds].filter(agentId => agentId && !bridged.has(agentId));
+    if (unbridged.length > 0) {
+      const acpRow = rows.find((row): row is ModelProviderTreeItem =>
+        row instanceof ModelProviderTreeItem && row.providerId === ACP_PROVIDER_ID);
+      if (acpRow) {
+        out.push(acpRow);
+      }
+    }
+
+    return out;
   }
 }
 

@@ -6,6 +6,15 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.176.0 — the subscription can act, one approval at a time
+
+- **ACP agents can now run their own tools** (`atlasmind.acp.toolsEnabled`, off by default). The agent does the work in its own process; AtlasMind decides whether each operation may proceed. Delegated execution is never delegated authorization.
+- **AtlasMind never accepts "always allow."** That grant would live inside the agent, where you could not find or revoke it — so AtlasMind answers "allow once" every time, and declines outright if permanent is the only option offered.
+- **MCP servers holding your secrets are never forwarded.** Sharing a server launches it inside the agent's process; resolving SecretStorage credentials would copy a key you gave AtlasMind into another vendor's process as a side effect of ticking a box.
+- **Fixed: ACP models could never be routed for vision** despite being able to receive images — the adapter sent image blocks but declared no `vision` capability, and the router excludes models missing a required one.
+- **Each vendor's ACP route is its own row in the Models sidebar**, under that vendor's API entry, so it reads as "the other way to reach Claude" rather than an acronym.
+- Permission and MCP wire shapes were read from the ACP **schema crate**, not the rendered docs, which truncate before those definitions — catching a double-nested `outcome` field and an untagged stdio variant that guessing would have got wrong.
+
 ## v0.175.0 — "use the subscription you already pay for"
 
 - **The ACP offer moved to where people look for it**: a plain-language button on the Anthropic and OpenAI cards, not a separate entry named after a protocol.

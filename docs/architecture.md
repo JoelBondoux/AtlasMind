@@ -644,6 +644,9 @@ extension.ts
               ├── providers/anthropic.ts
               ├── providers/claude-cli.ts
               ├── providers/copilot.ts
+              ├── providers/acp.ts
+              │     ├── providers/acpProtocol.ts     (wire framing, pure)
+              │     └── providers/acpPermission.ts   (authorization policy, pure)
               └── providers/localModelRecommendationRegistry.ts
 
 tests/core/

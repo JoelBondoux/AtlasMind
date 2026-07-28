@@ -149,6 +149,20 @@ Read-only Docker inspection is classified as `terminal-read`. Container lifecycl
 
 Setting up an MCP server can require a local runtime (Node/`npx`, `uv`/`uvx`, …). The guided setup wizard and the recommended-install command never install one silently: `checkStarterRuntime` (`src/mcp/mcpRuntime.ts`) only *plans* the install and surfaces the exact package-manager command (e.g. `winget install --id astral-sh.uv`); `runRuntimeInstallPlan` executes it **only after an explicit modal confirmation**. Declining leaves nothing changed and shows the command to run manually. Credentials the wizard collects are stored in VS Code SecretStorage, never in settings — see [[Security]].
 
+## Delegated execution (ACP) is never delegated authorization
+
+An agent reached over the [Agent Client Protocol](https://agentclientprotocol.com) — a Claude or ChatGPT subscription — can be allowed to run **its own** tools via `atlasmind.acp.toolsEnabled` (off by default). The work happens inside the agent's process; the decision does not. Every operation arrives as a `session/request_permission` request and is answered by `src/providers/acpPermission.ts`:
+
+- **`ToolKind` maps onto the same `ToolRiskCategory`** the rest of this page uses, so a bypass the user granted for `workspace-write` means the same thing whether the write comes from an AtlasMind subtask or a delegated agent. `execute` → `terminal-write`, `delete` → `workspace-write` (high), `fetch` → `network`.
+- **`ToolKind::Other` is the highest-risk bucket, not the lowest.** The schema marks it `#[serde(other)]`, so anything a newer agent invents deserializes there. "A kind this build cannot identify" is exactly the case that must prompt.
+- **AtlasMind never selects `allow_always`.** The protocol offers it; accepting would store the grant inside the agent's own persistent state, where AtlasMind can neither display nor revoke it. AtlasMind answers `allow_once` every time and keeps "always" on its own side, in `ToolApprovalManager`, where it is visible and clears on restart. If `allow_always` is the only way to approve, the operation is declined.
+- **A missing or failing gate is a refusal.** An adapter built without a permission policy refuses every request; a policy that throws is treated as a denial. Wiring mistakes produce an agent that cannot act, never one that acts unsupervised.
+- **Unreadable requests are refused, not guessed.** Inventing an `optionId` would be inventing consent.
+- **MCP servers are shared only by explicit allowlist** (`atlasmind.acp.mcpServers`, empty by default), and two kinds are held back even when listed: servers whose credentials live in SecretStorage (forwarding would copy a key given to AtlasMind into another vendor's process) and HTTP/SSE servers, whose headers carry bearer tokens.
+- **`fs` and `terminal` client capabilities stay `false`.** They do not sandbox the agent — a coding agent has its own file and shell access — they only decide whether AtlasMind *proxies* the I/O. The permission gate is where the authority lives.
+
+Tool calls the agent announces (`tool_call`, `tool_call_update`) are surfaced rather than dropped, so what ran is visible after the fact as well as before it.
+
 ## Resource discovery is pre-invocation, not execution
 
 [[Resource Discovery]] (ARD) deliberately sits *before* the tool-execution path: it only locates resources. The read-only `discover-resources` skill classifies as a network read and never installs anything. Acting on a result is a separate, explicit step — installing a discovered MCP server adds it to the MCP Servers panel **disabled**, so connecting it still passes through the normal MCP trust gate before any of its tools can run. Agent Finders ship disabled, so no outbound discovery occurs until the user opts in.
