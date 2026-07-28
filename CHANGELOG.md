@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.178.1] - 2026-07-28
+
+### Fixed
+- **Choosing an ACP agent looked like it did nothing but open a website.** Picking "Claude Agent" or "Codex CLI" saved the command, found it was not on PATH — the *expected* first answer, since AtlasMind never installs an agent — and then reported it as a dismissable toast whose only button opened a documentation index. No install command, no walkthrough, and no statement of what had just been saved. Both ACP entry points now share one handler: it is modal, it leads with the exact install command, and it offers the `/acp` walkthrough. The vendor-card offer already behaved this way; the agent picker did not.
+- **The ACP card's primary button said "Set API Key".** ACP stores no key — it reuses the agent's own vendor login, which is why `requiresApiKey` excludes it — so the button advertised a credential prompt that never appears while hiding the agent picker that is the real first step. It now reads **Choose Agent**. A test pins the general rule in both directions: no provider that stores no key may offer "Set API Key", and every provider that does store one must.
+- **The ACP card still claimed agents run with "no tools".** True until v0.176.0 added `atlasmind.acp.toolsEnabled`; the copy now states the default (answers but cannot act) and names the setting that changes it.
+
 ## [0.178.0] - 2026-07-28
 
 ### Fixed

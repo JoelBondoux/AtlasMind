@@ -785,7 +785,7 @@ function getProviderMetaLabel(providerId: ProviderId): string {
 function getProviderNotes(providerId: ProviderId): string {
   switch (providerId) {
     case 'acp':
-      return 'Drives an agent you have installed (claude-agent-acp, codex-acp, …) over the Agent Client Protocol, so its subscription becomes routable capacity. Streams, has no prompt-length ceiling, and runs the agent in restricted mode: no filesystem, no terminal, no tools.';
+      return 'Drives an agent you have installed (claude-agent-acp, codex-acp, …) over the Agent Client Protocol, so its subscription becomes routable capacity. Streams and has no prompt-length ceiling. By default the agent answers but cannot act — no MCP servers are passed through and any permission it requests is refused; turn on "Let subscription agents act" under Settings → Safety to change that. AtlasMind never installs an agent for you.';
     case 'claude-cli':
       return 'Chat-only bridge that reuses an installed Claude Code CLI login in constrained print mode, so AtlasMind remains the orchestrator and tool executor. Superseded by the ACP provider, which streams and has no ~26,000-character prompt limit — kept until ACP has been proven against a real agent binary.';
     case 'copilot':
@@ -1221,6 +1221,53 @@ export async function useSubscriptionForProvider(atlas: AtlasMindContext, provid
 }
 
 /**
+ * The one answer to "you picked an agent and it is not installed".
+ *
+ * Both ACP entry points reach this, and only one of them used to handle it
+ * well. The agent picker ended at a dismissable toast whose single button
+ * opened a documentation index — so choosing "Claude Agent" appeared to do
+ * nothing except navigate to a website, with no install command, no
+ * walkthrough, and no statement of what had just been saved.
+ *
+ * Not-installed is the *expected* first answer here, not an error: AtlasMind
+ * never installs an agent, so almost everyone meets this on their first click.
+ * It is modal because it is the step the user has to act on, it leads with the
+ * exact command to run, and it offers the walkthrough that checks each step.
+ */
+async function reportAcpAgentNotInstalled(command: string, agentId: string): Promise<void> {
+  const { findAcpBridgeByAgent } = await import('../providers/acp.js');
+  const install = findAcpBridgeByAgent(agentId)?.install;
+
+  const actions = install
+    ? ['Copy the install command', 'Open the setup guide']
+    : ['Open the setup guide', 'Open the ACP agent list'];
+
+  const choice = await vscode.window.showWarningMessage(
+    `AtlasMind saved \`${command}\` as your ACP agent, but the command is not on your PATH yet — so nothing will route to it until you install it.`,
+    {
+      modal: true,
+      detail: install
+        ? `Install it with:\n\n${install}\n\nThen open this again and AtlasMind will check it. The setup guide walks through installing, signing in, and proving a reply comes back.`
+        : `AtlasMind never installs an agent for you. Install ${command} however its publisher documents, then open this again.`,
+    },
+    ...actions,
+  );
+
+  if (choice === 'Copy the install command' && install) {
+    await vscode.env.clipboard.writeText(install);
+    void vscode.window.showInformationMessage(`Copied: ${install}`);
+    return;
+  }
+  if (choice === 'Open the setup guide') {
+    await vscode.commands.executeCommand('atlasmind.openSetupGuide', 'acp');
+    return;
+  }
+  if (choice === 'Open the ACP agent list') {
+    await vscode.env.openExternal(vscode.Uri.parse(ACP_SETUP_URL));
+  }
+}
+
+/**
  * Add or replace the ACP agent this workspace uses.
  *
  * The setup *walkthrough* deliberately never writes a setting — but this is the
@@ -1281,13 +1328,7 @@ async function configureAcpProvider(atlas: AtlasMindContext): Promise<void> {
   }).probe().catch(() => undefined);
 
   if (!probe?.installed) {
-    const choice = await vscode.window.showWarningMessage(
-      `Saved \`${command}\` as an ACP agent, but it was not found on PATH. Install it, then run this again.`,
-      'Open the ACP agent list',
-    );
-    if (choice) {
-      await vscode.env.openExternal(vscode.Uri.parse(ACP_SETUP_URL));
-    }
+    await reportAcpAgentNotInstalled(command, id);
     return;
   }
   if (!probe.authenticated) {
@@ -1420,6 +1461,12 @@ export function getProviderActionLabel(provider: ProviderId): string {
   }
   if (provider === 'copilot') {
     return 'Use Session';
+  }
+  if (provider === 'acp') {
+    // ACP stores no key — it reuses the agent's own vendor login, which is why
+    // `requiresApiKey` excludes it. Labelling the button "Set API Key" promised
+    // a prompt that never comes and hid what the button really does.
+    return 'Choose Agent';
   }
   if (provider === 'local' || provider === 'azure' || provider === 'bedrock') {
     return 'Configure';

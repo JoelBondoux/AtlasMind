@@ -133,6 +133,17 @@ export function findAcpBridge(providerId: string): AcpProviderBridge | undefined
   return ACP_PROVIDER_BRIDGES.find(bridge => bridge.providerId === providerId);
 }
 
+/**
+ * The same bridge, found by agent id rather than by vendor.
+ *
+ * Both entry points into ACP setup end up needing the install command — the
+ * offer on a vendor card knows the vendor, the agent picker knows the agent —
+ * and a user who hits "not installed" needs the same answer either way.
+ */
+export function findAcpBridgeByAgent(agentId: string): AcpProviderBridge | undefined {
+  return ACP_PROVIDER_BRIDGES.find(bridge => bridge.agentId === agentId);
+}
+
 export interface AcpAgentConfig {
   /** Stable id, used in the model id `acp/<id>`. */
   id: string;

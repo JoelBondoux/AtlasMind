@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.178.1 — the ACP card's buttons say and do what they mean
+
+- **Choosing an agent looked like it only opened a website.** Not-installed is the expected first answer — AtlasMind never installs an agent — but it was reported as a dismissable toast whose one button opened a docs index. Both ACP entry points now share a modal handler that leads with the install command and offers the `/acp` walkthrough.
+- **"Set API Key" → "Choose Agent."** ACP stores no key; it reuses the agent's own vendor login. A test now pins that no keyless provider advertises a key prompt, and that every key-based one still does.
+- **Card copy no longer claims agents run with "no tools"** — true only until `atlasmind.acp.toolsEnabled` shipped.
+
 ## v0.178.0 — setting ACP up from the sidebar, with buttons that hit the right target
 
 - **The action icons on an ACP row acted on the wrong provider.** The row carried the vendor it sits under in a property called `providerId`, and the tree identifies its command argument by shape — so the visibility toggle on "Anthropic — Claude subscription" flipped *Anthropic's API provider*, and configure prompted for an Anthropic API key. Renamed to `vendorId`, given its own context value, and both shape guards now also require a `model-` context value.
