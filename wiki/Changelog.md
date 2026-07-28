@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.168.0 — who did the work, and how far the release has to go
+
+- **Three charts on the Overview**: commits by contributor, route to the selected release gate, and outstanding objectives by gate — from git history and the roadmap you already keep.
+- **Click a contributor to filter the commit timeline** to that person; click again to clear. The filter only appears when there is more than one author.
+- **Author names only**, never addresses, and the long tail of one-commit authors is merged into "Others (n)" rather than dropped.
+
 ## v0.167.0 — answer with one tap, everywhere
 
 - **Quick-reply pills reach the Ideation and Vision panels.** They were a Chat-panel-only affordance, which made them look like a property of that panel instead of of Atlas asking a question.

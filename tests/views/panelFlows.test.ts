@@ -1272,7 +1272,7 @@ describe('panel refresh flows', () => {
     );
 
     mocks.state.workspaceFolders = undefined;
-    rmSync(tempRoot, { recursive: true, force: true });
+    rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
 
   it('shows interim thinking updates while a chat-panel request is still running', async () => {
@@ -2806,7 +2806,7 @@ describe('panel refresh flows', () => {
     // The #mvp tag is metadata and must never appear in the displayed step text.
     expect(mvp.route.every(step => !/#mvp/i.test(step.text))).toBe(true);
 
-    rmSync(tempRoot, { recursive: true, force: true });
+    rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
 
   it('persists the #mvp tag when an item is marked for the MVP path', async () => {
@@ -2858,7 +2858,7 @@ describe('panel refresh flows', () => {
     const written = readFileSync(roadmapFile, 'utf-8');
     expect(written).toContain('- [ ] Ship onboarding flow #mvp');
 
-    rmSync(tempRoot, { recursive: true, force: true });
+    rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
 
   it('persists a user-declared release gate and tags items for it', async () => {
@@ -2938,7 +2938,7 @@ describe('panel refresh flows', () => {
     });
     expect(readFileSync(roadmapFile, 'utf-8')).toContain('- [ ] Ship onboarding flow\n');
 
-    rmSync(tempRoot, { recursive: true, force: true });
+    rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
 
   it('runs the allowlisted Cost Dashboard command but ignores non-allowlisted commands', async () => {

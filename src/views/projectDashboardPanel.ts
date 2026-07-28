@@ -431,6 +431,14 @@ interface DashboardCommit {
   committedRelative: string;
 }
 
+/** One commit reduced to the two fields the timeline charts need. */
+interface DashboardCommitLogEntry {
+  /** `YYYY-MM-DD`. */
+  date: string;
+  /** Git author *name* only — never an address. */
+  author: string;
+}
+
 interface GitSnapshot {
   currentBranch: string;
   ahead: number;
@@ -442,6 +450,7 @@ interface GitSnapshot {
   branches: DashboardBranch[];
   commits: DashboardCommit[];
   commitDates: string[];
+  commitLog: DashboardCommitLogEntry[];
 }
 
 interface PackageSnapshot {
@@ -900,6 +909,13 @@ interface DashboardSnapshot {
     commits: DashboardSeriesPoint[];
     runs: DashboardSeriesPoint[];
     memory: DashboardSeriesPoint[];
+    /**
+     * Per-person commit series over the same window, so the Overview charts can
+     * be filtered to one contributor and show who did the work.
+     */
+    contributors: Array<{ name: string; total: number; series: DashboardSeriesPoint[] }>;
+    /** Commits in the window across everyone, including any merged "Others". */
+    contributorTotal: number;
   };
   repo: {
     dirty: boolean;
@@ -3327,6 +3343,7 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
   const documentsSnapshot = await collectDocumentsSnapshot(atlas, workspaceRoot);
   const riskSnapshot = collectRiskSnapshot(atlas, workspaceRoot);
   const runtimeTdd = summarizeRuntimeTdd(runs);
+  const contributorBreakdown = buildContributorSeries(gitSnapshot.commitLog, SERIES_DAY_RANGE);
   const costSummary = atlas.costTracker.getSummary();
   const memoryEntries = atlas.memoryManager.listEntries();
   const scanResults = atlas.memoryManager.getScanResults();
@@ -3500,6 +3517,8 @@ async function collectDashboardSnapshot(atlas: AtlasMindContext, ideationAttachm
       commits: buildDailySeries(gitSnapshot.commitDates, SERIES_DAY_RANGE),
       runs: buildDailySeries(runs.map(run => run.updatedAt), SERIES_DAY_RANGE),
       memory: buildDailySeries(memoryEntries.map(entry => entry.lastModified), SERIES_DAY_RANGE),
+      contributors: contributorBreakdown.contributors,
+      contributorTotal: contributorBreakdown.totalCommits,
     },
     repo: {
       dirty: gitSnapshot.dirty,
@@ -3893,9 +3912,20 @@ async function collectGitSnapshot(workspaceRoot: string | undefined): Promise<Gi
       } satisfies DashboardCommit;
     });
 
-  const commitDates = (await runGit(workspaceRoot, ['log', `--since=${SERIES_DAY_RANGE} days ago`, '--date=short', '--pretty=format:%ad']))
+  // One log call carries both halves of the timeline: the day (for the activity
+  // chart) and the author (for the per-person breakdown). Author *names* only —
+  // the same field the commit list already shows; no addresses are read.
+  const commitLog = (await runGit(workspaceRoot, ['log', `--since=${SERIES_DAY_RANGE} days ago`, '--date=short', '--pretty=format:%ad|%an']))
     .split(/\r?\n/)
-    .filter(Boolean);
+    .filter(Boolean)
+    .map(line => {
+      const separator = line.indexOf('|');
+      return separator < 0
+        ? { date: line.trim(), author: '' }
+        : { date: line.slice(0, separator).trim(), author: line.slice(separator + 1).trim() };
+    })
+    .filter(entry => entry.date.length > 0);
+  const commitDates = commitLog.map(entry => entry.date);
 
   return {
     currentBranch,
@@ -3908,6 +3938,7 @@ async function collectGitSnapshot(workspaceRoot: string | undefined): Promise<Gi
     branches,
     commits,
     commitDates,
+    commitLog,
   };
 }
 
@@ -6721,6 +6752,60 @@ async function countFiles(directoryPath: string): Promise<number> {
   return total;
 }
 
+/**
+ * Per-contributor commit series for the Overview charts.
+ *
+ * Exported for tests: the capping behaviour is the part worth pinning. A
+ * repository with a long tail of one-commit authors would otherwise produce a
+ * pie chart of unreadable slivers, so everyone past the cap is merged into a
+ * single **Others** entry that still counts their commits — a chart that
+ * silently dropped contributors would misreport who did the work.
+ *
+ * Names come from git's author field and are clamped; no addresses are read.
+ */
+export function buildContributorSeries(
+  entries: Array<{ date: string; author: string }>,
+  days: number,
+  maxContributors = 8,
+): { contributors: Array<{ name: string; total: number; series: DashboardSeriesPoint[] }>; totalCommits: number; otherCount: number } {
+  const byAuthor = new Map<string, string[]>();
+  let totalCommits = 0;
+  for (const entry of entries) {
+    if (!entry || typeof entry.date !== 'string' || entry.date.trim().length === 0) {
+      continue;
+    }
+    const name = (typeof entry.author === 'string' ? entry.author : '').replace(/\s+/g, ' ').trim().slice(0, 60) || 'Unknown';
+    const dates = byAuthor.get(name) ?? [];
+    dates.push(entry.date);
+    byAuthor.set(name, dates);
+    totalCommits += 1;
+  }
+
+  const ranked = [...byAuthor.entries()]
+    .map(([name, dates]) => ({ name, dates, total: dates.length }))
+    // Ties broken by name so the order (and therefore the colours) is stable
+    // between renders rather than depending on Map insertion.
+    .sort((left, right) => right.total - left.total || left.name.localeCompare(right.name));
+
+  const kept = ranked.slice(0, Math.max(1, maxContributors));
+  const overflow = ranked.slice(Math.max(1, maxContributors));
+  const contributors = kept.map(entry => ({
+    name: entry.name,
+    total: entry.total,
+    series: buildDailySeries(entry.dates, days),
+  }));
+  if (overflow.length > 0) {
+    const overflowDates = overflow.flatMap(entry => entry.dates);
+    contributors.push({
+      name: `Others (${overflow.length})`,
+      total: overflowDates.length,
+      series: buildDailySeries(overflowDates, days),
+    });
+  }
+
+  return { contributors, totalCommits, otherCount: overflow.reduce((sum, entry) => sum + entry.total, 0) };
+}
+
 function buildDailySeries(timestamps: string[], days: number): DashboardSeriesPoint[] {
   const end = new Date();
   end.setHours(0, 0, 0, 0);
@@ -7436,6 +7521,7 @@ function emptyGitSnapshot(): GitSnapshot {
     branches: [],
     commits: [],
     commitDates: [],
+    commitLog: [],
   };
 }
 
@@ -8412,6 +8498,80 @@ const DASHBOARD_CSS = `
     color: var(--vscode-foreground);
     font-variant-numeric: tabular-nums;
   }
+
+  /* ── Donut charts (contributor mix, route to release) ─────────────
+     SVG arcs rather than a chart library or a canvas, so the rings inherit
+     theme colours, stay crisp at any zoom, and carry a <title> per slice. */
+  .donut-block {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+  }
+
+  .donut-chart {
+    width: 148px;
+    height: 148px;
+    flex: 0 0 auto;
+  }
+
+  .donut-track { stroke: color-mix(in srgb, var(--dash-muted) 22%, transparent); }
+  .donut-slice { transition: stroke-width 140ms ease, opacity 140ms ease; }
+  .donut-slice.is-active { filter: brightness(1.12); }
+  .donut-good { stroke: var(--dash-good); }
+  .donut-warn { stroke: var(--dash-warn); }
+  .donut-critical { stroke: var(--dash-critical); }
+  .donut-accent { stroke: var(--dash-accent-strong); }
+  .donut-muted { stroke: color-mix(in srgb, var(--dash-muted) 55%, transparent); }
+
+  .donut-center-value {
+    fill: var(--vscode-foreground);
+    font-size: 20px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .donut-center-label {
+    fill: var(--dash-muted);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .donut-legend {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .donut-legend-percent {
+    color: var(--dash-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  button.dist-legend-item {
+    border: 1px solid transparent;
+    border-radius: 999px;
+    padding: 2px 8px;
+    background: transparent;
+    cursor: pointer;
+    font: inherit;
+    font-size: 11px;
+    text-align: left;
+  }
+
+  button.dist-legend-item:hover { border-color: color-mix(in srgb, var(--dash-accent-strong) 50%, var(--dash-border)); }
+
+  button.dist-legend-item.is-active {
+    border-color: color-mix(in srgb, var(--dash-accent-strong) 70%, var(--dash-border));
+    background: color-mix(in srgb, var(--dash-accent-strong) 14%, transparent);
+  }
+
+  .chart-range--filter { margin-top: 14px; }
+  .chart-grid--mix { margin-top: 16px; }
 
   .dist-swatch {
     width: 9px;

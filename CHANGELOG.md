@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.168.0] - 2026-07-28
+
+### Added
+- **Work-mix charts and a contributor filter on the Project Dashboard Overview.** The opening page previously answered *how busy* the repo has been but not *who did the work* or *how far the release is from done*. It now carries three charts alongside the activity timelines: a **commits by contributor** donut, a **route to release** ring for whichever gate the Roadmap card is showing (complete vs remaining, with the percentage in the centre), and an **outstanding objectives by release gate** bar. All three read data the dashboard already collects — no new scan, no model call.
+- **Filter the timeline to one person.** Clicking a contributor, in the ring legend or the new segmented filter, scopes the commit timeline to that person and clears on a second click. The filter only appears when the window actually has more than one author, and the run and memory timelines are deliberately left unfiltered because they are not per-person data.
+- **`renderDonutChart`** joins the shared chart primitives: inline SVG arcs under the existing CSP (no chart library, no canvas), so rings inherit theme colours, stay crisp at any zoom, and carry a `<title>` per slice for hover and screen readers.
+- **`buildContributorSeries`** (exported and unit-tested) reduces one `git log` into per-person daily series: ranked by commit count, ties broken by name so slice colours stay stable between renders, and the long tail merged into a single **Others (n)** entry that keeps its commits — a chart that silently dropped contributors would misreport who did the work.
+
+### Fixed
+- **Flaky temp-directory cleanup on Windows.** Panel-flow and documents tests deleted their scratch directories immediately after writing into them, which intermittently hit `EPERM` while the OS still held a handle — failing a green test and blocking the pre-commit gate. Cleanup now retries.
+
+### Security
+- **Author names only.** The contributor breakdown reads git's `%an` field — the same value the commit list already displays — never an email address, and clamps each name before it reaches the webview.
+
 ## [0.167.0] - 2026-07-28
 
 ### Added

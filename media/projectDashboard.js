@@ -134,6 +134,8 @@
     },
     /** Which release gate the Road-to card is showing. '' = the first (MVP). */
     activeRoadmapGate: 'mvp',
+    /** '' = everyone; otherwise a git author name from the contributor chart. */
+    contributorFilter: '',
     activeTestCategory: 'all',
     selectedTestId: '',
     testSearch: '',
@@ -352,6 +354,13 @@
     }
     if (action === 'timescale') {
       state.timescale = Number(payload) || 30;
+      render();
+      return;
+    }
+    if (action === 'contributor-filter') {
+      // Clicking the active contributor clears the filter, so the ring and the
+      // segmented control are both a toggle rather than a one-way trip.
+      state.contributorFilter = state.contributorFilter === payload ? '' : (payload || '');
       render();
       return;
     }
@@ -1582,19 +1591,141 @@
         pageTarget: 'gapAnalysis',
       });
     }
+    const contributors = Array.isArray(snapshot.charts.contributors) ? snapshot.charts.contributors : [];
+    const activeContributor = contributors.find(entry => entry.name === state.contributorFilter);
+    // The commit chart follows the contributor filter; the other two timelines
+    // are not per-person data, so filtering them would be a lie.
+    const commitSeries = activeContributor ? activeContributor.series : snapshot.charts.commits;
+    const commitTitle = activeContributor ? `Commit Activity — ${activeContributor.name}` : 'Commit Activity';
+
     return `
       ${pageSectionOpen('overview')}
         <div class="stats-grid">
           ${stats.map(stat => renderStatCard(stat)).join('')}
         </div>
         ${renderChartRange('Activity over time')}
+        ${renderContributorFilter(contributors)}
         <div class="chart-grid">
-          ${renderChartCard('commits', 'Commit Activity', 'Recent git commit velocity across the selected time window.', snapshot.charts.commits, 'overview')}
+          ${renderChartCard('commits', commitTitle, activeContributor
+            ? `Commits by ${activeContributor.name} across the selected time window.`
+            : 'Recent git commit velocity across the selected time window.', commitSeries, 'overview')}
           ${renderChartCard('runs', 'Run Activity', 'Autonomous run updates recorded in Project Run History.', snapshot.charts.runs, 'overview')}
           ${renderChartCard('memory', 'SSOT Activity', 'Indexed memory update cadence across the current SSOT root.', snapshot.charts.memory, 'overview')}
         </div>
+        ${renderWorkMixCharts(snapshot, contributors)}
         ${renderOverviewNextActions(snapshot)}
       </section>
+    `;
+  }
+
+  // Contributor filter. Rendered only when more than one person shows up in the
+  // window — a solo project gets no control it cannot use.
+  function renderContributorFilter(contributors) {
+    if (contributors.length < 2) {
+      return '';
+    }
+    return `
+      <div class="chart-range chart-range--filter">
+        <div>
+          <p class="section-kicker">Filter by contributor</p>
+          <div class="stat-detail">Scopes the commit timeline and highlights that person's share of the work.</div>
+        </div>
+        <div class="segmented" role="group" aria-label="Contributor filter">
+          <button type="button" data-action="contributor-filter" data-payload="" class="${state.contributorFilter ? '' : 'active'}" aria-pressed="${state.contributorFilter ? 'false' : 'true'}">Everyone</button>
+          ${contributors.map(entry => `<button type="button" data-action="contributor-filter" data-payload="${escapeAttr(entry.name)}" class="${state.contributorFilter === entry.name ? 'active' : ''}" aria-pressed="${state.contributorFilter === entry.name ? 'true' : 'false'}" title="${escapeAttr(`${entry.name}: ${entry.total} commit${entry.total === 1 ? '' : 's'}`)}">${escapeHtml(entry.name)}</button>`).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Who did the work, and how far the releases are from done.
+   *
+   * All three charts read data the dashboard already has (git authorship and the
+   * roadmap's release gates), so nothing here costs a model call or a new scan.
+   */
+  function renderWorkMixCharts(snapshot, contributors) {
+    const roadmap = snapshot.roadmap || { items: [], gates: [] };
+    const items = Array.isArray(roadmap.items) ? roadmap.items : [];
+    const gates = Array.isArray(roadmap.gates) ? roadmap.gates : [];
+    const outstanding = items.filter(item => !item.completed);
+    const untagged = outstanding.filter(item => !Array.isArray(item.gates) || item.gates.length === 0).length;
+
+    const contributorSlices = contributors.map((entry, index) => ({
+      label: entry.name,
+      value: entry.total,
+      tone: SLICE_TONES[index % SLICE_TONES.length],
+      active: state.contributorFilter === entry.name,
+      action: 'contributor-filter',
+      payload: entry.name,
+      title: `Filter the commit timeline to ${entry.name}`,
+    }));
+
+    // Route to the release the Roadmap card is currently showing, so the two
+    // surfaces agree about which gate is under discussion.
+    const selectedGate = gates.find(gate => gate.id === state.activeRoadmapGate) || gates[0];
+    const gateRemaining = selectedGate ? Math.max(0, selectedGate.totalCount - selectedGate.completedCount) : 0;
+
+    const objectiveSlices = gates.map((gate, index) => ({
+      label: gate.label,
+      value: items.filter(item => !item.completed && Array.isArray(item.gates) && item.gates.indexOf(gate.id) >= 0).length,
+      tone: SLICE_TONES[index % SLICE_TONES.length],
+    }));
+    if (untagged > 0) {
+      objectiveSlices.push({ label: 'Untagged', value: untagged, tone: 'muted' });
+    }
+
+    return `
+      <div class="chart-grid chart-grid--mix">
+        <article class="chart-card">
+          <div class="chart-head">
+            <div>
+              <p class="chart-kicker">Who did the work</p>
+              <h3>Commits by contributor</h3>
+              <div class="stat-detail">Last ${escapeHtml(String(Math.max(state.timescale, (snapshot.charts.commits || []).length)))} days of git history. Click a name to filter the timeline above.</div>
+            </div>
+          </div>
+          ${renderDonutChart('contributors', contributorSlices, {
+            centerValue: formatNumber(snapshot.charts.contributorTotal || 0),
+            centerLabel: 'commits',
+            emptyLabel: 'No commits in this window.',
+          })}
+        </article>
+        <article class="chart-card">
+          <div class="chart-head">
+            <div>
+              <p class="chart-kicker">Route to release</p>
+              <h3>${escapeHtml(selectedGate ? `Road to ${selectedGate.label}` : 'Road to MVP')}</h3>
+              <div class="stat-detail">Milestones tagged for this release, complete versus remaining.</div>
+            </div>
+          </div>
+          ${renderDonutChart('gate-progress', [
+            { label: 'Complete', value: selectedGate ? selectedGate.completedCount : 0, tone: 'good' },
+            { label: 'Remaining', value: gateRemaining, tone: 'warn' },
+          ], {
+            centerValue: `${selectedGate ? selectedGate.progressPercent : 0}%`,
+            centerLabel: 'done',
+            emptyLabel: 'Nothing is tagged for this release yet.',
+          })}
+          <div class="tag-row">
+            <button type="button" class="action-link" data-action="page" data-payload="roadmap">Open the roadmap</button>
+          </div>
+        </article>
+        <article class="chart-card">
+          <div class="chart-head">
+            <div>
+              <p class="chart-kicker">Outstanding objectives</p>
+              <h3>Backlog by release gate</h3>
+              <div class="stat-detail">${escapeHtml(`${outstanding.length} outstanding item${outstanding.length === 1 ? '' : 's'}${untagged > 0 ? `, ${untagged} not on any release` : ''}.`)}</div>
+            </div>
+          </div>
+          ${renderDistributionBar('overview-objectives', objectiveSlices, {
+            title: 'Outstanding by gate',
+            caption: `${outstanding.length} open`,
+            emptyLabel: 'Nothing outstanding in the backlog.',
+          })}
+        </article>
+      </div>
     `;
   }
 
@@ -5265,6 +5396,68 @@
         <div class="segmented" role="group" aria-label="Chart range">
           ${[7, 30, 90].map(days => `<button type="button" data-action="timescale" data-payload="${days}" class="${state.timescale === days ? 'active' : ''}" aria-pressed="${state.timescale === days ? 'true' : 'false'}">${days}D</button>`).join('')}
         </div>
+      </div>
+    `;
+  }
+
+  // Fixed slice palette. Index-based rather than hashed from the label, so the
+  // same contributor keeps the same colour between renders and the legend and
+  // the ring can never disagree.
+  const SLICE_TONES = ['accent', 'good', 'warn', 'critical', 'muted'];
+
+  /**
+   * A donut chart drawn as SVG arcs — no chart library, and no canvas, so it
+   * inherits theme colours and stays readable at any zoom.
+   *
+   * Slices are clickable when given an action, which is what makes the
+   * contributor ring double as the Overview's filter control.
+   */
+  function renderDonutChart(id, slices, opts) {
+    const options = opts || {};
+    const usable = (slices || []).filter(slice => Number(slice.value) > 0);
+    const total = usable.reduce((sum, slice) => sum + Number(slice.value), 0);
+    if (total <= 0) {
+      return '<div class="dist-empty">' + escapeHtml(options.emptyLabel || 'Nothing to chart yet.') + '</div>';
+    }
+
+    const radius = 60;
+    const circumference = 2 * Math.PI * radius;
+    let offset = 0;
+    const rings = usable.map((slice, index) => {
+      const value = Number(slice.value);
+      const length = (value / total) * circumference;
+      const tone = slice.tone || SLICE_TONES[index % SLICE_TONES.length];
+      const dash = length + ' ' + (circumference - length);
+      const ring = '<circle class="donut-slice donut-' + escapeAttr(tone) + (slice.active ? ' is-active' : '') + '"'
+        + ' cx="80" cy="80" r="' + radius + '" fill="none" stroke-width="' + (slice.active ? 26 : 20) + '"'
+        + ' stroke-dasharray="' + dash + '" stroke-dashoffset="' + (-offset) + '"'
+        + ' data-anim-key="donut:' + escapeAttr(id) + ':' + escapeAttr(String(index)) + '"'
+        + '><title>' + escapeHtml(slice.label + ': ' + value + ' (' + Math.round((value / total) * 100) + '%)') + '</title></circle>';
+      offset += length;
+      return ring;
+    }).join('');
+
+    const legend = usable.map((slice, index) => {
+      const tone = slice.tone || SLICE_TONES[index % SLICE_TONES.length];
+      const percent = Math.round((Number(slice.value) / total) * 100);
+      const label = '<span class="dist-swatch dist-' + escapeAttr(tone) + '" aria-hidden="true"></span>'
+        + '<span class="dist-legend-label">' + escapeHtml(slice.label) + '</span>'
+        + '<strong>' + escapeHtml(formatNumber(slice.value)) + '</strong>'
+        + '<span class="donut-legend-percent">' + escapeHtml(String(percent)) + '%</span>';
+      return slice.action
+        ? '<button type="button" class="dist-legend-item is-actionable' + (slice.active ? ' is-active' : '') + '" data-action="' + escapeAttr(slice.action) + '" data-payload="' + escapeAttr(slice.payload || '') + '" title="' + escapeAttr(slice.title || ('Filter to ' + slice.label)) + '">' + label + '</button>'
+        : '<span class="dist-legend-item">' + label + '</span>';
+    }).join('');
+
+    return `
+      <div class="donut-block">
+        <svg class="donut-chart" viewBox="0 0 160 160" role="img" aria-label="${escapeAttr(usable.map(slice => slice.label + ': ' + slice.value).join(', '))}">
+          <circle class="donut-track" cx="80" cy="80" r="${radius}" fill="none" stroke-width="20"></circle>
+          <g transform="rotate(-90 80 80)">${rings}</g>
+          ${options.centerValue ? `<text class="donut-center-value" x="80" y="78" text-anchor="middle">${escapeHtml(String(options.centerValue))}</text>` : ''}
+          ${options.centerLabel ? `<text class="donut-center-label" x="80" y="96" text-anchor="middle">${escapeHtml(String(options.centerLabel))}</text>` : ''}
+        </svg>
+        <div class="dist-legend donut-legend">${legend}</div>
       </div>
     `;
   }

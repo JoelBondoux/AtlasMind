@@ -171,7 +171,7 @@ describe('createShelfFolders', () => {
 
   afterEach(() => {
     while (roots.length > 0) {
-      rmSync(roots.pop()!, { recursive: true, force: true });
+      rmSync(roots.pop()!, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
     }
   });
 
