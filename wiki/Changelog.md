@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.173.0 — ACP is something you can click
+
+- **ACP appears in Model Providers.** Configure picks an agent, saves it, probes it, and tells you whether it is installed and signed in — rather than saving and hoping.
+- **Allowed models is no longer a bare text box.** The models your enabled providers offer are one click away, with subscription-backed ones marked.
+- **Claude CLI is documented as superseded by ACP** — not yet removed, because ACP still has to be proven against a real agent binary. The retirement sequence is written down.
+
 ## v0.172.0 — your project memory survives a version downgrade
 
 - **Fixed silent data loss.** An older AtlasMind treated a newer file's format as "no file", seeded a default, and wrote it over your documents registry, risk register, security register, or people roster. It now tells corrupt apart from newer, leaves the newer one alone, and says why.

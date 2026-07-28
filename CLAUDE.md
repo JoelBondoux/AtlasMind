@@ -134,7 +134,7 @@ When asked to publish or ship a release, follow these steps in order:
 |---|---|---|
 | `@atlas` chat participant | `src/chat/participant.ts` | Chat bar with slash commands |
 | Sidebar tree views | `src/views/treeViews.ts` | Agents, Skills, Memory, Models trees |
-| Model Provider panel | `src/views/modelProviderPanel.ts` | API key management and quota display webview |
+| Model Provider panel | `src/views/modelProviderPanel.ts` | API key management and quota display webview. Keyless/subscription providers (ACP, Copilot, Claude CLI) configure through their own flow rather than a key: **Configure** on ACP picks an agent from the verified list (or a custom command), writes `atlasmind.acp.agents`, probes it, and reports installed / signed-in / protocol state — three states, since "no agent named" is a different problem from "named but missing" |
 | Settings panel | `src/views/settingsPanel.ts` | Budget/speed sliders webview |
 | Cost Dashboard panel | `src/views/costDashboardPanel.ts` | Per-session and per-model cost breakdown |
 | Model Comparison panel | `src/views/modelComparisonPanel.ts` | Run a prompt across models; ranked quality/cost/latency comparison |

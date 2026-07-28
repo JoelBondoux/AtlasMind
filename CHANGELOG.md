@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.173.0] - 2026-07-28
+
+### Added
+- **The ACP provider has a surface.** It shipped in v0.170.0 with no UI at all — the only way to use it was hand-editing the `atlasmind.acp.agents` JSON setting, which meant a working feature was effectively invisible. It now appears in **Model Providers** alongside every other provider, marked as subscription-backed and keyless. **Configure** offers the agents whose launch command is published (`claude-agent-acp`, `codex-acp`) or accepts a command of your own, writes the setting, then **probes it and reports what is actually true** — installed, signed in, protocol version — rather than declaring success on a successful write.
+- **Three states, not two.** The provider badge distinguishes *no agent configured*, *configured but not usable* (named, but missing from PATH or signed out), and *ready*. Collapsing those would report a provider as broken when nothing had been set up, or as working when it could not run.
+- **Assignable models in the Agent editor.** "Allowed models" was a bare text field, so assigning a model meant knowing its id by heart — which made every newly added provider invisible there, ACP included. The models your *enabled* providers actually offer now appear as one-click chips (subscription-backed ones marked), appending rather than replacing so building a short list does not mean retyping the previous entry. Only enabled providers are offered: a chip for a provider that cannot run is an invitation to build an agent that never routes.
+
+### Changed
+- **`claude-cli` is documented as superseded.** ACP beats it on every axis that mattered — it streams, has no ~26,000-character argv prompt ceiling, and can carry images — so the provider notes, the routing tables, and the roadmap now say so. It is **not** removed: ACP Tier 1 has only been exercised against an injected fake process, so the CLI bridge remains the fallback until a real agent binary has completed a turn. The retirement sequence is recorded in `improvement-plan.md` rather than left as folklore.
+
+### Fixed
+- **A missing model router can no longer blank the agent editor.** `renderModelChips` degrades to an empty state instead of throwing during render — the same failure class as the dashboard crash fixed in 0.171.1, caught this time before it shipped.
+
 ## [0.172.0] - 2026-07-28
 
 ### Fixed
