@@ -1298,9 +1298,15 @@ async function reportAcpAgentNotInstalled(command: string, agentId: string): Pro
 /**
  * Execute a confirmed install plan with visible progress.
  *
- * Cancellable and reported step by step, because these are package-manager
+ * Each step is reported as it starts, because these are package-manager
  * commands that can take minutes and can prompt for elevation — a silent
  * spinner would leave the user unable to tell "working" from "hung".
+ *
+ * Deliberately **not** cancellable. A cancel button here could only abandon the
+ * notification, not the package manager: `winget` and `apt-get` own their own
+ * transactions, and killing one mid-write is how a half-installed runtime
+ * happens. Offering a control that cannot do what it appears to do would be
+ * worse than the wait it seems to shorten.
  */
 async function runAcpInstall(plan: Extract<import('../providers/acpInstaller.js').AcpInstallPlan, { status: 'plannable' }>): Promise<void> {
   const [{ runAcpInstallPlan }, { findCommandExecutable }] = await Promise.all([

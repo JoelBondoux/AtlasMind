@@ -6,6 +6,11 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.179.1 — the installer actually runs on Windows
+
+- **`spawn npm ENOENT`.** The step passed the bare name `npm`, and `execFile` does not apply PATHEXT, so it missed `npm.cmd`. Resolving alone was not enough either — Node refuses to spawn `.cmd` without a shell (CVE-2024-27980), and a shell is not on the table. npm's shim is now bypassed in favour of the `npm-cli.js` it wraps, run with the `node.exe` beside it. Verified against a real `npm.cmd`.
+- **The shown command is now derived from the argv** rather than written beside it: the hand-written version hid `--accept-package-agreements` and printed `sudo` where none was used. It is the consent list, so it cannot be a summary.
+
 ## v0.179.0 — AtlasMind can do the install, and the guide works with nothing configured
 
 - **Setup guides did nothing in the AtlasMind chat panel.** Slash commands are dispatched only by the VS Code chat participant, so `/acp` went to the orchestrator as an ordinary prompt — and on a machine with no provider configured, to the built-in echo model, which replied "Answered from context." Setup plans are derived, not generated, so the guide now renders directly with **no model involved** and works on a fresh install with nothing set up.

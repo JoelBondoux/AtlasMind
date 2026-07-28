@@ -29,6 +29,7 @@
  * Pure apart from the injected probe, so every branch is unit-tested.
  */
 
+import { existsSync } from 'node:fs';
 import { buildRuntimeInstallInvocation, execFileAsync } from '../mcp/mcpRuntime.js';
 import type { RecommendedRuntimePackageManager, SupportedRuntimePlatform } from '../constants.js';
 
@@ -36,10 +37,42 @@ import type { RecommendedRuntimePackageManager, SupportedRuntimePlatform } from 
 export interface AcpInstallStep {
   /** Why this step exists, in the user's terms. */
   purpose: string;
-  /** Exactly what is being run, for the confirmation dialog. */
+  /**
+   * Exactly what is being run — **derived from `command` and `args`, never
+   * written by hand.**
+   *
+   * This string is the consent: the modal shows it, and the user says yes to
+   * what it says. A hand-maintained summary alongside the real argv drifts, and
+   * it drifts in the dangerous direction — the first version of this read
+   * `winget install --id OpenJS.NodeJS.LTS -e` while the argv also carried
+   * `--accept-package-agreements --accept-source-agreements`, so the one detail
+   * a user might have wanted to know (licence agreements accepted on their
+   * behalf) was the detail the summary dropped. `formatCommandLine` removes the
+   * possibility, and a test asserts every argument appears.
+   */
   humanCommand: string;
   command: string;
   args: string[];
+  /**
+   * Resolve `command` to a real executable immediately before running it.
+   *
+   * Set on a step whose tool the *previous* step installs: npm does not exist
+   * at planning time, so there is no path to resolve yet. Everything else is
+   * resolved during planning, where a failure can still be reported as
+   * "AtlasMind cannot do this" rather than as a mid-install crash.
+   */
+  resolveAtRunTime?: boolean;
+}
+
+/**
+ * Render argv for display: the executable's name, then every argument verbatim.
+ *
+ * The resolved path is reduced to its basename — `/usr/bin/winget` tells the
+ * user nothing `winget` does not — but no argument is ever summarised away.
+ */
+export function formatCommandLine(command: string, args: readonly string[]): string {
+  const name = command.split(/[\\/]/).pop() || command;
+  return [name, ...args].join(' ');
 }
 
 export type AcpInstallPlan =
@@ -69,7 +102,7 @@ interface AcpAgentRecipe {
     displayName: string;
     installs: Partial<Record<SupportedRuntimePlatform, RuntimeInstallOption[]>>;
   };
-  install: { command: string; args: string[]; humanCommand: string };
+  install: { command: string; args: string[] };
 }
 
 const NODE_INSTALLS: Partial<Record<SupportedRuntimePlatform, RuntimeInstallOption[]>> = {
@@ -120,7 +153,6 @@ const ACP_AGENT_RECIPES: Readonly<Record<string, AcpAgentRecipe>> = {
     install: {
       command: 'npm',
       args: ['install', '-g', '@zed-industries/claude-code-acp'],
-      humanCommand: 'npm install -g @zed-industries/claude-code-acp',
     },
   },
   codex: {
@@ -130,7 +162,6 @@ const ACP_AGENT_RECIPES: Readonly<Record<string, AcpAgentRecipe>> = {
     install: {
       command: 'cargo',
       args: ['install', 'codex-acp'],
-      humanCommand: 'cargo install codex-acp',
     },
   },
 };
@@ -139,7 +170,63 @@ export interface AcpInstallProbe {
   platform: string;
   /** Resolves a command to an absolute path, or undefined when absent. */
   findExecutable: (command: string) => string | undefined;
+  /**
+   * Whether a path exists. Used only to go around Windows `.cmd` shims; falls
+   * back to a real filesystem check when the caller does not supply one.
+   */
+  fileExists?: (path: string) => boolean;
 }
+
+/**
+ * Turn the recipe's command into something that can actually be spawned.
+ *
+ * Two Windows facts made the first version fail with `spawn npm ENOENT`, and
+ * both had to be handled:
+ *
+ * 1. **A bare name is not resolved.** `execFile('npm', …)` does not apply
+ *    `PATHEXT`, so it looks for a file literally called `npm` and misses
+ *    `npm.cmd`. The command has to be resolved to a full path first.
+ * 2. **A resolved `.cmd` still cannot be spawned.** Since the fix for
+ *    CVE-2024-27980, Node refuses to spawn `.cmd`/`.bat` without `shell: true`
+ *    — and a shell is not on the table here, so the batch shim has to be
+ *    bypassed rather than invoked.
+ *
+ * npm's shim wraps `node_modules/npm/bin/npm-cli.js`, sitting beside the
+ * `node.exe` that runs it, so calling that script with Node directly does
+ * exactly what the shim would have while staying a plain process spawn. When
+ * that layout is not found the plan degrades to `manual` — running it in a
+ * terminal is a small ask; guessing at an interpreter is not.
+ */
+function resolveSpawnable(
+  command: string,
+  args: readonly string[],
+  probe: AcpInstallProbe,
+): { command: string; args: string[] } | undefined {
+  const resolved = probe.findExecutable(command);
+  if (!resolved) {
+    return undefined;
+  }
+  if (probe.platform !== 'win32' || !/\.(cmd|bat)$/i.test(resolved)) {
+    return { command: resolved, args: [...args] };
+  }
+
+  const directory = resolved.slice(0, Math.max(resolved.lastIndexOf('\\'), resolved.lastIndexOf('/')));
+  const exists = probe.fileExists ?? ((path: string) => existsSync(path));
+  const node = `${directory}\\node.exe`;
+  const script = WINDOWS_SHIM_SCRIPTS[command];
+  if (!script) {
+    return undefined;
+  }
+  const scriptPath = `${directory}\\${script}`;
+  return exists(node) && exists(scriptPath)
+    ? { command: node, args: [scriptPath, ...args] }
+    : undefined;
+}
+
+/** Where a Windows batch shim's real entry point lives, relative to the shim. */
+const WINDOWS_SHIM_SCRIPTS: Readonly<Record<string, string>> = {
+  npm: 'node_modules\\npm\\bin\\npm-cli.js',
+};
 
 /**
  * Work out what would have to run for this agent to exist. Performs nothing.
@@ -169,17 +256,41 @@ export function planAcpAgentInstall(agentId: string, probe: AcpInstallProbe): Ac
       return {
         status: 'manual',
         reason: `${recipe.displayName} is installed with ${recipe.prerequisite.command}, which is not on this machine, and AtlasMind found no supported package manager to install ${recipe.prerequisite.displayName} with.`,
-        humanCommand: recipe.install.humanCommand,
+        humanCommand: formatCommandLine(recipe.install.command, recipe.install.args),
       };
     }
     steps.push(runtimeStep);
+    // The runtime is not installed *yet*, so its own command cannot be resolved
+    // to a path now. Spawning it by name is what failed before, so the agent
+    // step is planned by name only when it will exist by the time it runs, and
+    // resolved at execution instead — see `runAcpInstallPlan`.
+    steps.push({
+      purpose: `Install the ${recipe.displayName}`,
+      humanCommand: formatCommandLine(recipe.install.command, recipe.install.args),
+      command: recipe.install.command,
+      args: [...recipe.install.args],
+      resolveAtRunTime: true,
+    });
+    return { status: 'plannable', agentId, agentCommand: recipe.agentCommand, displayName: recipe.displayName, steps };
+  }
+
+  const invocation = resolveSpawnable(recipe.install.command, recipe.install.args, probe);
+  if (!invocation) {
+    return {
+      status: 'manual',
+      reason: `${recipe.prerequisite.command} is installed, but AtlasMind could not work out how to run it directly on this system, so it will not guess.`,
+      humanCommand: formatCommandLine(recipe.install.command, recipe.install.args),
+    };
   }
 
   steps.push({
     purpose: `Install the ${recipe.displayName}`,
-    humanCommand: recipe.install.humanCommand,
-    command: recipe.install.command,
-    args: [...recipe.install.args],
+    // Shown as the command the user knows, not the internal path it resolves
+    // to — but the arguments are the real ones, and the resolved target is
+    // reported in the progress log when it differs.
+    humanCommand: formatCommandLine(recipe.install.command, recipe.install.args),
+    command: invocation.command,
+    args: invocation.args,
   });
 
   return {
@@ -212,23 +323,15 @@ function planRuntimeStep(recipe: AcpAgentRecipe, probe: AcpInstallProbe): AcpIns
     );
     return {
       purpose: `Install ${option.displayName}, which ${recipe.displayName} needs`,
-      humanCommand: humanRuntimeCommand(option),
+      // Rendered from the invocation actually built, so what is shown and what
+      // runs cannot differ — including `sudo -n`, which appears only on the
+      // platforms and privilege levels where it is genuinely used.
+      humanCommand: formatCommandLine(invocation.command, invocation.args),
       command: invocation.command,
       args: invocation.args,
     };
   }
   return undefined;
-}
-
-function humanRuntimeCommand(option: RuntimeInstallOption): string {
-  const packages = [option.packageId, ...(option.extraPackages ?? [])].join(' ');
-  switch (option.packageManager) {
-    case 'winget': return `winget install --id ${option.packageId} -e`;
-    case 'brew': return `brew install ${packages}`;
-    case 'apt-get': return `sudo apt-get install -y ${packages}`;
-    case 'dnf': return `sudo dnf install -y ${packages}`;
-    case 'pacman': return `sudo pacman -S --noconfirm ${packages}`;
-  }
 }
 
 export interface AcpInstallOutcome {
@@ -261,8 +364,28 @@ export async function runAcpInstallPlan(
 
   for (const step of plan.steps) {
     onProgress?.(`${step.purpose}…  (${step.humanCommand})`);
+
+    let command = step.command;
+    let args = step.args;
+    if (step.resolveAtRunTime) {
+      // The tool this step uses was installed by the step before it, so it
+      // could not be resolved earlier. A freshly installed npm is also the case
+      // most likely to be a `.cmd` this process cannot spawn directly.
+      const invocation = resolveSpawnable(step.command, step.args, probe);
+      if (!invocation) {
+        return {
+          ok: false,
+          completed,
+          message: `\`${step.command}\` was installed, but this window cannot run it yet — a new install is often not on PATH until the window reloads.\n\n`
+            + `Reload the window and try again, or run this in a terminal:\n\n  ${step.humanCommand}`,
+        };
+      }
+      command = invocation.command;
+      args = invocation.args;
+    }
+
     try {
-      await exec(step.command, step.args);
+      await exec(command, args);
       completed.push(step.humanCommand);
     } catch (error) {
       return {

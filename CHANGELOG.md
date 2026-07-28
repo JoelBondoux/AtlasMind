@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.179.1] - 2026-07-28
+
+### Fixed
+- **`spawn npm ENOENT` — "Install it for me" failed on Windows, which is where it was needed most.** Two stacked causes. The step carried the bare string `npm`, and `execFile` does not apply `PATHEXT`, so it looked for a file literally named `npm` and missed `npm.cmd`. Resolving the path alone would not have been enough either: since the fix for CVE-2024-27980 Node refuses to spawn `.cmd`/`.bat` without `shell: true`, and a shell is not on the table here. npm's shim wraps `node_modules/npm/bin/npm-cli.js` beside the `node.exe` that runs it, so that script is now invoked with Node directly — the same work, still a plain process spawn. Verified against a real `npm.cmd` on Windows. Where that layout is not found the plan degrades to `manual` rather than guessing at an interpreter.
+- **A step whose tool the previous step installs is now resolved at run time, not at planning time.** npm does not exist while the plan is being made, so there was no path to resolve; a freshly installed runtime that is not yet on this window's PATH now produces "reload the window and try again" instead of a spawn error.
+
+### Changed
+- **`humanCommand` is derived from the argv rather than written alongside it** (review feedback, PR #147). It is the consent list, and the hand-written version had already drifted in the dangerous direction: it read `winget install --id OpenJS.NodeJS.LTS -e` while the argv also carried `--accept-package-agreements --accept-source-agreements`, so the one detail a user might have objected to was the detail the summary dropped. It also printed `sudo` unconditionally on Linux even where the invocation did not use it. `formatCommandLine` removes the possibility, and tests assert every argument appears and that `sudo` is shown exactly when used.
+- The install progress notification's doc comment claimed it was cancellable while `withProgress` was configured `cancellable: false` (review feedback, PR #147). The behaviour is correct and the comment was wrong: a cancel button could only abandon the notification, not the package-manager transaction, and killing one mid-write is how a half-installed runtime happens.
+
 ## [0.179.0] - 2026-07-28
 
 ### Fixed
