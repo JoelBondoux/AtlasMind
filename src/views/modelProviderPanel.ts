@@ -13,6 +13,7 @@ import {
   getConfiguredLocalEndpoints,
   probeClaudeCli,
   ACP_SETUP_URL,
+  ACP_PROVIDER_BRIDGES,
 } from '../providers/index.js';
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
 import { PANEL_NAV_JS } from './panelNav.js';
@@ -63,6 +64,8 @@ export const PROVIDER_IDS: readonly ProviderId[] = [
 type ModelProviderMessage =
   | { type: 'saveApiKey'; payload: ProviderId }
   | { type: 'configureSubscription'; payload: ProviderId }
+  /** "Use my Claude/ChatGPT subscription" on a pay-per-token provider's card. */
+  | { type: 'useSubscriptionForProvider'; payload: ProviderId }
   | { type: 'refreshModels' }
   | { type: 'openSpecialistIntegrations' }
   | { type: 'openSettings' };
@@ -149,6 +152,11 @@ export class ModelProviderPanel {
       }
       case 'configureSubscription': {
         await configureSubscription(this.context, this.atlas, message.payload);
+        await this.refresh();
+        return;
+      }
+      case 'useSubscriptionForProvider': {
+        await useSubscriptionForProvider(this.atlas, message.payload);
         await this.refresh();
         return;
       }
@@ -558,6 +566,14 @@ export class ModelProviderPanel {
           });
         });
 
+        document.querySelectorAll('button[data-acp-bridge]').forEach(button => {
+          button.addEventListener('click', () => {
+            const provider = button.getAttribute('data-acp-bridge');
+            if (!provider) { return; }
+            vscode.postMessage({ type: 'useSubscriptionForProvider', payload: provider });
+          });
+        });
+
         document.querySelectorAll('button[data-subscription-provider]').forEach(button => {
           button.addEventListener('click', () => {
             const provider = button.getAttribute('data-subscription-provider');
@@ -656,6 +672,10 @@ export function isModelProviderMessage(value: unknown): value is ModelProviderMe
     return true;
   }
 
+  if (message.type === 'useSubscriptionForProvider') {
+    return typeof message.payload === 'string' && PROVIDER_IDS.includes(message.payload as ProviderId);
+  }
+
   if (message.type === 'saveApiKey' || message.type === 'configureSubscription') {
     return typeof message.payload === 'string' && PROVIDER_IDS.includes(message.payload as ProviderId);
   }
@@ -706,9 +726,29 @@ function renderProviderCard(options: {
         <div class="provider-actions">
           <button type="button" data-provider="${options.providerId}">${escapeHtml(options.actionLabel)}</button>
           ${isSubscriptionProvider(options.providerId) ? `<button type="button" class="action-secondary" data-subscription-provider="${options.providerId}">$ Configure plan</button>` : ''}
+          ${renderSubscriptionOffer(options.providerId)}
         </div>
       </article>`,
   };
+}
+
+/**
+ * The "use the subscription you already pay for" offer, on the card of the
+ * pay-per-token provider it replaces.
+ *
+ * Phrased in the user's terms rather than the protocol's: someone who has never
+ * heard of ACP still understands "Use my Claude subscription". Clicking it is
+ * the whole discovery path — if nothing is installed yet, the handler offers the
+ * setup guide rather than failing at them.
+ */
+function renderSubscriptionOffer(providerId: ProviderId): string {
+  const bridge = ACP_PROVIDER_BRIDGES.find((entry: { providerId: string }) => entry.providerId === providerId);
+  if (!bridge) {
+    return '';
+  }
+  return `<button type="button" class="action-secondary" data-acp-bridge="${escapeHtml(bridge.providerId)}" `
+    + `title="${escapeHtml(`Route these models through your ${bridge.subscriptionName} instead of paying per token, using the Agent Client Protocol.`)}">`
+    + `${escapeHtml(bridge.offerLabel)}</button>`;
 }
 
 function getProviderFailureCount(atlas: AtlasMindContext, providerId: ProviderId): number {
@@ -1091,6 +1131,85 @@ export async function configureProvider(
   await atlas.refreshProviderModels(true);
   await atlas.refreshProviderHealth();
   atlas.modelsRefresh.fire();
+}
+
+/**
+ * "Use my Claude / ChatGPT subscription", clicked on a pay-per-token provider.
+ *
+ * This is the discovery path for ACP, for people who have never heard of it and
+ * have no reason to: they know they pay for Claude, and they want AtlasMind to
+ * use that instead of burning API credit. So the protocol is never the subject
+ * — it is mentioned once, in passing, and only where it explains what to install.
+ *
+ * The three outcomes are all dead ends today unless they are handled: already
+ * working (say so), installed but signed out (say which), or nothing installed
+ * (this is the common one — offer the guide rather than reporting a failure at
+ * someone who has not been told there was anything to install).
+ */
+async function useSubscriptionForProvider(atlas: AtlasMindContext, providerId: ProviderId): Promise<void> {
+  const { findAcpBridge, AcpAdapter, parseAcpAgentSettings } = await import('../providers/acp.js');
+  const bridge = findAcpBridge(providerId);
+  if (!bridge) {
+    return;
+  }
+
+  const configuration = vscode.workspace.getConfiguration('atlasmind');
+  const configured = parseAcpAgentSettings(configuration.get<unknown>('acp.agents'));
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const candidate = { id: bridge.agentId, command: bridge.command };
+  const probe = await new AcpAdapter({
+    agents: [candidate],
+    ...(workspaceRoot ? { cwd: workspaceRoot } : {}),
+  }).probe().catch(() => undefined);
+
+  // Not installed — the expected first answer, and the reason this button
+  // exists. Hand over to the walkthrough instead of stopping at "not found".
+  if (!probe?.installed) {
+    const choice = await vscode.window.showInformationMessage(
+      `To use your ${bridge.subscriptionName} for these models, AtlasMind needs \`${bridge.command}\` installed — a small adapter that lets it talk to the agent you already have. It is not installed yet.`,
+      { modal: true, detail: `Install it with:\n\n${bridge.install}\n\nThe setup guide walks through this one step at a time and checks each one for you.` },
+      'Open the setup guide',
+      'Copy the install command',
+    );
+    if (choice === 'Open the setup guide') {
+      await vscode.commands.executeCommand('atlasmind.openChatPanel', { draftPrompt: '/acp', sendMode: 'send' });
+    } else if (choice === 'Copy the install command') {
+      await vscode.env.clipboard.writeText(bridge.install);
+      void vscode.window.showInformationMessage('Install command copied. Run it in a terminal, then press this button again.');
+    }
+    return;
+  }
+
+  if (!probe.authenticated) {
+    void vscode.window.showWarningMessage(
+      `\`${bridge.command}\` is installed but not signed in. Run it once in a terminal and complete its own login — AtlasMind never handles that credential — then press this button again.`,
+    );
+    return;
+  }
+
+  // Installed and signed in: register it if it is not already, and enable the
+  // provider, because the user has just asked for exactly that.
+  if (!configured.some(agent => agent.command === bridge.command)) {
+    await configuration.update(
+      'acp.agents',
+      [...configured.filter(agent => agent.id !== bridge.agentId), candidate],
+      vscode.ConfigurationTarget.Workspace,
+    );
+  }
+  // Enabling is the point of the click, so do it through the real API rather
+  // than leaving the user to find the toggle they did not know existed.
+  const acpProvider = atlas.modelRouter.getProviderConfig?.('acp');
+  if (acpProvider && !acpProvider.enabled) {
+    atlas.modelRouter.registerProvider({ ...acpProvider, enabled: true });
+  }
+
+  const summary = await atlas.refreshProviderModels(true);
+  await atlas.refreshProviderHealth();
+  atlas.modelsRefresh.fire();
+  void vscode.window.showInformationMessage(
+    `Your ${bridge.subscriptionName} is now available to AtlasMind as \`acp/${bridge.agentId}\`. `
+    + `Refreshed ${summary.providersUpdated} provider(s) and ${summary.modelsAvailable} model entries.`,
+  );
 }
 
 /**

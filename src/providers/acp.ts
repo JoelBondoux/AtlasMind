@@ -75,6 +75,56 @@ export const VERIFIED_ACP_AGENTS: ReadonlyArray<{ id: string; label: string; com
   { id: 'codex', label: 'Codex CLI (codex-acp)', command: 'codex-acp', modelId: 'acp/codex' },
 ];
 
+/**
+ * Which pay-per-token provider each ACP agent is the subscription alternative to.
+ *
+ * "ACP" is a protocol name, and nobody goes looking for a protocol. Someone
+ * holding a Claude subscription thinks *"I already pay for Claude"* — so the
+ * offer belongs on the **Anthropic** card, phrased in those terms, rather than
+ * behind a separate entry they must first know exists and then decode.
+ *
+ * Only vendors whose launch command is actually published appear here. Google
+ * is absent for the same reason it is absent from {@link VERIFIED_ACP_AGENTS}:
+ * Gemini CLI implements ACP but publishes no invocation, so an offer on the
+ * Google card would be a button that cannot work.
+ */
+export interface AcpProviderBridge {
+  /** The pay-per-token provider this is offered alongside. */
+  providerId: string;
+  /** Agent id used in the model id `acp/<id>`. */
+  agentId: string;
+  command: string;
+  /** What the user calls the thing they already pay for. */
+  subscriptionName: string;
+  /** Button text — the user's words, not the protocol's. */
+  offerLabel: string;
+  install: string;
+}
+
+export const ACP_PROVIDER_BRIDGES: readonly AcpProviderBridge[] = [
+  {
+    providerId: 'anthropic',
+    agentId: 'claude',
+    command: 'claude-agent-acp',
+    subscriptionName: 'Claude subscription',
+    offerLabel: 'Use my Claude subscription',
+    install: 'npm install -g @zed-industries/claude-code-acp',
+  },
+  {
+    providerId: 'openai',
+    agentId: 'codex',
+    command: 'codex-acp',
+    subscriptionName: 'ChatGPT Plus or Pro subscription',
+    offerLabel: 'Use my ChatGPT subscription',
+    install: 'cargo install codex-acp',
+  },
+];
+
+/** The subscription offer for a provider, when one exists. */
+export function findAcpBridge(providerId: string): AcpProviderBridge | undefined {
+  return ACP_PROVIDER_BRIDGES.find(bridge => bridge.providerId === providerId);
+}
+
 export interface AcpAgentConfig {
   /** Stable id, used in the model id `acp/<id>`. */
   id: string;
