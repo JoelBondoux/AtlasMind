@@ -194,6 +194,14 @@ interface ChatPanelState {
   pendingToolApprovals: PendingToolApprovalRequest[];
   /** An in-chat decision a running Mission Loop is waiting on (checkpoint / block recovery). */
   pendingLoopDecision?: LoopDecisionRequest;
+  /**
+   * A question the Buzz setup walkthrough is asking, rendered as chips.
+   *
+   * Separate from `pendingLoopDecision` on purpose: a mission decision gates a
+   * run, and reusing its slot would let a setup question and a blocked run
+   * overwrite each other.
+   */
+  pendingGuideChoice?: { id: string; title: string; detail?: string; options: Array<{ id: string; label: string }> };
   attachments: Array<{ id: string; label: string; kind: string; source: string; previewUri?: string }>;
   openFiles: ChatPanelOpenFileLink[];
   projectRuns: Array<{
@@ -325,6 +333,15 @@ export class ChatPanel {
   private recoveryNotice: ChatPanelRecoveryNotice | undefined;
   /** In-chat Mission Loop decision the panel is currently awaiting (checkpoint / block recovery). */
   private pendingLoopDecision: LoopDecisionRequest | undefined;
+  private pendingGuideChoice: ChatPanelState['pendingGuideChoice'];
+  /**
+   * What each guide option actually does, held extension-side.
+   *
+   * The webview only ever sends back an option **id**. Keeping the command here
+   * means a webview message cannot name a command to run — the mapping is
+   * authored by the extension and looked up, never supplied.
+   */
+  private guideChoiceActions = new Map<string, { command: string; args?: unknown[] }>();
   private pendingLoopDecisionResolve: ((choice: string) => void) | undefined;
   /** Cached project display name: the connected Git repo name when available, else the workspace folder name. */
   private cachedProjectName: string | undefined;
@@ -542,6 +559,26 @@ export class ChatPanel {
         await this.runPrompt(message.payload.prompt, message.payload.mode);
         return;
       case 'resolveLoopDecision':
+        if (message.payload?.id === 'buzz-guide') {
+          // Look the action up rather than trusting the message to name one.
+          const action = this.guideChoiceActions.get(String(message.payload.choice));
+          if (action) {
+            await vscode.commands.executeCommand(action.command, ...(action.args ?? []));
+          }
+          return;
+        }
+        if (message.payload?.id === 'buzz-relay-mode') {
+          // Answering the walkthrough's question is a preference, not a gate:
+          // it changes which half of the relay instructions is shown and
+          // connects nothing.
+          const choice = message.payload.choice === 'hosted' ? 'hosted' : 'local';
+          this.pendingGuideChoice = undefined;
+          await vscode.workspace.getConfiguration('atlasmind')
+            .update('buzz.relayMode', choice, vscode.ConfigurationTarget.Workspace)
+            .then(undefined, () => undefined);
+          await vscode.commands.executeCommand('atlasmind.buzz.openGuide');
+          return;
+        }
         if (this.pendingLoopDecision && this.pendingLoopDecision.id === message.payload.id) {
           this.settleLoopDecision(message.payload.choice);
           await this.syncState();
@@ -1894,6 +1931,22 @@ export class ChatPanel {
     });
   }
 
+  /**
+   * Show the walkthrough's chips — its question, and the actions for this step.
+   *
+   * The guide's prose says "press the button below", which was true in VS Code
+   * chat (where `stream.button` renders) and a lie in this panel, which had no
+   * buttons at all. Now it has them.
+   */
+  public async setGuideChoice(
+    choice: ChatPanelState['pendingGuideChoice'],
+    actions?: Map<string, { command: string; args?: unknown[] }>,
+  ): Promise<void> {
+    this.pendingGuideChoice = choice;
+    this.guideChoiceActions = actions ?? new Map();
+    await this.syncState();
+  }
+
   private settleLoopDecision(choice: string): void {
     const resolve = this.pendingLoopDecisionResolve;
     this.pendingLoopDecision = undefined;
@@ -2008,6 +2061,7 @@ export class ChatPanel {
       transcript: transcriptPayload,
       pendingToolApprovals: this.atlas.toolApprovalManager?.listPendingRequests?.() ?? [],
       ...(this.pendingLoopDecision ? { pendingLoopDecision: this.pendingLoopDecision } : {}),
+      ...(this.pendingGuideChoice ? { pendingGuideChoice: this.pendingGuideChoice } : {}),
       attachments: this.composerAttachments.map(item => toComposerAttachmentView(item, this.host.webview)),
       openFiles: getOpenWorkspaceFiles(),
       projectRuns: projectRuns.map(run => {

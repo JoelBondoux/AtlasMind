@@ -232,3 +232,54 @@ describe('a Buzz handle is not always a public key', () => {
     expect(dashboardSource).toMatch(/The person was saved, but the Buzz agent binding was not/);
   });
 });
+
+// The MCP page reaches the registry, so its messages mutate real connections.
+// The allowlist is what actually admits a message — adding a type to the union
+// and the switch without adding it here is the bug that shipped on this page
+// before, and it is invisible: the control renders and does nothing.
+describe('Settings → MCP Servers page', () => {
+  it.each([
+    { type: 'connectMcpServer', payload: 'srv-1' },
+    { type: 'disconnectMcpServer', payload: 'srv-1' },
+    { type: 'setMcpServerEnabled', payload: { id: 'srv-1', enabled: false } },
+    { type: 'openMcpManager' },
+  ])('accepts $type at the message guard', message => {
+    expect(isSettingsMessage(message)).toBe(true);
+  });
+
+  it('rejects a malformed server message rather than acting on it', () => {
+    expect(isSettingsMessage({ type: 'connectMcpServer', payload: '' })).toBe(false);
+    expect(isSettingsMessage({ type: 'connectMcpServer', payload: 42 })).toBe(false);
+    expect(isSettingsMessage({ type: 'setMcpServerEnabled', payload: { id: 'srv-1' } })).toBe(false);
+    expect(isSettingsMessage({ type: 'setMcpServerEnabled', payload: { id: '', enabled: true } })).toBe(false);
+  });
+
+  it('renders each server with the state that decides what agents can call', () => {
+    expect(settingsSource).toContain('data-mcp-enable');
+    expect(settingsSource).toContain('data-mcp-connect');
+    expect(settingsSource).toContain('data-mcp-disconnect');
+    expect(settingsSource).toContain('mcpServerRegistry?.listServers()');
+  });
+
+  it('actually disconnects when a server is disabled', () => {
+    // Otherwise "Enabled: off" would relabel a server whose tools were still
+    // reachable — a gate that reports itself closed while standing open.
+    const handler = settingsSource.slice(
+      settingsSource.indexOf("case 'setMcpServerEnabled':"),
+      settingsSource.indexOf("case 'connectMcpServer':"),
+    );
+    expect(handler).toContain('disconnectServer');
+  });
+
+  it('does not duplicate the add-server flow', () => {
+    // Two implementations of one flow drift, and the one that drifts is the one
+    // nobody is looking at.
+    expect(settingsSource).toContain("executeCommand('atlasmind.openMcpServers')");
+    const page = settingsSource.slice(
+      settingsSource.indexOf('id="page-mcp"'),
+      settingsSource.indexOf('id="page-buzz"'),
+    );
+    expect(page).not.toContain('addServer');
+    expect(page).not.toContain('SecretStorage');
+  });
+});

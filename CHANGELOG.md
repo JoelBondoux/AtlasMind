@@ -9,6 +9,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 - **ACP integration roadmap.** A phased SSOT plan (`project_memory/roadmap/acp-integration.md`) for adopting the Agent Client Protocol: Tier 1 replaces the argv-bounded, tool-free `claude-cli` bridge with a streaming ACP provider, Tier 2 adds Codex and Gemini CLI subscriptions as routable capacity, Tier 3 delegates whole subtasks to a subscription agent while AtlasMind retains the authorization gate, and Tier 4 exposes AtlasMind itself as an ACP agent. Planning only — no implementation.
 
+## [0.160.1] - 2026-07-28
+
+### Fixed
+- **"Press the button below" — there was no button.** The walkthrough's wording was written for VS Code chat, where buttons render, and shown in the AtlasMind panel, where nothing did. Each step's actions now appear as buttons there: open the relevant screen, set the agent key, or load a command into a terminal.
+- **The opening line read as though the guide had lost its place.** Starting at "step 2 of 4" looks like something was skipped, when in fact step 1 was already finished. It now leads with progress — "1 of 4 done. Next: …" — and only says "step 1 of 4" when nothing is done yet.
+- **A key already given to the Buzz MCP bridge is now recognised.** The bridge stores it under its own secret and inbound reads a different one, so the guide could correctly report "no key" to someone who had already supplied it. It now spots that and offers **Reuse the key from the Buzz bridge**, which validates the key before storing it.
+
+### Security
+- **A guide button names an option id, never a command.** The mapping from option to command is held extension-side and looked up, so a webview message cannot choose what runs.
+- **Reusing the bridge key is checked, not trusted.** The secret id must match the Buzz bridge's exact naming, the key is validated by constructing a signer before it is stored, and neither the key nor any part of it is ever displayed or logged.
+
+## [0.160.0] - 2026-07-28
+
+### Added
+- **Settings → MCP Servers.** Every registered server is listed with its transport, live connection status, tool count, and any error — with Enable, Connect, and Disconnect for each. Previously the only way to see whether a server was actually connected was to open a separate panel.
+
+### Changed
+- **Disabling a server now disconnects it**, rather than only relabelling it. A gate that reports itself closed while its tools remain reachable is worse than no gate.
+- **The page shows what is running, not what was configured.** Status and tool counts are read live from the registry each time it renders.
+- **Adding and editing a server stays in the dedicated MCP manager.** Browse-by-category, transport setup, and secret entry are deliberately not duplicated here — two implementations of one flow drift, and the one that drifts is the one nobody is looking at. The page links straight to it.
+
+### Security
+- **Each new message is validated at the runtime allowlist**, not only in the type union. A server id must be a non-empty string and the enabled flag a real boolean, because these messages start and stop processes that contribute callable tools. This is the same guard that a previous page skipped, which left every control on it silently inert.
+
+## [0.159.1] - 2026-07-28
+
+### Fixed
+- **The setup guide opened in whatever thread happened to be in front of you.** It now gets its own **Buzz setup** session, so a walkthrough no longer lands in the middle of unrelated work under a title about something else.
+- **The guide skipped straight to step 3.** Steps 1 and 2 read as finished because Buzz was enabled and the default `ws://localhost:3000` parses — but nothing had ever connected, so whether a relay existed was unknown and the guide walked past the question entirely. Until you say how you run Buzz (or a subscription actually connects), the relay step is unfinished and the guide stops there to ask.
+- **The walkthrough now has real chips in AtlasMind's own panel.** "How do you want to run Buzz?" is answered by clicking **I will run Buzz on this machine** or **I have a relay URL from someone else**, and the guide reprints with only that path.
+
+### Changed
+- **Each step shows the whole sequence with its position marked**, so arriving at step 3 says why rather than looking like the guide lost its place.
+- **Chips appear only where there is a genuine question.** The relay path is the one thing AtlasMind cannot work out for itself; everywhere else a chip would be a button meaning "I have read this".
+
 ## [0.159.0] - 2026-07-28
 
 ### Added

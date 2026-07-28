@@ -94,6 +94,7 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
               <section id="runInspector" class="run-inspector hidden"></section>
               <section id="pendingApprovals" class="approval-stack hidden" aria-live="polite"></section>
               <section id="pendingLoopDecision" class="approval-stack hidden" aria-live="polite"></section>
+              <section id="pendingGuideChoice" class="approval-stack hidden" aria-live="polite"></section>
             </main>
             <div id="imageLightbox" class="media-lightbox hidden" aria-hidden="true">
               <div class="media-lightbox-panel">
