@@ -3,8 +3,8 @@
 > **Status:** Tier 1b implementation complete; a real-relay smoke test remains before the live-send
 > gate is closed. Tier 2 guided connector shipped and ARD discovery still planned. Tier 3's
 > protocol/policy/derivation **foundation** shipped (v0.147.0) and its `BuzzClient` subscription
-> (v0.148.0), and NIP-42 Schnorr signing (v0.149.0); real-relay validation and wiring remain — see
-> the Tier-3 logs. Tier 4 planned.
+> (v0.148.0), NIP-42 Schnorr signing (v0.149.0), and **real-relay validation (v0.149.2 — which caught
+> a wrong message kind)**. Only the wiring remains — see the Tier-3 logs. Tier 4 planned.
 > **Owner:** AtlasMind core. **Created:** 2026-07-25.
 > This is the SSOT north star for integrating Buzz into AtlasMind. Build incrementally,
 > respecting the entry criteria between tiers. Nothing here overrides AtlasMind's
@@ -298,16 +298,53 @@ not — `buzzConnector.ts` (which had the relay gate) was dropped when this bran
 in `buzzSocket.toWebSocketUrl`, which now refuses a plaintext socket to any non-loopback host. Placed
 at the **transport** rather than in a policy caller so future wiring cannot reintroduce it.
 
+### Real-relay validation, round 2 (2026-07-28, v0.149.2) — **a wrong kind, caught**
+
+With signing working, the probe finally reached the data path. Three results:
+
+**1. NIP-42 signing is validated end-to-end.** The relay issued a challenge, accepted the signed
+kind-22242 event, and served the subscription (reached EOSE). Tier 3's auth half is proven against
+real Buzz, not a stand-in.
+
+**2. The channel-message kind was WRONG — and would have failed silently.** Asking the relay what it
+actually stores returned:
+
+| kind | count | tags |
+|---|---|---|
+| 40099 (system message) | 8 | `h` |
+| **9 (channel message)** | **5** | `h`, `p`, `client` |
+| 39000 (channel metadata) | 4 | `d`, `name`, `about`, `public`, `closed`, `t`, `private` |
+| 20001 (presence) | 1 | — |
+
+**Zero kind-40002 events.** `buzz-core/src/kind.rs` defines both `KIND_STREAM_MESSAGE = 9` and
+`KIND_STREAM_MESSAGE_V2 = 40002`, with a comment implying V2 supersedes it — reading the source, 40002
+is the obvious answer. It is also the wrong one for this deployment. **This is the exact trap the
+Tier-3 log warned about, and I walked into it anyway**, then wrote a test asserting
+`channelMessage !== 9` that encoded the mistaken inference as if it were verified fact.
+
+The failure mode is the nastiest kind: the client authenticates, subscribes, reaches EOSE, and reports
+itself perfectly healthy while receiving **nothing, forever**. No error, no warning, no retry — just
+silence that looks like a quiet channel.
+
+**Fix:** both kinds are subscribed and derived, so either deployment works. The corrected test now
+asserts kind 9 *and* records why the earlier assertion was wrong.
+
+**3. Two assumptions confirmed.** The `h` tag does scope messages to a channel (present on every kind-9
+event), and 39000 is channel metadata. Both were previously unverified.
+
+**Lesson for the remaining tiers:** reading a registry tells you what kinds *exist*, not which one a
+deployment *uses*. Ask the relay. `--discover` in the probe does exactly this and should be re-run
+against any new Buzz version before trusting a kind number.
+
 **Still owed for Tier 3:**
 1. ~~**Schnorr signing**~~ — **done in v0.149.0.** `buildAuthEventTemplate` returns an *unsigned*
    template and `BuzzEventSigner` is the seam; with no signer, an authenticating relay yields a typed,
    explained stop rather than a loop. Filling it needs a secp256k1 backend — `@noble/curves` is the
    audited, zero-dependency standard (what `nostr-tools` itself uses). **This is a dependency decision
    in a security-sensitive path and deserves its own reviewable change.**
-2. **Validation against a real Buzz relay.** The integration tests run against a NIP-01-shaped
-   stand-in, not Buzz — so relay-specific behaviour (the p-gate, real auth, and the `h`-tag
-   channel-scoping assumption the derivation layer makes) is still unconfirmed. Share the Tier-1b
-   smoke test.
+2. ~~**Validation against a real Buzz relay.**~~ **Done (v0.149.2)** — auth, the `h`-tag scoping
+   assumption, and the message kind are all now verified against a live relay. The p-gate remains
+   confirmed only indirectly (auth intercepts a kind-less query before the gate can answer).
 3. **Wiring:** the deny-by-default inbound toggle, `hold('buzz')`/`release('buzz')` against
    `PresenceManager` while a subscription is live, and persisting derived follow-ups.
 

@@ -29,12 +29,18 @@ export const BUZZ_PROTOCOL_VERIFIED_VERSION = 'v0.4.26';
 /**
  * Buzz event kinds AtlasMind reads or writes, from `buzz-core/src/kind.rs`.
  *
- * Two documented traps are encoded here deliberately:
- *  - Channel metadata is **39000** (`KIND_NIP29_GROUP_METADATA`). Kind 41 also
- *    exists in the registry as legacy NIP-01 channel metadata and is *not* what
- *    Buzz uses — the contributor guide calls this out explicitly.
- *  - A channel message is **40002** (`KIND_STREAM_MESSAGE_V2`). Kind 9 is the
- *    plain NIP-29 message kind and V1 used 10002; neither is current.
+ * **Channel messages are kind 9 in practice.** The registry defines both
+ * `KIND_STREAM_MESSAGE = 9` and `KIND_STREAM_MESSAGE_V2 = 40002`, and reading
+ * the source alone suggests 40002 supersedes it. A live Buzz relay says
+ * otherwise: its stored history contained kind **9** messages (carrying `h`,
+ * `p`, `client` tags) and **no** 40002 events at all. Subscribing to 40002
+ * alone produces a connection that authenticates, subscribes, reaches EOSE —
+ * and receives nothing, forever. Both are therefore treated as channel
+ * messages, so either deployment works.
+ *
+ * Channel metadata is **39000** (`KIND_NIP29_GROUP_METADATA`) — confirmed
+ * against the same relay. Kind 41 also exists in the registry as legacy NIP-01
+ * channel metadata and is *not* what Buzz uses.
  */
 export const BUZZ_KIND = {
   /** NIP-25 reaction. */
@@ -49,8 +55,17 @@ export const BUZZ_KIND = {
   channelMetadata: 39000,
   /** Thread summary overlay; `e`/`d` tag is the root event id. */
   threadSummary: 39005,
-  /** Channel chat message — current version (V1 used 10002; kind 9 is plain NIP-29). */
-  channelMessage: 40002,
+  /**
+   * Channel chat message. **Verified against a live relay** — this is what Buzz
+   * actually stores, despite the registry also defining a V2 kind below.
+   */
+  channelMessage: 9,
+  /**
+   * Channel chat message, the registry's `KIND_STREAM_MESSAGE_V2`. Not observed
+   * on a live relay, but subscribed alongside kind 9 so a deployment that does
+   * use it still works.
+   */
+  channelMessageV2: 40002,
   /** Edit of a channel message. */
   channelMessageEdit: 40003,
   /** System message for channel state changes. */
@@ -68,9 +83,16 @@ export const BUZZ_KIND = {
   jobError: 43006,
 } as const;
 
-/** Kinds a read-only inbound subscription cares about, by default. */
+/**
+ * Kinds a read-only inbound subscription cares about, by default.
+ *
+ * Both channel-message kinds are included deliberately: a live relay serves
+ * kind 9, while the registry also defines 40002. Subscribing to only one risks
+ * a subscription that works and silently receives nothing.
+ */
 export const BUZZ_INBOUND_KINDS: number[] = [
   BUZZ_KIND.channelMessage,
+  BUZZ_KIND.channelMessageV2,
   BUZZ_KIND.channelMessageEdit,
   BUZZ_KIND.systemMessage,
   BUZZ_KIND.jobRequest,

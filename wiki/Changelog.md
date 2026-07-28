@@ -6,6 +6,11 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.149.2 — Buzz inbound listened on the wrong kind
+
+- **A live relay corrected a wrong assumption.** Buzz's registry defines two channel-message kinds and reads as though the newer supersedes the older; the relay stores only the older one. Subscribing to the newer alone authenticates, subscribes, and receives nothing forever — a failure that looks perfectly healthy.
+- **Both kinds are now handled**, so either deployment works. The channel-scoping tag and the channel-metadata kind were confirmed correct by the same query.
+
 ## v0.149.0 — Buzz NIP-42 signing + hosted-relay TLS (Tier 3)
 
 - **Inbound can authenticate.** BIP-340 Schnorr signing fills the seam `BuzzClient` left open. A real relay refuses to serve a subscription until the client authenticates, so this is what makes inbound possible at all.

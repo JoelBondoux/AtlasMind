@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.149.2] - 2026-07-28
+
+### Fixed
+- **Buzz inbound was listening on the wrong event kind and would have received nothing.** Buzz's own registry defines two channel-message kinds and reads as though the newer one supersedes the older; a live relay proved otherwise, storing only the older kind. The wrong choice fails in the worst possible way — the connection authenticates, subscribes, and reports itself healthy while silently receiving no messages ever. Both kinds are now subscribed and understood, so either deployment works. Found by querying a real relay for what it actually stores rather than inferring it from source.
+
 ## [0.149.1] - 2026-07-27
 
 ### Fixed

@@ -27,9 +27,17 @@ import type { FollowUp } from '../types.js';
 /** Max characters of derived title text retained. Titles summarise; they don't mirror. */
 export const MAX_DERIVED_TITLE_LENGTH = 120;
 
-/** Kinds that can become a work item. Anything else is intentionally ignored. */
+/**
+ * Kinds that can become a work item. Anything else is intentionally ignored —
+ * including channel *system* messages (40099), which record state changes
+ * rather than something a person needs to act on.
+ *
+ * Both channel-message kinds are listed: a live relay serves kind 9, while the
+ * registry also defines 40002.
+ */
 const DERIVABLE_KINDS = new Set<number>([
   BUZZ_KIND.channelMessage,
+  BUZZ_KIND.channelMessageV2,
   BUZZ_KIND.channelMessageEdit,
   BUZZ_KIND.jobRequest,
   BUZZ_KIND.jobError,

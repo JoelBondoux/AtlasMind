@@ -32,7 +32,7 @@ function event(overrides: Partial<NostrEvent> = {}): NostrEvent {
 
 describe('verified kind registry', () => {
   it('uses the kind numbers read from buzz-core/src/kind.rs', () => {
-    expect(BUZZ_KIND.channelMessage).toBe(40002);
+    expect(BUZZ_KIND.channelMessageV2).toBe(40002);
     expect(BUZZ_KIND.channelMessageEdit).toBe(40003);
     expect(BUZZ_KIND.systemMessage).toBe(40099);
     expect(BUZZ_KIND.channelMetadata).toBe(39000);
@@ -40,16 +40,23 @@ describe('verified kind registry', () => {
     expect(BUZZ_KIND.auth).toBe(22242);
   });
 
-  it('avoids the two documented kind traps', () => {
-    // Channel metadata is 39000, not the legacy NIP-01 kind 41.
-    expect(BUZZ_KIND.channelMetadata).not.toBe(41);
-    // A channel message is 40002 — not plain NIP-29 kind 9, nor V1's 10002.
-    expect(BUZZ_KIND.channelMessage).not.toBe(9);
-    expect(BUZZ_KIND.channelMessage).not.toBe(10002);
+  it('treats kind 9 as the channel message, as a live relay actually serves', () => {
+    // Verified empirically: a real Buzz relay's stored history contained kind 9
+    // messages and NO 40002 events. Reading the registry alone suggested the
+    // opposite — an earlier version of this test asserted `not.toBe(9)` and was
+    // wrong. Subscribing to 40002 alone reaches EOSE and receives nothing.
+    expect(BUZZ_KIND.channelMessage).toBe(9);
   });
 
-  it('subscribes to message-bearing kinds by default', () => {
+  it('keeps channel metadata off the legacy NIP-01 kind', () => {
+    // 39000 confirmed against the same relay; kind 41 exists but is not used.
+    expect(BUZZ_KIND.channelMetadata).toBe(39000);
+    expect(BUZZ_KIND.channelMetadata).not.toBe(41);
+  });
+
+  it('subscribes to BOTH channel-message kinds, so neither deployment goes silent', () => {
     expect(BUZZ_INBOUND_KINDS).toContain(BUZZ_KIND.channelMessage);
+    expect(BUZZ_INBOUND_KINDS).toContain(BUZZ_KIND.channelMessageV2);
     expect(BUZZ_INBOUND_KINDS.length).toBeGreaterThan(0);
   });
 });
@@ -157,7 +164,7 @@ describe('buildSubscriptionFrame', () => {
     const built = buildSubscriptionFrame('sub1', [{ kinds: [BUZZ_KIND.channelMessage], '#h': ['chan'] }]);
     expect(built.ok).toBe(true);
     expect(built.ok === true && JSON.parse(built.frame)).toEqual([
-      'REQ', 'sub1', { kinds: [40002], '#h': ['chan'] },
+      'REQ', 'sub1', { kinds: [BUZZ_KIND.channelMessage], '#h': ['chan'] },
     ]);
   });
 
