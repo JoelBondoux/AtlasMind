@@ -206,7 +206,7 @@ function resolveSpawnable(
   if (!resolved) {
     return undefined;
   }
-  if (probe.platform !== 'win32' || !/\.(cmd|bat)$/i.test(resolved)) {
+  if (probe.platform !== 'win32' || WINDOWS_SPAWNABLE.test(resolved)) {
     return { command: resolved, args: [...args] };
   }
 
@@ -223,7 +223,20 @@ function resolveSpawnable(
     : undefined;
 }
 
-/** Where a Windows batch shim's real entry point lives, relative to the shim. */
+/**
+ * What Windows can actually spawn without a shell: a real executable image.
+ *
+ * Testing for `.cmd`/`.bat` was not enough, and failed in production. Node ships
+ * *three* files called npm — `npm` (an extensionless Unix shell script),
+ * `npm.cmd`, and `npm.ps1` — and `findCommandExecutable` tries the empty suffix
+ * before `PATHEXT`, so it returns the shell script, which Windows cannot execute
+ * at all (`spawn C:\Program Files\nodejs\npm ENOENT`). Naming what *is*
+ * spawnable rather than enumerating what is not means a shim of any shape falls
+ * through to the bypass below instead of being spawned hopefully.
+ */
+const WINDOWS_SPAWNABLE = /\.(exe|com)$/i;
+
+/** Where a Windows shim's real entry point lives, relative to the shim. */
 const WINDOWS_SHIM_SCRIPTS: Readonly<Record<string, string>> = {
   npm: 'node_modules\\npm\\bin\\npm-cli.js',
 };

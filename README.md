@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.179.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.179.2</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,7 +64,7 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.179.1
+## What's new in 0.179.2
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
 

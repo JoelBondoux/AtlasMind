@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.179.2] - 2026-07-28
+
+### Fixed
+- **`spawn C:\Program Files\nodejs\npm ENOENT` — the same install failure, one layer deeper.** 0.179.1 resolved the command to a path, which was necessary but not sufficient. Node ships *three* files called npm — `npm` (a Unix shell script), `npm.cmd`, and `npm.ps1` — and `findCommandExecutable` tries the empty suffix before `PATHEXT`, so it returns the **extensionless shell script**, which Windows cannot execute at all. The previous fix tested for `.cmd`/`.bat` and so never matched it.
+
+  The check is now framed the other way round: on Windows, only a real executable image (`.exe`/`.com`) is spawned directly, and *anything else* is treated as a shim to be bypassed via the script it wraps. Enumerating what is spawnable rather than what is not means a shim of an unanticipated shape falls through to the bypass instead of being spawned hopefully.
+
+  **Verified on a real machine this time**, not reasoned about: the exact argv the planner produces (`node.exe node_modules\npm\bin\npm-cli.js install -g …`) was executed and npm answered. Two tests pin it — the extensionless shim resolving through `node.exe`, and `cargo.EXE` still being spawned directly rather than routed through Node.
+
 ## [0.179.1] - 2026-07-28
 
 ### Fixed

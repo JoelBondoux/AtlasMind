@@ -6,6 +6,11 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.179.2 — the installer really does run on Windows now
+
+- **`spawn C:\Program Files\nodejs\npm ENOENT`** — the same failure one layer deeper. Node ships three files called npm (`npm`, `npm.cmd`, `npm.ps1`) and PATH resolution tries the empty suffix first, returning the **extensionless Unix shell script** Windows cannot execute. Testing for `.cmd` never matched it.
+- The rule is now stated positively: on Windows only a real `.exe`/`.com` is spawned directly; anything else is a shim to bypass. **Verified by running the exact argv on a real machine** rather than reasoning about it.
+
 ## v0.179.1 — the installer actually runs on Windows
 
 - **`spawn npm ENOENT`.** The step passed the bare name `npm`, and `execFile` does not apply PATHEXT, so it missed `npm.cmd`. Resolving alone was not enough either — Node refuses to spawn `.cmd` without a shell (CVE-2024-27980), and a shell is not on the table. npm's shim is now bypassed in favour of the `npm-cli.js` it wraps, run with the `node.exe` beside it. Verified against a real `npm.cmd`.

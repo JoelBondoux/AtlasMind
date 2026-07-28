@@ -173,6 +173,35 @@ describe('spawning — the `spawn npm ENOENT` regression', () => {
     }
   });
 
+  it('goes around the EXTENSIONLESS npm shim, which is what PATH resolution actually finds', () => {
+    // The production failure, twice. Node ships three files called npm — `npm`
+    // (a Unix shell script), `npm.cmd`, and `npm.ps1` — and the resolver tries
+    // the empty suffix before PATHEXT, so it returns the shell script, which
+    // Windows cannot execute at all: `spawn C:\Program Files\nodejs\npm ENOENT`.
+    // Testing for `.cmd` missed this entirely.
+    const plan = plannable(planAcpAgentInstall('claude', {
+      platform: 'win32',
+      findExecutable: command => (command === 'npm' ? 'C:\\Program Files\\nodejs\\npm' : undefined),
+      fileExists: () => true,
+    }));
+    const step = plan.steps[0]!;
+    expect(step.command).toBe('C:\\Program Files\\nodejs\\node.exe');
+    expect(step.args[0]).toBe('C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js');
+  });
+
+  it('spawns a real .exe directly rather than routing it through node', () => {
+    // cargo resolves to cargo.EXE — a genuine executable image, and the bypass
+    // must not apply to it.
+    const plan = plannable(planAcpAgentInstall('codex', {
+      platform: 'win32',
+      findExecutable: command => (command === 'cargo' ? 'C:\\Users\\joel\\.cargo\\bin\\cargo.EXE' : undefined),
+      fileExists: () => true,
+    }));
+    const step = plan.steps[0]!;
+    expect(step.command).toBe('C:\\Users\\joel\\.cargo\\bin\\cargo.EXE');
+    expect(step.args).toEqual(['install', 'codex-acp']);
+  });
+
   it('goes around a Windows .cmd shim via node.exe rather than using a shell', () => {
     // Node refuses to spawn .cmd/.bat without `shell: true` (CVE-2024-27980),
     // and a shell is not on the table — so npm's batch shim is bypassed in
