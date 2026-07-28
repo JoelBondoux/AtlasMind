@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.178.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.180.1</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,9 +64,11 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.178.1
+## What's new in 0.180.1
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
+
+- **AtlasMind can install the ACP adapter for you — and the setup guide now works with no AI configured at all.** Telling someone to run `npm install -g …` is not help if they have never installed Node, which anyone arriving via "use the Claude subscription I already pay for" has no reason to have. AtlasMind now works out the whole chain — the runtime you are missing *and* the adapter — lists every command with what it is for, and runs them in order only if you say so. Nothing is generated or scraped: each command is fixed in AtlasMind's own source, none of it goes through a shell, and Rust's `curl … | sh` installer is deliberately not used. Separately, `/acp` used to do nothing useful in the AtlasMind chat panel — the panel doesn't handle slash commands, so it went to a model, and on a fresh machine that meant the built-in echo model replying "Answered from context." Setup guides are derived rather than generated, so they now render directly with no model involved, which is exactly what you need when nothing is set up yet.
 
 - **Choosing an ACP agent now actually starts setting it up.** Picking "Claude Agent" from the ACP card used to save the command, notice it wasn't installed, and tell you so in a toast whose only button opened a documentation index — which read as "this button just opens a website". You now get the exact install command, a copy button, and the step-by-step guide. The card's primary button also no longer says **Set API Key**: ACP stores no key, it reuses the agent's own login, so it now says **Choose Agent** — which is what it does.
 

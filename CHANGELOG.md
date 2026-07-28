@@ -6,6 +6,68 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.180.1] - 2026-07-28
+
+### Fixed
+- **Two independent notions of "am I root", caught by CI on Ubuntu and macOS.** 0.180.0 gave the planner its own `isRoot` input while `buildRuntimeInstallInvocation` went on consulting `process.getuid()` internally. On Windows `getuid` is undefined, so the two agreed by accident and the split was invisible — Windows CI passed while both Unix runners failed. Worse than the test failure: a plan could have declared a step runnable while the argv it produced was a `sudo -n` command that fails without a terminal.
+
+  There is now one source of that fact, read once at the single call site, and the decision moved into an exported pure function (`requiresUnobtainableElevation`) so both branches are testable on any platform. It also corrects a case 0.180.0 got wrong: `sudo -n` cannot prompt **even when running as root**, so an argv containing sudo is now always treated as unobtainable rather than only when non-root.
+
+### Changed
+- The elevation integration test asserts a consistency property rather than a fixed verdict. A root container genuinely *can* run a system install, so demanding "manual" everywhere would have asserted wrong behaviour for it; the semantics are covered exhaustively against the pure helper instead.
+
+## [0.180.0] - 2026-07-28
+
+### Fixed
+- **On Linux, "Install it for me" would have failed for almost everyone.** `buildRuntimeInstallInvocation` elevates with `sudo -n` — non-interactive, meaning *fail rather than prompt*. That is the only correct choice from an extension host, which has no terminal to prompt in, but the consequence is that the step succeeds only for root or passwordless sudo and fails instantly for every other user. Where sudo is absent entirely it falls back to running `apt-get install` unprivileged, which fails with "are you root?".
+
+  A step needing rights AtlasMind cannot obtain is now **marked and not offered**: the plan reports `manual` with both commands to run in a terminal, and the reason says plainly that AtlasMind has nowhere to ask for a password. A button that predictably fails for most of a platform's users is worse than no button — it teaches them the feature is broken rather than what to type.
+
+  `brew` is deliberately exempt on both macOS and Linux (it installs into a user-owned prefix and refuses to run under sudo), as is `winget` — Windows elevates through a UAC consent dialog, which is a prompt the user can actually answer.
+
+### Notes on platform coverage
+- Windows: verified end to end on a real machine (resolution *and* spawn).
+- macOS: Homebrew's `/opt/homebrew/bin` and `/usr/local/bin` are already in `findCommandExecutable`'s search path, so `brew` resolves even when VS Code is launched from Finder without a login shell's `PATH`. Not run end to end.
+- Linux: root and passwordless-sudo plan and run; everything else now correctly declines rather than failing. Not run end to end.
+
+## [0.179.2] - 2026-07-28
+
+### Fixed
+- **`spawn C:\Program Files\nodejs\npm ENOENT` — the same install failure, one layer deeper.** 0.179.1 resolved the command to a path, which was necessary but not sufficient. Node ships *three* files called npm — `npm` (a Unix shell script), `npm.cmd`, and `npm.ps1` — and `findCommandExecutable` tries the empty suffix before `PATHEXT`, so it returns the **extensionless shell script**, which Windows cannot execute at all. The previous fix tested for `.cmd`/`.bat` and so never matched it.
+
+  The check is now framed the other way round: on Windows, only a real executable image (`.exe`/`.com`) is spawned directly, and *anything else* is treated as a shim to be bypassed via the script it wraps. Enumerating what is spawnable rather than what is not means a shim of an unanticipated shape falls through to the bypass instead of being spawned hopefully.
+
+  **Verified on a real machine this time**, not reasoned about: the exact argv the planner produces (`node.exe node_modules\npm\bin\npm-cli.js install -g …`) was executed and npm answered. Two tests pin it — the extensionless shim resolving through `node.exe`, and `cargo.EXE` still being spawned directly rather than routed through Node.
+
+## [0.179.1] - 2026-07-28
+
+### Fixed
+- **`spawn npm ENOENT` — "Install it for me" failed on Windows, which is where it was needed most.** Two stacked causes. The step carried the bare string `npm`, and `execFile` does not apply `PATHEXT`, so it looked for a file literally named `npm` and missed `npm.cmd`. Resolving the path alone would not have been enough either: since the fix for CVE-2024-27980 Node refuses to spawn `.cmd`/`.bat` without `shell: true`, and a shell is not on the table here. npm's shim wraps `node_modules/npm/bin/npm-cli.js` beside the `node.exe` that runs it, so that script is now invoked with Node directly — the same work, still a plain process spawn. Verified against a real `npm.cmd` on Windows. Where that layout is not found the plan degrades to `manual` rather than guessing at an interpreter.
+- **A step whose tool the previous step installs is now resolved at run time, not at planning time.** npm does not exist while the plan is being made, so there was no path to resolve; a freshly installed runtime that is not yet on this window's PATH now produces "reload the window and try again" instead of a spawn error.
+
+### Changed
+- **`humanCommand` is derived from the argv rather than written alongside it** (review feedback, PR #147). It is the consent list, and the hand-written version had already drifted in the dangerous direction: it read `winget install --id OpenJS.NodeJS.LTS -e` while the argv also carried `--accept-package-agreements --accept-source-agreements`, so the one detail a user might have objected to was the detail the summary dropped. It also printed `sudo` unconditionally on Linux even where the invocation did not use it. `formatCommandLine` removes the possibility, and tests assert every argument appears and that `sudo` is shown exactly when used.
+- The install progress notification's doc comment claimed it was cancellable while `withProgress` was configured `cancellable: false` (review feedback, PR #147). The behaviour is correct and the comment was wrong: a cancel button could only abandon the notification, not the package-manager transaction, and killing one mid-write is how a half-installed runtime happens.
+
+## [0.179.0] - 2026-07-28
+
+### Fixed
+- **Setup guides did not run at all from the AtlasMind chat panel, and failed silently.** Slash commands are dispatched only by the VS Code chat participant; the panel has no such handling, so `/acp` was sent to the orchestrator as an ordinary prompt. On a machine with no provider configured, routing falls through to the built-in echo model, which answered *"Answered from context."* — so the guide appeared to run and produced nothing. v0.177.0 made this worse by auto-submitting, turning a prompt left in the composer into a confident non-answer.
+
+  Setup plans are **derived from observed configuration, never model-generated**, so no model was ever needed to produce one. `atlasmind.openSetupGuide` now renders the plan itself and posts it as an assistant message. The guide therefore works on a fresh install with **nothing configured at all** — the state in which it is the only thing that can help.
+
+### Added
+- **`src/providers/acpInstaller.ts` — AtlasMind can install the ACP adapter for you, after showing exactly what it will run.** "Install it with `npm install -g …`" is not advice if you have no npm, which someone arriving via "use the Claude subscription I already pay for" has no reason to have. The planner detects the missing runtime *and* the missing adapter and plans the whole chain; the modal lists every command with its purpose before anything runs, and **Install it for me** executes them in order with visible progress.
+- **`renderSetupGuideMarkdown`** — the whole guide at once, every step with its state, for surfaces that cannot run a step-at-a-time walkthrough.
+
+### Security
+- **Every install command is a constant in AtlasMind's source.** Nothing is parsed from a documentation page, generated by a model, or assembled from a settings string — a command derived from fetched text and then executed is remote code execution with extra steps, and `buzzDocsSource.ts` already holds that line for fetched commands.
+- **No shell, ever.** Steps run as `execFile(command, args)`, never a script and never through `sh -c`, so there is nothing to escape. A test asserts no planned step names a shell or downloader, and that no argument carries shell metacharacters.
+- **Rust's `curl … | sh` installer is deliberately absent.** Where a distribution packages cargo, that package is used; where none does, the plan reports `manual` and shows rustup's own instructions to follow by hand. Piping a download into a shell on the user's behalf is worse than the dead end it would replace.
+- **Planning performs nothing** — `planAcpAgentInstall` only inspects and returns; execution is a separate call made after confirmation, mirroring `checkStarterRuntime` / `runRuntimeInstallPlan`.
+- **Success is verified, not assumed.** A package manager can exit 0 having put the binary where this process's PATH will not find it; the runner re-probes and says so rather than reporting an install that does not work.
+- An agent AtlasMind has no recipe for — a user-named command — is never given a guessed install. Only its own publisher documents it.
+
 ## [0.178.1] - 2026-07-28
 
 ### Fixed

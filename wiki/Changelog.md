@@ -6,6 +6,27 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.180.0 — the installer declines what it cannot actually do
+
+- **On Linux it would have failed for almost everyone.** Elevation uses `sudo -n` — fail rather than prompt — because an extension host has no terminal to ask for a password in. That works for root and passwordless sudo and fails instantly for everyone else.
+- A step needing rights AtlasMind cannot obtain is now **marked and not offered**: you get both commands to run in a terminal, and the reason says why. `brew` and `winget` are exempt — Homebrew needs no elevation, and Windows asks through a UAC dialog you can answer.
+
+## v0.179.2 — the installer really does run on Windows now
+
+- **`spawn C:\Program Files\nodejs\npm ENOENT`** — the same failure one layer deeper. Node ships three files called npm (`npm`, `npm.cmd`, `npm.ps1`) and PATH resolution tries the empty suffix first, returning the **extensionless Unix shell script** Windows cannot execute. Testing for `.cmd` never matched it.
+- The rule is now stated positively: on Windows only a real `.exe`/`.com` is spawned directly; anything else is a shim to bypass. **Verified by running the exact argv on a real machine** rather than reasoning about it.
+
+## v0.179.1 — the installer actually runs on Windows
+
+- **`spawn npm ENOENT`.** The step passed the bare name `npm`, and `execFile` does not apply PATHEXT, so it missed `npm.cmd`. Resolving alone was not enough either — Node refuses to spawn `.cmd` without a shell (CVE-2024-27980), and a shell is not on the table. npm's shim is now bypassed in favour of the `npm-cli.js` it wraps, run with the `node.exe` beside it. Verified against a real `npm.cmd`.
+- **The shown command is now derived from the argv** rather than written beside it: the hand-written version hid `--accept-package-agreements` and printed `sudo` where none was used. It is the consent list, so it cannot be a summary.
+
+## v0.179.0 — AtlasMind can do the install, and the guide works with nothing configured
+
+- **Setup guides did nothing in the AtlasMind chat panel.** Slash commands are dispatched only by the VS Code chat participant, so `/acp` went to the orchestrator as an ordinary prompt — and on a machine with no provider configured, to the built-in echo model, which replied "Answered from context." Setup plans are derived, not generated, so the guide now renders directly with **no model involved** and works on a fresh install with nothing set up.
+- **AtlasMind can install the ACP adapter for you** — including the runtime you may not have. The modal lists every command with its purpose before anything runs.
+- **The safety line:** every command is a constant in AtlasMind's source (never scraped, never model-generated), nothing goes through a shell, planning performs nothing, and Rust's `curl … | sh` installer is deliberately not used — where no distribution packages cargo, the plan says so and shows the manual instructions instead.
+
 ## v0.178.1 — the ACP card's buttons say and do what they mean
 
 - **Choosing an agent looked like it only opened a website.** Not-installed is the expected first answer — AtlasMind never installs an agent — but it was reported as a dismissable toast whose one button opened a docs index. Both ACP entry points now share a modal handler that leads with the install command and offers the `/acp` walkthrough.

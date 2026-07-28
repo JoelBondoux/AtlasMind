@@ -383,32 +383,66 @@ export function registerCommands(
     }),
 
     /**
-     * Open a setup walkthrough — always in a **fresh chat session**.
+     * Open a setup walkthrough, **rendered without a model**.
      *
-     * Every guide launches through here rather than each caller assembling its
-     * own `openChatPanel` target, because the two ways of getting it wrong are
-     * invisible until someone tries it: omitting `autoSubmit` leaves the command
-     * sitting unsent in the composer, and any mode other than `new-session`
-     * drops a setup walkthrough into whatever conversation happened to be open,
-     * where it inherits unrelated context and reads as a non-sequitur.
+     * The obvious implementation — open chat with `/acp` and submit it — does
+     * not work, and fails silently. Slash commands are dispatched only by the
+     * VS Code chat participant; the AtlasMind chat panel has no such handling,
+     * so the text went to the orchestrator as an ordinary prompt. On a machine
+     * with no provider configured, routing lands on the built-in echo model,
+     * which answered "Answered from context." — teaching the user that setup
+     * guides are broken, at the exact moment they most need one.
      *
-     * Accepts a guide id (`acp`, `buzz`) or a slash command; anything
-     * unrecognised falls back to `/setup`, the index of all guides, which is a
-     * useful place to land rather than a dead end.
+     * Setup plans are **derived from observed configuration, never generated**,
+     * so no model is needed to produce one. Rendering the plan directly and
+     * posting it as an assistant message makes the guide work on a fresh
+     * install with nothing configured at all, which is the only state in which
+     * it is genuinely load-bearing.
      */
     vscode.commands.registerCommand('atlasmind.openSetupGuide', async (guide?: string) => {
       const atlas = requireAtlas();
       if (!atlas) { return; }
-      const { findSetupGuide } = await import('./core/setupGuideRegistry.js');
-      const raw = (guide ?? '').trim();
-      const command = raw.startsWith('/')
-        ? raw
-        : findSetupGuide(raw)?.command ?? '/setup';
-      await vscode.commands.executeCommand('atlasmind.openChatPanel', {
-        draftPrompt: command,
-        autoSubmit: true,
-        sendMode: 'new-session',
-      });
+
+      const [{ findSetupGuide, SETUP_GUIDES }, walkthrough, participant, { postSidebarSummaryToChat }] = await Promise.all([
+        import('./core/setupGuideRegistry.js'),
+        import('./core/setupWalkthrough.js'),
+        import('./chat/participant.js'),
+        import('./views/treeViews.js'),
+      ]);
+
+      const raw = (guide ?? '').trim().replace(/^\//, '').toLowerCase();
+      const summary = findSetupGuide(raw);
+
+      // No guide named, or one we do not have: show the index rather than
+      // nothing. Someone who reached here wants to set *something* up.
+      if (!summary) {
+        const entries = await Promise.all(SETUP_GUIDES.map(async candidate => {
+          const steps = await collectSetupSteps(candidate.id, atlas, participant).catch(() => []);
+          const progress = walkthrough.summarizeSetupProgress(steps, candidate.stepIds);
+          const next = walkthrough.nextSetupStep(steps, candidate.stepIds);
+          return { guide: candidate, progress, ...(next ? { nextTitle: next.title } : {}) };
+        }));
+        await postSidebarSummaryToChat(atlas, 'Setup guides', walkthrough.renderSetupIndexMarkdown(entries));
+        return;
+      }
+
+      const steps = await collectSetupSteps(summary.id, atlas, participant).catch(() => []);
+      if (steps.length === 0) {
+        await postSidebarSummaryToChat(
+          atlas,
+          `${summary.label} setup`,
+          `AtlasMind could not read enough of this workspace's configuration to work out where you are with ${summary.label} setup. `
+          + 'That is usually a permissions problem on the workspace folder rather than anything to do with the feature itself.',
+        );
+        return;
+      }
+
+      const progress = walkthrough.summarizeSetupProgress(steps, summary.stepIds);
+      await postSidebarSummaryToChat(
+        atlas,
+        `${summary.label} setup`,
+        walkthrough.renderSetupGuideMarkdown(summary, steps, progress),
+      );
     }),
 
     /**
@@ -1360,6 +1394,27 @@ export function registerCommands(
  * require the `model-` context value — the same namespace the `when` clauses in
  * `package.json` use to decide these commands are offered at all.
  */
+/**
+ * The derived state for one guide.
+ *
+ * Reuses the participant's collectors rather than re-deriving: two readings of
+ * "is ACP set up" that could disagree is exactly the drift the shared
+ * walkthrough module exists to prevent.
+ */
+async function collectSetupSteps(
+  guideId: string,
+  atlas: AtlasMindContext,
+  participant: typeof import('./chat/participant.js'),
+): Promise<import('./core/setupWalkthrough.js').SetupStep[]> {
+  if (guideId === 'acp') {
+    return participant.collectAcpSetupSteps(atlas);
+  }
+  if (guideId === 'buzz') {
+    return participant.collectBuzzSetupSteps(atlas);
+  }
+  return [];
+}
+
 function isModelContextValue(item: unknown): boolean {
   const contextValue = (item as { contextValue?: unknown } | null)?.contextValue;
   return typeof contextValue === 'string' && contextValue.startsWith('model-');

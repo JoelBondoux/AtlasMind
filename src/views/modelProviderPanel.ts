@@ -1235,24 +1235,52 @@ export async function useSubscriptionForProvider(atlas: AtlasMindContext, provid
  * exact command to run, and it offers the walkthrough that checks each step.
  */
 async function reportAcpAgentNotInstalled(command: string, agentId: string): Promise<void> {
-  const { findAcpBridgeByAgent } = await import('../providers/acp.js');
+  const [{ findAcpBridgeByAgent }, { planAcpAgentInstall }, { findCommandExecutable }] = await Promise.all([
+    import('../providers/acp.js'),
+    import('../providers/acpInstaller.js'),
+    import('../mcp/mcpClient.js'),
+  ]);
   const install = findAcpBridgeByAgent(agentId)?.install;
+  const plan = planAcpAgentInstall(agentId, { platform: process.platform, findExecutable: findCommandExecutable });
 
-  const actions = install
-    ? ['Copy the install command', 'Open the setup guide']
-    : ['Open the setup guide', 'Open the ACP agent list'];
+  // Every command is listed before anything runs. That list *is* the consent:
+  // "Install it for me" is only honest if the user has already read what "it"
+  // expands to, including a runtime install they did not ask for by name.
+  const stepList = plan.status === 'plannable'
+    ? plan.steps.map((step, index) => `  ${index + 1}. ${step.humanCommand}\n     ${step.purpose}`).join('\n')
+    : '';
+
+  const actions = plan.status === 'plannable'
+    ? ['Install it for me', 'Copy the commands', 'Open the setup guide']
+    : install
+      ? ['Copy the install command', 'Open the setup guide']
+      : ['Open the setup guide', 'Open the ACP agent list'];
+
+  const detail = plan.status === 'plannable'
+    ? `AtlasMind can run this for you:\n\n${stepList}\n\n`
+      + (plan.steps.length > 1
+        ? 'The first step installs a runtime the adapter needs, which you may not have yet. '
+        : '')
+      + 'Nothing runs until you choose. Each command is fixed in AtlasMind\'s source — none of it is generated or taken from a web page.'
+    : plan.status === 'manual'
+      ? `${plan.reason}\n\n${plan.humanCommand ? `Once its prerequisites are in place:\n\n${plan.humanCommand}` : ''}`
+      : `Install it with:\n\n${install ?? command}`;
 
   const choice = await vscode.window.showWarningMessage(
     `AtlasMind saved \`${command}\` as your ACP agent, but the command is not on your PATH yet — so nothing will route to it until you install it.`,
-    {
-      modal: true,
-      detail: install
-        ? `Install it with:\n\n${install}\n\nThen open this again and AtlasMind will check it. The setup guide walks through installing, signing in, and proving a reply comes back.`
-        : `AtlasMind never installs an agent for you. Install ${command} however its publisher documents, then open this again.`,
-    },
+    { modal: true, detail },
     ...actions,
   );
 
+  if (choice === 'Install it for me' && plan.status === 'plannable') {
+    await runAcpInstall(plan);
+    return;
+  }
+  if (choice === 'Copy the commands' && plan.status === 'plannable') {
+    await vscode.env.clipboard.writeText(plan.steps.map(step => step.humanCommand).join('\n'));
+    void vscode.window.showInformationMessage('Install commands copied — run them in a terminal, then open this again.');
+    return;
+  }
   if (choice === 'Copy the install command' && install) {
     await vscode.env.clipboard.writeText(install);
     void vscode.window.showInformationMessage(`Copied: ${install}`);
@@ -1265,6 +1293,44 @@ async function reportAcpAgentNotInstalled(command: string, agentId: string): Pro
   if (choice === 'Open the ACP agent list') {
     await vscode.env.openExternal(vscode.Uri.parse(ACP_SETUP_URL));
   }
+}
+
+/**
+ * Execute a confirmed install plan with visible progress.
+ *
+ * Each step is reported as it starts, because these are package-manager
+ * commands that can take minutes and can prompt for elevation — a silent
+ * spinner would leave the user unable to tell "working" from "hung".
+ *
+ * Deliberately **not** cancellable. A cancel button here could only abandon the
+ * notification, not the package manager: `winget` and `apt-get` own their own
+ * transactions, and killing one mid-write is how a half-installed runtime
+ * happens. Offering a control that cannot do what it appears to do would be
+ * worse than the wait it seems to shorten.
+ */
+async function runAcpInstall(plan: Extract<import('../providers/acpInstaller.js').AcpInstallPlan, { status: 'plannable' }>): Promise<void> {
+  const [{ runAcpInstallPlan }, { findCommandExecutable }] = await Promise.all([
+    import('../providers/acpInstaller.js'),
+    import('../mcp/mcpClient.js'),
+  ]);
+
+  const outcome = await vscode.window.withProgress(
+    { location: vscode.ProgressLocation.Notification, title: `Installing ${plan.displayName}`, cancellable: false },
+    async progress => runAcpInstallPlan(
+      plan,
+      { platform: process.platform, findExecutable: findCommandExecutable },
+      message => progress.report({ message }),
+    ),
+  );
+
+  if (!outcome.ok) {
+    void vscode.window.showWarningMessage(
+      `AtlasMind could not finish installing ${plan.displayName}.`,
+      { modal: true, detail: `${outcome.message}\n\n${outcome.completed.length > 0 ? `Completed before this: ${outcome.completed.join(', ')}` : 'Nothing was installed.'}` },
+    );
+    return;
+  }
+  void vscode.window.showInformationMessage(`${outcome.message} Open "Choose Agent" again and AtlasMind will check it is signed in.`);
 }
 
 /**
