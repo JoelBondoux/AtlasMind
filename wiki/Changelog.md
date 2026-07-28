@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.179.0 — AtlasMind can do the install, and the guide works with nothing configured
+
+- **Setup guides did nothing in the AtlasMind chat panel.** Slash commands are dispatched only by the VS Code chat participant, so `/acp` went to the orchestrator as an ordinary prompt — and on a machine with no provider configured, to the built-in echo model, which replied "Answered from context." Setup plans are derived, not generated, so the guide now renders directly with **no model involved** and works on a fresh install with nothing set up.
+- **AtlasMind can install the ACP adapter for you** — including the runtime you may not have. The modal lists every command with its purpose before anything runs.
+- **The safety line:** every command is a constant in AtlasMind's source (never scraped, never model-generated), nothing goes through a shell, planning performs nothing, and Rust's `curl … | sh` installer is deliberately not used — where no distribution packages cargo, the plan says so and shows the manual instructions instead.
+
 ## v0.178.1 — the ACP card's buttons say and do what they mean
 
 - **Choosing an agent looked like it only opened a website.** Not-installed is the expected first answer — AtlasMind never installs an agent — but it was reported as a dismissable toast whose one button opened a docs index. Both ACP entry points now share a modal handler that leads with the install command and offers the `/acp` walkthrough.
