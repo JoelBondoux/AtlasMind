@@ -12,6 +12,9 @@ import { PresenceManager } from './core/presenceManager.js';
 import { BUZZ_AGENT_KEY_SECRET } from './core/buzzSigner.js';
 import { BuzzInboundService } from './core/buzzInboundService.js';
 import { BUZZ_SETUP_COMMANDS } from './core/buzzSetupPlan.js';
+
+/** The walkthrough lives in its own thread rather than interrupting another. */
+const BUZZ_GUIDE_SESSION_TITLE = 'Buzz setup';
 import type { ProjectMemoryFreshnessStatus } from './bootstrap/bootstrapper.js';
 import type { SessionConversation, SessionPolicySnapshot } from './chat/sessionConversation.js';
 import type { VoiceManager } from './voice/voiceManager.js';
@@ -2804,7 +2807,7 @@ async function bootstrapAtlasMind(
     vscode.commands.registerCommand('atlasmind.buzz.openGuide', async () => {
       const atlas = atlasContext;
       if (!atlas) { return; }
-      const [{ buildBuzzSetupPlan, buzzStepPosition, isBuzzInboundReady, nextBuzzSetupStep, renderBuzzStepMarkdown },
+      const [{ buildBuzzSetupPlan, buzzStepChoices, buzzStepPosition, isBuzzInboundReady, nextBuzzSetupStep, renderBuzzStepMarkdown },
         { hasLauncherOnPath }, { BUZZ_AGENT_KEY_SECRET }] = await Promise.all([
         import('./core/buzzSetupPlan.js'),
         import('./mcp/mcpEnvironmentScanner.js'),
@@ -2839,8 +2842,28 @@ async function bootstrapAtlasMind(
         ? '### Buzz setup — done\n\nReading Buzz is fully set up. The optional extras — recording follow-ups, the CLI, the MCP bridge, the desktop app — are choices rather than gaps.'
         : renderBuzzStepMarkdown(next, buzzStepPosition(steps, next.id));
 
-      atlas.sessionConversation.appendMessage('assistant', body);
-      await vscode.commands.executeCommand('atlasmind.openChatPanel');
+      // Its own session. Appending to whatever thread happened to be open put a
+      // setup walkthrough in the middle of unrelated work and left the thread
+      // titled after something else entirely.
+      const existing = atlas.sessionConversation.listSessions()
+        .find(session => session.title === BUZZ_GUIDE_SESSION_TITLE);
+      const sessionId = existing?.id ?? atlas.sessionConversation.createSession(BUZZ_GUIDE_SESSION_TITLE);
+      atlas.sessionConversation.selectSession(sessionId);
+      atlas.sessionConversation.appendMessage('assistant', body, sessionId);
+      await vscode.commands.executeCommand('atlasmind.openChatPanel', { sessionId });
+
+      // The one question the guide cannot answer for itself, asked as chips.
+      const { ChatPanel } = await import('./views/chatPanel.js');
+      const relayMode = cfg.get<'local' | 'hosted' | 'undecided'>('buzz.relayMode', 'undecided');
+      const choices = next ? buzzStepChoices(next, relayMode) : [];
+      await ChatPanel.currentPanel?.setGuideChoice(choices.length > 0
+        ? {
+          id: 'buzz-relay-mode',
+          title: 'How do you want to run Buzz?',
+          detail: 'The two paths need different things, so I will show only the one that applies.',
+          options: choices,
+        }
+        : undefined);
     }),
 
     vscode.commands.registerCommand('atlasmind.buzz.prepareCommand', async (command?: string) => {

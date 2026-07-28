@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   BUZZ_SETUP_COMMANDS,
   buildBuzzSetupPlan,
+  buzzStepChoices,
   buzzStepPosition,
   renderBuzzStepMarkdown,
   isBuzzInboundReady,
@@ -182,7 +183,8 @@ describe('nextBuzzSetupStep scoping', () => {
   });
 
   it('nominates a required blocked step when one exists', () => {
-    const plan = buildBuzzSetupPlan({ ...FRESH, enabled: true, hasAgentKey: false });
+    // relayMode 'local' settles step 2, so the key is the next required gap.
+    const plan = buildBuzzSetupPlan({ ...FRESH, enabled: true, hasAgentKey: false, relayMode: 'local' });
     expect(nextBuzzSetupStep(plan)?.id).toBe('agentKey');
   });
 });
@@ -269,7 +271,7 @@ describe('the guide is thorough about what lives outside AtlasMind', () => {
   it('numbers steps against the required sequence only', () => {
     // Counting optional steps would make the finish line move as you progress.
     const steps = buildBuzzSetupPlan(FRESH);
-    expect(buzzStepPosition(steps, 'enabled')).toEqual({ index: 1, total: 4 });
+    expect(buzzStepPosition(steps, 'enabled')).toMatchObject({ index: 1, total: 4 });
     expect(buzzStepPosition(steps, 'inbound').total).toBe(4);
   });
 
@@ -322,5 +324,57 @@ describe('the guide is thorough about what lives outside AtlasMind', () => {
   it('tells you the CLI is skippable if you only want to read', () => {
     const guidance = (buildBuzzSetupPlan(READY).find(s => s.id === 'cli')?.guidance ?? []).map(l => l.text).join(' ');
     expect(guidance).toMatch(/skip this entirely/i);
+  });
+});
+
+describe('landing mid-sequence', () => {
+  it('does not skip the relay step just because a URL string looks valid', () => {
+    // Reported: the guide opened on step 3. Steps 1 and 2 read as done because
+    // Buzz was enabled and the default ws://localhost:3000 parses — but nothing
+    // had ever connected, so whether a relay existed was unknown, and the guide
+    // walked straight past the question.
+    const plan = buildBuzzSetupPlan({ ...FRESH, enabled: true, hasAgentKey: true, relayMode: 'undecided' });
+    expect(nextBuzzSetupStep(plan)?.id).toBe('relay');
+  });
+
+  it('accepts the relay once the user has said which way they run it', () => {
+    const local = buildBuzzSetupPlan({ ...FRESH, enabled: true, hasAgentKey: true, relayMode: 'local' });
+    expect(local.find(s => s.id === 'relay')?.status).toBe('done');
+  });
+
+  it('accepts the relay once a connection has actually succeeded', () => {
+    // A live subscription is proof, whatever the user did or did not say.
+    const proven = buildBuzzSetupPlan({ ...FRESH, enabled: true, hasAgentKey: true, inboundStatus: 'live' });
+    expect(proven.find(s => s.id === 'relay')?.status).toBe('done');
+  });
+
+  it('shows what is already done, so landing on step 3 is not disorienting', () => {
+    const plan = buildBuzzSetupPlan({ ...FRESH, enabled: true, relayMode: 'local' });
+    const position = buzzStepPosition(plan, 'agentKey');
+    expect(position.index).toBe(3);
+    expect(position.trail).toContain('✅ 1.');
+    expect(position.trail).toContain('▶ 3.');
+    expect(renderBuzzStepMarkdown(plan.find(s => s.id === 'agentKey')!, position)).toContain('▶ 3.');
+  });
+});
+
+describe('buzzStepChoices', () => {
+  it('asks the one question the guide cannot answer for itself', () => {
+    const plan = buildBuzzSetupPlan({ ...FRESH, enabled: true, relayMode: 'undecided' });
+    const relay = plan.find(s => s.id === 'relay')!;
+    expect(buzzStepChoices(relay, 'undecided').map(c => c.id)).toEqual(['local', 'hosted']);
+  });
+
+  it('stops asking once answered', () => {
+    const plan = buildBuzzSetupPlan({ ...FRESH, enabled: true, relayMode: 'local' });
+    expect(buzzStepChoices(plan.find(s => s.id === 'relay')!, 'local')).toEqual([]);
+  });
+
+  it('offers no chips on steps that are just instructions', () => {
+    // A chip that only means "I have read this" is a button for its own sake.
+    const plan = buildBuzzSetupPlan({ ...FRESH, relayMode: 'undecided' });
+    for (const step of plan.filter(s => s.id !== 'relay')) {
+      expect(buzzStepChoices(step, 'undecided'), step.id).toEqual([]);
+    }
   });
 });

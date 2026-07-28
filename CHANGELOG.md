@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.159.1] - 2026-07-28
+
+### Fixed
+- **The setup guide opened in whatever thread happened to be in front of you.** It now gets its own **Buzz setup** session, so a walkthrough no longer lands in the middle of unrelated work under a title about something else.
+- **The guide skipped straight to step 3.** Steps 1 and 2 read as finished because Buzz was enabled and the default `ws://localhost:3000` parses — but nothing had ever connected, so whether a relay existed was unknown and the guide walked past the question entirely. Until you say how you run Buzz (or a subscription actually connects), the relay step is unfinished and the guide stops there to ask.
+- **The walkthrough now has real chips in AtlasMind's own panel.** "How do you want to run Buzz?" is answered by clicking **I will run Buzz on this machine** or **I have a relay URL from someone else**, and the guide reprints with only that path.
+
+### Changed
+- **Each step shows the whole sequence with its position marked**, so arriving at step 3 says why rather than looking like the guide lost its place.
+- **Chips appear only where there is a genuine question.** The relay path is the one thing AtlasMind cannot work out for itself; everywhere else a chip would be a button meaning "I have read this".
+
 ## [0.159.0] - 2026-07-28
 
 ### Added

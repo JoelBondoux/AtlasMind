@@ -233,7 +233,14 @@ export function buildBuzzSetupPlan(state: BuzzSetupState): BuzzSetupStep[] {
             { text: '**Local** — you run it on this machine. Needs Docker and a few terminal commands, and keeps everything on your machine. This is the default.' },
             { text: 'Use the buttons below to choose.' },
           ];
-  const relayStatus: BuzzSetupStatus = !relayUrl || insecure || (remote && !state.allowRemoteRelay) ? 'todo' : 'done';
+  // A valid URL is not a relay, and until a connection succeeds AtlasMind has
+  // no way to tell. So while the user has not said how they run Buzz, this step
+  // is unfinished and the guide stops here to ask — rather than skipping past
+  // "do you actually have a relay?" because a default string looked plausible.
+  const relayStatus: BuzzSetupStatus =
+    !relayUrl || insecure || (remote && !state.allowRemoteRelay) ? 'todo'
+      : relayMode === 'undecided' && !CONNECTED_STATUSES.includes(state.inboundStatus ?? '') ? 'todo'
+        : 'done';
   // A valid URL is not a relay. The default points at localhost, which reads as
   // "already working" while nothing may be listening — and AtlasMind cannot
   // know which until a connection succeeds. So the how-to stays visible until
@@ -405,13 +412,18 @@ export function isBuzzInboundReady(steps: BuzzSetupStep[]): boolean {
  */
 export function renderBuzzStepMarkdown(
   step: BuzzSetupStep,
-  position: { index: number; total: number },
+  position: { index: number; total: number; trail?: string },
 ): string {
   const lines = [
     `### Buzz setup — step ${position.index} of ${position.total}: ${step.title}`,
     '',
     step.detail,
   ];
+  if (position.trail) {
+    // Landing on step 3 with no sign of steps 1 and 2 reads as though the guide
+    // lost its place. Showing what is already done says why you are here.
+    lines.push('', position.trail);
+  }
 
   if (step.guidance?.length) {
     lines.push('');
@@ -436,8 +448,42 @@ export function renderBuzzStepMarkdown(
  * Position of a step within the required sequence, for "step 2 of 4".
  * Optional steps are excluded — counting them would make the finish line move.
  */
-export function buzzStepPosition(steps: BuzzSetupStep[], stepId: string): { index: number; total: number } {
+export function buzzStepPosition(
+  steps: BuzzSetupStep[],
+  stepId: string,
+): { index: number; total: number; trail?: string } {
   const required = steps.filter(step => (REQUIRED_BUZZ_STEP_IDS as readonly string[]).includes(step.id));
   const at = required.findIndex(step => step.id === stepId);
-  return { index: at >= 0 ? at + 1 : required.length + 1, total: required.length };
+  const index = at >= 0 ? at + 1 : required.length + 1;
+  const trail = required
+    .map((step, position) => {
+      const mark = step.id === stepId ? '▶' : step.status === 'done' ? '✅' : '⬜';
+      return `${mark} ${position + 1}. ${step.title}`;
+    })
+    .join('  ·  ');
+  return { index, total: required.length, ...(trail ? { trail } : {}) };
+}
+
+/** A chip the walkthrough offers, so a question can be answered by clicking. */
+export interface BuzzGuideChoice {
+  id: string;
+  label: string;
+}
+
+/**
+ * The choices for a step, or none when the step is purely instructional.
+ *
+ * Only the relay step asks a genuine question — which way you run Buzz — and it
+ * is the one place the guide cannot work the answer out for itself. Everything
+ * else is "do this, then come back", where a chip would be a button that only
+ * means "I have read this".
+ */
+export function buzzStepChoices(step: BuzzSetupStep, relayMode: BuzzRelayMode): BuzzGuideChoice[] {
+  if (step.id !== 'relay' || relayMode !== 'undecided') {
+    return [];
+  }
+  return [
+    { id: 'local', label: 'I will run Buzz on this machine' },
+    { id: 'hosted', label: 'I have a relay URL from someone else' },
+  ];
 }

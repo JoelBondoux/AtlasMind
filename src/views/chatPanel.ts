@@ -194,6 +194,14 @@ interface ChatPanelState {
   pendingToolApprovals: PendingToolApprovalRequest[];
   /** An in-chat decision a running Mission Loop is waiting on (checkpoint / block recovery). */
   pendingLoopDecision?: LoopDecisionRequest;
+  /**
+   * A question the Buzz setup walkthrough is asking, rendered as chips.
+   *
+   * Separate from `pendingLoopDecision` on purpose: a mission decision gates a
+   * run, and reusing its slot would let a setup question and a blocked run
+   * overwrite each other.
+   */
+  pendingGuideChoice?: { id: string; title: string; detail?: string; options: Array<{ id: string; label: string }> };
   attachments: Array<{ id: string; label: string; kind: string; source: string; previewUri?: string }>;
   openFiles: ChatPanelOpenFileLink[];
   projectRuns: Array<{
@@ -325,6 +333,7 @@ export class ChatPanel {
   private recoveryNotice: ChatPanelRecoveryNotice | undefined;
   /** In-chat Mission Loop decision the panel is currently awaiting (checkpoint / block recovery). */
   private pendingLoopDecision: LoopDecisionRequest | undefined;
+  private pendingGuideChoice: ChatPanelState['pendingGuideChoice'];
   private pendingLoopDecisionResolve: ((choice: string) => void) | undefined;
   /** Cached project display name: the connected Git repo name when available, else the workspace folder name. */
   private cachedProjectName: string | undefined;
@@ -542,6 +551,18 @@ export class ChatPanel {
         await this.runPrompt(message.payload.prompt, message.payload.mode);
         return;
       case 'resolveLoopDecision':
+        if (message.payload?.id === 'buzz-relay-mode') {
+          // Answering the walkthrough's question is a preference, not a gate:
+          // it changes which half of the relay instructions is shown and
+          // connects nothing.
+          const choice = message.payload.choice === 'hosted' ? 'hosted' : 'local';
+          this.pendingGuideChoice = undefined;
+          await vscode.workspace.getConfiguration('atlasmind')
+            .update('buzz.relayMode', choice, vscode.ConfigurationTarget.Workspace)
+            .then(undefined, () => undefined);
+          await vscode.commands.executeCommand('atlasmind.buzz.openGuide');
+          return;
+        }
         if (this.pendingLoopDecision && this.pendingLoopDecision.id === message.payload.id) {
           this.settleLoopDecision(message.payload.choice);
           await this.syncState();
@@ -1894,6 +1915,12 @@ export class ChatPanel {
     });
   }
 
+  /** Ask the walkthrough's question as chips in this panel. */
+  public async setGuideChoice(choice: ChatPanelState['pendingGuideChoice']): Promise<void> {
+    this.pendingGuideChoice = choice;
+    await this.syncState();
+  }
+
   private settleLoopDecision(choice: string): void {
     const resolve = this.pendingLoopDecisionResolve;
     this.pendingLoopDecision = undefined;
@@ -2008,6 +2035,7 @@ export class ChatPanel {
       transcript: transcriptPayload,
       pendingToolApprovals: this.atlas.toolApprovalManager?.listPendingRequests?.() ?? [],
       ...(this.pendingLoopDecision ? { pendingLoopDecision: this.pendingLoopDecision } : {}),
+      ...(this.pendingGuideChoice ? { pendingGuideChoice: this.pendingGuideChoice } : {}),
       attachments: this.composerAttachments.map(item => toComposerAttachmentView(item, this.host.webview)),
       openFiles: getOpenWorkspaceFiles(),
       projectRuns: projectRuns.map(run => {
