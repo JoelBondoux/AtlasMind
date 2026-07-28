@@ -62,6 +62,20 @@ export interface AcpInstallStep {
    * "AtlasMind cannot do this" rather than as a mid-install crash.
    */
   resolveAtRunTime?: boolean;
+  /**
+   * This step needs administrator rights AtlasMind cannot obtain.
+   *
+   * `buildRuntimeInstallInvocation` elevates with `sudo -n` — non-interactive,
+   * meaning *fail rather than prompt*. That is the only correct choice from an
+   * extension host, which has no terminal to prompt in. The consequence is that
+   * on Linux the step works only for root or passwordless sudo, and fails
+   * immediately for everyone else.
+   *
+   * So it is marked rather than attempted. A button that predictably fails for
+   * most of a platform's users is worse than no button: the user learns the
+   * feature is broken instead of learning what to type.
+   */
+  requiresElevation?: boolean;
 }
 
 /**
@@ -175,7 +189,25 @@ export interface AcpInstallProbe {
    * back to a real filesystem check when the caller does not supply one.
    */
   fileExists?: (path: string) => boolean;
+  /**
+   * Whether this process already has the rights a system package manager needs.
+   * Defaults to a real `getuid()` check; supplied by tests.
+   */
+  isRoot?: boolean;
 }
+
+/**
+ * Package managers that write outside the user's own directories.
+ *
+ * `brew` is deliberately absent on both macOS and Linux: Homebrew installs into
+ * a prefix the user owns and refuses to run under sudo, so it is the one system
+ * package manager AtlasMind can drive without elevation. `winget` is absent too
+ * — Windows elevates through a UAC consent dialog, which is a prompt the user
+ * can actually answer, rather than a password read from a terminal that is not
+ * there.
+ */
+const ELEVATING_PACKAGE_MANAGERS: ReadonlySet<RecommendedRuntimePackageManager> =
+  new Set(['apt-get', 'dnf', 'pacman']);
 
 /**
  * Turn the recipe's command into something that can actually be spawned.
@@ -284,6 +316,18 @@ export function planAcpAgentInstall(agentId: string, probe: AcpInstallProbe): Ac
       args: [...recipe.install.args],
       resolveAtRunTime: true,
     });
+
+    // Elevation AtlasMind cannot obtain: report the commands rather than offer
+    // to run them. `sudo -n` fails instantly without a terminal to prompt in,
+    // so "Install it for me" would be a button that works only for root.
+    if (steps.some(step => step.requiresElevation)) {
+      return {
+        status: 'manual',
+        reason: `Installing ${recipe.prerequisite.displayName} needs administrator rights, and AtlasMind has no terminal to ask for your password in — so it will not pretend it can do this for you.`,
+        humanCommand: steps.map(step => step.humanCommand).join('\n'),
+      };
+    }
+
     return { status: 'plannable', agentId, agentCommand: recipe.agentCommand, displayName: recipe.displayName, steps };
   }
 
@@ -334,6 +378,8 @@ function planRuntimeStep(recipe: AcpAgentRecipe, probe: AcpInstallProbe): AcpIns
       option.packageId,
       option.extraPackages ?? [],
     );
+    const isRoot = probe.isRoot ?? (typeof process.getuid === 'function' && process.getuid() === 0);
+    const requiresElevation = ELEVATING_PACKAGE_MANAGERS.has(option.packageManager) && !isRoot;
     return {
       purpose: `Install ${option.displayName}, which ${recipe.displayName} needs`,
       // Rendered from the invocation actually built, so what is shown and what
@@ -342,6 +388,7 @@ function planRuntimeStep(recipe: AcpAgentRecipe, probe: AcpInstallProbe): AcpIns
       humanCommand: formatCommandLine(invocation.command, invocation.args),
       command: invocation.command,
       args: invocation.args,
+      ...(requiresElevation ? { requiresElevation: true } : {}),
     };
   }
   return undefined;

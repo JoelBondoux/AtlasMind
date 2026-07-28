@@ -37,12 +37,39 @@ describe('planAcpAgentInstall — planning performs nothing', () => {
     expect(plan.steps[1]!.humanCommand).toBe('npm install -g @zed-industries/claude-code-acp');
   });
 
-  it('plans cargo for codex, and the platform package manager when cargo is absent', () => {
+  it('plans cargo for codex when cargo is already present', () => {
     const withCargo = plannable(planAcpAgentInstall('codex', machine('linux', ['cargo'])));
     expect(withCargo.steps.map(step => step.humanCommand)).toEqual(['cargo install codex-acp']);
+  });
 
-    const withoutCargo = plannable(planAcpAgentInstall('codex', machine('linux', ['apt-get'])));
-    expect(withoutCargo.steps[0]!.humanCommand).toContain('apt-get install -y cargo');
+  it('REFUSES to offer a run that needs a password it cannot ask for', () => {
+    // `buildRuntimeInstallInvocation` elevates with `sudo -n` — fail rather
+    // than prompt — which is the only correct choice from an extension host
+    // with no terminal. So on Linux the step works for root and passwordless
+    // sudo and fails instantly for everyone else. Offering the button anyway
+    // would teach most Linux users the feature is broken.
+    const plan = planAcpAgentInstall('codex', { ...machine('linux', ['apt-get', 'sudo']), isRoot: false });
+    expect(plan.status).toBe('manual');
+    if (plan.status === 'manual') {
+      expect(plan.reason).toMatch(/administrator rights/i);
+      // Still tells them exactly what to run themselves.
+      expect(plan.humanCommand).toContain('apt-get install -y cargo');
+      expect(plan.humanCommand).toContain('cargo install codex-acp');
+    }
+  });
+
+  it('does plan it when already running as root', () => {
+    const plan = plannable(planAcpAgentInstall('codex', { ...machine('linux', ['apt-get']), isRoot: true }));
+    expect(plan.steps[0]!.humanCommand).toContain('apt-get install -y cargo');
+    expect(plan.steps[0]!.requiresElevation).toBeUndefined();
+  });
+
+  it('still plans brew, which needs no elevation on either platform', () => {
+    // Homebrew installs into a prefix the user owns and refuses to run under
+    // sudo, so it is the one system package manager AtlasMind can drive.
+    const plan = plannable(planAcpAgentInstall('claude', { ...machine('darwin', ['brew']), isRoot: false }));
+    expect(plan.steps[0]!.humanCommand).toContain('brew install node');
+    expect(plan.steps[0]!.requiresElevation).toBeUndefined();
   });
 
   it('falls back to manual when no supported package manager exists', () => {
@@ -243,9 +270,12 @@ describe('humanCommand is the consent, so it cannot diverge from the argv', () =
   });
 
   it('shows sudo exactly when sudo is used, and not otherwise', () => {
-    const plan = plannable(planAcpAgentInstall('codex', machine('linux', ['apt-get'])));
+    // As root no elevation is added, so none may be displayed either — the
+    // previous hand-written string printed `sudo` unconditionally on Linux.
+    const plan = plannable(planAcpAgentInstall('codex', { ...machine('linux', ['apt-get']), isRoot: true }));
     const step = plan.steps[0]!;
     const usesSudo = step.command.endsWith('sudo') || step.args[0] === 'sudo';
     expect(step.humanCommand.startsWith('sudo ')).toBe(usesSudo);
+    expect(usesSudo).toBe(false);
   });
 });

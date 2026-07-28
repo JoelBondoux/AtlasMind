@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.180.0] - 2026-07-28
+
+### Fixed
+- **On Linux, "Install it for me" would have failed for almost everyone.** `buildRuntimeInstallInvocation` elevates with `sudo -n` — non-interactive, meaning *fail rather than prompt*. That is the only correct choice from an extension host, which has no terminal to prompt in, but the consequence is that the step succeeds only for root or passwordless sudo and fails instantly for every other user. Where sudo is absent entirely it falls back to running `apt-get install` unprivileged, which fails with "are you root?".
+
+  A step needing rights AtlasMind cannot obtain is now **marked and not offered**: the plan reports `manual` with both commands to run in a terminal, and the reason says plainly that AtlasMind has nowhere to ask for a password. A button that predictably fails for most of a platform's users is worse than no button — it teaches them the feature is broken rather than what to type.
+
+  `brew` is deliberately exempt on both macOS and Linux (it installs into a user-owned prefix and refuses to run under sudo), as is `winget` — Windows elevates through a UAC consent dialog, which is a prompt the user can actually answer.
+
+### Notes on platform coverage
+- Windows: verified end to end on a real machine (resolution *and* spawn).
+- macOS: Homebrew's `/opt/homebrew/bin` and `/usr/local/bin` are already in `findCommandExecutable`'s search path, so `brew` resolves even when VS Code is launched from Finder without a login shell's `PATH`. Not run end to end.
+- Linux: root and passwordless-sudo plan and run; everything else now correctly declines rather than failing. Not run end to end.
+
 ## [0.179.2] - 2026-07-28
 
 ### Fixed

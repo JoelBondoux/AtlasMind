@@ -6,6 +6,11 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.180.0 — the installer declines what it cannot actually do
+
+- **On Linux it would have failed for almost everyone.** Elevation uses `sudo -n` — fail rather than prompt — because an extension host has no terminal to ask for a password in. That works for root and passwordless sudo and fails instantly for everyone else.
+- A step needing rights AtlasMind cannot obtain is now **marked and not offered**: you get both commands to run in a terminal, and the reason says why. `brew` and `winget` are exempt — Homebrew needs no elevation, and Windows asks through a UAC dialog you can answer.
+
 ## v0.179.2 — the installer really does run on Windows now
 
 - **`spawn C:\Program Files\nodejs\npm ENOENT`** — the same failure one layer deeper. Node ships three files called npm (`npm`, `npm.cmd`, `npm.ps1`) and PATH resolution tries the empty suffix first, returning the **extensionless Unix shell script** Windows cannot execute. Testing for `.cmd` never matched it.

@@ -160,6 +160,8 @@ Four constraints make that safe, each pinned by test:
 - **Rust's `curl … | sh` installer is deliberately not used.** Where a distribution packages cargo, that package is used; where none does, the plan reports `manual` and shows rustup's own instructions for the user to follow. Piping a download into a shell on the user's behalf would be worse than the dead end it replaces.
 - **Success is re-probed, not inferred.** A package manager can exit 0 having placed the binary where this process's PATH will not find it until a reload; reporting "installed" to someone for whom nothing then works is the failure the feature exists to prevent.
 
+- **Elevation AtlasMind cannot obtain is declined, not attempted.** System package managers (`apt-get`, `dnf`, `pacman`) are elevated with `sudo -n` — non-interactive, *fail rather than prompt* — because an extension host has no terminal to read a password from. That succeeds for root and passwordless sudo and fails instantly otherwise, so such a step is reported as `manual` with the commands to run in a terminal rather than offered as a button. `brew` is exempt (user-owned prefix, refuses sudo) and so is `winget` (Windows elevates through a UAC dialog the user can answer).
+
 An agent AtlasMind has no recipe for — one the user named themselves — is never given a guessed install command.
 
 ## Delegated execution (ACP) is never delegated authorization
