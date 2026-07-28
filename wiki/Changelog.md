@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.175.0 — "use the subscription you already pay for"
+
+- **The ACP offer moved to where people look for it**: a plain-language button on the Anthropic and OpenAI cards, not a separate entry named after a protocol.
+- **Never heard of ACP? That is the point.** Not installed gets you the install command and the guide; signed out tells you which login; ready configures and enables it in one click.
+- **Google is absent on purpose** — Gemini implements ACP but publishes no launch command, so that button could not work.
+
 ## v0.174.0 — settings that mean what they say
 
 - **Three settings did nothing.** `atlasmind.remote.enabled` and the two Buzz autonomous-reply settings were declared, documented, and read by no code. Their descriptions now say so, and say what the real control is.

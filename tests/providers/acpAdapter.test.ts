@@ -5,6 +5,8 @@ import {
   parseAcpAgentSettings,
   resetAcpProbeCache,
   VERIFIED_ACP_AGENTS,
+  ACP_PROVIDER_BRIDGES,
+  findAcpBridge,
   type AcpAgentConfig,
   type AcpProcessFactory,
   type AcpProcessHandle,
@@ -376,5 +378,46 @@ describe('VERIFIED_ACP_AGENTS', () => {
     // Gemini CLI implements ACP but publishes no invocation, so guessing one
     // would produce a spawn failure the user cannot diagnose.
     expect(VERIFIED_ACP_AGENTS.some(agent => /gemini/i.test(agent.id))).toBe(false);
+  });
+});
+
+describe('ACP_PROVIDER_BRIDGES — the subscription offer on a pay-per-token card', () => {
+  it('offers Claude on the Anthropic card and ChatGPT on the OpenAI card', () => {
+    // "ACP" is a protocol name and nobody shops for a protocol; the offer has
+    // to appear where the user already is, in the words they already use.
+    expect(findAcpBridge('anthropic')).toMatchObject({
+      agentId: 'claude',
+      command: 'claude-agent-acp',
+      offerLabel: 'Use my Claude subscription',
+    });
+    expect(findAcpBridge('openai')).toMatchObject({
+      agentId: 'codex',
+      command: 'codex-acp',
+    });
+  });
+
+  it('offers nothing for a vendor whose launch command is unpublished', () => {
+    // Gemini CLI implements ACP but publishes no invocation, so a button on the
+    // Google card would be one that cannot work.
+    expect(findAcpBridge('google')).toBeUndefined();
+    expect(findAcpBridge('mistral')).toBeUndefined();
+    expect(findAcpBridge('local')).toBeUndefined();
+  });
+
+  it('names a command that is also a verified agent', () => {
+    // The offer and the verified list must not drift: every bridge has to point
+    // at an agent whose launch command was actually read from the ACP docs.
+    const verified = new Set(VERIFIED_ACP_AGENTS.map(agent => agent.command));
+    for (const bridge of ACP_PROVIDER_BRIDGES) {
+      expect(verified, `${bridge.providerId} → ${bridge.command}`).toContain(bridge.command);
+    }
+  });
+
+  it('phrases the offer in the user\'s terms, not the protocol\'s', () => {
+    for (const bridge of ACP_PROVIDER_BRIDGES) {
+      expect(bridge.offerLabel.toLowerCase()).not.toContain('acp');
+      expect(bridge.offerLabel.toLowerCase()).toContain('subscription');
+      expect(bridge.install.length).toBeGreaterThan(0);
+    }
   });
 });

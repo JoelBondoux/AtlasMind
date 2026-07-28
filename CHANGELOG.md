@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.175.0] - 2026-07-28
+
+### Added
+- **"Use my Claude subscription" on the Anthropic card, and "Use my ChatGPT subscription" on OpenAI.** ACP shipped as its own provider entry, which assumed the user knows what the Agent Client Protocol is — and someone who does not has no reason to click it and no way to discover that it applies to the subscription they already pay for. The offer now appears on the card of the pay-per-token provider it replaces, phrased in the user's terms rather than the protocol's (a test asserts the label never says "ACP").
+- **Clicking it is the whole discovery path.** Not installed — the expected first answer — explains what the adapter is, shows the install command, and offers the `/acp` walkthrough or a one-click copy, instead of reporting a failure at someone who was never told there was anything to install. Installed but signed out says which command to run, and that AtlasMind never handles that credential. Ready registers the agent and enables the provider in one click, because that is exactly what was asked for.
+- **`ACP_PROVIDER_BRIDGES`** maps vendor → agent, and a test asserts every bridge points at a command that is also in `VERIFIED_ACP_AGENTS`, so the offer and the verified list cannot drift. Google is deliberately absent: Gemini CLI implements ACP but publishes no launch command, so a button on that card would be one that cannot work.
+
 ## [0.174.0] - 2026-07-28
 
 ### Fixed

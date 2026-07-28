@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.174.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.175.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,10 +64,11 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.174.0
+## What's new in 0.175.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
 
+- **"Use my Claude subscription" — on the Anthropic card, where you would look for it.** ACP is a protocol name, and nobody goes shopping for a protocol: if you have never heard of it, you had no reason to click the ACP provider and no way to know it applied to you. The Anthropic and OpenAI cards now carry a plain-language button offering to route those models through the subscription you already pay for. If the adapter it needs is not installed, you get the install command and the step-by-step guide rather than an error; if it is installed but signed out, it says which; if it is ready, it is configured and enabled in one click. Google is deliberately absent — Gemini implements the protocol but publishes no launch command, so a button there could not work.
 - **Three settings that did nothing now say so.** A settings audit found that `atlasmind.remote.enabled` and the two Buzz autonomous-reply settings were declared, documented, and read by no code at all. The Buzz ones failed safe — every message still asked for confirmation — but `remote.enabled` was worse than useless: setting it to `false` gave the impression you had switched remote control off when the real gate is the command plus a workspace approval. Their descriptions now say plainly that they are not active and what the real control is, and a new guard fails the build if another setting is ever declared that nothing reads.
 - **ACP agents are now something you can click.** The ACP provider shipped with no surface: the only way to use it was hand-editing a JSON setting. It now appears in **Model Providers** like any other — **Configure** offers the agents whose launch command is published, or takes your own, then probes it and tells you whether it is installed and signed in rather than just saving and hoping. And **Allowed models** in the Agent editor is no longer a bare text box: the models your enabled providers actually offer are one click away, with subscription-backed ones marked, so a provider you configured is discoverable instead of something you had to know the id of.
 - **Your project memory is no longer at risk from opening it in an older AtlasMind.** Files in `project_memory/` carry a format version, but every reader treated an unfamiliar version as *no file at all* — so an older build would seed a fresh default and **write it over** your documents registry, delivery pipeline, risk register, or people roster, silently. AtlasMind now tells the difference between a file that is corrupt (safe to replace) and one written by a newer version (left exactly as it was, with the reason shown on the page). This is also the mechanism that lets a format change at all, which is what a 1.0 compatibility promise needs behind it.
