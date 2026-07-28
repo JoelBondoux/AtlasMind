@@ -3,6 +3,7 @@ import {
   MAX_AGENT_BINDINGS,
   parseAgentBindings,
   resolveBoundAgent,
+  writeAgentBinding,
 } from '../../src/core/buzzAgentBindings.ts';
 import { deriveWorkItemFromEvent } from '../../src/core/buzzInboundDerivation.ts';
 import { BUZZ_KIND, type NostrEvent } from '../../src/core/buzzProtocol.ts';
@@ -139,5 +140,92 @@ describe('agent bindings applied during derivation', () => {
   it('still stores no message body when a binding applies', () => {
     const result = deriveWorkItemFromEvent(event(NPUB_HEX), { now: NOW, agentBindings: bindings });
     expect(JSON.stringify(result)).not.toContain('"content"');
+  });
+});
+
+// The Director roster's "bind this person to that agent" control writes through
+// this helper, so a click and a hand-edited setting go through one set of rules.
+describe('writeAgentBinding', () => {
+  const OTHER_HEX = 'b'.repeat(64);
+
+  it('adds a binding to an empty setting, in the simple record form', () => {
+    const result = writeAgentBinding(undefined, { pubkey: NPUB, agentId: 'devops-engineer' });
+    expect(result.ok).toBe(true);
+    expect(result.value).toEqual({ [NPUB_HEX]: 'devops-engineer' });
+  });
+
+  it('replaces the agent for an identity that is already bound', () => {
+    const first = writeAgentBinding(undefined, { pubkey: NPUB, agentId: 'devops-engineer' });
+    const second = writeAgentBinding(first.value, { pubkey: NPUB, agentId: 'security-specialist' });
+    expect(second.value).toEqual({ [NPUB_HEX]: 'security-specialist' });
+  });
+
+  it('treats the npub and hex forms as the same identity rather than adding a second row', () => {
+    const first = writeAgentBinding(undefined, { pubkey: NPUB, agentId: 'a' });
+    const second = writeAgentBinding(first.value, { pubkey: NPUB_HEX, agentId: 'b' });
+    expect(Object.keys(second.value as Record<string, string>)).toEqual([NPUB_HEX]);
+  });
+
+  it('removes the binding when the agent id is empty — unbinding is not an error', () => {
+    const first = writeAgentBinding({ [OTHER_HEX]: 'keep-me' }, { pubkey: NPUB, agentId: 'drop-me' });
+    const second = writeAgentBinding(first.value, { pubkey: NPUB, agentId: '' });
+    expect(second.ok).toBe(true);
+    expect(second.value).toEqual({ [OTHER_HEX]: 'keep-me' });
+  });
+
+  it('leaves every other binding untouched', () => {
+    const result = writeAgentBinding({ [OTHER_HEX]: 'untouched' }, { pubkey: NPUB, agentId: 'new' });
+    expect(result.value).toEqual({ [OTHER_HEX]: 'untouched', [NPUB_HEX]: 'new' });
+  });
+
+  it('refuses a mistyped npub rather than binding work to a different identity', () => {
+    // One character changed: a valid-looking npub that fails its checksum.
+    const mistyped = `${NPUB.slice(0, -2)}zg`;
+    const result = writeAgentBinding(undefined, { pubkey: mistyped, agentId: 'devops-engineer' });
+    expect(result.ok).toBe(false);
+    expect(result.value).toBeUndefined();
+    expect(result.error).toMatch(/valid Buzz public key/i);
+  });
+
+  it('refuses a secret key by name', () => {
+    const result = writeAgentBinding(undefined, { pubkey: NSEC, agentId: 'devops-engineer' });
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/nsec/i);
+  });
+
+  it('keeps the array shape when the user already wrote one', () => {
+    const existing = [{ pubkey: OTHER_HEX, agentId: 'first', label: 'Build bot' }];
+    const result = writeAgentBinding(existing, { pubkey: NPUB, agentId: 'second', label: 'Jane' });
+    expect(Array.isArray(result.value)).toBe(true);
+    expect(result.value).toEqual([
+      { pubkey: OTHER_HEX, agentId: 'first', label: 'Build bot' },
+      { pubkey: NPUB_HEX, agentId: 'second', label: 'Jane' },
+    ]);
+  });
+
+  it('refuses to grow past the cap', () => {
+    const full: Record<string, string> = {};
+    for (let index = 0; index < MAX_AGENT_BINDINGS; index += 1) {
+      full[index.toString(16).padStart(64, '0')] = 'agent';
+    }
+    const result = writeAgentBinding(full, { pubkey: NPUB, agentId: 'one-too-many' });
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/at most/i);
+  });
+
+  it('still allows unbinding when the setting is at the cap', () => {
+    const full: Record<string, string> = { [NPUB_HEX]: 'agent' };
+    for (let index = 1; index < MAX_AGENT_BINDINGS; index += 1) {
+      full[index.toString(16).padStart(64, '0')] = 'agent';
+    }
+    const result = writeAgentBinding(full, { pubkey: NPUB, agentId: '' });
+    expect(result.ok).toBe(true);
+    expect(Object.keys(result.value as Record<string, string>)).not.toContain(NPUB_HEX);
+  });
+
+  it('never emits a value alongside an error', () => {
+    const result = writeAgentBinding(undefined, { pubkey: 'not-a-key', agentId: 'x' });
+    expect(result.ok).toBe(false);
+    expect('value' in result).toBe(false);
   });
 });

@@ -107,6 +107,65 @@ export function parseAgentBindings(input: unknown): ParsedAgentBindings {
   return { bindings, issues };
 }
 
+/** The outcome of editing one binding in the raw setting value. */
+export interface AgentBindingWriteResult {
+  ok: boolean;
+  /**
+   * The new raw setting value, ready to hand to `configuration.update`. Present
+   * only when `ok`. Written in the **same shape the user already had**, so a
+   * hand-written record does not silently become an array.
+   */
+  value?: unknown;
+  /** Why the edit was refused. Present only when `!ok` — never both. */
+  error?: string;
+}
+
+/**
+ * Add, replace, or remove a single binding inside the raw
+ * `atlasmind.buzz.agentBindings` value.
+ *
+ * Pure: takes the current setting, returns the next one. This exists so a UI
+ * that offers "bind this person to that agent" cannot invent its own merge
+ * rules — the same validation that guards a hand-edited setting guards a
+ * click. An empty `agentId` means *unbind*, which is why it is not an error.
+ *
+ * A key that will not normalise is **refused with a reason**, never coerced.
+ * Binding to a different real identity because one bech32 character was
+ * mistyped is worse than not binding at all.
+ */
+export function writeAgentBinding(
+  currentSetting: unknown,
+  input: { pubkey: string; agentId: string; label?: string },
+): AgentBindingWriteResult {
+  const pubkey = normalizeBuzzPubkey(typeof input.pubkey === 'string' ? input.pubkey.trim() : '');
+  if (!pubkey) {
+    return {
+      ok: false,
+      error: 'Not a valid Buzz public key. Use an npub… or a 64-character hex key (an nsec is a secret key and is refused).',
+    };
+  }
+
+  const agentId = typeof input.agentId === 'string' ? input.agentId.trim() : '';
+  const label = typeof input.label === 'string' && input.label.trim() ? input.label.trim().slice(0, 80) : undefined;
+
+  // Keep every other binding exactly as parsed, so one edit cannot disturb the
+  // rest — including entries this call has no opinion about.
+  const kept = parseAgentBindings(currentSetting).bindings.filter(binding => binding.pubkey !== pubkey);
+  if (agentId && kept.length >= MAX_AGENT_BINDINGS) {
+    return { ok: false, error: `At most ${MAX_AGENT_BINDINGS} agent bindings are supported.` };
+  }
+  const next = agentId ? [...kept, { pubkey, agentId, ...(label ? { label } : {}) }] : kept;
+
+  if (Array.isArray(currentSetting)) {
+    return { ok: true, value: next };
+  }
+  const record: Record<string, string> = {};
+  for (const binding of next) {
+    record[binding.pubkey] = binding.agentId;
+  }
+  return { ok: true, value: record };
+}
+
 /**
  * Find the AtlasMind agent bound to a Buzz identity, if any.
  *

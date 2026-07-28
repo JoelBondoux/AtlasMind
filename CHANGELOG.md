@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.151.0] - 2026-07-28
+
+### Added
+- **Buzz has its own Settings page.** Every `atlasmind.buzz.*` switch is now visible and clickable under **Settings → Buzz**: enable Buzz, set the relay URL, allow a remote relay, subscribe to inbound, choose which channels to watch, and record follow-ups to project memory. Previously they could only be reached by hand-editing settings JSON.
+- **Bind an AtlasMind agent to someone's Buzz identity while adding them.** The Project Dashboard → Director "Add / Edit person" form now offers an **AtlasMind agent** picker when the person's channel is `buzz`. Pick an agent and work arriving from that Buzz identity is routed to it. The binding also shows on the person's card, so the roster answers "who handles their messages" at a glance.
+- **Set the Buzz agent key and jump to the Director roster** straight from the Settings → Buzz page.
+
+### Changed
+- **The nested Buzz gates are visible as nested.** A switch whose parent is off is shown dimmed and disabled rather than looking live, while still displaying the value that is actually stored — a stored `true` hidden behind an off parent would misreport the configuration.
+
+### Security
+- **The Director's agent picker writes through the same validation as a hand-edited setting.** Binding by click and binding by hand share one pure helper, so the UI cannot invent its own merge rules: a mistyped `npub` is refused with a reason rather than coerced onto a different identity, an `nsec` is refused by name, and a binding naming an agent that does not exist is rejected instead of silently pointing at nothing.
+- **`atlasmind.buzz.agentBindings` remains the single source of truth.** The roster is a convenience editor for that setting, not a second store, so a binding made in the dashboard and one typed into settings can never disagree. Bindings are stored in settings rather than in the roster because `project_memory/` is git-tracked and the binding is a local routing preference.
+- **Editing one binding leaves every other binding untouched**, and the setting keeps whichever shape the user already wrote — a hand-authored record does not silently become an array.
+- **No generic command runner was added to the webview.** The two new buttons post named messages mapped to fixed commands; a message carrying an arbitrary command id would be an injection surface.
+- **The relay URL is validated at the boundary**, so an unusable value surfaces immediately instead of appearing later as a connection failure. The separate rule refusing plaintext to a remote host still lives at the transport, where wiring cannot bypass it.
+
 ## [0.150.0] - 2026-07-28
 
 ### Added

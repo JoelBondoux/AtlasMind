@@ -6,6 +6,14 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.151.0 — Buzz becomes clickable
+
+- **Settings → Buzz.** A new page surfaces every `atlasmind.buzz.*` switch — Connection (enable, relay URL, allow remote), Inbound (subscribe, channels), Persistence (record follow-ups), Routing (bindings) — previously reachable only by hand-editing settings JSON.
+- **Bind an agent while adding the person.** On **Dashboard → Director**, give a contact the `buzz` channel and the Add / Edit person form reveals an **AtlasMind agent** picker. Bound people show a `buzz → <agent>` badge on their card.
+- **The nested gates look nested.** A switch whose parent is off renders dimmed and disabled, while still showing the value that is stored — hiding a stored `true` would misreport the configuration.
+- **One set of rules for clicks and hand-edits.** Both surfaces write through the same pure helper, so a mistyped `npub` is refused with a reason rather than bound to a different identity, an `nsec` is refused by name, a binding to a non-existent agent is rejected, other bindings are left untouched, and the setting keeps whichever shape you already wrote.
+- **`atlasmind.buzz.agentBindings` stays the single source of truth** — the roster is a convenience editor for it, not a second store, so the two can never disagree.
+
 ## v0.150.0 — Buzz inbound switched on + agent bindings (Tier 3)
 
 - **Inbound is wired and usable.** `atlasmind.buzz.inboundEnabled` (plus `buzz.enabled`) holds a live read-only subscription that authenticates, survives drops, and turns channel activity into work items. `inboundChannels` scopes it.

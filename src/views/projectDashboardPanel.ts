@@ -37,6 +37,12 @@ import {
   type DirectorCommsIntent,
   type CommsDraft,
 } from '../core/directorCommsRunner.js';
+import {
+  parseAgentBindings,
+  writeAgentBinding,
+  type BuzzAgentBinding,
+  type BuzzAgentBindingIssue,
+} from '../core/buzzAgentBindings.js';
 import { mcpSkillId } from '../mcp/mcpServerRegistry.js';
 import { classifyToolInvocation } from '../core/toolPolicy.js';
 import { DOCUMENTS_SSOT_PATH, DOCUMENTS_SUMMARY_SSOT_PATH, sanitizeDocumentsConfig, seedDocumentsConfig } from '../core/documentsManager.js';
@@ -204,6 +210,7 @@ type ProjectDashboardMessage =
   | { type: 'openContactDeepLink'; payload: { contactId: string; linkId: string } }
   | { type: 'assignRunOwner'; payload: { runId: string; contactId: string } }
   | { type: 'directorSendComms'; payload: { intent: DirectorCommsIntent; contactId: string; subject?: string; body?: string; start?: string } }
+  | { type: 'setBuzzAgentBinding'; payload: { pubkey: string; agentId: string; label?: string } }
   | { type: 'openExternalUrl'; payload: string };
 
 type DashboardWebviewMessage =
@@ -770,6 +777,22 @@ interface DashboardDirectorSnapshot {
   seeded: boolean;
   /** True when no git repository is present, so the roster cannot be seeded yet. */
   notInGitRepo: boolean;
+  /**
+   * AtlasMind agents a Buzz identity can be bound to, id + label only. Sent so
+   * the roster can offer a picker without the client guessing agent ids.
+   */
+  agentChoices: Array<{ id: string; name: string }>;
+  /**
+   * Current `atlasmind.buzz.agentBindings`, normalised. The setting stays the
+   * single source of truth — this view is a convenience editor for it, not a
+   * second store, so a binding made here and one hand-written in settings can
+   * never disagree.
+   */
+  agentBindings: BuzzAgentBinding[];
+  /** Bindings that could not be used, surfaced rather than silently dropped. */
+  agentBindingIssues: BuzzAgentBindingIssue[];
+  /** True when `atlasmind.buzz.enabled` is on, so the UI can explain an inert binding. */
+  buzzEnabled: boolean;
 }
 
 type DashboardGapPriority = 'P1' | 'P2' | 'P3';
@@ -1525,6 +1548,9 @@ export class ProjectDashboardPanel {
         return;
       case 'directorSendComms':
         await this.handleDirectorSendComms(message.payload);
+        break;
+      case 'setBuzzAgentBinding':
+        await this.handleSetBuzzAgentBinding(message.payload);
         return;
       case 'testDataPrivacy':
         {
@@ -2069,6 +2095,48 @@ export class ProjectDashboardPanel {
       return;
     }
     await this.atlas.projectDirectorManager.save(config);
+    await this.syncState();
+  }
+
+  /**
+   * Bind (or unbind) a Buzz identity to an AtlasMind agent from the Director roster.
+   *
+   * The `atlasmind.buzz.agentBindings` setting remains the single source of
+   * truth; this is a convenience editor for it, so a binding made here and one
+   * typed into settings can never disagree. Three refusals, all loud:
+   *
+   *  - A key that will not normalise is **rejected, never coerced** — one wrong
+   *    bech32 character would otherwise bind work to a different real identity.
+   *  - An agent id with no matching agent is refused, so a rename cannot leave a
+   *    binding silently pointing at nothing.
+   *  - Writing fails visibly rather than leaving the roster showing a binding
+   *    the settings file does not have.
+   */
+  private async handleSetBuzzAgentBinding(payload: { pubkey: string; agentId: string; label?: string }): Promise<void> {
+    const agentId = payload.agentId.trim();
+    if (agentId && !this.atlas.agentRegistry?.get(agentId)) {
+      void vscode.window.showWarningMessage(`No AtlasMind agent named "${agentId}" — the Buzz binding was not saved.`);
+      return;
+    }
+
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    const result = writeAgentBinding(configuration.get('buzz.agentBindings'), { ...payload, agentId });
+    if (!result.ok) {
+      void vscode.window.showWarningMessage(`Buzz binding not saved. ${result.error ?? ''}`.trim());
+      return;
+    }
+
+    // Workspace scope: which colleague maps to which specialist is a property of
+    // this project, not of the machine.
+    const target = vscode.workspace.workspaceFolders?.length
+      ? vscode.ConfigurationTarget.Workspace
+      : vscode.ConfigurationTarget.Global;
+    try {
+      await configuration.update('buzz.agentBindings', result.value, target);
+    } catch (error) {
+      void vscode.window.showWarningMessage(`Could not save the Buzz agent binding: ${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
     await this.syncState();
   }
 
@@ -2838,6 +2906,13 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return typeof p === 'object' && p !== null
       && (p['intent'] === 'email' || p['intent'] === 'schedule' || p['intent'] === 'message')
       && typeof p['contactId'] === 'string' && p['contactId'].length > 0;
+  }
+
+  if (candidate['type'] === 'setBuzzAgentBinding') {
+    const p = candidate['payload'] as Record<string, unknown> | undefined;
+    // `agentId` may be empty — that is the unbind case, not a malformed message.
+    return typeof p === 'object' && p !== null && typeof p['pubkey'] === 'string' && p['pubkey'].length > 0
+      && typeof p['agentId'] === 'string';
   }
 
   if (candidate['type'] === 'requestPromotionPlan') {
@@ -4413,6 +4488,11 @@ async function collectDirectorSnapshot(
 ): Promise<DashboardDirectorSnapshot> {
   const connectors = detectConnectorCapabilities(atlas.mcpServerRegistry?.listServers() ?? [])
     .map(capability => ({ intent: capability.intent, serverName: capability.serverName, toolName: capability.toolName }));
+  const buzzConfiguration = vscode.workspace.getConfiguration('atlasmind');
+  const parsedBindings = parseAgentBindings(buzzConfiguration.get('buzz.agentBindings'));
+  const agentChoices = (atlas.agentRegistry?.listAgents() ?? [])
+    .map(agent => ({ id: agent.id, name: agent.name || agent.id }))
+    .sort((a, b) => a.name.localeCompare(b.name));
   const base: DashboardDirectorSnapshot = {
     configPath: PROJECT_DIRECTOR_SSOT_PATH,
     summaryPath: PROJECT_DIRECTOR_SUMMARY_SSOT_PATH,
@@ -4427,6 +4507,10 @@ async function collectDirectorSnapshot(
     connectors,
     seeded: false,
     notInGitRepo: false,
+    agentChoices,
+    agentBindings: parsedBindings.bindings,
+    agentBindingIssues: parsedBindings.issues,
+    buzzEnabled: buzzConfiguration.get<boolean>('buzz.enabled', false),
   };
   const manager = atlas.projectDirectorManager;
   let piiAcknowledged = false;

@@ -185,6 +185,12 @@ Integration with [Buzz](https://buzz.xyz) — the open-source, Nostr-based works
 | `atlasmind.buzz.agentBindings` | `object` | `{}` | Map a Buzz identity (`npub…` or 64-char hex) to an AtlasMind agent id, so inbound work from that Buzz agent lands with the right specialist. Unbound identities stay unassigned. |
 | `atlasmind.buzz.allowRemoteRelay` | `boolean` | `false` | Allow a non-local Buzz relay URL. When `false`, only loopback/localhost relays are used so project data stays on-machine. |
 
+### Where to set these
+
+Every switch above is on the **Settings → Buzz** page (`AtlasMind: Open Settings`), grouped as Connection, Inbound, Persistence, and Routing. The gates are nested, so a control whose parent switch is off renders dimmed and disabled while still showing the value that is stored — an inert setting is shown as inert, not as absent.
+
+`agentBindings` is edited per person on the **Project Dashboard → Director** tab: give a contact the `buzz` channel, paste their `npub…` (or 64-character hex) key, and pick an AtlasMind agent. The setting remains the single source of truth — the roster is a convenience editor for it, not a second store — so a binding made by clicking and one typed into `settings.json` cannot disagree. Editing one binding leaves the others untouched and preserves whichever shape (record or array) is already written. A mistyped `npub` is refused with a reason rather than coerced onto a different identity, an `nsec` is refused by name, and a binding naming a non-existent agent is rejected.
+
 Use **AtlasMind: Manage MCP Servers → Browse by category → Buzz Communications** for live outbound setup. The bundled bridge wraps official `buzz-cli` v0.4.26, stores the private key and optional authorization tag in SecretStorage, and exposes only channel listing/posting, thread reading, and DM sending. The WS/WSS setting is converted to the HTTP/HTTPS base used by the CLI. Non-local relays require `allowRemoteRelay:true` and HTTPS/WSS; message sends still require the Director's explicit confirmation.
 
 Buzz contact channels and any launchable deep link are sanitised at the webview boundary like every other Director channel — only `https` Buzz workspace links are launchable from AtlasMind, and an npub / @handle / #channel remains display-only unless it is represented by a channel UUID or 64-character public key the bridge can validate.

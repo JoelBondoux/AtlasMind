@@ -17,6 +17,7 @@ import type { ArdDiscoveredResource, ArdDiscoveryEndpoint } from '../types.js';
 import { getDisplayCurrency, getExchangeRate } from '../core/currencyFormatter.js';
 import { isLocalSyncStale, LOCAL_MODEL_SYNC_CACHE_KEY, syncLocalModels, type LocalModelSyncResult } from '../providers/localModelSync.js';
 import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
+import { parseAgentBindings } from '../core/buzzAgentBindings.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -77,6 +78,13 @@ const SETTINGS_HELP = {
   projectDependencyMonitoringProviders: 'Selects which dependency monitoring providers AtlasMind scaffolds. Examples: Dependabot for GitHub-native repos, Renovate for advanced grouping, Snyk for security-led review, or Azure DevOps for pipeline-centric teams.',
   projectDependencyMonitoringSchedule: 'Default cadence for generated dependency monitoring automation. Examples: daily for security-sensitive services, weekly for normal review cycles, or monthly for stable products.',
   projectDependencyMonitoringIssueTemplate: 'Adds a dependency review issue template during governance scaffolding. Keep it on when updates need formal review or compliance evidence, and off for lightweight personal repos.',
+  buzzEnabled: 'Master switch for the Buzz integration. Off by default: nothing connects, reads, or sends until you turn it on. Every other Buzz setting is inert while this is off.',
+  buzzRelayUrl: 'The Buzz relay to connect to. Defaults to a local, self-hosted relay (ws://localhost:3000). A hosted relay must be encrypted (wss://) and additionally requires Allow remote relay.',
+  buzzAllowRemoteRelay: 'Permits the relay URL to point off-machine. Leave it off to keep project communications on a loopback relay. Turning it on means project data leaves this machine, under the same redaction boundary AtlasMind applies to any external send.',
+  buzzInboundEnabled: 'Hold a read-only subscription to the relay and derive work items from Buzz activity. The subscription can never publish to Buzz. Requires the master switch, and an agent key when the relay demands authentication.',
+  buzzInboundChannels: 'Which Buzz channels to watch, one channel id per line. Leave it empty and the subscription is scoped only by message kind, so it covers every channel your agent key can already read. List channels to narrow it.',
+  buzzAutoCreateFollowUps: 'Records derived follow-ups into project_memory/, which is git-tracked. Off by default and deliberately separate from the subscription switch, so watching a channel never starts committing records about colleagues by itself. Message bodies are never stored — only a follow-up and a pointer back to the thread.',
+  buzzAgentBindings: 'Routes work from a given Buzz identity to a chosen AtlasMind agent. Edited per person on the Project Dashboard → Director tab, or by hand here. A local routing preference only: Buzz still owns the keypair and directory.',
   experimentalSkillLearningEnabled: 'Enables Atlas-generated custom skill drafts. Keep it off in production workspaces and enable it only in sandboxes where generated artifacts will be manually reviewed.',
   maxToolIterations: 'Maximum tool-call loop iterations before AtlasMind stops and surfaces Continue and Cancel actions. Examples: 10 for conservative environments, 20 for the default balance, or 25 for complex multi-step workflows. Higher values allow deeper automation but increase latency and cost.',
   loopEnabled: 'Enable the autonomous goal-seeking Mission Loop (the /loop chat command and Mission Control). When off, AtlasMind will not start any looping run.',
@@ -204,7 +212,7 @@ interface LocalModelRecommendationPayload {
  * The nav markup below is grouped to match; this list is the canonical order
  * and the source of `SettingsPageId`.
  */
-export const SETTINGS_PAGE_IDS = ['overview', 'agents', 'models', 'discovery', 'chat', 'ai-instructions', 'safety', 'testing', 'project', 'loop', 'experimental'] as const;
+export const SETTINGS_PAGE_IDS = ['overview', 'agents', 'models', 'discovery', 'buzz', 'chat', 'ai-instructions', 'safety', 'testing', 'project', 'loop', 'experimental'] as const;
 export type SettingsPageId = (typeof SETTINGS_PAGE_IDS)[number];
 export interface SettingsPanelTarget {
   page?: SettingsPageId;
@@ -226,6 +234,16 @@ type SettingsMessage =
   | { type: 'setAutoVerifyAfterWrite'; payload: boolean }
   | { type: 'setAutoVerifyScripts'; payload: string }
   | { type: 'setAutoVerifyTimeoutMs'; payload: number }
+  | { type: 'setBuzzEnabled'; payload: boolean }
+  | { type: 'setBuzzRelayUrl'; payload: string }
+  | { type: 'setBuzzAllowRemoteRelay'; payload: boolean }
+  | { type: 'setBuzzInboundEnabled'; payload: boolean }
+  | { type: 'setBuzzInboundChannels'; payload: string }
+  | { type: 'setBuzzAutoCreateFollowUps'; payload: boolean }
+  // Named rather than a generic "run this command id": the webview boundary is
+  // untrusted, and an allowlist of two is one by construction.
+  | { type: 'openBuzzAgentKey' }
+  | { type: 'openDirectorRoster' }
   | { type: 'setVoiceTtsEnabled'; payload: boolean }
   | { type: 'setVoiceRate'; payload: number }
   | { type: 'setVoicePitch'; payload: number }
@@ -812,6 +830,55 @@ export class SettingsPanel {
 
       case 'setProjectChangedFileReferenceLimit':
         await configuration.update('projectChangedFileReferenceLimit', message.payload, vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'setBuzzEnabled':
+        await configuration.update('buzz.enabled', message.payload, vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'setBuzzRelayUrl': {
+        const relayUrl = message.payload.trim();
+        // Validate the shape at the boundary. The transport separately refuses
+        // plaintext to a remote host; this only stops an unusable value being
+        // stored, so a typo surfaces here rather than as a connection failure.
+        if (relayUrl && !/^(wss?|https?):\/\/[^\s]+$/i.test(relayUrl)) {
+          void vscode.window.showWarningMessage('Buzz relay URL must start with ws://, wss://, http:// or https://.');
+          return;
+        }
+        await configuration.update('buzz.relayUrl', relayUrl, vscode.ConfigurationTarget.Workspace);
+        return;
+      }
+
+      case 'setBuzzAllowRemoteRelay':
+        await configuration.update('buzz.allowRemoteRelay', message.payload, vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'setBuzzInboundEnabled':
+        await configuration.update('buzz.inboundEnabled', message.payload, vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'setBuzzInboundChannels': {
+        // One id per line. Blank lines are dropped rather than stored as empty
+        // channel ids, and the list is capped so a paste cannot balloon it.
+        const channels = message.payload
+          .split(/\r?\n/)
+          .map(line => line.trim())
+          .filter(line => line.length > 0 && line.length <= 200)
+          .slice(0, 50);
+        await configuration.update('buzz.inboundChannels', channels, vscode.ConfigurationTarget.Workspace);
+        return;
+      }
+
+      case 'setBuzzAutoCreateFollowUps':
+        await configuration.update('buzz.autoCreateFollowUps', message.payload, vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'openBuzzAgentKey':
+        await vscode.commands.executeCommand('atlasmind.setBuzzAgentKey');
+        return;
+
+      case 'openDirectorRoster':
+        await vscode.commands.executeCommand('atlasmind.openProjectDirector');
         return;
 
       case 'setProjectRunReportFolder': {
@@ -1735,6 +1802,17 @@ export class SettingsPanel {
     const experimentalSkillLearningEnabled = configuration.get<boolean>('experimentalSkillLearningEnabled', false);
     const maxToolIterations = getPositiveInteger(configuration.get<number>('maxToolIterations'), 20);
 
+    // Buzz. Each switch is read independently so the page can show the real
+    // stored value even when a parent gate makes it inert — hiding a stored
+    // `true` behind a disabled parent would misrepresent what is configured.
+    const buzzEnabled = configuration.get<boolean>('buzz.enabled', false);
+    const buzzRelayUrl = escapeHtml(configuration.get<string>('buzz.relayUrl', '') || '');
+    const buzzAllowRemoteRelay = configuration.get<boolean>('buzz.allowRemoteRelay', false);
+    const buzzInboundEnabled = configuration.get<boolean>('buzz.inboundEnabled', false);
+    const buzzInboundChannels = escapeHtml((configuration.get<string[]>('buzz.inboundChannels', []) ?? []).join('\n'));
+    const buzzAutoCreateFollowUps = configuration.get<boolean>('buzz.autoCreateFollowUps', false);
+    const parsedBuzzBindings = parseAgentBindings(configuration.get('buzz.agentBindings'));
+
     // Mission Loop defaults.
     const loopEnabled = configuration.get<boolean>('loop.enabled', true);
     const loopDefaultMaxIterations = getPositiveInteger(configuration.get<number>('loop.defaultMaxIterations'), 8);
@@ -1796,6 +1874,7 @@ export class SettingsPanel {
             <button type="button" class="nav-link ${initialPage === 'agents' ? 'active' : ''}" id="tab-agents" data-page-target="agents" data-search="agents manage agents built-in custom roles prompts instructions rubrics completion criteria global immutable guardrails safety policy skills models budget auto-update automation" role="tab" aria-selected="${initialPage === 'agents' ? 'true' : 'false'}" aria-controls="page-agents" ${initialPage === 'agents' ? '' : 'tabindex="-1"'}>Agents</button>
             <button type="button" class="nav-link ${initialPage === 'models' ? 'active' : ''}" id="tab-models" data-page-target="models" data-search="models integrations providers local endpoint local endpoints ollama lm studio azure bedrock personality profile role tone memory posture voice vision exa specialist" role="tab" aria-selected="${initialPage === 'models' ? 'true' : 'false'}" aria-controls="page-models" ${initialPage === 'models' ? '' : 'tabindex="-1"'}>Models & Integrations</button>
             <button type="button" class="nav-link ${initialPage === 'discovery' ? 'active' : ''}" id="tab-discovery" data-page-target="discovery" data-search="resource discovery ard agent finders mcp servers agents skills apis search install publish catalog manifest registry" role="tab" aria-selected="${initialPage === 'discovery' ? 'true' : 'false'}" aria-controls="page-discovery" ${initialPage === 'discovery' ? '' : 'tabindex="-1"'}>Resource Discovery</button>
+            <button type="button" class="nav-link ${initialPage === 'buzz' ? 'active' : ''}" id="tab-buzz" data-page-target="buzz" data-search="buzz nostr relay inbound subscription follow-ups agent bindings npub agent key channels remote relay" role="tab" aria-selected="${initialPage === 'buzz' ? 'true' : 'false'}" aria-controls="page-buzz" ${initialPage === 'buzz' ? '' : 'tabindex="-1"'}>Buzz</button>
           </div>
           <div class="nav-group" role="presentation">
             <span class="nav-group-label" aria-hidden="true">Interaction</span>
@@ -2401,6 +2480,98 @@ export class SettingsPanel {
                   <input id="loopGoalAchievedConfidenceThreshold" type="number" min="0" max="1" step="0.05" value="${loopGoalAchievedConfidenceThreshold}" />
                 </div>
                 <p class="info-note">A goal is only accepted as achieved with passing verification and at least this evaluator confidence, so a low-confidence verdict can never falsely declare success.</p>
+              </article>
+            </div>
+          </section>
+
+          <section id="page-buzz" class="settings-page ${initialPage === 'buzz' ? 'active fallback-visible' : ''}" role="tabpanel" aria-labelledby="tab-buzz" tabindex="0">
+            <div class="page-header">
+              <p class="page-kicker">Buzz</p>
+              <h2>Work with your Buzz workspace</h2>
+              <p>Buzz owns identity and messaging; AtlasMind owns reasoning and execution. Each switch below is off until you turn it on, and each one only takes effect when the one above it is already on.</p>
+            </div>
+
+            <div class="page-grid">
+              <article class="settings-card">
+                <div class="card-header">
+                  <p class="card-kicker">Connection</p>
+                  <h3>${renderHeadingWithHelp('Relay', 'buzzEnabled')}</h3>
+                </div>
+                <label class="checkbox-card">
+                  <input id="buzzEnabled" type="checkbox" ${buzzEnabled ? 'checked' : ''}>
+                  <span>
+                    <strong>${renderHeadingWithHelp('Enable the Buzz integration', 'buzzEnabled')}</strong>
+                    <span class="muted-line">The master switch. Everything else on this page stays inert until this is on.</span>
+                  </span>
+                </label>
+                <div class="field-grid" data-buzz-depends="buzzEnabled">
+                  ${renderFieldLabel('buzzRelayUrl', 'Relay URL', 'buzzRelayUrl')}
+                  <input id="buzzRelayUrl" type="text" value="${buzzRelayUrl}" placeholder="ws://localhost:3000" />
+                </div>
+                <label class="checkbox-card" data-buzz-depends="buzzEnabled">
+                  <input id="buzzAllowRemoteRelay" type="checkbox" ${buzzAllowRemoteRelay ? 'checked' : ''}>
+                  <span>
+                    <strong>${renderHeadingWithHelp('Allow a remote relay', 'buzzAllowRemoteRelay')}</strong>
+                    <span class="muted-line">Needed for a hosted Buzz. Project data then leaves this machine.</span>
+                  </span>
+                </label>
+                <p class="info-note">A relay that is not on this machine must be encrypted — a plaintext <code>ws://</code> URL to a remote host is refused, because it would expose both your colleagues' messages and the authentication challenge in transit.</p>
+              </article>
+
+              <article class="settings-card">
+                <div class="card-header">
+                  <p class="card-kicker">Inbound</p>
+                  <h3>${renderHeadingWithHelp('Read-only subscription', 'buzzInboundEnabled')}</h3>
+                </div>
+                <label class="checkbox-card" data-buzz-depends="buzzEnabled">
+                  <input id="buzzInboundEnabled" type="checkbox" ${buzzInboundEnabled ? 'checked' : ''}>
+                  <span>
+                    <strong>${renderHeadingWithHelp('Watch Buzz activity', 'buzzInboundEnabled')}</strong>
+                    <span class="muted-line">Subscribes and derives work items. It can never publish to Buzz.</span>
+                  </span>
+                </label>
+                <div class="field-grid" data-buzz-depends="buzzInboundEnabled">
+                  ${renderFieldLabel('buzzInboundChannels', 'Channels to watch', 'buzzInboundChannels')}
+                  <textarea id="buzzInboundChannels" rows="3" placeholder="One channel id per line">${buzzInboundChannels}</textarea>
+                </div>
+                <p class="info-note">An empty list is <strong>not</strong> "no channels" — it scopes the subscription by message kind alone, covering every channel your agent key can already read. List channel ids to narrow it. An authenticating relay needs an agent key before it will accept a subscription at all.</p>
+                <div class="button-stack">
+                  <button type="button" class="secondary-button" id="buzzSetAgentKey">Set Buzz agent key…</button>
+                </div>
+              </article>
+
+              <article class="settings-card settings-card-warning" data-buzz-depends="buzzInboundEnabled">
+                <div class="card-header">
+                  <p class="card-kicker">Persistence</p>
+                  <h3>${renderHeadingWithHelp('Record follow-ups to project memory', 'buzzAutoCreateFollowUps')}</h3>
+                </div>
+                <label class="checkbox-card">
+                  <input id="buzzAutoCreateFollowUps" type="checkbox" ${buzzAutoCreateFollowUps ? 'checked' : ''}>
+                  <span>
+                    <strong>${renderHeadingWithHelp('Save derived follow-ups', 'buzzAutoCreateFollowUps')}</strong>
+                    <span class="muted-line">Writes into <code>project_memory/</code>, which is tracked by git.</span>
+                  </span>
+                </label>
+                <p class="warning-note">Deliberately separate from the switch above: watching a channel should never, on its own, start committing records about your colleagues' conversations. Conversations are <strong>derived, never mirrored</strong> — a message becomes a follow-up with a pointer back to the Buzz thread, never the message body.</p>
+              </article>
+
+              <article class="settings-card">
+                <div class="card-header">
+                  <p class="card-kicker">Routing</p>
+                  <h3>${renderHeadingWithHelp('Agent bindings', 'buzzAgentBindings')}</h3>
+                </div>
+                ${parsedBuzzBindings.bindings.length
+                  ? `<ul class="plain-list">${parsedBuzzBindings.bindings.map(binding =>
+                      `<li><code>${escapeHtml(`${binding.pubkey.slice(0, 12)}…`)}</code> → <strong>${escapeHtml(binding.agentId)}</strong>${binding.label ? ` <span class="muted-line">${escapeHtml(binding.label)}</span>` : ''}</li>`).join('')}</ul>`
+                  : '<p class="muted-line">No bindings yet. Work from an unbound Buzz identity stays unassigned rather than being routed by guesswork.</p>'}
+                ${parsedBuzzBindings.issues.length
+                  ? `<p class="warning-note">${parsedBuzzBindings.issues.map(issue =>
+                      `Ignored <code>${escapeHtml(issue.input)}</code> — ${escapeHtml(issue.reason)}`).join('<br>')}</p>`
+                  : ''}
+                <p class="info-note">Bind a person to an agent on the <strong>Project Dashboard → Director</strong> tab: give them the <code>buzz</code> channel, paste their <code>npub…</code> key, and pick an agent.</p>
+                <div class="button-stack">
+                  <button type="button" class="secondary-button" id="buzzOpenDirector">Open the Director roster</button>
+                </div>
               </article>
             </div>
           </section>
@@ -3498,6 +3669,10 @@ export class SettingsPanel {
         .ard-result-meta { color: var(--atlas-panel-muted); font-size: 0.82rem; margin-top: 4px; }
         .ard-result-desc { margin: 8px 0; }
         .ard-result-url { font-size: 0.82rem; margin-top: 4px; }
+        .plain-list { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 4px; }
+        .plain-list li { font-size: 0.86rem; }
+        /* A gate whose parent switch is off: still readable, visibly not in force. */
+        .settings-page [data-buzz-depends].is-inert { opacity: 0.55; }
         .ard-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
         .ard-chip {
           background: var(--atlas-panel-accent-soft);
@@ -4340,6 +4515,94 @@ export class SettingsPanel {
             voiceOutputDeviceId.addEventListener('change', emitVoiceOutputDeviceId);
             voiceOutputDeviceId.addEventListener('blur', emitVoiceOutputDeviceId);
           }
+
+          // Buzz. The gates are nested, so a dependent control is dimmed and
+          // disabled while its parent is off — it still shows the value that is
+          // stored, because hiding a stored 'on' would misreport the config.
+          const buzzEnabledInput = document.getElementById('buzzEnabled');
+          const buzzInboundEnabledInput = document.getElementById('buzzInboundEnabled');
+
+          function syncBuzzGates() {
+            const gateOn = {
+              buzzEnabled: buzzEnabledInput instanceof HTMLInputElement && buzzEnabledInput.checked,
+              buzzInboundEnabled: buzzInboundEnabledInput instanceof HTMLInputElement && buzzInboundEnabledInput.checked,
+            };
+            // Inbound is only live when the master switch is too, so a dependent
+            // of inbound is inert whenever either is off.
+            gateOn.buzzInboundEnabled = gateOn.buzzInboundEnabled && gateOn.buzzEnabled;
+            document.querySelectorAll('[data-buzz-depends]').forEach(element => {
+              const parent = element.getAttribute('data-buzz-depends');
+              const live = parent === 'buzzInboundEnabled' ? gateOn.buzzInboundEnabled : gateOn.buzzEnabled;
+              element.classList.toggle('is-inert', !live);
+              element.querySelectorAll('input, textarea, select, button').forEach(control => {
+                if (control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement
+                  || control instanceof HTMLSelectElement || control instanceof HTMLButtonElement) {
+                  control.disabled = !live;
+                }
+              });
+            });
+          }
+
+          if (buzzEnabledInput instanceof HTMLInputElement) {
+            buzzEnabledInput.addEventListener('change', () => {
+              vscode.postMessage({ type: 'setBuzzEnabled', payload: buzzEnabledInput.checked });
+              syncBuzzGates();
+            });
+          }
+          if (buzzInboundEnabledInput instanceof HTMLInputElement) {
+            buzzInboundEnabledInput.addEventListener('change', () => {
+              vscode.postMessage({ type: 'setBuzzInboundEnabled', payload: buzzInboundEnabledInput.checked });
+              syncBuzzGates();
+            });
+          }
+
+          const buzzAllowRemoteRelay = document.getElementById('buzzAllowRemoteRelay');
+          if (buzzAllowRemoteRelay instanceof HTMLInputElement) {
+            buzzAllowRemoteRelay.addEventListener('change', () => {
+              vscode.postMessage({ type: 'setBuzzAllowRemoteRelay', payload: buzzAllowRemoteRelay.checked });
+            });
+          }
+
+          const buzzAutoCreateFollowUps = document.getElementById('buzzAutoCreateFollowUps');
+          if (buzzAutoCreateFollowUps instanceof HTMLInputElement) {
+            buzzAutoCreateFollowUps.addEventListener('change', () => {
+              vscode.postMessage({ type: 'setBuzzAutoCreateFollowUps', payload: buzzAutoCreateFollowUps.checked });
+            });
+          }
+
+          const buzzRelayUrl = document.getElementById('buzzRelayUrl');
+          if (buzzRelayUrl instanceof HTMLInputElement) {
+            const emitBuzzRelayUrl = () => {
+              vscode.postMessage({ type: 'setBuzzRelayUrl', payload: buzzRelayUrl.value });
+            };
+            buzzRelayUrl.addEventListener('change', emitBuzzRelayUrl);
+            buzzRelayUrl.addEventListener('blur', emitBuzzRelayUrl);
+          }
+
+          const buzzInboundChannels = document.getElementById('buzzInboundChannels');
+          if (buzzInboundChannels instanceof HTMLTextAreaElement) {
+            const emitBuzzChannels = () => {
+              vscode.postMessage({ type: 'setBuzzInboundChannels', payload: buzzInboundChannels.value });
+            };
+            buzzInboundChannels.addEventListener('change', emitBuzzChannels);
+            buzzInboundChannels.addEventListener('blur', emitBuzzChannels);
+          }
+
+          const buzzSetAgentKey = document.getElementById('buzzSetAgentKey');
+          if (buzzSetAgentKey instanceof HTMLButtonElement) {
+            buzzSetAgentKey.addEventListener('click', () => {
+              vscode.postMessage({ type: 'openBuzzAgentKey' });
+            });
+          }
+
+          const buzzOpenDirector = document.getElementById('buzzOpenDirector');
+          if (buzzOpenDirector instanceof HTMLButtonElement) {
+            buzzOpenDirector.addEventListener('click', () => {
+              vscode.postMessage({ type: 'openDirectorRoster' });
+            });
+          }
+
+          syncBuzzGates();
 
           const projectDependencyMonitoringEnabled = document.getElementById('projectDependencyMonitoringEnabled');
           if (projectDependencyMonitoringEnabled instanceof HTMLInputElement) {

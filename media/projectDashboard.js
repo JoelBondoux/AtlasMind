@@ -839,6 +839,16 @@
       if (chk('asStakeholder')) { cfg.stakeholders.push({ id: 'stk-' + id, contactId: id, category: val('stkCategory') || 'internal', influence: val('stkInfluence') || 'medium', interest: val('stkInterest') || 'medium' }); }
       cfg.teamMembers = cfg.teamMembers.filter(t => t.contactId !== id);
       if (chk('asTeam')) { cfg.teamMembers.push({ id: 'tm-' + id, contactId: id, discipline: val('teamDiscipline').trim() || 'contributor' }); }
+      // The agent binding lives in `atlasmind.buzz.agentBindings`, not in the
+      // roster: it is a local routing preference, and project_memory/ is
+      // git-tracked. Posted separately so the roster save is never blocked by a
+      // binding the extension refuses.
+      if (linkKind === 'buzz' && linkHandle) {
+        vscode.postMessage({
+          type: 'setBuzzAgentBinding',
+          payload: { pubkey: linkHandle, agentId: val('buzzAgentId').trim(), label: name },
+        });
+      }
       state.directorEditContactId = '';
       postDirectorConfig(cfg);
       return;
@@ -994,6 +1004,16 @@
     }
     state.promotion.attestations[checkId] = target.checked;
     render();
+  });
+
+  // Contact editor: the Buzz agent binding only means anything on a buzz
+  // channel, so it follows the channel picker. Toggled in place rather than
+  // via render() — a re-render would discard whatever else has been typed
+  // into the form but not yet saved.
+  root?.addEventListener('change', event => {
+    const target = event.target instanceof HTMLSelectElement ? event.target : null;
+    if (!target || target.getAttribute('data-field') !== 'linkKind') { return; }
+    syncBuzzBindingVisibility(target.value);
   });
 
   // Data Privacy controls: checkboxes (enable / packs / models / rule toggles)
@@ -4066,6 +4086,33 @@
   }
   function directorIsPiiLink(kind) { return kind === 'email' || kind === 'phone' || kind === 'sms'; }
 
+  /**
+   * Compare two Buzz keys the way the extension does. The client cannot decode
+   * bech32, so it matches an `npub…` only as typed and a hex key
+   * case-insensitively. A near-miss simply shows as unbound here; the extension
+   * is what decides whether a key is valid, and it refuses rather than guesses.
+   */
+  function directorSameBuzzKey(a, b) {
+    return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+  }
+
+  /** The agent currently bound to this contact's Buzz key, or '' when unbound. */
+  function directorBoundAgentId(kind, handle) {
+    if (kind !== 'buzz' || !handle) { return ''; }
+    const dir = (state.snapshot && state.snapshot.director) || {};
+    const match = (dir.agentBindings || []).find(b => directorSameBuzzKey(b.pubkey, handle));
+    return match ? match.agentId : '';
+  }
+
+  /** Show the agent binding row only for a buzz channel. */
+  function syncBuzzBindingVisibility(kind) {
+    const row = document.querySelector('[data-buzz-binding]');
+    const note = document.querySelector('[data-buzz-binding-note]');
+    const isBuzz = kind === 'buzz';
+    if (row instanceof HTMLElement) { row.hidden = !isBuzz; }
+    if (note instanceof HTMLElement) { note.hidden = isBuzz; }
+  }
+
   var DIRECTOR_INTENT_LABEL = { email: 'Email', schedule: 'Schedule', message: 'Message' };
 
   function renderDirectorCompose(contact, intent) {
@@ -4094,6 +4141,14 @@
     if (isSelf) { badges.push('<span class="tag" style="background:var(--vscode-badge-background)">you</span>'); }
     if (stk) { badges.push('<span class="tag">' + escapeHtml(stk.category) + ' · ' + escapeHtml(stk.influence) + '/' + escapeHtml(stk.interest) + '</span>'); }
     if (team) { badges.push('<span class="tag mono">' + escapeHtml(team.discipline) + '</span>'); }
+    const buzzLink = (contact.links || []).find(l => l.kind === 'buzz');
+    if (buzzLink) {
+      const boundId = directorBoundAgentId('buzz', buzzLink.handle);
+      const agent = boundId ? (snap.agentChoices || []).find(a => a.id === boundId) : null;
+      if (boundId) {
+        badges.push('<span class="tag">buzz → ' + escapeHtml(agent ? agent.name : boundId) + '</span>');
+      }
+    }
     const linkButtons = contact.links.map(link => {
       const open = link.deepLink
         ? '<button type="button" class="action-link" data-action="director-open-link" data-payload="' + escapeAttr(contact.id + '::' + link.id) + '">Open ' + escapeHtml(link.kind) + '</button>'
@@ -4138,6 +4193,10 @@
     const primary = (contact.links && contact.links[0]) || { kind: 'email', label: '', handle: '' };
     const stk = cfg.stakeholders.find(s => s.contactId === contact.id);
     const team = cfg.teamMembers.find(t => t.contactId === contact.id);
+    const dir = (state.snapshot && state.snapshot.director) || {};
+    const agentOptions = [{ value: '', label: 'Unassigned' }]
+      .concat((dir.agentChoices || []).map(a => ({ value: a.id, label: a.name })));
+    const boundAgent = directorBoundAgentId(primary.kind, primary.handle);
     return `
       <article class="stage-card stage-editor" id="director-contact-editor">
         <div class="stage-head"><h4>${isNew ? 'Add person' : 'Edit person'}</h4></div>
@@ -4149,6 +4208,11 @@
           ${edText('Label', 'linkLabel', primary.label, 'Work email')}
           ${edText('Handle (address / @user / phone)', 'linkHandle', primary.handle, 'jane@example.com')}
         </div>
+        <div class="stage-edit-grid director-buzz-binding" data-buzz-binding ${primary.kind === 'buzz' ? '' : 'hidden'}>
+          ${edSelect('AtlasMind agent for their Buzz messages', 'buzzAgentId', boundAgent, agentOptions)}
+          <p class="list-meta">Work arriving from this Buzz identity is routed to that agent. Leave it <em>Unassigned</em> and inbound work stays unattributed rather than being guessed.${dir.buzzEnabled === false ? ' <strong>Buzz is off</strong> — the binding saves but stays inert until you enable it in Settings → Buzz.' : ''}</p>
+        </div>
+        <p class="list-meta" data-buzz-binding-note ${primary.kind === 'buzz' ? 'hidden' : ''}>Choose the <strong>buzz</strong> channel to bind this person's Buzz identity to an AtlasMind agent.</p>
         <div class="stage-edit-checks">
           ${edCheck('This is me', 'isSelf', cfg.selfContactId === contact.id)}
           ${edCheck('Stakeholder', 'asStakeholder', !!stk)}
@@ -4444,10 +4508,17 @@
     const contactCards = cfg.contacts.length
       ? cfg.contacts.map(c => renderDirectorContactCard(cfg, d, c)).join('')
       : '<div class="dashboard-empty">No people yet. Seed from repo or add someone.</div>';
+    // Unusable bindings are reported, never dropped — a typo that silently did
+    // nothing would look identical to a binding that works.
+    const bindingIssues = (d.agentBindingIssues || []).length
+      ? `<div class="dashboard-empty">${(d.agentBindingIssues || []).map(i =>
+          'Buzz agent binding ignored — <code>' + escapeHtml(i.input) + '</code>: ' + escapeHtml(i.reason)).join('<br>')}</div>`
+      : '';
     const rosterCard = `
       <article class="list-card" style="grid-column: 1 / -1">
         <div class="row-head"><h3>${solo ? 'You & external stakeholders' : 'People'}</h3>
           <button type="button" class="action-link" data-action="director-contact-add" data-payload="">＋ Add person</button></div>
+        ${bindingIssues}
         ${contactEditor}
         <div class="director-roster">${contactCards}</div>
       </article>`;
