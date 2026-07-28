@@ -214,7 +214,7 @@ Integration with [Buzz](https://buzz.xyz) — the open-source, Nostr-based works
 | `atlasmind.buzz.inboundEnabled` | boolean | `false` | Hold a **read-only** Buzz subscription and derive work items. Also requires `atlasmind.buzz.enabled`; can never publish to Buzz. |
 | `atlasmind.buzz.inboundChannels` | string[] | `[]` | Buzz channel ids (UUIDs) to watch. Empty = every channel the agent key can read. |
 | `atlasmind.buzz.autoCreateFollowUps` | boolean | `false` | Record inbound activity as follow-ups. Off by default — `project_memory/` is git-tracked, so this is opt-in. |
-| `atlasmind.buzz.agentBindings` | object | `{}` | Assign AtlasMind agents to Buzz agents: `{"npub1…": "devops-engineer"}`. Unbound identities stay unassigned. |
+| `atlasmind.buzz.agentBindings` | object | `{}` | Assign AtlasMind agents to Buzz agents: `{"npub1…": "devops-engineer"}`, or several with `{"npub1…": ["api-designer", "ux-reviewer"]}`. The first owns the work; the rest are recorded as also-relevant. Unbound identities stay unassigned. |
 | `atlasmind.buzz.allowRemoteRelay` | boolean | `false` | Allow a non-local Buzz relay URL. When `false`, only loopback/localhost relays are used so project data stays on-machine. |
 
 | `atlasmind.buzz.autonomousReplies` | boolean | `false` | Let AtlasMind agents reply to **bound** Buzz agents without a dialog per message. Only applies to identities in `agentBindings`; anyone unbound is treated as a person and still confirms. |
@@ -224,7 +224,7 @@ Integration with [Buzz](https://buzz.xyz) — the open-source, Nostr-based works
 
 **Picking a handle.** With inbound on, the person form offers the Buzz identities AtlasMind has seen, by the name each published for itself, plus your own identity derived from the stored agent key. Nothing is guessed from a person's name.
 
-**Binding an agent to a person.** On **Project Dashboard → Director**, add or edit a person, set their channel to `buzz`, paste their `npub…` key, and pick an AtlasMind agent. That writes `atlasmind.buzz.agentBindings`, which stays the single source of truth — the roster is a convenience editor for it, not a second store. A mistyped `npub` is refused rather than bound to a different identity, an `nsec` is refused by name, and a binding to an agent that does not exist is rejected. Bound people show a `buzz → <agent>` badge on their card.
+**Binding agents to a person.** On **Project Dashboard → Director**, add or edit a person, give them a `buzz` channel (alongside any others they have — a person can hold several), pick their identity from the observed list or paste their `npub…` key, and tick the AtlasMind agents that should own their work. That writes `atlasmind.buzz.agentBindings`, which stays the single source of truth — the roster is a convenience editor for it, not a second store. A mistyped `npub` is refused rather than bound to a different identity, an `nsec` is refused by name, and a binding to an agent that does not exist is rejected. Bound people show a `buzz → <agent>` badge on their card.
 
 Set up live sends from **AtlasMind: Manage MCP Servers → Browse by category → Buzz Communications**. The bundled bridge wraps official `buzz-cli` v0.4.26, keeps the private key and optional authorization tag in SecretStorage, and exposes only channel listing/posting, thread reading, and DMs. It converts the WS/WSS setting to the CLI's HTTP/HTTPS base; remote relays require both `allowRemoteRelay:true` and TLS.
 

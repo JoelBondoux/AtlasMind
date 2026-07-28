@@ -217,6 +217,20 @@ describe('proving the first message arrives', () => {
     expect(guidance(READY, 'firstAgent')).toMatch(/already have an agent/i);
   });
 
+  it('is the step that says how to get the Buzz desktop app', () => {
+    // AtlasMind can read Buzz but cannot post, so the test message has to come
+    // from the app — and the app was previously named only in an optional step
+    // the walkthrough never shows, which read as though nothing needed it.
+    const step = buildBuzzSetupPlan(READY).find(s => s.id === 'firstAgent');
+    const lines = step?.guidance ?? [];
+    expect(lines.map(l => l.text).join(' ')).toMatch(/Get the Buzz app/i);
+    expect(lines.some(l => l.url?.includes('releases'))).toBe(true);
+  });
+
+  it('warns that the app and AtlasMind must share a relay', () => {
+    expect(guidance(READY, 'firstAgent')).toMatch(/same relay/i);
+  });
+
   it('names the two things that actually go wrong', () => {
     const text = guidance(READY, 'firstAgent');
     expect(text).toMatch(/channel id/i);

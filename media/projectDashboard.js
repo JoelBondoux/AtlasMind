@@ -819,15 +819,21 @@
         while (cfg.contacts.some(c => c.id === u)) { u = base + '-' + (n++); }
         id = u;
       }
-      const linkKind = val('linkKind') || 'email';
-      const linkHandle = val('linkHandle').trim();
-      const links = [];
-      if (linkHandle) {
-        const dl = directorDeepLink(linkKind, linkHandle);
-        const lnk = { id: 'link-' + slugClient(linkHandle), kind: linkKind, label: val('linkLabel').trim() || linkKind, handle: linkHandle, preferred: true };
+      // Every channel row, in order. The first is the preferred one.
+      const links = directorReadLinkRows().map((row, index) => {
+        const dl = directorDeepLink(row.kind, row.handle);
+        const lnk = {
+          id: 'link-' + slugClient(row.kind + '-' + row.handle),
+          kind: row.kind,
+          label: row.label || row.kind,
+          handle: row.handle,
+        };
+        if (index === 0) { lnk.preferred = true; }
         if (dl) { lnk.deepLink = dl; }
-        links.push(lnk);
-      }
+        return lnk;
+      });
+      const buzzRow = directorReadLinkRows().find(r => r.kind === 'buzz');
+      const linkHandle = buzzRow ? buzzRow.handle : '';
       const existingIdx = cfg.contacts.findIndex(c => c.id === id);
       const existing = existingIdx >= 0 ? cfg.contacts[existingIdx] : null;
       const finalLinks = links.length ? links : (existing ? existing.links : []);
@@ -847,18 +853,46 @@
       // always a public key — a channel UUID is a perfectly valid handle — so
       // posting unconditionally warned people that a binding they never asked
       // for had failed, on a save that otherwise worked fine.
-      if (linkKind === 'buzz' && directorLooksLikeBuzzKey(linkHandle)) {
-        const chosenAgent = val('buzzAgentId').trim();
-        const alreadyBound = directorBoundAgentId('buzz', linkHandle);
-        if (chosenAgent || alreadyBound) {
+      if (linkHandle && directorLooksLikeBuzzKey(linkHandle)) {
+        const boxes = container.querySelectorAll('[data-field="buzzAgentIds"]');
+        const chosenAgents = [];
+        for (let i = 0; i < boxes.length; i += 1) {
+          if (boxes[i].checked && boxes[i].value) { chosenAgents.push(boxes[i].value); }
+        }
+        const alreadyBound = directorBoundAgentIds('buzz', linkHandle);
+        if (chosenAgents.length || alreadyBound.length) {
           vscode.postMessage({
             type: 'setBuzzAgentBinding',
-            payload: { pubkey: linkHandle, agentId: chosenAgent, label: name },
+            payload: { pubkey: linkHandle, agentIds: chosenAgents, label: name },
           });
         }
       }
       state.directorEditContactId = '';
       postDirectorConfig(cfg);
+      return;
+    }
+    // Rows are added and removed in the DOM rather than by re-rendering: a
+    // re-render would discard every other field typed into the form but not
+    // yet saved, which is exactly when someone is adding a second channel.
+    if (action === 'director-link-add') {
+      const rows = document.getElementById('director-link-rows');
+      if (!rows) { return; }
+      const template = document.createElement('div');
+      template.innerHTML = renderContactLinkRow({ kind: 'email', label: '', handle: '' }, DIRECTOR_LINK_KINDS, false);
+      const row = template.firstElementChild;
+      if (row) { rows.appendChild(row); }
+      syncBuzzBindingVisibility();
+      return;
+    }
+    if (action === 'director-link-remove') {
+      const rows = document.getElementById('director-link-rows');
+      const row = target.closest('[data-link-row]');
+      // The first row is the preferred channel and has no Remove button, so
+      // this only ever fires on an extra one — but never leave zero rows.
+      if (rows && row && rows.querySelectorAll('[data-link-row]').length > 1) {
+        row.remove();
+        syncBuzzBindingVisibility();
+      }
       return;
     }
     if (action === 'director-resp-add') { state.directorNewResponsibility = true; render(); return; }
@@ -1023,24 +1057,45 @@
     if (!target) { return; }
     const field = target.getAttribute('data-field');
 
-    if (field === 'linkKind') {
-      syncBuzzBindingVisibility(target.value);
+    if (target.getAttribute('data-link-field') === 'kind') {
+      syncBuzzBindingVisibility();
       return;
     }
 
-    // Picking an observed identity fills Handle with the key that arrived on
-    // the wire. Typing one by hand is still supported; this only saves the
-    // paste, it is not the only way in.
+    // Picking an observed identity fills the Buzz row's Handle with the key
+    // that arrived on the wire. Typing one by hand is still supported; this
+    // only saves the paste, it is not the only way in.
     if (field === 'buzzIdentityPick' && target.value) {
-      const container = document.getElementById('director-contact-editor');
-      const handle = container && container.querySelector('[data-field="linkHandle"]');
-      if (handle instanceof HTMLInputElement) { handle.value = target.value; }
-      const label = container && container.querySelector('[data-field="linkLabel"]');
-      const chosen = target.options[target.selectedIndex];
-      if (label instanceof HTMLInputElement && !label.value.trim() && chosen) {
-        label.value = 'Buzz';
+      const handle = directorFirstBuzzHandleInput();
+      if (handle instanceof HTMLInputElement) {
+        handle.value = target.value;
+        const row = handle.closest('[data-link-row]');
+        const label = row && row.querySelector('[data-link-field="label"]');
+        if (label instanceof HTMLInputElement && !label.value.trim()) { label.value = 'Buzz'; }
       }
     }
+  });
+
+  // The agent checklist summary, kept honest as boxes are ticked. Updated in
+  // place rather than by re-rendering, which would discard everything else
+  // typed into the form but not yet saved.
+  root?.addEventListener('change', event => {
+    const target = event.target instanceof HTMLInputElement ? event.target : null;
+    if (!target || target.getAttribute('data-field') !== 'buzzAgentIds') { return; }
+    const container = document.getElementById('director-contact-editor');
+    const summary = container && container.querySelector('[data-buzz-agent-summary]');
+    if (!(summary instanceof HTMLElement)) { return; }
+    const boxes = container.querySelectorAll('[data-field="buzzAgentIds"]');
+    const names = [];
+    for (let i = 0; i < boxes.length; i += 1) {
+      if (boxes[i].checked) {
+        const span = boxes[i].parentElement && boxes[i].parentElement.querySelector('span');
+        names.push(span ? span.textContent : boxes[i].value);
+      }
+    }
+    summary.textContent = names.length === 0
+      ? 'Unassigned'
+      : names.length === 1 ? names[0] : names[0] + ' + ' + (names.length - 1) + ' more';
   });
 
   // Data Privacy controls: checkboxes (enable / packs / models / rule toggles)
@@ -3752,6 +3807,10 @@
     };
   }
 
+  /** The communication channels a person can be reached on. */
+  var DIRECTOR_LINK_KINDS = ['email', 'slack', 'teams', 'buzz', 'phone', 'github', 'linkedin', 'other']
+    .map(k => ({ value: k, label: k }));
+
   function edText(label, field, value, ph) {
     return `<label class="stage-edit-field"><span>${escapeHtml(label)}</span><input type="text" data-field="${escapeAttr(field)}" value="${escapeAttr(value || '')}" placeholder="${escapeAttr(ph || '')}" /></label>`;
   }
@@ -4137,12 +4196,24 @@
     return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
   }
 
-  /** The agent currently bound to this contact's Buzz key, or '' when unbound. */
-  function directorBoundAgentId(kind, handle) {
-    if (kind !== 'buzz' || !handle) { return ''; }
+  /** The agents currently bound to this contact's Buzz key. Empty when unbound. */
+  function directorBoundAgentIds(kind, handle) {
+    if (kind !== 'buzz' || !handle) { return []; }
     const dir = (state.snapshot && state.snapshot.director) || {};
     const match = (dir.agentBindings || []).find(b => directorSameBuzzKey(b.pubkey, handle));
-    return match ? match.agentId : '';
+    return match && Array.isArray(match.agentIds) ? match.agentIds.slice() : [];
+  }
+
+  /** How long ago, in words. "seen in 1 channel" alone identifies nobody. */
+  function directorAgo(unixSeconds) {
+    const seconds = Math.floor(Date.now() / 1000) - Number(unixSeconds || 0);
+    if (!Number.isFinite(seconds) || seconds < 0) { return ''; }
+    if (seconds < 90) { return 'just now'; }
+    const minutes = Math.round(seconds / 60);
+    if (minutes < 60) { return minutes + 'm ago'; }
+    const hours = Math.round(minutes / 60);
+    if (hours < 48) { return hours + 'h ago'; }
+    return Math.round(hours / 24) + 'd ago';
   }
 
   /**
@@ -4152,9 +4223,49 @@
    * the row is a `.stage-edit-grid`, whose `display: grid` would otherwise
    * outrank the user agent's default styling for the attribute.
    */
-  function syncBuzzBindingVisibility(kind) {
+  /**
+   * Show the Buzz binding only while some channel on this person *is* Buzz.
+   *
+   * Scans every channel row rather than trusting the one that changed: a person
+   * can have email, Slack, and Buzz, and the binding belongs to the person, not
+   * to whichever row happens to be first.
+   */
+  function syncBuzzBindingVisibility() {
     const row = document.querySelector('[data-buzz-binding]');
-    if (row instanceof HTMLElement) { row.hidden = kind !== 'buzz'; }
+    if (row instanceof HTMLElement) { row.hidden = !directorFirstBuzzHandleInput(); }
+  }
+
+  /** The handle input of the first Buzz channel row, or null when there is none. */
+  function directorFirstBuzzHandleInput() {
+    const container = document.getElementById('director-contact-editor');
+    if (!container) { return null; }
+    const rows = container.querySelectorAll('[data-link-row]');
+    for (let i = 0; i < rows.length; i += 1) {
+      const kind = rows[i].querySelector('[data-link-field="kind"]');
+      if (kind instanceof HTMLSelectElement && kind.value === 'buzz') {
+        const handle = rows[i].querySelector('[data-link-field="handle"]');
+        return handle instanceof HTMLInputElement ? handle : null;
+      }
+    }
+    return null;
+  }
+
+  /** Every channel row currently in the editor, in order. */
+  function directorReadLinkRows() {
+    const container = document.getElementById('director-contact-editor');
+    if (!container) { return []; }
+    const out = [];
+    const rows = container.querySelectorAll('[data-link-row]');
+    for (let i = 0; i < rows.length; i += 1) {
+      const kindEl = rows[i].querySelector('[data-link-field="kind"]');
+      const labelEl = rows[i].querySelector('[data-link-field="label"]');
+      const handleEl = rows[i].querySelector('[data-link-field="handle"]');
+      const kind = kindEl instanceof HTMLSelectElement ? kindEl.value : 'email';
+      const handle = handleEl instanceof HTMLInputElement ? handleEl.value.trim() : '';
+      const label = labelEl instanceof HTMLInputElement ? labelEl.value.trim() : '';
+      if (handle) { out.push({ kind: kind, label: label, handle: handle }); }
+    }
+    return out;
   }
 
   var DIRECTOR_INTENT_LABEL = { email: 'Email', schedule: 'Schedule', message: 'Message' };
@@ -4239,10 +4350,37 @@
    * with no published name shows as a key prefix rather than a made-up label.
    * Choosing an option fills the Handle field; typing one by hand still works.
    */
-  function renderBuzzIdentityPicker(dir, contact, primary) {
+  /**
+   * A label that can actually be chosen between.
+   *
+   * `dcbe44bf896f… (no published name) · seen in 1 channel` three times over is
+   * a list nobody can pick from knowingly, which defeats the point of offering
+   * observed identities at all. Most Buzz identities publish no profile, so the
+   * evidence has to come from behaviour instead: what they last said, how much
+   * they have said, and when. All of it is already sanitized on the way in.
+   */
+  function directorIdentityLabel(identity) {
+    const bits = [];
+    bits.push(identity.named ? identity.label : identity.label + ' (no published name)');
+    if (identity.lastMessage) { bits.push('“' + identity.lastMessage + '”'); }
+    else if (identity.about) { bits.push(identity.about); }
+    const counts = [];
+    if (identity.messageCount) {
+      counts.push(identity.messageCount + ' msg' + (identity.messageCount === 1 ? '' : 's'));
+    }
+    if (identity.channelIds && identity.channelIds.length) {
+      counts.push(identity.channelIds.length + ' channel' + (identity.channelIds.length === 1 ? '' : 's'));
+    }
+    const ago = directorAgo(identity.lastSeenAt);
+    if (ago) { counts.push(ago); }
+    if (counts.length) { bits.push(counts.join(', ')); }
+    return bits.join(' · ');
+  }
+
+  function renderBuzzIdentityPicker(dir, contact, buzzHandle) {
     // A handle that is not an identity key has no binding to make. Say so
     // plainly here rather than letting the save warn about a failure.
-    if (primary.handle && !directorLooksLikeBuzzKey(primary.handle)) {
+    if (buzzHandle && !directorLooksLikeBuzzKey(buzzHandle)) {
       return `<label class="stage-edit-field"><span>Buzz identity</span>
         <span class="list-meta">This handle is not a public key, so there is no identity to bind an agent to. That is fine — a channel UUID or workspace URL is a perfectly good Buzz handle. To route their work to an agent, use their <code>npub…</code> or 64-character hex key instead.</span></label>`;
     }
@@ -4252,34 +4390,80 @@
     }
     for (const identity of dir.buzzIdentities || []) {
       if (identity.pubkey === dir.ownBuzzPubkey) { continue; }
-      const where = identity.channelIds && identity.channelIds.length
-        ? ` · seen in ${identity.channelIds.length} channel${identity.channelIds.length === 1 ? '' : 's'}`
-        : '';
-      options.push({
-        value: identity.pubkey,
-        label: identity.named ? `${identity.label}${where}` : `${identity.label} (no published name)${where}`,
-      });
+      options.push({ value: identity.pubkey, label: directorIdentityLabel(identity) });
     }
     if (options.length === 0) {
       return `<label class="stage-edit-field"><span>Buzz identity</span>
-        <span class="list-meta">No Buzz identities observed yet. Switch on inbound in Settings → Buzz and they will appear here once they post — until then, paste their <code>npub…</code> or hex key into Handle above.</span></label>`;
+        <span class="list-meta">No Buzz identities observed yet. Switch on inbound in Settings → Buzz and they will appear here once they post — until then, paste their <code>npub…</code> or hex key into the Buzz channel's Handle above.</span></label>`;
     }
-    const selected = options.some(o => directorSameBuzzKey(o.value, primary.handle)) ? primary.handle : '';
-    return edSelect('Buzz identity (fills Handle)', 'buzzIdentityPick', selected,
-      [{ value: '', label: options.length === 1 ? 'Pick or type below…' : 'Pick an observed identity…' }].concat(options));
+    const selected = options.some(o => directorSameBuzzKey(o.value, buzzHandle)) ? buzzHandle : '';
+    return edSelect('Buzz identity (fills the Buzz handle)', 'buzzIdentityPick', selected,
+      [{ value: '', label: options.length === 1 ? 'Pick or type below…' : 'Pick an observed identity…' }].concat(options))
+      + '<p class="list-meta">Each option shows what that identity last said, how much it has said, and when — because most Buzz identities publish no name, and a truncated key on its own identifies nobody.</p>';
+  }
+
+  /**
+   * The AtlasMind agents that own this identity's work, as a checklist.
+   *
+   * A list rather than one choice: a colleague who raises both API defects and
+   * design feedback belongs to two specialists, and making the user pick one
+   * throws away something they know. The **first ticked** owns the work — a
+   * follow-up has exactly one owner — and the order is the order shown.
+   */
+  function renderBuzzAgentChecklist(dir, boundIds) {
+    const choices = dir.agentChoices || [];
+    if (!choices.length) {
+      return '<div class="stage-edit-field"><span>AtlasMind agents for their Buzz messages</span><span class="list-meta">No agents registered yet.</span></div>';
+    }
+    const chosen = choices.filter(a => boundIds.indexOf(a.id) >= 0);
+    const summary = chosen.length === 0
+      ? 'Unassigned'
+      : chosen.length === 1
+        ? chosen[0].name
+        : chosen[0].name + ' + ' + (chosen.length - 1) + ' more';
+    const rows = choices.map(a => `<label class="stage-edit-check">
+        <input type="checkbox" data-field="buzzAgentIds" value="${escapeAttr(a.id)}" ${boundIds.indexOf(a.id) >= 0 ? 'checked' : ''} />
+        <span>${escapeHtml(a.name)}</span>
+      </label>`).join('');
+    return `<div class="stage-edit-field">
+      <span>AtlasMind agents for their Buzz messages</span>
+      <details class="director-agent-picker">
+        <summary data-buzz-agent-summary>${escapeHtml(summary)}</summary>
+        <div class="director-agent-options">${rows}</div>
+      </details>
+    </div>`;
+  }
+
+  /** One communication channel row. A person may need several. */
+  function renderContactLinkRow(link, kinds, isFirst) {
+    const kind = (link && link.kind) || 'email';
+    return `<div class="stage-edit-grid director-link-row" data-link-row>
+      <label class="stage-edit-field"><span>Channel</span>
+        <select data-link-field="kind">${kinds.map(k =>
+          `<option value="${escapeAttr(k.value)}" ${k.value === kind ? 'selected' : ''}>${escapeHtml(k.label)}</option>`).join('')}</select></label>
+      <label class="stage-edit-field"><span>Label</span>
+        <input type="text" data-link-field="label" value="${escapeAttr((link && link.label) || '')}" placeholder="Work email" /></label>
+      <label class="stage-edit-field"><span>Handle (address / @user / phone)</span>
+        <input type="text" data-link-field="handle" value="${escapeAttr((link && link.handle) || '')}" placeholder="jane@example.com" /></label>
+      <div class="stage-edit-field"><span>&nbsp;</span>
+        <button type="button" class="action-link${isFirst ? '' : ' danger'}" data-action="director-link-remove" data-payload="">${isFirst ? 'Preferred' : 'Remove'}</button></div>
+    </div>`;
   }
 
   function renderDirectorContactEditor(cfg, contact, isNew) {
-    const kinds = ['email', 'slack', 'teams', 'buzz', 'phone', 'github', 'linkedin', 'other'].map(k => ({ value: k, label: k }));
+    const kinds = DIRECTOR_LINK_KINDS;
     const cats = ['sponsor', 'client', 'user-representative', 'regulator', 'vendor', 'partner', 'internal', 'other'].map(k => ({ value: k, label: k }));
     const levels = ['high', 'medium', 'low'].map(k => ({ value: k, label: k }));
-    const primary = (contact.links && contact.links[0]) || { kind: 'email', label: '', handle: '' };
+    // A person is rarely reachable one way only — email *and* Slack *and* Buzz
+    // is the normal case, and the roster stored a list all along; only the
+    // editor insisted on one. The first row is the preferred channel.
+    const existingLinks = (contact.links && contact.links.length ? contact.links : [{ kind: 'email', label: '', handle: '' }]);
     const stk = cfg.stakeholders.find(s => s.contactId === contact.id);
     const team = cfg.teamMembers.find(t => t.contactId === contact.id);
     const dir = (state.snapshot && state.snapshot.director) || {};
-    const agentOptions = [{ value: '', label: 'Unassigned' }]
-      .concat((dir.agentChoices || []).map(a => ({ value: a.id, label: a.name })));
-    const boundAgent = directorBoundAgentId(primary.kind, primary.handle);
+    const buzzLink = existingLinks.find(l => l.kind === 'buzz');
+    const buzzHandle = buzzLink ? buzzLink.handle : '';
+    const boundAgentIds = directorBoundAgentIds('buzz', buzzHandle);
     return `
       <article class="stage-card stage-editor" id="director-contact-editor">
         <div class="stage-head"><h4>${isNew ? 'Add person' : 'Edit person'}</h4></div>
@@ -4287,14 +4471,18 @@
           ${edText('Name', 'name', contact.name, 'Jane Doe')}
           ${edText('Title / role', 'title', contact.title, 'VP Product')}
           ${edText('Organisation', 'org', contact.org, '')}
-          ${edSelect('Channel', 'linkKind', primary.kind, kinds)}
-          ${edText('Label', 'linkLabel', primary.label, 'Work email')}
-          ${edText('Handle (address / @user / phone)', 'linkHandle', primary.handle, 'jane@example.com')}
         </div>
-        <div class="stage-edit-grid director-buzz-binding" data-buzz-binding ${primary.kind === 'buzz' ? '' : 'hidden'}>
-          ${renderBuzzIdentityPicker(dir, contact, primary)}
-          ${edSelect('AtlasMind agent for their Buzz messages', 'buzzAgentId', boundAgent, agentOptions)}
-          <p class="list-meta">Work arriving from this Buzz identity is routed to that agent. Leave it <em>Unassigned</em> and inbound work stays unattributed rather than being guessed.${dir.buzzEnabled === false ? ' <strong>Buzz is off</strong> — the binding saves but stays inert until you enable it in Settings → Buzz.' : ''}</p>
+        <div id="director-link-rows">
+          ${existingLinks.map((link, index) => renderContactLinkRow(link, kinds, index === 0)).join('')}
+        </div>
+        <div class="tag-row">
+          <button type="button" class="action-link" data-action="director-link-add" data-payload="">＋ Add another channel</button>
+          <span class="list-meta">The first channel is the preferred one. Add Buzz alongside email or Slack — the same person, reachable more than one way.</span>
+        </div>
+        <div class="stage-edit-grid director-buzz-binding" data-buzz-binding ${buzzLink ? '' : 'hidden'}>
+          ${renderBuzzIdentityPicker(dir, contact, buzzHandle)}
+          ${renderBuzzAgentChecklist(dir, boundAgentIds)}
+          <p class="list-meta">Work arriving from this Buzz identity is routed to the agents you tick; the first owns it, since a follow-up has one owner. Tick nothing and inbound work stays unattributed rather than being guessed.${dir.buzzEnabled === false ? ' <strong>Buzz is off</strong> — the binding saves but stays inert until you enable it in Settings → Buzz.' : ''}</p>
         </div>
         <div class="stage-edit-checks">
           ${edCheck('This is me', 'isSelf', cfg.selfContactId === contact.id)}

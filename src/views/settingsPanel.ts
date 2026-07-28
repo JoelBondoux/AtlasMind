@@ -245,6 +245,7 @@ type SettingsMessage =
   | { type: 'openBuzzAgentKey' }
   | { type: 'openDirectorRoster' }
   | { type: 'openBuzzGuide' }
+  | { type: 'fetchBuzzChannels' }
   | { type: 'setMcpServerEnabled'; payload: { id: string; enabled: boolean } }
   | { type: 'connectMcpServer'; payload: string }
   | { type: 'disconnectMcpServer'; payload: string }
@@ -915,6 +916,14 @@ export class SettingsPanel {
         // implementations of one flow drift, and the one that drifts is the one
         // nobody is looking at.
         await vscode.commands.executeCommand('atlasmind.openMcpServers');
+        return;
+
+      case 'fetchBuzzChannels':
+        // Asks the Buzz CLI which channels exist and offers them to tick. The
+        // only Buzz control here that writes a setting — and every part of that
+        // write is the user's: this button, then the picker, then nothing at all
+        // if they dismiss it. It touches the channel list only, never a gate.
+        await vscode.commands.executeCommand('atlasmind.buzz.fetchChannels');
         return;
 
       case 'openBuzzGuide':
@@ -2646,7 +2655,9 @@ export class SettingsPanel {
                   <textarea id="buzzInboundChannels" rows="3" placeholder="One channel id per line">${buzzInboundChannels}</textarea>
                 </div>
                 <p class="info-note">An empty list is <strong>not</strong> "no channels" — it scopes the subscription by message kind alone, covering every channel your agent key can already read. List channel ids to narrow it. An authenticating relay needs an agent key before it will accept a subscription at all.</p>
+                <p class="info-note">Rather than copying ids out of the Buzz app, press <strong>Fetch my channels</strong> and tick them. It asks the Buzz CLI for the real ids, so a channel id that quietly does not match the channel you posted in — the usual reason a working subscription receives nothing — stops being possible. Needs the CLI installed and your agent key stored; nothing is saved unless you tick and confirm.</p>
                 <div class="button-stack">
+                  <button type="button" class="secondary-button" id="buzzFetchChannels">Fetch my channels</button>
                   <button type="button" class="secondary-button" id="buzzSetAgentKey">Set Buzz agent key…</button>
                 </div>
               </article>
@@ -2673,7 +2684,7 @@ export class SettingsPanel {
                 </div>
                 ${parsedBuzzBindings.bindings.length
                   ? `<ul class="plain-list">${parsedBuzzBindings.bindings.map(binding =>
-                      `<li><code>${escapeHtml(`${binding.pubkey.slice(0, 12)}…`)}</code> → <strong>${escapeHtml(binding.agentId)}</strong>${binding.label ? ` <span class="muted-line">${escapeHtml(binding.label)}</span>` : ''}</li>`).join('')}</ul>`
+                      `<li><code>${escapeHtml(`${binding.pubkey.slice(0, 12)}…`)}</code> → <strong>${escapeHtml(binding.agentIds.join(', '))}</strong>${binding.agentIds.length > 1 ? ' <span class="muted-line">(first owns the work)</span>' : ''}${binding.label ? ` <span class="muted-line">${escapeHtml(binding.label)}</span>` : ''}</li>`).join('')}</ul>`
                   : '<p class="muted-line">No bindings yet. Work from an unbound Buzz identity stays unassigned rather than being routed by guesswork.</p>'}
                 ${parsedBuzzBindings.issues.length
                   ? `<p class="warning-note">${parsedBuzzBindings.issues.map(issue =>
@@ -4741,6 +4752,13 @@ export class SettingsPanel {
             });
           }
 
+          const buzzFetchChannels = document.getElementById('buzzFetchChannels');
+          if (buzzFetchChannels instanceof HTMLButtonElement) {
+            buzzFetchChannels.addEventListener('click', () => {
+              vscode.postMessage({ type: 'fetchBuzzChannels' });
+            });
+          }
+
           const buzzOpenDirector = document.getElementById('buzzOpenDirector');
           if (buzzOpenDirector instanceof HTMLButtonElement) {
             buzzOpenDirector.addEventListener('click', () => {
@@ -6301,7 +6319,8 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
   }
 
   if (message.type === 'openBuzzAgentKey' || message.type === 'openDirectorRoster'
-    || message.type === 'openBuzzGuide' || message.type === 'openMcpManager') {
+    || message.type === 'openBuzzGuide' || message.type === 'fetchBuzzChannels'
+    || message.type === 'openMcpManager') {
     return true;
   }
 

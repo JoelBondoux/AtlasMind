@@ -19,6 +19,7 @@ import { isSettingsMessage } from '../../src/views/settingsPanel.ts';
 const settingsSource = readFileSync(path.join(process.cwd(), 'src', 'views', 'settingsPanel.ts'), 'utf8');
 const dashboardSource = readFileSync(path.join(process.cwd(), 'src', 'views', 'projectDashboardPanel.ts'), 'utf8');
 const dashboardClient = readFileSync(path.join(process.cwd(), 'media', 'projectDashboard.js'), 'utf8');
+const packageJson = readFileSync(path.join(process.cwd(), 'package.json'), 'utf8');
 
 describe('Settings → Buzz page', () => {
   const CONTROLS = [
@@ -53,6 +54,7 @@ describe('Settings → Buzz page', () => {
     { type: 'setBuzzInboundChannels', payload: 'chan-1\nchan-2' },
     { type: 'openBuzzAgentKey' },
     { type: 'openDirectorRoster' },
+    { type: 'fetchBuzzChannels' },
   ])('accepts $type at the message guard', message => {
     expect(isSettingsMessage(message)).toBe(true);
   });
@@ -122,10 +124,38 @@ describe('Director roster agent binding', () => {
     expect(dashboardSource).toContain("case 'setBuzzAgentBinding':");
   });
 
-  it('only offers the binding on a buzz channel', () => {
-    expect(dashboardClient).toContain("linkKind === 'buzz'");
+  it('only offers the binding while some channel on this person is Buzz', () => {
+    // Scanned across every channel row, not read off whichever one happens to
+    // be first: a person can be reachable by email, Slack, and Buzz at once.
     expect(dashboardClient).toContain('data-buzz-binding');
-    expect(dashboardClient).toMatch(/row\.hidden = kind !== 'buzz'/);
+    expect(dashboardClient).toContain('function directorFirstBuzzHandleInput');
+    expect(dashboardClient).toMatch(/row\.hidden = !directorFirstBuzzHandleInput\(\)/);
+  });
+
+  it('lets one person hold several communication channels', () => {
+    // The roster stored `links` as a list all along; only the editor insisted
+    // on one, so a colleague reachable on both email and Buzz lost one of them.
+    expect(dashboardClient).toContain('director-link-add');
+    expect(dashboardClient).toContain('director-link-remove');
+    expect(dashboardClient).toContain('function directorReadLinkRows');
+    // Rows are added in the DOM, not by re-rendering, which would discard
+    // everything else typed into the form but not yet saved.
+    expect(dashboardClient).toMatch(/director-link-add[\s\S]{0,600}rows\.appendChild/);
+  });
+
+  it('binds several AtlasMind agents to one Buzz identity', () => {
+    expect(dashboardClient).toContain('renderBuzzAgentChecklist');
+    expect(dashboardClient).toContain("data-field=\"buzzAgentIds\"");
+    expect(dashboardClient).toContain('agentIds: chosenAgents');
+  });
+
+  it('makes an observed identity identifiable by more than a truncated key', () => {
+    // Three rows reading `dcbe44bf896f… (no published name) · seen in 1 channel`
+    // is a list nobody can choose from knowingly.
+    expect(dashboardClient).toContain('function directorIdentityLabel');
+    expect(dashboardClient).toContain('lastMessage');
+    expect(dashboardClient).toContain('messageCount');
+    expect(dashboardClient).toContain('directorAgo');
   });
 
   it('makes the hidden attribute actually hide', () => {
@@ -136,12 +166,15 @@ describe('Director roster agent binding', () => {
     expect(dashboardSource).toMatch(/\[hidden\]\s*{\s*display:\s*none\s*!important/);
   });
 
-  it('validates the message shape but allows an empty agent id for unbinding', () => {
+  it('validates the message shape but allows an empty agent list for unbinding', () => {
     const validator = dashboardSource.slice(dashboardSource.indexOf("candidate['type'] === 'setBuzzAgentBinding'"));
     expect(validator).toContain("typeof p['pubkey'] === 'string'");
-    expect(validator).toContain("typeof p['agentId'] === 'string'");
-    // An `agentId.length > 0` check here would make unbinding impossible.
-    expect(validator.slice(0, 400)).not.toContain("p['agentId'].length > 0");
+    // Every entry checked, not just that it is an array: this decides which
+    // agent owns inbound work, so a non-string would reach the registry lookup.
+    expect(validator).toContain("Array.isArray(p['agentIds'])");
+    expect(validator).toContain("typeof id === 'string'");
+    // A `length > 0` check here would make unbinding impossible.
+    expect(validator.slice(0, 500)).not.toContain("p['agentIds'].length > 0");
   });
 
   it('refuses a binding to an agent that does not exist', () => {
@@ -214,13 +247,29 @@ describe('the guided walkthrough is reachable from the Buzz settings page', () =
   });
 });
 
+describe('fetching the real channel ids instead of copying them by hand', () => {
+  it('offers a button on the Buzz settings page', () => {
+    expect(settingsSource).toContain('id="buzzFetchChannels"');
+    expect(settingsSource).toContain("type: 'fetchBuzzChannels'");
+    expect(settingsSource).toContain("case 'fetchBuzzChannels':");
+  });
+
+  it('runs the extension command rather than reimplementing the flow in the panel', () => {
+    expect(settingsSource).toContain("executeCommand('atlasmind.buzz.fetchChannels')");
+  });
+
+  it('is registered as a command so it is reachable from the palette too', () => {
+    expect(packageJson).toContain('atlasmind.buzz.fetchChannels');
+  });
+});
+
 describe('a Buzz handle is not always a public key', () => {
   it('only posts a binding when there is one to make', () => {
     // A channel UUID is a perfectly valid Buzz handle. Posting unconditionally
     // warned people that a binding they never asked for had failed, on a save
     // that had otherwise worked.
     expect(dashboardClient).toContain('directorLooksLikeBuzzKey');
-    expect(dashboardClient).toMatch(/if \(chosenAgent \|\| alreadyBound\)/);
+    expect(dashboardClient).toMatch(/if \(chosenAgents\.length \|\| alreadyBound\.length\)/);
   });
 
   it('explains a non-key handle instead of erroring on save', () => {

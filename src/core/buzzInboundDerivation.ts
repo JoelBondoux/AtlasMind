@@ -73,10 +73,16 @@ export interface DerivedWorkItem {
   /** Where in Buzz this came from, so the UI can link back to the real thread. */
   pointer: BuzzThreadPointer;
   /**
-   * The AtlasMind agent bound to the event's author, when the project
-   * configured one. Undefined means *no preference* — never a guess.
+   * The AtlasMind agent that owns this item: the **first** agent bound to the
+   * event's author. Undefined means *no preference* — never a guess.
    */
   agentId?: string;
+  /**
+   * Every agent bound to the author, in order, when there is more than one.
+   * A follow-up has a single owner, so the rest are recorded as also-relevant
+   * rather than being picked between by inference the binding does not support.
+   */
+  agentIds?: string[];
 }
 
 export type DerivationResult =
@@ -182,7 +188,12 @@ export function deriveWorkItemFromEvent(
 
   return {
     ok: true,
-    item: { followUp, pointer, ...(bound ? { agentId: bound.agentId } : {}) },
+    item: {
+      followUp,
+      pointer,
+      ...(bound?.agentIds[0] ? { agentId: bound.agentIds[0] } : {}),
+      ...(bound && bound.agentIds.length > 1 ? { agentIds: [...bound.agentIds] } : {}),
+    },
   };
 }
 

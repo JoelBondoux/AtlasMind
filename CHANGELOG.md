@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.163.0] - 2026-07-28
+
+### Added
+- **A person can hold several communication channels.** The Director's Add / Edit person form now takes as many as someone actually has — email *and* Slack *and* Buzz — instead of the single channel it allowed. The first row is the preferred one; the rest are added and removed in place, so nothing else typed into the form is lost. `DirectorContact.links` was always a list; only the editor insisted on one, which quietly discarded a colleague's second channel.
+- **A Buzz identity can be bound to several AtlasMind agents.** `atlasmind.buzz.agentBindings` now accepts `<npub>: [<agentId>…]` alongside the existing `<npub>: <agentId>`, and the Director offers a checklist rather than one choice. A correspondent who raises both API defects and design feedback belongs to two specialists, and forcing a choice discards something the user knows. **The first is the owner** — a follow-up has exactly one — and the rest are recorded as also-relevant rather than picked between by inference the binding does not support.
+- **Observed Buzz identities carry enough evidence to be recognised.** Each option now shows what that identity last said, how many messages it has sent, how many channels it has been seen in, and how long ago — because most Buzz identities publish no profile, and three rows reading `dcbe44bf896f… (no published name) · seen in 1 channel` is a list nobody can choose from knowingly. The excerpt is session-only and never persisted, like everything else in the directory.
+
+### Changed
+- **The walkthrough says where the Buzz desktop app fits.** Proving a message arrives is the one step that needs it — AtlasMind can read Buzz but cannot post, so the test message has to come from elsewhere — and that step now says so, with the download link and the warning that the app and AtlasMind must point at the same relay. Previously the app was named only in an optional step the walkthrough never shows, which read as though nothing required it.
+- **A single binding is still written as a plain string**, so a hand-authored settings record does not sprout arrays because one unrelated entry gained a second agent.
+
+### Security
+- **Every agent id in a binding is validated, not just the first.** A rename that broke the second of three would otherwise have saved silently and routed nothing. The webview message guard requires an array whose every entry is a string, since this decides which agent owns inbound work.
+- **The message excerpt crosses the boundary already sanitized** — secret-redacted, control-stripped, and clamped to 80 characters by the same path as every other piece of remote-authored text in the directory — and only the newest message wins, so a reconnect replay cannot overwrite it with something older.
+
+## [0.162.0] - 2026-07-28
+
+### Added
+- **Fetch your Buzz channels instead of copying ids by hand.** A **Fetch my channels** button on Settings → Buzz (and `AtlasMind: Fetch My Buzz Channels` in the palette) asks the Buzz CLI which channels your key can actually see and offers them as a ticklist, with the ones you already watch pre-ticked. A channel id that does not match the channel you posted in is the most common reason a correctly configured subscription receives nothing, and it cannot be diagnosed from inside AtlasMind — the wrong id, the wrong relay, and a quiet day are indistinguishable. The setup walkthrough points at the button on both the subscribe step and the "prove a message arrives" step, but only once the CLI is actually installed: naming a button that needs a binary you never installed teaches people to distrust the guide.
+
+### Security
+- **The only Buzz control that writes a setting, and every part of the write is yours.** You press the button, you tick the channels, and nothing is stored if you dismiss the picker. It touches the channel list alone — never a gate, never a key. It runs under the same validated configuration as the MCP bridge: the relay URL is normalised and remote-consent-checked, the key is read from the OS secret store and passed as an environment variable, and the binary is executed directly rather than through a shell.
+- **The CLI's output is treated as untrusted.** Channel names are written by whoever created the channel and end up in a picker; ids end up in a settings array AtlasMind later subscribes with. Parsing never throws, ids are constrained to a printable-safe identifier charset rather than accepted as arbitrary text (so whitespace, control characters, and shell-shaped strings are refused), names are secret-redacted, control-stripped and clamped, the list is capped and de-duplicated, and entries that could not be read are counted rather than silently dropped.
+- **A watched channel the relay did not list is kept, not removed.** A channel the CLI could not see is far more likely a permissions or paging gap than a deliberate removal, and dropping it would unsubscribe someone from a channel they never touched.
+
+### Changed
+- **Field names read from the CLI's source, not guessed.** `channels list --format compact` emits `{ channel_id, name }` per the compact projection in the pinned release's `channels.rs`; the parser also accepts the other obvious spellings, because tolerating a rename costs nothing and failing closed on one costs a user their channel list.
+
 ## [0.161.0] - 2026-07-28
 
 ### Added
