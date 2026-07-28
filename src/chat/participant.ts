@@ -871,7 +871,7 @@ async function handleChatRequest(
       break;
 
     case 'buzz':
-      await handleBuzzCommand(stream, atlas, token);
+      await handleBuzzCommand(request.prompt, stream, atlas, token);
       break;
 
     case 'followups':
@@ -1662,6 +1662,149 @@ function escapeMd(value: string): string {
   return String(value ?? '').replace(/([\\`*_{}\[\]()#+\-!|])/g, '\\$1');
 }
 
+/** Targets confirmed for sending this session. Cleared when the window closes. */
+const buzzConfirmedTargets = new Set<string>();
+
+/**
+ * `/buzz read` — show the conversation, with reactions.
+ *
+ * Session-scoped and never written to disk. Tier 3 deliberately keeps message
+ * bodies out of `project_memory/` because that folder is committed; showing you
+ * a message you already have access to is a different thing entirely.
+ */
+async function handleBuzzRead(
+  stream: vscode.ChatResponseStream,
+  atlas: AtlasMindContext,
+): Promise<void> {
+  const service = atlas.buzzInbound;
+  if (!service) {
+    stream.markdown('Buzz inbound is not running. Ask **/buzz** for the setup checklist.');
+    return;
+  }
+  const messages = service.readAllConversations(20);
+  if (messages.length === 0) {
+    stream.markdown([
+      '### Buzz — nothing yet',
+      '',
+      `Subscription status: **${service.getStatus()}**.`,
+      '',
+      'Messages appear here as they arrive. If this stays empty while the status says subscribed, the relay may have no recent activity in the channels you are watching.',
+    ].join('\n'));
+    stream.button({ command: 'atlasmind.openSettings', title: 'Open Settings → Buzz', arguments: ['buzz'] });
+    return;
+  }
+
+  const identities = new Map(service.listIdentities().map(identity => [identity.pubkey, identity]));
+  const self = service.getSelfPubkey();
+  const lines = ['### Buzz — recent messages', ''];
+  for (const message of [...messages].reverse()) {
+    const identity = identities.get(message.authorPubkey);
+    const who = identity?.displayName ?? `${message.authorPubkey.slice(0, 12)}…`;
+    const mine = self && message.authorPubkey === self.toLowerCase() ? ' *(you)*' : '';
+    const when = new Date(message.createdAt * 1000).toISOString().slice(11, 16);
+    // Emoji in the body and in the reactions are shown as published — the
+    // point of forwarding them is that they arrive intact.
+    const reactions = message.reactions.length > 0
+      ? `  ${message.reactions.map(entry => `${entry.emoji} ${entry.count}`).join('  ')}`
+      : '';
+    lines.push(`**${escapeMd(who)}**${mine} · ${when}`);
+    lines.push(`${escapeMd(message.text)}${message.truncated ? ' …' : ''}${reactions}`);
+    lines.push('');
+  }
+  lines.push('_Held in memory for this session only — Buzz conversations are never written into project memory._');
+  stream.markdown(lines.join('\n'));
+  stream.markdown('\nReply with **`/buzz send <your message>`**.');
+}
+
+/**
+ * `/buzz send <message>` — post to Buzz through the guarded bridge.
+ *
+ * The confirmation policy lives in `buzzSendPolicy`: a message you wrote, aimed
+ * at a channel you chose and have already sent to this session, goes without a
+ * dialog, because you confirmed it by typing it. Everything else confirms.
+ */
+async function handleBuzzSend(
+  body: string,
+  stream: vscode.ChatResponseStream,
+  atlas: AtlasMindContext,
+): Promise<void> {
+  const [{ validateOutboundMessage }, { decideBuzzSend, describeBuzzSend }, { mcpSkillId }] = await Promise.all([
+    import('../core/buzzConversation.js'),
+    import('../core/buzzSendPolicy.js'),
+    import('../mcp/mcpServerRegistry.js'),
+  ]);
+
+  const configuration = vscode.workspace.getConfiguration('atlasmind');
+  if (!configuration.get<boolean>('buzz.enabled', false)) {
+    stream.markdown('Buzz is off. Ask **/buzz** for the setup checklist.');
+    return;
+  }
+
+  const validation = validateOutboundMessage(body);
+  if (!validation.ok || !validation.text) {
+    stream.markdown(`Not sent. ${escapeMd(validation.reason ?? 'The message could not be validated.')}`);
+    return;
+  }
+
+  const channels = (configuration.get<string[]>('buzz.inboundChannels', []) ?? []).filter(Boolean);
+  if (channels.length !== 1) {
+    stream.markdown(channels.length === 0
+      ? 'No Buzz channel is configured to send to. Add exactly one channel id under **Settings → Buzz** so there is no ambiguity about where a message goes.'
+      : `You are watching ${channels.length} channels, so AtlasMind will not guess which one to post to. Sending to the wrong channel is not recoverable.`);
+    stream.button({ command: 'atlasmind.openSettings', title: 'Open Settings → Buzz', arguments: ['buzz'] });
+    return;
+  }
+  const target = channels[0]!;
+
+  const server = (atlas.mcpServerRegistry?.listServers() ?? [])
+    .find(entry => entry.config.id === 'mcp-server-buzz' || /buzz/i.test(entry.config.name ?? ''));
+  const tool = server?.tools.find(entry => entry.name === 'buzz_post_message');
+  if (!server || !tool) {
+    stream.markdown('The Buzz Communications bridge is not connected, so there is no way to send. Ask **/buzz** — it will tell you what is missing.');
+    stream.button({ command: 'atlasmind.openMcpServers', title: 'Manage MCP servers' });
+    return;
+  }
+
+  const decision = decideBuzzSend({
+    composer: 'human',
+    target,
+    targetChosenByUser: true,
+    confirmedTargets: [...buzzConfirmedTargets],
+  });
+  if (decision.requiresConfirmation) {
+    const choice = await vscode.window.showWarningMessage(
+      describeBuzzSend(
+        { composer: 'human', target, targetChosenByUser: true, confirmedTargets: [...buzzConfirmedTargets] },
+        decision,
+        validation.text,
+      ),
+      { modal: true },
+      'Send',
+    );
+    if (choice !== 'Send') {
+      stream.markdown('Not sent.');
+      return;
+    }
+  }
+
+  const skillId = mcpSkillId(server.config.id, tool.name);
+  const skill = atlas.skillsRegistry.get(skillId);
+  if (!skill || !atlas.skillsRegistry.isEnabled(skill.id)) {
+    stream.markdown('The Buzz send tool is unavailable. Reconnect the server from MCP Servers.');
+    return;
+  }
+
+  try {
+    await skill.execute({ channel: target, content: validation.text }, atlas.skillContext);
+    if (decision.remembersTarget) {
+      buzzConfirmedTargets.add(target);
+    }
+    stream.markdown(`Sent to Buzz. ${decision.requiresConfirmation ? '' : '_(No dialog: you wrote it, you chose the channel, and you have sent here already this session.)_'}`);
+  } catch (error) {
+    stream.markdown(`Send failed: ${escapeMd(error instanceof Error ? error.message : String(error))}`);
+  }
+}
+
 /**
  * Read one pinned Buzz documentation URL.
  *
@@ -1701,10 +1844,22 @@ async function fetchBuzzDoc(url: string): Promise<string | undefined> {
  * that does not exist and leaves them trusting a broken result.
  */
 async function handleBuzzCommand(
+  prompt: string,
   stream: vscode.ChatResponseStream,
   atlas: AtlasMindContext,
   token: vscode.CancellationToken,
 ): Promise<void> {
+  const trimmed = (prompt ?? '').trim();
+  if (/^read\b/i.test(trimmed)) {
+    await handleBuzzRead(stream, atlas);
+    return;
+  }
+  const send = /^send\s+([\s\S]+)$/i.exec(trimmed);
+  if (send) {
+    await handleBuzzSend(send[1]!, stream, atlas);
+    return;
+  }
+
   const [{ buildBuzzSetupPlan, isBuzzInboundReady, nextBuzzSetupStep }, { hasLauncherOnPath }, { BUZZ_AGENT_KEY_SECRET }, docsModule] =
     await Promise.all([
       import('../core/buzzSetupPlan.js'),
@@ -3827,6 +3982,7 @@ export function buildFollowups(
 
     case 'buzz':
       return [
+        { prompt: '/buzz read', label: 'Read the conversation' },
         { prompt: '/director', label: 'Open Project Director' },
         { prompt: '/followups', label: "What's due" },
       ];

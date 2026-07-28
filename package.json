@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.155.0",
+  "version": "0.156.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -107,7 +107,7 @@
           },
           {
             "name": "buzz",
-            "description": "Walk through Buzz setup: what is done, what is left, and what to click next"
+            "description": "Buzz: setup checklist, or `read` the conversation, or `send <message>`"
           },
           {
             "name": "followups",

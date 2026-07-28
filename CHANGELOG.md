@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.156.0] - 2026-07-28
+
+### Added
+- **Read and reply to Buzz from AtlasMind chat.** `/buzz read` shows the recent conversation with authors resolved to their published names, and `/buzz send <message>` posts back through the guarded bridge.
+- **Emoji work in both directions.** Reactions arriving from Buzz are attached to the message they target and aggregated with counts, and emoji you type are sent exactly as written.
+
+### Changed
+- **Confirmation now fires where it adds something, instead of on every send.** A message *you* wrote, aimed at a channel *you* chose, to a recipient you have already messaged this session, sends without a dialog — you confirmed it by typing it and pressing send. A dialog there adds nothing, and dialogs that add nothing train people to dismiss the ones that matter. Everything else still confirms: anything AtlasMind drafted, any recipient AtlasMind picked, and the first message to any recipient in a session.
+- **AtlasMind refuses to guess which channel to post to.** With more than one channel configured, `/buzz send` stops rather than choosing — sending to the wrong channel cannot be undone.
+
+### Security
+- **Conversations are held in memory for the session and never written to disk.** Tier 3 keeps message bodies out of `project_memory/` because it is git-tracked; this is the same rule, not an exception to it. "Derive, don't mirror" governs what is *stored*, and was never a rule against looking at a message.
+- **A secret in an outgoing message is a refusal, not a redaction.** Quietly sending a redacted version would be the worst outcome available: you would believe you had sent one thing while your colleagues read another.
+- **Emoji are handled as a correctness problem.** Truncation walks whole code points and backs off trailing joiners, variation selectors, and skin-tone modifiers, so a trimmed message never ends in a broken glyph or a replacement character. Reactions compare on the full published sequence, so 👍 and 👍🏽 stay distinct — they are different reactions by different people. Outbound length is counted in code points, so an emoji-heavy message is not rejected at half its stated limit.
+- **The session grant is scoped to one recipient**, is never created by an AtlasMind-chosen target, and is cleared when the window closes.
+
 ## [0.155.0] - 2026-07-28
 
 ### Added

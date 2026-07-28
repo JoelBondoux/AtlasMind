@@ -28,6 +28,13 @@ import { BUZZ_AGENT_KEY_SECRET, createBuzzEventSigner } from './buzzSigner.js';
 import { parseAgentBindings, type BuzzAgentBinding } from './buzzAgentBindings.js';
 import { BUZZ_INBOUND_KINDS, BUZZ_KIND, type NostrEvent, type NostrFilter } from './buzzProtocol.js';
 import {
+  createConversation,
+  ingestEvent as ingestConversationEvent,
+  recentMessages,
+  type BuzzConversation,
+  type BuzzMessage,
+} from './buzzConversation.js';
+import {
   createBuzzDirectory,
   identitiesMissingProfiles,
   listIdentities,
@@ -151,6 +158,15 @@ export class BuzzInboundService implements vscode.Disposable {
   /** Identities seen this session. In memory only — never written to git-tracked memory. */
   private readonly directory = createBuzzDirectory();
   private profileLookupHandle: ReturnType<typeof setTimeout> | undefined;
+  /**
+   * Live conversations, keyed by channel. **In memory only** — this is the one
+   * place message bodies exist, and they must never reach `project_memory/`,
+   * which is git-tracked. "Derive, don't mirror" governs what goes to disk; it
+   * was never a rule against looking at a message.
+   */
+  private readonly conversations = new Map<string, BuzzConversation>();
+  /** The local identity, so my own reactions can be marked as mine. */
+  private selfPubkey: string | undefined;
 
   constructor(private readonly deps: BuzzInboundDeps) {}
 
@@ -194,6 +210,8 @@ export class BuzzInboundService implements vscode.Disposable {
     }
 
     this.signerKeyFingerprint = fingerprint;
+    // Knowing my own key lets a reaction I sent be shown as mine.
+    this.selfPubkey = signer?.pubkey;
     this.client = new BuzzClient({
       relayUrl: settings.relayUrl,
       filters: buildInboundFilters(settings.channelIds),
@@ -221,6 +239,7 @@ export class BuzzInboundService implements vscode.Disposable {
    */
   private observe(event: NostrEvent, channelIds: string[]): void {
     observeEvent(this.directory, event);
+    this.recordConversation(event);
     if (identitiesMissingProfiles(this.directory, MAX_PROFILE_LOOKUP).length > 0) {
       this.scheduleProfileLookup(channelIds);
     }
@@ -255,6 +274,56 @@ export class BuzzInboundService implements vscode.Disposable {
    */
   listIdentities(): BuzzIdentity[] {
     return listIdentities(this.directory);
+  }
+
+  /** Fold an event into the conversation for its channel. */
+  private recordConversation(event: NostrEvent): void {
+    const channelId = event.tags.find(tag => tag[0] === 'h')?.[1]?.trim() ?? '';
+    // A reaction carries no `h` tag, so it is offered to every open
+    // conversation; only the one holding its target message will take it.
+    const targets = channelId
+      ? [this.conversationFor(channelId)]
+      : [...this.conversations.values()];
+    for (const conversation of targets) {
+      ingestConversationEvent(conversation, event, this.selfPubkey);
+    }
+  }
+
+  private conversationFor(channelId: string): BuzzConversation {
+    const existing = this.conversations.get(channelId);
+    if (existing) {
+      return existing;
+    }
+    const created = createConversation(channelId);
+    this.conversations.set(channelId, created);
+    return created;
+  }
+
+  /** Channels with messages this session. */
+  listConversationChannels(): string[] {
+    return [...this.conversations.keys()];
+  }
+
+  /**
+   * Recent messages for a channel, newest first. Session-scoped and never
+   * written to disk.
+   */
+  readConversation(channelId: string, limit = 20): BuzzMessage[] {
+    const conversation = this.conversations.get(channelId);
+    return conversation ? recentMessages(conversation, limit) : [];
+  }
+
+  /** My own Buzz identity, when a key is configured. */
+  getSelfPubkey(): string | undefined {
+    return this.selfPubkey;
+  }
+
+  /** Every recent message across watched channels, newest first. */
+  readAllConversations(limit = 20): BuzzMessage[] {
+    return [...this.conversations.values()]
+      .flatMap(conversation => conversation.messages)
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, Math.max(0, limit));
   }
 
   /** Stop the subscription and release the wake lock. Safe to call repeatedly. */
