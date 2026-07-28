@@ -45,6 +45,19 @@ export const BUZZ_PROTOCOL_VERIFIED_VERSION = 'v0.4.26';
 export const BUZZ_KIND = {
   /** NIP-25 reaction. */
   reaction: 7,
+  /**
+   * Profile metadata (NIP-01 `set_metadata`), giving a pubkey a human name.
+   *
+   * **Not in Buzz's kind registry** — it is the standard Nostr kind, and
+   * whether a Buzz relay actually serves it was an open question rather than a
+   * safe assumption. Confirmed against a live relay: every observed author had
+   * a kind-0 profile, carrying `display_name` (and sometimes `about`). Without
+   * that check this would have been exactly the kind-9/40002 mistake again.
+   *
+   * Deliberately absent from {@link BUZZ_INBOUND_KINDS}: a profile is not work,
+   * so it is fetched as its own author-scoped filter rather than derived.
+   */
+  profileMetadata: 0,
   /** NIP-42 auth event — ephemeral, never stored (carries a bearer challenge). */
   auth: 22242,
   /** Ephemeral user presence update. */

@@ -26,7 +26,14 @@ import { BuzzClient, type BuzzClientStatus, type BuzzEventSigner } from './buzzC
 import { createBuzzWebSocketFactory } from './buzzSocket.js';
 import { BUZZ_AGENT_KEY_SECRET, createBuzzEventSigner } from './buzzSigner.js';
 import { parseAgentBindings, type BuzzAgentBinding } from './buzzAgentBindings.js';
-import { BUZZ_INBOUND_KINDS, type NostrFilter } from './buzzProtocol.js';
+import { BUZZ_INBOUND_KINDS, BUZZ_KIND, type NostrEvent, type NostrFilter } from './buzzProtocol.js';
+import {
+  createBuzzDirectory,
+  identitiesMissingProfiles,
+  listIdentities,
+  observeEvent,
+  type BuzzIdentity,
+} from './buzzDirectory.js';
 import type { DerivedWorkItem } from './buzzInboundDerivation.js';
 import {
   readProjectDirectorConfig,
@@ -124,6 +131,12 @@ export function mergeDerivedFollowUps(existing: FollowUp[], derived: DerivedWork
   return additions.length > 0 ? [...existing, ...additions] : existing;
 }
 
+/** Wait after activity before asking for names, so a busy channel re-subscribes once. */
+const PROFILE_LOOKUP_DEBOUNCE_MS = 3_000;
+
+/** Cap on authors named in one profile filter — a filter is a request, not a scan. */
+const MAX_PROFILE_LOOKUP = 50;
+
 /**
  * Owns the lifetime of an inbound Buzz subscription and its side effects.
  *
@@ -135,6 +148,9 @@ export class BuzzInboundService implements vscode.Disposable {
   private holding = false;
   private lastStatus: BuzzClientStatus = 'idle';
   private signerKeyFingerprint: string | undefined;
+  /** Identities seen this session. In memory only — never written to git-tracked memory. */
+  private readonly directory = createBuzzDirectory();
+  private profileLookupHandle: ReturnType<typeof setTimeout> | undefined;
 
   constructor(private readonly deps: BuzzInboundDeps) {}
 
@@ -189,8 +205,56 @@ export class BuzzInboundService implements vscode.Disposable {
       onStatusChange: status => this.handleStatusChange(status),
       onError: reason => this.log(reason),
       onWorkItems: items => { void this.handleWorkItems(items, settings); },
+      onEvent: event => this.observe(event, settings.channelIds),
     });
     this.client.start();
+  }
+
+  /**
+   * Record an observed identity, and ask the relay for the names of any
+   * identities still unnamed.
+   *
+   * The profile request can only be built once authors are known — a kind-0
+   * filter with no `authors` would pull every profile on the relay. It is
+   * therefore debounced rather than issued per event: a busy channel would
+   * otherwise re-subscribe on every message.
+   */
+  private observe(event: NostrEvent, channelIds: string[]): void {
+    observeEvent(this.directory, event);
+    if (identitiesMissingProfiles(this.directory, MAX_PROFILE_LOOKUP).length > 0) {
+      this.scheduleProfileLookup(channelIds);
+    }
+  }
+
+  private scheduleProfileLookup(channelIds: string[]): void {
+    if (this.profileLookupHandle !== undefined) {
+      return;
+    }
+    this.profileLookupHandle = setTimeout(() => {
+      this.profileLookupHandle = undefined;
+      const missing = identitiesMissingProfiles(this.directory, MAX_PROFILE_LOOKUP);
+      if (missing.length === 0 || !this.client) {
+        return;
+      }
+      // Both filters together: the message subscription must survive, since
+      // replacing it with a profile-only filter would stop inbound work.
+      this.client.updateFilters([
+        ...buildInboundFilters(channelIds),
+        { kinds: [BUZZ_KIND.profileMetadata], authors: missing, limit: missing.length },
+      ]);
+    }, PROFILE_LOOKUP_DEBOUNCE_MS);
+    // Never hold the extension host open for a name lookup.
+    (this.profileLookupHandle as { unref?: () => void }).unref?.();
+  }
+
+  /**
+   * Buzz identities observed this session, most recently active first.
+   *
+   * In memory only, and deliberately so: a roster of who spoke and when is
+   * exactly what `project_memory/` must not accumulate, being git-tracked.
+   */
+  listIdentities(): BuzzIdentity[] {
+    return listIdentities(this.directory);
   }
 
   /** Stop the subscription and release the wake lock. Safe to call repeatedly. */
@@ -198,6 +262,10 @@ export class BuzzInboundService implements vscode.Disposable {
     this.client?.stop();
     this.client = undefined;
     this.signerKeyFingerprint = undefined;
+    if (this.profileLookupHandle !== undefined) {
+      clearTimeout(this.profileLookupHandle);
+      this.profileLookupHandle = undefined;
+    }
     this.releaseHold();
     this.lastStatus = 'idle';
   }

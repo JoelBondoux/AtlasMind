@@ -325,6 +325,30 @@ export type BuzzSignerResult =
  * key surfaces when it is configured, not in the middle of a relay handshake.
  * The failure reason never contains the key material.
  */
+/**
+ * Derive the public key for a stored agent key, without building a signer.
+ *
+ * This is the one Buzz handle that never needs looking up: it is computable
+ * from a secret the user has already given AtlasMind. Used to offer your own
+ * identity in the Director roster rather than making you paste a key the
+ * extension can already derive.
+ *
+ * Returns undefined for anything unusable, and never echoes the input — a
+ * failure here must not turn a secret key into an error message.
+ */
+export async function deriveBuzzPublicKey(secretKeyInput: string): Promise<string | undefined> {
+  const secretKey = parseBuzzSecretKey(secretKeyInput);
+  if (!secretKey) {
+    return undefined;
+  }
+  try {
+    const secp = await loadSecp();
+    return bytesToHex(secp.schnorr.getPublicKey(secretKey));
+  } catch {
+    return undefined;
+  }
+}
+
 export async function createBuzzEventSigner(secretKeyInput: string): Promise<BuzzSignerResult> {
   const secretKey = parseBuzzSecretKey(secretKeyInput);
   if (!secretKey) {

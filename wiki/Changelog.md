@@ -6,6 +6,14 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.152.0 — Pick a Buzz handle instead of pasting one
+
+- **The person form offers identities AtlasMind has seen**, by the name each published for itself; picking one fills Handle. Typing a key by hand still works.
+- **Your own identity is derived** from the agent key already in secure storage — the one handle that never needed a lookup.
+- **Names come from the relay** (NIP-01 kind 0), **verified against a live relay before anything depended on it** — it is absent from Buzz's own registry, the same shape of question that produced the kind-9 mistake.
+- **No key is ever derived from a person.** A fabricated key would belong to somebody else, so every option is evidence: a key seen on the wire, a name its owner published. Unnamed identities say so.
+- **The roster is never persisted** — who spoke and when is not something git-tracked memory should accumulate.
+
 ## v0.151.0 — Buzz becomes clickable
 
 - **Settings → Buzz.** A new page surfaces every `atlasmind.buzz.*` switch — Connection (enable, relay URL, allow remote), Inbound (subscribe, channels), Persistence (record follow-ups), Routing (bindings) — previously reachable only by hand-editing settings JSON.

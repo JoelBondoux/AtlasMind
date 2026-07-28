@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.152.0] - 2026-07-28
+
+### Added
+- **Pick a Buzz handle instead of pasting one.** The Director's Add / Edit person form now offers the Buzz identities AtlasMind has actually observed, shown by the name each identity published for itself. Choosing one fills the Handle field. Typing a key by hand still works — this saves the paste, it is not the only way in.
+- **Your own Buzz identity needs no lookup at all.** It is derived from the agent key already in SecretStorage and offered as "You" at the top of the picker, so the one handle AtlasMind can compute is no longer one you have to paste.
+- **Names come from the relay.** AtlasMind now reads NIP-01 profile metadata (kind 0) for the identities it has seen, so the picker shows "Joel" rather than `dcbe44bf896f…`. Identities with no published name are labelled as such rather than given an invented one.
+
+### Security
+- **No key is ever derived from a person.** There is no function from a name to a public key; constructing one would produce a plausible key belonging to a **different real person**, silently routing a colleague's work to a stranger. Every option in the picker is evidence — a key that arrived on the wire, and a name its own owner published.
+- **Display names are untrusted input.** A name is remote-controlled text rendered in AtlasMind's UI, so it is secret-redacted, control-character-stripped, and length-clamped as it enters the directory — not as it leaves, where one missed call site would be a hole. Malformed profile JSON yields no name rather than an error.
+- **The observed-identity roster is never persisted.** A record of who spoke and when is exactly what `project_memory/` must not accumulate, being git-tracked. The directory lives in memory for the session and is rebuilt from the subscription.
+- **The stored agent key is read only when Buzz is enabled**, and only its public half ever leaves the derivation. A failure there is silent by design, so an unusable key can never become an error message containing it.
+- **Kind 0 was verified against a live relay, not assumed.** It is the standard Nostr metadata kind and is **absent from Buzz's own registry**, so whether a Buzz relay serves it was an open question — the same shape of question that produced the kind-9/40002 mistake. Confirmed present, carrying `display_name`, before any code depended on it.
+- **Profile lookups are bounded and debounced.** They are author-scoped (a kind-0 filter with no authors would pull every profile on the relay), capped at 50 authors per request, and coalesced so a busy channel re-subscribes once rather than per message. The lookup reuses the authenticated connection rather than opening a second one, and the message subscription is preserved alongside it so inbound work never stops.
+
 ## [0.151.2] - 2026-07-28
 
 ### Fixed

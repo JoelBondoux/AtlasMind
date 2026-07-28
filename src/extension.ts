@@ -215,6 +215,11 @@ export interface AtlasMindContext {
   deliveryRefresh: vscode.EventEmitter<void>;
   /** People model: stakeholders, team, responsibilities, assignments, follow-ups. */
   projectDirectorManager: ProjectDirectorManager;
+  /**
+   * The live inbound Buzz subscription, when one exists. Present so surfaces can
+   * offer the identities it has *observed* — never so they can start it.
+   */
+  buzzInbound?: BuzzInboundService;
   /** Fires when project-director.json changes on disk, so the dashboard can re-sync. */
   projectDirectorRefresh: vscode.EventEmitter<void>;
   /** Document filing system + the docs kept updated automatically. */
@@ -2736,6 +2741,11 @@ async function bootstrapAtlasMind(
     presence: presenceManager,
     log: (message) => outputChannel.appendLine(`[buzz] ${message}`),
   });
+  // Exposed so surfaces can offer the identities it has observed. Assigned
+  // after construction because the context is assembled earlier in activate().
+  if (atlasContext) {
+    atlasContext.buzzInbound = buzzInbound;
+  }
   void buzzInbound.sync();
   context.subscriptions.push(
     buzzInbound,

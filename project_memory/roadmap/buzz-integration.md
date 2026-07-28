@@ -389,6 +389,71 @@ repeat sightings update nothing rather than duplicating, with a per-batch cap.
 3. **Wiring:** the deny-by-default inbound toggle, `hold('buzz')`/`release('buzz')` against
    `PresenceManager` while a subscription is live, and persisting derived follow-ups.
 
+### Buzz UI + identity picker (2026-07-28, v0.151.0 → v0.152.0)
+
+Everything in Tier 3 was reachable only by hand-editing `settings.json`. Three passes closed that,
+and two of them were fixing my own defects.
+
+**v0.151.0 — Settings → Buzz page + agent binding in the Director person form.**
+Both write through one pure helper (`writeAgentBinding`), so a click is validated exactly like a
+hand-edit. `atlasmind.buzz.agentBindings` stays the single source of truth; the roster edits it
+rather than shadowing it.
+
+**v0.151.1 — Windows CI.** A new assertion pinned `\n` inside a multi-line source substring, so it
+could never match a CRLF checkout. The assertion was wrong, not the code.
+
+**v0.151.2 — two reported defects, one much worse than it looked.**
+`isSettingsMessage` is a runtime allowlist and `handleMessage` returns early on anything it does not
+recognise. The new message types were added to the union and to the switch but **not to the guard**,
+so every one was dropped before reaching its case: the whole Settings → Buzz page was inert, with
+switches that appeared to toggle while nothing was ever written. It type-checked and linted
+throughout. The source-grep tests could not have caught it — the message type was present in the
+file exactly as expected. Replaced with tests that **call the guard**.
+Second defect: the agent picker's `hidden` attribute did nothing, because the row is a
+`.stage-edit-grid` and that author rule's `display: grid` outranks the UA rule for `[hidden]`.
+
+**v0.152.0 — the identity picker, and a fourth relay verification.**
+
+Question asked: *can the Handle be derived automatically?* Answer, precisely:
+
+- **From a person's name: no, and never.** There is no function from "Jane Doe" to a public key.
+  A constructed key would be plausible and would belong to a **different real person**.
+- **From observed activity: yes.** Every inbound event already carried `authorPubkey`; it just went
+  nowhere. `BuzzDirectory` now records it.
+- **From the MCP bridge: no.** Its four tools are list-channels / post / read-thread / send-DM —
+  no directory or user lookup. Worth recording so this isn't re-investigated.
+- **Your own handle: yes, trivially** — `deriveBuzzPublicKey` computes it from the key already in
+  SecretStorage. The one handle that never needed a lookup.
+
+**Relay verification (`--profiles`), the fourth time evidence beat inference.** A picker of raw hex
+is nearly useless, so it needed names. Nostr's kind 0 would give them — but kind 0 is **absent from
+Buzz's kind registry**, making "does a Buzz relay serve it?" exactly the question that produced the
+kind-9/40002 mistake. Probed rather than assumed:
+
+```
+10. distinct authors observed — 2 identities seen
+11. kind 0 profile metadata is served — 2 of 2 author(s) have a profile
+12. a usable display name is present — fields available: display_name, about
+```
+
+Verdict: **kind 0 is served, `display_name` is the field.** Only then was it added to `BUZZ_KIND` —
+and deliberately excluded from `BUZZ_INBOUND_KINDS`, because a profile is not work.
+
+Design notes worth keeping:
+- Names are **untrusted remote text** rendered in AtlasMind's UI: redacted, control-stripped and
+  clamped **on the way in**, never on the way out where one missed call site is a hole.
+- The roster is **never persisted** — who spoke and when is exactly what git-tracked `project_memory/`
+  must not accumulate.
+- Profile lookups are author-scoped (a kind-0 filter with no `authors` pulls every profile on the
+  relay), capped, debounced, and re-issue the message filter alongside so inbound work never stops.
+  They reuse the authenticated connection rather than opening a second one.
+- `BuzzClient.onEvent` is kept separate from `onWorkItems`, so widening what is *observed* can never
+  widen what becomes a follow-up.
+
+**Still owed:** `buzz` is not in the MCP environment scanner's PATH probe list, so AtlasMind cannot
+tell you whether the Buzz CLI is installed — you find out when a call fails. MCP setup is
+`prefill` (guided), and installing the CLI binary itself remains manual.
+
 ---
 
 ## Tier 4 — Self-sovereign agent identities & A2A

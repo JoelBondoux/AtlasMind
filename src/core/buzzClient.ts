@@ -121,6 +121,14 @@ export interface BuzzClientOptions {
   livenessIntervalMs?: number;
   /** Derived work items. The caller decides whether to persist them. */
   onWorkItems?: (items: DerivedWorkItem[]) => void;
+  /**
+   * Every validated event, before derivation. Lets a caller observe activity
+   * that is real but is not *work* — a profile, for instance, which names an
+   * identity without implying anything to do. Kept separate from
+   * `onWorkItems` so widening what is observed can never widen what gets
+   * turned into a follow-up.
+   */
+  onEvent?: (event: NostrEvent) => void;
   onStatusChange?: (status: BuzzClientStatus, detail?: string) => void;
   /** Terminal or notable failures, already explained in plain language. */
   onError?: (reason: string) => void;
@@ -138,6 +146,8 @@ export class BuzzClient {
   private readonly options: BuzzClientOptions;
   private readonly scheduler: BuzzScheduler;
   private readonly subscriptionId: string;
+  /** Live filter set. Starts as the configured filters; {@link updateFilters} replaces it. */
+  private currentFilters: NostrFilter[];
 
   private socket: BuzzSocket | undefined;
   private status: BuzzClientStatus = 'idle';
@@ -162,6 +172,7 @@ export class BuzzClient {
     this.options = options;
     this.scheduler = options.scheduler ?? defaultScheduler;
     this.subscriptionId = options.subscriptionId ?? 'atlasmind-inbound';
+    this.currentFilters = options.filters.map(filter => ({ ...filter }));
   }
 
   getStatus(): BuzzClientStatus {
@@ -238,9 +249,29 @@ export class BuzzClient {
     this.startLivenessTimer();
   }
 
+  /**
+   * Replace the subscription filters on the live connection.
+   *
+   * Used to ask for profile metadata once the authors to ask about are known —
+   * a kind-0 filter with no `authors` would pull every profile on the relay, so
+   * it can only be built after activity has been seen. Re-subscribing on the
+   * existing socket reuses the completed NIP-42 handshake; a second connection
+   * would mean a second authentication for a read the relay already trusts us
+   * to make. A no-op when not currently subscribed — the new filters are simply
+   * used by the next subscription, including after a reconnect.
+   */
+  public updateFilters(filters: NostrFilter[]): void {
+    this.currentFilters = filters.map(filter => ({ ...filter }));
+    if (this.stopped || this.status !== 'subscribed') {
+      return;
+    }
+    this.send(JSON.stringify(['CLOSE', this.subscriptionId]));
+    this.sendSubscription();
+  }
+
   private sendSubscription(): void {
     const resume = buildResumePlan([this.subscriptionId], this.lastEventCreatedAt);
-    const filters: NostrFilter[] = this.options.filters.map(filter => (
+    const filters: NostrFilter[] = this.currentFilters.map(filter => (
       resume.sinceSeconds !== undefined ? { ...filter, since: resume.sinceSeconds } : { ...filter }
     ));
 
@@ -326,6 +357,8 @@ export class BuzzClient {
     if (this.lastEventCreatedAt === undefined || event.created_at > this.lastEventCreatedAt) {
       this.lastEventCreatedAt = event.created_at;
     }
+
+    this.options.onEvent?.(event);
 
     const items = deriveWorkItems([event], {
       now: new Date(this.scheduler.now()),

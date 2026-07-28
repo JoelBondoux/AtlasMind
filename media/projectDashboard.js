@@ -1012,8 +1012,27 @@
   // into the form but not yet saved.
   root?.addEventListener('change', event => {
     const target = event.target instanceof HTMLSelectElement ? event.target : null;
-    if (!target || target.getAttribute('data-field') !== 'linkKind') { return; }
-    syncBuzzBindingVisibility(target.value);
+    if (!target) { return; }
+    const field = target.getAttribute('data-field');
+
+    if (field === 'linkKind') {
+      syncBuzzBindingVisibility(target.value);
+      return;
+    }
+
+    // Picking an observed identity fills Handle with the key that arrived on
+    // the wire. Typing one by hand is still supported; this only saves the
+    // paste, it is not the only way in.
+    if (field === 'buzzIdentityPick' && target.value) {
+      const container = document.getElementById('director-contact-editor');
+      const handle = container && container.querySelector('[data-field="linkHandle"]');
+      if (handle instanceof HTMLInputElement) { handle.value = target.value; }
+      const label = container && container.querySelector('[data-field="linkLabel"]');
+      const chosen = target.options[target.selectedIndex];
+      if (label instanceof HTMLInputElement && !label.value.trim() && chosen) {
+        label.value = 'Buzz';
+      }
+    }
   });
 
   // Data Privacy controls: checkboxes (enable / packs / models / rule toggles)
@@ -4189,6 +4208,39 @@
       </article>`;
   }
 
+  /**
+   * A picker of Buzz identities AtlasMind has actually seen, plus your own.
+   *
+   * Every option is evidence: each key arrived on the wire and each name was
+   * published by its owner. Nothing here derives a key from a person's name —
+   * that would produce a plausible key belonging to someone else. An identity
+   * with no published name shows as a key prefix rather than a made-up label.
+   * Choosing an option fills the Handle field; typing one by hand still works.
+   */
+  function renderBuzzIdentityPicker(dir, contact, primary) {
+    const options = [];
+    if (dir.ownBuzzPubkey) {
+      options.push({ value: dir.ownBuzzPubkey, label: 'You (your Buzz agent key)' });
+    }
+    for (const identity of dir.buzzIdentities || []) {
+      if (identity.pubkey === dir.ownBuzzPubkey) { continue; }
+      const where = identity.channelIds && identity.channelIds.length
+        ? ` · seen in ${identity.channelIds.length} channel${identity.channelIds.length === 1 ? '' : 's'}`
+        : '';
+      options.push({
+        value: identity.pubkey,
+        label: identity.named ? `${identity.label}${where}` : `${identity.label} (no published name)${where}`,
+      });
+    }
+    if (options.length === 0) {
+      return `<label class="stage-edit-field"><span>Buzz identity</span>
+        <span class="list-meta">No Buzz identities observed yet. Switch on inbound in Settings → Buzz and they will appear here once they post — until then, paste their <code>npub…</code> or hex key into Handle above.</span></label>`;
+    }
+    const selected = options.some(o => directorSameBuzzKey(o.value, primary.handle)) ? primary.handle : '';
+    return edSelect('Buzz identity (fills Handle)', 'buzzIdentityPick', selected,
+      [{ value: '', label: options.length === 1 ? 'Pick or type below…' : 'Pick an observed identity…' }].concat(options));
+  }
+
   function renderDirectorContactEditor(cfg, contact, isNew) {
     const kinds = ['email', 'slack', 'teams', 'buzz', 'phone', 'github', 'linkedin', 'other'].map(k => ({ value: k, label: k }));
     const cats = ['sponsor', 'client', 'user-representative', 'regulator', 'vendor', 'partner', 'internal', 'other'].map(k => ({ value: k, label: k }));
@@ -4212,6 +4264,7 @@
           ${edText('Handle (address / @user / phone)', 'linkHandle', primary.handle, 'jane@example.com')}
         </div>
         <div class="stage-edit-grid director-buzz-binding" data-buzz-binding ${primary.kind === 'buzz' ? '' : 'hidden'}>
+          ${renderBuzzIdentityPicker(dir, contact, primary)}
           ${edSelect('AtlasMind agent for their Buzz messages', 'buzzAgentId', boundAgent, agentOptions)}
           <p class="list-meta">Work arriving from this Buzz identity is routed to that agent. Leave it <em>Unassigned</em> and inbound work stays unattributed rather than being guessed.${dir.buzzEnabled === false ? ' <strong>Buzz is off</strong> — the binding saves but stays inert until you enable it in Settings → Buzz.' : ''}</p>
         </div>

@@ -205,6 +205,8 @@ Integration with [Buzz](https://buzz.xyz) — the open-source, Nostr-based works
 
 **Where to set these.** All of the above live on the **Settings → Buzz** page (Connection · Inbound · Persistence · Routing). The gates are nested, so a control whose parent is off is dimmed and disabled while still showing its stored value.
 
+**Picking a handle.** With inbound on, the person form offers the Buzz identities AtlasMind has seen, by the name each published for itself, plus your own identity derived from the stored agent key. Nothing is guessed from a person's name.
+
 **Binding an agent to a person.** On **Project Dashboard → Director**, add or edit a person, set their channel to `buzz`, paste their `npub…` key, and pick an AtlasMind agent. That writes `atlasmind.buzz.agentBindings`, which stays the single source of truth — the roster is a convenience editor for it, not a second store. A mistyped `npub` is refused rather than bound to a different identity, an `nsec` is refused by name, and a binding to an agent that does not exist is rejected. Bound people show a `buzz → <agent>` badge on their card.
 
 Set up live sends from **AtlasMind: Manage MCP Servers → Browse by category → Buzz Communications**. The bundled bridge wraps official `buzz-cli` v0.4.26, keeps the private key and optional authorization tag in SecretStorage, and exposes only channel listing/posting, thread reading, and DMs. It converts the WS/WSS setting to the CLI's HTTP/HTTPS base; remote relays require both `allowRemoteRelay:true` and TLS.

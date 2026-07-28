@@ -159,6 +159,33 @@ describe('Director roster agent binding', () => {
     expect(dashboardSource).toMatch(/showWarningMessage\(`Buzz binding not saved/);
   });
 
+  it('offers observed identities and fills Handle from the pick', () => {
+    expect(dashboardClient).toContain('renderBuzzIdentityPicker');
+    expect(dashboardClient).toContain("field === 'buzzIdentityPick'");
+    expect(dashboardClient).toMatch(/handle\.value = target\.value/);
+  });
+
+  it('labels an unnamed identity as unnamed rather than inventing one', () => {
+    expect(dashboardClient).toContain('(no published name)');
+  });
+
+  it('says what to do when nothing has been observed yet', () => {
+    // An empty picker with no explanation reads as a broken feature.
+    expect(dashboardClient).toContain('No Buzz identities observed yet');
+  });
+
+  it('derives the user own key rather than asking them to paste it', () => {
+    expect(dashboardSource).toContain('readOwnBuzzPubkey');
+    expect(dashboardSource).toContain('deriveBuzzPublicKey');
+    expect(dashboardClient).toContain('ownBuzzPubkey');
+  });
+
+  it('reads the stored secret only when Buzz is enabled', () => {
+    // Touching a secret to compute something nobody asked for is not free.
+    const fn = dashboardSource.slice(dashboardSource.indexOf('async function readOwnBuzzPubkey'));
+    expect(fn.slice(0, 600)).toContain("get<boolean>('buzz.enabled', false)");
+  });
+
   it('sends the agent choices from the registry so the client never guesses an id', () => {
     expect(dashboardSource).toContain('agentChoices');
     expect(dashboardSource).toContain('agentRegistry?.listAgents()');

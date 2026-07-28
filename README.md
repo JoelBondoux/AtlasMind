@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.151.2</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.152.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,10 +64,11 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.151.2
+## What's new in 0.152.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
 
+- **Pick a Buzz handle instead of pasting one.** Adding a person on the Director tab now offers the Buzz identities AtlasMind has actually seen, by the name each one published for itself — and your own identity, derived from the key already in secure storage. Nothing is ever guessed from a person's name: every option is a key that arrived on the wire, because a fabricated key would belong to somebody else.
 - **Buzz is configurable by clicking.** A new **Settings → Buzz** page surfaces every Buzz switch — enable it, point it at a relay, allow a remote one, subscribe to inbound, choose channels, and decide whether follow-ups are recorded — with each nested switch shown dimmed while its parent is off, so the three gates read as the three gates they are. And in **Project Dashboard → Director**, adding or editing a person with a `buzz` channel now offers an **AtlasMind agent** picker, so you can say "route their messages to this specialist" while adding them rather than by hand-editing settings JSON.
 - **Buzz activity can become AtlasMind work.** Switch on inbound and AtlasMind holds a live, read-only subscription to your Buzz relay, turning channel activity into follow-ups with a pointer back to the thread. You can also **assign AtlasMind agents to specific Buzz agents**, so work from a known Buzz bot lands with the right specialist. Three separate opt-ins gate it — enabling Buzz, subscribing, and recording — because project memory is committed to your repository.
 - **Buzz inbound can now authenticate.** AtlasMind signs the NIP-42 challenge a real Buzz relay demands, so a live subscription is possible at all — a relay refuses to serve one otherwise. The signing library is tiny (170 KB, no dependencies of its own) and is loaded only the first time a signature is needed, so if you never use Buzz it costs you nothing. Your agent key stays in the OS secret store, is checksum-validated so a mistyped key fails loudly instead of signing as someone else, and never reaches a log or an error message.

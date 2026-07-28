@@ -43,6 +43,8 @@ import {
   type BuzzAgentBinding,
   type BuzzAgentBindingIssue,
 } from '../core/buzzAgentBindings.js';
+import { describeIdentity } from '../core/buzzDirectory.js';
+import { BUZZ_AGENT_KEY_SECRET, deriveBuzzPublicKey } from '../core/buzzSigner.js';
 import { mcpSkillId } from '../mcp/mcpServerRegistry.js';
 import { classifyToolInvocation } from '../core/toolPolicy.js';
 import { DOCUMENTS_SSOT_PATH, DOCUMENTS_SUMMARY_SSOT_PATH, sanitizeDocumentsConfig, seedDocumentsConfig } from '../core/documentsManager.js';
@@ -793,6 +795,18 @@ interface DashboardDirectorSnapshot {
   agentBindingIssues: BuzzAgentBindingIssue[];
   /** True when `atlasmind.buzz.enabled` is on, so the UI can explain an inert binding. */
   buzzEnabled: boolean;
+  /**
+   * Buzz identities *observed* this session, so a handle can be picked instead
+   * of typed. Never a guess: each key arrived on the wire, and each name was
+   * published by its own owner. In-memory only — a roster of who spoke is not
+   * something `project_memory/` should accumulate.
+   */
+  buzzIdentities: Array<{ pubkey: string; label: string; named: boolean; channelIds: string[] }>;
+  /**
+   * The user's own Buzz public key, derived from the agent key already in
+   * SecretStorage. The one handle that needs no lookup at all.
+   */
+  ownBuzzPubkey?: string;
 }
 
 type DashboardGapPriority = 'P1' | 'P2' | 'P3';
@@ -4398,6 +4412,26 @@ const DELIVERY_REVIEW_STATE_KEY = 'atlasmind.deliveryReview';
 const PROJECT_DIRECTOR_PII_ACK_KEY = 'atlasmind.projectDirector.piiStorageAcknowledged';
 
 /**
+ * The user's own Buzz public key, derived from the agent key in SecretStorage.
+ *
+ * Only the *public* half ever leaves this function, and only when Buzz is
+ * enabled — reading the stored secret to compute a key nobody asked for would
+ * be touching a secret without a reason. Failure is silent by design: an absent
+ * or unusable key simply means the roster offers nothing to prefill.
+ */
+async function readOwnBuzzPubkey(atlas: AtlasMindContext): Promise<string | undefined> {
+  if (!vscode.workspace.getConfiguration('atlasmind').get<boolean>('buzz.enabled', false)) {
+    return undefined;
+  }
+  try {
+    const stored = (await atlas.extensionContext.secrets.get(BUZZ_AGENT_KEY_SECRET))?.trim();
+    return stored ? await deriveBuzzPublicKey(stored) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Gather a first-draft roster from the repository: the git user (as "me"),
  * distinct git contributors, CODEOWNERS handles, the package author, and any
  * Website Studio client-intake stakeholders. Everything is optional and
@@ -4493,6 +4527,16 @@ async function collectDirectorSnapshot(
   const agentChoices = (atlas.agentRegistry?.listAgents() ?? [])
     .map(agent => ({ id: agent.id, name: agent.name || agent.id }))
     .sort((a, b) => a.name.localeCompare(b.name));
+  // Observed identities, so a handle can be picked. `named` distinguishes a
+  // published name from a key prefix standing in for one — the UI must not
+  // present the latter as though someone chose it.
+  const buzzIdentities = (atlas.buzzInbound?.listIdentities() ?? []).map(identity => ({
+    pubkey: identity.pubkey,
+    label: describeIdentity(identity),
+    named: identity.displayName !== undefined,
+    channelIds: identity.channelIds,
+  }));
+  const ownBuzzPubkey = await readOwnBuzzPubkey(atlas);
   const base: DashboardDirectorSnapshot = {
     configPath: PROJECT_DIRECTOR_SSOT_PATH,
     summaryPath: PROJECT_DIRECTOR_SUMMARY_SSOT_PATH,
@@ -4511,6 +4555,8 @@ async function collectDirectorSnapshot(
     agentBindings: parsedBindings.bindings,
     agentBindingIssues: parsedBindings.issues,
     buzzEnabled: buzzConfiguration.get<boolean>('buzz.enabled', false),
+    buzzIdentities,
+    ...(ownBuzzPubkey ? { ownBuzzPubkey } : {}),
   };
   const manager = atlas.projectDirectorManager;
   let piiAcknowledged = false;
