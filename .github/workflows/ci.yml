@@ -5,6 +5,8 @@ on:
     branches: [main, develop]
   pull_request:
     branches: [main, develop]
+  # Lets a feature branch be built on demand without opening a pull request.
+  workflow_dispatch:
 
 jobs:
   quality:
@@ -55,3 +57,20 @@ jobs:
           name: coverage-report
           path: coverage/
           if-no-files-found: warn
+
+      # An installable build of the exact commit CI just verified. F5 debugging
+      # needs none of this — it builds from source — but a VSIX is the only way
+      # to try a branch in your real editor rather than an Extension Development
+      # Host, and downloading one from a green run beats being sent a file.
+      - name: Package VSIX
+        if: matrix.os == 'ubuntu-latest'
+        run: npm run package
+
+      - name: Upload VSIX artifact
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v7
+        with:
+          name: atlasmind-vsix-${{ github.sha }}
+          path: '*.vsix'
+          if-no-files-found: error
+          retention-days: 14

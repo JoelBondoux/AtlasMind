@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.158.1] - 2026-07-28
+
+### Changed
+- **CI now publishes an installable build.** Every green run uploads the packaged `.vsix` for that exact commit as an artifact (14-day retention), so a branch can be installed into a real editor by downloading it from the run rather than being handed a file.
+- **CI can be triggered manually** (`workflow_dispatch`), so a feature branch can be built on demand without opening a pull request for it.
+
+### Documentation
+- **`docs/development.md` now states what running a branch actually needs.** F5 debugging builds from source and needs no packaged build at all — but it does need `npm install` after pulling a branch that changed dependencies, which is the step that silently breaks a launch when skipped.
+
 ## [0.158.0] - 2026-07-28
 
 ### Added
