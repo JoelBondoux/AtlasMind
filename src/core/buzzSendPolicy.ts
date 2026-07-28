@@ -37,6 +37,47 @@ export type BuzzComposer =
   /** AtlasMind generated or edited it. */
   | 'agent';
 
+/**
+ * The conditions under which AtlasMind may send without asking each time.
+ *
+ * Agent-to-agent messaging is a feature worth having — an autonomous loop where
+ * an AtlasMind specialist answers a Buzz agent directly is the whole point of
+ * putting them in the same workspace. Requiring a human click per message would
+ * make that impossible, so "always confirm" is the wrong rule.
+ *
+ * "Never confirm" is also wrong, for three specific reasons rather than general
+ * caution:
+ *
+ *  - **A loop that runs away sends real messages.** A retry that re-fires on
+ *    every inbound event will flood a channel, and there is no unsend.
+ *  - **Inbound Buzz messages are untrusted input.** If an agent reads a message
+ *    and replies autonomously, whoever wrote that message has partial control
+ *    over what AtlasMind then says to everyone else. That is prompt injection
+ *    with an outbound channel attached.
+ *  - **A human on the other end is a different risk from an agent.** A colleague
+ *    may act on a wrong message; another agent is far more likely to just be
+ *    confused.
+ *
+ * So autonomy is armed explicitly, scoped to recipients you have declared to be
+ * agents, and rate-bounded. Nothing here is inferred.
+ */
+export interface BuzzAutonomy {
+  /** `atlasmind.buzz.autonomousReplies`. Off by default. */
+  enabled: boolean;
+  /**
+   * True when this target is a Buzz identity bound to an AtlasMind agent.
+   *
+   * The binding *is* the declaration: you already had to name that identity and
+   * pick an agent for it, deliberately. AtlasMind never guesses that a
+   * counterparty is an agent — an unbound identity is treated as a person.
+   */
+  targetIsBoundAgent: boolean;
+  /** Autonomous messages already sent to this target inside the window. */
+  sentInWindow: number;
+  /** Cap per target per window. */
+  maxPerWindow: number;
+}
+
 export interface BuzzSendRequest {
   composer: BuzzComposer;
   /** Channel id or recipient pubkey. */
@@ -45,6 +86,8 @@ export interface BuzzSendRequest {
   targetChosenByUser: boolean;
   /** Targets already confirmed this session. */
   confirmedTargets: readonly string[];
+  /** Autonomous-send conditions. Absent means autonomy is off. */
+  autonomy?: BuzzAutonomy;
 }
 
 export interface BuzzSendDecision {
@@ -54,6 +97,8 @@ export interface BuzzSendDecision {
   reason: string;
   /** True when a successful send should mark the target as confirmed. */
   remembersTarget: boolean;
+  /** True when this went out under the autonomous agent-to-agent grant. */
+  autonomous?: boolean;
 }
 
 /**
@@ -74,9 +119,30 @@ export function decideBuzzSend(request: BuzzSendRequest): BuzzSendDecision {
   }
 
   if (request.composer !== 'human') {
+    const autonomy = request.autonomy;
+    if (autonomy?.enabled && autonomy.targetIsBoundAgent && autonomy.sentInWindow < autonomy.maxPerWindow) {
+      return {
+        requiresConfirmation: false,
+        reason: 'Autonomous agent-to-agent reply: you armed autonomous replies, and this recipient is a Buzz identity you bound to an AtlasMind agent.',
+        remembersTarget: false,
+        autonomous: true,
+      };
+    }
+    if (autonomy?.enabled && autonomy.targetIsBoundAgent) {
+      return {
+        requiresConfirmation: true,
+        reason: `Autonomous replies to this agent have hit their limit of ${autonomy.maxPerWindow} in this window. `
+          + 'A loop that keeps firing is the failure this cap exists to catch, so the next message needs you.',
+        remembersTarget: false,
+      };
+    }
     return {
       requiresConfirmation: true,
-      reason: 'AtlasMind drafted this message. Anything AtlasMind wrote in your name is confirmed before it is sent.',
+      reason: autonomy?.enabled
+        // The distinction that matters: autonomy is armed, but this recipient
+        // was never declared to be an agent, so it is treated as a person.
+        ? 'AtlasMind drafted this message, and this recipient is not bound to an AtlasMind agent — so it is treated as a person, who may act on what it says.'
+        : 'AtlasMind drafted this message. Anything AtlasMind wrote in your name is confirmed before it is sent.',
       remembersTarget: false,
     };
   }

@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.157.0] - 2026-07-28
+
+### Added
+- **DM a Director contact from chat.** `/buzz dm <name> <message>` resolves the person from your Director roster and sends to the Buzz key on their card — the person you added once is the person you can message.
+- **Autonomous agent-to-agent replies** (`atlasmind.buzz.autonomousReplies`, off by default). With it armed, an AtlasMind agent can hold a back-and-forth loop with a Buzz agent without a dialog per message, which is the point of putting them in the same workspace.
+
+### Changed
+- **"AtlasMind drafted it" no longer means "always ask".** It means "ask, unless you have explicitly armed autonomy *and* the recipient is one you declared to be an agent *and* the rate cap has not been reached." Requiring a human click per message made an agent loop impossible; removing the gate entirely would have removed something real.
+
+### Security
+- **Autonomy is scoped to agents you declared, never to agents AtlasMind inferred.** It applies only to recipients in `atlasmind.buzz.agentBindings` — and creating that binding is already a deliberate act naming both the identity and the agent. An unbound recipient is treated as a person, who may act on what they read, and still gets a confirmation.
+- **It is rate-bounded per recipient** (`atlasmind.buzz.autonomousReplyLimitPerHour`, default 10). A loop that re-fires on every inbound event is the realistic failure mode and there is no unsend. At the cap the next message **falls back to a dialog rather than being dropped**, because a silently-discarded reply looks identical to a working loop.
+- **An autonomous send never becomes a standing grant.** It does not mark the recipient as confirmed, so one armed loop cannot permanently silence the dialog for a target you never approved yourself.
+- **The risk this leaves is stated rather than hidden:** inbound Buzz messages are untrusted input, so an agent that reads one and replies autonomously gives its author partial influence over what AtlasMind then says to others. The setting's description says so.
+- **A contact whose Buzz handle is not a public key cannot be DM'd.** A DM is addressed to an identity; a channel UUID is not one, and AtlasMind says so rather than failing at the bridge.
+- **An ambiguous name is refused, not guessed.** If `/buzz dm` matches more than one person, it asks for the full name — picking the wrong colleague is not recoverable.
+
 ## [0.156.0] - 2026-07-28
 
 ### Added

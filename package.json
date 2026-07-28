@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.156.0",
+  "version": "0.157.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -1190,6 +1190,20 @@
           },
           "description": "Map a Buzz identity (npub or 64-character hex) to an AtlasMind agent id, so inbound work from that Buzz agent lands with the right specialist.",
           "markdownDescription": "Assign specific **AtlasMind agents** to specific **Buzz agents**.\n\nMaps a Buzz identity to an AtlasMind agent id, so inbound work from that identity is attributed to the right specialist — a Buzz build-bot's messages can land with your DevOps agent instead of arriving unattributed.\n\n```json\n{\n  \"npub1abc…\": \"devops-engineer\",\n  \"7e7e9c42…\": \"security-specialist\"\n}\n```\n\nKeys accept an `npub…` or a 64-character hex key (the bech32 checksum is validated, so a mistyped npub is rejected rather than binding to the wrong identity; an `nsec` secret key is refused). An unbound identity simply stays unassigned — AtlasMind never guesses an agent.\n\nThis is a **local routing preference only**. Buzz still owns the keypair, the directory, and the authorship ledger."
+        },
+        "atlasmind.buzz.autonomousReplies": {
+          "type": "boolean",
+          "default": false,
+          "description": "Let AtlasMind agents reply to Buzz identities you have bound to an agent, without confirming each message. Off by default. Only applies to bound agents — anyone unbound is treated as a person and still needs confirmation.",
+          "markdownDescription": "Allow **agent-to-agent** Buzz replies to go out without a confirmation dialog, so an AtlasMind specialist can hold a loop with a Buzz agent.\n\nOff by default, and deliberately narrow:\n\n- It applies **only** to recipients listed in `atlasmind.buzz.agentBindings`. That binding is your declaration that the identity is an agent — AtlasMind never infers it, and an unbound identity is treated as a person who may act on what it reads.\n- It is **rate-bounded** per recipient by `atlasmind.buzz.autonomousReplyLimitPerHour`. A loop that re-fires on every inbound event is the realistic failure, and there is no unsend.\n- Inbound Buzz messages are **untrusted input**. An agent that reads a message and replies autonomously gives its author partial influence over what AtlasMind then says to others. Arm this only where that is acceptable."
+        },
+        "atlasmind.buzz.autonomousReplyLimitPerHour": {
+          "type": "number",
+          "default": 10,
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Maximum autonomous Buzz replies per recipient per hour. Once reached, the next message needs confirmation.",
+          "markdownDescription": "Cap on autonomous replies **per recipient per hour** when `atlasmind.buzz.autonomousReplies` is on.\n\nWhen the cap is reached the next message falls back to a confirmation dialog rather than being dropped, so a stuck loop becomes visible instead of silent."
         },
         "atlasmind.buzz.allowRemoteRelay": {
           "type": "boolean",

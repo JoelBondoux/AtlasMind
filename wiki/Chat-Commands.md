@@ -19,6 +19,9 @@ Short continuation prompts such as `Proceed`, `Continue`, or `Proceed autonomous
 | `/loop` | Run an autonomous goal-seeking **Mission Loop** within a closed budget envelope; pauses for approval at configurable checkpoints |
 | `/runs` | Open the Project Run Center to review recent autonomous runs |
 | `/director` | Project Director status: stakeholders, team, responsibilities, assignments, and follow-ups (open/overdue) |
+| `/buzz read` | Recent Buzz messages with authors resolved to their published names and emoji reactions aggregated. Session-scoped; never written to project memory. |
+| `/buzz send <message>` | Post to your watched Buzz channel. Refuses to guess when more than one channel is configured. |
+| `/buzz dm <name> <message>` | DM a Director contact using the Buzz key on their card. An ambiguous name is refused, not guessed. |
 | `/buzz` | Guided Buzz setup. Reports each step as done / to do / blocked / optional from observed state, names the next thing to click, and offers a button for it. **It never switches anything on for you** — each Buzz gate is off by default so that enabling it stays your decision, and every button opens a surface rather than changing state. |
 | `/followups` | List open follow-ups grouped by overdue / due soon / upcoming |
 | `/ship` | Run the project's default publish/release routine. `/ship <id>` runs a named routine |

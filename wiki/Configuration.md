@@ -203,6 +203,9 @@ Integration with [Buzz](https://buzz.xyz) — the open-source, Nostr-based works
 | `atlasmind.buzz.agentBindings` | object | `{}` | Assign AtlasMind agents to Buzz agents: `{"npub1…": "devops-engineer"}`. Unbound identities stay unassigned. |
 | `atlasmind.buzz.allowRemoteRelay` | boolean | `false` | Allow a non-local Buzz relay URL. When `false`, only loopback/localhost relays are used so project data stays on-machine. |
 
+| `atlasmind.buzz.autonomousReplies` | boolean | `false` | Let AtlasMind agents reply to **bound** Buzz agents without a dialog per message. Only applies to identities in `agentBindings`; anyone unbound is treated as a person and still confirms. |
+| `atlasmind.buzz.autonomousReplyLimitPerHour` | number | `10` | Cap on autonomous replies per recipient per hour. At the cap the next message falls back to a dialog rather than being dropped. |
+
 **Where to set these.** All of the above live on the **Settings → Buzz** page (Connection · Inbound · Persistence · Routing). The gates are nested, so a control whose parent is off is dimmed and disabled while still showing its stored value.
 
 **Picking a handle.** With inbound on, the person form offers the Buzz identities AtlasMind has seen, by the name each published for itself, plus your own identity derived from the stored agent key. Nothing is guessed from a person's name.

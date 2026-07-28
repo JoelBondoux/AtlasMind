@@ -1806,6 +1806,114 @@ async function handleBuzzSend(
 }
 
 /**
+ * `/buzz dm <person> <message>` — direct-message a Director contact.
+ *
+ * The contact is resolved by name from the Director roster and their Buzz key
+ * read from the `buzz` channel already on their card, so the person you added
+ * once is the person you can message. A contact whose handle is not a public
+ * key cannot be DM'd — Buzz DMs are addressed to an identity, and a channel
+ * UUID is not one.
+ */
+async function handleBuzzDirectMessage(
+  who: string,
+  body: string,
+  stream: vscode.ChatResponseStream,
+  atlas: AtlasMindContext,
+): Promise<void> {
+  const [{ validateOutboundMessage }, { decideBuzzSend, describeBuzzSend }, { mcpSkillId }, { normalizeBuzzPubkey }] =
+    await Promise.all([
+      import('../core/buzzConversation.js'),
+      import('../core/buzzSendPolicy.js'),
+      import('../mcp/mcpServerRegistry.js'),
+      import('../core/buzzSigner.js'),
+    ]);
+
+  const configuration = vscode.workspace.getConfiguration('atlasmind');
+  if (!configuration.get<boolean>('buzz.enabled', false)) {
+    stream.markdown('Buzz is off. Ask **/buzz** for the setup checklist.');
+    return;
+  }
+
+  const config = atlas.projectDirectorManager?.getConfig();
+  const needle = who.trim().toLowerCase();
+  const matches = (config?.contacts ?? []).filter(contact =>
+    contact.name.toLowerCase() === needle || contact.name.toLowerCase().includes(needle));
+  if (matches.length === 0) {
+    stream.markdown(`No one called **${escapeMd(who)}** on the Director roster. Add them there with a \`buzz\` channel first.`);
+    stream.button({ command: 'atlasmind.openProjectDirector', title: 'Open the Director roster' });
+    return;
+  }
+  if (matches.length > 1) {
+    // Guessing which colleague you meant is exactly the mistake that cannot be
+    // undone once the message is out.
+    stream.markdown(`**${escapeMd(who)}** matches ${matches.length} people: ${matches.map(c => escapeMd(c.name)).join(', ')}. Use the full name.`);
+    return;
+  }
+
+  const contact = matches[0]!;
+  const buzzLink = contact.links.find(link => link.kind === 'buzz');
+  const pubkey = buzzLink ? normalizeBuzzPubkey(buzzLink.handle) : undefined;
+  if (!pubkey) {
+    stream.markdown(buzzLink
+      ? `**${escapeMd(contact.name)}** has a Buzz handle, but it is not a public key, so there is no identity to DM. A Buzz DM is addressed to an \`npub…\` or 64-character hex key.`
+      : `**${escapeMd(contact.name)}** has no Buzz channel on their Director card. Add one with their \`npub…\` key.`);
+    stream.button({ command: 'atlasmind.openProjectDirector', title: 'Open the Director roster' });
+    return;
+  }
+
+  const validation = validateOutboundMessage(body);
+  if (!validation.ok || !validation.text) {
+    stream.markdown(`Not sent. ${escapeMd(validation.reason ?? 'The message could not be validated.')}`);
+    return;
+  }
+
+  const server = (atlas.mcpServerRegistry?.listServers() ?? [])
+    .find(entry => entry.config.id === 'mcp-server-buzz' || /buzz/i.test(entry.config.name ?? ''));
+  const tool = server?.tools.find(entry => entry.name === 'buzz_send_dm');
+  if (!server || !tool) {
+    stream.markdown('The Buzz Communications bridge is not connected, so there is no way to send a DM. Ask **/buzz**.');
+    stream.button({ command: 'atlasmind.openMcpServers', title: 'Manage MCP servers' });
+    return;
+  }
+
+  const request = {
+    composer: 'human' as const,
+    target: pubkey,
+    targetChosenByUser: true,
+    confirmedTargets: [...buzzConfirmedTargets],
+  };
+  const decision = decideBuzzSend(request);
+  if (decision.requiresConfirmation) {
+    const choice = await vscode.window.showWarningMessage(
+      describeBuzzSend(request, decision, validation.text, contact.name),
+      { modal: true },
+      'Send',
+    );
+    if (choice !== 'Send') {
+      stream.markdown('Not sent.');
+      return;
+    }
+  }
+
+  const skillId = mcpSkillId(server.config.id, tool.name);
+  const skill = atlas.skillsRegistry.get(skillId);
+  if (!skill || !atlas.skillsRegistry.isEnabled(skill.id)) {
+    stream.markdown('The Buzz DM tool is unavailable. Reconnect the server from MCP Servers.');
+    return;
+  }
+
+  try {
+    await skill.execute({ pubkey, content: validation.text }, atlas.skillContext);
+    if (decision.remembersTarget) {
+      buzzConfirmedTargets.add(pubkey);
+    }
+    stream.markdown(`DM sent to **${escapeMd(contact.name)}** on Buzz.`);
+  } catch (error) {
+    stream.markdown(`DM failed: ${escapeMd(error instanceof Error ? error.message : String(error))}`);
+  }
+}
+
+/**
  * Read one pinned Buzz documentation URL.
  *
  * Bounded and total: HTTPS only, an origin the caller has already pinned, a
@@ -1852,6 +1960,11 @@ async function handleBuzzCommand(
   const trimmed = (prompt ?? '').trim();
   if (/^read\b/i.test(trimmed)) {
     await handleBuzzRead(stream, atlas);
+    return;
+  }
+  const dm = /^dm\s+(\S+)\s+([\s\S]+)$/i.exec(trimmed);
+  if (dm) {
+    await handleBuzzDirectMessage(dm[1]!, dm[2]!, stream, atlas);
     return;
   }
   const send = /^send\s+([\s\S]+)$/i.exec(trimmed);
