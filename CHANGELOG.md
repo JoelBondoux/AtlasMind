@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.185.1] - 2026-07-29
+
+### Fixed
+- **A contributor could not be more cautious than their repository.** The automation ladder read settings with `configuration.get()`, which returns the value VS Code *resolves* — and VS Code resolves workspace settings above user settings. That is right for a preference and wrong for a safety ceiling: a repository committing `maxAutomationLevel: auto` raised the ceiling of everyone who opened it, and somebody who set `observe` for themselves was overridden by it. The specification promised the opposite — that a personal setting can only ever *lower* the result.
+
+  Every gating setting is now read per **scope** rather than resolved, and the most restrictive value defined in any scope wins. Unset stays distinct from set-to-restrictive, so somebody with no preference still inherits the team's value — otherwise a team setting would never do anything.
+
+  The same direction applies to the capability switches: `false` is the cautious value, so a team can grant a capability and an individual can still decline it.
+
+  `workflow.profile` and `workflow.archetype` deliberately keep normal precedence, and the code says so: they are *declarations* about the project rather than permissions, so the team's answer should win over an individual's.
+
+  Worth noting what limited the exposure: `capabilities.untrustedWorkspaces` is undeclared, so VS Code disables AtlasMind until a workspace is trusted — a hostile repository could not arm automation by shipping settings. The defect was confined to trusted repositories, which is where it mattered for teams.
+
 ## [0.185.0] - 2026-07-28
 
 ### Added

@@ -82,6 +82,75 @@ export function normalizeAutomationLevel(value: unknown): AutomationLevel {
 }
 
 /**
+ * One setting's value in each configuration scope.
+ *
+ * `undefined` means *not set in that scope* — which is different from set to a
+ * restrictive value, and the difference is the whole point. A person who has
+ * expressed no preference should inherit the team's, while a person who has
+ * expressed one should keep it when it is the more cautious of the two.
+ *
+ * Field names match VS Code's `WorkspaceConfiguration.inspect()` result, so an
+ * inspect result can be passed straight in without an adapter at every call
+ * site — an adapter being one more place the mapping could be got wrong.
+ */
+export interface SettingScopes<T> {
+  /** The person's own setting. */
+  globalValue?: T | undefined;
+  /** The team's, from committed workspace settings. */
+  workspaceValue?: T | undefined;
+  /** A folder override in a multi-root workspace. */
+  workspaceFolderValue?: T | undefined;
+}
+
+/**
+ * The most restrictive automation level defined in any scope.
+ *
+ * VS Code resolves configuration by precedence — workspace beats user — which
+ * is right for a preference and **wrong for a safety ceiling**. Read that way, a
+ * repository committing `auto` would raise the ceiling of everyone who opened
+ * it, and a contributor who wanted to be more cautious than their team could
+ * not be. The specification's promise is the opposite: a personal setting can
+ * only ever *lower* the result.
+ *
+ * So this takes the minimum across scopes rather than the resolved value.
+ * A scope that set nothing does not clamp anything; when no scope set a value,
+ * the deny-by-default fallback applies.
+ */
+export function resolveRestrictiveLevel(
+  scopes: SettingScopes<string>,
+  fallback: AutomationLevel = 'observe',
+): AutomationLevel {
+  const defined = [scopes.globalValue, scopes.workspaceValue, scopes.workspaceFolderValue]
+    .filter((value): value is string => typeof value === 'string')
+    .map(normalizeAutomationLevel);
+
+  if (defined.length === 0) {
+    return fallback;
+  }
+  return defined.reduce((lowest, level) => (rank(level) < rank(lowest) ? level : lowest));
+}
+
+/**
+ * The most restrictive boolean defined in any scope.
+ *
+ * Same reasoning, and the same direction: for a capability switch `false` is
+ * the cautious value, so any scope that says `false` wins. A team can grant a
+ * capability and an individual can still decline it.
+ */
+export function resolveRestrictiveFlag(
+  scopes: SettingScopes<boolean>,
+  fallback = false,
+): boolean {
+  const defined = [scopes.globalValue, scopes.workspaceValue, scopes.workspaceFolderValue]
+    .filter((value): value is boolean => typeof value === 'boolean');
+
+  if (defined.length === 0) {
+    return fallback;
+  }
+  return defined.every(value => value);
+}
+
+/**
  * The effective level, and the gate that decided it.
  *
  * Gates are examined in the order a user would want to hear about them: the

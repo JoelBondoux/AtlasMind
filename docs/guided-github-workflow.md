@@ -608,6 +608,18 @@ the entire workflow at `observe` on their own machine while the repository
 declares `propose`. No developer can run at `auto` if either the repository or
 their own ceiling says otherwise.
 
+> **How this is kept.** Every gating setting is read *per scope* rather than as
+> the value the editor resolves. Editors resolve workspace settings above user
+> settings, which is correct for a preference and wrong for a safety ceiling —
+> read that way, a repository could raise the ceiling of everyone who opened it.
+> The most restrictive value defined in any scope wins instead. A scope that set
+> nothing does not clamp anything, so somebody with no stated preference still
+> inherits their team's.
+>
+> Declarations are different from permissions: the profile and the archetype
+> take normal precedence, because the team's answer about what the project *is*
+> should win over an individual's.
+
 **Profiles seed; they do not govern.** `solo` and `studio` are presets that
 write an initial configuration. Once the file exists, the file wins. Changing
 `profile` never silently rewrites stage values.

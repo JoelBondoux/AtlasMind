@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.185.1 — a person can always be more cautious than their team
+
+- **Fixed:** the automation ladder read the *resolved* setting value, and VS Code resolves workspace above user — so a repository committing `maxAutomationLevel: auto` raised everyone's ceiling, and setting `observe` for yourself was overridden. The specification promised the reverse.
+- Gating settings are now read **per scope**, with the most restrictive defined value winning. Unset still inherits the team's value, so a team setting is not made inert.
+- `profile` and `archetype` keep normal precedence on purpose: they declare what the project *is*, rather than granting permission.
+
 ## v0.185.0 — the workflow now knows what kind of project this is
 
 - **A game, a website, a library and a CLI do not share a workflow.** Different CI steps, release model, testing strategy, documentation, refactor advice and notion of a hotspot. Until now the guided workflow treated them identically, which meant it was tuned for none of them.

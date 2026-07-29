@@ -74,9 +74,10 @@ import {
 import {
   FIRST_WRITING_LEVEL,
   explainAutomationLevel,
-  normalizeAutomationLevel,
   permits,
   permitsProtectedRefWrite,
+  resolveRestrictiveFlag,
+  resolveRestrictiveLevel,
   type AutomationDecision,
   type AutomationLevel,
   type WorkflowCapability,
@@ -2405,10 +2406,18 @@ export class ProjectDashboardPanel {
       : capability === 'pullRequestWrites'
         ? 'workflow.allowPullRequestWrites'
         : 'workflow.allowReleaseWrites';
+    // Read *scopes*, not the resolved value. VS Code resolves workspace above
+    // user, which is right for a preference and wrong for a safety ceiling:
+    // read that way, a repository committing `auto` would raise the ceiling of
+    // everyone who opened it, and somebody wanting to be more cautious than
+    // their team could not be. The most restrictive scope wins instead.
+    const flag = (key: string): boolean =>
+      resolveRestrictiveFlag(configuration.inspect<boolean>(key) ?? {});
+
     return explainAutomationLevel({
-      masterEnabled: configuration.get<boolean>('workflow.enabled', false),
-      userCeiling: normalizeAutomationLevel(configuration.get<string>('workflow.maxAutomationLevel', 'observe')),
-      capabilityEnabled: configuration.get<boolean>(capabilitySetting, false),
+      masterEnabled: flag('workflow.enabled'),
+      userCeiling: resolveRestrictiveLevel(configuration.inspect<string>('workflow.maxAutomationLevel') ?? {}),
+      capabilityEnabled: flag(capabilitySetting),
       stageLevel,
     });
   }
@@ -4011,9 +4020,19 @@ function buildGuidedWorkflowSnapshot(input: {
   commitSeries: DashboardSeriesPoint[];
 }): DashboardGuidedWorkflowSnapshot {
   const now = Date.now();
+  // Deliberately a normal `get()`, unlike the safety settings below it.
+  // `profile` and `archetype` are *declarations* about the project, not
+  // permissions: the team's answer should win over an individual's, which is
+  // exactly VS Code's default precedence. Only settings that gate an action
+  // take the most-restrictive-scope rule.
   const profile = normalizeWorkflowProfile(input.configuration.get<string>('workflow.profile', 'solo'));
-  const enabled = input.configuration.get<boolean>('workflow.enabled', false);
-  const automationLevel = input.configuration.get<string>('workflow.maxAutomationLevel', 'observe');
+  // Read scopes, matching how the gate actually decides — otherwise the card
+  // would display a ceiling the enforcement does not use, which is worse than
+  // showing nothing.
+  const enabled = resolveRestrictiveFlag(input.configuration.inspect<boolean>('workflow.enabled') ?? {});
+  const automationLevel = resolveRestrictiveLevel(
+    input.configuration.inspect<string>('workflow.maxAutomationLevel') ?? {},
+  );
 
   const enabledMethodologies = (input.testing.projectTestingConfig?.methodologies ?? [])
     .filter(entry => entry.enabled)
@@ -4172,25 +4191,25 @@ function buildGuidedWorkflowSnapshot(input: {
       {
         id: 'atlasmind.workflow.allowIssueWrites',
         label: 'Issue writes',
-        enabled: input.configuration.get<boolean>('workflow.allowIssueWrites', false),
+        enabled: resolveRestrictiveFlag(input.configuration.inspect<boolean>('workflow.allowIssueWrites') ?? {}),
         detail: 'Create, comment on, edit, close or reopen issues. Every write still confirms first.',
       },
       {
         id: 'atlasmind.workflow.allowPullRequestWrites',
         label: 'Pull request writes',
-        enabled: input.configuration.get<boolean>('workflow.allowPullRequestWrites', false),
+        enabled: resolveRestrictiveFlag(input.configuration.inspect<boolean>('workflow.allowPullRequestWrites') ?? {}),
         detail: 'Open pull requests, post reviews, merge. Every write still confirms first.',
       },
       {
         id: 'atlasmind.workflow.allowReleaseWrites',
         label: 'Release writes',
-        enabled: input.configuration.get<boolean>('workflow.allowReleaseWrites', false),
+        enabled: resolveRestrictiveFlag(input.configuration.inspect<boolean>('workflow.allowReleaseWrites') ?? {}),
         detail: 'Bump the version and write the changelog entry. Tagging and publishing stay human-triggered.',
       },
       {
         id: 'atlasmind.workflow.allowProtectedRefWrites',
         label: 'Protected branch writes',
-        enabled: input.configuration.get<boolean>('workflow.allowProtectedRefWrites', false),
+        enabled: resolveRestrictiveFlag(input.configuration.inspect<boolean>('workflow.allowProtectedRefWrites') ?? {}),
         detail: 'A hard ceiling. With this off, unattended automation is unreachable for any stage whose base is protected.',
       },
     ],

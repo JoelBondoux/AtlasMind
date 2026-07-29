@@ -7,6 +7,8 @@ import {
   explainAutomationLevel,
   normalizeAutomationLevel,
   permits,
+  resolveRestrictiveFlag,
+  resolveRestrictiveLevel,
   permitsProtectedRefWrite,
   type AutomationInputs,
   type AutomationLevel,
@@ -126,6 +128,66 @@ describe('untrusted input defaults closed', () => {
 
   it('treats a malformed stage level as off rather than as the caller intended', () => {
     expect(effectiveAutomationLevel({ ...OPEN, stageLevel: 'ludicrous' as AutomationLevel })).toBe('off');
+  });
+});
+
+describe('a person can always be more cautious than their team', () => {
+  it('takes the lowest level defined in any scope, not the resolved one', () => {
+    // VS Code resolves workspace above user, which is right for a preference
+    // and wrong for a safety ceiling. Read that way, a repository committing
+    // `auto` would raise the ceiling of everyone who opened it.
+    expect(resolveRestrictiveLevel({ workspaceValue: 'auto', globalValue: 'observe' })).toBe('observe');
+    expect(resolveRestrictiveLevel({ workspaceValue: 'observe', globalValue: 'auto' })).toBe('observe');
+  });
+
+  it('inherits the team value when the person expressed no preference', () => {
+    // Unset is not the same as set-to-restrictive: somebody with no opinion
+    // should get the team's, or a team setting would never do anything.
+    expect(resolveRestrictiveLevel({ workspaceValue: 'propose' })).toBe('propose');
+    expect(resolveRestrictiveLevel({ globalValue: 'draft' })).toBe('draft');
+  });
+
+  it('falls back to deny-by-default when no scope set anything', () => {
+    expect(resolveRestrictiveLevel({})).toBe('observe');
+    expect(resolveRestrictiveLevel({}, 'off')).toBe('off');
+  });
+
+  it('honours a folder override in a multi-root workspace', () => {
+    expect(resolveRestrictiveLevel({
+      workspaceValue: 'auto', globalValue: 'auto', workspaceFolderValue: 'draft',
+    })).toBe('draft');
+  });
+
+  it('reads an unrecognised value as off rather than as permission', () => {
+    expect(resolveRestrictiveLevel({ workspaceValue: 'ludicrous' })).toBe('off');
+  });
+
+  it('applies the same direction to capability switches', () => {
+    // `false` is the cautious value, so any scope saying false wins — a team
+    // can grant a capability and an individual can still decline it.
+    expect(resolveRestrictiveFlag({ workspaceValue: true, globalValue: false })).toBe(false);
+    expect(resolveRestrictiveFlag({ workspaceValue: false, globalValue: true })).toBe(false);
+    expect(resolveRestrictiveFlag({ workspaceValue: true })).toBe(true);
+    expect(resolveRestrictiveFlag({})).toBe(false);
+    expect(resolveRestrictiveFlag({}, true)).toBe(true);
+  });
+
+  it('accepts a VS Code inspect() result directly', () => {
+    // The field names match on purpose: an adapter would be one more place the
+    // mapping could be got wrong.
+    const inspectResult = {
+      key: 'atlasmind.workflow.maxAutomationLevel',
+      defaultValue: 'observe',
+      globalValue: 'draft',
+      workspaceValue: 'auto',
+    };
+    expect(resolveRestrictiveLevel(inspectResult)).toBe('draft');
+  });
+
+  it('ignores defaultValue, which is not a scope anybody chose', () => {
+    // `defaultValue` is always present in an inspect result. Treating it as a
+    // scope would clamp every setting to its default and make team values inert.
+    expect(resolveRestrictiveLevel({ defaultValue: 'observe', workspaceValue: 'auto' } as never)).toBe('auto');
   });
 });
 
