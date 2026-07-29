@@ -424,6 +424,10 @@
       vscode.postMessage({ type: 'openCommand', payload });
       return;
     }
+    if (action === 'setting') {
+      vscode.postMessage({ type: 'openSettingKey', payload });
+      return;
+    }
     if (action === 'prompt') {
       vscode.postMessage({ type: 'openPrompt', payload: { prompt: payload, sourcePage: state.activePage } });
       return;
@@ -3888,7 +3892,7 @@
               <span class="tag ${capability.enabled ? 'tag-warn' : 'tag-good'}">${capability.enabled ? 'allowed' : 'off'}</span>
             </div>`).join('')}
         </div>
-        <button type="button" class="action-link" data-action="command" data-payload="atlasmind.openSettings">Open settings</button>
+        <button type="button" class="action-link" data-action="setting" data-payload="atlasmind.workflow">Open the workflow settings</button>
       </article>`;
 
     // The audit record. Every other part of this workflow makes a determinism
@@ -4088,7 +4092,7 @@
           : ''}
         ${pack.blurb ? `<p class="stat-detail">${escapeHtml(pack.blurb)}${help.button}</p>` : help.button}
         ${help.panel}
-        <button type="button" class="action-link" data-action="command" data-payload="atlasmind.openSettings">Change the project shape</button>
+        <button type="button" class="action-link" data-action="setting" data-payload="atlasmind.workflow.archetype">Change the project shape</button>
       </article>`;
     })() : '';
 

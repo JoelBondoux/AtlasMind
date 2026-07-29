@@ -227,6 +227,7 @@ const ALLOWED_DASHBOARD_COMMANDS = new Set([
   'atlasmind.openModelProviders',
   'atlasmind.openCostDashboard',
   'atlasmind.openProjectRunCenter',
+  'atlasmind.openSettings',
   'atlasmind.openSettingsProject',
   'atlasmind.openSettingsSafety',
   'atlasmind.openSettingsTesting',
@@ -318,6 +319,7 @@ type ProjectDashboardMessage =
   | { type: 'ready' }
   | { type: 'refresh' }
   | { type: 'openCommand'; payload: string }
+  | { type: 'openSettingKey'; payload: string }
   | { type: 'openPrompt'; payload: string | { prompt: string; sourcePage?: DashboardPageId } }
   | { type: 'openFile'; payload: string }
   | { type: 'openRun'; payload: string }
@@ -1920,6 +1922,26 @@ export class ProjectDashboardPanel {
       case 'openCommand':
         if (ALLOWED_DASHBOARD_COMMANDS.has(message.payload)) {
           await vscode.commands.executeCommand(message.payload);
+        } else {
+          // Never silently. A dropped command produced a button that did
+          // nothing and said nothing — indistinguishable, from the outside,
+          // from a feature that is broken or from one that quietly worked.
+          // Two shipped buttons were dead this way and nobody could have
+          // told which.
+          void vscode.window.showWarningMessage(
+            `AtlasMind blocked "${String(message.payload).slice(0, 80)}" — it is not on the dashboard's `
+            + 'command allowlist. This is a bug in AtlasMind, not something you did.',
+          );
+        }
+        return;
+      case 'openSettingKey':
+        // Opens VS Code's settings filtered to one key. Constrained to the
+        // `atlasmind.` namespace rather than checked against a hand-written
+        // list: a list of every settable key would drift the moment somebody
+        // added a setting, and drifting is how the button above died. The
+        // command only *filters a UI* — it changes nothing.
+        if (/^atlasmind\.[A-Za-z][A-Za-z0-9.]{0,80}$/.test(message.payload)) {
+          await vscode.commands.executeCommand('workbench.action.openSettings', message.payload);
         }
         return;
       case 'openFile':
@@ -4700,7 +4722,7 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return typeof candidate['payload'] === 'string' && slugifyGateId(candidate['payload']).length > 0;
   }
 
-  if ((candidate['type'] === 'openCommand' || candidate['type'] === 'openFile' || candidate['type'] === 'openRun' || candidate['type'] === 'openRunWithGoal' || candidate['type'] === 'openSession' || candidate['type'] === 'addressGap' || candidate['type'] === 'resolveGapItem' || candidate['type'] === 'resolveGapGroup' || candidate['type'] === 'openGapFiles' || candidate['type'] === 'copyContact' || candidate['type'] === 'createShelfFolder') && typeof candidate['payload'] === 'string') {
+  if ((candidate['type'] === 'openCommand' || candidate['type'] === 'openSettingKey' || candidate['type'] === 'openFile' || candidate['type'] === 'openRun' || candidate['type'] === 'openRunWithGoal' || candidate['type'] === 'openSession' || candidate['type'] === 'addressGap' || candidate['type'] === 'resolveGapItem' || candidate['type'] === 'resolveGapGroup' || candidate['type'] === 'openGapFiles' || candidate['type'] === 'copyContact' || candidate['type'] === 'createShelfFolder') && typeof candidate['payload'] === 'string') {
     return candidate['payload'].trim().length > 0;
   }
 

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.198.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.199.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,9 +64,13 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.198.0
+## What's new in 0.199.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
+
+- **Agents are told which debt markers to use.** An agent that marks temporary code its own way produces debt the register cannot see — and invisible debt is worse than no register, because emptiness then reads as “no debt” rather than “not detected”. AtlasMind's own agents get the vocabulary in their prompts; external agents get it as a managed block in the instruction files they already read.
+
+- **Fixed: two Workflow buttons that did nothing.** “Change the project shape” and “Open settings” posted a command the host silently dropped. A blocked command now says so — from the outside, a silent drop is indistinguishable from a broken feature and from one that quietly worked.
 
 - **Declare your own debt markers.** `atlasmind.debt.markers` takes entries like `["DEBT", "REVISIT:high"]`, and the scan looks for those alongside `TODO`, `FIXME`, `HACK` and `XXX`. Each becomes a **declared rule** — named on every entry it grades and published in the rule table — because a grade you can look up is a grade you can argue with.
 

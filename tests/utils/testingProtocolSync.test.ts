@@ -23,6 +23,8 @@ import {
   syncTestingProtocols,
   MANAGED_BLOCK_START,
   MANAGED_BLOCK_END,
+  buildDebtMarkerMarkdown,
+  DEBT_MARKER_BLOCK_START,
 } from '../../src/utils/testingProtocolSync.ts';
 import { isSafeRelativePath } from '../../src/utils/aiInstructionSync.ts';
 import type { AgentDefinition, ProjectTestingConfig } from '../../src/types.ts';
@@ -161,5 +163,22 @@ describe('path-safety guard (shared with aiInstructionSync)', () => {
   it('accepts well-formed workspace-relative paths', () => {
     expect(isSafeRelativePath('CLAUDE.md')).toBe(true);
     expect(isSafeRelativePath('.github/copilot-instructions.md')).toBe(true);
+  });
+});
+
+describe('debt markers reach external agents too', () => {
+  it('writes its own managed block, separate from the testing one', () => {
+    // Separate because the two answer different questions and change at
+    // different times — and a file with one block and not the other should keep
+    // what it has rather than have it rewritten by a sync about something else.
+    expect(DEBT_MARKER_BLOCK_START).not.toBe(MANAGED_BLOCK_START);
+    const body = buildDebtMarkerMarkdown([]);
+    expect(body).toContain('Technical debt markers');
+    expect(body).toContain('TODO');
+  });
+
+  it('names the project\'s own markers in the block', () => {
+    const body = buildDebtMarkerMarkdown([{ marker: 'REVISIT', severity: 'high' }]);
+    expect(body).toContain('REVISIT');
   });
 });

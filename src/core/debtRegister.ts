@@ -740,6 +740,51 @@ export function setDebtStatus(
   };
 }
 
+// ── Telling agents which markers to use ──────────────────────────
+
+/**
+ * The instruction an agent needs before it leaves a shortcut behind.
+ *
+ * An agent that writes temporary code and marks it `@todo`, `NOTE`, or nothing
+ * at all has produced debt the register cannot see — and invisible debt is
+ * worse than no register, because the register's emptiness now reads as an
+ * absence of debt rather than an absence of *detection*. That is the same
+ * confident-zero failure this codebase keeps finding, arriving from a direction
+ * nobody was watching.
+ *
+ * Kept short deliberately: this is prepended to every code-writing agent's
+ * prompt and to other tools' instruction files, and a paragraph competing for
+ * attention with the actual task is a paragraph that gets skimmed.
+ *
+ * The severities are stated because an agent choosing between `TODO` and
+ * `FIXME` is making a grading decision, and it should know it is making one.
+ */
+export function buildDebtMarkerGuidance(customMarkers: readonly CustomDebtMarker[] = []): string {
+  const lines = [
+    'When you leave temporary code, a shortcut, or a deferred decision behind, mark it with a',
+    'comment beginning with one of these. AtlasMind scans for them and records each one with its',
+    'file, its line, and the rule that graded it — anything marked another way is invisible, and an',
+    'empty register then reads as "no debt" rather than "not detected".',
+    '',
+    '- `TODO:` — something absent. Graded low.',
+    '- `FIXME:` — something wrong. Graded medium.',
+    '- `HACK:` / `XXX:` — works, but not the way it should. Graded medium.',
+  ];
+
+  for (const entry of customMarkers) {
+    lines.push(`- \`${entry.marker}:\` — declared by this project. Graded ${entry.severity}.`);
+  }
+
+  lines.push(
+    '',
+    'The marker must be the first word of the comment: `// TODO: replace this` is recorded,',
+    '`// a TODO for later` is not. A marker mentioning a credential, a token or sanitising is',
+    'graded high whichever word you used.',
+  );
+
+  return lines.join('\n');
+}
+
 // ── Handing an entry to an agent ─────────────────────────────────
 
 /**

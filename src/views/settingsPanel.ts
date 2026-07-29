@@ -19,6 +19,7 @@ import { isLocalSyncStale, LOCAL_MODEL_SYNC_CACHE_KEY, syncLocalModels, type Loc
 import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
 import { deriveTestingPolicyCoverage, parseJUnitReport, type TestingPolicyCoverage, type TestingPolicyTestFile } from '../core/testingPolicyCoverage.js';
 import { parseAgentBindings } from '../core/buzzAgentBindings.js';
+import { parseCustomDebtMarkers } from '../core/debtRegister.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -1308,7 +1309,14 @@ export class SettingsPanel {
       // protocols automatically. Best-effort: a sync failure must not block save.
       try {
         const agents = this.atlasContext?.agentRegistry?.listAgents() ?? [];
-        const result = await syncTestingProtocols(workspaceRoot, config, agents);
+        const result = await syncTestingProtocols(
+        workspaceRoot,
+        config,
+        agents,
+        parseCustomDebtMarkers(
+          vscode.workspace.getConfiguration('atlasmind').get<string[]>('debt.markers', []),
+        ),
+      );
         if (result.success) {
           void vscode.window.showInformationMessage(`Testing strategy saved. ${result.summary}`);
         }
@@ -1335,7 +1343,14 @@ export class SettingsPanel {
     }
     const agents = this.atlasContext?.agentRegistry?.listAgents() ?? [];
     try {
-      const result = await syncTestingProtocols(workspaceRoot, config, agents);
+      const result = await syncTestingProtocols(
+        workspaceRoot,
+        config,
+        agents,
+        parseCustomDebtMarkers(
+          vscode.workspace.getConfiguration('atlasmind').get<string[]>('debt.markers', []),
+        ),
+      );
       if (result.success) {
         void vscode.window.showInformationMessage(result.summary);
       } else {

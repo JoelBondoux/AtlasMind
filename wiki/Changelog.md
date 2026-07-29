@@ -6,6 +6,15 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.199.0 — Agents learn the markers, and two dead buttons
+
+**Agents are told which debt markers to use.** One that leaves temporary code marked `@todo` or nothing at all produces debt the register cannot see — and invisible debt is worse than no register, because emptiness then reads as "no debt" rather than "not detected".
+
+AtlasMind's own agents get the vocabulary appended to every role prompt, read from settings when the prompt is built. External agents (Claude Code, Copilot, Cursor, Cline, Codex, Gemini, Windsurf, Aider) get it as a **second managed block** beside the testing protocols — separate because the two answer different questions and change at different times.
+
+**Fixed: two buttons on the Workflow page did nothing.** "Change the project shape" and "Open settings" pointed at a command that was never allowlisted, so the host dropped the message. Silently — which is what let them ship, because from the outside a dropped command looks exactly like a broken feature and exactly like one that quietly worked. A blocked command now says so, and says it is AtlasMind's bug.
+
+"Change the project shape" now opens the setting it actually changes, rather than a Settings panel that does not render the archetype at all.
 ## v0.198.0 — Your own debt markers, and a way to search them
 
 **`atlasmind.debt.markers`** takes entries like `["DEBT", "REVISIT:high", "NOTE:low"]`. The scan looks for those alongside the built-in four. An unqualified marker is **medium** — somebody who declared a marker is asserting that something is wrong, the same reason `FIXME` outranks `TODO`.

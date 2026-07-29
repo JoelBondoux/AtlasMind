@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import type { AgentDefinition, BudgetMode, DataPrivacyMatch, MemoryEntry, ModelCapability, ModelStruggleKind, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, SubTaskStatus, TaskProfile, TaskRequest, TaskResult, TestingMethodologyId, ToolExecutionArtifact } from '../types.js';
 import type { AgentAutoUpdater } from './agentAutoUpdater.js';
+import { buildDebtMarkerGuidance, parseCustomDebtMarkers } from './debtRegister.js';
 import {
   evaluateHandoff,
   buildHandoffPrompt,
@@ -5870,9 +5871,35 @@ export function buildProjectSessionContextBundle(
   };
 }
 
+/**
+  * The markers this project records debt with, for any agent that writes code.
+  *
+  * An agent that leaves a shortcut marked `@todo`, `NOTE`, or nothing at all
+  * has produced debt the register cannot see — and invisible debt is worse than
+  * no register, because emptiness then reads as an absence of debt rather than
+  * an absence of detection.
+  *
+  * Read from settings at prompt-build time rather than cached: a project that
+  * declares a new marker should have its next subtask told about it, not its
+  * next window.
+  */
+function debtMarkerGuidance(): string {
+  try {
+    return buildDebtMarkerGuidance(parseCustomDebtMarkers(
+      vscode.workspace.getConfiguration('atlasmind').get<string[]>('debt.markers', []),
+    ));
+  } catch {
+    // No workspace configuration (a test, a headless host). The built-in
+    // markers are still worth stating.
+    return buildDebtMarkerGuidance();
+  }
+}
+
 function buildRolePrompt(role: string): string {
   const basePrompt = ROLE_PROMPTS[role] ?? ROLE_PROMPTS['general-assistant']!;
-  return `${basePrompt} ${AUTONOMOUS_PROJECT_DELIVERY_PROMPT}`;
+  return `${basePrompt} ${AUTONOMOUS_PROJECT_DELIVERY_PROMPT}
+
+${debtMarkerGuidance()}`;
 }
 
 function buildProjectSubTaskMessage(task: SubTask, depOutputs: Record<string, string>, projectGoal: string): string {

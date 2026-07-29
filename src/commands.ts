@@ -14,6 +14,7 @@ import { hasAiInstructionSyncFile, scanAiInstructionFiles, syncAiInstructionFile
 import { getSelectedSessionRenameTarget, postSidebarSummaryToChat } from './views/treeViews.js';
 import { checkStarterRuntime, runRuntimeInstallPlan } from './mcp/mcpRuntime.js';
 import type { ChatSessionTreeItem, DiscoveryFinderItem, McpServerTreeItem, ModelProviderTreeItem, ModelTreeItem, SessionFolderTreeItem, SkillFolderTreeItem, SkillTreeItem } from './views/treeViews.js';
+import { parseCustomDebtMarkers } from './core/debtRegister.js';
 
 const SKILL_LEARNING_WARNING =
   'Experimental skill learning uses model tokens and may generate incorrect or unsafe code. ' +
@@ -324,7 +325,14 @@ export function registerCommands(
       }
       const { syncTestingProtocols } = await import('./utils/testingProtocolSync.js');
       const agents = getAtlas()?.agentRegistry?.listAgents() ?? [];
-      const result = await syncTestingProtocols(workspaceRoot, config, agents);
+      const result = await syncTestingProtocols(
+        workspaceRoot,
+        config,
+        agents,
+        parseCustomDebtMarkers(
+          vscode.workspace.getConfiguration('atlasmind').get<string[]>('debt.markers', []),
+        ),
+      );
       if (result.success) {
         void vscode.window.showInformationMessage(result.summary);
       } else {

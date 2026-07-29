@@ -5,6 +5,8 @@ import {
   scanForDebtMarkers,
   commentStartIndex,
   parseCustomDebtMarkers,
+  buildDebtMarkerGuidance,
+  BUILT_IN_DEBT_MARKERS,
   customMarkerRules,
   isCustomMarkerRule,
   MAX_CUSTOM_MARKERS,
@@ -585,5 +587,45 @@ describe('a project can declare its own markers', () => {
     const markdown = renderDebtMarkdown(register, [{ marker: 'REVISIT', severity: 'high' }]);
     expect(markdown).toContain('custom-marker-revisit');
     expect(markdown).toContain('atlasmind.debt.markers');
+  });
+});
+
+describe('agents are told which markers to use', () => {
+  it('names every built-in with its grade', () => {
+    // An agent choosing between TODO and FIXME is making a grading decision,
+    // and it should know it is making one.
+    const guidance = buildDebtMarkerGuidance();
+    for (const marker of BUILT_IN_DEBT_MARKERS) {
+      expect(guidance, marker).toContain(marker);
+    }
+    expect(guidance).toMatch(/Graded low/);
+    expect(guidance).toMatch(/Graded medium/);
+  });
+
+  it('names the project\'s own markers alongside them', () => {
+    const guidance = buildDebtMarkerGuidance([{ marker: 'REVISIT', severity: 'high' }]);
+    expect(guidance).toContain('REVISIT');
+    expect(guidance).toMatch(/declared by this project. Graded high/);
+  });
+
+  it('says why the marker matters rather than only that it is required', () => {
+    // An agent that marks a shortcut its own way produces debt the register
+    // cannot see, and emptiness then reads as "no debt".
+    expect(buildDebtMarkerGuidance()).toMatch(/invisible/);
+    expect(buildDebtMarkerGuidance()).toMatch(/rather than "not detected"/);
+  });
+
+  it('states the position rule, which is the one people get wrong', () => {
+    expect(buildDebtMarkerGuidance()).toMatch(/must be the first word of the comment/);
+  });
+
+  it('warns that a credential mention is graded high regardless', () => {
+    expect(buildDebtMarkerGuidance()).toMatch(/graded high whichever word you used/);
+  });
+
+  it('stays short enough to sit in front of a real task', () => {
+    // This is prepended to every code-writing agent's prompt. A paragraph
+    // competing with the actual task is a paragraph that gets skimmed.
+    expect(buildDebtMarkerGuidance().length).toBeLessThan(1200);
   });
 });

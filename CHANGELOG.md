@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.199.0] - 2026-07-29
+
+### Added
+- **Agents are now told which debt markers to use.** An agent that leaves temporary code marked `@todo`, `NOTE`, or nothing at all produces debt the register cannot see — and invisible debt is worse than no register at all, because an empty register then reads as "no debt" rather than "not detected".
+
+  The vocabulary reaches both audiences. AtlasMind's own agents get it appended to every role prompt, read from your settings when the prompt is built — so a marker you declare this morning is in front of your next subtask, not your next window. External agents (Claude Code, Copilot, Cursor, Cline, Codex, Gemini, Windsurf, Aider) get it as a **second managed block** in the instruction files they already read, alongside the testing protocols.
+
+  The two blocks are separate on purpose: they answer different questions, change at different times, and a file carrying one and not the other should keep what it has rather than have it rewritten by a sync about something else.
+
+### Fixed
+- **Two buttons on the Workflow page did nothing.** "Change the project shape" and "Open settings" both pointed at `atlasmind.openSettings`, which was never added to the dashboard's command allowlist — so the host received the message and dropped it.
+
+  **Silently** is the part that mattered. From the outside a dropped command is indistinguishable from a broken feature and from one that quietly worked, so nobody could tell which, and they shipped that way. A blocked command now says so, and says it is a bug in AtlasMind rather than something you did.
+
+  "Change the project shape" also now opens the setting it actually changes. It used to open the whole Settings panel, which does not render the archetype at all — so even allowlisted it would have shown you nothing.
+
+- **A test now keeps the allowlist and the markup together.** The allowlist is correct policy; a hand-maintained list that drifts from the buttons is not, and drift is exactly what killed these two.
 ## [0.198.0] - 2026-07-29
 
 ### Added
