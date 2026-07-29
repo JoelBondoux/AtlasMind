@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.201.1] - 2026-07-29
+
+### Fixed
+- **A flaky test that finally failed CI.** Temporary-directory cleanup in nine test files threw `EBUSY`, `EPERM` or `ENOTEMPTY` on Windows — an antivirus scanner, the search indexer, or the filesystem's own delayed handle release still holding something after the test had already passed every assertion. `retryDelay` helped and did not eliminate it: the failure that forced this was `ENOTEMPTY` on a CI runner, after five retries.
+
+  Cleanup is now best-effort in one shared helper. A test that passes its assertions and then fails on housekeeping is reporting a **false negative**, and a false negative in CI is worse than a leaked temporary directory by a wide margin — once a red build might mean nothing, people stop reading red builds. That is precisely the failure mode `ciFailureAnalysis` exists to keep out of this project, so it should not be arriving from the tests. The directory is under the OS temporary path, which the OS clears.
+
+  I had seen this three times locally today and dismissed it each time as an environment quirk. It was not — it was a flake, and the right moment to fix a flake is the first time you see it.
 ## [0.201.0] - 2026-07-29
 
 ### Added

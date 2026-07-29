@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -154,6 +154,7 @@ import { escapeHtml } from '../../src/views/webviewUtils.ts';
 import { McpPanel, buildWizardServerConfig, validatePanelMessage } from '../../src/views/mcpPanel.ts';
 import { getRecommendedMcpStarterDetails } from '../../src/constants.ts';
 import * as providerIndex from '../../src/providers/index.ts';
+import { removeTempDir } from '../helpers/tempDir';
 
 function createSessionConversationStub(transcript: Array<{ id?: string }> = []) {
   const sessions = new Map<string, { id: string; entries: Array<{ id: string }> }>();
@@ -1278,7 +1279,7 @@ describe('panel refresh flows', () => {
     );
 
     mocks.state.workspaceFolders = undefined;
-    rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    removeTempDir(tempRoot);
   });
 
   it('shows interim thinking updates while a chat-panel request is still running', async () => {
@@ -2812,7 +2813,7 @@ describe('panel refresh flows', () => {
     // The #mvp tag is metadata and must never appear in the displayed step text.
     expect(mvp.route.every(step => !/#mvp/i.test(step.text))).toBe(true);
 
-    rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    removeTempDir(tempRoot);
   });
 
   it('persists the #mvp tag when an item is marked for the MVP path', async () => {
@@ -2864,7 +2865,7 @@ describe('panel refresh flows', () => {
     const written = readFileSync(roadmapFile, 'utf-8');
     expect(written).toContain('- [ ] Ship onboarding flow #mvp');
 
-    rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    removeTempDir(tempRoot);
   });
 
   it('persists a user-declared release gate and tags items for it', async () => {
@@ -2944,7 +2945,7 @@ describe('panel refresh flows', () => {
     });
     expect(readFileSync(roadmapFile, 'utf-8')).toContain('- [ ] Ship onboarding flow\n');
 
-    rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    removeTempDir(tempRoot);
   });
 
   it('runs the allowlisted Cost Dashboard command but ignores non-allowlisted commands', async () => {

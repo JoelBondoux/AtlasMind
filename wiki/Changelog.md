@@ -6,6 +6,11 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.201.1 — A flake fixed at the third sighting
+
+Temporary-directory cleanup in nine test files threw `EBUSY`, `EPERM` or `ENOTEMPTY` on Windows, after the test had already passed every assertion. It finally failed CI.
+
+Cleanup is now best-effort in one shared helper. A test that passes its assertions and then fails on housekeeping reports a **false negative**, and a false negative in CI is worse than a leaked temp directory — once a red build might mean nothing, people stop reading red builds. That is the failure mode `ciFailureAnalysis` exists to keep out of this project, so it should not arrive from the tests.
 ## v0.201.0 — Labels and milestones
 
 When AtlasMind drafts an issue it takes labels only from the declared taxonomy and drops anything unmatched rather than inventing it — a rule only as good as the set behind it. The Issues tab now shows that set, with create, delete and close.

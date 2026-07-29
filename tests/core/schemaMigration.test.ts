@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import {
@@ -15,6 +15,7 @@ import { DocumentsManager, readDocumentsFile } from '../../src/core/documentsMan
 import { ProjectDirectorManager } from '../../src/core/projectDirectorManager.ts';
 import { RiskOversightManager } from '../../src/core/riskOversightManager.ts';
 import { SecurityReviewManager } from '../../src/core/securityReviewManager.ts';
+import { removeTempDir } from '../helpers/tempDir';
 
 describe('migrateDocument', () => {
   it('reports a document already at the current version as current', () => {
@@ -153,7 +154,7 @@ describe('DocumentsManager — a newer file is never overwritten', () => {
 
   afterEach(() => {
     while (roots.length > 0) {
-      rmSync(roots.pop()!, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+      removeTempDir(roots.pop()!);
     }
   });
 

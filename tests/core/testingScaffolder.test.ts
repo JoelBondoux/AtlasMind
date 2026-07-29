@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
@@ -19,6 +19,7 @@ vi.mock('vscode', () => ({
 import { scaffoldTestingFramework, toProjectArchetype, archetypeTestingModel } from '../../src/core/testingScaffolder.ts';
 import { resolveArchetypePack } from '../../src/core/archetypePacks.ts';
 import type { ProjectTestingConfig } from '../../src/types.ts';
+import { removeTempDir } from '../helpers/tempDir';
 
 function makeConfig(methodologies: ProjectTestingConfig['methodologies']): ProjectTestingConfig {
   return { version: 1, updatedAt: '2026-01-01T00:00:00.000Z', methodologies };
@@ -31,7 +32,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(workspace, { recursive: true, force: true });
+  removeTempDir(workspace);
 });
 
 function writePackageJson(deps: Record<string, string>): void {
@@ -281,7 +282,7 @@ describe('the playbook says what the project shape asks for', () => {
     );
     expect(playbook).toContain('For a game project');
     expect(playbook).toContain('Suits this shape:');
-    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    removeTempDir(root);
   });
 
   it('says which recommended methodologies are not switched on', async () => {
@@ -290,7 +291,7 @@ describe('the playbook says what the project shape asks for', () => {
       ['unit'],
     );
     expect(playbook).toContain('Recommended and not enabled:');
-    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    removeTempDir(root);
   });
 
   it('warns when an enabled methodology is discouraged for the shape', async () => {
@@ -303,7 +304,7 @@ describe('the playbook says what the project shape asks for', () => {
     );
     expect(playbook).toContain('Enabled but discouraged here:');
     expect(playbook).toMatch(/teaches people to ignore gaps/);
-    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    removeTempDir(root);
   });
 });
 
@@ -337,14 +338,14 @@ describe('a game gets recipes a game can actually run', () => {
     // Recipes have to be valid in both .ts and .js, because the extension
     // follows the project. Type annotations would emit unparseable JavaScript.
     expect(written).not.toMatch(/:\s*number/);
-    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    removeTempDir(root);
   });
 
   it('scaffolds a frame budget rather than an HTTP load script', async () => {
     const { root, result } = await scaffoldGame(['performance']);
     expect(result.files.some(file => file.path.includes('frame-budget'))).toBe(true);
     expect(result.files.some(file => file.path.includes('k6'))).toBe(false);
-    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    removeTempDir(root);
   });
 
   it('leaves non-game shapes on their own recipes', async () => {
@@ -358,7 +359,7 @@ describe('a game gets recipes a game can actually run', () => {
       methodologies: [{ id: 'performance', enabled: true }],
     } as ProjectTestingConfig);
     expect(result.files.some(file => file.path.includes('k6'))).toBe(true);
-    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    removeTempDir(root);
   });
 });
 

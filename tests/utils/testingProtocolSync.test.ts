@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
@@ -28,6 +28,7 @@ import {
 } from '../../src/utils/testingProtocolSync.ts';
 import { isSafeRelativePath } from '../../src/utils/aiInstructionSync.ts';
 import type { AgentDefinition, ProjectTestingConfig } from '../../src/types.ts';
+import { removeTempDir } from '../helpers/tempDir';
 
 function makeConfig(overrides: ProjectTestingConfig['methodologies'] = [
   { id: 'unit', enabled: true, assignedAgentId: 'agent-qa', assignedModelId: 'claude-opus-4-8', notes: 'Cover the auth module' },
@@ -48,7 +49,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(workspace, { recursive: true, force: true });
+  removeTempDir(workspace);
 });
 
 describe('buildTestingProtocolsMarkdown', () => {

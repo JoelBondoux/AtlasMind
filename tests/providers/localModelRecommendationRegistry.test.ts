@@ -1,7 +1,8 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { describe, it, expect } from 'vitest';
+import { removeTempDir } from '../helpers/tempDir';
 import {
   getLocalModelRecommendationCandidates,
   LOCAL_MODEL_RECOMMENDATION_OVERRIDE_RELATIVE_PATH,
@@ -48,7 +49,7 @@ describe('localModelRecommendationRegistry', () => {
       expect(candidates[0]?.recommendedTag).toBe('custom:10b');
       expect(candidates[0]?.workloadTags).toEqual(['code', 'reasoning']);
     } finally {
-      rmSync(workspaceRoot, { recursive: true, force: true });
+      removeTempDir(workspaceRoot);
     }
   });
 
@@ -82,7 +83,7 @@ describe('localModelRecommendationRegistry', () => {
         workloadTags: ['general'],
       });
     } finally {
-      rmSync(workspaceRoot, { recursive: true, force: true });
+      removeTempDir(workspaceRoot);
     }
   });
 
@@ -116,7 +117,7 @@ describe('localModelRecommendationRegistry', () => {
       expect(candidates[0]?.modelFamily).toBe('Valid One');
       expect(candidates[0]?.workloadTags).toEqual(['code', 'vision']);
     } finally {
-      rmSync(workspaceRoot, { recursive: true, force: true });
+      removeTempDir(workspaceRoot);
     }
   });
 
@@ -129,7 +130,7 @@ describe('localModelRecommendationRegistry', () => {
       expect(candidates.length).toBeGreaterThan(0);
       expect(candidates[0]?.modelFamily).toBe('Qwen 3 14B');
     } finally {
-      rmSync(workspaceRoot, { recursive: true, force: true });
+      removeTempDir(workspaceRoot);
     }
   });
 
@@ -142,7 +143,7 @@ describe('localModelRecommendationRegistry', () => {
       expect(candidates.length).toBeGreaterThan(0);
       expect(candidates[0]?.modelFamily).toBe('Qwen 3 14B');
     } finally {
-      rmSync(workspaceRoot, { recursive: true, force: true });
+      removeTempDir(workspaceRoot);
     }
   });
 });
