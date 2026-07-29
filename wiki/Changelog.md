@@ -6,6 +6,13 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.195.0 — Debt entries can be handed to an agent
+
+“Look at it with Atlas” opens a scoped chat with the entry, its evidence, and the rule that graded it. The `refactorer` agent has existed since v0.184.0 and until now had nothing to reason over.
+
+**The framing matters more than the wiring.** A debt entry is not untrusted third-party text — AtlasMind wrote it, from your own repository, through a sanitizer — so the risk is the inverse of an issue body's: not that the text is hostile, but that an agent reads a recorded shortcut as a mandate. Plenty of debt is worth keeping.
+
+So “worth keeping, with the reason it was the right call” is a first-class answer, the button says *look at it* rather than *fix it*, and the prompt ends: propose, do not apply.
 ## v0.194.0 — Debt nobody wrote down, and a bug class closed
 
 **The register now finds unrecorded debt.** A dependency update unmerged past two weeks, a testing methodology declared with no evidence it runs, a document past its review baseline, an absent pipeline. Those four rot quietly and none leaves a `TODO`. All graded by the same rule table as a scanned marker — a register holding two scales would be worse than one holding half the entries.

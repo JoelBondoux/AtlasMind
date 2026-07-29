@@ -766,6 +766,10 @@
       vscode.postMessage({ type: 'openDebtEvidence', payload: { id: payload } });
       return;
     }
+    if (action === 'work-on-debt') {
+      vscode.postMessage({ type: 'workOnDebt', payload: { id: payload } });
+      return;
+    }
     if (action === 'set-debt-status') {
       // Status and id travel in one attribute, split on the first space: an
       // id can contain slashes and colons but never a space, because the
@@ -3318,6 +3322,7 @@
           ${entry.status !== 'accepted' ? `<button type="button" class="action-link" data-action="set-debt-status" data-payload="accepted ${escapeAttr(entry.id)}">Accept</button>` : ''}
           ${entry.status !== 'scheduled' ? `<button type="button" class="action-link" data-action="set-debt-status" data-payload="scheduled ${escapeAttr(entry.id)}">Schedule</button>` : ''}
           <button type="button" class="action-link" data-action="set-debt-status" data-payload="resolved ${escapeAttr(entry.id)}">Mark resolved</button>
+          <button type="button" class="action-link" data-action="work-on-debt" data-payload="${escapeAttr(entry.id)}">Look at it with Atlas</button>
         </div>
       </div>`).join('');
 

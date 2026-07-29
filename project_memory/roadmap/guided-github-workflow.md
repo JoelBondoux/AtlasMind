@@ -1,6 +1,6 @@
 # Guided GitHub Workflow — Phased Roadmap
 
-> **Status:** Tier 1 shipped v0.181.0; Tier 2 shipped v0.183.0 (C3.4, C3.6 outstanding); Tier 3 CI intelligence shipped v0.184.0; **Tier 3.5 archetype specialisation shipped v0.185.0** (C7.4, C7.5 outstanding); **Tier 3 release half shipped v0.189.0 — C5.1 and C5.3 complete, so Tier 3's exit criteria are met**; **Tier 4 in progress — C1.1 and C1.7 shipped v0.190.0–v0.191.0, C1.6 shipped v0.192.0; C1.6 shipped v0.192.0, C6.1 shipped v0.193.0; C6.1 shipped v0.193.0 and C6.3 v0.194.0; C6.2 and C1.8 outstanding**. **Owner:** AtlasMind core. **Created:** 2026-07-28.
+> **Status:** Tier 1 shipped v0.181.0; Tier 2 shipped v0.183.0 (C3.4, C3.6 outstanding); Tier 3 CI intelligence shipped v0.184.0; **Tier 3.5 archetype specialisation shipped v0.185.0** (C7.4, C7.5 outstanding); **Tier 3 release half shipped v0.189.0 — C5.1 and C5.3 complete, so Tier 3's exit criteria are met**; **Tier 4 in progress — C1.1 and C1.7 shipped v0.190.0–v0.191.0, C1.6 shipped v0.192.0; C1.6 shipped v0.192.0, C6.1 shipped v0.193.0; C6 complete (v0.193.0–v0.195.0); **C1.8 outstanding and blocked on a design decision** — see below**. **Owner:** AtlasMind core. **Created:** 2026-07-28.
 > This is the SSOT implementation plan for [`docs/guided-github-workflow.md`](../../docs/guided-github-workflow.md),
 > which is the normative specification. Where the two disagree, the specification wins and this
 > file is wrong. Build incrementally, respecting the entry criteria between tiers. Nothing here
@@ -395,7 +395,7 @@ raise a stage to `propose` or `auto` and have the record show exactly what was d
 - **Priority:** Medium
 - **As shipped:** `debtRegister.ts` + a Tech Debt page. Severity is fixed by the rule at detection and **does not drift with age** — the obvious escalate-over-time feature fails the same comparability test the rule table exists to pass. `resolved` and `obsolete` are kept distinct because "somebody did the work" and "the evidence vanished" are different facts. Running the scanner over this repository found **29 false positives and zero real markers**, which produced the rule that a marker only counts when it *opens a comment*: markers in strings, templates and regexes are data, and markers discussed in prose are documentation.
 
-#### C6.2 — The `refactorer` agent and a `debt` risk domain
+#### C6.2 — The `refactorer` agent and a `debt` risk domain  ✅ shipped v0.195.0
 
 - **Purpose:** Give deferred work an owner. The risk register's domains are ethics/legal/commercial only; debt has nowhere to live.
 - **Expected behaviour:** Proposes refactors from register entries. Records; never applies below `propose`.
@@ -403,6 +403,11 @@ raise a stage to `propose` or `auto` and have the record show exactly what was d
 - **GitHub API usage:** n/a.
 - **Deterministic output requirements:** Same routing-neutrality constraints as C4.4.
 - **Priority:** Low
+- **As shipped:** `buildDebtWorkPrompt` + a "Look at it with Atlas" action on each entry. The `debt` risk
+  domain was **not** added — see open question 5, answered at C6.1. The prompt's fence inverts the usual
+  one: a debt entry is not untrusted third-party text, so the risk is not that the text is hostile but
+  that the agent reads a deferred decision as a mandate. "Worth keeping, with the reason it was the right
+  call" is therefore a first-class answer, and the button says *look at it* rather than *fix it*.
 
 #### C6.3 — Maintenance sweep and metrics  ✅ shipped v0.194.0 *(on-demand; no scheduler)*
 
@@ -446,6 +451,30 @@ raise a stage to `propose` or `auto` and have the record show exactly what was d
 - **Priority:** Low
 
 ---
+
+## C1.8 — blocked on a decision, deliberately not started
+
+The handoff tool is the last Tier 4 item and it is **not** a small one, because "handoff" can mean two
+things with very different security surfaces:
+
+1. **A recorded request.** A subtask says "this belongs to `security-reviewer`, here is the scoped
+   context, here is why", and that becomes an event in the audit trail plus a suggestion the planner
+   can act on. No orchestrator change. Honest, small — and at risk of being a tool that returns
+   "recorded" while nothing happens, which is the exact half-wired pattern the last four versions
+   were spent removing.
+
+2. **Real delegated execution.** The tool calls back into the orchestrator to run a nested task. This
+   needs a `runAgent` seam on `SkillExecutionContext` (there is none today), re-entrancy handling, a
+   depth cap, and — the load-bearing part — an authorization rule, because **delegated execution must
+   never imply delegated authorization**: a sub-agent must inherit *at most* the caller's tool
+   approvals, never the union of what both could do.
+
+The specification already describes handoff honestly as structural (`dependsOn` + role) and prose, so
+nothing currently claims a capability that does not exist. Building (1) to look complete would create
+that claim. Building (2) unguided, at the end of a long session, is how the bugs this tier spent four
+versions fixing get written.
+
+**Owed:** a decision on which one. Until then this item stays open and the specification stays honest.
 
 ## The `WorkflowObservedState` audit — a bug class, recorded
 

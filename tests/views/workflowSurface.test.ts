@@ -494,3 +494,19 @@ describe('the Tech Debt page', () => {
     expect(rendered()).not.toMatch(/payload="[^"]*evidencePath/);
   });
 });
+
+describe('handing a debt entry to an agent', () => {
+  const rendered = (): string => renderSource('renderDebt', 'renderRelease');
+
+  it('sends only the entry id — never the prompt or the path', () => {
+    // The prompt is built host-side from the entry looked up by id, so the
+    // webview cannot influence what an agent is told.
+    expect(WEBVIEW_SCRIPT).toContain("type: 'workOnDebt', payload: { id: payload }");
+    expect(rendered()).toContain('data-action="work-on-debt"');
+  });
+
+  it('does not label it as fixing, because the answer may be to keep it', () => {
+    expect(rendered()).toContain('Look at it with Atlas');
+    expect(rendered()).not.toMatch(/Fix it with Atlas/);
+  });
+});

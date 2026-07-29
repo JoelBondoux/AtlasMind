@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.194.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.195.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,9 +64,11 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.194.0
+## What's new in 0.195.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
+
+- **Every debt entry can be handed to an agent.** “Look at it with Atlas” opens a scoped chat with the entry, its evidence and the rule that graded it — and the prompt says plainly that a recorded shortcut is not a mandate. Plenty of debt is worth keeping, so “worth keeping, with the reason it was the right call” is a first-class answer, and the standing rule is propose, never apply.
 
 - **The debt register finds what nobody wrote down.** Alongside `TODO` markers: a dependency update unmerged past two weeks, a testing methodology you declared with no evidence it runs, a document past its review date, an absent pipeline. All graded by the same published rule table, so a derived entry and a written one are comparable.
 

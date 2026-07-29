@@ -63,6 +63,7 @@ import {
   DEBT_SSOT_PATH,
   DEBT_RULES,
   DebtRegisterManager,
+  buildDebtWorkPrompt,
   deriveDebtFromSignals,
   deriveDebtMetrics,
   isDependencyPullRequest,
@@ -335,6 +336,7 @@ type ProjectDashboardMessage =
   | { type: 'scanDebt' }
   | { type: 'setDebtStatus'; payload: { id: string; status: string; note?: string } }
   | { type: 'openDebtEvidence'; payload: { id: string } }
+  | { type: 'workOnDebt'; payload: { id: string } }
   | { type: 'createWorkflowConfig'; payload: { profile: string } }
   | { type: 'editWorkflowConfig'; payload: unknown }
   | { type: 'applyTeamRole'; payload: { roleId: string } }
@@ -2054,6 +2056,9 @@ export class ProjectDashboardPanel {
       case 'openDebtEvidence':
         await this.handleOpenDebtEvidence(message.payload);
         return;
+      case 'workOnDebt':
+        await this.handleWorkOnDebt(message.payload);
+        return;
       case 'createWorkflowConfig':
         await this.handleCreateWorkflowConfig(message.payload);
         return;
@@ -3133,6 +3138,26 @@ export class ProjectDashboardPanel {
         `\`${entry.evidencePath}\` could not be opened. If the file has gone, a rescan will mark this entry obsolete.`,
       );
     }
+  }
+
+  /**
+   * Hand a debt entry to `refactorer` as a *record*, never as a work order.
+   *
+   * The prompt is built host-side from the entry looked up by id, so the
+   * webview supplies neither the text nor the path. `refactorer` proposes and
+   * explains; it does not apply, which is the same division every other
+   * agent in this workflow works under — rules decide, agents explain.
+   */
+  private async handleWorkOnDebt(payload: { id: string }): Promise<void> {
+    const entry = this.debtManager.get().entries.find(candidate => candidate.id === payload.id);
+    if (!entry) {
+      void vscode.window.showWarningMessage('That entry is no longer in the register.');
+      return;
+    }
+    await vscode.commands.executeCommand('atlasmind.openChatPanel', {
+      draftPrompt: buildDebtWorkPrompt(entry),
+      sendMode: 'new-session',
+    });
   }
 
   /**
@@ -4580,7 +4605,8 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
   // A debt status is looked up against the register, so it only has to be a
   // known value — an unrecognised one resolves to no entry rather than a
   // partial match.
-  if (candidate['type'] === 'setDebtStatus' || candidate['type'] === 'openDebtEvidence') {
+  if (candidate['type'] === 'setDebtStatus' || candidate['type'] === 'openDebtEvidence'
+    || candidate['type'] === 'workOnDebt') {
     const payload = candidate['payload'] as Record<string, unknown> | undefined;
     return typeof payload === 'object' && payload !== null && typeof payload['id'] === 'string';
   }

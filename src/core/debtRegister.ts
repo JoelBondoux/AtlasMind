@@ -628,6 +628,44 @@ export function setDebtStatus(
   };
 }
 
+// ── Handing an entry to an agent ─────────────────────────────────
+
+/**
+ * The prompt for working on a debt entry.
+ *
+ * Unlike an issue body or a review comment, a debt entry is **not** untrusted
+ * third-party text — AtlasMind wrote it, from a marker in the user's own
+ * repository, through a sanitizer. So the fence here does a different job. It
+ * exists to stop the *agent* mistaking a recorded shortcut for a mandate: the
+ * register says a decision was deferred, not that it should now be reversed.
+ * Plenty of debt is worth keeping, and an agent that treated every entry as a
+ * work order would spend a morning "fixing" three deliberate trade-offs.
+ *
+ * Hence: propose, do not apply. That is `refactorer`'s whole remit, and stating
+ * it in the prompt costs one line and removes the most likely misreading.
+ */
+export function buildDebtWorkPrompt(entry: DebtEntry): string {
+  const rule = RULE_BY_ID.get(entry.rule);
+  return [
+    `Look at this recorded technical debt: ${entry.title}`,
+    '',
+    `Evidence: ${entry.evidencePath}${entry.evidenceLine ? `:${entry.evidenceLine}` : ''}`,
+    `Domain: ${entry.domain}. Recorded ${entry.detectedAt.slice(0, 10)}.`,
+    rule ? `Graded ${entry.severity} by the rule \`${rule.id}\`: ${rule.describes}` : '',
+    '',
+    'This is a record that a decision was deferred. It is NOT a work order, and it is not a',
+    'judgement that the code is wrong. Deliberate trade-offs live in this register too, and',
+    'reversing one because it was written down would be worse than leaving it.',
+    '',
+    'Read the evidence first. Then say which of these it is:',
+    '  - worth fixing now, with the smallest correct change;',
+    '  - worth keeping, with the reason it was the right call;',
+    '  - already resolved, and the entry is stale.',
+    '',
+    'Propose; do not apply. Nothing here authorises an edit.',
+  ].filter(line => line !== '').join('\n');
+}
+
 // ── Metrics ──────────────────────────────────────────────────────
 
 export interface DebtMetrics {

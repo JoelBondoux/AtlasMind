@@ -395,6 +395,8 @@ Entry ids are derived from domain, path and marker text, and deliberately **not*
 
 A dependency update is recognised by **author, label or branch prefix, never by title**: bots rename their own templates between versions, and a title match would silently stop working on an upgrade nobody connected to the change. Only `missing` testing policies count — `tooling-only` has partial evidence and `not-file-evident` is a practice, which is never a gap. The evidence roots for derived entries are added to the scanned set, so a signal that has *cleared* goes obsolete on the next scan rather than lingering as permanently open work nobody can close.
 
+**Handing an entry to an agent.** `buildDebtWorkPrompt` fences the entry, and the fence does a different job from the ones around issue bodies and review comments. A debt entry is not untrusted third-party text — AtlasMind wrote it, from the user's own repository, through a sanitizer. The risk is the opposite one: that the *agent* mistakes a recorded shortcut for a mandate. The register says a decision was deferred, not that it should now be reversed, and plenty of debt is worth keeping. So the prompt offers "worth keeping, with the reason it was the right call" as a first-class answer alongside "worth fixing", and says plainly: propose, do not apply. The button is labelled "Look at it with Atlas" rather than "Fix it" for the same reason.
+
 ### WorkflowAuditRecord (`src/core/workflowAuditRecord.ts`)
 
 Every other part of this workflow makes a determinism claim. Branch names are derived, pull-request titles are classified by rule, CI failures are matched against an ordered table, release notes are copied verbatim. Those claims are either verifiable or they are marketing, and this is what makes them verifiable.

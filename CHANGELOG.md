@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.195.0] - 2026-07-29
+
+### Added
+- **Every debt entry can be handed to an agent** — "Look at it with Atlas" opens a scoped chat with the entry, its evidence, and the rule that graded it. The `refactorer` agent has existed since v0.184.0 and until now had nothing to reason over.
+
+  The prompt's framing matters more than the wiring. A debt entry is **not** untrusted third-party text — AtlasMind wrote it, from your own repository, through a sanitizer — so the risk it guards against is the opposite of an issue body's. It is not that the text is hostile; it is that an agent reads a recorded shortcut as a mandate. Plenty of debt is worth keeping, and an assistant that treated every entry as a work order would spend a morning reversing three deliberate trade-offs.
+
+  So "worth keeping, with the reason it was the right call" is a first-class answer alongside "worth fixing", the button says *look at it* rather than *fix it*, and the prompt ends: propose, do not apply.
 ## [0.194.0] - 2026-07-29
 
 ### Added

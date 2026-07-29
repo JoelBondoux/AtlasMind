@@ -8,6 +8,7 @@ import {
   reconcileDebtScan,
   setDebtStatus,
   sortDebtEntries,
+  buildDebtWorkPrompt,
   deriveDebtMetrics,
   deriveDebtFromSignals,
   isDependencyPullRequest,
@@ -427,5 +428,39 @@ describe('debt derived from signals nobody wrote down', () => {
     const first = deriveDebtFromSignals({ now: NOW, ciWorkflowCount: 0 });
     const second = deriveDebtFromSignals({ now: NOW + 86_400_000, ciWorkflowCount: 0 });
     expect(debtEntryId(first[0])).toBe(debtEntryId(second[0]));
+  });
+});
+
+describe('buildDebtWorkPrompt — a record, not a work order', () => {
+  const entry = () => reconcileDebtScan(
+    EMPTY, scanForDebtMarkers([file('src/a.ts', '// HACK: bypasses the cache')]), ['src/a.ts'], AT,
+  ).added[0];
+
+  it('says the entry is not a mandate to change anything', () => {
+    // Plenty of debt is worth keeping. An agent treating every entry as a work
+    // order would spend a morning reversing three deliberate trade-offs.
+    const prompt = buildDebtWorkPrompt(entry());
+    expect(prompt).toMatch(/NOT a work order/);
+    expect(prompt).toMatch(/Deliberate trade-offs live in this register too/);
+  });
+
+  it('offers "worth keeping" as a real answer alongside "worth fixing"', () => {
+    expect(buildDebtWorkPrompt(entry())).toMatch(/worth keeping, with the reason it was the right call/);
+  });
+
+  it('says propose, do not apply', () => {
+    // The same division every agent in this workflow works under: rules decide,
+    // agents explain.
+    expect(buildDebtWorkPrompt(entry())).toMatch(/Propose; do not apply/);
+  });
+
+  it('carries the evidence and the rule that graded it', () => {
+    const prompt = buildDebtWorkPrompt(entry());
+    expect(prompt).toContain('src/a.ts:1');
+    expect(prompt).toContain('broken-marker');
+  });
+
+  it('is deterministic for a given entry', () => {
+    expect(buildDebtWorkPrompt(entry())).toBe(buildDebtWorkPrompt(entry()));
   });
 });
