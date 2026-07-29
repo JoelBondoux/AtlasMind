@@ -377,6 +377,20 @@ The rules are ordered and first-match-wins, and the order is part of the contrac
 
 A CI log is untrusted input. `sanitizeCiLog` strips ANSI *before* redacting (a secret wrapped in colour codes would not match a redaction pattern otherwise), then caps size keeping the **tail** — a failure message is at the end of a log, and keeping the head would reliably discard the only part anybody needs. Truncation and redaction are both reported on the report, never silent, and `buildCiFailurePrompt` fences the excerpt as REPORTED CONTENT.
 
+### DebtRegister (`src/core/debtRegister.ts`)
+
+Stage 7. Taking on debt is often the right call — the metaphor is exact, and borrowing to ship sooner is legitimate. The danger is the interest paid by forgetting it exists.
+
+**Severity comes from a declared rule table, never from a model.** A score produced last Tuesday is not comparable with one produced today, and comparability is the entire point: a register you cannot sort or age is a list. Every entry names the rule that graded it, so the number can be argued with rather than taken on trust, and the rule table is published in the markdown mirror beside the entries.
+
+**Severity does not drift with age.** The obvious feature is to escalate an item the longer it sits, and it fails for the same reason: an entry whose severity changed while nothing about the code changed cannot be compared with last month's. Age is reported alongside severity as its own fact.
+
+**Entries transition; they are never deleted.** `resolved` and `obsolete` are deliberately distinct — `resolved` means somebody did the work, `obsolete` means the evidence disappeared and nobody said they fixed it. Collapsing them would let the register report progress it cannot attest to. Reconciliation can only mark an entry obsolete if its file was actually in the scan, so a scan of `src/` never declares everything in `docs/` gone.
+
+Entry ids are derived from domain, path and marker text, and deliberately **not** from the line number: code moves, and an entry that got a new id every time somebody added an import above it would lose its whole history on a whitespace change. That stability is what lets a rescan *recognise* an entry rather than duplicate it.
+
+**A marker only counts when it opens a comment**, and both halves of that rule were learned by running the scanner over this repository — which promptly reported its own rule table, its own tests, and the dashboard copy describing the feature as technical debt. Twenty-nine entries, every one false. A marker inside a string literal, a template literal or a regex is *data*; a marker being discussed in prose ("a `FIXME` asserts that something is wrong") is documentation. Only a marker at the start of a comment is a deferred decision. `commentStartIndex` is a small quote-tracking scanner rather than a regex, because "is this delimiter inside a string" is a question a regex cannot answer.
+
 ### WorkflowAuditRecord (`src/core/workflowAuditRecord.ts`)
 
 Every other part of this workflow makes a determinism claim. Branch names are derived, pull-request titles are classified by rule, CI failures are matched against an ordered table, release notes are copied verbatim. Those claims are either verifiable or they are marketing, and this is what makes them verifiable.

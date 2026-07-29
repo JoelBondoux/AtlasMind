@@ -1,6 +1,6 @@
 # Guided GitHub Workflow — Phased Roadmap
 
-> **Status:** Tier 1 shipped v0.181.0; Tier 2 shipped v0.183.0 (C3.4, C3.6 outstanding); Tier 3 CI intelligence shipped v0.184.0; **Tier 3.5 archetype specialisation shipped v0.185.0** (C7.4, C7.5 outstanding); **Tier 3 release half shipped v0.189.0 — C5.1 and C5.3 complete, so Tier 3's exit criteria are met**; **Tier 4 in progress — C1.1 and C1.7 shipped v0.190.0–v0.191.0, C1.6 shipped v0.192.0; C6 and C1.8 outstanding**. **Owner:** AtlasMind core. **Created:** 2026-07-28.
+> **Status:** Tier 1 shipped v0.181.0; Tier 2 shipped v0.183.0 (C3.4, C3.6 outstanding); Tier 3 CI intelligence shipped v0.184.0; **Tier 3.5 archetype specialisation shipped v0.185.0** (C7.4, C7.5 outstanding); **Tier 3 release half shipped v0.189.0 — C5.1 and C5.3 complete, so Tier 3's exit criteria are met**; **Tier 4 in progress — C1.1 and C1.7 shipped v0.190.0–v0.191.0, C1.6 shipped v0.192.0; C1.6 shipped v0.192.0, C6.1 shipped v0.193.0; C6.2, C6.3 and C1.8 outstanding**. **Owner:** AtlasMind core. **Created:** 2026-07-28.
 > This is the SSOT implementation plan for [`docs/guided-github-workflow.md`](../../docs/guided-github-workflow.md),
 > which is the normative specification. Where the two disagree, the specification wins and this
 > file is wrong. Build incrementally, respecting the entry criteria between tiers. Nothing here
@@ -60,7 +60,7 @@ config executed through the promotion runner's own audited path — not spawned 
 `gh api repos/{slug}/branches/{b}/protection`; `gh api repos/{slug}/commits/{ref}/check-runs`;
 `gh repo create`.
 
-**Not present anywhere in `src/`:** any tech-debt model — C6, still outstanding. Releases are read as of v0.189.0
+**Not present anywhere in `src/`:** the maintenance sweep (C6.3) and the handoff tool (C1.8). Releases are read as of v0.189.0
 (`gh release list`, plus local `git tag` and `git describe`), and the release *plan* is built entirely
 from local files so it works with no `gh` at all; `gh release create` remains proposed. CI runs and failed logs are read as of v0.184.0 (`gh run list`, `gh run view --log-failed`),
 classified by a rule table with no model in the path (`ciFailureAnalysis.ts`). Pull requests are read (v0.182.0) **and written**
@@ -385,7 +385,7 @@ raise a stage to `propose` or `auto` and have the record show exactly what was d
 
 ### C6 — Maintenance & Tech-Debt
 
-#### C6.1 — The debt register
+#### C6.1 — The debt register  ✅ shipped v0.193.0
 
 - **Purpose:** A solo developer has no colleague who remembers the shortcut, and a studio has no shared memory of it either.
 - **Expected behaviour:** Append-only `{id, domain, evidencePath, evidenceLine, detectedAt, severity, status}` in JSON with a markdown mirror. Entries transition; they are never deleted.
@@ -393,6 +393,7 @@ raise a stage to `propose` or `auto` and have the record show exactly what was d
 - **GitHub API usage:** `gh issue list --label`, `gh issue comment`, `gh pr list --author app/dependabot`.
 - **Deterministic output requirements:** **Severity from a declared rule table, not a model score** — a score produced last week is not comparable with one produced today, and comparability is the register's entire value. Stable sort on `(severity, detectedAt, id)`.
 - **Priority:** Medium
+- **As shipped:** `debtRegister.ts` + a Tech Debt page. Severity is fixed by the rule at detection and **does not drift with age** — the obvious escalate-over-time feature fails the same comparability test the rule table exists to pass. `resolved` and `obsolete` are kept distinct because "somebody did the work" and "the evidence vanished" are different facts. Running the scanner over this repository found **29 false positives and zero real markers**, which produced the rule that a marker only counts when it *opens a comment*: markers in strings, templates and regexes are data, and markers discussed in prose are documentation.
 
 #### C6.2 — The `refactorer` agent and a `debt` risk domain
 
@@ -478,9 +479,12 @@ raise a stage to `propose` or `auto` and have the record show exactly what was d
    on demand only, for the failing run in view. A trend chart wants more.
 4. **Should the studio profile enforce distinct approvers by identity or by account?** Identity
    comparison catches the same human with two accounts; account comparison is simpler and wrong.
-5. **Does the debt register belong in the risk register instead?** Adding a `debt` domain to
-   `RISK_DOMAINS` reuses a tested store; a separate register keeps a record from becoming a gate.
-   Current call: separate, revisit at C6.1.
+5. **Does the debt register belong in the risk register instead?** ~~Current call: separate, revisit at
+   C6.1.~~ **Answered at C6.1: separate.** The risk register's domains are ethics, legal and commercial
+   — read-only oversight of *exposures*, raised by advisors. Debt is engineering work somebody chose
+   to defer, and it transitions through `accepted` and `scheduled`, which are not things a risk does.
+   Sharing a store would have meant one vocabulary serving two questions, which is the failure the
+   archetype work spent a whole tier undoing.
 6. **Where does `/workflow` as a chat command fit?** The dashboard is the primary surface. A chat
    command would need a `KNOWN_SLASH_COMMANDS` entry and a walkthrough renderer; deferred until the
    page proves the model.

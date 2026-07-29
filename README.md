@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.192.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.193.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,9 +64,13 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.192.0
+## What's new in 0.193.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
+
+- **A tech-debt register.** Borrowing to ship sooner is legitimate; the danger is the interest you pay by forgetting. A scan records each `TODO`, `FIXME`, `HACK` and `XXX` with its file, its line, and **the rule that graded it** — severity comes from a published table, never a judgement call, because a grade assigned last Tuesday cannot be compared with one assigned today.
+
+  Entries transition and are never deleted. `resolved` means somebody did the work; `obsolete` means the evidence vanished and nobody said they fixed it, which is a different fact. The first version of the scanner flagged 29 items in this repository and every one was false — so a marker now only counts when it *opens a comment*, not when it appears in a string or is discussed in prose.
 
 - **The workflow records what it did.** Every part of this workflow makes a determinism claim — branch names are derived, titles are classified by rule, release notes are copied verbatim — and a determinism claim is either verifiable or it is marketing. `workflow-history.json` makes them verifiable: two runs with the same inputs must produce the same outputs, and where they did not, both runs are named.
 

@@ -6,6 +6,17 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.193.0 — A tech-debt register
+
+Borrowing to ship sooner is legitimate; the danger is the interest paid by forgetting. A scan records each `TODO`, `FIXME`, `HACK` and `XXX` with its file, its line, and the rule that graded it.
+
+**Severity comes from a declared rule, never a judgement call.** A grade assigned last Tuesday cannot be compared with one assigned today, and comparability is the only reason the register is worth keeping. The whole rule table is published in the mirror beside the entries.
+
+**Severity does not drift with age.** An entry whose grade changed while nothing about the code changed could not be compared with last month's. Age is shown separately.
+
+**Entries transition; nothing is deleted.** `resolved` means somebody did the work; `obsolete` means the evidence vanished and nobody said they fixed it. Different facts, and only one is an accomplishment.
+
+**The scanner's rule was rewritten after it failed on its own repository** — 29 flagged items, all false, including its own rule table and tests. A marker now only counts when it *opens a comment*: one inside a string or discussed in prose is data or documentation, not a deferred decision.
 ## v0.192.0 — The workflow records what it did
 
 Every part of this workflow makes a determinism claim, and a determinism claim is either verifiable or it is marketing. `project_memory/operations/workflow-history.json` makes them verifiable: two runs with the same inputs must produce the same outputs, and where they did not, **both runs are named**.

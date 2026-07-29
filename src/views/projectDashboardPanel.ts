@@ -60,6 +60,19 @@ import {
   type ReleasePlan,
 } from '../core/releasePreparation.js';
 import {
+  DEBT_SSOT_PATH,
+  DEBT_RULES,
+  DebtRegisterManager,
+  deriveDebtMetrics,
+  reconcileDebtScan,
+  scanForDebtMarkers,
+  setDebtStatus,
+  sortDebtEntries,
+  type DebtEntry,
+  type DebtMetrics,
+  type DebtStatus,
+} from '../core/debtRegister.js';
+import {
   WORKFLOW_HISTORY_SSOT_PATH,
   WorkflowAuditLedger,
   beginWorkflowRun,
@@ -317,6 +330,9 @@ type ProjectDashboardMessage =
   | { type: 'closeIssue'; payload: { number: number } }
   | { type: 'reopenIssue'; payload: { number: number } }
   | { type: 'commentIssue'; payload: { number: number; body: string } }
+  | { type: 'scanDebt' }
+  | { type: 'setDebtStatus'; payload: { id: string; status: string; note?: string } }
+  | { type: 'openDebtEvidence'; payload: { id: string } }
   | { type: 'createWorkflowConfig'; payload: { profile: string } }
   | { type: 'editWorkflowConfig'; payload: unknown }
   | { type: 'applyTeamRole'; payload: { roleId: string } }
@@ -412,7 +428,7 @@ interface DashboardStat {
  */
 const DASHBOARD_PAGE_IDS = [
   'overview', 'score', 'gapAnalysis', 'workflow', 'roadmap', 'issues', 'pullRequests', 'director',
-  'repo', 'pipeline', 'testing', 'security', 'privacy', 'risk', 'release', 'delivery', 'documents',
+  'repo', 'pipeline', 'testing', 'debt', 'security', 'privacy', 'risk', 'release', 'delivery', 'documents',
   'ssot', 'runtime', 'ideation',
 ] as const;
 
@@ -1293,6 +1309,16 @@ interface DashboardSnapshot {
   };
   /** Stage 6 — what a release from here would look like, and what blocks it. */
   release: DashboardReleaseSnapshot;
+  /** Stage 7 — what has been deferred, and how long ago. */
+  debt: {
+    path: string;
+    entries: DebtEntry[];
+    metrics: DebtMetrics;
+    lastScanAt?: string;
+    /** The declared rules, so a grade can be checked against them on screen. */
+    rules: Array<{ id: string; domain: string; severity: string; describes: string }>;
+    scanning: boolean;
+  };
   director: DashboardDirectorSnapshot;
   documents: DashboardDocumentsSnapshot;
   risk: DashboardRiskSnapshot;
@@ -1750,6 +1776,18 @@ export class ProjectDashboardPanel {
    */
   private auditLedgerInstance: WorkflowAuditLedger | undefined;
 
+  /** The tech-debt register, and whether a scan is currently running. */
+  private debtManagerInstance: DebtRegisterManager | undefined;
+
+  private debtScanning = false;
+
+  private get debtManager(): DebtRegisterManager {
+    this.debtManagerInstance ??= new DebtRegisterManager(
+      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+    );
+    return this.debtManagerInstance;
+  }
+
   private get auditLedger(): WorkflowAuditLedger {
     this.auditLedgerInstance ??= new WorkflowAuditLedger(
       vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
@@ -2005,6 +2043,15 @@ export class ProjectDashboardPanel {
       case 'seedDirectorFromRepo':
         await this.handleSeedDirector();
         return;
+      case 'scanDebt':
+        await this.handleScanDebt();
+        return;
+      case 'setDebtStatus':
+        await this.handleSetDebtStatus(message.payload);
+        return;
+      case 'openDebtEvidence':
+        await this.handleOpenDebtEvidence(message.payload);
+        return;
       case 'createWorkflowConfig':
         await this.handleCreateWorkflowConfig(message.payload);
         return;
@@ -2102,7 +2149,7 @@ export class ProjectDashboardPanel {
           }
           const configuration = vscode.workspace.getConfiguration('atlasmind');
           const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning });
           const seedItems = snapshot.gapAnalysis.items.filter(item => !item.resolved);
           this.queueNavigation('gapAnalysis');
           await this.postMessage({ type: 'navigate', payload: 'gapAnalysis' });
@@ -2129,7 +2176,7 @@ export class ProjectDashboardPanel {
           if (!workspaceRoot || message.payload.trim().length === 0) {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning });
           const targetItem = snapshot.gapAnalysis.items.find(item => item.id === message.payload.trim() && !item.resolved && item.type !== 'praise');
           if (!targetItem) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: 'That gap could not be found. Try re-running the analysis.' });
@@ -2155,7 +2202,7 @@ export class ProjectDashboardPanel {
           if (priority !== 'P1' && priority !== 'P2' && priority !== 'P3') {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning });
           const groupedItems = snapshot.gapAnalysis.items.filter(item => !item.resolved && item.type !== 'praise' && item.priority === priority);
           if (groupedItems.length === 0) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: `No open ${priority} items are available to resolve.` });
@@ -2181,7 +2228,7 @@ export class ProjectDashboardPanel {
           if (!gapId) {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning });
           const targetItem = snapshot.gapAnalysis.items.find(item => item.id === gapId);
           if (!targetItem) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: 'Gap item not found. Try re-running the analysis.' });
@@ -2240,7 +2287,7 @@ export class ProjectDashboardPanel {
 
   private async syncState(): Promise<void> {
     try {
-      const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger);
+      const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning });
       await this.postMessage({ type: 'state', payload: snapshot });
       if (this.pendingNavigationTarget) {
         await this.postMessage({ type: 'navigate', payload: this.pendingNavigationTarget });
@@ -2928,6 +2975,133 @@ export class ProjectDashboardPanel {
    * master switch is deliberately not among them: turning the workflow *on*
    * stays each person's own decision.
    */
+  /**
+   * Scan the workspace for debt markers and fold the result into the register.
+   *
+   * On explicit request only. This is a filesystem walk, and a page that walked
+   * the tree on every render would make the dashboard unusable on a large
+   * repository — the same reasoning that keeps `gh` calls off the render path.
+   *
+   * The scan writes; the confirmation is therefore not decoration. It is
+   * non-destructive by construction (nothing is deleted, and vanished evidence
+   * becomes `obsolete` rather than `resolved`), but it still commits a change to
+   * a tracked file, so the user gets told what it will do first.
+   */
+  private async handleScanDebt(): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      void vscode.window.showWarningMessage('Open a workspace folder before scanning for technical debt.');
+      return;
+    }
+    if (this.debtScanning) {
+      return;
+    }
+
+    const confirmation = await vscode.window.showWarningMessage(
+      'Scan this workspace for deferred work?',
+      {
+        modal: true,
+        detail:
+          `This reads your source files for TODO, FIXME, HACK and XXX markers and writes what it finds to \`${DEBT_SSOT_PATH}\`, with a readable mirror beside it.\n\n`
+          + 'Nothing is deleted. An entry whose marker has gone is recorded as obsolete rather than resolved, '
+          + 'because "the line is gone" and "somebody did the work" are different facts.\n\n'
+          + 'Severity comes from a declared rule, never a judgement call, and every entry names the rule that graded it.',
+      },
+      'Yes, scan',
+    );
+    if (confirmation !== 'Yes, scan') {
+      return;
+    }
+
+    this.debtScanning = true;
+    await this.syncState();
+
+    try {
+      const { files, scannedPaths, truncated } = await collectDebtScanFiles(workspaceRoot);
+      const candidates = scanForDebtMarkers(files);
+      const at = new Date().toISOString();
+      const result = reconcileDebtScan(this.debtManager.get(), candidates, scannedPaths, at);
+      await this.debtManager.save(result.register);
+      void vscode.window.showInformationMessage(
+        `Scanned ${scannedPaths.length} files: ${result.added.length} new, ${result.unchanged} already recorded`
+        + `${result.wentObsolete.length > 0 ? `, ${result.wentObsolete.length} now obsolete` : ''}`
+        + `${result.reopened.length > 0 ? `, ${result.reopened.length} reopened` : ''}.`
+        // Stated, never silent. A scan that quietly stopped at the cap would
+        // report a clean register for a project it only half read.
+        + `${truncated ? ` The scan stopped at ${DEBT_SCAN_MAX_FILES} files, so this is a partial result.` : ''}`,
+      );
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`The debt scan failed: ${detail.slice(0, 300)}`);
+    } finally {
+      this.debtScanning = false;
+      await this.syncState();
+    }
+  }
+
+  /**
+   * Transition a debt entry.
+   *
+   * No confirmation: this writes to a local tracked file, changes nothing
+   * outside the repository, and is itself recorded as a transition that can be
+   * read back. Gating every status change behind a modal would make the register
+   * tedious enough that people stopped keeping it current, which costs more than
+   * the mistaken click it would prevent.
+   */
+  private async handleSetDebtStatus(payload: { id: string; status: string; note?: string }): Promise<void> {
+    const status = ['open', 'accepted', 'scheduled', 'resolved', 'obsolete'].includes(payload.status)
+      ? payload.status as DebtStatus
+      : undefined;
+    if (!status) {
+      return;
+    }
+    const entry = this.debtManager.get().entries.find(candidate => candidate.id === payload.id);
+    if (!entry) {
+      void vscode.window.showWarningMessage('That entry is no longer in the register.');
+      return;
+    }
+    try {
+      await this.debtManager.save(setDebtStatus(
+        this.debtManager.get(),
+        payload.id,
+        status,
+        new Date().toISOString(),
+        payload.note,
+      ));
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not update the register: ${detail.slice(0, 300)}`);
+    }
+    await this.syncState();
+  }
+
+  /**
+   * Open the file a debt entry points at.
+   *
+   * The path comes from the *register*, looked up by id — never from the
+   * webview. The register's own reader already rejected traversal and absolute
+   * paths, so what is opened is a workspace-relative path this build wrote.
+   */
+  private async handleOpenDebtEvidence(payload: { id: string }): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const entry = this.debtManager.get().entries.find(candidate => candidate.id === payload.id);
+    if (!workspaceRoot || !entry) {
+      return;
+    }
+    try {
+      const uri = vscode.Uri.file(path.join(workspaceRoot, entry.evidencePath));
+      const document = await vscode.workspace.openTextDocument(uri);
+      const line = Math.max(0, (entry.evidenceLine ?? 1) - 1);
+      await vscode.window.showTextDocument(document, {
+        selection: new vscode.Range(line, 0, line, 0),
+      });
+    } catch {
+      void vscode.window.showWarningMessage(
+        `\`${entry.evidencePath}\` could not be opened. If the file has gone, a rescan will mark this entry obsolete.`,
+      );
+    }
+  }
+
   /**
    * Create `workflow.json` from a profile.
    *
@@ -4370,6 +4544,20 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
       && /^[a-z0-9][a-z0-9-]{0,59}$/.test(payload['roleId']);
   }
 
+  // A debt status is looked up against the register, so it only has to be a
+  // known value — an unrecognised one resolves to no entry rather than a
+  // partial match.
+  if (candidate['type'] === 'setDebtStatus' || candidate['type'] === 'openDebtEvidence') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null && typeof payload['id'] === 'string';
+  }
+
+  if (candidate['type'] === 'scanDebt') {
+    // No payload: the scan reads the workspace, and the webview cannot
+    // influence which files it looks at.
+    return true;
+  }
+
   // Both workflow writes touch a file that gets committed, so the shape is
   // checked here and every value is sanitized again in the config module.
   if (candidate['type'] === 'createWorkflowConfig') {
@@ -4673,6 +4861,8 @@ function buildGuidedWorkflowSnapshot(input: {
   /** The audit ledger's summary, and the most recent records for the list. */
   auditSummary?: WorkflowHistorySummary;
   auditRecent?: WorkflowRunRecord[];
+  /** True once a debt register exists — not merely once it has entries. */
+  hasDebtRegister?: boolean;
   /** Agent ids in this workspace, so a stage owner can be checked to exist. */
   knownAgentIds?: readonly string[];
   /** The changelog itself, so its headings can be read rather than assumed. */
@@ -4801,7 +4991,10 @@ function buildGuidedWorkflowSnapshot(input: {
     hasChangelog: input.changelogPresent,
     changelogHasCurrentVersion: release.changelogCurrent,
     commitsSinceLastTag: release.commitsSinceTag,
-    hasDebtRegister: false,
+    // Read from the register rather than hardcoded. Like `workflowConfigPresent`
+    // before it, this was `false` from the moment the curriculum shipped, so
+    // stage 7's step could never be completed by anybody.
+    hasDebtRegister: input.hasDebtRegister === true,
     // Read from disk rather than hardcoded. This was `false` from the moment
     // the curriculum shipped, which made "declare your workflow" a step nobody
     // could ever complete — a permanently open gap, and a dashboard with one of
@@ -5198,6 +5391,7 @@ async function collectDashboardSnapshot(
   // render — this is a synchronous file read on the render path.
   workflowConfigManager?: WorkflowConfigManager,
   auditLedger?: WorkflowAuditLedger,
+  debt?: { register: import('../core/debtRegister.js').DebtRegister; scanning: boolean },
 ): Promise<DashboardSnapshot> {
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const workspaceName = vscode.workspace.workspaceFolders?.[0]?.name ?? 'No Workspace';
@@ -5494,6 +5688,14 @@ async function collectDashboardSnapshot(
       delta: ssotDelta,
     },
     roadmap: roadmapSnapshot,
+    debt: {
+      path: DEBT_SSOT_PATH,
+      entries: sortDebtEntries(debt?.register.entries ?? []),
+      metrics: deriveDebtMetrics(debt?.register ?? { version: 1, entries: [] }, Date.now()),
+      ...(debt?.register.lastScanAt === undefined ? {} : { lastScanAt: debt.register.lastScanAt }),
+      rules: DEBT_RULES.map(rule => ({ ...rule })),
+      scanning: debt?.scanning ?? false,
+    },
     release: buildReleaseSnapshot({
       packageVersion: packageSnapshot.version,
       ...(changelog === undefined ? {} : { changelog }),
@@ -5525,6 +5727,7 @@ async function collectDashboardSnapshot(
       ...(workflowConfigManager?.getNotice() === undefined
         ? {} : { workflowConfigNotice: workflowConfigManager!.getNotice()! }),
       knownAgentIds: agents.map(agent => agent.id),
+      hasDebtRegister: (debt?.register.entries.length ?? 0) > 0 || debt?.register.lastScanAt !== undefined,
       ...(auditLedger === undefined ? {} : {
         auditSummary: auditLedger.getSummary(),
         auditRecent: auditLedger.getFile().records.slice(0, 25),
@@ -8898,6 +9101,89 @@ export function buildScoreBreakdown(input: {
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Directories a debt scan never descends into. */
+const DEBT_SCAN_SKIP_DIRS = new Set([
+  'node_modules', '.git', 'out', 'dist', 'build', 'coverage', '.vscode-test',
+  'vendor', 'target', '__pycache__', '.next', '.nuxt', '.venv', 'venv',
+]);
+
+/** Extensions worth reading. Anything else is either binary or not authored. */
+const DEBT_SCAN_EXTENSIONS = new Set([
+  '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py', '.rs', '.go', '.java',
+  '.kt', '.swift', '.rb', '.php', '.cs', '.c', '.h', '.cpp', '.hpp', '.css',
+  '.scss', '.vue', '.svelte', '.sql', '.sh', '.yml', '.yaml',
+]);
+
+/** Ceilings, so a scan on a large repository stays a scan rather than a hang. */
+const DEBT_SCAN_MAX_FILES = 3000;
+const DEBT_SCAN_MAX_BYTES = 512 * 1024;
+
+/**
+ * Read the files a debt scan should look at.
+ *
+ * Bounded three ways — skipped directories, an extension allowlist, and a file
+ * cap — because this runs on somebody's whole repository. The caps are stated in
+ * the result rather than applied silently: a scan that quietly stopped at three
+ * thousand files would report a clean register for a project it only half read.
+ *
+ * Markdown is deliberately **absent** from the extension list. A `TODO` in prose
+ * is usually a heading in a plan, not a deferred decision in code, and a
+ * register full of those is one people stop reading.
+ */
+async function collectDebtScanFiles(
+  workspaceRoot: string,
+): Promise<{ files: Array<{ path: string; content: string }>; scannedPaths: string[]; truncated: boolean }> {
+  const files: Array<{ path: string; content: string }> = [];
+  const scannedPaths: string[] = [];
+  let truncated = false;
+
+  const walk = async (directory: string): Promise<void> => {
+    if (files.length >= DEBT_SCAN_MAX_FILES) {
+      truncated = true;
+      return;
+    }
+    let entries: import('node:fs').Dirent[];
+    try {
+      entries = await fs.readdir(directory, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (files.length >= DEBT_SCAN_MAX_FILES) {
+        truncated = true;
+        return;
+      }
+      if (entry.name.startsWith('.') && entry.name !== '.github') {
+        continue;
+      }
+      const full = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        if (!DEBT_SCAN_SKIP_DIRS.has(entry.name)) {
+          await walk(full);
+        }
+        continue;
+      }
+      if (!DEBT_SCAN_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {
+        continue;
+      }
+      try {
+        const stat = await fs.stat(full);
+        if (stat.size > DEBT_SCAN_MAX_BYTES) {
+          continue;
+        }
+        const relative = path.relative(workspaceRoot, full).replace(/\\/g, '/');
+        files.push({ path: relative, content: await fs.readFile(full, 'utf8') });
+        scannedPaths.push(relative);
+      } catch {
+        // A file we cannot read contributes nothing and is not an error.
+      }
+    }
+  };
+
+  await walk(workspaceRoot);
+  return { files, scannedPaths, truncated };
 }
 
 async function walkFiles(directoryPath: string, visitor: (filePath: string) => Promise<void>): Promise<void> {

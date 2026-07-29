@@ -446,3 +446,51 @@ describe('the audit card', () => {
     expect(rendered()).toMatch(/never quietly forgets/);
   });
 });
+
+describe('the Tech Debt page', () => {
+  const source = (): string => renderSource('renderDebt', 'renderRelease');
+  const rendered = (): string => source()
+    .split('\n')
+    .filter(line => !line.trim().startsWith('//'))
+    .join('\n');
+
+  it('exists on both sides of the boundary and sits under "The code"', () => {
+    expect(WEBVIEW_SCRIPT).toContain("pageSectionOpen('debt')");
+    expect(WEBVIEW_SCRIPT).toContain('${renderDebt(snapshot)}');
+    expect(WEBVIEW_SCRIPT).toContain("['debt', 'Tech Debt']");
+  });
+
+  it('says an empty register means nothing was scanned, not that there is no debt', () => {
+    // The single most likely misreading, and the one that makes the page worse
+    // than useless.
+    expect(rendered()).toMatch(/does not mean there is no debt/);
+  });
+
+  it('publishes the rule that graded each entry rather than a bare severity', () => {
+    // Comparability is the whole reason to keep the register, and a grade you
+    // cannot check is a grade you cannot compare.
+    expect(rendered()).toContain('entry.rule');
+    expect(rendered()).toContain('debt.rules');
+  });
+
+  it('says severity does not drift with age', () => {
+    expect(rendered()).toMatch(/does not drift with age/);
+  });
+
+  it('keeps resolved and obsolete apart', () => {
+    expect(rendered()).toMatch(/not the same as resolved/);
+  });
+
+  it('offers no way to delete an entry', () => {
+    // Entries transition. A delete button would make the register a list.
+    expect(rendered()).not.toMatch(/data-action="delete-debt/);
+    expect(rendered()).not.toMatch(/removeDebt|deleteDebt/);
+  });
+
+  it('sends only an id and a known status, never a path', () => {
+    // The evidence path is looked up in the register host-side; the webview
+    // never supplies one.
+    expect(WEBVIEW_SCRIPT).toContain("type: 'openDebtEvidence', payload: { id: payload }");
+    expect(rendered()).not.toMatch(/payload="[^"]*evidencePath/);
+  });
+});

@@ -76,6 +76,9 @@
         // the thing that most rewards a page of its own.
         ['pipeline', 'Pipeline'],
         ['testing', 'Testing'],
+        // Stage 7. Under "The code" rather than "The work": deferred work is
+        // a property of the codebase, not an item on the backlog.
+        ['debt', 'Tech Debt'],
       ],
     },
     {
@@ -753,6 +756,27 @@
     }
     if (action === 'generate-codeowners') {
       vscode.postMessage({ type: 'generateCodeowners' });
+      return;
+    }
+    if (action === 'scan-debt') {
+      vscode.postMessage({ type: 'scanDebt' });
+      return;
+    }
+    if (action === 'open-debt-evidence') {
+      vscode.postMessage({ type: 'openDebtEvidence', payload: { id: payload } });
+      return;
+    }
+    if (action === 'set-debt-status') {
+      // Status and id travel in one attribute, split on the first space: an
+      // id can contain slashes and colons but never a space, because the
+      // register constrains it to an identifier charset.
+      const space = payload.indexOf(' ');
+      if (space > 0) {
+        vscode.postMessage({
+          type: 'setDebtStatus',
+          payload: { status: payload.slice(0, space), id: payload.slice(space + 1) },
+        });
+      }
       return;
     }
     if (action === 'create-workflow-config') {
@@ -1529,6 +1553,7 @@
         ${renderRuntime(snapshot)}
         ${renderRepo(snapshot)}
         ${renderTesting(snapshot)}
+        ${renderDebt(snapshot)}
         ${renderSecurity(snapshot)}
         ${renderPrivacy(snapshot)}
         ${renderRisk(snapshot)}
@@ -3225,6 +3250,122 @@
   // ── Pipeline ───────────────────────────────────────────────────────────
   // Stage 5. AtlasMind reads check *states* everywhere else; this is the page
   // where it reads a *log* and says why something failed.
+
+  // ── Tech Debt ──────────────────────────────────────────────────────────
+  // Stage 7. The one page whose value depends entirely on being *comparable*
+  // over time, which is why severity comes from a published rule table rather
+  // than from a judgement call somebody made on a Tuesday.
+
+  const DEBT_SEVERITY_TONE = { high: 'tag-critical', medium: 'tag-warn', low: '' };
+  const DEBT_STATUS_TONE = { open: 'tag-warn', accepted: '', scheduled: '', resolved: 'tag-good', obsolete: '' };
+
+  function renderDebt(snapshot) {
+    const debt = snapshot.debt || { entries: [], metrics: {}, rules: [] };
+    const metrics = debt.metrics || {};
+    const entries = debt.entries || [];
+    const openEntries = entries.filter(entry =>
+      entry.status === 'open' || entry.status === 'accepted' || entry.status === 'scheduled');
+
+    const help = renderWorkflowHelp('debt.rules', {
+      label: 'how severity is decided',
+      why: 'Taking on debt is often the right call — the metaphor is exact, and borrowing to ship sooner is legitimate. The danger is the interest you pay by forgetting it exists. A register is only worth keeping if its grades are comparable, so severity comes from a published rule table and never from a judgement call: a score assigned last Tuesday cannot be compared with one assigned today, and comparability is the whole point.',
+      how: (debt.rules || []).map(rule => ({ text: rule.id + ' → ' + rule.severity + '. ' + rule.describes })).concat([
+        { text: 'Severity does not drift with age. An entry whose grade changed while nothing about the code changed could not be compared with last month’s. Age is shown separately instead.' },
+        { text: 'Entries transition; nothing is ever deleted. A resolved item is evidence the work was done; a vanished one is a gap in the record.' },
+        { text: 'When a marker disappears and nobody said they fixed it, the entry becomes obsolete rather than resolved. “The line is gone” and “somebody did the work” are different facts, and only one of them is an accomplishment.' },
+      ]),
+      commonMistakes: [
+        'Reading an empty register as “no debt”. It means nothing was found, or nothing was scanned.',
+        'Deleting entries to make the number look better. The number is the only reason the register is worth keeping.',
+      ],
+    });
+
+    const intro = renderPageIntro({
+      kicker: 'Stage 7',
+      title: 'What you deferred, and how long ago',
+      summary: debt.lastScanAt
+        ? openEntries.length + ' open, ' + (metrics.resolved || 0) + ' resolved. Last scanned ' + (debt.lastScanAt || '').slice(0, 10) + '.'
+        : 'Nothing has been scanned yet. A solo developer has no colleague who remembers the shortcut, and a studio has no shared memory of it either.',
+      chips: (metrics.bySeverity || []).map(slice => ({
+        label: slice.value + ' ' + slice.label,
+        tone: slice.key === 'high' ? 'critical' : slice.key === 'medium' ? 'warn' : 'neutral',
+      })),
+    });
+
+    if (!debt.lastScanAt && entries.length === 0) {
+      return pageSectionOpen('debt') + intro + `
+        <div class="dashboard-empty"><div>
+          <strong>No register yet</strong>
+          <p class="section-copy">A scan reads your source for <code>TODO</code>, <code>FIXME</code>, <code>HACK</code> and <code>XXX</code> markers and records each one with its file, its line, and the rule that graded it. Nothing is ever deleted — entries transition, so the register stays a complete account of what was deferred and what became of it.</p>
+          <p class="section-copy">An empty register means nothing was found or nothing was scanned. It does not mean there is no debt.</p>
+          <button type="button" class="action-link" data-action="scan-debt"${debt.scanning ? ' disabled' : ''}>${debt.scanning ? 'Scanning…' : 'Scan this workspace'}</button>
+        </div></div>
+      </section>`;
+    }
+
+    const rows = openEntries.slice(0, 200).map(entry => `
+      <div class="recent-item">
+        <div class="row-head">
+          <button type="button" class="action-link" data-action="open-debt-evidence" data-payload="${escapeAttr(entry.id)}"
+            title="Open ${escapeAttr(entry.evidencePath)}">${escapeHtml(entry.title)}</button>
+          <span>
+            <span class="tag ${DEBT_SEVERITY_TONE[entry.severity] || ''}">${escapeHtml(entry.severity)}</span>
+            <span class="tag ${DEBT_STATUS_TONE[entry.status] || ''}">${escapeHtml(entry.status)}</span>
+          </span>
+        </div>
+        <div class="list-meta"><code>${escapeHtml(entry.evidencePath)}${entry.evidenceLine ? ':' + entry.evidenceLine : ''}</code> · ${escapeHtml(entry.domain)} · since ${escapeHtml((entry.detectedAt || '').slice(0, 10))} · graded by <code>${escapeHtml(entry.rule)}</code></div>
+        <div class="tag-row">
+          ${entry.status !== 'accepted' ? `<button type="button" class="action-link" data-action="set-debt-status" data-payload="accepted ${escapeAttr(entry.id)}">Accept</button>` : ''}
+          ${entry.status !== 'scheduled' ? `<button type="button" class="action-link" data-action="set-debt-status" data-payload="scheduled ${escapeAttr(entry.id)}">Schedule</button>` : ''}
+          <button type="button" class="action-link" data-action="set-debt-status" data-payload="resolved ${escapeAttr(entry.id)}">Mark resolved</button>
+        </div>
+      </div>`).join('');
+
+    return pageSectionOpen('debt') + intro + `
+      <div class="panel-grid">
+        <article class="panel-card">
+          <p class="card-kicker">Where it is${help.button}</p>
+          ${help.panel}
+          <div class="mini-grid">
+            ${renderMetricPill('Open', String(metrics.open || 0))}
+            ${renderMetricPill('Median age', metrics.medianAgeDays === undefined ? '—' : metrics.medianAgeDays + 'd')}
+            ${renderMetricPill('Resolved', String(metrics.resolved || 0), { tone: 'good' })}
+          </div>
+          ${renderDistributionBar('debt-severity', (metrics.bySeverity || []).map(slice => ({
+            key: slice.key,
+            label: slice.label,
+            value: slice.value,
+            tone: slice.key === 'high' ? 'critical' : slice.key === 'medium' ? 'warn' : 'accent',
+          })), {
+            title: 'Open by severity',
+            caption: 'Graded by rule, so this month compares with last',
+            emptyLabel: 'Nothing open.',
+          })}
+          ${renderDonutChart('debt-domain', metrics.byDomain || [], { emptyLabel: 'Nothing open.' })}
+        </article>
+        <article class="panel-card">
+          <p class="card-kicker">How long it has been there</p>
+          ${renderDistributionBar('debt-age', metrics.ageDistribution || [], {
+            title: 'Open entries by age',
+            caption: 'The shape matters more than the total — a long tail is deferral becoming permanent',
+            emptyLabel: 'Nothing open.',
+          })}
+          ${metrics.oldest
+            ? `<p class="stat-detail">Oldest open: <strong>${escapeHtml(metrics.oldest.title)}</strong> in <code>${escapeHtml(metrics.oldest.evidencePath)}</code>, since ${escapeHtml((metrics.oldest.detectedAt || '').slice(0, 10))}.</p>`
+            : ''}
+          ${metrics.obsolete
+            ? `<p class="stat-detail wf-unknown">${metrics.obsolete} entr${metrics.obsolete === 1 ? 'y has' : 'ies have'} gone obsolete — the evidence disappeared and nobody recorded fixing it. That is not the same as resolved, and the register keeps them apart.</p>`
+            : ''}
+          <button type="button" class="action-link" data-action="scan-debt"${debt.scanning ? ' disabled' : ''}>${debt.scanning ? 'Scanning…' : 'Rescan'}</button>
+        </article>
+      </div>
+      <article class="panel-card">
+        <p class="card-kicker">Open entries</p>
+        <div class="stack-list">${rows || '<div class="dashboard-empty">Nothing open. Every entry has been resolved, accepted, or gone obsolete.</div>'}</div>
+        ${openEntries.length > 200 ? `<p class="stat-detail">Showing 200 of ${openEntries.length}. The rest are in <code>${escapeHtml(debt.path || '')}</code>.</p>` : ''}
+      </article>
+    </section>`;
+  }
 
   // ── Release ────────────────────────────────────────────────────────────
   // Stage 6. Two questions that look like one: *can* this version be released

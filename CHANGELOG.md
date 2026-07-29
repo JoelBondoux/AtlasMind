@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.193.0] - 2026-07-29
+
+### Added
+- **A tech-debt register, and a page for it.** Taking on debt is often the right call — the metaphor is exact, and borrowing to ship sooner is legitimate. The danger is the interest you pay by forgetting it exists. A solo developer has no colleague who remembers the shortcut, and a studio has no shared memory of it either.
+
+  **Severity comes from a declared rule, never a judgement call.** A grade somebody assigned last Tuesday cannot be compared with one assigned today, and comparability is the only reason the register is worth keeping. Every entry names the rule that graded it, and the whole rule table is published in the mirror beside the entries — so the grade can be argued with rather than taken on trust.
+
+  **Severity does not drift with age.** The obvious feature is to escalate an item the longer it sits, and it fails the same test: an entry whose grade changed while nothing about the code changed could not be compared with last month's. Age is shown separately, with its own distribution.
+
+  **Entries transition; nothing is ever deleted.** `resolved` means somebody did the work. `obsolete` means the evidence disappeared and nobody said they fixed it. Those are different facts and only one is an accomplishment, so the register keeps them apart rather than reporting progress it cannot attest to. There is no delete affordance anywhere on the page, by design.
+
+### Fixed
+- **Another workflow step nobody could complete.** `hasDebtRegister` was hardcoded `false`, exactly as `workflowConfigPresent` had been, so stage 7's "record what you deferred" was permanently outstanding for every user on every project. It now reads the register.
+
+### Changed
+- **The scanner's rule, rewritten after it failed on its own repository.** The first version flagged 29 items here and every one was false: its own rule table, its own tests, and the dashboard copy describing the feature. A register full of false positives is one people stop reading, which costs more than the entries it would have caught.
+
+  A marker now only counts when it **opens a comment**. A `TODO` inside a string literal, a template or a regex is *data*; a `FIXME` being discussed in prose is *documentation*. Only a marker written at the start of a comment is a deferred decision. Deciding that needs a small quote-tracking scanner rather than a pattern, because "is this delimiter inside a string" is not a question a regular expression can answer. After the fix this repository reports zero markers, independently confirmed.
 ## [0.192.0] - 2026-07-29
 
 ### Added
