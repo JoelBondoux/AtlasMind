@@ -64,6 +64,8 @@ import {
   DEBT_RULES,
   DebtRegisterManager,
   buildDebtWorkPrompt,
+  customMarkerRules,
+  parseCustomDebtMarkers,
   deriveDebtFromSignals,
   deriveDebtMetrics,
   isDependencyPullRequest,
@@ -3025,6 +3027,12 @@ export class ProjectDashboardPanel {
 
     try {
       const { files, scannedPaths, truncated } = await collectDebtScanFiles(workspaceRoot);
+      // A project's own markers, read at scan time rather than cached: the
+      // setting can change between scans, and a stale list would keep looking
+      // for markers somebody removed.
+      const customMarkers = parseCustomDebtMarkers(
+        vscode.workspace.getConfiguration('atlasmind').get<string[]>('debt.markers', []),
+      );
       // Two sources, one register. The marker scan finds what somebody wrote
       // down; the signal derivation finds what the project is doing that nobody
       // wrote down at all — an unmerged dependency update, a testing
@@ -3036,7 +3044,7 @@ export class ProjectDashboardPanel {
         { register: this.debtManager.get(), scanning: true },
       );
       const candidates = [
-        ...scanForDebtMarkers(files),
+        ...scanForDebtMarkers(files, customMarkers),
         ...deriveDebtFromSignals({
           now: Date.now(),
           ...(this.pullRequestsState === undefined ? {} : { pullRequests: this.pullRequestsState }),
@@ -3059,7 +3067,7 @@ export class ProjectDashboardPanel {
         [...scannedPaths, ...DERIVED_DEBT_EVIDENCE_ROOTS],
         at,
       );
-      await this.debtManager.save(result.register);
+      await this.debtManager.save(result.register, customMarkers);
       void vscode.window.showInformationMessage(
         `Scanned ${scannedPaths.length} files: ${result.added.length} new, ${result.unchanged} already recorded`
         + `${result.wentObsolete.length > 0 ? `, ${result.wentObsolete.length} now obsolete` : ''}`
@@ -5769,7 +5777,15 @@ async function collectDashboardSnapshot(
       entries: sortDebtEntries(debt?.register.entries ?? []),
       metrics: deriveDebtMetrics(debt?.register ?? { version: 1, entries: [] }, Date.now()),
       ...(debt?.register.lastScanAt === undefined ? {} : { lastScanAt: debt.register.lastScanAt }),
-      rules: DEBT_RULES.map(rule => ({ ...rule })),
+      // The project's own marker rules are published alongside the shipped
+      // ones. A grade whose rule is not on the page is a grade nobody can
+      // check, which is the same as no rule at all.
+      rules: [
+        ...DEBT_RULES,
+        ...customMarkerRules(parseCustomDebtMarkers(
+          configuration.get<string[]>('debt.markers', []),
+        )),
+      ].map(rule => ({ ...rule })),
       scanning: debt?.scanning ?? false,
     },
     release: buildReleaseSnapshot({

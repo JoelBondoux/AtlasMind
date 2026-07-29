@@ -6,6 +6,15 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.198.0 — Your own debt markers, and a way to search them
+
+**`atlasmind.debt.markers`** takes entries like `["DEBT", "REVISIT:high", "NOTE:low"]`. The scan looks for those alongside the built-in four. An unqualified marker is **medium** — somebody who declared a marker is asserting that something is wrong, the same reason `FIXME` outranks `TODO`.
+
+Each becomes a **declared rule**, named on every entry it grades and published in the rule table. That is what keeps the register comparable rather than merely populated.
+
+**Two things a project cannot do:** redefine a built-in (grading your own `TODO` as high would make two registers incomparable) or escape the security grade (a credential mention is high whatever you called it).
+
+**Search and filter.** The search covers what it says, where it is, and which marker found it. Filter chips appear only for markers that actually graded something. A filtered view says how many it is hiding — in a register that never deletes anything, a shorter list must not look like work disappearing.
 ## v0.197.0 — Project shape reaches the scaffolder
 
 **The testing playbook says what your shape asks for:** which methodologies suit it, which recommended ones are not enabled, and which enabled ones the shape discourages. That last matters most — a methodology a shape cannot produce evidence for becomes a permanent gap, and permanent gaps teach people to ignore gaps. Read from the archetype packs rather than restated, so there is one copy.

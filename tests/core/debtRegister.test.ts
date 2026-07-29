@@ -4,6 +4,10 @@ import {
   MAX_MARKERS_PER_FILE,
   scanForDebtMarkers,
   commentStartIndex,
+  parseCustomDebtMarkers,
+  customMarkerRules,
+  isCustomMarkerRule,
+  MAX_CUSTOM_MARKERS,
   debtEntryId,
   reconcileDebtScan,
   setDebtStatus,
@@ -462,5 +466,124 @@ describe('buildDebtWorkPrompt — a record, not a work order', () => {
 
   it('is deterministic for a given entry', () => {
     expect(buildDebtWorkPrompt(entry())).toBe(buildDebtWorkPrompt(entry()));
+  });
+});
+
+describe('a project can declare its own markers', () => {
+  it('reads `NAME` and `NAME:severity`', () => {
+    expect(parseCustomDebtMarkers(['DEBT', 'REVISIT:high', 'NOTE:low'])).toEqual([
+      { marker: 'DEBT', severity: 'medium' },
+      { marker: 'REVISIT', severity: 'high' },
+      { marker: 'NOTE', severity: 'low' },
+    ]);
+  });
+
+  it('grades an unqualified marker medium', () => {
+    // Somebody who bothered to declare a marker is asserting that something is
+    // wrong — the same argument that puts FIXME above TODO.
+    expect(parseCustomDebtMarkers(['DEBT'])[0].severity).toBe('medium');
+  });
+
+  it('refuses a marker that is a regular expression', () => {
+    // The marker becomes part of a pattern. `.*` would match every comment and
+    // `(?:` would throw inside the scanner.
+    expect(parseCustomDebtMarkers(['.*', '(?:', '[a-z]+', 'A|B'])).toEqual([]);
+  });
+
+  it('will not let a project redefine a built-in', () => {
+    // Grading your own TODO as high would make two projects' registers
+    // incomparable, which is the one thing the rule table exists to prevent.
+    expect(parseCustomDebtMarkers(['TODO:high', 'FIXME:low'])).toEqual([]);
+  });
+
+  it('caps the count and the length, and de-duplicates', () => {
+    const many = Array.from({ length: 60 }, (_, i) => `MARKER${i}`);
+    expect(parseCustomDebtMarkers(many)).toHaveLength(MAX_CUSTOM_MARKERS);
+    expect(parseCustomDebtMarkers(['X'.repeat(40)])).toEqual([]);
+    expect(parseCustomDebtMarkers(['DEBT', 'debt', 'DEBT:high'])).toHaveLength(1);
+  });
+
+  it('is total', () => {
+    expect(parseCustomDebtMarkers(undefined)).toEqual([]);
+    expect(parseCustomDebtMarkers('DEBT')).toEqual([]);
+    expect(parseCustomDebtMarkers([null, 42, {}])).toEqual([]);
+  });
+
+  it('finds a declared marker in a comment, at its declared severity', () => {
+    const found = scanForDebtMarkers(
+      [file('src/a.ts', '// REVISIT: this needs a second look')],
+      [{ marker: 'REVISIT', severity: 'high' }],
+    );
+    expect(found).toHaveLength(1);
+    expect(found[0].severity).toBe('high');
+    expect(found[0].rule).toBe('custom-marker-revisit');
+  });
+
+  it('applies the same comment rule to a declared marker', () => {
+    // A custom marker inside a string is data too.
+    expect(scanForDebtMarkers(
+      [file('a.ts', `const s = 'REVISIT: not a comment';`)],
+      [{ marker: 'REVISIT', severity: 'high' }],
+    )).toEqual([]);
+    expect(scanForDebtMarkers(
+      [file('a.ts', '// Prose about when to REVISIT something.')],
+      [{ marker: 'REVISIT', severity: 'high' }],
+    )).toEqual([]);
+  });
+
+  it('finds nothing extra when no markers are declared', () => {
+    expect(scanForDebtMarkers([file('a.ts', '// REVISIT: x')])).toEqual([]);
+  });
+
+  it('still grades a credential mention high, whatever the marker is called', () => {
+    // The one grade that is never negotiable. Exempting custom markers would
+    // let a project downgrade it by declaring its own word for it.
+    const found = scanForDebtMarkers(
+      [file('a.ts', '// NOTE: sanitize this token before logging')],
+      [{ marker: 'NOTE', severity: 'low' }],
+    );
+    expect(found[0].severity).toBe('high');
+    expect(found[0].rule).toBe('security-marker');
+    expect(found[0].domain).toBe('security');
+  });
+
+  it('publishes a declared rule for each marker', () => {
+    // A grade whose rule is not written down is a grade nobody can check.
+    const rules = customMarkerRules([{ marker: 'REVISIT', severity: 'high' }]);
+    expect(rules[0].id).toBe('custom-marker-revisit');
+    expect(rules[0].describes).toContain('atlasmind.debt.markers');
+    expect(isCustomMarkerRule(rules[0].id)).toBe(true);
+    expect(isCustomMarkerRule('security-marker')).toBe(false);
+    expect(isCustomMarkerRule('../etc/passwd')).toBe(false);
+  });
+
+  it('keeps a declared rule id through a round trip', () => {
+    // Rewriting it to `todo-marker` would silently lose the provenance every
+    // entry is supposed to carry, in a file the project committed.
+    const register = sanitizeDebtRegister({
+      entries: [{
+        id: 'x', evidencePath: 'a.ts', detectedAt: AT,
+        rule: 'custom-marker-revisit', severity: 'high',
+      }],
+    });
+    expect(register.entries[0].rule).toBe('custom-marker-revisit');
+  });
+
+  it('rejects a rule id that is neither shipped nor a valid custom one', () => {
+    const register = sanitizeDebtRegister({
+      entries: [{ id: 'x', evidencePath: 'a.ts', detectedAt: AT, rule: 'custom-marker-../evil' }],
+    });
+    expect(register.entries[0].rule).toBe('todo-marker');
+  });
+
+  it('publishes the declared rules in the mirror', () => {
+    const register = reconcileDebtScan(
+      EMPTY,
+      scanForDebtMarkers([file('a.ts', '// REVISIT: x')], [{ marker: 'REVISIT', severity: 'high' }]),
+      ['a.ts'], AT,
+    ).register;
+    const markdown = renderDebtMarkdown(register, [{ marker: 'REVISIT', severity: 'high' }]);
+    expect(markdown).toContain('custom-marker-revisit');
+    expect(markdown).toContain('atlasmind.debt.markers');
   });
 });

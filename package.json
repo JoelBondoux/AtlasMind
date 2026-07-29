@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.197.0",
+  "version": "0.198.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -2071,6 +2071,14 @@
           },
           "description": "Names of MCP servers ACP agents may use. Empty by default \u2014 an agent gets no MCP servers unless you name them here. Requires atlasmind.acp.toolsEnabled.",
           "markdownDescription": "Which of your MCP servers an ACP agent may connect to, **by name**. Empty by default, and only consulted when `#atlasmind.acp.toolsEnabled#` is on.\n\nNaming a server here means the agent's process launches that server's command with its environment. Two kinds are held back even when listed, and AtlasMind says so in its output channel:\n\n- **Servers whose credentials live in VS Code SecretStorage.** Forwarding those would copy a key you gave *AtlasMind* into another vendor's process as a side effect of ticking a box. Such a server keeps working normally through AtlasMind's own tools.\n- **HTTP/SSE servers**, whose headers carry bearer tokens. Only stdio servers are shared."
+        },
+        "atlasmind.debt.markers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "Extra comment markers the tech-debt scan looks for, on top of the built-in `TODO`, `FIXME`, `HACK` and `XXX`.\n\nWrite each as `NAME` or `NAME:severity`, for example `[\"DEBT\", \"REVISIT:high\", \"NOTE:low\"]`. An unqualified marker is graded **medium** \u2014 somebody who bothered to declare a marker is asserting that something is wrong, which is the same reason `FIXME` outranks `TODO`.\n\nEach marker becomes a *declared rule*, named on every entry it grades and published in the rule table of `tech-debt.md`. That is what keeps the register comparable: a grade you can look up is a grade you can argue with.\n\nThe built-in four cannot be redefined. Letting a project grade its own `TODO` as high would make two projects' registers incomparable, which is the one thing the rule table exists to prevent. A marker mentioning a credential is still graded high whatever you called it.\n\nMarkers are letters, digits, underscore and hyphen only, and at most 20 are read."
         }
       }
     }

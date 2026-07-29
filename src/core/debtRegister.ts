@@ -211,6 +211,94 @@ export function sortDebtEntries(entries: readonly DebtEntry[]): DebtEntry[] {
  * The rule is strict on purpose. A register full of false positives is one
  * people stop reading, which costs more than the entries it would have caught.
  */
+/** The markers AtlasMind knows without being told. */
+export const BUILT_IN_DEBT_MARKERS = ['TODO', 'FIXME', 'HACK', 'XXX'] as const;
+
+/** How many custom markers a project may declare, and how long each may be. */
+export const MAX_CUSTOM_MARKERS = 20;
+export const MAX_MARKER_LENGTH = 24;
+
+export interface CustomDebtMarker {
+  marker: string;
+  severity: DebtSeverity;
+}
+
+/**
+ * Parse the markers a project declares.
+ *
+ * Written as `NAME` or `NAME:severity`, because a settings array of strings
+ * is something somebody can read and edit in one line; an array of objects is
+ * a form. An unqualified marker is `medium` — somebody who bothered to declare
+ * a marker is asserting that something is *wrong*, which is the same argument
+ * that puts `FIXME` above `TODO`.
+ *
+ * **Constrained, not cleaned.** A marker becomes part of a regular expression,
+ * so `.*` or `(?:` from a settings file would either match every line or throw
+ * inside the scanner. The charset here is what makes escaping unnecessary
+ * rather than merely careful — but the escape is applied anyway, because a
+ * defence that depends on a second function staying strict is not a defence.
+ */
+export function parseCustomDebtMarkers(value: unknown): CustomDebtMarker[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const out: CustomDebtMarker[] = [];
+  const seen = new Set<string>();
+  const builtIn = new Set<string>(BUILT_IN_DEBT_MARKERS);
+
+  for (const entry of value.slice(0, MAX_CUSTOM_MARKERS * 4)) {
+    if (typeof entry !== 'string' || out.length >= MAX_CUSTOM_MARKERS) {
+      continue;
+    }
+    const [rawMarker, rawSeverity] = entry.split(':', 2);
+    const marker = (rawMarker ?? '').trim().toUpperCase();
+    // Letters, digits, underscore and hyphen only. Anything else is either a
+    // typo or an attempt to write a pattern.
+    if (!/^[A-Z0-9_-]{2,}$/.test(marker) || marker.length > MAX_MARKER_LENGTH) {
+      continue;
+    }
+    // A built-in already has a declared rule with a stated reason. Letting a
+    // project redefine `TODO` as high would make two projects' registers
+    // incomparable, which is the one thing the rule table exists to prevent.
+    if (builtIn.has(marker) || seen.has(marker)) {
+      continue;
+    }
+    seen.add(marker);
+    const severity = (rawSeverity ?? '').trim().toLowerCase();
+    out.push({
+      marker,
+      severity: severity === 'low' || severity === 'high' ? severity : 'medium',
+    });
+  }
+  return out;
+}
+
+/** The rule id a custom marker grades under. Stable, and greppable. */
+export function customMarkerRuleId(marker: string): string {
+  return `custom-marker-${marker.toLowerCase()}`;
+}
+
+/** True for a rule id this project declared rather than one AtlasMind ships. */
+export function isCustomMarkerRule(id: string): boolean {
+  return /^custom-marker-[a-z0-9_-]{2,24}$/.test(id);
+}
+
+/** The declared rules for a project's own markers, for the mirror and the UI. */
+export function customMarkerRules(markers: readonly CustomDebtMarker[]): DebtRule[] {
+  return markers.map(entry => ({
+    id: customMarkerRuleId(entry.marker),
+    domain: 'code' as DebtDomain,
+    severity: entry.severity,
+    describes: `A \`${entry.marker}\` marker, declared by this project in `
+      + '`atlasmind.debt.markers`. Graded where the project put it, so its entries stay '
+      + 'comparable with each other over time.',
+  }));
+}
+
+function escapeForRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 const MARKER_AT_COMMENT_START = /^[\s*\-:>]*\b(TODO|FIXME|HACK|XXX)\b\s*[:(-]?\s*(.*)$/;
 
 /**
@@ -281,8 +369,22 @@ export const MAX_MARKERS_PER_FILE = 40;
  * Pure: the caller decides which files to read, so this is testable without a
  * workspace and cannot be surprised by one.
  */
-export function scanForDebtMarkers(files: readonly DebtScanFile[]): DebtScanCandidate[] {
+export function scanForDebtMarkers(
+  files: readonly DebtScanFile[],
+  customMarkers: readonly CustomDebtMarker[] = [],
+): DebtScanCandidate[] {
   const found: DebtScanCandidate[] = [];
+  const custom = new Map(customMarkers.map(entry => [entry.marker, entry]));
+  // Built on every call rather than cached: the marker set comes from a
+  // setting the user can change between scans, and a cached pattern would
+  // quietly keep scanning for the markers they removed.
+  const pattern = custom.size === 0
+    ? MARKER_AT_COMMENT_START
+    : new RegExp(
+      String.raw`^[\s*\-:>]*\b(` 
+      + [...BUILT_IN_DEBT_MARKERS, ...custom.keys()].map(escapeForRegExp).join('|')
+      + String.raw`)\b\s*[:(-]?\s*(.*)$`,
+    );
 
   for (const file of files) {
     let perFile = 0;
@@ -301,25 +403,35 @@ export function scanForDebtMarkers(files: readonly DebtScanFile[]): DebtScanCand
       if (commentAt < 0) {
         continue;
       }
-      const match = MARKER_AT_COMMENT_START.exec(line.slice(commentAt));
+      const match = pattern.exec(line.slice(commentAt));
       if (!match) {
         continue;
       }
       perFile += 1;
       const marker = match[1]!;
       const note = (match[2] ?? '').trim();
+      // The security override applies to a project's own markers too. A
+      // marker mentioning a credential is a high finding whoever named it —
+      // exempting custom markers would let a project downgrade the one grade
+      // that is never negotiable, by declaring its own word for it.
       const secure = SECURITY_CUES.test(line);
+      const declaredCustom = custom.get(marker);
       const rule = secure
         ? 'security-marker'
-        : marker === 'TODO' ? 'todo-marker' : 'broken-marker';
-      const declared = RULE_BY_ID.get(rule)!;
+        : declaredCustom
+          ? customMarkerRuleId(marker)
+          : marker === 'TODO' ? 'todo-marker' : 'broken-marker';
+      const severity = secure
+        ? 'high' as DebtSeverity
+        : declaredCustom?.severity ?? RULE_BY_ID.get(rule)!.severity;
+      const domain: DebtDomain = secure ? 'security' : 'code';
 
       found.push({
-        domain: declared.domain,
+        domain,
         title: `${marker}${note ? `: ${clampTitle(note)}` : ''}`,
         evidencePath: file.path,
         evidenceLine: index + 1,
-        severity: declared.severity,
+        severity,
         rule,
       });
     }
@@ -784,7 +896,13 @@ function sanitizeEntry(input: unknown): DebtEntry | undefined {
     // An unrecognised severity reads as `low`, never as `high`: a register that
     // inflated on a typo would train people to discount it.
     severity: SEVERITIES.includes(raw['severity'] as DebtSeverity) ? raw['severity'] as DebtSeverity : 'low',
-    rule: typeof raw['rule'] === 'string' && RULE_BY_ID.has(raw['rule']) ? raw['rule'] : 'todo-marker',
+    // A project's own rule ids are kept as well as the shipped ones. Rewriting
+    // one to `todo-marker` would lose the grading provenance every entry is
+    // supposed to carry — and would do it silently, on a file the project
+    // committed.
+    rule: typeof raw['rule'] === 'string' && (RULE_BY_ID.has(raw['rule']) || isCustomMarkerRule(raw['rule']))
+      ? raw['rule']
+      : 'todo-marker',
     // An unrecognised status reads as `open`. The safe direction is the one
     // that keeps work visible.
     status: STATUSES.includes(raw['status'] as DebtStatus) ? raw['status'] as DebtStatus : 'open',
@@ -843,18 +961,25 @@ export function readDebtRegister(workspaceRoot: string): DebtRegister {
   }
 }
 
-export async function writeDebtRegister(workspaceRoot: string, register: DebtRegister): Promise<void> {
+export async function writeDebtRegister(
+  workspaceRoot: string,
+  register: DebtRegister,
+  customMarkers: readonly CustomDebtMarker[] = [],
+): Promise<void> {
   const jsonPath = path.join(workspaceRoot, DEBT_SSOT_PATH);
   const summaryPath = path.join(workspaceRoot, DEBT_SUMMARY_SSOT_PATH);
   await mkdir(path.dirname(jsonPath), { recursive: true });
   await Promise.all([
     writeFile(jsonPath, JSON.stringify(register, null, 2), 'utf-8'),
-    writeFile(summaryPath, renderDebtMarkdown(register), 'utf-8'),
+    writeFile(summaryPath, renderDebtMarkdown(register, customMarkers), 'utf-8'),
   ]);
 }
 
 /** Deterministic markdown mirror — the same register renders identically. */
-export function renderDebtMarkdown(register: DebtRegister): string {
+export function renderDebtMarkdown(
+  register: DebtRegister,
+  customMarkers: readonly CustomDebtMarker[] = [],
+): string {
   const open = sortDebtEntries(register.entries.filter(entry =>
     entry.status === 'open' || entry.status === 'accepted' || entry.status === 'scheduled'));
   const closed = sortDebtEntries(register.entries.filter(entry =>
@@ -925,7 +1050,8 @@ export function renderDebtMarkdown(register: DebtRegister): string {
     '',
     '| Rule | Domain | Severity | Why |',
     '|---|---|---|---|',
-    ...DEBT_RULES.map(rule => ['', `\`${rule.id}\``, rule.domain, rule.severity, rule.describes, ''].join(' | ').trim()),
+    ...[...DEBT_RULES, ...customMarkerRules(customMarkers)]
+      .map(rule => ['', `\`${rule.id}\``, rule.domain, rule.severity, rule.describes, ''].join(' | ').trim()),
     '',
   );
 
@@ -953,10 +1079,10 @@ export class DebtRegisterManager {
     this.register = this.workspaceRoot ? readDebtRegister(this.workspaceRoot) : { version: 1, entries: [] };
   }
 
-  async save(register: DebtRegister): Promise<void> {
+  async save(register: DebtRegister, customMarkers: readonly CustomDebtMarker[] = []): Promise<void> {
     this.register = register;
     if (this.workspaceRoot) {
-      await writeDebtRegister(this.workspaceRoot, register);
+      await writeDebtRegister(this.workspaceRoot, register, customMarkers);
     }
   }
 }

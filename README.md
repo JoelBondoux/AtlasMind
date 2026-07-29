@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.197.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.198.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,9 +64,15 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.197.0
+## What's new in 0.198.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
+
+- **Declare your own debt markers.** `atlasmind.debt.markers` takes entries like `["DEBT", "REVISIT:high"]`, and the scan looks for those alongside `TODO`, `FIXME`, `HACK` and `XXX`. Each becomes a **declared rule** — named on every entry it grades and published in the rule table — because a grade you can look up is a grade you can argue with.
+
+  You cannot redefine the built-in four (grading your own `TODO` as high would make two projects' registers incomparable), and a marker mentioning a credential is still graded high whatever you called it.
+
+  The Tech Debt page gains a search over what it says, where it is, and which marker found it, plus a filter chip per marker in use. A filtered view says how many it is hiding — in a register that never deletes anything, a shorter list must not look like work disappearing.
 
 - **Your project shape now changes what gets scaffolded.** The testing playbook says which methodologies suit your shape, which recommended ones are not enabled, and which enabled ones your shape discourages — a methodology that cannot be evidenced becomes a permanent gap, and permanent gaps teach people to ignore gaps.
 

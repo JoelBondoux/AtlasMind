@@ -162,6 +162,11 @@
     contributorFilter: '',
     /** Issues page: 'open' | 'unassigned' | 'closed' | 'all'. */
     issueFilter: 'open',
+    debtSearch: '',
+    // Filter by the *rule* rather than by severity: a project that declared
+    // its own markers wants to see what `REVISIT` found, and two rules can
+    // share a severity.
+    debtRuleFilter: 'all',
     issueSearch: '',
     issueDraftOpen: false,
     /** Issue number whose comment box is open, or 0. */
@@ -758,6 +763,11 @@
       vscode.postMessage({ type: 'generateCodeowners' });
       return;
     }
+    if (action === 'set-debt-rule-filter') {
+      state.debtRuleFilter = payload || 'all';
+      render();
+      return;
+    }
     if (action === 'scan-debt') {
       vscode.postMessage({ type: 'scanDebt' });
       return;
@@ -1190,6 +1200,10 @@
       state.issueSearch = target.value;
       render();
     }
+    if (target instanceof HTMLInputElement && target.id === 'debt-search-input') {
+      state.debtSearch = target.value;
+      render();
+    }
     if (target instanceof HTMLInputElement && target.id === 'privacy-rule-value') {
       state.privacyDraftRule.value = target.value;
       return;
@@ -1491,7 +1505,9 @@
     // --- Preserve focus and cursor position for test search and roadmap textarea ---
     let activeId = null, cursorPos = null, isTextarea = false;
     const active = document.activeElement;
-    if (active && (active.id === 'test-search-input' || active.id === 'issue-search-input' || (active instanceof HTMLTextAreaElement && active.hasAttribute('data-roadmap-draft')))) {
+    if (active && (active.id === 'test-search-input' || active.id === 'issue-search-input'
+      || active.id === 'debt-search-input'
+      || (active instanceof HTMLTextAreaElement && active.hasAttribute('data-roadmap-draft')))) {
       activeId = active.id || (active.hasAttribute('data-roadmap-draft') ? 'roadmap-draft' : null);
       isTextarea = active instanceof HTMLTextAreaElement;
       if (typeof active.selectionStart === 'number') {
@@ -1579,7 +1595,8 @@
       // --- Restore focus and cursor position if needed ---
       if (activeId) {
         let el = null;
-        if (activeId === 'test-search-input' || activeId === 'issue-search-input') {
+        if (activeId === 'test-search-input' || activeId === 'issue-search-input'
+          || activeId === 'debt-search-input') {
           el = document.getElementById(activeId);
         } else if (activeId === 'roadmap-draft') {
           el = document.querySelector('textarea[data-roadmap-draft]');
@@ -3267,8 +3284,22 @@
     const debt = snapshot.debt || { entries: [], metrics: {}, rules: [] };
     const metrics = debt.metrics || {};
     const entries = debt.entries || [];
-    const openEntries = entries.filter(entry =>
+    const allOpen = entries.filter(entry =>
       entry.status === 'open' || entry.status === 'accepted' || entry.status === 'scheduled');
+
+    // Search covers the title, the path and the rule, because those are the
+    // three things somebody already knows when they come looking: what it
+    // said, where it was, or which marker found it.
+    const needle = (state.debtSearch || '').trim().toLowerCase();
+    const ruleFilter = state.debtRuleFilter || 'all';
+    const openEntries = allOpen.filter(entry => {
+      if (ruleFilter !== 'all' && entry.rule !== ruleFilter) { return false; }
+      if (!needle) { return true; }
+      return (entry.title || '').toLowerCase().includes(needle)
+        || (entry.evidencePath || '').toLowerCase().includes(needle)
+        || (entry.rule || '').toLowerCase().includes(needle);
+    });
+    const filtered = openEntries.length !== allOpen.length;
 
     const help = renderWorkflowHelp('debt.rules', {
       label: 'how severity is decided',
@@ -3306,6 +3337,14 @@
         </div></div>
       </section>`;
     }
+
+    // Only rules that actually graded something get a chip. A filter for a
+    // rule with no entries is a button that does nothing, and a project's own
+    // markers are the ones most worth filtering by — so the list is derived
+    // from the register rather than from the rule table.
+    const rulesInUse = [...new Set(allOpen.map(entry => entry.rule))]
+      .sort()
+      .map(id => ({ id, label: id }));
 
     const rows = openEntries.slice(0, 200).map(entry => `
       <div class="recent-item">
@@ -3365,8 +3404,24 @@
         </article>
       </div>
       <article class="panel-card">
-        <p class="card-kicker">Open entries</p>
-        <div class="stack-list">${rows || '<div class="dashboard-empty">Nothing open. Every entry has been resolved, accepted, or gone obsolete.</div>'}</div>
+        <div class="row-head">
+          <p class="card-kicker">Open entries</p>
+          <span class="list-meta">${filtered ? openEntries.length + ' of ' + allOpen.length : allOpen.length}</span>
+        </div>
+        <input id="debt-search-input" class="ideation-input" type="search"
+          placeholder="Search by what it says, where it is, or which marker found it"
+          value="${escapeAttr(state.debtSearch || '')}" />
+        ${rulesInUse.length > 1
+          ? `<div class="segmented" role="group" aria-label="Filter by marker">${
+            [{ id: 'all', label: 'All markers' }].concat(rulesInUse).map(entry => `
+              <button type="button" data-action="set-debt-rule-filter" data-payload="${escapeAttr(entry.id)}"
+                class="${ruleFilter === entry.id ? 'active' : ''}"
+                aria-pressed="${ruleFilter === entry.id ? 'true' : 'false'}">${escapeHtml(entry.label)}</button>`).join('')}</div>`
+          : ''}
+        <div class="stack-list">${rows || `<div class="dashboard-empty">${
+          filtered
+            ? 'Nothing matches that. ' + allOpen.length + ' open entr' + (allOpen.length === 1 ? 'y' : 'ies') + ' in total.'
+            : 'Nothing open. Every entry has been resolved, accepted, or gone obsolete.'}</div>`}</div>
         ${openEntries.length > 200 ? `<p class="stat-detail">Showing 200 of ${openEntries.length}. The rest are in <code>${escapeHtml(debt.path || '')}</code>.</p>` : ''}
       </article>
     </section>`;

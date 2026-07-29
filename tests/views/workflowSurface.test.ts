@@ -510,3 +510,41 @@ describe('handing a debt entry to an agent', () => {
     expect(rendered()).not.toMatch(/Fix it with Atlas/);
   });
 });
+
+describe('searching the debt register', () => {
+  const source = (): string => renderSource('renderDebt', 'renderRelease');
+  const rendered = (): string => source()
+    .split('\n')
+    .filter(line => !line.trim().startsWith('//'))
+    .join('\n');
+
+  it('searches what somebody already knows: the text, the path, or the marker', () => {
+    expect(rendered()).toContain("(entry.title || '').toLowerCase().includes(needle)");
+    expect(rendered()).toContain("(entry.evidencePath || '').toLowerCase().includes(needle)");
+    expect(rendered()).toContain("(entry.rule || '').toLowerCase().includes(needle)");
+  });
+
+  it('offers a filter chip only for rules that actually graded something', () => {
+    // A filter for a rule with no entries is a button that does nothing.
+    expect(rendered()).toContain('const rulesInUse = [...new Set(allOpen.map(entry => entry.rule))]');
+    expect(rendered()).toContain('rulesInUse.length > 1');
+  });
+
+  it('says how many were hidden rather than looking like the register shrank', () => {
+    // Otherwise a filtered view is indistinguishable from work disappearing —
+    // in a register whose whole promise is that nothing is ever deleted.
+    expect(rendered()).toContain("openEntries.length + ' of ' + allOpen.length");
+    expect(rendered()).toMatch(/Nothing matches that/);
+  });
+
+  it('keeps the search box focused across a re-render', () => {
+    // `render()` rebuilds the page on every host push. Without this, typing a
+    // second character is impossible.
+    expect(WEBVIEW_SCRIPT).toContain("active.id === 'debt-search-input'");
+    expect(WEBVIEW_SCRIPT).toContain("activeId === 'debt-search-input'");
+  });
+
+  it('uses the same segmented control the other filters use', () => {
+    expect(rendered()).toContain('class="segmented"');
+  });
+});

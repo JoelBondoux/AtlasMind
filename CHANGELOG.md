@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.198.0] - 2026-07-29
+
+### Added
+- **Declare your own debt markers.** `atlasmind.debt.markers` takes entries like `["DEBT", "REVISIT:high", "NOTE:low"]` — the scan looks for those alongside `TODO`, `FIXME`, `HACK` and `XXX`. An unqualified marker is graded **medium**, because somebody who bothered to declare a marker is asserting that something is *wrong*, which is the same reason `FIXME` outranks `TODO`.
+
+  Each marker becomes a **declared rule**: named on every entry it grades and published in the rule table of `tech-debt.md` beside the built-in ones. That is what keeps the register comparable rather than merely populated — a grade you can look up is a grade you can argue with.
+
+  Two things a project cannot do. It cannot **redefine a built-in**: grading your own `TODO` as high would make two projects' registers incomparable, which is the one thing the rule table exists to prevent. And it cannot **escape the security grade** — a marker mentioning a credential is high whatever you called it, or a project could downgrade the one grade that is never negotiable by inventing its own word for it.
+
+- **Search and filter on the Tech Debt page.** The search covers what it says, where it is, and which marker found it — the three things somebody already knows when they come looking. Filter chips appear for the markers that actually graded something, so there is never a filter that does nothing.
+
+  A filtered view says how many it is hiding. In a register whose whole promise is that nothing is ever deleted, a shorter list must not be able to look like work disappearing.
 ## [0.197.0] - 2026-07-29
 
 ### Added
