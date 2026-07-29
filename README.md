@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.190.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.191.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,13 +64,15 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.190.0
+## What's new in 0.191.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
 
 - **Your workflow is now a file you own.** `project_memory/operations/workflow.json` holds your branches, naming convention, label taxonomy, and each stage's requested automation level — a committed file rather than a setting, so a change to how your team works arrives as a diff with a reviewer rather than a habit nobody wrote down. A readable mirror is generated beside it for the person reviewing that diff.
 
   A stage can be disabled but never deleted, because disabling leaves the decision in the record and deleting erases the evidence it was made. The file sets intent; your settings still set the ceiling. It is never created implicitly — writing one into your repository because you opened a tab would be putting words in your mouth in a file other people review.
+
+  A stage can carry a command it runs, and an **empty command is the blocker** rather than an oversight — it holds the gate shut until somebody supplies a real one. Labels are categorised, so a drafter picks one type and one priority instead of an arbitrary subset. Testing requirements are deliberately *not* duplicated here: they come from your testing configuration, and the file says so rather than leaving you to wonder.
 
 - **A Release page, and the four delivery keys.** Preparing a release is the one step that cannot be undone, and AtlasMind had all the pieces without a path through them. Seven gates now run root-cause-first — changelog entry, notes, secrets, version, tag, working tree, CI — and a gate reporting *unknown* is not treated as a pass, because a repository whose tags could not be listed genuinely does not know whether its tag is free.
 

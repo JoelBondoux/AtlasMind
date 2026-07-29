@@ -3713,6 +3713,11 @@
     const configCard = cfg.config ? (() => {
       const config = cfg.config;
       const enabledCount = (config.stages || []).filter(stage => stage.enabled).length;
+      // Derived host-side and carried, never re-derived here: two copies of
+      // "what is stopping this stage" would eventually disagree, and the one
+      // on screen would be the one nobody tested.
+      const blockersFor = id => (cfg.blockers && cfg.blockers[id]) || [];
+      const problems = cfg.problems || [];
       const stageRows = (config.stages || []).map(stage => `
         <div class="recent-item">
           <div class="row-head">
@@ -3725,8 +3730,13 @@
           ${(stage.requiredChecks || []).length
             ? `<div class="list-meta">Attests: ${escapeHtml(stage.requiredChecks.join(' · '))}</div>`
             : ''}
-          ${(stage.blockers || []).length
-            ? `<p class="stat-detail wf-unknown">Blocked: ${escapeHtml(stage.blockers.join('; '))}</p>`
+          ${stage.command !== undefined
+            ? (stage.command
+              ? `<div class="list-meta">Runs: <code>${escapeHtml(stage.command)}</code></div>`
+              : '<p class="stat-detail wf-unknown">No command set. That emptiness <em>is</em> the blocker — the stage stays shut until somebody supplies one.</p>')
+            : ''}
+          ${(blockersFor(stage.id) || []).length
+            ? `<p class="stat-detail wf-unknown">Blocked: ${escapeHtml(blockersFor(stage.id).join('; '))}</p>`
             : ''}
         </div>`).join('');
 
@@ -3739,6 +3749,9 @@
         ${configHelp.panel}
         <div class="list-meta">${escapeHtml(cfg.path || '')} · ${escapeHtml(config.profile)} profile · merges into <code>${escapeHtml(config.branches.integration)}</code>, releases from <code>${escapeHtml(config.branches.release)}</code></div>
         <div class="stack-list">${stageRows}</div>
+        ${problems.length
+          ? `<p class="stat-detail wf-unknown">${problems.map(problem => escapeHtml(problem.detail)).join(' ')}</p>`
+          : ''}
         <p class="stat-detail">A stage requests a level; what happens is the lowest of that, your ceiling, the matching capability switch, and the master switch. Toggling one here writes the committed file — you will see the exact change first.</p>
       </article>`;
     })() : `

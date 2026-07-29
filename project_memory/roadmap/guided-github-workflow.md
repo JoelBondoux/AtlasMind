@@ -91,7 +91,7 @@ nothing to GitHub.
 
 ### C1 — Workflow Engine & Configuration
 
-#### C1.1 — The workflow configuration model  ✅ shipped v0.190.0
+#### C1.1 — The workflow configuration model  ✅ shipped v0.190.0, completed v0.191.0
 
 > **Correction.** This item was recorded as shipped in Tier 1 (v0.181.0) and was not. No
 > `workflowConfig.ts` existed; `workflowConfigPresent` was hardcoded `false` in the dashboard, so the
@@ -101,6 +101,13 @@ nothing to GitHub.
 > `protectedBranches` were likewise hardcoded to *this repository's* branch names, so every other
 > project was taught a workflow naming branches it does not have. Found while building C1.7, which
 > needs this model to have something to edit.
+>
+> **Second correction (v0.191.0).** The v0.190.0 model implemented most of specification §4.2 and
+> not all of it. Missing: `command` (whose rule the module header *cited* while the field did not
+> exist), the categorised label taxonomy, `testing.inherit`, `testingOverrides`, and any check that
+> `ownerAgentId` resolves. A schema described in the specification and half-built in the
+> implementation is the same class of problem as an item marked shipped that was never built, one
+> layer down.
 
 - **Purpose:** Make the workflow data a team owns and reviews, rather than prose that drifts.
 - **Expected behaviour:** Seed `workflow.json` + `workflow.md` mirror from a profile; sanitize on read; refuse a document written by a newer AtlasMind rather than overwriting it; preserve unknown fields on rewrite.

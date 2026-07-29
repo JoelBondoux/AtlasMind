@@ -77,6 +77,49 @@ export interface WorkflowStageConfig {
    * and re-levelled, but never removed.
    */
   managed: boolean;
+  /**
+   * A user-authored command this stage runs, where it needs one.
+   *
+   * **`''` is the blocker, not an oversight.** A stage that needs a command
+   * ships with an empty one, and that emptiness is what holds the gate shut
+   * until a human supplies a real one — the `deliveryManager` precedent, for
+   * the same reason: a command that silently did nothing would let a stage
+   * report success having run nothing at all.
+   *
+   * `undefined` and `''` therefore mean different things and MUST NOT be
+   * collapsed. Absent means the stage needs no command; empty means it needs
+   * one and does not have it.
+   */
+  command?: string;
+  /**
+   * Per-stage testing requirements, where a stage differs from the project's
+   * own testing configuration. Empty is the normal case — see `testing.inherit`.
+   */
+  testingOverrides?: WorkflowTestingOverride[];
+}
+
+export interface WorkflowTestingOverride {
+  methodologyId: string;
+  /** Whether evidence for this methodology is required at this stage. */
+  requiredAtStage: boolean;
+}
+
+/**
+ * The label taxonomy, by category.
+ *
+ * Categorised rather than a flat list because a drafter picking labels needs to
+ * pick *one type* and *one priority*, not an arbitrary subset. A flat list makes
+ * "drawn only from the declared taxonomy" satisfiable by any combination,
+ * including three conflicting priorities.
+ *
+ * Every category is optional in practice — a project with no priority labels
+ * declares none, and nothing then asks for one.
+ */
+export interface WorkflowLabelTaxonomy {
+  type: string[];
+  priority: string[];
+  status: string[];
+  area: string[];
 }
 
 export interface WorkflowConfig {
@@ -93,10 +136,18 @@ export interface WorkflowConfig {
     maxLength: number;
     types: string[];
   };
-  labels: {
-    /** The taxonomy issue and pull-request labels are drawn from. */
-    declared: string[];
-  };
+  /** The taxonomy issue and pull-request labels are drawn from. */
+  labels: WorkflowLabelTaxonomy;
+  /**
+   * Where testing requirements come from.
+   *
+   * `inherit: true` is the only value, and it exists to *say something*: testing
+   * requirements live in `project_memory/index/testing-config.json` and are
+   * deliberately not duplicated here. A second copy would drift, and the two
+   * would disagree about what a stage requires with nothing to arbitrate.
+   * Per-stage exceptions go in `stages[].testingOverrides`.
+   */
+  testing: { inherit: true };
   stages: WorkflowStageConfig[];
   updatedAt?: string;
   /**
@@ -128,9 +179,26 @@ const STAGE_OWNERS: Partial<Record<WorkflowStageId, string>> = {
 
 export const DEFAULT_BRANCH_TYPES = ['feat', 'fix', 'chore', 'docs', 'refactor', 'test', 'perf'];
 
-export const DEFAULT_LABELS = [
-  'bug', 'enhancement', 'documentation', 'refactor', 'test', 'security', 'dependencies',
-];
+/**
+ * The starter taxonomy, by category.
+ *
+ * Deliberately small. A seeded taxonomy nobody chose is a taxonomy nobody
+ * applies, and a long one is worse than a short one because the unused labels
+ * make the used ones harder to find. `priority` and `status` are seeded empty:
+ * plenty of projects run without either, and inventing a priority scheme for
+ * somebody teaches them a vocabulary they did not pick.
+ */
+export const DEFAULT_LABEL_TAXONOMY: WorkflowLabelTaxonomy = {
+  type: ['bug', 'enhancement', 'documentation', 'refactor', 'test'],
+  priority: [],
+  status: [],
+  area: [],
+};
+
+/** Every declared label, flattened. Order follows the category order. */
+export function allDeclaredLabels(taxonomy: WorkflowLabelTaxonomy): string[] {
+  return dedupe([...taxonomy.type, ...taxonomy.priority, ...taxonomy.status, ...taxonomy.area]);
+}
 
 export interface WorkflowSeedInput {
   profile: WorkflowProfile;
@@ -173,6 +241,10 @@ export function seedWorkflowConfig(seed: WorkflowSeedInput): WorkflowConfig {
     managed: true,
   }));
 
+  // Observed labels land in `type`, the only category whose membership can be
+  // inferred without asking. Sorting a repository's labels into priority,
+  // status and area would be guessing at what they mean, and a taxonomy that
+  // guessed wrong is worse than one that stayed honest about not knowing.
   const observed = (seed.observedLabels ?? [])
     .map(label => sanitizeLabel(label))
     .filter((label): label is string => label !== undefined);
@@ -191,7 +263,10 @@ export function seedWorkflowConfig(seed: WorkflowSeedInput): WorkflowConfig {
       maxLength: 60,
       types: [...DEFAULT_BRANCH_TYPES],
     },
-    labels: { declared: observed.length > 0 ? dedupe(observed).slice(0, 60) : [...DEFAULT_LABELS] },
+    labels: observed.length > 0
+      ? { type: dedupe(observed).slice(0, 60), priority: [], status: [], area: [] }
+      : { ...DEFAULT_LABEL_TAXONOMY, type: [...DEFAULT_LABEL_TAXONOMY.type] },
+    testing: { inherit: true },
     stages,
     updatedAt: new Date().toISOString(),
   };
@@ -309,8 +384,43 @@ function sanitizeLines(value: unknown, cap: number): string[] {
     .filter((entry): entry is string => entry !== undefined);
 }
 
+/**
+ * Read the label taxonomy, accepting the flat shape as well as the categorised
+ * one.
+ *
+ * The flat form (`{ declared: [...] }`) shipped for exactly one version before
+ * the categories landed. Reading it into `type` costs four lines and means a
+ * file written by that version keeps its labels instead of silently losing
+ * them — which is the same obligation the unknown-field round trip creates,
+ * pointing the other way through time.
+ */
+function sanitizeLabelTaxonomy(value: unknown): WorkflowLabelTaxonomy {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { type: [], priority: [], status: [], area: [] };
+  }
+  const raw = value as Record<string, unknown>;
+  const category = (key: string): string[] =>
+    Array.isArray(raw[key])
+      ? dedupe((raw[key] as unknown[])
+        .slice(0, 200)
+        .map(entry => sanitizeLabel(entry))
+        .filter((entry): entry is string => entry !== undefined))
+      : [];
+
+  const type = category('type');
+  const legacy = category('declared');
+
+  return {
+    type: dedupe([...type, ...legacy]),
+    priority: category('priority'),
+    status: category('status'),
+    area: category('area'),
+  };
+}
+
 const KNOWN_TOP_LEVEL_KEYS = new Set([
-  'version', 'profile', 'status', 'branches', 'naming', 'labels', 'stages', 'updatedAt', 'extra',
+  'version', 'profile', 'status', 'branches', 'naming', 'labels', 'testing', 'stages',
+  'updatedAt', 'extra',
 ]);
 
 /**
@@ -344,13 +454,7 @@ export function sanitizeWorkflowConfig(input: unknown): WorkflowConfig | undefin
   const convention = namingRaw['convention'];
   const maxLengthRaw = Number(namingRaw['maxLength']);
 
-  const labelsRaw = (raw['labels'] ?? {}) as Record<string, unknown>;
-  const declared = Array.isArray(labelsRaw['declared'])
-    ? labelsRaw['declared']
-      .slice(0, 200)
-      .map(entry => sanitizeLabel(entry))
-      .filter((entry): entry is string => entry !== undefined)
-    : [];
+  const labels = sanitizeLabelTaxonomy(raw['labels']);
 
   const stages = sanitizeStages(raw['stages']);
 
@@ -385,7 +489,11 @@ export function sanitizeWorkflowConfig(input: unknown): WorkflowConfig | undefin
         ? dedupe(sanitizeLines(namingRaw['types'], 30)).slice(0, 30)
         : [...DEFAULT_BRANCH_TYPES],
     },
-    labels: { declared: dedupe(declared) },
+    labels,
+    // The only value. It is here to *say* that testing requirements live in
+    // `testing-config.json` and are deliberately not duplicated, so a reader
+    // finding no testing rules in this file knows that is the design.
+    testing: { inherit: true },
     stages,
     ...(typeof raw['updatedAt'] === 'string' ? { updatedAt: raw['updatedAt'] } : {}),
     ...(Object.keys(extra).length > 0 ? { extra } : {}),
@@ -426,6 +534,16 @@ function sanitizeStages(value: unknown): WorkflowStageConfig[] {
         requiredStatusChecks: sanitizeLines(raw['requiredStatusChecks'], 20),
         blockers: sanitizeLines(raw['blockers'], 20),
         managed: true,
+        // `undefined` and `''` are kept apart on purpose: absent means the
+        // stage needs no command, empty means it needs one and does not have
+        // it. Collapsing them would turn a deliberate blocker into an
+        // oversight, or an oversight into a blocker.
+        ...(typeof raw['command'] === 'string'
+          ? { command: sanitizeLine(raw['command'], 400) ?? '' }
+          : {}),
+        ...(sanitizeTestingOverrides(raw['testingOverrides']).length > 0
+          ? { testingOverrides: sanitizeTestingOverrides(raw['testingOverrides']) }
+          : {}),
       });
     }
   }
@@ -443,6 +561,35 @@ function sanitizeStages(value: unknown): WorkflowStageConfig[] {
   });
 }
 
+/**
+ * Per-stage testing exceptions.
+ *
+ * A methodology id is an identifier from the project's testing configuration,
+ * so it is *constrained* rather than cleaned — an entry naming something that
+ * is not an id is dropped, because coercing it would produce an override for a
+ * methodology nobody has.
+ */
+function sanitizeTestingOverrides(value: unknown): WorkflowTestingOverride[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const out: WorkflowTestingOverride[] = [];
+  const seen = new Set<string>();
+  for (const entry of value.slice(0, 40)) {
+    if (!entry || typeof entry !== 'object') {
+      continue;
+    }
+    const raw = entry as Record<string, unknown>;
+    const id = raw['methodologyId'];
+    if (typeof id !== 'string' || !/^[a-z0-9][a-z0-9-]{0,59}$/.test(id) || seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    out.push({ methodologyId: id, requiredAtStage: raw['requiredAtStage'] === true });
+  }
+  return out;
+}
+
 function isWorkflowConfig(value: unknown): value is WorkflowConfig {
   return sanitizeWorkflowConfig(value) !== undefined;
 }
@@ -456,13 +603,16 @@ export interface WorkflowStageEdit {
   requiredChecks?: string[];
   requiredStatusChecks?: string[];
   blockers?: string[];
+  /** `''` clears it back to the blocker; omit to leave it alone. */
+  command?: string;
 }
 
 export interface WorkflowConfigEdit {
   profile?: string;
   integrationBranch?: string;
   releaseBranch?: string;
-  labels?: string[];
+  /** One category at a time, so an edit to `type` cannot wipe `area`. */
+  labels?: { category: string; values: string[] };
   branchTypes?: string[];
   stages?: WorkflowStageEdit[];
 }
@@ -496,7 +646,12 @@ export function applyWorkflowConfigEdit(
     ...current,
     branches: { ...current.branches, protected: [...current.branches.protected] },
     naming: { ...current.naming, types: [...current.naming.types] },
-    labels: { declared: [...current.labels.declared] },
+    labels: {
+      type: [...current.labels.type],
+      priority: [...current.labels.priority],
+      status: [...current.labels.status],
+      area: [...current.labels.area],
+    },
     stages: current.stages.map(stage => ({
       ...stage,
       requiredChecks: [...stage.requiredChecks],
@@ -547,12 +702,19 @@ export function applyWorkflowConfigEdit(
   }
 
   if (edit.labels !== undefined) {
-    const labels = dedupe(
-      edit.labels.map(label => sanitizeLabel(label)).filter((label): label is string => label !== undefined),
-    ).slice(0, 200);
-    if (!sameList(labels, next.labels.declared)) {
-      changes.push(`Label taxonomy: ${next.labels.declared.length} → ${labels.length} labels.`);
-      next.labels.declared = labels;
+    const category = edit.labels.category;
+    if (category !== 'type' && category !== 'priority' && category !== 'status' && category !== 'area') {
+      refused.push(`"${String(category).slice(0, 40)}" is not a label category.`);
+    } else {
+      const labels = dedupe(
+        edit.labels.values
+          .map(label => sanitizeLabel(label))
+          .filter((label): label is string => label !== undefined),
+      ).slice(0, 200);
+      if (!sameList(labels, next.labels[category])) {
+        changes.push(`Labels (${category}): ${next.labels[category].length} → ${labels.length}.`);
+        next.labels[category] = labels;
+      }
     }
   }
 
@@ -610,9 +772,96 @@ export function applyWorkflowConfigEdit(
         stage.blockers = blockers;
       }
     }
+    if (stageEdit.command !== undefined) {
+      const command = sanitizeLine(stageEdit.command, 400) ?? '';
+      if (command !== (stage.command ?? '')) {
+        // Clearing it is a real edit with a real consequence, so it is reported
+        // as one rather than as "command removed" — the gate closing is the
+        // point, and somebody reading the confirmation needs to see that.
+        changes.push(command
+          ? `${stage.name}: command set to \`${command}\`.`
+          : `${stage.name}: command cleared, which blocks the stage until one is supplied.`);
+        stage.command = command;
+      }
+    }
   }
 
   return { config: next, changes, refused };
+}
+
+// ── Derived state ────────────────────────────────────────────────
+
+/**
+ * Everything stopping a stage, declared and derived together.
+ *
+ * The declared `blockers` are reasons a team wrote down. The derived one is the
+ * empty command: **`''` IS the blocker, not an oversight.** A stage that needs a
+ * command and has none must not run, and expressing that as a derived blocker
+ * rather than a special case at the call site means every surface that asks
+ * "what is stopping this?" gets the same answer.
+ *
+ * `undefined` is not a blocker. A stage with no `command` key needs no command,
+ * which is the normal case for all eight stages AtlasMind ships today.
+ */
+export function stageBlockers(stage: WorkflowStageConfig): string[] {
+  return [
+    ...stage.blockers,
+    ...(stage.command === ''
+      ? ['No command configured. The stage stays shut until somebody supplies one.']
+      : []),
+  ];
+}
+
+/** True when nothing is stopping the stage. Enabled is a separate question. */
+export function isStageRunnable(stage: WorkflowStageConfig): boolean {
+  return stageBlockers(stage).length === 0;
+}
+
+export interface WorkflowConfigProblem {
+  /** The stage the problem is about, where it belongs to one. */
+  stageId?: WorkflowStageId;
+  detail: string;
+}
+
+/**
+ * Problems with what the config *names*, as distinct from whether it can be read.
+ *
+ * Kept separate from `sanitizeWorkflowConfig` on purpose. Sanitizing answers "is
+ * this file usable"; this answers "does everything it refers to exist", which
+ * needs knowledge a pure reader does not have. An unresolvable owner is
+ * **reported, never dropped** — dropping it would leave a stage silently
+ * ownerless, which reads as a stage nobody was ever assigned rather than one
+ * whose assignee has gone.
+ */
+export function validateWorkflowConfig(
+  config: WorkflowConfig,
+  context: { knownAgentIds?: readonly string[] } = {},
+): WorkflowConfigProblem[] {
+  const problems: WorkflowConfigProblem[] = [];
+  const known = context.knownAgentIds;
+
+  for (const stage of config.stages) {
+    if (known && stage.ownerAgentId && !known.includes(stage.ownerAgentId)) {
+      problems.push({
+        stageId: stage.id,
+        detail: `Owner \`${stage.ownerAgentId}\` is not an agent in this workspace. The stage has no one assigned to it.`,
+      });
+    }
+    if (stage.enabled && stage.command === '') {
+      problems.push({
+        stageId: stage.id,
+        detail: 'Enabled, but its command is empty — so it is blocked. That is the intended behaviour of an empty command, not a fault.',
+      });
+    }
+  }
+
+  if (allDeclaredLabels(config.labels).length === 0) {
+    problems.push({
+      detail: 'No labels declared. Label suggestions draw only from this taxonomy, so nothing will be suggested.',
+    });
+  }
+
+  return problems;
 }
 
 // ── Markdown mirror ──────────────────────────────────────────────
@@ -624,6 +873,22 @@ const LEVEL_NOTE: Record<AutomationLevel, string> = {
   propose: 'writes after a confirmation',
   auto: 'writes unattended',
 };
+
+/** One line per non-empty label category, so empty ones do not add noise. */
+function labelLines(taxonomy: WorkflowLabelTaxonomy): string[] {
+  const categories: Array<[string, string[]]> = [
+    ['Type', taxonomy.type],
+    ['Priority', taxonomy.priority],
+    ['Status', taxonomy.status],
+    ['Area', taxonomy.area],
+  ];
+  const lines = categories
+    .filter(([, values]) => values.length > 0)
+    .map(([label, values]) => `- **Labels (${label.toLowerCase()}):** ${values.join(', ')}`);
+  return lines.length > 0
+    ? lines
+    : ['- **Labels:** _none declared_ — nothing will be suggested until some are.'];
+}
 
 /**
  * The human-readable mirror.
@@ -645,7 +910,12 @@ export function renderWorkflowMarkdown(config: WorkflowConfig): string {
     `- **Protected:** ${config.branches.protected.map(branch => `\`${branch}\``).join(', ')}`,
     `- **Branch names:** \`${config.naming.convention}\`, max ${config.naming.maxLength} characters`,
     `- **Types:** ${config.naming.types.join(', ')}`,
-    `- **Labels:** ${config.labels.declared.length > 0 ? config.labels.declared.join(', ') : '_none declared_'}`,
+    ...labelLines(config.labels),
+    '',
+    'Testing requirements are **not** duplicated here — they come from',
+    '`project_memory/index/testing-config.json`. A second copy would drift, and',
+    'the two would disagree with nothing to arbitrate. Per-stage exceptions are',
+    'in the table below.',
     '',
     '## Stages',
     '',
@@ -654,8 +924,8 @@ export function renderWorkflowMarkdown(config: WorkflowConfig): string {
     'master switch — so a stage asking for `auto` still does nothing until every',
     'one of them agrees.',
     '',
-    '| Stage | Enabled | Requests | Attestations | CI checks | Blockers |',
-    '|---|---|---|---|---|---|',
+    '| Stage | Enabled | Requests | Attestations | CI checks | Command | Blockers |',
+    '|---|---|---|---|---|---|---|',
   ];
 
   for (const stage of config.stages) {
@@ -666,7 +936,10 @@ export function renderWorkflowMarkdown(config: WorkflowConfig): string {
       `\`${stage.automationLevel}\` (${LEVEL_NOTE[stage.automationLevel]})`,
       stage.requiredChecks.length > 0 ? stage.requiredChecks.join('; ') : '—',
       stage.requiredStatusChecks.length > 0 ? stage.requiredStatusChecks.join('; ') : '—',
-      stage.blockers.length > 0 ? stage.blockers.join('; ') : '—',
+      // Absent and empty are different facts, and this table is where somebody
+      // reviewing a diff finds out which one they are looking at.
+      stage.command === undefined ? 'n/a' : stage.command === '' ? '**not set**' : `\`${stage.command}\``,
+      stageBlockers(stage).length > 0 ? stageBlockers(stage).join('; ') : '—',
       '',
     ].join(' | ').trim());
   }
@@ -681,6 +954,9 @@ export function renderWorkflowMarkdown(config: WorkflowConfig): string {
     '- It cannot authorise a force-push, a tag deletion, a CI re-run, a CI',
     '  workflow edit, or a dependency merge. Those are outside the ladder at',
     '  every level.',
+    '- It cannot start a stage whose command is **not set**. An empty command is',
+    '  the blocker, not an oversight — it holds the gate shut until a person',
+    '  supplies a real one.',
     '',
   );
 

@@ -6,6 +6,17 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.191.0 — The rest of the workflow schema
+
+v0.190.0 implemented most of the specification's workflow schema and not all of it. Four things were described there and absent from the code, including `command` — whose rule the module header *cited* while the field did not exist.
+
+**An empty command is the blocker, not an oversight.** Absent means the stage needs no command; empty means it needs one and has none. They never collapse, because conflating them either turns a deliberate blocker into an oversight or opens a gate. The generated mirror shows all three states distinctly.
+
+**Labels are categorised** — type, priority, status, area. A flat list makes "drawn only from the declared taxonomy" satisfiable by three conflicting priorities. Observed repository labels seed `type` only; sorting somebody else's labels would be guessing at what they mean.
+
+**Testing requirements are declared as inherited**, so a reader finding none in this file knows that is the design rather than an omission.
+
+**The file is checked against what it names.** A stage owned by an agent this workspace does not have is reported, never dropped — a silently ownerless stage reads as one nobody was assigned.
 ## v0.190.0 — The workflow becomes a file you own
 
 **`project_memory/operations/workflow.json`.** Branches, naming convention, label taxonomy, and each stage's requested automation level with its attestations and blockers — a committed file rather than a setting, so a change to how a team works arrives as a diff with a reviewer rather than a habit nobody wrote down. A readable markdown mirror is generated beside it for whoever reviews that diff.

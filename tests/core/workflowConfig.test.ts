@@ -49,7 +49,28 @@ describe('seedWorkflowConfig — a seed grants nothing', () => {
 
   it('prefers the repository\'s own labels over the generic set', () => {
     const config = seedWorkflowConfig({ profile: 'solo', observedLabels: ['bug', 'area/ui'] });
-    expect(config.labels.declared).toEqual(['bug', 'area/ui']);
+    expect(config.labels.type).toEqual(['bug', 'area/ui']);
+  });
+
+  it('puts observed labels in `type` rather than guessing at their category', () => {
+    // Sorting a repository's labels into priority, status and area would be
+    // guessing at what they mean, and a taxonomy that guessed wrong is worse
+    // than one that stayed honest about not knowing.
+    const config = seedWorkflowConfig({ profile: 'solo', observedLabels: ['P1', 'blocked', 'area/ui'] });
+    expect(config.labels.priority).toEqual([]);
+    expect(config.labels.status).toEqual([]);
+    expect(config.labels.area).toEqual([]);
+  });
+
+  it('seeds no priority or status scheme of its own', () => {
+    // Plenty of projects run without either, and inventing one teaches a
+    // vocabulary nobody picked.
+    expect(seeded().labels.priority).toEqual([]);
+    expect(seeded().labels.status).toEqual([]);
+  });
+
+  it('declares that testing requirements are inherited, not duplicated', () => {
+    expect(seeded().testing).toEqual({ inherit: true });
   });
 
   it('refuses a branch name git would reject rather than mangling it', () => {

@@ -62,9 +62,12 @@ import {
 import {
   WorkflowConfigManager,
   applyWorkflowConfigEdit,
+  stageBlockers,
+  validateWorkflowConfig,
   WORKFLOW_SSOT_PATH,
   type WorkflowConfig,
   type WorkflowConfigEdit,
+  type WorkflowConfigProblem,
 } from '../core/workflowConfig.js';
 import {
   describePullRequestAction,
@@ -854,6 +857,14 @@ interface DashboardWorkflowConfigSnapshot {
   path: string;
   config?: WorkflowConfig;
   notice?: string;
+  /**
+   * Problems with what the file *names* — an owner that is not an agent, a
+   * stage blocked by its own empty command, an empty taxonomy. Separate from
+   * `notice`, which is about whether the file can be read at all.
+   */
+  problems?: WorkflowConfigProblem[];
+  /** Everything stopping each stage, declared and derived, keyed by stage id. */
+  blockers?: Record<string, string[]>;
 }
 
 interface DashboardGuidedWorkflowSnapshot {
@@ -4453,6 +4464,8 @@ function buildGuidedWorkflowSnapshot(input: {
   workflowConfig?: WorkflowConfig;
   /** Why the file could not be used, when it exists but this build must not. */
   workflowConfigNotice?: string;
+  /** Agent ids in this workspace, so a stage owner can be checked to exist. */
+  knownAgentIds?: readonly string[];
   /** The changelog itself, so its headings can be read rather than assumed. */
   changelog?: string;
   /** Commits on top of the most recent tag, when git could answer. */
@@ -4692,7 +4705,19 @@ function buildGuidedWorkflowSnapshot(input: {
     branches,
     workflowConfig: {
       path: WORKFLOW_SSOT_PATH,
-      ...(input.workflowConfig === undefined ? {} : { config: input.workflowConfig }),
+      ...(input.workflowConfig === undefined ? {} : {
+        config: input.workflowConfig,
+        // Validated against the agents this workspace actually has. A stage
+        // owned by an agent nobody installed is reported rather than dropped:
+        // a silently ownerless stage reads as one nobody was assigned, not as
+        // one whose assignee has gone.
+        problems: validateWorkflowConfig(input.workflowConfig, {
+          ...(input.knownAgentIds === undefined ? {} : { knownAgentIds: input.knownAgentIds }),
+        }),
+        blockers: Object.fromEntries(
+          input.workflowConfig.stages.map(stage => [stage.id, stageBlockers(stage)]),
+        ),
+      }),
       ...(input.workflowConfigNotice === undefined ? {} : { notice: input.workflowConfigNotice }),
     },
     ci,
@@ -4785,6 +4810,24 @@ function buildReleaseSnapshot(input: {
  * whose *shape* is wrong before it gets there, so a malformed message produces
  * nothing rather than a partial edit.
  */
+/**
+ * A label edit names one category. Editing the whole taxonomy in one message
+ * would mean a client that only knew about `type` could wipe `area` by omission.
+ */
+function sanitizeLabelEdit(value: unknown): { category: string; values: string[] } | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+  const raw = value as Record<string, unknown>;
+  if (typeof raw['category'] !== 'string' || !Array.isArray(raw['values'])) {
+    return undefined;
+  }
+  return {
+    category: raw['category'],
+    values: raw['values'].slice(0, 200).filter((entry): entry is string => typeof entry === 'string'),
+  };
+}
+
 export function sanitizeWorkflowConfigEdit(payload: unknown): WorkflowConfigEdit | undefined {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
     return undefined;
@@ -4813,7 +4856,7 @@ export function sanitizeWorkflowConfigEdit(payload: unknown): WorkflowConfigEdit
     ...(typeof raw['profile'] === 'string' ? { profile: raw['profile'] } : {}),
     ...(typeof raw['integrationBranch'] === 'string' ? { integrationBranch: raw['integrationBranch'] } : {}),
     ...(typeof raw['releaseBranch'] === 'string' ? { releaseBranch: raw['releaseBranch'] } : {}),
-    ...(strings(raw['labels'], 200) === undefined ? {} : { labels: strings(raw['labels'], 200)! }),
+    ...(sanitizeLabelEdit(raw['labels']) === undefined ? {} : { labels: sanitizeLabelEdit(raw['labels'])! }),
     ...(strings(raw['branchTypes'], 30) === undefined ? {} : { branchTypes: strings(raw['branchTypes'], 30)! }),
     ...(stages === undefined ? {} : { stages }),
   };
@@ -5266,6 +5309,7 @@ async function collectDashboardSnapshot(
         ? {} : { workflowConfig: workflowConfigManager!.getConfig()! }),
       ...(workflowConfigManager?.getNotice() === undefined
         ? {} : { workflowConfigNotice: workflowConfigManager!.getNotice()! }),
+      knownAgentIds: agents.map(agent => agent.id),
       ...(changelog === undefined ? {} : { changelog }),
       ...(commitsSinceTag === undefined ? {} : { commitsSinceTag }),
       prTemplatePresent,

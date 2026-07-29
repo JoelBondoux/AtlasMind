@@ -396,3 +396,26 @@ describe('the workflow configuration card', () => {
     expect(rendered()).toContain('cfg.notice');
   });
 });
+
+describe('the workflow card shows what an empty command means', () => {
+  const rendered = (): string => workflowRenderedStrings();
+
+  it('distinguishes a set command, an empty one, and no command at all', () => {
+    // Absent means the stage needs none. Empty means it needs one and has none,
+    // and that emptiness is the blocker rather than an oversight.
+    expect(rendered()).toContain('stage.command !== undefined');
+    expect(rendered()).toMatch(/emptiness <em>is<\/em> the blocker/);
+  });
+
+  it('carries blockers derived by the host rather than re-deriving them', () => {
+    // Two copies of "what is stopping this stage" would eventually disagree,
+    // and the one on screen would be the one nobody tested.
+    expect(rendered()).toContain('blockersFor(stage.id)');
+    expect(rendered()).toContain('cfg.blockers');
+    expect(rendered()).not.toContain("stage.command === ''");
+  });
+
+  it('surfaces configuration problems rather than keeping them host-side', () => {
+    expect(rendered()).toContain('cfg.problems');
+  });
+});

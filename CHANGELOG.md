@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.191.0] - 2026-07-29
+
+### Added
+- **The rest of the workflow schema.** v0.190.0 implemented most of the specification's schema and not all of it. Four things were described there and absent from the code, including `command` — whose rule the module header *cited* while the field itself did not exist.
+
+  **`command: ''` is the blocker, not an oversight.** A stage that needs a user-authored command ships with an empty one, and that emptiness holds the gate shut until a person supplies a real one. `undefined` and `''` never collapse: absent means the stage needs no command, empty means it needs one and has none, and conflating them either turns a deliberate blocker into an oversight or — the direction that matters — opens a gate. The generated mirror shows all three states distinctly, so somebody reading the diff can tell which one they are looking at.
+
+  **Labels are categorised** — type, priority, status, area — because a drafter picking labels needs one type and one priority, and a flat list makes "drawn only from the declared taxonomy" satisfiable by three conflicting priorities. Observed repository labels seed `type` only: sorting somebody else's labels into priority and area would be guessing at what they mean. Priority and status seed empty, because plenty of projects run without either and inventing a scheme teaches a vocabulary nobody picked.
+
+  **`testing: { inherit: true }`** is single-valued on purpose. It exists to say that testing requirements live in `testing-config.json` and are deliberately not duplicated here — so a reader finding no testing rules knows that is the design, not an omission. Per-stage exceptions live in `testingOverrides`.
+
+- **The file is now checked against what it names.** Kept separate from reading it, because those are different questions: one is "is this usable", the other is "does everything it refers to exist", and the second needs knowledge a file reader does not have. A stage owned by an agent this workspace does not have is **reported, never dropped** — a silently ownerless stage reads as one nobody was ever assigned rather than one whose assignee has gone.
+
+### Changed
+- **AtlasMind's own workflow file names a real command.** The release stage runs `npm run tag:release`, which makes the field something exercised rather than a schema entry nobody uses.
+
+- **The roadmap records a second correction to C1.1.** A schema described in the specification and half-built in the implementation is the same class of problem as an item marked shipped that was never built — one layer down.
 ## [0.190.0] - 2026-07-29
 
 ### Added

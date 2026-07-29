@@ -29,14 +29,20 @@
     ]
   },
   "labels": {
-    "declared": [
+    "type": [
       "bug",
       "enhancement",
       "documentation",
       "security",
       "dependencies",
       "workflow"
-    ]
+    ],
+    "priority": [],
+    "status": [],
+    "area": []
+  },
+  "testing": {
+    "inherit": true
   },
   "stages": [
     {
@@ -116,7 +122,8 @@
         "CI"
       ],
       "blockers": [],
-      "managed": true
+      "managed": true,
+      "command": "npm run tag:release"
     },
     {
       "id": "maintenance",
@@ -139,5 +146,5 @@
       "managed": true
     }
   ],
-  "updatedAt": "2026-07-29T13:46:28.843Z"
+  "updatedAt": "2026-07-29T14:02:48.734Z"
 }
