@@ -295,6 +295,9 @@ describe('package manifest', () => {
 
     expect(views.map(entry => entry.id)).toEqual([
       'atlasmind.chatView',
+      // Directly under Chat: it is the view you glance at, so it must not sit
+      // below ten inventory rows.
+      'atlasmind.projectStateView',
       'atlasmind.projectRunsView',
       'atlasmind.sessionsView',
       'atlasmind.memoryView',
@@ -307,6 +310,9 @@ describe('package manifest', () => {
     ]);
 
     expect(views.filter(entry => entry.id !== 'atlasmind.chatView')).toEqual(expect.arrayContaining([
+      // Collapsed like the rest: its badge is the glance, and expanding by
+      // default would steal height from Chat to show what the badge conveys.
+      expect.objectContaining({ id: 'atlasmind.projectStateView', visibility: 'collapsed' }),
       expect.objectContaining({ id: 'atlasmind.projectRunsView', visibility: 'collapsed' }),
       expect.objectContaining({ id: 'atlasmind.sessionsView', visibility: 'collapsed' }),
       expect.objectContaining({ id: 'atlasmind.memoryView', visibility: 'collapsed' }),

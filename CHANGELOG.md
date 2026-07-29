@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.187.0] - 2026-07-29
+
+### Added
+- **A Project State view in the sidebar, for the things that had nowhere to live.** The sidebar carried ten views and they were almost entirely *inventory* — lists of agents, skills, models, servers, sessions. Nothing said where you are in the workflow, and nothing said what AtlasMind is currently permitted to do on your behalf. That second gap was the sharper one: it is safety-critical, it is genuinely computed, and the only way to see it was to open the dashboard or read four settings across two scopes.
+
+  Four collapsible sections: **what AtlasMind may do** (effective level, which gate is binding it, and each capability), **where you are** (workflow progress and the next actionable step), **waiting on you** (paused runs, overdue follow-ups, an unclassified CI failure, blocked stages), and **deferred and ageing** (stale documents, testing protocols with no evidence, roadmap gate progress).
+
+  Scope is deliberately narrow: nothing here duplicates Source Control or a GitHub extension. No commits, branches, diffs or issue lists — only facts that exist because AtlasMind exists.
+
+  Three rules carry over from the dashboard and matter more here, because a tree row is read in a glance rather than studied. A section whose data could not be gathered is **omitted entirely** rather than shown empty, so the view never implies AtlasMind looked at something it did not. The **badge counts only rows that need a person** — one that counted everything would be permanently non-zero and therefore ignored, which is worse than no badge. And unbuilt capability is **absent rather than zero**: the tech-debt register does not exist yet, so its row is omitted instead of reading "0 items".
+
+  A classified CI failure deliberately does *not* raise the badge. It already has an owner and a suggested fix; flagging it too would leave the badge permanently lit on any project with a red build.
+
+- **Views with nothing to say now hide themselves.** Project Runs, Sessions and MCP Servers disappear when empty, driven by context keys. Only pure-inventory views are hidden — Discovery, Director, Agents, Skills and Models stay visible even when empty, because each is the *only* entry point to its feature and hiding it would make the feature undiscoverable, which is a worse problem than a quiet row.
+
 ## [0.186.0] - 2026-07-29
 
 ### Added

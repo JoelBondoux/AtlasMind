@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.186.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.187.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,9 +64,13 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.186.0
+## What's new in 0.187.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
+
+- **A Project State view, for the things that had nowhere to live.** The sidebar carried ten views and they were almost all *inventory* — agents, skills, models, servers, sessions. Nothing told you where you are in the workflow, or what AtlasMind is currently permitted to do on your behalf. Four collapsible sections now do: what AtlasMind may do, where you are, what is waiting on you, and what has been deferred.
+
+  It deliberately duplicates nothing your editor already shows — no commits, branches, diffs or issue lists. A section whose data could not be gathered is omitted rather than shown empty, and the badge counts only what genuinely needs a person, so it never becomes permanently lit and therefore ignored. Views with nothing to say now hide themselves too, though anything that is the only route to a feature stays put.
 
 - **A Director can assign roles, and assigning one does something.** Five roles ship — Director, Maintainer, Contributor, Reviewer, Observer — each carrying an automation ceiling and a set of capabilities. Applying one writes the matching settings to the workspace after a confirmation listing every key and value, so the whole team works inside the same envelope.
 

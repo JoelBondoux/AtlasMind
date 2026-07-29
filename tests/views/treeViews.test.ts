@@ -17,7 +17,13 @@ vi.mock('vscode', () => ({
   },
   commands: {
     registerCommand: vi.fn(),
+    // registerTreeViews sets context keys eagerly, so the `when` clauses that
+    // hide empty views are correct on the very first render rather than after
+    // the first unrelated refresh.
+    executeCommand: vi.fn(),
   },
+  ThemeIcon: class { constructor(public readonly id: string) {} },
+  TreeItemCollapsibleState: { None: 0, Collapsed: 1, Expanded: 2 },
 }));
 
 describe('registerTreeViews', () => {
@@ -42,7 +48,10 @@ describe('registerTreeViews', () => {
 
     expect(vscode.window.registerWebviewViewProvider).toHaveBeenCalledTimes(1);
     expect(vscode.window.registerTreeDataProvider).toHaveBeenCalledTimes(6);
-    expect(vscode.window.createTreeView).toHaveBeenCalledTimes(3);
+    // Sessions, Models, Project Director, Project State — the four that need a
+    // TreeView handle rather than just a data provider, because each carries a
+    // badge or a selection listener.
+    expect(vscode.window.createTreeView).toHaveBeenCalledTimes(4);
     expect(vscode.commands.registerCommand).toHaveBeenCalledTimes(2);
   });
 });

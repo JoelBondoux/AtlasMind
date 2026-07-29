@@ -1,6 +1,18 @@
 import * as vscode from 'vscode';
 import { getValidatedSsotPath } from '../bootstrap/bootstrapper.js';
 import type { AtlasMindContext } from '../extension.js';
+import {
+  buildProjectState,
+  countAttentionItems,
+  hasProjectState,
+  type ProjectStateInput,
+  type ProjectStateSection,
+} from '../core/projectStateTree.js';
+import {
+  explainAutomationLevel,
+  resolveRestrictiveFlag,
+  resolveRestrictiveLevel,
+} from '../core/workflowAutomation.js';
 import { SSOT_FOLDERS } from '../types.js';
 import type { AgentDefinition, ArdDiscoveredResource, ArdDiscoveryEndpoint, McpServerState, MemoryEntry, ProjectRunRecord, ProviderConfig, SkillDefinition, SkillScanResult } from '../types.js';
 import { ACP_PROVIDER_ID, findAcpBridge, parseAcpAgentSettings } from '../providers/acp.js';
@@ -53,6 +65,45 @@ export function registerTreeViews(
   const projectDirectorTreeView = vscode.window.createTreeView('atlasmind.projectDirectorView', {
     treeDataProvider: projectDirectorProvider,
   });
+  const projectStateProvider = new ProjectStateTreeProvider(atlas);
+  const projectStateTreeView = vscode.window.createTreeView('atlasmind.projectStateView', {
+    treeDataProvider: projectStateProvider,
+  });
+  /**
+   * Badge and visibility, recomputed together.
+   *
+   * The badge counts only rows that need a person — one that counted
+   * everything would be permanently non-zero and therefore ignored. The
+   * context key hides the view entirely when nothing could be assessed, so a
+   * row never sits in the sidebar with nothing to say.
+   */
+  const refreshProjectState = (): void => {
+    projectStateProvider.refresh();
+    const sections = projectStateProvider.current();
+    const waiting = countAttentionItems(sections);
+    projectStateTreeView.badge = waiting > 0
+      ? { value: waiting, tooltip: `${waiting} thing${waiting === 1 ? '' : 's'} waiting on you` }
+      : undefined;
+    void vscode.commands.executeCommand('setContext', 'atlasmind.hasProjectState', hasProjectState(sections));
+  };
+  /**
+   * Hide views that have nothing to say.
+   *
+   * Only **pure-inventory** views are hidden: a project with no MCP servers or
+   * no past runs does not need a row telling it so. Views that are the *only*
+   * entry point to a feature — Discovery, Director, Agents, Skills, Models —
+   * stay visible even when empty, because hiding them would make the feature
+   * undiscoverable, which is a worse problem than a quiet row.
+   */
+  const refreshEmptyViewContexts = (): void => {
+    const set = (key: string, value: boolean): void => {
+      void vscode.commands.executeCommand('setContext', key, value);
+    };
+    set('atlasmind.hasProjectRuns', (atlas.projectRunHistory?.listRuns() ?? []).length > 0);
+    set('atlasmind.hasSessions', (atlas.sessionConversation?.listSessions?.() ?? []).length > 0);
+    set('atlasmind.hasMcpServers', (atlas.mcpServerRegistry?.listServers?.() ?? []).length > 0);
+  };
+
   const refreshDirectorBadge = (): void => {
     const overdue = countOverdueFollowUps(atlas.projectDirectorManager?.getConfig());
     projectDirectorTreeView.badge = overdue > 0
@@ -60,6 +111,8 @@ export function registerTreeViews(
       : undefined;
   };
   refreshDirectorBadge();
+  refreshProjectState();
+  refreshEmptyViewContexts();
   atlas.agentsRefresh.event(() => agentsProvider.refresh());
   atlas.skillsRefresh.event(() => skillsProvider.refresh());
   atlas.skillsRefresh.event(() => mcpServersProvider.refresh());
@@ -75,6 +128,10 @@ export function registerTreeViews(
     }
     void vscode.commands.executeCommand('setContext', 'atlasmind.hasAutoPausedProviders', autoDisabledCount > 0);
   });
+  // Both the state view and the hide-empty keys follow the same events as the
+  // providers they summarise, so a stale badge cannot outlive its data.
+  atlas.projectRunsRefresh.event(() => { refreshProjectState(); refreshEmptyViewContexts(); });
+  atlas.skillsRefresh.event(() => refreshEmptyViewContexts());
   atlas.projectRunsRefresh.event(() => projectRunsProvider.refresh());
   atlas.projectRunsRefresh.event(() => sessionsProvider.refresh());
   atlas.memoryRefresh.event(() => memoryProvider.refresh());
@@ -1038,6 +1095,125 @@ class DirectorEntryItem extends vscode.TreeItem {
     this.description = description;
     this.iconPath = new vscode.ThemeIcon(icon, color ? new vscode.ThemeColor(color) : undefined);
     this.command = { command: 'atlasmind.openProjectDirector', title: 'Open Project Director' };
+  }
+}
+
+/**
+ * The Project State view: where you are, what AtlasMind may do, what needs you.
+ *
+ * Deliberately narrow. Nothing here duplicates Source Control or a GitHub
+ * extension — no commits, branches, diffs or issue lists. Only facts that exist
+ * because AtlasMind exists, and only ones worth a glance rather than a panel.
+ *
+ * The model is built by `projectStateTree.ts`, which is pure and tested; this
+ * class is a renderer. Sections whose data could not be gathered are omitted
+ * there rather than shown empty, so the honesty rule survives the trip.
+ */
+class ProjectStateTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
+  private readonly _onDidChangeTreeData = new vscode.EventEmitter<vscode.TreeItem | undefined>();
+  readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
+
+  private sections: ProjectStateSection[] = [];
+
+  constructor(private readonly atlas: AtlasMindContext) {}
+
+  refresh(): void {
+    this._onDidChangeTreeData.fire(undefined);
+  }
+
+  /** The current model, for the badge and the context key. */
+  current(): ProjectStateSection[] {
+    return this.sections;
+  }
+
+  getTreeItem(element: vscode.TreeItem): vscode.TreeItem {
+    return element;
+  }
+
+  getChildren(element?: vscode.TreeItem): vscode.TreeItem[] {
+    if (!element) {
+      this.sections = buildProjectState(this.gather());
+      return this.sections.map(section => {
+        const item = new vscode.TreeItem(
+          section.label,
+          section.expanded
+            ? vscode.TreeItemCollapsibleState.Expanded
+            : vscode.TreeItemCollapsibleState.Collapsed,
+        );
+        item.id = `state.${section.id}`;
+        item.iconPath = new vscode.ThemeIcon(section.icon);
+        item.tooltip = section.tooltip;
+        item.contextValue = `atlasmind.state.${section.id}`;
+        return item;
+      });
+    }
+
+    const sectionId = String(element.id ?? '').replace(/^state\./, '');
+    const section = this.sections.find(candidate => candidate.id === sectionId);
+    return (section?.nodes ?? []).map(node => {
+      const item = new vscode.TreeItem(node.label, vscode.TreeItemCollapsibleState.None);
+      item.id = `state.node.${node.id}`;
+      if (node.description) {
+        item.description = node.description;
+      }
+      if (node.tooltip) {
+        item.tooltip = node.tooltip;
+      }
+      if (node.icon) {
+        item.iconPath = new vscode.ThemeIcon(node.icon);
+      }
+      if (node.command) {
+        item.command = {
+          command: node.command.command,
+          title: node.command.title,
+          ...(node.command.args ? { arguments: node.command.args } : {}),
+        };
+      }
+      return item;
+    });
+  }
+
+  /**
+   * Gather what is cheap and already in memory.
+   *
+   * A tree refreshes on unrelated events, so this must not read the network or
+   * walk the workspace. Anything unavailable is left `undefined`, and the model
+   * omits that section rather than guessing — which is why the input type is
+   * optional throughout.
+   */
+  private gather(): ProjectStateInput {
+    const input: ProjectStateInput = {};
+
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    const flag = (key: string): boolean =>
+      resolveRestrictiveFlag(configuration.inspect<boolean>(key) ?? {});
+    const decision = explainAutomationLevel({
+      masterEnabled: flag('workflow.enabled'),
+      userCeiling: resolveRestrictiveLevel(configuration.inspect<string>('workflow.maxAutomationLevel') ?? {}),
+      capabilityEnabled: true,
+      stageLevel: 'auto',
+    });
+    input.automation = {
+      masterEnabled: flag('workflow.enabled'),
+      effective: decision.level,
+      limitedBy: decision.limitedBy,
+      detail: decision.detail,
+      capabilities: [
+        { label: 'Issue writes', enabled: flag('workflow.allowIssueWrites') },
+        { label: 'Pull request writes', enabled: flag('workflow.allowPullRequestWrites') },
+        { label: 'Release writes', enabled: flag('workflow.allowReleaseWrites') },
+        { label: 'Protected branch writes', enabled: flag('workflow.allowProtectedRefWrites') },
+      ],
+    };
+
+    // Follow-ups are already in memory on the Director manager, so this costs
+    // nothing. Runs likewise.
+    const directorConfig = this.atlas.projectDirectorManager?.getConfig();
+    if (directorConfig) {
+      input.attention = { overdueFollowUps: countOverdueFollowUps(directorConfig) };
+    }
+
+    return input;
   }
 }
 

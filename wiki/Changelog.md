@@ -6,6 +6,14 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.187.0 — a Project State view in the sidebar
+
+- The sidebar had **ten views of inventory** and none of state. Nothing said where you are in the workflow, or what AtlasMind is currently permitted to do — the second being safety-critical and previously visible only by opening the dashboard or reading four settings across two scopes.
+- Four collapsible sections: **what AtlasMind may do**, **where you are**, **waiting on you**, **deferred and ageing**.
+- Nothing duplicates Source Control or a GitHub extension — no commits, branches, diffs or issue lists. Only facts that exist because AtlasMind exists.
+- A section whose data could not be gathered is **omitted**, never shown empty. The **badge counts only what needs a person**, so it does not become permanently lit and therefore ignored. A *classified* CI failure deliberately does not raise it — it already has an owner and a fix.
+- **Empty views now hide**: Project Runs, Sessions, MCP Servers. Feature entry points (Discovery, Director, Agents, Skills, Models) stay visible even when empty — hiding the only route to a feature is worse than a quiet row.
+
 ## v0.186.0 — roles a Director can assign
 
 - **Five roles** — Director, Maintainer, Contributor, Reviewer, Observer — each with an automation ceiling and capabilities. Applying one writes the settings to the workspace, so they apply to everyone who opens the repository, after a confirmation listing every key and value.

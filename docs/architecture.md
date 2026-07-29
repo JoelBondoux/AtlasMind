@@ -313,6 +313,18 @@ Consequences that follow from that one decision: `median` refuses below `MIN_SAM
 
 Output shapes match the dashboard's existing render primitives — series for `renderChartCard`, slices for `renderDonutChart`, segments for `renderDistributionBar` — so the instrumentation wall is assembled from components that already exist. `deriveBranchMetrics` exempts integration and release branches from naming conformance, because a permanent unfixable gap teaches people to ignore gaps; `deriveCommitConformance` excludes platform-generated merge commits, which would otherwise penalise a team for using squash merges.
 
+### ProjectStateTree (`src/core/projectStateTree.ts`)
+
+The project state worth a glance without opening a panel, backing the sidebar's **Project State** view.
+
+The sidebar carried ten views before this and they were almost entirely *inventory* — lists of agents, skills, models, servers, sessions. Nothing said where you are in the workflow, and nothing said what AtlasMind is currently permitted to do. The second gap was the sharper one: safety-critical, genuinely computed, and visible only by opening the dashboard or reading four settings across two scopes.
+
+Scope is deliberately narrow — nothing duplicates Source Control or a GitHub extension. No commits, branches, diffs or issue lists; only facts that exist because AtlasMind exists.
+
+Three rules carry over from the dashboard and matter more here, because a tree row is glanced at rather than studied. **A section whose input is absent is omitted entirely** rather than rendered empty, so the tree never implies AtlasMind looked at something it did not — and "waiting on you" is the one section that *does* say "nothing waiting", because it was genuinely assessed. **The badge counts only `needsAttention` rows**: one counting everything would be permanently non-zero and therefore ignored. And **unbuilt capability is absent, not zero** — the tech-debt register does not exist, so its row is omitted rather than claiming a store with nothing in it.
+
+A *classified* CI failure deliberately does not raise the badge: it already has an owner and a suggested fix, so flagging it would leave the badge lit on any project with a red build. Only `unknown` needs a person. Every row's command opens a surface and never mutates, the same rule the setup guides follow.
+
 ### TeamRoles (`src/core/teamRoles.ts`)
 
 Roles a Director assigns, and what assigning one actually does. The honest framing leads the module, because the obvious reading of "roles and restrictions" is a permission system:
