@@ -63,7 +63,9 @@ import {
   DEBT_SSOT_PATH,
   DEBT_RULES,
   DebtRegisterManager,
+  deriveDebtFromSignals,
   deriveDebtMetrics,
+  isDependencyPullRequest,
   reconcileDebtScan,
   scanForDebtMarkers,
   setDebtStatus,
@@ -3018,9 +3020,40 @@ export class ProjectDashboardPanel {
 
     try {
       const { files, scannedPaths, truncated } = await collectDebtScanFiles(workspaceRoot);
-      const candidates = scanForDebtMarkers(files);
+      // Two sources, one register. The marker scan finds what somebody wrote
+      // down; the signal derivation finds what the project is doing that nobody
+      // wrote down at all — an unmerged dependency update, a testing
+      // methodology declared and not evidenced, a document past its review
+      // date, an absent pipeline. None of those leaves a `TODO`.
+      const snapshot = await collectDashboardSnapshot(
+        this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState,
+        this.ciState, this.releaseState, this.workflowConfig, this.auditLedger,
+        { register: this.debtManager.get(), scanning: true },
+      );
+      const candidates = [
+        ...scanForDebtMarkers(files),
+        ...deriveDebtFromSignals({
+          now: Date.now(),
+          ...(this.pullRequestsState === undefined ? {} : { pullRequests: this.pullRequestsState }),
+          uncoveredMethodologies: (snapshot.testing.policyCoverage?.rows ?? [])
+            // `missing` only. `tooling-only` has partial evidence and
+            // `not-file-evident` is a practice, which is never a gap — a
+            // register that recorded those would be recording a category error.
+            .filter(row => row.status === 'missing')
+            .map(row => ({ id: row.id, label: row.label })),
+          ciWorkflowCount: snapshot.delivery.workflows.length,
+        }),
+      ];
       const at = new Date().toISOString();
-      const result = reconcileDebtScan(this.debtManager.get(), candidates, scannedPaths, at);
+      // The derived entries' evidence paths are added to the scanned set, so a
+      // signal that has cleared (the update merged, the methodology covered)
+      // goes obsolete on the next scan rather than lingering forever.
+      const result = reconcileDebtScan(
+        this.debtManager.get(),
+        candidates,
+        [...scannedPaths, ...DERIVED_DEBT_EVIDENCE_ROOTS],
+        at,
+      );
       await this.debtManager.save(result.register);
       void vscode.window.showInformationMessage(
         `Scanned ${scannedPaths.length} files: ${result.added.length} new, ${result.unchanged} already recorded`
@@ -4861,6 +4894,10 @@ function buildGuidedWorkflowSnapshot(input: {
   /** The audit ledger's summary, and the most recent records for the list. */
   auditSummary?: WorkflowHistorySummary;
   auditRecent?: WorkflowRunRecord[];
+  /** The latest CI conclusion, where CI was read at all. */
+  ciStatus?: 'pass' | 'fail' | 'pending' | 'none';
+  /** Documents past their review baseline, where the register was readable. */
+  staleDocumentCount?: number;
   /** True once a debt register exists — not merely once it has entries. */
   hasDebtRegister?: boolean;
   /** Agent ids in this workspace, so a stage owner can be checked to exist. */
@@ -4964,10 +5001,21 @@ function buildGuidedWorkflowSnapshot(input: {
     ...(input.issues.status === 'ready' ? { ghInstalled: true, ghAuthenticated: true } : {}),
     ...(issueMetrics === undefined ? {} : {
       openIssueCount: issueMetrics.open,
-      unassignedIssueCount: issueMetrics.unassigned,
       staleIssueCount: issueMetrics.stale,
     }),
     hasIssueTemplates: input.issueTemplateCount > 0,
+    // Four fields the curriculum reads and nothing ever set, so the steps
+    // depending on them could not change state whatever the repository did.
+    ...(prMetrics === undefined ? {} : {
+      openDependencyPrCount: input.pullRequests === undefined
+        ? 0
+        : input.pullRequests.filter(pr => isDependencyPullRequest(pr)).length,
+    }),
+    ...(input.staleDocumentCount === undefined ? {} : { staleDocumentCount: input.staleDocumentCount }),
+    // A studio asks for one reviewer other than the author; a solo developer
+    // asks for none. Stated as a number rather than inferred from the profile
+    // at each call site, so one answer serves every step that needs it.
+    requiredApprovers: profile === 'studio' ? 1 : 0,
     declaredLabelCount: issueMetrics ? issueMetrics.byLabel.length : 0,
     currentBranch: input.gitSnapshot.currentBranch,
     // From the file where there is one. These were hardcoded to this
@@ -4978,11 +5026,13 @@ function buildGuidedWorkflowSnapshot(input: {
     workingTreeClean: !input.gitSnapshot.dirty,
     nonConformingBranchCount: branches.nonConforming.length,
     enabledTestingMethodologyIds: enabledMethodologies,
-    hasTestFiles: input.testing.totalFiles > 0,
     hasPullRequestTemplate: input.prTemplatePresent,
     hasCodeOwners: input.codeownersPresent,
     ciWorkflowCount: input.ciWorkflowCount,
-    ciStatus: 'none',
+    // The real conclusion where CI was read. This was hardcoded to `'none'`,
+    // so a project with a green build was told it had no check runs — a
+    // false statement rather than a missing one, which is worse.
+    ciStatus: input.ciStatus ?? 'none',
     // The report's *presence* is the signal — there is no "found" flag, because
     // a report that could not be read is indistinguishable from one that does
     // not exist, and both mean "no verdict".
@@ -5728,6 +5778,12 @@ async function collectDashboardSnapshot(
         ? {} : { workflowConfigNotice: workflowConfigManager!.getNotice()! }),
       knownAgentIds: agents.map(agent => agent.id),
       hasDebtRegister: (debt?.register.entries.length ?? 0) > 0 || debt?.register.lastScanAt !== undefined,
+      ...(latestCiConclusion === undefined ? {} : {
+        ciStatus: latestCiConclusion === 'success' ? 'pass' as const
+          : latestCiConclusion === 'failure' ? 'fail' as const
+            : latestCiConclusion === 'pending' ? 'pending' as const : 'none' as const,
+      }),
+      staleDocumentCount: documentsSnapshot.reviewDueCount,
       ...(auditLedger === undefined ? {} : {
         auditSummary: auditLedger.getSummary(),
         auditRecent: auditLedger.getFile().records.slice(0, 25),
@@ -9102,6 +9158,18 @@ export function buildScoreBreakdown(input: {
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
+
+/**
+ * Evidence roots for entries derived from signals rather than markers.
+ *
+ * Included in the scanned set so a signal that has *cleared* — the update
+ * merged, the methodology covered, the pipeline added — goes obsolete on the
+ * next scan instead of lingering as permanently open work nobody can close.
+ */
+const DERIVED_DEBT_EVIDENCE_ROOTS: readonly string[] = [
+  '.github/workflows',
+  'project_memory/index/testing-config.json',
+];
 
 /** Directories a debt scan never descends into. */
 const DEBT_SCAN_SKIP_DIRS = new Set([

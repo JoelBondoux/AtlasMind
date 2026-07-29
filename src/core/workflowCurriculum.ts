@@ -121,7 +121,6 @@ export interface WorkflowObservedState {
   ghInstalled?: boolean;
   ghAuthenticated?: boolean;
   openIssueCount?: number;
-  unassignedIssueCount?: number;
   staleIssueCount?: number;
   hasIssueTemplates?: boolean;
   declaredLabelCount?: number;
@@ -136,12 +135,10 @@ export interface WorkflowObservedState {
 
   // Stage 3 — development
   enabledTestingMethodologyIds?: readonly string[];
-  hasTestFiles?: boolean;
 
   // Stage 4 — pull request
   hasPullRequestTemplate?: boolean;
   hasCodeOwners?: boolean;
-  openPullRequestCount?: number;
   requiredApprovers?: number;
 
   // Stage 5 — CI
@@ -697,7 +694,9 @@ function buildPullRequestStage(state: WorkflowObservedState): WorkflowStageDefin
       how: isStudio
         ? [
             { text: 'In branch protection, require at least one approving review.' },
-            { text: 'Add a `CODEOWNERS` file so the right person is asked automatically.' },
+            { text: state.hasCodeOwners
+              ? 'Your `CODEOWNERS` file already routes reviews — keep it current as ownership moves, because GitHub silently ignores an owner it cannot resolve.'
+              : 'Add a `CODEOWNERS` file so the right person is asked automatically.' },
             { text: 'Rotate reviewers within the owning area, so review load follows a schedule rather than who is most agreeable.' },
           ]
         : [

@@ -353,6 +353,135 @@ export function debtEntryId(candidate: DebtScanCandidate): string {
   return slug.length > 160 ? slug.slice(0, 160) : slug;
 }
 
+// ── Debt from signals the dashboard already has ──────────────────
+
+/**
+ * Whether a pull request is an automated dependency update.
+ *
+ * Recognised by **author or label**, not by title. Bots rename their own
+ * templates between versions, and a title match would silently stop working on
+ * an upgrade nobody connected to the change — the sort of failure that is
+ * invisible until somebody wonders why a number went to zero.
+ */
+export function isDependencyPullRequest(pr: {
+  author?: string;
+  labels?: readonly string[];
+  headRefName?: string;
+}): boolean {
+  const author = (pr.author ?? '').toLowerCase();
+  if (author.includes('dependabot') || author.includes('renovate') || author.includes('snyk-bot')) {
+    return true;
+  }
+  if ((pr.labels ?? []).some(label => /^(dependencies|dependency|deps)$/i.test(label.trim()))) {
+    return true;
+  }
+  const head = (pr.headRefName ?? '').toLowerCase();
+  return head.startsWith('dependabot/') || head.startsWith('renovate/');
+}
+
+/** How long a dependency update may sit before it counts as debt. */
+export const STALE_DEPENDENCY_PR_DAYS = 14;
+
+export interface DebtSignalInput {
+  now: number;
+  /** Merged and open pull requests, already sanitized by the tracker. */
+  pullRequests?: readonly {
+    number: number;
+    title: string;
+    state: string;
+    author?: string;
+    labels?: readonly string[];
+    headRefName?: string;
+    createdAt: string;
+  }[];
+  /** Enabled testing methodologies with no evidence they run. */
+  uncoveredMethodologies?: readonly { id: string; label: string }[];
+  /** Documents past their review baseline. */
+  staleDocuments?: readonly { path: string }[];
+  /** Whether the repository has any CI workflow at all. */
+  ciWorkflowCount?: number;
+}
+
+/**
+ * Derive debt entries from signals the dashboard already gathered.
+ *
+ * The marker scan finds what somebody *wrote down*; this finds what the project
+ * is doing that nobody wrote down at all — an unmerged dependency update, a
+ * testing methodology that is declared and not evidenced, a document past its
+ * review date, an absent pipeline. Those are the four things that reliably rot
+ * quietly, and none of them leaves a `TODO`.
+ *
+ * Pure, and it costs nothing: every input is already on the dashboard for
+ * another page. Each candidate carries the same declared rule as a scanned one,
+ * so a derived entry and a written one are graded by the same table.
+ */
+export function deriveDebtFromSignals(input: DebtSignalInput): DebtScanCandidate[] {
+  const found: DebtScanCandidate[] = [];
+
+  for (const pr of input.pullRequests ?? []) {
+    if (pr.state !== 'open' || !isDependencyPullRequest(pr)) {
+      continue;
+    }
+    const created = Date.parse(pr.createdAt);
+    if (!Number.isFinite(created)) {
+      continue;
+    }
+    const days = Math.floor((input.now - created) / (24 * 60 * 60 * 1000));
+    if (days < STALE_DEPENDENCY_PR_DAYS) {
+      continue;
+    }
+    const rule = RULE_BY_ID.get('stale-dependency-pr')!;
+    found.push({
+      domain: rule.domain,
+      severity: rule.severity,
+      rule: rule.id,
+      title: `Dependency update #${pr.number} open ${days} days`,
+      // The pull request *is* the evidence, and it is the thing a person needs
+      // to open. A file path here would point at nothing in particular.
+      evidencePath: `.github/pull-request-${pr.number}`,
+    });
+  }
+
+  for (const methodology of input.uncoveredMethodologies ?? []) {
+    const rule = RULE_BY_ID.get('uncovered-methodology')!;
+    found.push({
+      domain: rule.domain,
+      severity: rule.severity,
+      rule: rule.id,
+      title: `${methodology.label} is enabled with no evidence it runs`,
+      evidencePath: 'project_memory/index/testing-config.json',
+    });
+  }
+
+  for (const document of input.staleDocuments ?? []) {
+    const normalized = normalizeEvidencePath(document.path);
+    if (!normalized) {
+      continue;
+    }
+    const rule = RULE_BY_ID.get('stale-document')!;
+    found.push({
+      domain: rule.domain,
+      severity: rule.severity,
+      rule: rule.id,
+      title: 'Past its review baseline',
+      evidencePath: normalized,
+    });
+  }
+
+  if (input.ciWorkflowCount === 0) {
+    const rule = RULE_BY_ID.get('missing-ci')!;
+    found.push({
+      domain: rule.domain,
+      severity: rule.severity,
+      rule: rule.id,
+      title: 'No CI workflow',
+      evidencePath: '.github/workflows',
+    });
+  }
+
+  return found;
+}
+
 // ── Reconciling a scan against the register ──────────────────────
 
 export interface DebtReconcileResult {

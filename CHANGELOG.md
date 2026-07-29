@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.194.0] - 2026-07-29
+
+### Added
+- **The register now finds what nobody wrote down.** A marker scan finds deferred work somebody recorded. This finds what the project is doing that nobody recorded at all: a dependency update sitting unmerged past two weeks, a testing methodology you declared and have no evidence runs, a document past its review baseline, an absent pipeline. Those four rot quietly, and none of them leaves a `TODO`.
+
+  Every input is already on the dashboard for another page, so it costs nothing, and each entry is graded by the **same rule table** as a scanned one — a register holding two incompatible scales would be worse than one holding half the entries. A dependency bot is recognised by author, label or branch prefix and **never by title**: bots rename their own templates between versions, and a title match would silently stop working on an upgrade nobody connected to the change.
+
+### Fixed
+- **Four more workflow steps that could not change state.** `ciStatus` was hardcoded to `'none'`, so a project with a green build was told it had no check runs — a confident false statement rather than a missing one, which is worse. `openDependencyPrCount`, `staleDocumentCount` and `requiredApprovers` were read by steps and never assigned at all, so stage 4's review policy and stage 7's sweep could not respond to anything the repository did.
+
+- **Three fields declared and read by nothing**, removed. A field on that interface that no step consumes is one somebody meant to wire up and did not, and it reads as deliberate to the next person.
+
+- **The `CODEOWNERS` advice no longer tells you to add a file you already have.** The flag existed; the step ignored it.
+
+### Changed
+- **A test now enforces the whole bug class.** Four versions running, a field the guide reads turned out never to have been supplied — each time the symptom was that the guide asks you to do something and then refuses to notice you did. `observedStateCoverage.test.ts` checks the real source for three properties the type system cannot express: every field a step reads is assigned; no field describing your repository is assigned a bare literal; and no field is declared that no step reads.
+
+- **No scheduled sweep.** The maintenance sweep runs on request, deliberately. A sweep on a timer would write to a tracked file while nobody was looking, and changes to `project_memory/` are supposed to arrive as reviewable diffs.
 ## [0.193.0] - 2026-07-29
 
 ### Added

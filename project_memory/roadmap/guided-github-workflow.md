@@ -1,6 +1,6 @@
 # Guided GitHub Workflow — Phased Roadmap
 
-> **Status:** Tier 1 shipped v0.181.0; Tier 2 shipped v0.183.0 (C3.4, C3.6 outstanding); Tier 3 CI intelligence shipped v0.184.0; **Tier 3.5 archetype specialisation shipped v0.185.0** (C7.4, C7.5 outstanding); **Tier 3 release half shipped v0.189.0 — C5.1 and C5.3 complete, so Tier 3's exit criteria are met**; **Tier 4 in progress — C1.1 and C1.7 shipped v0.190.0–v0.191.0, C1.6 shipped v0.192.0; C1.6 shipped v0.192.0, C6.1 shipped v0.193.0; C6.2, C6.3 and C1.8 outstanding**. **Owner:** AtlasMind core. **Created:** 2026-07-28.
+> **Status:** Tier 1 shipped v0.181.0; Tier 2 shipped v0.183.0 (C3.4, C3.6 outstanding); Tier 3 CI intelligence shipped v0.184.0; **Tier 3.5 archetype specialisation shipped v0.185.0** (C7.4, C7.5 outstanding); **Tier 3 release half shipped v0.189.0 — C5.1 and C5.3 complete, so Tier 3's exit criteria are met**; **Tier 4 in progress — C1.1 and C1.7 shipped v0.190.0–v0.191.0, C1.6 shipped v0.192.0; C1.6 shipped v0.192.0, C6.1 shipped v0.193.0; C6.1 shipped v0.193.0 and C6.3 v0.194.0; C6.2 and C1.8 outstanding**. **Owner:** AtlasMind core. **Created:** 2026-07-28.
 > This is the SSOT implementation plan for [`docs/guided-github-workflow.md`](../../docs/guided-github-workflow.md),
 > which is the normative specification. Where the two disagree, the specification wins and this
 > file is wrong. Build incrementally, respecting the entry criteria between tiers. Nothing here
@@ -60,7 +60,7 @@ config executed through the promotion runner's own audited path — not spawned 
 `gh api repos/{slug}/branches/{b}/protection`; `gh api repos/{slug}/commits/{ref}/check-runs`;
 `gh repo create`.
 
-**Not present anywhere in `src/`:** the maintenance sweep (C6.3) and the handoff tool (C1.8). Releases are read as of v0.189.0
+**Not present anywhere in `src/`:** the handoff tool (C1.8). Releases are read as of v0.189.0
 (`gh release list`, plus local `git tag` and `git describe`), and the release *plan* is built entirely
 from local files so it works with no `gh` at all; `gh release create` remains proposed. CI runs and failed logs are read as of v0.184.0 (`gh run list`, `gh run view --log-failed`),
 classified by a rule table with no model in the path (`ciFailureAnalysis.ts`). Pull requests are read (v0.182.0) **and written**
@@ -404,7 +404,7 @@ raise a stage to `propose` or `auto` and have the record show exactly what was d
 - **Deterministic output requirements:** Same routing-neutrality constraints as C4.4.
 - **Priority:** Low
 
-#### C6.3 — Maintenance sweep and metrics
+#### C6.3 — Maintenance sweep and metrics  ✅ shipped v0.194.0 *(on-demand; no scheduler)*
 
 - **Purpose:** Make deferral visible as it ages, rather than at the point it becomes urgent.
 - **Expected behaviour:** Scheduled or on-demand sweep over stale issues, stale documents, dependency pull requests, coverage gaps and integration drift. Never auto-closes, never auto-merges.
@@ -412,6 +412,7 @@ raise a stage to `propose` or `auto` and have the record show exactly what was d
 - **GitHub API usage:** as C6.1.
 - **Deterministic output requirements:** Register ageing, by-domain breakdown, new-versus-resolved trend — all pure over the register.
 - **Priority:** Low
+- **As shipped:** `deriveDebtFromSignals` folds four unwritten signals into the register on the same explicit scan. **No scheduler** — a sweep on a timer would write to a tracked file while nobody was looking, and this repository's own rule is that `project_memory/` changes arrive as reviewable diffs. Auditing the fields this needed found four more `WorkflowObservedState` bugs (below).
 
 ### C1 (continued) — unattended operation
 
@@ -445,6 +446,27 @@ raise a stage to `propose` or `auto` and have the record show exactly what was d
 - **Priority:** Low
 
 ---
+
+## The `WorkflowObservedState` audit — a bug class, recorded
+
+Four versions running, a field the curriculum reads turned out never to have been supplied. Each time
+the symptom was the same: **the guide asks somebody to do something and then refuses to notice that
+they did.**
+
+| Field | What it did | Fixed |
+|---|---|---|
+| `workflowConfigPresent` | Hardcoded `false` — "declare your workflow" uncompletable by anybody | v0.190.0 |
+| `changelogHasCurrentVersion` | Derived from the *file existing*, so the commonest release-time omission always read as present | v0.189.0 |
+| `hasDebtRegister` | Hardcoded `false` — "record what you deferred" uncompletable | v0.193.0 |
+| `ciStatus` | Hardcoded `'none'` — a project with a green build told it had no check runs | v0.194.0 |
+| `openDependencyPrCount`, `staleDocumentCount`, `requiredApprovers` | Never assigned at all | v0.194.0 |
+| `unassignedIssueCount`, `hasTestFiles`, `openPullRequestCount` | Declared and read by nothing — removed | v0.194.0 |
+
+`tests/views/observedStateCoverage.test.ts` now enforces three properties against the real source,
+because none of them is expressible in the type system: every field a step reads is assigned
+somewhere; no field describing the user's repository is assigned a bare literal (a constant is a
+*confident false statement*, which is worse than a missing one); and no field is declared that no
+step reads (a dangling field reads as deliberate to the next person).
 
 ## Cross-cutting safety invariants (inherit for every tier)
 

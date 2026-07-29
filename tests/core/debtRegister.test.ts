@@ -9,6 +9,8 @@ import {
   setDebtStatus,
   sortDebtEntries,
   deriveDebtMetrics,
+  deriveDebtFromSignals,
+  isDependencyPullRequest,
   sanitizeDebtRegister,
   normalizeEvidencePath,
   renderDebtMarkdown,
@@ -350,5 +352,80 @@ describe('commentStartIndex', () => {
 
   it('handles an escaped quote without losing track of the string', () => {
     expect(commentStartIndex(String.raw`const s = 'it\'s // not a comment';`)).toBe(-1);
+  });
+});
+
+describe('debt derived from signals nobody wrote down', () => {
+  const NOW = Date.parse('2026-07-29T12:00:00.000Z');
+  const daysAgo = (n: number) => new Date(NOW - n * 24 * 60 * 60 * 1000).toISOString();
+
+  it('recognises a dependency bot by author, label or branch — never by title', () => {
+    // Bots rename their own templates between versions. A title match would
+    // silently stop working on an upgrade nobody connected to the change.
+    expect(isDependencyPullRequest({ author: 'dependabot[bot]' })).toBe(true);
+    expect(isDependencyPullRequest({ author: 'renovate[bot]' })).toBe(true);
+    expect(isDependencyPullRequest({ labels: ['dependencies'] })).toBe(true);
+    expect(isDependencyPullRequest({ headRefName: 'dependabot/npm_and_yarn/x' })).toBe(true);
+    expect(isDependencyPullRequest({ author: 'joel' })).toBe(false);
+  });
+
+  it('does not treat a human pull request about dependencies as a bot update', () => {
+    expect(isDependencyPullRequest({ author: 'joel', headRefName: 'chore/upgrade-deps' })).toBe(false);
+  });
+
+  it('records a dependency update only once it is genuinely stale', () => {
+    const fresh = deriveDebtFromSignals({
+      now: NOW,
+      pullRequests: [{ number: 1, title: 'Bump x', state: 'open', author: 'dependabot[bot]', createdAt: daysAgo(3) }],
+    });
+    const stale = deriveDebtFromSignals({
+      now: NOW,
+      pullRequests: [{ number: 1, title: 'Bump x', state: 'open', author: 'dependabot[bot]', createdAt: daysAgo(30) }],
+    });
+    expect(fresh).toEqual([]);
+    expect(stale).toHaveLength(1);
+    expect(stale[0].severity).toBe('high');
+  });
+
+  it('ignores a dependency update that was already merged or closed', () => {
+    expect(deriveDebtFromSignals({
+      now: NOW,
+      pullRequests: [{ number: 1, title: 'Bump x', state: 'merged', author: 'dependabot[bot]', createdAt: daysAgo(90) }],
+    })).toEqual([]);
+  });
+
+  it('records a declared-but-unevidenced testing methodology', () => {
+    const found = deriveDebtFromSignals({
+      now: NOW,
+      uncoveredMethodologies: [{ id: 'load-testing', label: 'Load testing' }],
+    });
+    expect(found).toHaveLength(1);
+    expect(found[0].rule).toBe('uncovered-methodology');
+    expect(found[0].evidencePath).toBe('project_memory/index/testing-config.json');
+  });
+
+  it('records an absent pipeline, and only when there genuinely is none', () => {
+    expect(deriveDebtFromSignals({ now: NOW, ciWorkflowCount: 0 })).toHaveLength(1);
+    expect(deriveDebtFromSignals({ now: NOW, ciWorkflowCount: 2 })).toEqual([]);
+    // Absent means "not read", which is not the same as zero.
+    expect(deriveDebtFromSignals({ now: NOW })).toEqual([]);
+  });
+
+  it('rejects a stale-document path that escapes the workspace', () => {
+    expect(deriveDebtFromSignals({ now: NOW, staleDocuments: [{ path: '../../etc/passwd' }] })).toEqual([]);
+    expect(deriveDebtFromSignals({ now: NOW, staleDocuments: [{ path: 'docs/a.md' }] })).toHaveLength(1);
+  });
+
+  it('grades derived entries with the same rule table as scanned ones', () => {
+    // A derived entry and a written one must be comparable, or the register
+    // holds two incompatible scales.
+    const derived = deriveDebtFromSignals({ now: NOW, ciWorkflowCount: 0 });
+    expect(DEBT_RULES.some(rule => rule.id === derived[0].rule)).toBe(true);
+  });
+
+  it('gives derived entries stable ids too, so a rescan recognises them', () => {
+    const first = deriveDebtFromSignals({ now: NOW, ciWorkflowCount: 0 });
+    const second = deriveDebtFromSignals({ now: NOW + 86_400_000, ciWorkflowCount: 0 });
+    expect(debtEntryId(first[0])).toBe(debtEntryId(second[0]));
   });
 });

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.193.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.194.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,9 +64,13 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.193.0
+## What's new in 0.194.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
+
+- **The debt register finds what nobody wrote down.** Alongside `TODO` markers: a dependency update unmerged past two weeks, a testing methodology you declared with no evidence it runs, a document past its review date, an absent pipeline. All graded by the same published rule table, so a derived entry and a written one are comparable.
+
+- **Four more guide steps that could not change state.** `ciStatus` was hardcoded, so a project with a green build was told it had no check runs; three other fields were read by steps and never supplied. A test now enforces the whole class — four versions running, a field the guide reads turned out never to have been wired up, and each time the symptom was that the guide asks you to do something and then refuses to notice you did.
 
 - **A tech-debt register.** Borrowing to ship sooner is legitimate; the danger is the interest you pay by forgetting. A scan records each `TODO`, `FIXME`, `HACK` and `XXX` with its file, its line, and **the rule that graded it** — severity comes from a published table, never a judgement call, because a grade assigned last Tuesday cannot be compared with one assigned today.
 

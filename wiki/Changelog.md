@@ -6,6 +6,15 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.194.0 — Debt nobody wrote down, and a bug class closed
+
+**The register now finds unrecorded debt.** A dependency update unmerged past two weeks, a testing methodology declared with no evidence it runs, a document past its review baseline, an absent pipeline. Those four rot quietly and none leaves a `TODO`. All graded by the same rule table as a scanned marker — a register holding two scales would be worse than one holding half the entries.
+
+Dependency bots are matched on author, label or branch prefix and **never on title**: they rename their own templates between versions, and a title match would silently stop working on an upgrade nobody connected to the change.
+
+**Four more guide steps that could not change state.** `ciStatus` was hardcoded to `'none'`, so a project with a green build was told it had no check runs. `openDependencyPrCount`, `staleDocumentCount` and `requiredApprovers` were read by steps and never assigned. Three further fields were declared and read by nothing, and were removed.
+
+**The bug class is now enforced by a test.** Four versions running, a field the guide reads turned out never to have been supplied, and each time the symptom was the same: the guide asks you to do something and then refuses to notice you did.
 ## v0.193.0 — A tech-debt register
 
 Borrowing to ship sooner is legitimate; the danger is the interest paid by forgetting. A scan records each `TODO`, `FIXME`, `HACK` and `XXX` with its file, its line, and the rule that graded it.
