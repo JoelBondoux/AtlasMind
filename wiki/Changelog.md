@@ -6,6 +6,15 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.200.0 — Review comments, one at a time
+
+The line-level review comments — somebody pointing at a line and saying what is wrong with it — are the actionable half of a review, and nothing read them until now. "Address the review" meant handing a model every comment at once and hoping it found the place.
+
+Each comment now renders with the file and line it points at, a button that opens exactly there, and **"Address this one"**: a chat scoped to that comment alone. The prompt keeps the REPORTED CONTENT fence — this is where an arbitrary third party's text reaches a model that can call tools — and forbids addressing the rest of the review or replying on the pull request.
+
+The path is traversal-checked, because it arrives from a third party and becomes something you click. One that cannot be trusted is **emptied rather than rewritten**, and the comment is still shown: the text is worth reading even when the button is withheld.
+
+**Fixed:** a new file button shipped with an action name the handler did not recognise, so it silently did nothing — the same failure as 0.199.0's two Workflow buttons, one table down. A test now checks every `data-action` has a listener.
 ## v0.199.0 — Agents learn the markers, and two dead buttons
 
 **Agents are told which debt markers to use.** One that leaves temporary code marked `@todo` or nothing at all produces debt the register cannot see — and invisible debt is worse than no register, because emptiness then reads as "no debt" rather than "not detected".

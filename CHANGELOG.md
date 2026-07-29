@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.200.0] - 2026-07-29
+
+### Added
+- **Review comments are now readable, and actionable one at a time.** The line-level comments — somebody pointing at a line and saying what is wrong with it — are the actionable half of a review, and nothing read them until now. "Address the review" meant handing a model every comment at once and hoping it found the place.
+
+  Each comment renders as a record with the file and line it points at, a button that opens exactly there, and **"Address this one"** — which starts a chat scoped to that comment alone, because a scoped question gets a scoped answer. The prompt keeps the REPORTED CONTENT fence (this is the path where an arbitrary third party's text reaches a model that can call tools) and forbids two things a model would otherwise reasonably do: address the rest of the review, and reply on the pull request.
+
+  The file path is traversal-checked, because it arrives from a third party and becomes something you click. A path that cannot be trusted is **emptied rather than rewritten**, and the comment is still shown — the text is worth reading even when the button is withheld.
+
+  Fetched per pull request, on request. Fetching with the list would be one call per open pull request against a rate limit, for comments on all but one that nobody asked to see.
+
+### Fixed
+- **A button that did nothing, again — caught the same day.** A new file button shipped with `data-action="open-file"` where the click handler answers to `file`, so it fell through every branch and returned silently. Identical symptom to the two Workflow buttons fixed in 0.199.0, one table down.
+
+  A test now checks that every `data-action` in the markup has a listener that recognises it. Writing it immediately reported a working `<select>` as dead — it is handled by a `change` listener using a different comparison form — which is worth recording, because a test that cries wolf about a working feature gets the feature "fixed".
 ## [0.199.0] - 2026-07-29
 
 ### Added

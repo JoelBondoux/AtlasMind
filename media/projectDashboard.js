@@ -780,6 +780,20 @@
       vscode.postMessage({ type: 'openDebtEvidence', payload: { id: payload } });
       return;
     }
+    if (action === 'load-review-comments') {
+      vscode.postMessage({ type: 'loadReviewComments', payload: { number: Number(payload) } });
+      return;
+    }
+    if (action === 'address-review-comment') {
+      // Number and index in one attribute, split on the colon. Both are
+      // integers and neither can contain one.
+      const parts = String(payload).split(':');
+      vscode.postMessage({
+        type: 'addressReviewComment',
+        payload: { number: Number(parts[0]), index: Number(parts[1]) },
+      });
+      return;
+    }
     if (action === 'work-on-debt') {
       vscode.postMessage({ type: 'workOnDebt', payload: { id: payload } });
       return;
@@ -3176,10 +3190,55 @@
 
   const PR_STATE_TONE = { open: '', draft: 'tag-warn', merged: 'tag-good', closed: '' };
 
+  /**
+   * The line-level review comments on one pull request.
+   *
+   * This is the actionable half of a review — somebody pointing at a line and
+   * saying what is wrong with it — and "address the review" used to mean
+   * handing a model every comment at once and hoping it found the place.
+   *
+   * Every comment is third-party text, so it is escaped here and fenced on the
+   * way to a model. The file button uses the path the *host* validated, and
+   * a comment whose path could not be trusted simply does not get one — the
+   * comment is still worth reading.
+   */
+  function renderReviewComments(number, comments) {
+    if (comments === undefined) {
+      return '';
+    }
+    if (comments.length === 0) {
+      return '<p class="stat-detail">No line comments on this review. Any feedback was left as a summary.</p>';
+    }
+    return `<div class="stack-list">${comments.map((comment, index) => `
+      <div class="recent-item">
+        <div class="row-head">
+          ${comment.path
+            ? `<button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(comment.path)}"
+                title="Open ${escapeAttr(comment.path)}"><code>${escapeHtml(comment.path)}${comment.line > 0 ? ':' + comment.line : ''}</code></button>`
+            : '<span class="list-meta">no file named — the comment is on an outdated diff</span>'}
+          <span class="list-meta">${escapeHtml(comment.author || 'a reviewer')}</span>
+        </div>
+        <p class="stat-detail">${escapeHtml(comment.body)}${comment.bodyTruncated ? '…' : ''}</p>
+        <div class="tag-row">
+          <button type="button" class="action-link" data-action="address-review-comment" data-payload="${pr_number_index(number, index)}">Address this one</button>
+          ${comment.url ? `<button type="button" class="action-link" data-action="external-url" data-payload="${escapeAttr(comment.url)}">Open on GitHub</button>` : ''}
+        </div>
+      </div>`).join('')}</div>`;
+  }
+
+  /** `number:index`, the pair the host looks both halves up by. */
+  function pr_number_index(number, index) {
+    return String(number) + ':' + String(index);
+  }
+
   function renderPullRequests(snapshot) {
     const wf = snapshot.guidedWorkflow || {};
     const metrics = wf.pullRequests;
     const records = wf.pullRequestRecords;
+    // Keyed by number, and `undefined` for a pull request nobody has asked
+    // about. Absent and empty are different facts here: one offers the button,
+    // the other says the review left no line comments.
+    const reviewComments = wf.reviewComments || {};
 
     const intro = renderPageIntro({
       kicker: 'Stage 4',
@@ -3207,6 +3266,7 @@
 
     const list = open.length > 0
       ? open.map(pr => {
+        const comments = reviewComments[String(pr.number)];
         const reviews = pr.reviews || [];
         const submitted = reviews.filter(r => r.verdict !== 'pending');
         const changesRequested = submitted.some(r => r.verdict === 'changes-requested');
@@ -3233,7 +3293,11 @@
                 ? '<span class="tag tag-warn">no linked issue</span>'
                 : `<span class="tag">closes #${escapeHtml(String(pr.linkedIssues[0]))}</span>`}
               ${pr.url ? `<button type="button" class="action-link" data-action="external-url" data-payload="${escapeAttr(pr.url)}">Open on GitHub</button>` : ''}
+              ${comments === undefined
+                ? `<button type="button" class="action-link" data-action="load-review-comments" data-payload="${pr.number}">Read the review comments</button>`
+                : ''}
             </div>
+            ${renderReviewComments(pr.number, comments)}
           </div>`;
       }).join('')
       : `<div class="dashboard-empty"><div>

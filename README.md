@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.199.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.200.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,9 +64,13 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.199.0
+## What's new in 0.200.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
+
+- **Review comments, one at a time.** The line-level comments are the actionable half of a review, and nothing read them before. Each now shows the file and line it points at, with a button that opens exactly there and an “Address this one” that starts a chat scoped to that comment alone — because a scoped question gets a scoped answer, and it will not go on to address the rest of the review or reply on the pull request.
+
+  The path is traversal-checked, because it arrives from a third party and becomes something you click. One that cannot be trusted is emptied rather than rewritten, and the comment is still shown.
 
 - **Agents are told which debt markers to use.** An agent that marks temporary code its own way produces debt the register cannot see — and invisible debt is worse than no register, because emptiness then reads as “no debt” rather than “not detected”. AtlasMind's own agents get the vocabulary in their prompts; external agents get it as a managed block in the instruction files they already read.
 

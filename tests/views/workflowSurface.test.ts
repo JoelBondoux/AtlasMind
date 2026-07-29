@@ -548,3 +548,38 @@ describe('searching the debt register', () => {
     expect(rendered()).toContain('class="segmented"');
   });
 });
+
+describe('review comments on the Pull Requests page', () => {
+
+  it('distinguishes "not fetched" from "no line comments"', () => {
+    // Absent offers the button; empty says the review left a summary only.
+    // Collapsing them would either hide the button forever or offer it forever.
+    expect(WEBVIEW_SCRIPT).toContain("if (comments === undefined)");
+    expect(WEBVIEW_SCRIPT).toMatch(/No line comments on this review/);
+    expect(WEBVIEW_SCRIPT).toContain('Read the review comments');
+  });
+
+  it('offers the file button only when the host trusted the path', () => {
+    // The path arrives from a third party. One that could not be trusted is
+    // emptied host-side, and an empty path must not become something clickable.
+    expect(WEBVIEW_SCRIPT).toMatch(/comment\.path\s*$/m);
+    expect(WEBVIEW_SCRIPT).toMatch(/no file named/);
+  });
+
+  it('sends only a number and an index, never the text or the path', () => {
+    // Both are looked up host-side, which is what keeps third-party text out of
+    // the message that reaches a model.
+    expect(WEBVIEW_SCRIPT).toContain("type: 'addressReviewComment'");
+    expect(WEBVIEW_SCRIPT).not.toMatch(/addressReviewComment[\s\S]{0,120}comment\.body/);
+  });
+
+  it('escapes the comment body it renders', () => {
+    expect(WEBVIEW_SCRIPT).toContain('escapeHtml(comment.body)');
+  });
+
+  it('scopes the action to one comment rather than the whole review', () => {
+    // `renderReviewComments` sits above `renderPullRequests`, so it is asserted
+    // against the whole script rather than the extracted body.
+    expect(WEBVIEW_SCRIPT).toContain('Address this one');
+  });
+});

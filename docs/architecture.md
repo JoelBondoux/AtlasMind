@@ -503,6 +503,14 @@ Removes the two steps people skip — writing the body and linking the issue —
 
 ### PullRequestTracker (`src/core/pullRequestTracker.ts`)
 
+**Line-level review comments are the actionable half**, and nothing read them until C3.4 — so "address the review" meant handing a model every comment at once and hoping it found the place. `parseGhReviewComments` reads them with the same discipline as everything else here, plus one thing the other readers do not need: the path is traversal-checked, because it arrives from a third party and becomes a file somebody clicks. A path that could not be trusted is **emptied rather than rewritten**, and the comment is still shown — the text is worth reading even when the button is withheld.
+
+`buildReviewCommentPrompt` scopes the question to one comment and the line it points at, because a scoped question gets a scoped answer. It carries the same REPORTED CONTENT fence as the summary prompt and for the same reason — this is the path where an arbitrary third party's text reaches a model that can call tools — and it forbids two things a model would otherwise reasonably do: address the rest of the review, and reply on the pull request.
+
+`resolved` stays `false` rather than inferred. The REST comments endpoint does not carry thread resolution; that lives in a GraphQL field. Guessing from something adjacent would hide feedback that is still open, so `false` here means "not known to be resolved" and errs towards showing it.
+
+Comments are fetched **per pull request, on request**. Fetching them with the list would be one call per open pull request against a rate limit, for comments on all but one that nobody asked to see. A failed fetch records an empty list rather than leaving the key absent, so the surface says "none found" instead of offering the button again forever.
+
 The sibling of `issueTracker.ts`, built to the same discipline because the threat is the same one: **a pull-request body and a review comment are third-party text.** Anyone who can comment can write a paragraph designed to be read as an instruction by an AI assistant, and "address this review feedback" is precisely the workflow that hands that paragraph to a model holding tools.
 
 Until this module, nothing in AtlasMind sanitized that text — because nothing read it. Adding the reading is what created the obligation.

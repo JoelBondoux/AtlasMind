@@ -90,3 +90,49 @@ describe('opening one setting', () => {
     expect(WEBVIEW).toContain('data-action="setting" data-payload="atlasmind.workflow.archetype"');
   });
 });
+
+/**
+ * The same class, one level down.
+ *
+ * Within an hour of fixing two buttons whose *command* was not allowlisted, a
+ * new button shipped with `data-action="open-file"` where the handler answers to
+ * `file`. The click handler falls through every `if` and returns, so the button
+ * does nothing and says nothing — identical symptom, different table.
+ *
+ * A `data-action` the click handler does not recognise is always a bug, and it
+ * is one nothing in the type system or the build can see.
+ */
+describe('every data-action has a handler', () => {
+  /**
+   * Action names *any* listener compares against.
+   *
+   * Two forms, because there are two listeners. The click handler destructures
+   * the attribute and compares `action === '...'`; the change handler reads
+   * `getAttribute('data-action') === '...'` directly, because a `<select>` fires
+   * `change` rather than `click`. Matching only the first reported a working
+   * dropdown as dead — which is worth remembering, because a test that cries
+   * wolf about a feature that works gets the feature 'fixed'.
+   */
+  function handled(): Set<string> {
+    return new Set([
+      ...[...WEBVIEW.matchAll(/action === '([a-z0-9-]+)'/g)].map(match => match[1]!),
+      ...[...WEBVIEW.matchAll(/getAttribute\('data-action'\) === '([a-z0-9-]+)'/g)].map(match => match[1]!),
+    ]);
+  }
+
+  /** Action names the markup emits. */
+  function emitted(): string[] {
+    return [...WEBVIEW.matchAll(/data-action="([a-z0-9-]+)"/g)].map(match => match[1]!);
+  }
+
+  it('has no button whose action would fall through', () => {
+    const known = handled();
+    const missing = [...new Set(emitted())].filter(action => !known.has(action));
+    expect(missing, `no handler for: ${missing.join(', ')}`).toEqual([]);
+  });
+
+  it('found both sides, so it is not comparing two empty sets', () => {
+    expect(emitted().length).toBeGreaterThan(20);
+    expect(handled().size).toBeGreaterThan(20);
+  });
+});

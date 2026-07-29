@@ -60,7 +60,7 @@ config executed through the promotion runner's own audited path — not spawned 
 `gh api repos/{slug}/branches/{b}/protection`; `gh api repos/{slug}/commits/{ref}/check-runs`;
 `gh repo create`.
 
-**Every tier of this roadmap is now shipped.** Outstanding items are C3.4 and C3.6. Releases are read as of v0.189.0
+**Every tier of this roadmap is now shipped.** The one outstanding item is C3.6. Releases are read as of v0.189.0
 (`gh release list`, plus local `git tag` and `git describe`), and the release *plan* is built entirely
 from local files so it works with no `gh` at all; `gh release create` remains proposed. CI runs and failed logs are read as of v0.184.0 (`gh run list`, `gh run view --log-failed`),
 classified by a rule table with no model in the path (`ciFailureAnalysis.ts`). Pull requests are read (v0.182.0) **and written**
@@ -174,7 +174,7 @@ nothing to GitHub.
 
 ---
 
-## Tier 2 — branches and pull requests  ✅ **SHIPPED v0.182.0–v0.183.0**  *(C3.4, C3.6 outstanding)*
+## Tier 2 — branches and pull requests  ✅ **SHIPPED v0.182.0–v0.183.0**  *(C3.6 outstanding)*
 
 **Entry criteria:** ✅ met in v0.182.0 — Tier 1 shipped, and `ghClient` is now the only `gh` exec path (pinned by `tests/core/ghExecBoundary.test.ts`).
 **Exit criteria:** a pull request can be drafted, opened, reviewed and merged from the dashboard,
@@ -209,7 +209,7 @@ with every write gated.
 - **Deterministic output requirements:** Total function — malformed input degrades to typed `unknown`, never an exception. A test asserts a review body containing an instruction cannot escape the fence.
 - **Priority:** High
 
-#### C3.4 — Review ingestion and the address-feedback loop
+#### C3.4 — Review ingestion and the address-feedback loop  ✅ shipped v0.200.0
 
 - **Purpose:** Close the loop from a review comment to a fix.
 - **Expected behaviour:** Findings render as structured records with a file button; "address this" opens a scoped chat with the comment fenced.
@@ -217,6 +217,12 @@ with every write gated.
 - **GitHub API usage:** `gh pr review --approve|--request-changes|--comment`, `gh pr diff`, `gh pr checks`.
 - **Deterministic output requirements:** Findings are `{path, line, severity, ruleId}` — never free prose posted to a pull request.
 - **Priority:** Medium
+- **As shipped:** `parseGhReviewComments` + `buildReviewCommentPrompt`, with each comment rendered as a
+  record carrying a file button and an "Address this one" action. **Nothing is posted back** — the
+  specification's `{path, line, severity, ruleId}` requirement was about AtlasMind *writing* a review, and
+  the ingestion direction only reads; the prompt explicitly forbids replying on the pull request. The path
+  is traversal-checked because it arrives from a third party and becomes a file somebody clicks, and an
+  untrusted one is emptied rather than rewritten, with the comment still shown.
 
 #### C3.5 — Pull-request metrics
 

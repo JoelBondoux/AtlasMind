@@ -97,9 +97,12 @@ import {
   type WorkflowConfigProblem,
 } from '../core/workflowConfig.js';
 import {
+  buildReviewCommentPrompt,
   describePullRequestAction,
   parseGhPullRequestList,
+  parseGhReviewComments,
   type PullRequestRecord,
+  type ReviewCommentRecord,
 } from '../core/pullRequestTracker.js';
 import { PROTECTED_BRANCH_NAMES } from '../core/branchNaming.js';
 import {
@@ -341,6 +344,8 @@ type ProjectDashboardMessage =
   | { type: 'setDebtStatus'; payload: { id: string; status: string; note?: string } }
   | { type: 'openDebtEvidence'; payload: { id: string } }
   | { type: 'workOnDebt'; payload: { id: string } }
+  | { type: 'loadReviewComments'; payload: { number: number } }
+  | { type: 'addressReviewComment'; payload: { number: number; index: number } }
   | { type: 'createWorkflowConfig'; payload: { profile: string } }
   | { type: 'editWorkflowConfig'; payload: unknown }
   | { type: 'applyTeamRole'; payload: { roleId: string } }
@@ -930,6 +935,14 @@ interface DashboardGuidedWorkflowSnapshot {
    * that is safe to render once escaped.
    */
   pullRequestRecords?: PullRequestRecord[];
+  /**
+   * Line-level review comments, keyed by pull-request number.
+   *
+   * Absent until fetched. An empty array for a number means that pull request
+   * genuinely has no line comments — which is a different fact from not having
+   * looked, and the surface says which.
+   */
+  reviewComments?: Record<string, ReviewCommentRecord[]>;
   /** Absent until CI has actually been read — absent ≠ healthy. */
   ciIntelligence?: DashboardCiIntelligence;
   /**
@@ -1789,6 +1802,15 @@ export class ProjectDashboardPanel {
 
   private debtScanning = false;
 
+  /**
+   * Line-level review comments, by pull-request number.
+   *
+   * Fetched per pull request on request, not with the list: a repository with
+   * forty open pull requests would be forty extra calls against a rate limit,
+   * for comments on thirty-nine of them nobody asked to see.
+   */
+  private reviewCommentsState: Record<string, ReviewCommentRecord[]> = {};
+
   private get debtManager(): DebtRegisterManager {
     this.debtManagerInstance ??= new DebtRegisterManager(
       vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
@@ -2083,6 +2105,12 @@ export class ProjectDashboardPanel {
       case 'workOnDebt':
         await this.handleWorkOnDebt(message.payload);
         return;
+      case 'loadReviewComments':
+        await this.handleLoadReviewComments(message.payload.number);
+        return;
+      case 'addressReviewComment':
+        await this.handleAddressReviewComment(message.payload);
+        return;
       case 'createWorkflowConfig':
         await this.handleCreateWorkflowConfig(message.payload);
         return;
@@ -2180,7 +2208,7 @@ export class ProjectDashboardPanel {
           }
           const configuration = vscode.workspace.getConfiguration('atlasmind');
           const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning });
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState);
           const seedItems = snapshot.gapAnalysis.items.filter(item => !item.resolved);
           this.queueNavigation('gapAnalysis');
           await this.postMessage({ type: 'navigate', payload: 'gapAnalysis' });
@@ -2207,7 +2235,7 @@ export class ProjectDashboardPanel {
           if (!workspaceRoot || message.payload.trim().length === 0) {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning });
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState);
           const targetItem = snapshot.gapAnalysis.items.find(item => item.id === message.payload.trim() && !item.resolved && item.type !== 'praise');
           if (!targetItem) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: 'That gap could not be found. Try re-running the analysis.' });
@@ -2233,7 +2261,7 @@ export class ProjectDashboardPanel {
           if (priority !== 'P1' && priority !== 'P2' && priority !== 'P3') {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning });
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState);
           const groupedItems = snapshot.gapAnalysis.items.filter(item => !item.resolved && item.type !== 'praise' && item.priority === priority);
           if (groupedItems.length === 0) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: `No open ${priority} items are available to resolve.` });
@@ -2259,7 +2287,7 @@ export class ProjectDashboardPanel {
           if (!gapId) {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning });
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState);
           const targetItem = snapshot.gapAnalysis.items.find(item => item.id === gapId);
           if (!targetItem) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: 'Gap item not found. Try re-running the analysis.' });
@@ -2318,7 +2346,7 @@ export class ProjectDashboardPanel {
 
   private async syncState(): Promise<void> {
     try {
-      const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning });
+      const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState);
       await this.postMessage({ type: 'state', payload: snapshot });
       if (this.pendingNavigationTarget) {
         await this.postMessage({ type: 'navigate', payload: this.pendingNavigationTarget });
@@ -3168,6 +3196,60 @@ export class ProjectDashboardPanel {
         `\`${entry.evidencePath}\` could not be opened. If the file has gone, a rescan will mark this entry obsolete.`,
       );
     }
+  }
+
+  /**
+   * Fetch the line-level review comments for one pull request.
+   *
+   * Per pull request, on request. Fetching them with the list would be one
+   * call per open pull request against a rate limit, for comments on all but
+   * one of them that nobody asked to see.
+   *
+   * A failure records an empty list rather than leaving the key absent, so the
+   * surface can say "none found" instead of offering the button again forever.
+   */
+  private async handleLoadReviewComments(number: number): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const slug = this.issuesState.repoSlug;
+    if (!workspaceRoot || !slug) {
+      void vscode.window.showWarningMessage('Load the pull request list first so AtlasMind knows which repository to read.');
+      return;
+    }
+    try {
+      const raw = await runGh(workspaceRoot, [
+        'api', `repos/${slug}/pulls/${number}/comments`, '--paginate',
+      ]);
+      this.reviewCommentsState = {
+        ...this.reviewCommentsState,
+        [String(number)]: parseGhReviewComments(raw),
+      };
+    } catch (error) {
+      this.reviewCommentsState = { ...this.reviewCommentsState, [String(number)]: [] };
+      void vscode.window.showWarningMessage(
+        `Could not read review comments on #${number}: ${ghFailureOf(error).detail}`,
+      );
+    }
+    await this.syncState();
+  }
+
+  /**
+   * Hand one review comment to chat, scoped to the line it points at.
+   *
+   * The comment is looked up host-side by index into the list this build
+   * fetched, so the webview supplies neither the text nor the path — and this
+   * text was written by an arbitrary third party, which is exactly why.
+   */
+  private async handleAddressReviewComment(payload: { number: number; index: number }): Promise<void> {
+    const comment = this.reviewCommentsState[String(payload.number)]?.[payload.index];
+    const pullRequest = this.pullRequestsState?.find(entry => entry.number === payload.number);
+    if (!comment || !pullRequest) {
+      void vscode.window.showWarningMessage('That review comment is no longer in the fetched list. Refresh and try again.');
+      return;
+    }
+    await vscode.commands.executeCommand('atlasmind.openChatPanel', {
+      draftPrompt: buildReviewCommentPrompt(pullRequest, comment),
+      sendMode: 'new-session',
+    });
   }
 
   /**
@@ -4641,6 +4723,25 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return typeof payload === 'object' && payload !== null && typeof payload['id'] === 'string';
   }
 
+  // A pull-request number and an index into the fetched list. Both are looked
+  // up host-side, so an out-of-range value resolves to nothing rather than to
+  // something adjacent.
+  if (candidate['type'] === 'loadReviewComments' || candidate['type'] === 'addressReviewComment') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    if (typeof payload !== 'object' || payload === null) {
+      return false;
+    }
+    const number = Number(payload['number']);
+    if (!Number.isInteger(number) || number <= 0) {
+      return false;
+    }
+    if (candidate['type'] === 'addressReviewComment') {
+      const index = Number(payload['index']);
+      return Number.isInteger(index) && index >= 0;
+    }
+    return true;
+  }
+
   if (candidate['type'] === 'scanDebt') {
     // No payload: the scan reads the workspace, and the webview cannot
     // influence which files it looks at.
@@ -4939,6 +5040,8 @@ function buildGuidedWorkflowSnapshot(input: {
   testing: TestingDashboardSnapshot;
   issues: DashboardIssuesSnapshot;
   pullRequests?: readonly PullRequestRecord[];
+  /** Line-level review comments, by pull-request number, once fetched. */
+  reviewComments?: Record<string, ReviewCommentRecord[]>;
   ci?: DashboardCiIntelligence;
   /** Manifest evidence for archetype detection. Absent means "we did not look". */
   archetypeEvidence?: { corpus: string; files: readonly string[]; language?: string };
@@ -5199,6 +5302,7 @@ function buildGuidedWorkflowSnapshot(input: {
     ...(issueMetrics === undefined ? {} : { issues: issueMetrics }),
     ...(prMetrics === undefined ? {} : { pullRequests: prMetrics }),
     ...(input.pullRequests === undefined ? {} : { pullRequestRecords: [...input.pullRequests] }),
+    ...(input.reviewComments === undefined ? {} : { reviewComments: input.reviewComments }),
     ...(input.ci === undefined ? {} : { ciIntelligence: input.ci }),
     archetype: {
       ...(declared === undefined ? {} : { declared }),
@@ -5498,6 +5602,7 @@ async function collectDashboardSnapshot(
   workflowConfigManager?: WorkflowConfigManager,
   auditLedger?: WorkflowAuditLedger,
   debt?: { register: import('../core/debtRegister.js').DebtRegister; scanning: boolean },
+  reviewComments?: Record<string, ReviewCommentRecord[]>,
 ): Promise<DashboardSnapshot> {
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const workspaceName = vscode.workspace.workspaceFolders?.[0]?.name ?? 'No Workspace';
@@ -5820,6 +5925,7 @@ async function collectDashboardSnapshot(
       ...(releases && 'records' in releases ? { releases: releases.records, loadedAt: releases.loadedAt } : {}),
       ...(releases && 'failure' in releases ? { loadFailure: releases.failure } : {}),
       ...(pullRequests === undefined ? {} : { pullRequests }),
+      ...(reviewComments === undefined ? {} : { reviewComments }),
       now: Date.now(),
     }),
     guidedWorkflow: buildGuidedWorkflowSnapshot({
