@@ -60,7 +60,7 @@ config executed through the promotion runner's own audited path — not spawned 
 `gh api repos/{slug}/branches/{b}/protection`; `gh api repos/{slug}/commits/{ref}/check-runs`;
 `gh repo create`.
 
-**Every tier of this roadmap is now shipped.** The one outstanding item is C3.6. Releases are read as of v0.189.0
+**Every tier of this roadmap is now shipped.** **Every item in this roadmap is now shipped.** Releases are read as of v0.189.0
 (`gh release list`, plus local `git tag` and `git describe`), and the release *plan* is built entirely
 from local files so it works with no `gh` at all; `gh release create` remains proposed. CI runs and failed logs are read as of v0.184.0 (`gh run list`, `gh run view --log-failed`),
 classified by a rule table with no model in the path (`ciFailureAnalysis.ts`). Pull requests are read (v0.182.0) **and written**
@@ -174,7 +174,7 @@ nothing to GitHub.
 
 ---
 
-## Tier 2 — branches and pull requests  ✅ **SHIPPED v0.182.0–v0.183.0**  *(C3.6 outstanding)*
+## Tier 2 — branches and pull requests  ✅ **SHIPPED v0.182.0–v0.201.0**  ✅ **complete**
 
 **Entry criteria:** ✅ met in v0.182.0 — Tier 1 shipped, and `ghClient` is now the only `gh` exec path (pinned by `tests/core/ghExecBoundary.test.ts`).
 **Exit criteria:** a pull request can be drafted, opened, reviewed and merged from the dashboard,
@@ -233,7 +233,7 @@ with every write gated.
 - **Deterministic output requirements:** Medians over a declared window with a declared tie rule; a window with too few samples reports "not enough data", never a misleading single-sample median.
 - **Priority:** Medium
 
-#### C3.6 — Labels and milestones
+#### C3.6 — Labels and milestones  ✅ shipped v0.201.0
 
 - **Purpose:** Let the taxonomy the workflow depends on be managed where it is used.
 - **Expected behaviour:** List, create, edit, delete labels; list, create, close milestones. Every write modal-gated.
@@ -241,6 +241,12 @@ with every write gated.
 - **GitHub API usage:** `gh label list/create/edit/delete`, `gh api repos/{slug}/milestones`.
 - **Deterministic output requirements:** A label deletion names every issue that will lose it, before confirming.
 - **Priority:** Low
+- **As shipped:** `labelRegistry.ts` + a card on the Issues tab. The naming requirement is met from the
+  issue list already on screen, so it costs no request — and where that list was never loaded the dialog
+  **says so rather than reporting zero**, because "nothing uses this" and "we did not look" lead to
+  opposite decisions. Two additions the specification did not ask for and the surface needed: a colour is
+  **validated to six hex digits or dropped** (it reaches a style attribute), and a milestone is **closed,
+  never deleted** — deleting one detaches every issue from it silently.
 
 ---
 

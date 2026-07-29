@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.201.0] - 2026-07-29
+
+### Added
+- **Labels and milestones, managed where they are used.** When AtlasMind drafts an issue it takes labels only from the declared taxonomy and drops anything unmatched rather than inventing it — a rule that is only as good as the set behind it. The Issues tab now shows that set: every label with its colour and how many issues carry it, every milestone with its due date and counts, and create / delete / close behind a confirmation.
+
+  **A deletion names every issue that will lose the label.** GitHub removes a label from the repository *and* from every issue carrying it, in one step it cannot undo, and says nothing about how many. AtlasMind names them, from the issue list already on screen, so it costs no extra request. Closed issues count — a label stripped from a closed issue takes the reason it was categorised that way with it, and closed issues are what people search when they want to know what happened before. The dialog suggests renaming instead.
+
+  Where the issue list was never loaded it **says so rather than reporting zero**. "Nothing uses this" and "we did not look" lead to opposite decisions, and only one of them is safe to act on.
+
+- **Taxonomy drift, in both directions.** A declared label that does not exist on the repository is one every draft will silently drop — the single failure the drafting rule promises not to have. An undeclared label people are using is one the workflow will never suggest, usually a sign the declaration is stale rather than that the label is wrong. Both are reported; neither as an error.
+
+### Changed
+- **A milestone is closed, never deleted.** Deleting one detaches every issue from it silently; closing preserves the record, which is what a milestone is for. There is no delete affordance anywhere, by design.
+
+- **A label colour is validated, not cleaned.** Six hex digits exactly, or no swatch. The value is rendered into a style attribute, so anything else is dropped rather than repaired — a "colour" reaching a stylesheet is an injection, and a nearly-valid one made plausible is worse than a missing one.
 ## [0.200.0] - 2026-07-29
 
 ### Added

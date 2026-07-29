@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.200.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.201.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,9 +64,15 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.200.0
+## What's new in 0.201.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
+
+- **Labels and milestones, managed where they are used.** Every label with its colour and issue count, every milestone with its due date, and create / delete / close from the Issues tab.
+
+  **A deletion names every issue that will lose the label** — GitHub strips it from the repository and from every issue carrying it in one step it cannot undo, and says nothing about how many. Closed issues count. Where the issue list was never loaded, the dialog says so rather than reporting zero.
+
+  A milestone is closed, never deleted: deleting one detaches every issue from it silently.
 
 - **Review comments, one at a time.** The line-level comments are the actionable half of a review, and nothing read them before. Each now shows the file and line it points at, with a button that opens exactly there and an “Address this one” that starts a chat scoped to that comment alone — because a scoped question gets a scoped answer, and it will not go on to address the rest of the review or reply on the pull request.
 

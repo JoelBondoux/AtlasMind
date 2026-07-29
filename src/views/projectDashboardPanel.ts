@@ -104,6 +104,17 @@ import {
   type PullRequestRecord,
   type ReviewCommentRecord,
 } from '../core/pullRequestTracker.js';
+import {
+  describeLabelDeletion,
+  describeLabelDeletionImpact,
+  findTaxonomyDrift,
+  normalizeLabelName,
+  safeLabelColor,
+  parseGhLabelList,
+  parseGhMilestoneList,
+  type LabelRecord,
+  type MilestoneRecord,
+} from '../core/labelRegistry.js';
 import { PROTECTED_BRANCH_NAMES } from '../core/branchNaming.js';
 import {
   ARCHETYPE_LABEL,
@@ -345,6 +356,10 @@ type ProjectDashboardMessage =
   | { type: 'openDebtEvidence'; payload: { id: string } }
   | { type: 'workOnDebt'; payload: { id: string } }
   | { type: 'loadReviewComments'; payload: { number: number } }
+  | { type: 'createLabel'; payload: { name: string; color?: string; description?: string } }
+  | { type: 'deleteLabel'; payload: { name: string } }
+  | { type: 'createMilestone'; payload: { title: string } }
+  | { type: 'closeMilestone'; payload: { number: number } }
   | { type: 'addressReviewComment'; payload: { number: number; index: number } }
   | { type: 'createWorkflowConfig'; payload: { profile: string } }
   | { type: 'editWorkflowConfig'; payload: unknown }
@@ -808,6 +823,21 @@ interface DashboardMvpSnapshot {
  * "we could not look" are different facts, and a page that showed an empty
  * board for a missing `gh` would report a clean tracker that nobody checked.
  */
+/**
+ * The repository's label and milestone taxonomy.
+ *
+ * Absent until the issue refresh has run. `labels: []` after a load means the
+ * repository genuinely has none — a different fact from not having looked, and
+ * one that changes what the surface should offer.
+ */
+interface DashboardTaxonomySnapshot {
+  loaded: boolean;
+  labels: LabelRecord[];
+  milestones: MilestoneRecord[];
+  /** Where the declared taxonomy and the repository disagree, in both directions. */
+  drift: { missing: string[]; undeclared: string[]; summary: string };
+}
+
 interface DashboardIssuesSnapshot {
   status: 'ready' | 'not-loaded' | 'no-cli' | 'not-authenticated' | 'no-repo' | 'error';
   /** Plain-English state, including what to run when something is missing. */
@@ -1304,6 +1334,8 @@ interface DashboardSnapshot {
   roadmap: DashboardRoadmapSnapshot;
   guidedWorkflow: DashboardGuidedWorkflowSnapshot;
   issues: DashboardIssuesSnapshot;
+  /** Labels and milestones — the taxonomy stage 1 draws from. */
+  taxonomy: DashboardTaxonomySnapshot;
   security: {
     toolApprovalMode: string;
     allowTerminalWrite: boolean;
@@ -1811,6 +1843,15 @@ export class ProjectDashboardPanel {
    */
   private reviewCommentsState: Record<string, ReviewCommentRecord[]> = {};
 
+  /**
+   * Labels and milestones, from the same explicit refresh as the issues.
+   *
+   * Two cheap calls rather than per-item ones, and loaded together because a
+   * label's issue count comes from the issue list — fetching one without the
+   * other would show every label as unused.
+   */
+  private taxonomyState: { labels: LabelRecord[]; milestones: MilestoneRecord[] } | undefined;
+
   private get debtManager(): DebtRegisterManager {
     this.debtManagerInstance ??= new DebtRegisterManager(
       vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
@@ -2108,6 +2149,12 @@ export class ProjectDashboardPanel {
       case 'loadReviewComments':
         await this.handleLoadReviewComments(message.payload.number);
         return;
+      case 'createLabel':
+      case 'deleteLabel':
+      case 'createMilestone':
+      case 'closeMilestone':
+        await this.handleTaxonomyWrite(message);
+        return;
       case 'addressReviewComment':
         await this.handleAddressReviewComment(message.payload);
         return;
@@ -2208,7 +2255,7 @@ export class ProjectDashboardPanel {
           }
           const configuration = vscode.workspace.getConfiguration('atlasmind');
           const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState);
           const seedItems = snapshot.gapAnalysis.items.filter(item => !item.resolved);
           this.queueNavigation('gapAnalysis');
           await this.postMessage({ type: 'navigate', payload: 'gapAnalysis' });
@@ -2235,7 +2282,7 @@ export class ProjectDashboardPanel {
           if (!workspaceRoot || message.payload.trim().length === 0) {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState);
           const targetItem = snapshot.gapAnalysis.items.find(item => item.id === message.payload.trim() && !item.resolved && item.type !== 'praise');
           if (!targetItem) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: 'That gap could not be found. Try re-running the analysis.' });
@@ -2261,7 +2308,7 @@ export class ProjectDashboardPanel {
           if (priority !== 'P1' && priority !== 'P2' && priority !== 'P3') {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState);
           const groupedItems = snapshot.gapAnalysis.items.filter(item => !item.resolved && item.type !== 'praise' && item.priority === priority);
           if (groupedItems.length === 0) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: `No open ${priority} items are available to resolve.` });
@@ -2287,7 +2334,7 @@ export class ProjectDashboardPanel {
           if (!gapId) {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState);
           const targetItem = snapshot.gapAnalysis.items.find(item => item.id === gapId);
           if (!targetItem) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: 'Gap item not found. Try re-running the analysis.' });
@@ -2346,7 +2393,7 @@ export class ProjectDashboardPanel {
 
   private async syncState(): Promise<void> {
     try {
-      const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState);
+      const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState);
       await this.postMessage({ type: 'state', payload: snapshot });
       if (this.pendingNavigationTarget) {
         await this.postMessage({ type: 'navigate', payload: this.pendingNavigationTarget });
@@ -2550,6 +2597,23 @@ export class ProjectDashboardPanel {
         }
       } catch {
         // Same reasoning as above.
+      }
+
+      // Labels and milestones. Two cheap calls, and loaded here rather than
+      // on demand because a label's issue count comes from the list above —
+      // fetching one without the other would show every label as unused.
+      try {
+        const [labelRaw, milestoneRaw] = await Promise.all([
+          runGh(workspaceRoot, ['label', 'list', '--limit', '200', '--json', 'name,color,description']),
+          runGh(workspaceRoot, ['api', `repos/${slug}/milestones?state=all&per_page=100`]),
+        ]);
+        this.taxonomyState = {
+          labels: parseGhLabelList(labelRaw, issues),
+          milestones: parseGhMilestoneList(milestoneRaw),
+        };
+      } catch {
+        // Left as-is rather than emptied: a failed refresh must not turn a
+        // previously-read taxonomy into a confident "none".
       }
 
       // Published releases, for the delivery metrics. The failure is *kept*
@@ -3196,6 +3260,145 @@ export class ProjectDashboardPanel {
         `\`${entry.evidencePath}\` could not be opened. If the file has gone, a rescan will mark this entry obsolete.`,
       );
     }
+  }
+
+  /**
+   * Create or delete a label, create or close a milestone.
+   *
+   * Same two gates as every other outward-facing write: the automation ladder
+   * first — labels are issue taxonomy, so they take `allowIssueWrites` — then a
+   * `{ modal: true }` confirmation built from the values that will be sent.
+   *
+   * A **deletion** carries a third thing, and it is the reason this handler is
+   * not three lines: GitHub removes a label from the repository *and* from every
+   * issue carrying it, in one irreversible step, and says nothing about how
+   * many. The confirmation names them, from the issue list already on screen. If
+   * that list was never loaded it says so rather than reporting zero — "nothing
+   * uses this" and "we did not look" lead to opposite decisions and only one is
+   * safe to act on.
+   *
+   * A milestone is **closed, never deleted**. Deleting one detaches every issue
+   * from it silently; closing preserves the record, which is what a milestone is
+   * for.
+   */
+  private async handleTaxonomyWrite(message: {
+    type: 'createLabel' | 'deleteLabel' | 'createMilestone' | 'closeMilestone';
+    payload: unknown;
+  }): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const slug = this.issuesState.repoSlug;
+    if (!workspaceRoot || !slug) {
+      void vscode.window.showWarningMessage('Load the issue list first so AtlasMind knows which repository to write to.');
+      return;
+    }
+
+    const decision = this.automationFor('issueWrites', 'auto');
+    if (!permits(decision.level, FIRST_WRITING_LEVEL)) {
+      await this.recordRefusal({
+        stageId: 'planning',
+        action: message.type,
+        actor: 'user',
+        decision,
+        requestedLevel: 'propose',
+        inputs: { repo: slug, action: message.type },
+        detail: decision.detail,
+      });
+      void vscode.window.showWarningMessage(
+        `AtlasMind is not permitted to change the label taxonomy right now (level: ${decision.level}).`,
+        { modal: true, detail: decision.detail },
+      );
+      return;
+    }
+
+    const payload = (message.payload ?? {}) as Record<string, unknown>;
+    let args: string[];
+    let description: string;
+    let successNote: string;
+    let confirmLabel = 'Yes, do it';
+
+    if (message.type === 'createLabel') {
+      const name = normalizeLabelName(payload['name']);
+      if (!name) {
+        return;
+      }
+      const color = safeLabelColor(payload['color']);
+      const note = normalizeLabelName(payload['description']);
+      args = ['label', 'create', name];
+      if (color) {
+        args.push('--color', color);
+      }
+      if (note) {
+        args.push('--description', note);
+      }
+      description = `Create the label \`${name}\` on ${slug}. This is visible to anyone who can see the repository.`;
+      successNote = `Created the label \`${name}\`.`;
+    } else if (message.type === 'deleteLabel') {
+      const name = normalizeLabelName(payload['name']);
+      if (!name) {
+        return;
+      }
+      args = ['label', 'delete', name, '--yes'];
+      description = describeLabelDeletion(
+        describeLabelDeletionImpact(name, this.issuesState.issues),
+        slug,
+        this.issuesState.status === 'ready',
+      );
+      successNote = `Deleted the label \`${name}\`.`;
+      // A different word, because this one cannot be undone and "do it" reads
+      // the same for a create and a delete.
+      confirmLabel = 'Yes, delete it';
+    } else if (message.type === 'createMilestone') {
+      const title = normalizeLabelName(payload['title']);
+      if (!title) {
+        return;
+      }
+      args = ['api', '--method', 'POST', `repos/${slug}/milestones`, '-f', `title=${title}`];
+      description = `Create the milestone "${title}" on ${slug}. This is public.`;
+      successNote = `Created the milestone "${title}".`;
+    } else {
+      const number = Number(payload['number']);
+      if (!Number.isInteger(number) || number <= 0) {
+        return;
+      }
+      args = ['api', '--method', 'PATCH', `repos/${slug}/milestones/${number}`, '-f', 'state=closed'];
+      description = `Close milestone #${number} on ${slug}. Its issues keep their milestone — closing preserves the record, `
+        + 'which is why AtlasMind never offers to delete one.';
+      successNote = `Closed milestone #${number}.`;
+    }
+
+    const confirmation = await vscode.window.showWarningMessage(
+      'Change the label taxonomy?',
+      { modal: true, detail: description },
+      confirmLabel,
+    );
+    if (confirmation !== confirmLabel) {
+      return;
+    }
+
+    try {
+      const wrote = await this.runRecorded(
+        {
+          stageId: 'planning',
+          action: message.type,
+          actor: 'user',
+          decision,
+          requestedLevel: 'propose',
+          inputs: { repo: slug, action: message.type, args },
+        },
+        async () => {
+          await runGh(workspaceRoot, args);
+          return { ok: true };
+        },
+      );
+      if (wrote) {
+        void vscode.window.showInformationMessage(successNote);
+      }
+    } catch (error) {
+      void vscode.window.showWarningMessage(`The taxonomy change failed: ${ghFailureOf(error).detail}`);
+    }
+    // Re-read either way: a failed write may still have partially applied, and
+    // the list is the only honest report of what the repository now holds.
+    await this.handleRefreshIssues();
   }
 
   /**
@@ -4742,6 +4945,26 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return true;
   }
 
+  // Taxonomy writes are outward-facing and public, so the shape is checked
+  // here and every value is re-derived before it reaches `gh`. A label name is
+  // deliberately permissive about content — GitHub is too — and strict about
+  // emptiness, which is the thing that breaks.
+  if (candidate['type'] === 'createLabel' || candidate['type'] === 'deleteLabel'
+    || candidate['type'] === 'createMilestone') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    if (typeof payload !== 'object' || payload === null) {
+      return false;
+    }
+    const key = candidate['type'] === 'createMilestone' ? 'title' : 'name';
+    return typeof payload[key] === 'string' && payload[key].trim().length > 0;
+  }
+
+  if (candidate['type'] === 'closeMilestone') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    const number = Number(payload?.['number']);
+    return Number.isInteger(number) && number > 0;
+  }
+
   if (candidate['type'] === 'scanDebt') {
     // No payload: the scan reads the workspace, and the webview cannot
     // influence which files it looks at.
@@ -5603,6 +5826,7 @@ async function collectDashboardSnapshot(
   auditLedger?: WorkflowAuditLedger,
   debt?: { register: import('../core/debtRegister.js').DebtRegister; scanning: boolean },
   reviewComments?: Record<string, ReviewCommentRecord[]>,
+  taxonomy?: { labels: LabelRecord[]; milestones: MilestoneRecord[] },
 ): Promise<DashboardSnapshot> {
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const workspaceName = vscode.workspace.workspaceFolders?.[0]?.name ?? 'No Workspace';
@@ -5899,6 +6123,26 @@ async function collectDashboardSnapshot(
       delta: ssotDelta,
     },
     roadmap: roadmapSnapshot,
+    taxonomy: {
+      loaded: taxonomy !== undefined,
+      labels: taxonomy?.labels ?? [],
+      milestones: taxonomy?.milestones ?? [],
+      // Compared against the committed workflow's declared set where there is
+      // one. Both directions are reported: a declared label that does not
+      // exist gets dropped from every draft, and an undeclared one in use will
+      // never be suggested.
+      drift: findTaxonomyDrift(
+        workflowConfigManager?.getConfig()?.labels
+          ? [
+            ...workflowConfigManager.getConfig()!.labels.type,
+            ...workflowConfigManager.getConfig()!.labels.priority,
+            ...workflowConfigManager.getConfig()!.labels.status,
+            ...workflowConfigManager.getConfig()!.labels.area,
+          ]
+          : [],
+        taxonomy?.labels ?? [],
+      ),
+    },
     debt: {
       path: DEBT_SSOT_PATH,
       entries: sortDebtEntries(debt?.register.entries ?? []),
@@ -11415,6 +11659,19 @@ const DASHBOARD_CSS = `
      scrollable rather than reflowed: this is the one place on the dashboard
      showing bytes rather than a summary, and wrapping it would misrepresent
      what goes out. */
+  /* A label's own colour, from six validated hex digits. Anything else arrives
+     as an empty string and the swatch is simply absent — a "colour" reaching a
+     stylesheet is an injection, so there is no repair path. */
+  .label-swatch {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: middle;
+    border: 1px solid color-mix(in srgb, var(--dash-border) 70%, transparent);
+  }
+
   .wf-notes {
     font-family: var(--dash-mono);
     font-size: 11px;

@@ -501,6 +501,18 @@ Removes the two steps people skip — writing the body and linking the issue —
 
 **The template is filled, never replaced.** Recognised headings receive content; everything else is preserved exactly, including headings this module has never seen, because a team's checklist is theirs and a drafter that quietly dropped a custom section would be worse than one that left the body empty. The `- Closes #<issue-number>` placeholder is substituted rather than appended to, so a pull request never ships containing a literal `<issue-number>`; where there is no issue, the body says so, because a silent omission reads as an oversight. Labels come only from the declared taxonomy, and an unmatched one is dropped *and reported*.
 
+### LabelRegistry (`src/core/labelRegistry.ts`)
+
+Labels and milestones — the taxonomy stage 1 draws from. Stage 1 takes labels only from the declared set and drops an unmatched one rather than inventing it; that rule is only as good as the set behind it, and until now a team could see which labels their issues carried but had to leave the editor to change them.
+
+**A deletion names every issue that will lose the label.** GitHub removes a label from the repository *and* from every issue carrying it, in one irreversible step, and its own confirmation does not say how many. That is the whole reason this is a module rather than a list: the count comes from the issue list already on screen, so it costs nothing, and it is the difference between an informed decision and a click. Closed issues count — a label stripped from a closed issue takes the reason it was categorised that way with it, and closed issues are what people search when they want to know what happened before. Where the issue list was never loaded the confirmation says so rather than reporting zero: "nothing uses this" and "we did not look" lead to opposite decisions and only one is safe to act on.
+
+**A colour is validated, not cleaned.** Six hex digits exactly, or nothing. The value is rendered into a style attribute, so anything else is dropped rather than repaired — a "colour" reaching a stylesheet is an injection, and a nearly-valid one made plausible is worse than a missing swatch.
+
+**A milestone is closed, never deleted.** Deleting one detaches every issue from it silently; closing preserves the record, which is what a milestone is for. There is no delete affordance, by design.
+
+`findTaxonomyDrift` compares the declared set against the repository in both directions, because they mean different things. A **declared** label that does not exist is one the drafter will silently drop — the single failure stage 1 promises not to have. An **undeclared** label in use is one the workflow will never suggest, usually a sign the declaration is stale rather than that the label is wrong. Neither is reported as an error: this is a comparison, not a verdict.
+
 ### PullRequestTracker (`src/core/pullRequestTracker.ts`)
 
 **Line-level review comments are the actionable half**, and nothing read them until C3.4 — so "address the review" meant handing a model every comment at once and hoping it found the place. `parseGhReviewComments` reads them with the same discipline as everything else here, plus one thing the other readers do not need: the path is traversal-checked, because it arrives from a third party and becomes a file somebody clicks. A path that could not be trusted is **emptied rather than rewritten**, and the comment is still shown — the text is worth reading even when the button is withheld.

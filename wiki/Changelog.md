@@ -6,6 +6,19 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.201.0 — Labels and milestones
+
+When AtlasMind drafts an issue it takes labels only from the declared taxonomy and drops anything unmatched rather than inventing it — a rule only as good as the set behind it. The Issues tab now shows that set, with create, delete and close.
+
+**A deletion names every issue that will lose the label.** GitHub removes it from the repository *and* from every issue carrying it, in one step it cannot undo, and says nothing about how many. AtlasMind names them from the issue list already on screen, so it costs no request. Closed issues count — a label stripped from a closed issue takes its categorisation with it, and closed issues are what people search.
+
+Where the issue list was never loaded it **says so rather than reporting zero**: "nothing uses this" and "we did not look" lead to opposite decisions.
+
+**Taxonomy drift, both directions.** A declared label that does not exist is silently dropped from every draft; an undeclared one in use will never be suggested. Reported as a comparison, not an error.
+
+**A milestone is closed, never deleted** — deleting one detaches every issue from it silently. **A colour is validated to six hex digits or dropped**, because the value reaches a style attribute.
+
+This completes every item in the guided-workflow roadmap.
 ## v0.200.0 — Review comments, one at a time
 
 The line-level review comments — somebody pointing at a line and saying what is wrong with it — are the actionable half of a review, and nothing read them until now. "Address the review" meant handing a model every comment at once and hoping it found the place.

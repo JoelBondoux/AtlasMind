@@ -583,3 +583,52 @@ describe('review comments on the Pull Requests page', () => {
     expect(WEBVIEW_SCRIPT).toContain('Address this one');
   });
 });
+
+describe('the label and milestone taxonomy', () => {
+  const source = (): string => renderSource('renderTaxonomy', 'renderDebt');
+  const rendered = (): string => source()
+    .split('\n')
+    .filter(line => !line.trim().startsWith('//'))
+    .join('\n');
+
+  it('says why the label set matters, not just what it is', () => {
+    // The drafter takes labels only from the declared set and drops the rest.
+    // That rule is only as good as the set behind it.
+    expect(rendered()).toMatch(/only from the declared taxonomy/);
+    expect(rendered()).toMatch(/only as good as the set behind it/);
+  });
+
+  it('warns that a deletion takes the label off every issue', () => {
+    expect(rendered()).toMatch(/one step GitHub cannot undo/);
+    expect(rendered()).toMatch(/AtlasMind names the issues before you confirm/);
+  });
+
+  it('suggests renaming instead of deleting', () => {
+    expect(rendered()).toMatch(/rename it rather than deleting it/);
+  });
+
+  it('offers no way to delete a milestone', () => {
+    // Deleting one detaches every issue from it silently; closing preserves the
+    // record, which is what a milestone is for.
+    expect(rendered()).toContain('close-milestone');
+    expect(rendered()).not.toMatch(/data-action="delete-milestone"/);
+    expect(rendered()).toMatch(/closed, never deleted/);
+  });
+
+  it('renders a colour only when the host validated it', () => {
+    // The value goes into a style attribute. An unvalidated one is an injection,
+    // so the host returns '' and the swatch is simply absent.
+    expect(rendered()).toContain('label.color ?');
+    expect(rendered()).toContain("style=\"background:#${escapeAttr(label.color)}\"");
+  });
+
+  it('distinguishes "not read" from "no labels"', () => {
+    expect(rendered()).toContain('Not read yet');
+    expect(rendered()).toMatch(/has no labels/);
+  });
+
+  it('reports taxonomy drift as a comparison rather than an error', () => {
+    expect(rendered()).toContain('drift.summary');
+    expect(rendered()).not.toMatch(/invalid|error/i);
+  });
+});

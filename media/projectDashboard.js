@@ -780,6 +780,34 @@
       vscode.postMessage({ type: 'openDebtEvidence', payload: { id: payload } });
       return;
     }
+    if (action === 'delete-label') {
+      vscode.postMessage({ type: 'deleteLabel', payload: { name: payload } });
+      return;
+    }
+    if (action === 'close-milestone') {
+      vscode.postMessage({ type: 'closeMilestone', payload: { number: Number(payload) } });
+      return;
+    }
+    if (action === 'create-label') {
+      const input = document.getElementById('label-new-name');
+      const name = input && input.value ? input.value.trim() : '';
+      if (name) {
+        const colorInput = document.getElementById('label-new-color');
+        vscode.postMessage({
+          type: 'createLabel',
+          payload: { name, color: colorInput && colorInput.value ? colorInput.value.trim() : '' },
+        });
+      }
+      return;
+    }
+    if (action === 'create-milestone') {
+      const input = document.getElementById('milestone-new-title');
+      const title = input && input.value ? input.value.trim() : '';
+      if (title) {
+        vscode.postMessage({ type: 'createMilestone', payload: { title } });
+      }
+      return;
+    }
     if (action === 'load-review-comments') {
       vscode.postMessage({ type: 'loadReviewComments', payload: { number: Number(payload) } });
       return;
@@ -3041,6 +3069,7 @@
             </div>
           </article>
         ` : ''}
+        ${renderTaxonomy(snapshot)}
       </section>
     `;
   }
@@ -3339,6 +3368,104 @@
   // ── Pipeline ───────────────────────────────────────────────────────────
   // Stage 5. AtlasMind reads check *states* everywhere else; this is the page
   // where it reads a *log* and says why something failed.
+
+  // ── Labels and milestones ───────────────────────────────────
+  // The taxonomy stage 1 draws from. Managed here because a rule that draws
+  // only from the declared set is only as good as the set behind it.
+
+  function renderTaxonomy(snapshot) {
+    const taxonomy = snapshot.taxonomy || { loaded: false, labels: [], milestones: [], drift: {} };
+    const drift = taxonomy.drift || {};
+
+    const help = renderWorkflowHelp('issues.taxonomy', {
+      label: 'why the label set matters',
+      why: 'When AtlasMind drafts an issue it takes labels only from the declared taxonomy, and drops anything that does not match rather than inventing it. That rule is what stops a drafter making up categories — and it is only as good as the set behind it. A declared label that does not exist on the repository gets silently dropped from every draft; a label people are using that is not declared will never be suggested.',
+      how: [
+        { text: 'Deleting a label removes it from the repository and from every issue carrying it, in one step GitHub cannot undo. AtlasMind names the issues before you confirm — GitHub does not.' },
+        { text: 'If you want to stop using a label without losing the record, rename it rather than deleting it.' },
+        { text: 'A milestone is closed, never deleted. Deleting one detaches every issue from it silently; closing preserves the record, which is what a milestone is for.' },
+        { text: 'A colour must be six hex digits. Anything else is dropped rather than repaired — the value is rendered into a style attribute, and a nearly-valid colour made plausible is worse than a missing swatch.' },
+      ],
+      commonMistakes: [
+        'Deleting a label to tidy up, and losing the categorisation on every closed issue that had it.',
+        'Declaring a taxonomy in `workflow.json` and never creating the labels, so every draft silently drops them.',
+      ],
+    });
+
+    if (!taxonomy.loaded) {
+      return `
+        <article class="panel-card">
+          <p class="card-kicker">Labels and milestones${help.button}</p>
+          ${help.panel}
+          <div class="dashboard-empty"><div>
+            <strong>Not read yet</strong>
+            <p class="section-copy">The label set is what AtlasMind draws from when it drafts an issue — it uses only what is declared and drops the rest rather than inventing categories. Refresh the issue list to read it.</p>
+          </div></div>
+        </article>`;
+    }
+
+    const labelRows = (taxonomy.labels || []).map(label => `
+      <div class="recent-item">
+        <div class="row-head">
+          <span>
+            ${label.color ? `<span class="label-swatch" style="background:#${escapeAttr(label.color)}"></span>` : ''}
+            <strong>${escapeHtml(label.name)}</strong>
+          </span>
+          <span class="list-meta">${label.issueCount} issue${label.issueCount === 1 ? '' : 's'}</span>
+        </div>
+        ${label.description ? `<div class="list-meta">${escapeHtml(label.description)}</div>` : ''}
+        <div class="tag-row">
+          <button type="button" class="action-link" data-action="delete-label" data-payload="${escapeAttr(label.name)}">Delete…</button>
+        </div>
+      </div>`).join('');
+
+    const milestoneRows = (taxonomy.milestones || []).map(milestone => `
+      <div class="recent-item">
+        <div class="row-head">
+          <strong>${escapeHtml(milestone.title)}</strong>
+          <span class="tag ${milestone.state === 'closed' ? 'tag-good' : 'tag-warn'}">${escapeHtml(milestone.state)}</span>
+        </div>
+        <div class="list-meta">
+          ${milestone.openIssues} open · ${milestone.closedIssues} closed
+          ${milestone.dueOn ? ' · due ' + escapeHtml(milestone.dueOn) : ' · no due date'}
+        </div>
+        ${milestone.state === 'open'
+          ? `<div class="tag-row"><button type="button" class="action-link" data-action="close-milestone" data-payload="${milestone.number}">Close it</button></div>`
+          : ''}
+      </div>`).join('');
+
+    return `
+      <div class="panel-grid">
+        <article class="panel-card">
+          <div class="row-head">
+            <p class="card-kicker">Labels${help.button}</p>
+            <span class="list-meta">${(taxonomy.labels || []).length}</span>
+          </div>
+          ${help.panel}
+          ${drift.summary && (drift.missing || []).length + (drift.undeclared || []).length > 0
+            ? `<p class="stat-detail wf-unknown">${escapeHtml(drift.summary)}</p>`
+            : drift.summary ? `<p class="stat-detail">${escapeHtml(drift.summary)}</p>` : ''}
+          <div class="stack-list">${labelRows || '<div class="dashboard-empty">This repository has no labels. A draft will carry none until some exist.</div>'}</div>
+          <div class="tag-row">
+            <input id="label-new-name" class="ideation-input" type="text" placeholder="New label name" />
+            <input id="label-new-color" class="ideation-input" type="text" placeholder="Colour (6 hex digits, optional)" maxlength="6" />
+            <button type="button" class="action-link" data-action="create-label">Create it</button>
+          </div>
+        </article>
+        <article class="panel-card">
+          <div class="row-head">
+            <p class="card-kicker">Milestones</p>
+            <span class="list-meta">${(taxonomy.milestones || []).length}</span>
+          </div>
+          <div class="stack-list">${milestoneRows || '<div class="dashboard-empty">No milestones. Issues will have nothing to be scheduled against.</div>'}</div>
+          <div class="tag-row">
+            <input id="milestone-new-title" class="ideation-input" type="text" placeholder="New milestone title" />
+            <button type="button" class="action-link" data-action="create-milestone">Create it</button>
+          </div>
+          <p class="stat-detail">A milestone is closed, never deleted. Deleting one detaches every issue from it silently; closing preserves the record, which is what a milestone is for.</p>
+        </article>
+      </div>`;
+  }
 
   // ── Tech Debt ──────────────────────────────────────────────────────────
   // Stage 7. The one page whose value depends entirely on being *comparable*
