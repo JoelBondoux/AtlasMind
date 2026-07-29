@@ -21,6 +21,14 @@ import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
 const PLAYBOOK_REL_PATH = 'project_memory/operations/testing-strategy.md';
 
 type Language = 'node' | 'python' | 'rust' | 'go' | 'dotnet' | 'java' | 'unknown';
+/**
+ * Local shape names, kept as the scaffolder's own detection vocabulary.
+ *
+ * `toProjectArchetype` maps these onto the shared `ProjectArchetype`, which is
+ * the single vocabulary the workflow, delivery and bootstrap all read. Keeping
+ * the local names means this file's detection heuristics stay readable while
+ * the *answer* it produces is one everybody else understands.
+ */
 type Archetype = 'web' | 'api' | 'cli' | 'game' | 'mobile' | 'library' | 'generic';
 
 interface DetectedStack {

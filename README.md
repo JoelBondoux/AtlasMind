@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.184.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.185.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,9 +64,15 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.184.0
+## What's new in 0.185.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
+
+- **The workflow now specialises by what kind of project you are building.** A game, a website, a library and a CLI do not share a CI pipeline, a release mechanism, a testing strategy, an expected documentation set, or the same idea of what counts as technical debt — and until now the guided workflow treated them identically, which meant it was tuned for none of them.
+
+  Declaring a project shape switches all six. Games get asset validation and a frame budget, because performance there is a correctness property rather than an optimisation. Libraries get a public-API-surface check and mutation testing, because a library's tests are its specification. APIs get contract tests; CLIs get a cross-platform matrix, because path separators and shell quoting produce bugs invisible on the author's machine.
+
+  **Detection suggests; your declaration decides.** AtlasMind reads your manifests and proposes a shape, but declaring one thing while your dependencies look like another is a decision rather than a mistake — so the declaration wins, and the page shows both when they differ. Leaving it undeclared is honest rather than broken. Games are now declarable at bootstrap, which they were not before: they were detected and then ignored.
 
 - **A red build that explains itself.** AtlasMind has always read check *states*; it has never read a *log* — the difference between knowing a build failed and knowing why. It now fetches the failed log and classifies the cause with an **ordered rule table and no model in the path**: dependency-install, compile, lint, test-failure, timeout, flake-suspect, infrastructure, or unknown.
 

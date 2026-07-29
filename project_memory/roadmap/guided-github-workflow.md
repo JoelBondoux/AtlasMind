@@ -1,6 +1,6 @@
 # Guided GitHub Workflow — Phased Roadmap
 
-> **Status:** Tier 1 shipped v0.181.0; Tier 2 shipped v0.183.0 (C3.4, C3.6 outstanding); Tier 3 CI intelligence shipped v0.184.0 (C5.1, C5.3 outstanding); Tier 4 next. **Owner:** AtlasMind core. **Created:** 2026-07-28.
+> **Status:** Tier 1 shipped v0.181.0; Tier 2 shipped v0.183.0 (C3.4, C3.6 outstanding); Tier 3 CI intelligence shipped v0.184.0 (C5.1, C5.3 outstanding); **Tier 3.5 archetype specialisation shipped v0.185.0**; Tier 4 next. **Owner:** AtlasMind core. **Created:** 2026-07-28.
 > This is the SSOT implementation plan for [`docs/guided-github-workflow.md`](../../docs/guided-github-workflow.md),
 > which is the normative specification. Where the two disagree, the specification wins and this
 > file is wrong. Build incrementally, respecting the entry criteria between tiers. Nothing here
@@ -291,6 +291,70 @@ and a release can be prepared from the dashboard.
 - **Agents involved:** none.
 - **GitHub API usage:** `gh release list --json`, `gh pr list --json mergedAt`, run conclusions.
 - **Deterministic output requirements:** Each metric declares its window and its inclusion rule on the card. Change-failure detection uses a declared revert/hotfix rule, not inference.
+- **Priority:** Medium
+
+---
+
+## Tier 3.5 — archetype specialisation  ✅ **SHIPPED v0.185.0**  *(C7.4, C7.5 outstanding)*
+
+**Entry criteria:** Tier 3's CI half shipped. **Exit criteria:** the workflow specialises by project
+shape, and the shape is declarable at bootstrap and changeable afterwards.
+
+**Why this had to land before Tier 4.** Tier 4 builds the `workflow.json` editing UI. Building that
+against a schema missing its most important personalisation dimension would mean building it twice.
+
+**The problem it fixed.** "What kind of project is this?" had *three* answers that disagreed: a
+twelve-option bootstrap picker whose value fed a single regex, `testingScaffolder`'s seven-value
+`Archetype`, and `deliveryManager`'s four-value `DeliveryArchetype`. Games were the clearest
+casualty — detected from `phaser`/`bevy`/`pygame`, **never acted on** (`archetype === 'game'`
+appeared zero times in any output branch), not selectable at bootstrap at all, and shipped as
+`generic`. That is the same failure this specification exists to fix, in a different dimension.
+
+### C7 — Archetype specialisation
+
+#### C7.1 — One vocabulary  ✅ shipped v0.185.0
+
+- **Purpose:** Replace three disagreeing notions of project shape with one.
+- **Expected behaviour:** `ProjectArchetype` (9 values) plus composable `ArchetypeTrait`s. Detection from manifests is a *suggestion*; the declaration decides. Forward-mapping functions retire the other two vocabularies.
+- **Agents involved:** none — pure.
+- **GitHub API usage:** n/a.
+- **Deterministic output requirements:** Detection reports `confident: false` when nothing matched, so "generic project" and "we could not tell" stay distinct. An unrecognised legacy value maps to `undefined`, never silently to `generic`. **No schema migration was needed** — `delivery.json` never persisted an archetype.
+- **Priority:** High
+
+#### C7.2 — Archetype packs  ✅ shipped v0.185.0
+
+- **Purpose:** Declare, per shape, what differs across the six axes: CI steps, release model, testing strategy, documentation, refactor heuristics, workspace intelligence.
+- **Expected behaviour:** Packs are data in source — reviewable in a diff, testable without a workspace, overridable per item. Traits add to a pack and never contradict it.
+- **Agents involved:** consumed by `refactorer` (heuristics) and `ci-analyst` (expected steps).
+- **GitHub API usage:** n/a.
+- **Deterministic output requirements:** Every recommendation carries a rationale; every discouragement carries a reason. A pack never recommends a methodology the shape cannot produce evidence for — an unclosable gap teaches people to ignore gaps.
+- **Priority:** High
+
+#### C7.3 — Declarable and changeable  ✅ shipped v0.185.0
+
+- **Purpose:** Bootstrap declares the shape; the dashboard shows it and allows changing it.
+- **Expected behaviour:** A **Game** option in the bootstrap picker (previously impossible); `atlasmind.workflow.archetype` and `.traits` settings; a Project shape card on the Workflow page showing declared, detected, and any disagreement.
+- **Agents involved:** none.
+- **GitHub API usage:** n/a.
+- **Deterministic output requirements:** Where detection and declaration disagree, both are shown and the declaration wins — a deliberate declaration is a decision, not a mistake.
+- **Priority:** High
+
+#### C7.4 — Wire packs into the testing scaffolder  *(outstanding)*
+
+- **Purpose:** `testingScaffolder` still carries its own recommendation logic and still does nothing with `game`. The packs now hold that knowledge; the scaffolder should read it.
+- **Expected behaviour:** Scaffold output derives from `archetypePack(...).testing` rather than local branching, so a shape's recommendations live in exactly one place.
+- **Agents involved:** `test-developer`.
+- **GitHub API usage:** n/a.
+- **Deterministic output requirements:** Non-destructive as today — starter files written only when absent, manifests never mutated.
+- **Priority:** Medium
+
+#### C7.5 — Archetype-aware CI scaffolding  *(outstanding)*
+
+- **Purpose:** `/bootstrap` scaffolds one generic `ci.yml` regardless of shape. The packs declare what each shape's pipeline needs.
+- **Expected behaviour:** Scaffolded CI includes the archetype's required steps, each as a commented, quoted suggestion the user completes — never a command AtlasMind invented and runs.
+- **Agents involved:** `devops-engineer`.
+- **GitHub API usage:** n/a.
+- **Deterministic output requirements:** Same shape + same traits ⇒ same scaffold. Existing files are never overwritten.
 - **Priority:** Medium
 
 ---

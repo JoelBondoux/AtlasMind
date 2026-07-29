@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.185.0] - 2026-07-28
+
+### Added
+- **The workflow now specialises by what kind of project this is.** A game, a website, a library and a CLI do not share a CI pipeline, a release mechanism, a testing strategy, an expected documentation set, or the same idea of what counts as technical debt. Until now the guided workflow treated them identically, which meant it was tuned for none of them.
+
+  An **archetype pack** declares defaults across all six axes. Packs are data in source — reviewable in a diff, testable without a workspace, and overridable per item, which a branching implementation would not allow. Games get an asset-validation step and a frame budget, because performance there is a correctness property rather than an optimisation. Libraries get a public-API-surface check and mutation testing, because a library's tests are its specification and a surviving mutant is a promise nothing enforces. APIs get contract tests. CLIs get a cross-platform matrix, because path separators and shell quoting produce bugs invisible on the author's machine.
+
+  **Traits compose rather than multiplying the list.** A Shopify theme is a `website` that is *platform-hosted*; a VS Code extension is a `library` that is *platform-hosted* and *published*. Modelling those as their own archetypes would grow the set every time a platform appears — and every archetype is a promise that something specialises for it.
+
+- **Detection suggests; declaration decides.** AtlasMind infers a shape from your manifests, but the declared value always wins, and the Workflow page shows both when they disagree — a project deliberately declared one thing while its dependencies look like another is a *decision*, not a mistake. Leaving it undeclared is honest rather than broken: the page says so instead of pretending to know. **A wrong archetype is worse than none**, because it asks for evidence the project will never produce and creates a permanent gap, which teaches people to ignore gaps.
+
+- **Games are declarable at last.** `Game` is now an option at bootstrap, alongside two new settings — `atlasmind.workflow.archetype` and `atlasmind.workflow.traits` — so the shape can be changed after bootstrap rather than being fixed at intake.
+
+### Fixed
+- **Three disagreeing answers to "what kind of project is this?" became one.** A twelve-option bootstrap picker whose value fed a single regex, `testingScaffolder`'s seven-value `Archetype`, and `deliveryManager`'s four-value `DeliveryArchetype` — none connected. Games were the clearest casualty: detected from `phaser`, `bevy` and `pygame`, but `archetype === 'game'` appeared **zero** times in any output branch, so the detection changed nothing; the bootstrap picker had no Game option at all; and delivery treated it as `generic`. That is the same failure this workflow specification was written to fix, appearing in a different dimension.
+
+  `DeliveryArchetype` is now deprecated with a forward mapping, so existing callers keep working. It was never persisted — `delivery.json` holds no archetype — so no schema migration was required.
+
 ## [0.184.0] - 2026-07-28
 
 ### Added

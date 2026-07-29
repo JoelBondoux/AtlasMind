@@ -24,6 +24,12 @@
 
 import * as path from 'node:path';
 import { readFileSync } from 'node:fs';
+import {
+  deploysToHostedEnvironment,
+  fromDeliveryArchetype,
+  type ArchetypeTrait,
+  type ProjectArchetype,
+} from './projectArchetype.js';
 import { writeFile, mkdir, rm } from 'node:fs/promises';
 import type {
   DeliveryConfig,
@@ -102,7 +108,17 @@ export async function releaseDeliveryLock(workspaceRoot: string): Promise<void> 
   }
 }
 
-/** Broad project shape used to tailor the seeded pipeline to reality. */
+/**
+ * Broad project shape used to tailor the seeded pipeline to reality.
+ *
+ * @deprecated Superseded by `ProjectArchetype` in `projectArchetype.ts`, which
+ * is the single vocabulary shared with the testing scaffolder, the bootstrap
+ * intake, and the guided workflow. This alias remains only so callers that have
+ * not migrated keep compiling; `seedDeliveryConfig` maps it forward.
+ *
+ * It was never persisted — `delivery.json` holds no archetype — so retiring it
+ * needs no schema migration.
+ */
 export type DeliveryArchetype = 'vscode-extension' | 'library' | 'web-service' | 'generic';
 
 /**
@@ -118,8 +134,17 @@ export interface DeliverySeedInput {
   productionBranch?: string;
   /** Detected integration branch, when one exists (e.g. "develop"). */
   developBranch?: string;
-  /** Project shape; drives stage naming and whether a database/backups apply. */
+  /**
+   * Project shape; drives stage naming and whether a database/backups apply.
+   *
+   * @deprecated Supply `projectArchetype` (and optionally `traits`) instead.
+   * Both are read, with the new vocabulary taking precedence when present.
+   */
   archetype?: DeliveryArchetype;
+  /** Project shape in the shared vocabulary. Takes precedence over `archetype`. */
+  projectArchetype?: ProjectArchetype;
+  /** Composable facts about the project — `has-server` in particular affects staging. */
+  traits?: readonly ArchetypeTrait[];
   /** Whether the project has an application database (drives backup-required). */
   hasDatabase?: boolean;
   /** Where production ships (e.g. "VS Code Marketplace", "npm registry", "Fly.io"). */
@@ -160,8 +185,15 @@ export function defaultDeliveryConfig(): DeliveryConfig {
  * actually exist (or none). Everything is fully editable afterwards.
  */
 export function seedDeliveryConfig(input: DeliverySeedInput): DeliveryConfig {
-  const archetype = input.archetype ?? 'generic';
-  const deployless = archetype === 'vscode-extension' || archetype === 'library';
+  // The one decision the old `DeliveryArchetype` existed to make, now expressed
+  // over the shared vocabulary. The new fields win when supplied; the legacy
+  // field is mapped forward so callers that have not migrated keep working.
+  const identity = input.projectArchetype !== undefined
+    ? { archetype: input.projectArchetype, traits: [...(input.traits ?? [])] }
+    : fromDeliveryArchetype(input.archetype);
+  const deployless = identity
+    ? !deploysToHostedEnvironment(identity.archetype, identity.traits)
+    : false;
   const hasDatabase = input.hasDatabase ?? false;
   const stagingBranch = input.developBranch ?? input.currentBranch;
   // Never fabricate a production branch. If detection found none (no

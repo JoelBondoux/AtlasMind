@@ -393,6 +393,9 @@ async function collectBootstrapIntake(
           { label: 'VS Code Extension', description: '', template: undefined },
           { label: 'Desktop App', description: '', template: undefined },
           { label: 'Mobile App', description: '', template: undefined },
+          // Games were detectable from their engine but not selectable here, so a
+          // game project could not declare itself and was shipped as `generic`.
+          { label: 'Game', description: 'Frame budget as a gate, asset validation in CI, and simulation-focused testing.', template: undefined },
           { label: 'Other', description: '', template: undefined },
           { label: '$(store) Shopify New Store', description: 'Merchant setup guide, Partner account steps, CLI scaffold, extension recommendations.', template: 'shopify-new-store' as ShopifyTemplate },
           { label: '$(file-code) Shopify Store / Theme', description: 'Full Liquid theme scaffold (layout, sections, snippets, assets, locales), theme-check CI.', template: 'shopify-theme' as ShopifyTemplate },

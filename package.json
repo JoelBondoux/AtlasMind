@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.184.0",
+  "version": "0.185.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -1963,6 +1963,42 @@
           "default": false,
           "description": "Master switch for the guided GitHub workflow. Off by default: the Workflow dashboard still teaches and measures, but AtlasMind takes no action on your repository.",
           "markdownDescription": "**Off by default — this is the master switch.**\n\nWith it off, the Workflow page of the Project Dashboard is fully usable: it explains all eight stages, shows how far your repository has got, and charts the numbers. It simply never *acts*.\n\nTurning it on does not, by itself, let AtlasMind do anything. The effective automation level for any stage is the **minimum** of four independent gates:\n\n1. this master switch,\n2. `#atlasmind.workflow.maxAutomationLevel#` — your personal ceiling,\n3. the matching capability switch (`allowIssueWrites`, `allowPullRequestWrites`, `allowReleaseWrites`),\n4. the level declared for that stage in the project's workflow configuration.\n\nAll four default closed, which is what makes full automation *possible* without ever making it the default. See [the specification](https://github.com/JoelBondoux/AtlasMind/blob/main/docs/guided-github-workflow.md)."
+        },
+        "atlasmind.workflow.archetype": {
+          "type": "string",
+          "enum": [
+            "",
+            "game",
+            "website",
+            "web-app",
+            "api",
+            "cli",
+            "library",
+            "desktop",
+            "mobile",
+            "generic"
+          ],
+          "default": "",
+          "description": "What kind of project this is. Changes CI steps, release model, testing recommendations, expected documentation, and refactor advice. Empty means undeclared — AtlasMind detects a suggestion but never acts on it as a decision.",
+          "markdownDescription": "**What kind of project this is** — the single biggest lever on how the guided workflow specialises.\n\nA game, a website, a library and a CLI do not share a CI pipeline, a release mechanism, a testing strategy, or the same idea of what counts as technical debt. Declaring the shape switches all six.\n\n**Detection suggests; this setting decides.** AtlasMind reads your manifests and proposes a shape, but a project deliberately declared one thing while its dependencies look like another is a *decision*, not a mistake — so the declaration always wins, and the Workflow page shows both when they differ.\n\nLeaving this empty is honest rather than broken: `generic` behaviour applies, and the page says the shape is undeclared instead of pretending to know. **A wrong archetype is worse than none**, because it asks for evidence the project will never produce and creates a permanent gap — which teaches people to ignore gaps.\n\nUse `#atlasmind.workflow.traits#` for facts that cut across shapes, such as shipping binaries or handling personal data."
+        },
+        "atlasmind.workflow.traits": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "ships-binaries",
+              "has-native-build",
+              "is-published-package",
+              "has-ui",
+              "has-server",
+              "platform-hosted",
+              "handles-personal-data"
+            ]
+          },
+          "default": [],
+          "description": "Facts about this project that cut across its shape — ships binaries, publishes a package, handles personal data, and so on. Each adds expectations on top of the archetype rather than replacing them.",
+          "markdownDescription": "Facts that cut across project shapes, so the archetype list does not have to grow a new member every time something ships differently.\n\nA Shopify theme is a `website` that happens to be **platform-hosted**; a VS Code extension is a `library` that is both **platform-hosted** and **published**. Modelling those as their own archetypes would multiply the list per platform.\n\nTraits are **additive**: each one adds CI steps, documentation expectations and refactor heuristics on top of the archetype's, and never removes any. If a trait needed to *remove* an expectation, that would be a sign it should have been its own archetype.\n\n- `handles-personal-data` adds a secret-and-personal-data scan and a privacy document, because anything committed is effectively permanent.\n- `is-published-package` adds a publish dry-run, because a published version number cannot be reused.\n- `ships-binaries` adds an artifact smoke check, because a binary that builds but does not start fails only on a user's machine."
         },
         "atlasmind.workflow.profile": {
           "type": "string",

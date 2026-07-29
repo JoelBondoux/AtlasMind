@@ -6,6 +6,15 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.185.0 — the workflow now knows what kind of project this is
+
+- **A game, a website, a library and a CLI do not share a workflow.** Different CI steps, release model, testing strategy, documentation, refactor advice and notion of a hotspot. Until now the guided workflow treated them identically, which meant it was tuned for none of them.
+- **Archetype packs** declare all six axes per shape, as data in source — reviewable in a diff and overridable per item. Games get asset validation and a frame budget; libraries get an API-surface check and mutation testing; APIs get contract tests; CLIs get a cross-platform matrix.
+- **Traits compose rather than multiplying the list.** A Shopify theme is a website that is *platform-hosted*; a VS Code extension is a library that is *platform-hosted* and *published*.
+- **Detection suggests, declaration decides.** Both are shown when they disagree — declaring one thing while your dependencies look like another is a decision, not a mistake. Undeclared is honest: the page says so rather than pretending to know.
+- **Games are declarable at last.** Previously detected from `phaser`/`bevy`/`pygame` and then ignored — the detection changed nothing, and bootstrap had no Game option at all.
+- **Three disagreeing answers to "what kind of project is this?" became one.** No schema migration needed: the old delivery archetype was never persisted.
+
 ## v0.184.0 — a red build that explains itself
 
 - **AtlasMind now reads CI logs, not just check states.** That is the difference between knowing a build failed and knowing why. It fetches recent runs and the failed log, then classifies the cause with an **ordered rule table — no model in the path**: dependency-install → compile → lint → test-failure → timeout → flake-suspect → infra → unknown.

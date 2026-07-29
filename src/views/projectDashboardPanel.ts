@@ -57,6 +57,17 @@ import {
 } from '../core/pullRequestTracker.js';
 import { PROTECTED_BRANCH_NAMES } from '../core/branchNaming.js';
 import {
+  ARCHETYPE_LABEL,
+  TRAIT_LABEL,
+  describeArchetypeAgreement,
+  detectProjectArchetype,
+  normalizeArchetype,
+  normalizeTraits,
+  type ArchetypeTrait,
+  type ProjectArchetype,
+} from '../core/projectArchetype.js';
+import { resolveArchetypePack, type ArchetypePack } from '../core/archetypePacks.js';
+import {
   buildCiFailureReport,
   type CiFailureReport,
 } from '../core/ciFailureAnalysis.js';
@@ -802,6 +813,23 @@ interface DashboardGuidedWorkflowSnapshot {
   pullRequests?: PullRequestMetrics;
   /** Absent until CI has actually been read — absent ≠ healthy. */
   ciIntelligence?: DashboardCiIntelligence;
+  /**
+   * What kind of project this is, and what that changes.
+   *
+   * Detected and declared are carried separately on purpose. Detection is a
+   * suggestion from the manifests; the declaration is the truth. Where they
+   * disagree the surface says so rather than silently preferring one — a
+   * project declared `library` while its manifests look like `web-app` is a
+   * decision, not a mistake.
+   */
+  archetype: {
+    declared?: ProjectArchetype;
+    traits: ArchetypeTrait[];
+    detected?: { archetype: ProjectArchetype; reasons: string[]; confident: boolean };
+    agreement: { agrees: boolean; detail: string };
+    pack: ArchetypePack;
+    labels: { archetype: Record<string, string>; trait: Record<string, string> };
+  };
   branches: BranchMetrics;
   ci: CiMetrics;
   release: ReleaseMetrics;
@@ -3974,6 +4002,8 @@ function buildGuidedWorkflowSnapshot(input: {
   issues: DashboardIssuesSnapshot;
   pullRequests?: readonly PullRequestRecord[];
   ci?: DashboardCiIntelligence;
+  /** Manifest evidence for archetype detection. Absent means "we did not look". */
+  archetypeEvidence?: { corpus: string; files: readonly string[]; language?: string };
   changelogPresent: boolean;
   prTemplatePresent: boolean;
   codeownersPresent: boolean;
@@ -4078,6 +4108,19 @@ function buildGuidedWorkflowSnapshot(input: {
     profile,
   };
 
+  // Archetype. Detection reads the manifests the dashboard already loaded, so
+  // this costs nothing; the declaration comes from settings until `workflow.json`
+  // lands in Tier 4, at which point the file becomes the source.
+  const declaredRaw = input.configuration.get<string>('workflow.archetype', '');
+  const declared = declaredRaw ? normalizeArchetype(declaredRaw) : undefined;
+  const traits = normalizeTraits(input.configuration.get<string[]>('workflow.traits', []));
+  const detected = input.archetypeEvidence
+    ? detectProjectArchetype(input.archetypeEvidence)
+    : undefined;
+  // The pack follows the *declared* value where there is one — detection never
+  // overrides a decision somebody made on purpose.
+  const effectiveArchetype = declared ?? (detected?.confident ? detected.archetype : 'generic');
+
   const stages = buildWorkflowCurriculum(observed);
   const progress = summarizeWorkflowProgress(stages);
   const next = nextWorkflowStep(stages);
@@ -4154,6 +4197,16 @@ function buildGuidedWorkflowSnapshot(input: {
     ...(issueMetrics === undefined ? {} : { issues: issueMetrics }),
     ...(prMetrics === undefined ? {} : { pullRequests: prMetrics }),
     ...(input.ci === undefined ? {} : { ciIntelligence: input.ci }),
+    archetype: {
+      ...(declared === undefined ? {} : { declared }),
+      traits,
+      ...(detected === undefined ? {} : {
+        detected: { archetype: detected.archetype, reasons: detected.reasons, confident: detected.confident },
+      }),
+      agreement: describeArchetypeAgreement(detected, declared),
+      pack: resolveArchetypePack(effectiveArchetype, traits),
+      labels: { archetype: { ...ARCHETYPE_LABEL }, trait: { ...TRAIT_LABEL } },
+    },
     branches,
     ci,
     release,
@@ -4455,6 +4508,10 @@ async function collectDashboardSnapshot(
     guidedWorkflow: buildGuidedWorkflowSnapshot({
       configuration,
       gitSnapshot,
+      // Detection reads dependency names the package snapshot already loaded, so
+      // this adds no I/O. Absent evidence means "we did not look", which the
+      // surface reports as such rather than as "generic project".
+      archetypeEvidence: await collectArchetypeEvidence(workspaceRoot),
       packageVersion: packageSnapshot.version,
       ciWorkflowCount: workflowSnapshot.length,
       testing: testingSnapshot,
@@ -5246,6 +5303,80 @@ async function gatherCiIntelligence(
       loadedAt: new Date().toISOString(),
     };
   }
+}
+
+/**
+ * Manifest evidence for archetype detection.
+ *
+ * Reads dependency *names* only — never values — from whichever manifests are
+ * present, plus the root file listing. Returns `undefined` when there is no
+ * workspace, so the surface can distinguish "no shape identified" from "we did
+ * not look"; presenting the second as the first is the error this whole
+ * detected-versus-declared split exists to prevent.
+ */
+async function collectArchetypeEvidence(
+  workspaceRoot: string | undefined,
+): Promise<{ corpus: string; files: readonly string[]; language?: string } | undefined> {
+  if (!workspaceRoot) {
+    return undefined;
+  }
+  const parts: string[] = [];
+  let language: string | undefined;
+
+  const read = async (relative: string): Promise<string> => {
+    try {
+      return await fs.readFile(path.join(workspaceRoot, relative), 'utf8');
+    } catch {
+      return '';
+    }
+  };
+
+  const pkg = await read('package.json');
+  if (pkg) {
+    language = 'node';
+    try {
+      const parsed = JSON.parse(pkg) as Record<string, unknown>;
+      for (const field of ['dependencies', 'devDependencies', 'peerDependencies'] as const) {
+        const deps = parsed[field];
+        if (deps && typeof deps === 'object') {
+          parts.push(Object.keys(deps as Record<string, unknown>).join(' '));
+        }
+      }
+      // `main`/`exports` distinguish a package from an application, and are the
+      // only non-dependency signals detection reads.
+      for (const key of ['main', 'exports'] as const) {
+        if (parsed[key] !== undefined) {
+          parts.push(`"${key}"`);
+        }
+      }
+    } catch {
+      // A malformed manifest yields no signal rather than an exception.
+    }
+  }
+
+  for (const [file, lang] of [
+    ['Cargo.toml', 'rust'], ['go.mod', 'go'], ['pyproject.toml', 'python'],
+    ['requirements.txt', 'python'], ['pubspec.yaml', 'dart'],
+  ] as const) {
+    const content = await read(file);
+    if (content) {
+      language ??= lang;
+      parts.push(content.slice(0, 8000));
+    }
+  }
+
+  let files: string[] = [];
+  try {
+    files = (await fs.readdir(workspaceRoot)).slice(0, 400);
+  } catch {
+    files = [];
+  }
+
+  return {
+    corpus: parts.join(' ').toLowerCase(),
+    files,
+    ...(language === undefined ? {} : { language }),
+  };
 }
 
 /** Parse `gh run list --json …`. Never throws; a bad entry is dropped. */

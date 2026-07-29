@@ -313,6 +313,26 @@ Consequences that follow from that one decision: `median` refuses below `MIN_SAM
 
 Output shapes match the dashboard's existing render primitives — series for `renderChartCard`, slices for `renderDonutChart`, segments for `renderDistributionBar` — so the instrumentation wall is assembled from components that already exist. `deriveBranchMetrics` exempts integration and release branches from naming conformance, because a permanent unfixable gap teaches people to ignore gaps; `deriveCommitConformance` excludes platform-generated merge commits, which would otherwise penalise a team for using squash merges.
 
+### ProjectArchetype (`src/core/projectArchetype.ts`)
+
+"What kind of software is this?" asked and answered once. Before this module there were **three** answers in the codebase and they disagreed: a twelve-option bootstrap picker whose value was consumed by a single regex, `testingScaffolder`'s seven-value `Archetype`, and `deliveryManager`'s four-value `DeliveryArchetype`. Games were the clearest casualty — detected from `phaser`/`bevy`/`pygame`, never acted on, not selectable at bootstrap, and shipped as `generic`.
+
+**Archetype plus traits, not archetype alone.** A Shopify theme is a `website` that happens to be platform-hosted; a VS Code extension is a `library` that ships a packaged artifact. Modelling those as archetypes multiplies the set every time a platform appears, and each archetype is a promise that something specialises for it. Traits compose instead.
+
+**Detection suggests; declaration decides.** Inference from manifests is always a suggestion — the declared value is the truth, mirroring "profiles seed, they do not govern". `detectProjectArchetype` returns `confident: false` when nothing matched, so "this is a generic project" and "we could not tell" stay distinct facts; and `describeArchetypeAgreement` reports a disagreement rather than silently preferring one side, because a project deliberately declared `library` while its manifests look like `web-app` is a decision.
+
+Detection rules are ordered most-specific-first (React Native contains React) and short Node package names are gated to Node projects, because `next` matches inside `cargo-nextest`. The forward-mapping functions retire the other two vocabularies; `delivery.json` never persisted an archetype, so no schema migration was needed.
+
+### ArchetypePacks (`src/core/archetypePacks.ts`)
+
+What each project shape changes about the workflow, across the six axes that actually differ: CI steps, release model, testing strategy, documentation, refactor heuristics, and workspace intelligence.
+
+**Packs are data in source, not code branches** — reviewable in a diff, testable without a workspace, and overridable per item, none of which a branching implementation allows. **A pack recommends; it never requires**: everything seeds a project's configuration and is then owned by the project.
+
+**Nothing is recommended that the archetype cannot produce evidence for.** A pack asking a static site for load tests would create a permanent, unfixable gap — and a dashboard with a permanent false gap teaches people to ignore gaps, which is the same lesson as `practice`-category testing protocols. Hence `api`, `cli` and `library` explicitly *discourage* visual testing, each with a stated reason, rather than leaving it as an unexplained absence.
+
+`resolveArchetypePack` merges trait additions with archetype entries first, so a trait can never silently replace a specific expectation with a weaker generic one. A trait that needed to *remove* an expectation would be a sign the thing should have been its own archetype.
+
 ### CiFailureAnalysis (`src/core/ciFailureAnalysis.ts`)
 
 Why a CI run failed, decided by rule rather than by model. AtlasMind has always read check *states*; it has never read a *log*, and that is the difference between knowing a build failed and knowing why.

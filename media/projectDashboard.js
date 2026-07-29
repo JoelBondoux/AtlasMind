@@ -3348,6 +3348,60 @@
         <button type="button" class="action-link" data-action="command" data-payload="atlasmind.openSettings">Open settings</button>
       </article>`;
 
+    // What kind of project this is, and what that changes. Detected and declared
+    // are shown separately: detection is a suggestion from the manifests, the
+    // declaration is the decision. Where they disagree we say so rather than
+    // silently preferring one.
+    const arch = wf.archetype;
+    const archCard = arch ? (() => {
+      const labels = arch.labels || { archetype: {}, trait: {} };
+      const name = key => (labels.archetype && labels.archetype[key]) || key;
+      const pack = arch.pack || {};
+      const requiredCi = (pack.ci || []).filter(step => step.required);
+
+      const help = renderWorkflowHelp('archetype.pack', {
+        label: 'what this project shape changes',
+        why: 'A game, a website, a library and a CLI do not share a CI pipeline, a release mechanism, a testing strategy, or the same idea of what counts as technical debt. Declaring the shape is what lets the workflow specialise instead of staying general for everybody. Detection reads your manifests and suggests; the declaration decides — a project deliberately declared one thing while its dependencies look like another is a decision, not a mistake.',
+        how: [
+          { text: requiredCi.length
+            ? `Required CI steps for this shape: ${requiredCi.map(step => step.label).join(', ')}.`
+            : 'No shape-specific CI steps — declare an archetype to get them.' },
+          { text: pack.release ? `Releases go to: ${pack.release.channel}. ${pack.release.versioningNote || ''}` : '' },
+          { text: pack.testing ? `Recommended testing: ${(pack.testing.recommended || []).join(', ')}. ${pack.testing.rationale || ''}` : '' },
+          { text: pack.testing && (pack.testing.discouraged || []).length
+            ? `Deliberately not recommended: ${pack.testing.discouraged.join(', ')}. ${pack.testing.discouragedReason || ''}`
+            : '' },
+          { text: (pack.refactor || []).length
+            ? `Watch for: ${pack.refactor.map(item => item.label).join('; ')}.`
+            : '' },
+          { text: (pack.documentation || []).length
+            ? `Documentation this shape expects: ${pack.documentation.map(doc => doc.path).join(', ')}.`
+            : '' },
+        ].filter(line => line.text),
+      });
+
+      return `
+      <article class="panel-card">
+        <p class="card-kicker">Project shape</p>
+        <div class="row-head">
+          <strong>${escapeHtml(arch.declared ? name(arch.declared) : 'Not declared')}</strong>
+          ${arch.declared ? '<span class="tag tag-good">declared</span>' : '<span class="tag tag-warn">undeclared</span>'}
+        </div>
+        <p class="stat-detail">${escapeHtml((arch.agreement && arch.agreement.detail) || '')}</p>
+        ${arch.detected && arch.detected.confident && arch.detected.archetype !== arch.declared
+          ? `<p class="stat-detail wf-unknown">Manifests suggest ${escapeHtml(name(arch.detected.archetype))}: ${
+            escapeHtml((arch.detected.reasons || []).join(' '))}</p>`
+          : ''}
+        ${(arch.traits || []).length
+          ? `<div class="tag-row">${arch.traits.map(trait =>
+            `<span class="tag">${escapeHtml((labels.trait && labels.trait[trait]) || trait)}</span>`).join('')}</div>`
+          : ''}
+        ${pack.blurb ? `<p class="stat-detail">${escapeHtml(pack.blurb)}${help.button}</p>` : help.button}
+        ${help.panel}
+        <button type="button" class="action-link" data-action="command" data-payload="atlasmind.openSettings">Change the project shape</button>
+      </article>`;
+    })() : '';
+
     const activity = renderChartCard(
       'wf-commits',
       'Commit activity',
@@ -3361,6 +3415,7 @@
       ${strip}
       <div class="panel-grid">
         ${healthCard}
+        ${archCard}
         ${ladderCard}
         ${issuesCard}
         ${prCard}
