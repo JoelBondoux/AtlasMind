@@ -2806,6 +2806,93 @@ function getStarterContent(filename: string): string {
   }
 }
 
+/**
+ * The scaffolded CI workflow, specialised by the project shape the user chose.
+ *
+ * Two halves, deliberately different in kind.
+ *
+ * The **generic Node steps are real commands**, because AtlasMind can see
+ * that a `package.json` exists and what scripts it declares. The
+ * **archetype-specific steps are commented suggestions**, because it cannot:
+ * a game needs a determinism gate and a website needs an accessibility scan,
+ * and AtlasMind knows *that* without knowing what command this project would
+ * use to do it. Writing a guess and running it in CI would produce a red
+ * build on somebody's first commit, which teaches them to delete the file.
+ *
+ * The trigger was `[master]`, hardcoded — not the default branch of any
+ * repository created since 2020, and not this project's either. It now names
+ * `main` and says what to change if the repository uses something else.
+ */
+function buildScaffoldedCiWorkflow(intake?: BootstrapProjectIntake): string {
+  const archetype = archetypeFromProjectTypeLabel(intake?.projectType);
+  const pack = archetype ? resolveArchetypePack(archetype, []) : undefined;
+
+  const lines: string[] = [
+    'name: CI',
+    '',
+    '# Triggered on `main`. If this repository integrates on a different branch,',
+    '# change both lists below — a workflow that never runs looks identical to one',
+    '# that always passes.',
+    'on:',
+    '  push:',
+    '    branches: [main]',
+    '  pull_request:',
+    '    branches: [main]',
+    '',
+    'jobs:',
+    '  quality:',
+    '    runs-on: ubuntu-latest',
+    '',
+    '    steps:',
+    '      - name: Checkout',
+    '        uses: actions/checkout@v4',
+    '',
+    '      - name: Setup Node',
+    '        uses: actions/setup-node@v4',
+    '        with:',
+    '          node-version: 20',
+    '          cache: npm',
+    '',
+    '      - name: Install dependencies',
+    '        run: npm ci',
+    '',
+    '      - name: Compile',
+    '        run: npm run compile',
+    '',
+    '      - name: Lint',
+    '        run: npm run lint',
+    '',
+    '      - name: Test',
+    '        run: npm run test',
+  ];
+
+  // Steps this shape needs that the generic four do not cover. Commented out
+  // with their rationale: AtlasMind knows a game wants a determinism gate,
+  // and does not know what command this project runs to get one.
+  const extra = (pack?.ci ?? []).filter(step =>
+    !['install', 'compile', 'lint', 'test'].includes(step.id));
+
+  if (extra.length > 0 && archetype) {
+    lines.push(
+      '',
+      `      # ── Suggested for a ${archetype} project ──`,
+      '      # These are commented out because they are suggestions, not commands',
+      '      # AtlasMind chose for you. Uncomment and replace with your own.',
+    );
+    for (const step of extra) {
+      lines.push(
+        '',
+        `      # ${step.label}${step.required ? ' (treat as a required check)' : ''}`,
+        `      # ${step.rationale}`,
+        `      # - name: ${step.label}`,
+        `      #   run: ${step.exampleCommand ?? '<your command here>'}`,
+      );
+    }
+  }
+
+  return lines.join('\n');
+}
+
 async function scaffoldGovernanceBaseline(
   workspaceRoot: vscode.Uri,
   ssotRoot: vscode.Uri,
@@ -2819,41 +2906,7 @@ async function scaffoldGovernanceBaseline(
   const files: Array<{ path: string; content: string }> = [
     {
       path: '.github/workflows/ci.yml',
-      content: [
-        'name: CI',
-        '',
-        'on:',
-        '  push:',
-        '    branches: [master]',
-        '  pull_request:',
-        '    branches: [master]',
-        '',
-        'jobs:',
-        '  quality:',
-        '    runs-on: ubuntu-latest',
-        '',
-        '    steps:',
-        '      - name: Checkout',
-        '        uses: actions/checkout@v4',
-        '',
-        '      - name: Setup Node',
-        '        uses: actions/setup-node@v4',
-        '        with:',
-        '          node-version: 20',
-        '          cache: npm',
-        '',
-        '      - name: Install dependencies',
-        '        run: npm ci',
-        '',
-        '      - name: Compile',
-        '        run: npm run compile',
-        '',
-        '      - name: Lint',
-        '        run: npm run lint',
-        '',
-        '      - name: Test',
-        '        run: npm run test',
-      ].join('\n'),
+      content: buildScaffoldedCiWorkflow(intake),
     },
     {
       path: '.github/pull_request_template.md',
@@ -4046,6 +4099,8 @@ const IMPORT_SCAN_FILES: ReadonlyArray<{ path: string; category: ImportScanCateg
 ];
 
 import { MAX_IMPORT_FILE_BYTES, MAX_IMPORT_SNIPPET } from '../constants.js';
+import { archetypeFromProjectTypeLabel } from '../core/projectArchetype.js';
+import { resolveArchetypePack } from '../core/archetypePacks.js';
 
 export interface ImportResult {
   entriesCreated: number;

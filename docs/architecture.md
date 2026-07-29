@@ -365,6 +365,12 @@ Three definitions are declared rather than left implicit, because a delivery met
 
 `DORA_BANDS` is a constant in source so the thresholds are reviewable in a diff, and the surface states that they are a widely cited orientation rather than a certification — the exact boundaries have moved between annual industry reports, and a team's own trend matters more than which side of a line it lands on.
 
+**The packs are read, not restated.** `testingScaffolder` translates its local detection vocabulary through `toProjectArchetype` — a function its own comment had described for two versions without it existing, so the scaffolder detected a shape and then had no way to ask the packs what that shape needs. The playbook now carries what the shape asks for: which methodologies suit it, which recommended ones are not switched on, and which *enabled* ones the shape discourages. That last is the one that matters — a methodology a shape cannot produce evidence for becomes a permanent gap, and a permanent gap teaches people to ignore gaps.
+
+`game` finally does something. It has been detected since the archetype work shipped and acted on nowhere, so a game project was handed a Playwright end-to-end test for a page it does not serve and a k6 load script for requests it does not take. It now gets a determinism test (a fixed seed must replay exactly, or a bug reported from a play session cannot be reproduced) and a frame-budget test rather than a request rate.
+
+Scaffolded CI has two halves that are deliberately different in kind. The **generic Node steps are real commands**, because AtlasMind can see a `package.json` and what scripts it declares. The **archetype steps are commented suggestions with their rationale**, because it cannot: it knows a game wants a determinism gate without knowing what command this project would use for one, and writing a guess that fails on the first commit teaches people to delete the file. `archetypeFromProjectTypeLabel` maps the bootstrap picker's prose onto the vocabulary — without it every chosen shape resolved to `generic`, which was the same detected-but-never-acted-on failure one step earlier in the pipeline.
+
 ### CiFailureAnalysis (`src/core/ciFailureAnalysis.ts`)
 
 Why a CI run failed, decided by rule rather than by model. AtlasMind has always read check *states*; it has never read a *log*, and that is the difference between knowing a build failed and knowing why.

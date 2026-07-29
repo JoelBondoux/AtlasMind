@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.196.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.197.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,9 +64,15 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.196.0
+## What's new in 0.197.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
+
+- **Your project shape now changes what gets scaffolded.** The testing playbook says which methodologies suit your shape, which recommended ones are not enabled, and which enabled ones your shape discourages — a methodology that cannot be evidenced becomes a permanent gap, and permanent gaps teach people to ignore gaps.
+
+  Scaffolded CI gains your shape's steps as **commented suggestions with their reasoning**, never as commands AtlasMind invented: it knows a game wants a determinism gate without knowing your command for one, and a guess that fails on your first commit teaches you to delete the file.
+
+  **`game` finally does something.** It had been detected since the archetype work shipped and acted on nowhere, so a game project got a Playwright test for a page it does not serve. It now gets a determinism test and a frame budget.
 
 - **Agents can ask each other questions.** An agent puts a question to a named specialist and gets their answer back, while keeping ownership of the task.
 

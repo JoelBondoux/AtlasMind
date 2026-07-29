@@ -387,6 +387,56 @@ export function deploysToHostedEnvironment(
   }
 }
 
+/**
+ * The bootstrap picker's prose labels, mapped onto the vocabulary.
+ *
+ * The picker shows things like "Website / Marketing Site" because that is what
+ * somebody choosing recognises; `normalizeArchetype` takes ids and would send
+ * every one of those to `generic`. Without this the shape a user *chose at
+ * bootstrap* reached nothing that acts on shape — which is the same
+ * detected-but-never-acted-on failure the archetype work was written to fix,
+ * one step earlier in the pipeline.
+ *
+ * Matched on distinctive substrings rather than exact labels, so an edit to the
+ * picker's wording does not silently send every project to `generic`. Order
+ * matters: "Web App" contains "app", and "Website" contains "web".
+ */
+export function archetypeFromProjectTypeLabel(label: unknown): ProjectArchetype | undefined {
+  if (typeof label !== 'string') {
+    return undefined;
+  }
+  // Codicon prefixes (`$(store) `) are stripped by the picker, but a label read
+  // back from a persisted intake may still carry one.
+  const text = label.replace(/^\$\([^)]+\)\s*/, '').trim().toLowerCase();
+  if (!text) {
+    return undefined;
+  }
+
+  const rules: Array<[RegExp, ProjectArchetype]> = [
+    [/\bgame\b/, 'game'],
+    [/\bwebsite\b|marketing site|static site/, 'website'],
+    [/\bweb app\b|\bwebapp\b|\bspa\b/, 'web-app'],
+    [/\bapi\b|\bserver\b|\bbackend\b|\bservice\b/, 'api'],
+    [/\bcli\b|command.?line|\bterminal tool\b/, 'cli'],
+    [/\blibrary\b|\bpackage\b|\bsdk\b/, 'library'],
+    // A VS Code extension is a desktop application by every property that
+    // matters here: it ships to a marketplace, runs on the user's machine, and
+    // has no URL to load in a browser.
+    [/\bdesktop\b|vs ?code extension|\belectron\b/, 'desktop'],
+    [/\bmobile\b|\bios\b|\bandroid\b/, 'mobile'],
+    // Shopify surfaces: a theme is a website, an app is a web app.
+    [/shopify (new )?store|shopify.*theme/, 'website'],
+    [/shopify app/, 'web-app'],
+  ];
+
+  for (const [pattern, archetype] of rules) {
+    if (pattern.test(text)) {
+      return archetype;
+    }
+  }
+  return undefined;
+}
+
 /** Coerce untrusted input to an archetype, defaulting to the honest answer. */
 export function normalizeArchetype(value: unknown): ProjectArchetype {
   return typeof value === 'string' && (PROJECT_ARCHETYPES as readonly string[]).includes(value)

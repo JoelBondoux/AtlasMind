@@ -18,6 +18,9 @@ import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
  * developer to run. The only file always (re)written is the managed playbook.
  */
 
+import { resolveArchetypePack, type ArchetypeTestingModel } from './archetypePacks.js';
+import type { ProjectArchetype } from './projectArchetype.js';
+
 const PLAYBOOK_REL_PATH = 'project_memory/operations/testing-strategy.md';
 
 type Language = 'node' | 'python' | 'rust' | 'go' | 'dotnet' | 'java' | 'unknown';
@@ -30,6 +33,39 @@ type Language = 'node' | 'python' | 'rust' | 'go' | 'dotnet' | 'java' | 'unknown
  * the *answer* it produces is one everybody else understands.
  */
 type Archetype = 'web' | 'api' | 'cli' | 'game' | 'mobile' | 'library' | 'generic';
+
+/**
+ * The local vocabulary, translated.
+ *
+ * This mapping was described in the comment above and did not exist — the
+ * scaffolder detected a shape and then had no way to ask the packs what that
+ * shape needs. `web` becomes `web-app` rather than `website`: the scaffolder
+ * only reaches this branch when it found a UI framework, and a static site
+ * does not have one.
+ */
+export function toProjectArchetype(archetype: Archetype): ProjectArchetype {
+  switch (archetype) {
+    case 'web': return 'web-app';
+    case 'api': return 'api';
+    case 'cli': return 'cli';
+    case 'game': return 'game';
+    case 'mobile': return 'mobile';
+    case 'library': return 'library';
+    default: return 'generic';
+  }
+}
+
+/**
+ * What the archetype packs say about testing this shape.
+ *
+ * Read rather than restated. The packs are the one place a shape's testing
+ * recommendations live, and a second copy here would drift — which is exactly
+ * the problem Tier 3.5 existed to fix in the other direction, when three
+ * different notions of "what kind of project is this" disagreed.
+ */
+export function archetypeTestingModel(stack: { archetype: Archetype }): ArchetypeTestingModel {
+  return resolveArchetypePack(toProjectArchetype(stack.archetype), []).testing;
+}
 
 interface DetectedStack {
   language: Language;
@@ -316,6 +352,16 @@ function nodeRecipe(id: TestingMethodologyId, stack: DetectedStack): ScaffoldFil
           content: `import { describe, it, expect } from 'vitest';\n\ndescribe('API smoke', () => {\n  it('responds on the health endpoint', async () => {\n    const res = await fetch('http://localhost:3000/health');\n    expect(res.status).toBe(200);\n  });\n});\n`,
         }];
       }
+      // A game's end-to-end test is a *simulation* run, not a browser one.
+      // Detection has recognised `game` since the archetype work shipped and
+      // nothing acted on it, so a game project was handed a Playwright test
+      // for a page it does not serve.
+      if (stack.archetype === 'game') {
+        return [{
+          path: `e2e/simulation.spec.${ext}`,
+          content: `import { describe, it, expect } from 'vitest';\n\ndescribe('simulation determinism', () => {\n  it('produces the same state from the same seed', () => {\n    // Replace with your own step function. The property that matters for a\n    // game is that a fixed seed and a fixed input sequence replay exactly \u2014\n    // without it, a bug reported from a play session cannot be reproduced.\n    const run = (seed, steps) => {\n      let state = seed;\n      for (let i = 0; i < steps; i += 1) { state = (state * 1664525 + 1013904223) >>> 0; }\n      return state;\n    };\n    expect(run(42, 1000)).toBe(run(42, 1000));\n  });\n});\n`,
+        }];
+      }
       if (stack.archetype === 'cli') {
         return [{
           path: `e2e/cli.spec.${ext}`,
@@ -343,6 +389,15 @@ function nodeRecipe(id: TestingMethodologyId, stack: DetectedStack): ScaffoldFil
         content: `import { describe, it, expect } from 'vitest';\n\ndescribe('integration: components collaborate', () => {\n  it('wires the pieces together', async () => {\n    // Arrange real collaborators (db, http, queue) here instead of mocks.\n    expect(true).toBe(true);\n  });\n});\n`,
       }];
     case 'performance':
+      // A game's performance gate is a frame budget, not requests per second.
+      // Handing it a k6 load script would produce a permanent unclosable gap,
+      // which is precisely what the packs' `discouraged` list exists to avoid.
+      if (stack.archetype === 'game') {
+        return [{
+          path: `performance/frame-budget.spec.${ext}`,
+          content: `import { describe, it, expect } from 'vitest';\n\n// A frame budget, not a request rate. 60fps leaves 16.6ms for everything;\n// this asserts the simulation step alone stays well inside it.\nconst FRAME_BUDGET_MS = 16.6;\n\ndescribe('frame budget', () => {\n  it('steps the simulation well inside one frame', () => {\n    const started = performance.now();\n    // Replace with one tick of your own update loop.\n    for (let i = 0; i < 10_000; i += 1) { Math.sqrt(i); }\n    expect(performance.now() - started).toBeLessThan(FRAME_BUDGET_MS / 2);\n  });\n});\n`,
+        }];
+      }
       return [{
         path: `performance/load.k6.js`,
         content: `import http from 'k6/http';\nimport { check, sleep } from 'k6';\n\nexport const options = { vus: 10, duration: '30s' };\n\nexport default function () {\n  const res = http.get('http://localhost:3000/');\n  check(res, { 'status is 200': (r) => r.status === 200 });\n  sleep(1);\n}\n`,
@@ -558,6 +613,59 @@ function installHint(id: TestingMethodologyId, stack: DetectedStack): string | u
   }
 }
 
+/**
+ * What this project's *shape* says about its testing, from the archetype packs.
+ *
+ * Three things a reader needs and the enabled list alone cannot tell them:
+ * which methodologies suit this shape, which of those are not switched on,
+ * and which enabled ones this shape actively discourages. That last one
+ * matters most — a methodology a shape cannot produce evidence for becomes a
+ * permanent gap, and a dashboard with a gap nobody can close teaches people to
+ * ignore gaps.
+ *
+ * The recommendations are *read* from the packs rather than restated here. A
+ * second copy would drift, which is the problem the shared archetype
+ * vocabulary was introduced to solve.
+ */
+function archetypeGuidanceLines(
+  stack: DetectedStack,
+  enabledIds: readonly TestingMethodologyId[],
+): string[] {
+  const model = archetypeTestingModel(stack);
+  const enabled = new Set<string>(enabledIds);
+  const missing = model.recommended.filter(id => !enabled.has(id));
+  const conflicting = model.discouraged.filter(id => enabled.has(id));
+
+  const lines = [
+    `## For a ${toProjectArchetype(stack.archetype)} project`,
+    '',
+    model.rationale,
+    '',
+    `- **Suits this shape:** ${model.recommended.join(', ') || '_nothing specific_'}`,
+  ];
+
+  if (missing.length > 0) {
+    lines.push(`- **Recommended and not enabled:** ${missing.join(', ')}`);
+  }
+
+  if (conflicting.length > 0) {
+    lines.push(
+      `- **Enabled but discouraged here:** ${conflicting.join(', ')}. ${
+        model.discouragedReason ?? 'This shape cannot produce the evidence they ask for.'} `
+      + 'A methodology that cannot be evidenced becomes a permanent gap, and a permanent gap '
+      + 'teaches people to ignore gaps.',
+    );
+  } else if (model.discouraged.length > 0) {
+    lines.push(
+      `- **Deliberately not recommended:** ${model.discouraged.join(', ')}. ${
+        model.discouragedReason ?? ''}`.trim(),
+    );
+  }
+
+  lines.push('');
+  return lines;
+}
+
 function buildPlaybook(config: ProjectTestingConfig, stack: DetectedStack): string {
   const enabled = config.methodologies.filter(m => m.enabled);
   const lines: string[] = [
@@ -569,6 +677,7 @@ function buildPlaybook(config: ProjectTestingConfig, stack: DetectedStack): stri
     `**Detected stack:** ${stackLabel(stack)}`,
     `**Active methodologies:** ${enabled.length} / ${TESTING_METHODOLOGY_DEFINITIONS.length}`,
     '',
+    ...archetypeGuidanceLines(stack, enabled.map(entry => entry.id)),
   ];
 
   if (enabled.length === 0) {

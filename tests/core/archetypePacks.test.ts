@@ -11,6 +11,7 @@ import {
   type ProjectArchetype,
 } from '../../src/core/projectArchetype.ts';
 import { TESTING_METHODOLOGY_DEFINITIONS } from '../../src/types.ts';
+import { archetypeFromProjectTypeLabel } from '../../src/core/projectArchetype';
 
 const KNOWN_METHODOLOGIES = new Set(TESTING_METHODOLOGY_DEFINITIONS.map(def => def.id));
 
@@ -209,6 +210,63 @@ describe('pack ids are stable and unique', () => {
   it('resolves a pack for every archetype and trait combination without throwing', () => {
     for (const archetype of PROJECT_ARCHETYPES) {
       expect(() => resolveArchetypePack(archetype as ProjectArchetype, ARCHETYPE_TRAITS)).not.toThrow();
+    }
+  });
+});
+
+/**
+ * The bootstrap picker shows prose ("Website / Marketing Site") because that is
+ * what somebody choosing recognises. Until this mapping existed, every one of
+ * those labels resolved to `generic` — so the shape a user *chose at bootstrap*
+ * reached nothing that acts on shape. The same detected-but-never-acted-on
+ * failure the archetype work was written to fix, one step earlier.
+ */
+describe('archetypeFromProjectTypeLabel', () => {
+  it('maps every label the bootstrap picker offers', () => {
+    const cases: Array<[string, string]> = [
+      ['Website / Marketing Site', 'website'],
+      ['Web App', 'web-app'],
+      ['API Server', 'api'],
+      ['CLI Tool', 'cli'],
+      ['Library', 'library'],
+      ['VS Code Extension', 'desktop'],
+      ['Desktop App', 'desktop'],
+      ['Mobile App', 'mobile'],
+      ['Game', 'game'],
+    ];
+    for (const [label, expected] of cases) {
+      expect(archetypeFromProjectTypeLabel(label), label).toBe(expected);
+    }
+  });
+
+  it('does not send "Web App" to website, or "Website" to web-app', () => {
+    // Order matters: "Web App" contains "web" and "Website" contains "site".
+    expect(archetypeFromProjectTypeLabel('Web App')).toBe('web-app');
+    expect(archetypeFromProjectTypeLabel('Website / Marketing Site')).toBe('website');
+  });
+
+  it('strips a codicon prefix from a persisted label', () => {
+    expect(archetypeFromProjectTypeLabel('$(store) Shopify New Store')).toBe('website');
+    expect(archetypeFromProjectTypeLabel('$(server-process) Shopify App')).toBe('web-app');
+  });
+
+  it('returns undefined rather than guessing at "Other"', () => {
+    // `undefined` and `generic` are different answers: one is "we do not know",
+    // the other is "we know, and it is generic". The scaffold adds no
+    // shape-specific steps for the first.
+    expect(archetypeFromProjectTypeLabel('Other')).toBeUndefined();
+    expect(archetypeFromProjectTypeLabel('')).toBeUndefined();
+    expect(archetypeFromProjectTypeLabel(undefined)).toBeUndefined();
+    expect(archetypeFromProjectTypeLabel(42)).toBeUndefined();
+  });
+
+  it('resolves a pack for every label it recognises', () => {
+    // The point of the mapping: a chosen shape reaches something that acts on
+    // shape. A label that mapped to an archetype with no pack would be worse
+    // than one that mapped to nothing.
+    for (const label of ['Game', 'Website / Marketing Site', 'API Server', 'CLI Tool']) {
+      const archetype = archetypeFromProjectTypeLabel(label)!;
+      expect(resolveArchetypePack(archetype, []).ci.length, label).toBeGreaterThan(0);
     }
   });
 });

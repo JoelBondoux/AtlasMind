@@ -60,7 +60,7 @@ config executed through the promotion runner's own audited path — not spawned 
 `gh api repos/{slug}/branches/{b}/protection`; `gh api repos/{slug}/commits/{ref}/check-runs`;
 `gh repo create`.
 
-**Every tier of this roadmap is now shipped.** Outstanding items are C3.4, C3.6, C7.4 and C7.5. Releases are read as of v0.189.0
+**Every tier of this roadmap is now shipped.** Outstanding items are C3.4 and C3.6. Releases are read as of v0.189.0
 (`gh release list`, plus local `git tag` and `git describe`), and the release *plan* is built entirely
 from local files so it works with no `gh` at all; `gh release create` remains proposed. CI runs and failed logs are read as of v0.184.0 (`gh run list`, `gh run view --log-failed`),
 classified by a rule table with no model in the path (`ciFailureAnalysis.ts`). Pull requests are read (v0.182.0) **and written**
@@ -314,7 +314,7 @@ and a release can be prepared from the dashboard.
 
 ---
 
-## Tier 3.5 — archetype specialisation  ✅ **SHIPPED v0.185.0**  *(C7.4, C7.5 outstanding)*
+## Tier 3.5 — archetype specialisation  ✅ **SHIPPED v0.185.0**  *(complete as of v0.197.0)*
 
 **Entry criteria:** Tier 3's CI half shipped. **Exit criteria:** the workflow specialises by project
 shape, and the shape is declarable at bootstrap and changeable afterwards.
@@ -358,7 +358,7 @@ appeared zero times in any output branch), not selectable at bootstrap at all, a
 - **Deterministic output requirements:** Where detection and declaration disagree, both are shown and the declaration wins — a deliberate declaration is a decision, not a mistake.
 - **Priority:** High
 
-#### C7.4 — Wire packs into the testing scaffolder  *(outstanding)*
+#### C7.4 — Wire packs into the testing scaffolder  ✅ shipped v0.197.0
 
 - **Purpose:** `testingScaffolder` still carries its own recommendation logic and still does nothing with `game`. The packs now hold that knowledge; the scaffolder should read it.
 - **Expected behaviour:** Scaffold output derives from `archetypePack(...).testing` rather than local branching, so a shape's recommendations live in exactly one place.
@@ -366,8 +366,13 @@ appeared zero times in any output branch), not selectable at bootstrap at all, a
 - **GitHub API usage:** n/a.
 - **Deterministic output requirements:** Non-destructive as today — starter files written only when absent, manifests never mutated.
 - **Priority:** Medium
+- **As shipped:** `toProjectArchetype` — which the scaffolder's own comment had described for two
+  versions without it existing — plus `archetypeTestingModel`, so the playbook reads the packs rather
+  than restating them. `game` acts on something for the first time: a determinism test instead of a
+  Playwright page test, a frame budget instead of a k6 load script. Building it caught a recipe emitting
+  TypeScript annotations into a `.js` file, now pinned by a test over every Node recipe.
 
-#### C7.5 — Archetype-aware CI scaffolding  *(outstanding)*
+#### C7.5 — Archetype-aware CI scaffolding  ✅ shipped v0.197.0
 
 - **Purpose:** `/bootstrap` scaffolds one generic `ci.yml` regardless of shape. The packs declare what each shape's pipeline needs.
 - **Expected behaviour:** Scaffolded CI includes the archetype's required steps, each as a commented, quoted suggestion the user completes — never a command AtlasMind invented and runs.
@@ -375,6 +380,13 @@ appeared zero times in any output branch), not selectable at bootstrap at all, a
 - **GitHub API usage:** n/a.
 - **Deterministic output requirements:** Same shape + same traits ⇒ same scaffold. Existing files are never overwritten.
 - **Priority:** Medium
+- **As shipped:** two halves, different in kind. Generic Node steps stay **real commands** (the manifest
+  says the scripts exist); archetype steps are **commented suggestions with their rationale**, because
+  AtlasMind knows a game wants a determinism gate without knowing this project's command for one, and a
+  guess that fails on the first commit teaches people to delete the file. `archetypeFromProjectTypeLabel`
+  closes the gap that made all of this unreachable: the bootstrap picker shows prose, `normalizeArchetype`
+  takes ids, and every chosen shape was resolving to `generic`. The trigger no longer names `master` — not
+  the default of any repository created since 2020, and not this project's.
 
 ---
 

@@ -6,6 +6,15 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.197.0 — Project shape reaches the scaffolder
+
+**The testing playbook says what your shape asks for:** which methodologies suit it, which recommended ones are not enabled, and which enabled ones the shape discourages. That last matters most — a methodology a shape cannot produce evidence for becomes a permanent gap, and permanent gaps teach people to ignore gaps. Read from the archetype packs rather than restated, so there is one copy.
+
+**Scaffolded CI is specialised.** Generic Node steps stay real commands, because the manifest says those scripts exist. Archetype steps are commented suggestions carrying their rationale, because AtlasMind knows a game wants a determinism gate without knowing your command for one — and a guess that fails on your first commit teaches you to delete the file.
+
+**Fixed: `game` finally does something.** Detected since the archetype work shipped and acted on nowhere, so a game project got a Playwright test for a page it does not serve and a k6 load script for requests it does not take. Now a determinism test and a frame budget.
+
+**Also fixed:** a function described in a comment that did not exist; every shape chosen at bootstrap resolving to `generic` because the picker shows prose and the normaliser takes ids; a starter file that emitted TypeScript into a `.js` project; and CI triggering on `master`, which is not the default branch of any repository created since 2020.
 ## v0.196.0 — Agents can ask each other questions
 
 `agent-handoff` is the tenth built-in workspace tool and the first that gains an agent a *capability* rather than a fact. An agent puts a question to a named specialist and gets their answer back, while keeping ownership of the task.

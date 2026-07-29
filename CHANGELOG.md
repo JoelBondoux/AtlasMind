@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.197.0] - 2026-07-29
+
+### Added
+- **The testing playbook now says what your project shape asks for.** Which methodologies suit it, which recommended ones you have not switched on, and — the one that matters most — which *enabled* ones your shape discourages. A methodology a shape cannot produce evidence for becomes a permanent gap, and a dashboard with a gap nobody can close teaches people to ignore gaps.
+
+  The recommendations are **read** from the archetype packs rather than restated in the scaffolder. A second copy would drift, which is the problem the shared archetype vocabulary was introduced to solve.
+
+- **Scaffolded CI is specialised by project shape.** Two halves, deliberately different in kind. The generic Node steps stay **real commands**, because AtlasMind can see your `package.json` and what scripts it declares. The archetype steps are **commented suggestions carrying their rationale**, because it cannot: it knows a game wants a determinism gate without knowing what command *your* project would use for one. Writing a guess and running it would produce a red build on your first commit, which teaches people to delete the file.
+
+### Fixed
+- **`game` finally does something.** It has been detected since the archetype work shipped and acted on nowhere — so a game project was handed a Playwright end-to-end test for a page it does not serve, and a k6 load script for requests it does not take. It now gets a determinism test (a fixed seed must replay exactly, or a bug reported from a play session cannot be reproduced) and a frame budget rather than a request rate.
+
+- **A function described in a comment that did not exist.** `toProjectArchetype` was documented at the top of the testing scaffolder for two versions; the scaffolder detected a project shape and then had no way to ask the packs what that shape needs.
+
+- **Every shape chosen at bootstrap was resolving to `generic`.** The picker shows prose — "Website / Marketing Site", "Game" — and the normaliser takes ids, so the shape a user *chose* reached nothing that acts on shape. The same detected-but-never-acted-on failure the archetype work exists to fix, one step earlier in the pipeline.
+
+- **A starter file that would not parse.** The new game recipe emitted TypeScript annotations, and the scaffolder picks the extension from the project rather than the recipe — so a JavaScript project would have received a `.js` file containing type annotations. Worse than no starter file, because it looks like the scaffolder succeeded. A test now checks every Node recipe.
+
+- **CI triggered on `master`**, hardcoded — not the default branch of any repository created since 2020, and not this project's either. It names `main` and says what to change otherwise, because a workflow that never runs looks identical to one that always passes.
 ## [0.196.0] - 2026-07-29
 
 ### Added
