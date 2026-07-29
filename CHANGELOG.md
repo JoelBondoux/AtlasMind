@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.196.0] - 2026-07-29
+
+### Added
+- **Agents can ask each other questions.** `agent-handoff` is the tenth built-in workspace tool and the first that gains an agent a *capability* rather than a fact. An agent puts a question to a named specialist — a security judgement, a test-design decision — and gets that specialist's answer back, while keeping ownership of the task.
+
+  **A handoff transfers the question, not the permissions.** The delegate runs with the intersection of the caller's skills and its own, never the union. A tool the caller does not have, the delegate does not get either, even if it normally would.
+
+  That is the point rather than a limitation. Handing off to a specialist *feels* like it should bring you their tools — that is what makes them a specialist. But if it did, any restricted agent could obtain any capability by asking a permissive one for it, and every restriction in AtlasMind would become a suggestion. Privilege escalation by delegation is a classic precisely because the escalating step always looks reasonable in isolation. An exhaustive test walks the whole subset lattice rather than arguing the property.
+
+  What a handoff does buy is real: the specialist's expertise — its prompt, its role, its rubric — applied within the caller's authority.
+
+- **Bounded, and honest about it.** Delegation is capped at three deep and cannot loop back to an agent already in the chain; both refusals name the chain. A delegate that would end up with no tools at all is **refused rather than run**, because a model that cannot check anything produces confident prose, and confident prose arriving as an answer is worse than an honest refusal naming the missing capability.
+
+  The answer returns fenced and labelled as another agent's opinion, not a verified result. It is model output feeding another model's reasoning, and it has not earned the credence a tool result gets.
+
+  A disabled agent cannot be reached through delegation — somebody switched it off, and routing around that would make the switch decorative. The caller's budget is not inherited either, or a handoff would be an unbounded cost multiplier.
+
+### Fixed
+- **A refusal that would have looked like policy.** A planner subtask runs as an ephemeral agent that is not in the agent registry, so resolving the caller's permission ceiling by id would have returned an empty set — and refused every handoff a subtask ever made, with a message about missing capability that was actually a missing record. The caller's resolved skills are now carried rather than looked up.
+
+- **`agent-handoff` is classified explicitly** rather than falling through to the unknown-tool default, which would have labelled it `network` — safe, but it would have told you your assistant was about to reach the internet, which it is not. The approval summary says what is actually being approved: spend, not action. The delegate's own tool use is gated separately, and saying yes here does not pre-approve it.
 ## [0.195.0] - 2026-07-29
 
 ### Added

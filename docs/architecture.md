@@ -377,6 +377,22 @@ The rules are ordered and first-match-wins, and the order is part of the contrac
 
 A CI log is untrusted input. `sanitizeCiLog` strips ANSI *before* redacting (a secret wrapped in colour codes would not match a redaction pattern otherwise), then caps size keeping the **tail** — a failure message is at the end of a log, and keeping the head would reliably discard the only part anybody needs. Truncation and redaction are both reported on the report, never silent, and `buildCiFailurePrompt` fences the excerpt as REPORTED CONTENT.
 
+### AgentHandoff (`src/core/agentHandoff.ts`)
+
+Delegated execution, and the authorization that does not come with it. Until now collaboration was structural — a subtask declares `dependsOn` and a `role`, the planner orders them, one agent's output becomes another's input — and nothing could *ask* another agent a question mid-task.
+
+**A handoff transfers the question, not the permissions.** The delegate runs with `intersection(caller's skills, target's skills)`, never the union, and that is the whole security argument. Handing off to a specialist *feels* like it should give you their tools — that is what makes them a specialist. But if it did, any restricted agent could obtain any capability by asking a permissive one for it, and every restriction in the system would become a suggestion. Privilege escalation by delegation is a classic precisely because the escalating step always looks reasonable in isolation. An exhaustive test walks the whole subset lattice rather than arguing the property.
+
+What a handoff *does* buy is real: the delegate's expertise — its system prompt, its role framing, its rubric — applied within the caller's authority.
+
+**An empty intersection refuses rather than running a tool-less delegate.** A model with no ability to check anything produces confident prose, and confident prose arriving as an answer is worse than an honest refusal naming the missing capability. Depth is capped at three and cycles are refused, both naming the chain.
+
+Three properties live in the wiring rather than the policy, where a mistake would leave the policy intact and route around it. **The caller cannot name itself:** identity comes from `currentExecution`, which the orchestrator sets from what it knows it is running, never from tool arguments — a model able to name its own caller could name a more privileged one. It carries the caller's *resolved* skills rather than an id, because a planner subtask is an ephemeral agent absent from the registry, and a lookup would hand back an empty ceiling that refused every handoff for a reason resembling policy. **The delegate is a narrowed copy**, so this run's ceiling cannot leak into later uses of the registered agent. And **the caller's budget is not inherited** — a delegate answering one question is a smaller job, and inheriting would make a handoff an unbounded cost multiplier.
+
+The answer comes back fenced: model output feeding another model's reasoning gets the same boundary as every other untrusted surface here. The delegate is not hostile, but it is not authoritative either, and an answer that arrived looking like a tool result would be believed more than it has earned.
+
+`classifyToolInvocation` names the tool explicitly rather than letting it fall through to the unknown-tool default, which would label it `network` — safe, but it would tell a user their assistant was about to reach the internet, which it is not. The risk being approved is *spend*, not action: every tool the delegate reaches for passes the same gate on its own account, and the summary says so.
+
 ### DebtRegister (`src/core/debtRegister.ts`)
 
 Stage 7. Taking on debt is often the right call — the metaphor is exact, and borrowing to ship sooner is legitimate. The danger is the interest paid by forgetting it exists.

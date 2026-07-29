@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.195.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.196.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,9 +64,15 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.195.0
+## What's new in 0.196.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
+
+- **Agents can ask each other questions.** An agent puts a question to a named specialist and gets their answer back, while keeping ownership of the task.
+
+  **A handoff transfers the question, not the permissions.** The delegate runs with the intersection of the caller's tools and its own — never the union. A tool the caller does not have, the delegate does not get either, even if it normally would. That is the point: if a handoff granted the union, any restricted agent could obtain any capability by asking a permissive one, and every restriction would become a suggestion.
+
+  Capped at three deep, no loops, and a delegate that would end up with no tools is refused rather than run. The answer comes back labelled as another agent's opinion, not a verified result.
 
 - **Every debt entry can be handed to an agent.** “Look at it with Atlas” opens a scoped chat with the entry, its evidence and the rule that graded it — and the prompt says plainly that a recorded shortcut is not a mandate. Plenty of debt is worth keeping, so “worth keeping, with the reason it was the right call” is a first-class answer, and the standing rule is propose, never apply.
 

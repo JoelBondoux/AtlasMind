@@ -284,3 +284,27 @@ Out of scope:
 ### Safe Harbor
 
 Security researchers acting in good faith are protected under AtlasMind's safe harbor policy. We will not pursue legal action for responsible disclosure.
+
+## Delegation does not carry authorization
+
+An agent can ask another agent a question (`agent-handoff`). **The delegate runs with the intersection of
+the caller's capabilities and its own — never the union.**
+
+This is the security property, not a limitation. Handing off to a specialist *feels* like it should give
+you the specialist's tools; that is what makes them a specialist. But if it did, any restricted agent could
+obtain any capability by asking a permissive one for it, and every restriction described on this page would
+become a suggestion. Privilege escalation by delegation is a classic precisely because the escalating step
+always looks reasonable in isolation.
+
+Four supporting boundaries:
+
+- **The caller cannot name itself.** Identity comes from what the orchestrator knows it is running, never
+  from tool arguments — a model able to name its own caller could name a more privileged one.
+- **The delegate is a narrowed copy** of the target agent, so a run's ceiling cannot leak into later uses.
+- **A disabled agent cannot be reached** through delegation. Somebody switched it off.
+- **Every tool the delegate uses is approved on its own account.** Allowing a handoff approves the spend,
+  not whatever the delegate goes on to do.
+
+Delegation is capped at three deep and cannot loop back to an agent already in the chain. A delegate that
+would end up with no tools at all is refused rather than run: a model that cannot check anything produces
+confident prose, and confident prose arriving as an answer is worse than a refusal naming what is missing.

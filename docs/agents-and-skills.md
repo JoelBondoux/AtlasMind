@@ -236,6 +236,19 @@ The built-in check is enforced in `AgentAutoUpdater.isDue()` before any provider
 
 ---
 
+
+## Asking another agent (`agent-handoff`)
+
+The tenth built-in workspace tool, and the first that gains an agent a *capability* rather than a fact.
+
+An agent calls it to put a question to a named specialist — a security judgement, a test-design decision — and gets that specialist's answer back. The caller keeps ownership of the task and acts on what it hears.
+
+**It runs with the caller's permissions, not the delegate's.** The delegate gets `intersection(caller's skills, target's skills)`, never the union. A tool the caller does not have, the delegate does not get either, even if it normally would. This is the point rather than an oversight: if a handoff granted the union, any restricted agent could obtain any capability by asking a permissive one, and every restriction in the system would become a suggestion.
+
+Delegation is capped at three deep and cannot loop back to an agent already in the chain. A delegate that would end up with no tools at all is refused rather than run, because a model that cannot check anything produces confident prose. Every refusal names what to do instead.
+
+The delegate's answer returns fenced and labelled as another agent's opinion — it is model output feeding another model's reasoning, and it has not earned the credence a tool result gets.
+
 ## Ephemeral Sub-Agents (Project Execution)
 
 When a `/project` command is executed, the orchestrator synthesises temporary `AgentDefinition` objects on the fly from each `SubTask.role` — these agents are never registered in the `AgentRegistry`. Supported roles and their system prompts:

@@ -1,6 +1,6 @@
 # Guided GitHub Workflow — Phased Roadmap
 
-> **Status:** Tier 1 shipped v0.181.0; Tier 2 shipped v0.183.0 (C3.4, C3.6 outstanding); Tier 3 CI intelligence shipped v0.184.0; **Tier 3.5 archetype specialisation shipped v0.185.0** (C7.4, C7.5 outstanding); **Tier 3 release half shipped v0.189.0 — C5.1 and C5.3 complete, so Tier 3's exit criteria are met**; **Tier 4 in progress — C1.1 and C1.7 shipped v0.190.0–v0.191.0, C1.6 shipped v0.192.0; C1.6 shipped v0.192.0, C6.1 shipped v0.193.0; C6 complete (v0.193.0–v0.195.0); **C1.8 outstanding and blocked on a design decision** — see below**. **Owner:** AtlasMind core. **Created:** 2026-07-28.
+> **Status:** Tier 1 shipped v0.181.0; Tier 2 shipped v0.183.0 (C3.4, C3.6 outstanding); Tier 3 CI intelligence shipped v0.184.0; **Tier 3.5 archetype specialisation shipped v0.185.0** (C7.4, C7.5 outstanding); **Tier 3 release half shipped v0.189.0 — C5.1 and C5.3 complete, so Tier 3's exit criteria are met**; **Tier 4 in progress — C1.1 and C1.7 shipped v0.190.0–v0.191.0, C1.6 shipped v0.192.0; C1.6 shipped v0.192.0, C6.1 shipped v0.193.0; **Tier 4 complete** — C1.1/C1.7 v0.190.0–v0.191.0, C1.6 v0.192.0, C6 v0.193.0–v0.195.0, C1.8 v0.196.0**. **Owner:** AtlasMind core. **Created:** 2026-07-28.
 > This is the SSOT implementation plan for [`docs/guided-github-workflow.md`](../../docs/guided-github-workflow.md),
 > which is the normative specification. Where the two disagree, the specification wins and this
 > file is wrong. Build incrementally, respecting the entry criteria between tiers. Nothing here
@@ -60,7 +60,7 @@ config executed through the promotion runner's own audited path — not spawned 
 `gh api repos/{slug}/branches/{b}/protection`; `gh api repos/{slug}/commits/{ref}/check-runs`;
 `gh repo create`.
 
-**Not present anywhere in `src/`:** the handoff tool (C1.8). Releases are read as of v0.189.0
+**Every tier of this roadmap is now shipped.** Outstanding items are C3.4, C3.6, C7.4 and C7.5. Releases are read as of v0.189.0
 (`gh release list`, plus local `git tag` and `git describe`), and the release *plan* is built entirely
 from local files so it works with no `gh` at all; `gh release create` remains proposed. CI runs and failed logs are read as of v0.184.0 (`gh run list`, `gh run view --log-failed`),
 classified by a rule table with no model in the path (`ciFailureAnalysis.ts`). Pull requests are read (v0.182.0) **and written**
@@ -441,7 +441,7 @@ raise a stage to `propose` or `auto` and have the record show exactly what was d
 - **Priority:** Medium
 - **As shipped:** A card on the Workflow page. The file is **never created implicitly** — every other persisted document seeds on first read, and this one deliberately does not, because it gets committed and writing one because somebody opened a tab would put words in their mouth in a file others review. Every edit is one field whose exact change the host lists in a `{modal:true}` confirmation before writing, since the person clicking the button and the person reading the pull request need to be looking at the same thing. Refusals are reported, not silent.
 
-#### C1.8 — A first-class handoff tool
+#### C1.8 — A first-class handoff tool  ✅ shipped v0.196.0
 
 - **Purpose:** Handoff today is structural (`dependsOn` + role) and prose. The specification says so honestly; this closes it.
 - **Expected behaviour:** A built-in tool letting a subtask transfer control to a named agent with scoped context, recorded in the audit trail.
@@ -449,32 +449,34 @@ raise a stage to `propose` or `auto` and have the record show exactly what was d
 - **GitHub API usage:** n/a.
 - **Deterministic output requirements:** A handoff is a recorded event with a named source and target; delegated execution never implies delegated authorization.
 - **Priority:** Low
+- **As shipped:** option 2 — real delegated execution, chosen deliberately over the record-only version.
+  `agentHandoff.ts` holds the policy; `SkillExecutionContext.runAgent` is the seam; the orchestrator
+  supplies execution. "Delegated execution never implies delegated authorization" is implemented as
+  `intersection(caller, target)`, never the union, with an exhaustive subset-lattice test. The caller's
+  identity comes from `currentExecution` rather than a tool argument, and carries *resolved* skills — a
+  planner subtask is ephemeral and absent from the registry, so a lookup by id would have refused every
+  handoff a subtask ever made, for a reason that looked like policy.
 
 ---
 
-## C1.8 — blocked on a decision, deliberately not started
+## C1.8 — the decision, and what followed
 
-The handoff tool is the last Tier 4 item and it is **not** a small one, because "handoff" can mean two
-things with very different security surfaces:
+Two readings of "handoff" were on the table: a recorded request (no orchestrator change, small, and at
+risk of being a tool that returns "recorded" while nothing happens) or real delegated execution. **The
+decision was real delegated execution**, and it needed all four of the things that made it the larger
+option: a `runAgent` seam on `SkillExecutionContext`, re-entrancy handling, a depth cap, and an
+authorization rule.
 
-1. **A recorded request.** A subtask says "this belongs to `security-reviewer`, here is the scoped
-   context, here is why", and that becomes an event in the audit trail plus a suggestion the planner
-   can act on. No orchestrator change. Honest, small — and at risk of being a tool that returns
-   "recorded" while nothing happens, which is the exact half-wired pattern the last four versions
-   were spent removing.
+The authorization rule is the one that mattered. **`intersection(caller, target)`, never the union.**
+The appealing alternative — that handing off to a specialist gives you the specialist's tools — is
+exactly what would turn every restriction in the system into a suggestion, and privilege escalation by
+delegation is a classic precisely because the escalating step always looks reasonable in isolation.
 
-2. **Real delegated execution.** The tool calls back into the orchestrator to run a nested task. This
-   needs a `runAgent` seam on `SkillExecutionContext` (there is none today), re-entrancy handling, a
-   depth cap, and — the load-bearing part — an authorization rule, because **delegated execution must
-   never imply delegated authorization**: a sub-agent must inherit *at most* the caller's tool
-   approvals, never the union of what both could do.
-
-The specification already describes handoff honestly as structural (`dependsOn` + role) and prose, so
-nothing currently claims a capability that does not exist. Building (1) to look complete would create
-that claim. Building (2) unguided, at the end of a long session, is how the bugs this tier spent four
-versions fixing get written.
-
-**Owed:** a decision on which one. Until then this item stays open and the specification stays honest.
+Building it surfaced one bug the policy alone would not have caught: a planner subtask runs as an
+ephemeral agent that is **not in the registry**, so resolving the caller's ceiling by id would have
+returned an empty set and refused every handoff a subtask ever made — with a message that read like
+policy and was actually a missing record. The caller's resolved skills are now carried on
+`currentExecution` rather than looked up.
 
 ## The `WorkflowObservedState` audit — a bug class, recorded
 

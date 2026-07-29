@@ -6,6 +6,17 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.196.0 — Agents can ask each other questions
+
+`agent-handoff` is the tenth built-in workspace tool and the first that gains an agent a *capability* rather than a fact. An agent puts a question to a named specialist and gets their answer back, while keeping ownership of the task.
+
+**A handoff transfers the question, not the permissions.** The delegate runs with the intersection of the caller's skills and its own, never the union. A tool the caller does not have, the delegate does not get either.
+
+That is the point rather than a limitation. If a handoff granted the union, any restricted agent could obtain any capability by asking a permissive one, and every restriction in AtlasMind would become a suggestion. What it *does* buy is the specialist's expertise applied within the caller's authority.
+
+**Bounded and honest.** Three deep, no loops back to an agent already in the chain, and a delegate that would have no tools at all is refused rather than run — a model that cannot check anything produces confident prose. The answer returns fenced and labelled as another agent's opinion, not a verified result.
+
+A disabled agent cannot be reached through delegation, and the caller's budget is not inherited.
 ## v0.195.0 — Debt entries can be handed to an agent
 
 “Look at it with Atlas” opens a scoped chat with the entry, its evidence, and the rule that graded it. The `refactorer` agent has existed since v0.184.0 and until now had nothing to reason over.

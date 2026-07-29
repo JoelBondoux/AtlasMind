@@ -328,8 +328,67 @@ function makeWorkspaceObservabilityTool(): SkillDefinition {
   };
 }
 
+/**
+ * Ask another agent a question.
+ *
+ * The first tool here that gains an agent a *capability* rather than a fact, so
+ * the description does two jobs: it tells the model what the tool is for, and it
+ * tells it what the tool deliberately does not do. Both matter, because the
+ * natural assumption — that handing off to a specialist gives you the
+ * specialist's tools — is exactly the assumption that would turn every
+ * restriction in the system into a suggestion.
+ *
+ * The policy lives in `agentHandoff.ts` and the execution in the orchestrator.
+ * This is only the surface.
+ */
+function makeAgentHandoffTool(): SkillDefinition {
+  return {
+    id: 'agent-handoff',
+    name: 'Ask Another Agent',
+    description:
+      'Ask a named specialist agent a question and get their answer. Use when a question genuinely '
+      + 'belongs to another specialism — a security judgement, a test-design decision — rather than '
+      + 'to save yourself work. The delegate answers; you keep ownership of the task and act on what '
+      + 'they say. It runs with YOUR permissions, not its own: a tool you do not have, it does not '
+      + 'get either. Delegation is capped in depth and cannot loop back to an agent already in the '
+      + 'chain.',
+    builtIn: true,
+    parameters: {
+      type: 'object',
+      properties: {
+        agent_id: { type: 'string', description: 'Id of the agent to ask, e.g. "security-reviewer".' },
+        reason: { type: 'string', description: 'Why this question belongs to that agent.' },
+        question: {
+          type: 'string',
+          description: 'The question, plus only the context needed to answer it. Not the whole task.',
+        },
+      },
+      required: ['agent_id', 'question'],
+    },
+    execute: async (params: Record<string, unknown>, ctx: SkillExecutionContext): Promise<string> => {
+      if (!ctx.runAgent) {
+        // Absent rather than broken: this context has no orchestrator behind it.
+        // Saying so beats a stack trace the model will try to work around.
+        return 'Handoff refused (unavailable). Delegation is not available in this context — there is '
+          + 'no orchestrator to run another agent. Answer with what you have.';
+      }
+      return ctx.runAgent({
+        targetAgentId: String(params['agent_id'] ?? ''),
+        reason: String(params['reason'] ?? ''),
+        question: String(params['question'] ?? ''),
+        // The caller identifies itself through the context the orchestrator
+        // installed, never through arguments the model supplies — otherwise an
+        // agent could claim to be a more privileged one.
+        callerAgentId: '',
+        callerTaskId: '',
+      });
+    },
+  };
+}
+
 export function getBuiltinWorkspaceTools(): SkillDefinition[] {
   return [
+    makeAgentHandoffTool(),
     makeFileReadTool(),
     makeFileWriteTool(),
     makeFileEditTool(),

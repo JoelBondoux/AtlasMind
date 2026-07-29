@@ -923,6 +923,25 @@ export interface SkillExecutionContext {
   getAtlasMindOutputLog(): Promise<string>;
   /** List active debug sessions with their type and name. Returns empty array when no debug session is running. */
   getDebugSessions(): Promise<Array<{ id: string; name: string; type: string }>>;
+  /**
+   * Ask another agent a question, and get its answer back.
+   *
+   * **Optional on purpose.** Only the orchestrator can run an agent, and the
+   * CLI context and unit tests have no orchestrator — a tool that found this
+   * absent must refuse with a reason, not crash. Its absence is the honest
+   * report that delegation is unavailable here.
+   *
+   * The implementation is responsible for the authorization rule, which is not
+   * negotiable at this layer: **a delegate runs with at most the caller's
+   * capabilities, never the union.** See `agentHandoff.ts`.
+   */
+  runAgent?(request: {
+    targetAgentId: string;
+    reason: string;
+    question: string;
+    callerAgentId: string;
+    callerTaskId: string;
+  }): Promise<string>;
   /** Evaluate an expression in the currently paused debug session. Returns the result or an error string. */
   evaluateDebugExpression(expression: string, frameId?: number): Promise<string>;
   /**
