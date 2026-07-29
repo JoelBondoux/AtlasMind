@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.202.0] - 2026-07-29
+
+### Changed
+- **The sidebar is reordered, and every titlebar reconsidered.** The order now reads top to bottom as a sentence: where you work (Chat), what needs you (Project State, Project Director), what has happened (Runs, Sessions), what the project knows (Memory), what does the work (Agents, Skills), what it runs on (Models), what it can reach (MCP Servers, Resource Discovery).
+
+  **Project Director moved from last to third.** It carries an overdue-follow-up badge and sat below three configuration views — a badge nobody scrolls to is a badge that does nothing.
+
+- **Each view's titlebar now carries actions about that view.** It did not: Sessions had **ten** navigation actions, seven of them about something other than sessions (Cost Dashboard, Model Providers, Personality Profile, Import Project), and VS Code collapses anything past five into a `…` menu — so the list was both irrelevant and hidden. Memory carried the Cost Dashboard.
+
+  The global routes stay on Chat, which is the first view and acts as the app's home. Everywhere else gets its own two or three, plus one route to the surface that manages it in depth and its own settings page. A test now caps every view at five slots.
+
+  Worth being clear that this reverses a deliberate decision — a test asserted that Sessions and Memory should carry the *same* quick actions as Chat. The duplication was intended; it just did not survive contact with a titlebar that only fits five.
+
+### Added
+- **Project State has a titlebar at all.** It had none: no route to the detail behind the glance, and no way to update it. It now opens the Project Dashboard, refreshes on demand, and opens the safety settings. The refresh already existed as a closure that only unrelated tree events reached — a glance surface whose only way to update is something else firing is one people learn not to trust.
+
+- **Agents can add an agent.** Skills had "add skill" and Agents had nothing — an asymmetry with nothing behind it.
+
+### Fixed
+- **Four links in the Project State tree.** Two rows had no link at all (`Every step done`, and the tech-debt count). The automation row opened the Settings panel, which does not render `atlasmind.workflow.*` — the same wrong destination as the Workflow page's button before v0.199.0; it now filters VS Code's settings to those four gates.
+
+  And the CI-failure row — the most actionable row in the tree — pointed at the **Workflow** page after the classified failure and its evidence moved to **Pipeline** in v0.188.0. A link to where the content used to be, which is worse than a missing one because it looks like it worked. A test now checks every page target against the panel's real page list.
+
+- **A setting that hid the wrong action.** `atlasmind.showImportProjectAction` is documented as "Show the Import Existing Project toolbar action in the AtlasMind Memory view" — and it was also gating *Update memory* on that view, so turning the import off hid both. Chat's copy of the same action never carried the guard, which is what gave it away.
 ## [0.201.1] - 2026-07-29
 
 ### Fixed

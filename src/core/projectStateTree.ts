@@ -142,7 +142,15 @@ function buildPermissions(automation: ProjectStateInput['automation']): ProjectS
     icon: automation.effective === 'off' || !automation.masterEnabled ? 'circle-slash'
       : automation.effective === 'auto' ? 'zap'
         : 'shield',
-    command: { command: 'atlasmind.openSettings', title: 'Open settings' },
+    // The four gates are plain settings with no panel UI, so this opens VS
+    // Code's own settings filtered to them. It used to open the Settings panel,
+    // which does not render them — the same wrong destination as the Workflow
+    // page's button, fixed in v0.199.0.
+    command: {
+      command: 'workbench.action.openSettings',
+      title: 'Open the workflow settings',
+      args: ['atlasmind.workflow'],
+    },
   });
 
   for (const capability of automation.capabilities) {
@@ -206,6 +214,10 @@ function buildPosition(workflow: ProjectStateInput['workflow']): ProjectStateSec
       label: 'Every step done',
       tooltip: 'Nothing in the guided workflow is outstanding.',
       icon: 'pass',
+      // Linked even though nothing is outstanding: somebody who reads "every
+      // step done" and wants to check what that covered should be one click
+      // from the list rather than hunting for it.
+      command: { command: 'atlasmind.openProjectDashboard', title: 'Open the Workflow page', args: ['workflow'] },
     });
   }
 
@@ -263,7 +275,10 @@ function buildAttention(attention: ProjectStateInput['attention']): ProjectState
       // owner and a suggested fix, so flagging it too would make the badge
       // permanently non-zero on any project with a red build.
       needsAttention: classification === 'unknown',
-      command: { command: 'atlasmind.openProjectDashboard', title: 'Open the Workflow page', args: ['workflow'] },
+      // Pipeline, not Workflow. The classified failure and its evidence moved
+      // there in v0.188.0 and this link did not follow — so the most actionable
+      // row in the tree opened a page that no longer shows the failure.
+      command: { command: 'atlasmind.openProjectDashboard', title: 'Open the Pipeline page', args: ['pipeline'] },
     });
   }
 
@@ -313,6 +328,7 @@ function buildDeferred(deferred: ProjectStateInput['deferred']): ProjectStateSec
       label: `${deferred.debtItems} debt item${deferred.debtItems === 1 ? '' : 's'}`,
       tooltip: 'Work knowingly deferred, with the file and line recorded. Taking debt on is often right; forgetting it is the danger.',
       icon: 'history',
+      command: { command: 'atlasmind.openProjectDashboard', title: 'Open the Tech Debt page', args: ['debt'] },
     });
   }
 

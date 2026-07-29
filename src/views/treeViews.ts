@@ -178,6 +178,13 @@ export function registerTreeViews(
       'atlasmind.projectRunsView',
       projectRunsProvider,
     ),
+    // Exposed as a command so the view's titlebar can offer it. The function
+    // already existed and only the tree's own events reached it — a glance
+    // surface whose only way to update is an unrelated event firing is one
+    // people learn not to trust.
+    vscode.commands.registerCommand('atlasmind.refreshProjectState', () => {
+      refreshProjectState();
+    }),
     vscode.commands.registerCommand('atlasmind.memory.openEntry', async (item?: MemoryEntryTreeItem) => {
       if (!item) {
         return;

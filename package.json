@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.201.1",
+  "version": "0.202.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -207,7 +207,8 @@
       },
       {
         "command": "atlasmind.openAgentPanel",
-        "title": "AtlasMind: Manage Agents"
+        "title": "AtlasMind: Manage Agents",
+        "icon": "$(organization)"
       },
       {
         "command": "atlasmind.agents.toggleEnabled",
@@ -500,6 +501,11 @@
         "command": "atlasmind.remote.showDashboard",
         "title": "AtlasMind: Open Remote Dashboard",
         "icon": "$(graph)"
+      },
+      {
+        "command": "atlasmind.refreshProjectState",
+        "title": "AtlasMind: Refresh Project State",
+        "icon": "$(refresh)"
       }
     ],
     "keybindings": [
@@ -525,6 +531,116 @@
       ],
       "view/title": [
         {
+          "command": "atlasmind.openProjectDashboard",
+          "when": "view == atlasmind.chatView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "atlasmind.openMissionControl",
+          "when": "view == atlasmind.chatView",
+          "group": "navigation@2"
+        },
+        {
+          "command": "atlasmind.openProjectIdeation",
+          "when": "view == atlasmind.chatView",
+          "group": "navigation@3"
+        },
+        {
+          "command": "atlasmind.openCostDashboard",
+          "when": "view == atlasmind.chatView",
+          "group": "navigation@4"
+        },
+        {
+          "command": "atlasmind.updateProjectMemory",
+          "when": "view == atlasmind.chatView && atlasmind.ssotPresent",
+          "group": "navigation@5"
+        },
+        {
+          "command": "atlasmind.importProject",
+          "when": "view == atlasmind.chatView && !atlasmind.ssotPresent && config.atlasmind.showImportProjectAction",
+          "group": "navigation@5"
+        },
+        {
+          "command": "atlasmind.openSettings",
+          "when": "view == atlasmind.chatView",
+          "group": "4_config@1"
+        },
+        {
+          "command": "atlasmind.openProjectDashboard",
+          "when": "view == atlasmind.projectStateView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "atlasmind.refreshProjectState",
+          "when": "view == atlasmind.projectStateView",
+          "group": "navigation@2"
+        },
+        {
+          "command": "atlasmind.openSettingsSafety",
+          "when": "view == atlasmind.projectStateView",
+          "group": "4_config@1"
+        },
+        {
+          "command": "atlasmind.openProjectDirector",
+          "when": "view == atlasmind.projectDirectorView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "atlasmind.openSettingsProject",
+          "when": "view == atlasmind.projectDirectorView",
+          "group": "4_config@1"
+        },
+        {
+          "command": "atlasmind.openProjectRunCenter",
+          "when": "view == atlasmind.projectRunsView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "atlasmind.openSettingsProject",
+          "when": "view == atlasmind.projectRunsView",
+          "group": "4_config@1"
+        },
+        {
+          "command": "atlasmind.openChatView",
+          "when": "view == atlasmind.sessionsView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "atlasmind.sessions.createFolder",
+          "when": "view == atlasmind.sessionsView",
+          "group": "navigation@2"
+        },
+        {
+          "command": "atlasmind.openSettingsChat",
+          "when": "view == atlasmind.sessionsView",
+          "group": "4_config@1"
+        },
+        {
+          "command": "atlasmind.updateProjectMemory",
+          "when": "view == atlasmind.memoryView && atlasmind.ssotPresent",
+          "group": "navigation@1"
+        },
+        {
+          "command": "atlasmind.importProject",
+          "when": "view == atlasmind.memoryView && !atlasmind.ssotPresent && config.atlasmind.showImportProjectAction",
+          "group": "navigation@1"
+        },
+        {
+          "command": "atlasmind.openSettingsProject",
+          "when": "view == atlasmind.memoryView",
+          "group": "4_config@1"
+        },
+        {
+          "command": "atlasmind.openAgentPanel",
+          "when": "view == atlasmind.agentsView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "atlasmind.openSettings",
+          "when": "view == atlasmind.agentsView",
+          "group": "4_config@1"
+        },
+        {
           "command": "atlasmind.skills.addSkill",
           "when": "view == atlasmind.skillsView",
           "group": "navigation@1"
@@ -540,9 +656,39 @@
           "group": "navigation@3"
         },
         {
+          "command": "atlasmind.openSettings",
+          "when": "view == atlasmind.skillsView",
+          "group": "4_config@1"
+        },
+        {
+          "command": "atlasmind.compareModels",
+          "when": "view == atlasmind.modelsView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "atlasmind.openModelProviders",
+          "when": "view == atlasmind.modelsView",
+          "group": "navigation@2"
+        },
+        {
+          "command": "atlasmind.models.dismissNotifications",
+          "when": "view == atlasmind.modelsView && atlasmind.hasAutoPausedProviders",
+          "group": "navigation@3"
+        },
+        {
+          "command": "atlasmind.openSettingsModels",
+          "when": "view == atlasmind.modelsView",
+          "group": "4_config@1"
+        },
+        {
           "command": "atlasmind.openMcpServers",
           "when": "view == atlasmind.mcpServersView",
           "group": "navigation@1"
+        },
+        {
+          "command": "atlasmind.openSettingsSafety",
+          "when": "view == atlasmind.mcpServersView",
+          "group": "4_config@1"
         },
         {
           "command": "atlasmind.ard.search",
@@ -555,183 +701,8 @@
           "group": "navigation@2"
         },
         {
-          "command": "atlasmind.openProjectRunCenter",
-          "when": "view == atlasmind.projectRunsView",
-          "group": "navigation@1"
-        },
-        {
-          "command": "atlasmind.openProjectIdeation",
-          "when": "view == atlasmind.projectRunsView",
-          "group": "navigation@2"
-        },
-        {
-          "command": "atlasmind.openChatView",
-          "when": "view == atlasmind.sessionsView",
-          "group": "navigation@1"
-        },
-        {
-          "command": "atlasmind.updateProjectMemory",
-          "when": "view == atlasmind.chatView && atlasmind.ssotPresent",
-          "group": "navigation@1"
-        },
-        {
-          "command": "atlasmind.importProject",
-          "when": "view == atlasmind.chatView && !atlasmind.ssotPresent && config.atlasmind.showImportProjectAction",
-          "group": "navigation@1"
-        },
-        {
-          "command": "atlasmind.openProjectDashboard",
-          "when": "view == atlasmind.chatView",
-          "group": "navigation@2"
-        },
-        {
-          "command": "atlasmind.openProjectIdeation",
-          "when": "view == atlasmind.chatView",
-          "group": "navigation@3"
-        },
-        {
-          "command": "atlasmind.openCostDashboard",
-          "when": "view == atlasmind.chatView",
-          "group": "navigation@4"
-        },
-        {
-          "command": "atlasmind.openProjectRunCenter",
-          "when": "view == atlasmind.chatView",
-          "group": "navigation@5"
-        },
-        {
-          "command": "atlasmind.openMissionControl",
-          "when": "view == atlasmind.chatView",
-          "group": "navigation@6"
-        },
-        {
-          "command": "atlasmind.openModelProviders",
-          "when": "view == atlasmind.chatView",
-          "group": "navigation@7"
-        },
-        {
-          "command": "atlasmind.openPersonalityProfile",
-          "when": "view == atlasmind.chatView",
-          "group": "navigation@7"
-        },
-        {
           "command": "atlasmind.openSettings",
-          "when": "view == atlasmind.chatView",
-          "group": "navigation@8"
-        },
-        {
-          "command": "atlasmind.sessions.createFolder",
-          "when": "view == atlasmind.sessionsView",
-          "group": "navigation@2"
-        },
-        {
-          "command": "atlasmind.openProjectDashboard",
-          "when": "view == atlasmind.sessionsView",
-          "group": "navigation@3"
-        },
-        {
-          "command": "atlasmind.openProjectIdeation",
-          "when": "view == atlasmind.sessionsView",
-          "group": "navigation@4"
-        },
-        {
-          "command": "atlasmind.openCostDashboard",
-          "when": "view == atlasmind.sessionsView",
-          "group": "navigation@5"
-        },
-        {
-          "command": "atlasmind.openProjectRunCenter",
-          "when": "view == atlasmind.sessionsView",
-          "group": "navigation@6"
-        },
-        {
-          "command": "atlasmind.openModelProviders",
-          "when": "view == atlasmind.sessionsView",
-          "group": "navigation@7"
-        },
-        {
-          "command": "atlasmind.openPersonalityProfile",
-          "when": "view == atlasmind.sessionsView",
-          "group": "navigation@8"
-        },
-        {
-          "command": "atlasmind.openSettings",
-          "when": "view == atlasmind.sessionsView",
-          "group": "navigation@9"
-        },
-        {
-          "command": "atlasmind.importProject",
-          "when": "view == atlasmind.sessionsView && !atlasmind.ssotPresent && config.atlasmind.showImportProjectAction",
-          "group": "navigation@10"
-        },
-        {
-          "command": "atlasmind.updateProjectMemory",
-          "when": "view == atlasmind.sessionsView && atlasmind.ssotPresent && config.atlasmind.showImportProjectAction",
-          "group": "navigation@10"
-        },
-        {
-          "command": "atlasmind.openSettings",
-          "when": "view == atlasmind.agentsView",
-          "group": "4_config@1"
-        },
-        {
-          "command": "atlasmind.openSettings",
-          "when": "view == atlasmind.skillsView",
-          "group": "4_config@1"
-        },
-        {
-          "command": "atlasmind.openSettingsSafety",
-          "when": "view == atlasmind.mcpServersView",
-          "group": "4_config@1"
-        },
-        {
-          "command": "atlasmind.openSettingsChat",
-          "when": "view == atlasmind.sessionsView",
-          "group": "4_config@1"
-        },
-        {
-          "command": "atlasmind.openSettings",
-          "when": "view == atlasmind.memoryView",
-          "group": "4_config@1"
-        },
-        {
-          "command": "atlasmind.updateProjectMemory",
-          "when": "view == atlasmind.memoryView && atlasmind.ssotPresent && config.atlasmind.showImportProjectAction",
-          "group": "navigation@1"
-        },
-        {
-          "command": "atlasmind.importProject",
-          "when": "view == atlasmind.memoryView && !atlasmind.ssotPresent && config.atlasmind.showImportProjectAction",
-          "group": "navigation@2"
-        },
-        {
-          "command": "atlasmind.openProjectDashboard",
-          "when": "view == atlasmind.memoryView",
-          "group": "navigation@3"
-        },
-        {
-          "command": "atlasmind.openCostDashboard",
-          "when": "view == atlasmind.memoryView",
-          "group": "navigation@4"
-        },
-        {
-          "command": "atlasmind.models.dismissNotifications",
-          "when": "view == atlasmind.modelsView && atlasmind.hasAutoPausedProviders",
-          "group": "navigation@1"
-        },
-        {
-          "command": "atlasmind.compareModels",
-          "when": "view == atlasmind.modelsView",
-          "group": "navigation@2"
-        },
-        {
-          "command": "atlasmind.openSettingsModels",
-          "when": "view == atlasmind.modelsView",
-          "group": "4_config@1"
-        },
-        {
-          "command": "atlasmind.openSettingsProject",
-          "when": "view == atlasmind.projectRunsView",
+          "when": "view == atlasmind.discoveryView",
           "group": "4_config@1"
         }
       ],
@@ -1093,6 +1064,13 @@
           "visibility": "visible"
         },
         {
+          "id": "atlasmind.projectDirectorView",
+          "name": "Project Director",
+          "icon": "media/icon.svg",
+          "type": "tree",
+          "visibility": "collapsed"
+        },
+        {
           "id": "atlasmind.projectRunsView",
           "name": "Project Runs",
           "icon": "media/icon.svg",
@@ -1130,6 +1108,13 @@
           "visibility": "collapsed"
         },
         {
+          "id": "atlasmind.modelsView",
+          "name": "Models",
+          "icon": "media/icon.svg",
+          "type": "tree",
+          "visibility": "collapsed"
+        },
+        {
           "id": "atlasmind.mcpServersView",
           "name": "MCP Servers",
           "icon": "media/icon.svg",
@@ -1140,20 +1125,6 @@
         {
           "id": "atlasmind.discoveryView",
           "name": "Resource Discovery",
-          "icon": "media/icon.svg",
-          "type": "tree",
-          "visibility": "collapsed"
-        },
-        {
-          "id": "atlasmind.modelsView",
-          "name": "Models",
-          "icon": "media/icon.svg",
-          "type": "tree",
-          "visibility": "collapsed"
-        },
-        {
-          "id": "atlasmind.projectDirectorView",
-          "name": "Project Director",
           "icon": "media/icon.svg",
           "type": "tree",
           "visibility": "collapsed"

@@ -265,8 +265,11 @@ describe('package manifest', () => {
         when: 'view == atlasmind.sessionsView',
       }),
       expect.objectContaining({
+        // No `showImportProjectAction` guard: that setting is documented as
+        // governing the *import* action, and gating this one with it meant
+        // turning the import off hid "Update memory" as well.
         command: 'atlasmind.updateProjectMemory',
-        when: 'view == atlasmind.memoryView && atlasmind.ssotPresent && config.atlasmind.showImportProjectAction',
+        when: 'view == atlasmind.memoryView && atlasmind.ssotPresent',
       }),
       expect.objectContaining({
         command: 'atlasmind.importProject',
@@ -293,20 +296,26 @@ describe('package manifest', () => {
   it('ships the AtlasMind sidebar tree views in the default operational order and collapsed by default', () => {
     const views = (manifest.contributes?.views?.['atlasmind-sidebar'] ?? []) as Array<{ id: string; visibility?: string }>;
 
+    // The order reads top to bottom as a sentence: where you work, what needs
+    // you, what has happened, what the project knows, what does the work, what
+    // it runs on, what it can reach.
     expect(views.map(entry => entry.id)).toEqual([
       'atlasmind.chatView',
       // Directly under Chat: it is the view you glance at, so it must not sit
       // below ten inventory rows.
       'atlasmind.projectStateView',
+      // Was last, below three configuration views — while carrying an overdue
+      // badge. A badge nobody scrolls to is a badge that does nothing.
+      'atlasmind.projectDirectorView',
       'atlasmind.projectRunsView',
       'atlasmind.sessionsView',
       'atlasmind.memoryView',
       'atlasmind.agentsView',
       'atlasmind.skillsView',
-      'atlasmind.mcpServersView',
-      'atlasmind.discoveryView',
       'atlasmind.modelsView',
-      'atlasmind.projectDirectorView',
+      'atlasmind.mcpServersView',
+      // Rarest thing in the sidebar, so it sits last.
+      'atlasmind.discoveryView',
     ]);
 
     expect(views.filter(entry => entry.id !== 'atlasmind.chatView')).toEqual(expect.arrayContaining([
@@ -428,42 +437,104 @@ describe('package manifest', () => {
     ]));
   });
 
-  it('adds the same dashboard and project quick actions to core sidebar views', () => {
+  /**
+   * This test used to assert the opposite.
+   *
+   * It required that Sessions and Memory each carry the *same* set of
+   * dashboard and project quick actions as Chat — so the duplication was
+   * deliberate and tested for, not an oversight. It did not survive contact:
+   * Sessions ended up with ten navigation actions, of which seven were about
+   * something other than sessions, and VS Code collapses anything past five
+   * into a `...` menu. The result was a titlebar that was both irrelevant and
+   * hidden.
+   *
+   * The rule now is narrower and, I think, right: a view's titlebar carries
+   * actions about *that view*, one route to the surface that manages it in
+   * depth, and its own settings page. The global set stays on Chat, which is
+   * the first view and acts as the app's home.
+   */
+  it('gives each sidebar view its own actions rather than a copy of the global set', () => {
     const menus = (manifest.contributes?.menus?.['view/title'] ?? []) as ManifestMenuItem[];
-    expect(menus).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        command: 'atlasmind.openProjectDashboard',
-        when: 'view == atlasmind.sessionsView',
-      }),
-      expect.objectContaining({
-        command: 'atlasmind.openCostDashboard',
-        when: 'view == atlasmind.sessionsView',
-      }),
+    const forView = (view: string): string[] => menus
+      .filter(entry => (entry.when ?? '').startsWith(`view == ${view}`))
+      .filter(entry => (entry.group ?? '').startsWith('navigation'))
+      .map(entry => entry.command);
+
+    // Sessions is about sessions: start one, file them. Nothing else.
+    expect(forView('atlasmind.sessionsView').sort()).toEqual([
+      'atlasmind.openChatView',
+      'atlasmind.sessions.createFolder',
+    ]);
+
+    // Memory is about memory. It used to carry the Cost Dashboard.
+    expect(forView('atlasmind.memoryView')).not.toContain('atlasmind.openCostDashboard');
+
+    // The glance view had no titlebar at all: no route to the detail behind it,
+    // and no way to update it.
+    expect(forView('atlasmind.projectStateView')).toEqual([
+      'atlasmind.openProjectDashboard',
+      'atlasmind.refreshProjectState',
+    ]);
+
+    // Agents had no way to add one while Skills had "add skill" — an asymmetry
+    // with nothing behind it.
+    expect(forView('atlasmind.agentsView')).toContain('atlasmind.openAgentPanel');
+
+    // Five is the ceiling: VS Code hides the rest behind `...`, which is where
+    // the old ten went to be ignored. Counted as slots, because two mutually
+    // exclusive alternates share one button.
+    const views = new Set(menus
+      .map(entry => (entry.when ?? '').match(/^view == ([\w.]+)/)?.[1])
+      .filter((view): view is string => Boolean(view)));
+    for (const view of views) {
+      const slots = new Set(menus
+        .filter(entry => (entry.when ?? '').startsWith(`view == ${view}`))
+        .filter(entry => (entry.group ?? '').startsWith('navigation'))
+        .map(entry => entry.group));
+      expect(slots.size, view).toBeLessThanOrEqual(5);
+    }
+  });
+
+  it('keeps the conditional actions conditional', () => {
+    // Three of these are load-bearing and were nearly flattened while
+    // rebuilding the titlebars: "Import project" must appear only without an
+    // SSOT, "Update memory" only with one, and "Dismiss notifications" only
+    // when a provider is actually paused. Unconditional, they offer an import
+    // nobody wants and a dismissal with nothing to dismiss.
+    const menus = (manifest.contributes?.menus?.['view/title'] ?? []) as ManifestMenuItem[];
+    const conditional = menus.filter(entry => (entry.when ?? '').includes('&&'));
+
+    expect(conditional).toEqual(expect.arrayContaining([
       expect.objectContaining({
         command: 'atlasmind.importProject',
-        when: 'view == atlasmind.sessionsView && !atlasmind.ssotPresent && config.atlasmind.showImportProjectAction',
+        when: 'view == atlasmind.chatView && !atlasmind.ssotPresent && config.atlasmind.showImportProjectAction',
       }),
       expect.objectContaining({
         command: 'atlasmind.updateProjectMemory',
-        when: 'view == atlasmind.sessionsView && atlasmind.ssotPresent && config.atlasmind.showImportProjectAction',
+        when: 'view == atlasmind.chatView && atlasmind.ssotPresent',
       }),
       expect.objectContaining({
-        command: 'atlasmind.openProjectDashboard',
-        when: 'view == atlasmind.memoryView',
-      }),
-      expect.objectContaining({
-        command: 'atlasmind.openCostDashboard',
-        when: 'view == atlasmind.memoryView',
-      }),
-      expect.objectContaining({
-        command: 'atlasmind.importProject',
-        when: 'view == atlasmind.memoryView && !atlasmind.ssotPresent && config.atlasmind.showImportProjectAction',
-      }),
-      expect.objectContaining({
-        command: 'atlasmind.updateProjectMemory',
-        when: 'view == atlasmind.memoryView && atlasmind.ssotPresent && config.atlasmind.showImportProjectAction',
+        command: 'atlasmind.models.dismissNotifications',
+        when: 'view == atlasmind.modelsView && atlasmind.hasAutoPausedProviders',
       }),
     ]));
+
+    // `showImportProjectAction` is documented as "Show the Import Existing
+    // Project toolbar action in the AtlasMind Memory view" — and it was also
+    // gating *Update memory* on that same view, so turning the import action off
+    // hid both. Chat's copy never carried the guard, which is what gave it away.
+    const memoryUpdate = menus.find(entry =>
+      entry.command === 'atlasmind.updateProjectMemory'
+      && (entry.when ?? '').startsWith('view == atlasmind.memoryView'));
+    expect(memoryUpdate?.when).not.toContain('showImportProjectAction');
+
+    // The exclusive pair shares a slot, which is why the original gave both
+    // `navigation@1`. That reads as an ambiguous ordering and is deliberate.
+    const chatPair = menus.filter(entry =>
+      (entry.when ?? '').startsWith('view == atlasmind.chatView')
+      && ['atlasmind.importProject', 'atlasmind.updateProjectMemory'].includes(entry.command));
+    expect(chatPair).toHaveLength(2);
+    expect(new Set(chatPair.map(entry => entry.group)).size).toBe(1);
   });
 
   it('relies on generated command and view activation events instead of duplicating them', () => {

@@ -6,6 +6,21 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.202.0 — The sidebar, reordered and relinked
+
+**The order reads as a sentence:** where you work (Chat), what needs you (Project State, Project Director), what has happened (Runs, Sessions), what the project knows (Memory), what does the work (Agents, Skills), what it runs on (Models), what it can reach (MCP Servers, Resource Discovery).
+
+**Project Director moved from last to third.** It carries an overdue-follow-up badge and sat below three configuration views — a badge nobody scrolls to is a badge that does nothing.
+
+**Every titlebar now carries actions about its own view.** Sessions had ten navigation actions, seven about something other than sessions, and VS Code collapses anything past five into a `…` menu — both irrelevant and hidden. The global routes stay on Chat, which acts as the app's home. A test caps every view at five slots.
+
+This reverses a deliberate decision: a test asserted Sessions and Memory should carry the *same* quick actions as Chat. The duplication was intended; it did not survive a titlebar that only fits five.
+
+**Project State had no titlebar at all** — no route to the detail behind the glance, no way to update it. It now opens the dashboard, refreshes on demand, and opens the safety settings.
+
+**Fixed: four links in the Project State tree.** Two rows had none. The automation row opened a Settings panel that does not render those settings. And the CI-failure row — the most actionable row there — pointed at the Workflow page after the classified failure moved to Pipeline in v0.188.0: a link to where the content used to be, which is worse than a missing one because it looks like it worked.
+
+**Fixed: a setting that hid the wrong action.** `showImportProjectAction` is documented as governing the Import action, and was also gating "Update memory" on the Memory view — so turning the import off hid both.
 ## v0.201.1 — A flake fixed at the third sighting
 
 Temporary-directory cleanup in nine test files threw `EBUSY`, `EPERM` or `ENOTEMPTY` on Windows, after the test had already passed every assertion. It finally failed CI.

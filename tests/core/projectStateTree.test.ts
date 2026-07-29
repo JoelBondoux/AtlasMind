@@ -296,7 +296,14 @@ describe('rows only ever open a surface', () => {
     for (const s of sections) {
       for (const node of s.nodes) {
         if (node.command) {
-          expect(/^atlasmind\.open[A-Z]/.test(node.command.command), `${node.id} → ${node.command.command}`).toBe(true);
+          // `workbench.action.openSettings` is allowed alongside our own
+          // `open*` commands: it filters the settings UI and changes nothing.
+          // The automation row needs it because those four gates are plain
+          // settings with no panel to open — pointing at the Settings panel
+          // instead showed nothing at all.
+          const opensOnly = /^atlasmind\.open[A-Z]/.test(node.command.command)
+            || node.command.command === 'workbench.action.openSettings';
+          expect(opensOnly, `${node.id} → ${node.command.command}`).toBe(true);
         }
       }
     }

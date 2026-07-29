@@ -61,7 +61,11 @@ describe('registerTreeViews', () => {
     // TreeView handle rather than just a data provider, because each carries a
     // badge or a selection listener.
     expect(vscode.window.createTreeView).toHaveBeenCalledTimes(4);
-    expect(vscode.commands.registerCommand).toHaveBeenCalledTimes(2);
+    // Three: two memory-entry commands plus `refreshProjectState`, which the
+    // Project State titlebar needs. The refresh already existed as a closure
+    // and only tree events reached it — a glance surface whose only way to
+    // update is an unrelated event firing is one people learn not to trust.
+    expect(vscode.commands.registerCommand).toHaveBeenCalledTimes(3);
   });
 });
 

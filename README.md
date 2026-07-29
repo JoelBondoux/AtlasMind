@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.201.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.202.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,9 +64,15 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.201.1
+## What's new in 0.202.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
+
+- **The sidebar reads like a sentence now.** Where you work, what needs you, what has happened, what the project knows, what does the work, what it runs on, what it can reach. **Project Director moved from last to third** — it carries an overdue badge and sat below three configuration views, and a badge nobody scrolls to does nothing.
+
+  Every titlebar carries actions about *its own view*. Sessions had ten, seven of them about something else, and VS Code hides anything past five behind a `…` menu — so the list was both irrelevant and invisible. **Project State had no titlebar at all**; it now opens the dashboard, refreshes, and opens its settings.
+
+  **Four links in Project State were missing or stale** — including the CI-failure row, which pointed at the Workflow page after that content moved to Pipeline. A link to where something used to be is worse than a missing one, because it looks like it worked.
 
 - **Labels and milestones, managed where they are used.** Every label with its colour and issue count, every milestone with its due date, and create / delete / close from the Issues tab.
 
