@@ -359,6 +359,12 @@ What each project shape changes about the workflow, across the six axes that act
 
 `resolveArchetypePack` merges trait additions with archetype entries first, so a trait can never silently replace a specific expectation with a weaker generic one. A trait that needed to *remove* an expectation would be a sign the thing should have been its own archetype.
 
+**The four delivery keys** (`deriveDoraMetrics`) live here for the same reason the rest do: they are pure over data the dashboard already fetched, so each is unit-tested against fixtures rather than eyeballed against a live repository. They are paired on purpose — deployment frequency and lead time describe speed, change failure rate and time to restore describe stability — so a team cannot improve the half it likes by quietly wrecking the other.
+
+Three definitions are declared rather than left implicit, because a delivery metric whose definition is implicit cannot be compared with last month's. **Lead time is merge → release**, not first-commit → release: it is the half a team can act on, and the other half depends on branch history that squash-merging destroys. Work that merged and has not shipped is *excluded* rather than counted as infinitely slow — that it is waiting is itself the finding, and the verdict says so. **A change failure is a patch release within 48 hours**, published as `DECLARED_CHANGE_FAILURE_RULE` and shown wherever the number is; a minor or major follow-up is a planned release, not a remediation, and counting it would make a busy release day read as an outage. **Drafts and pre-releases are excluded**, since neither is a deployment to anybody. Every release the rule counts is named on the surface, so the number can be argued with rather than taken on trust.
+
+`DORA_BANDS` is a constant in source so the thresholds are reviewable in a diff, and the surface states that they are a widely cited orientation rather than a certification — the exact boundaries have moved between annual industry reports, and a team's own trend matters more than which side of a line it lands on.
+
 ### CiFailureAnalysis (`src/core/ciFailureAnalysis.ts`)
 
 Why a CI run failed, decided by rule rather than by model. AtlasMind has always read check *states*; it has never read a *log*, and that is the difference between knowing a build failed and knowing why.
@@ -370,6 +376,22 @@ The rules are ordered and first-match-wins, and the order is part of the contrac
 **`unknown` is a real answer**, not a fallback for guessing: it escalates to a human and names no agent. **Flakiness is a property of history, not of one log** — `detectFlakeSuspect` needs both a pass and a fail on the same commit, and overrides whatever the latest log says, because no amount of reading one failure can establish it.
 
 A CI log is untrusted input. `sanitizeCiLog` strips ANSI *before* redacting (a secret wrapped in colour codes would not match a redaction pattern otherwise), then caps size keeping the **tail** — a failure message is at the end of a log, and keeping the head would reliably discard the only part anybody needs. Truncation and redaction are both reported on the report, never silent, and `buildCiFailurePrompt` fences the excerpt as REPORTED CONTENT.
+
+### ReleasePreparation (`src/core/releasePreparation.ts`)
+
+Stage 6, and the only stage of this workflow describing an action that cannot be undone. Every property here follows from that.
+
+The hard parts already existed and were already pure — `classifyBumpLevel`, `bumpVersion`, `setPackageJsonVersion`, `insertChangelogEntry` and `compareSemver` have shipped in `promotionRunner.ts` since long before this workflow did. What was missing was a *path*: something that puts them in order, checks the preconditions, and says plainly what is not ready. This module borrows all five rather than growing a second copy, which is the same rule that keeps `pullRequestDraft`'s title in agreement with the version bump.
+
+**Release notes are the changelog section, verbatim.** `extractChangelogSection` copies bytes; it does not summarise, rewrite or generate. A release note is a permanent public record somebody is accountable for, and a generated one is a claim nobody checked attached to a version nobody can change. Truncation is marked in the published text itself rather than silently applied.
+
+**A secret in the notes refuses the release rather than being redacted out of it.** This inverts the boundary rule used everywhere else in AtlasMind, deliberately. Untrusted *inbound* text is redacted and passed on because the alternative loses information; these notes are *outbound and permanent*, so quietly redacting them would mean publishing something other than what the author reviewed, with no way for them to find out. The same reasoning `buzzSendPolicy` applies to an outbound message applies with more force to a release that cannot be recalled.
+
+**`unknown` is not a pass.** The gates are `pass` / `fail` / `unknown`, and the third is a first-class outcome: a repository where `gh` could not be reached genuinely has no answer about whether its version is ahead of the last published one, and shipping on an unknown is the habit this stage exists to break. Gates run in order — changelog entry, notes content, notes clean, version ahead, tag free, clean tree, CI green — so the first failure a user reads is the one closest to the root cause. Being told CI is red is unhelpful when the real problem is that no changelog entry exists.
+
+The tag gate is what catches a double publish: an existing tag means the publish workflow already fired for this version, which is the failure this repository documented in 0.181.0 and fixed in 0.184.0. Its fix hint says never to delete or move a published tag, because anyone who already fetched it keeps the old contents under the new name and never finds out.
+
+**Nothing here executes anything.** `buildReleasePlan` is pure over observed state, and tagging and publishing stay with the human at every automation rung.
 
 ### WorkflowAutomation (`src/core/workflowAutomation.ts`)
 

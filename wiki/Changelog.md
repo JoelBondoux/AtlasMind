@@ -6,6 +6,17 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.189.0 — Release preparation, and the four delivery keys
+
+**A Release page.** Stage 6 was the best-served stage in the specification and the least reachable — the version-bump, changelog and semver functions had been pure and tested for a long time with nothing putting them in order. Seven gates now run root-cause-first (changelog entry → notes → secrets → version → tag → working tree → CI), because being told CI is red is unhelpful when the real problem is that no changelog entry exists.
+
+**"Unknown" is not a pass.** A repository whose tags could not be listed genuinely does not know whether its tag is free. Shipping on an unknown is the habit this stage exists to break.
+
+**Release notes are the changelog section, verbatim** — never summarised, never model-generated. A generated release note is a claim nobody checked attached to a version nobody can change. If the text contains anything shaped like a credential, the release is **refused rather than redacted**: these notes are outbound and permanent, so publishing a quietly edited version of what you reviewed is the worse of the two failures.
+
+**The four delivery keys** — deployment frequency, lead time, change failure rate, time to restore — paired so a team cannot improve speed by wrecking stability. Lead time is measured merge → release, with unshipped merges excluded rather than counted as infinitely slow. A change failure is a patch release within 48 hours, applied literally, with every counted release named so the number can be argued with.
+
+**Fixed:** a changelog check that could not fail — `changelogHasCurrentVersion` was derived from the file existing, so the most commonly missing thing at release time was reported present on any repository that had ever written a changelog. Also `commitsSinceTag`, which was hardcoded to zero and rendered as a fact.
 ## v0.188.0 — Pull Requests and Pipeline get their own pages
 
 - **Pull Requests** is now a page rather than a card. Issues had a whole page while stage 4 — where a change stops being private — had one. It lists what is in flight with review state, size and issue linkage, plus review-latency and throughput.

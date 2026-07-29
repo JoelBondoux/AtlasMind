@@ -46,6 +46,15 @@ one committed file. Everything else points at it.
 Stage 3 is the only one that never touches GitHub — deliberately, so you can work offline and so
 nothing there can accidentally become public.
 
+Stage 6 is the only one describing an action that **cannot be undone**, which is why it is checked
+before rather than fixed after. The Release page runs seven gates in root-cause order — changelog
+entry, notes have content, no secrets in the notes, version moved on, tag is free, working tree
+clean, CI passing — and a gate reporting *unknown* is never treated as a pass. Release notes are the
+changelog section for that version, copied verbatim; if they contain anything shaped like a
+credential the release is **refused rather than quietly redacted**, because publishing an edited
+version of what you reviewed without telling you what was removed is the worse failure. Nothing on
+that page publishes anything: tagging and publishing stay with you at every automation level.
+
 Stage 8 is not a step you perform. It is the layer the other seven run inside.
 
 ---
@@ -146,6 +155,28 @@ what a bad number looks like.
 | Low commit-convention conformance | The automated version bump and changelog cannot be trusted, because both are derived from those prefixes. |
 | Long time-to-first-review | Work is queued, not slow. Usually a scheduling problem rather than a capacity one. |
 | Recurring flake-suspect failures | The most corrosive failure mode: once a red build might mean nothing, people stop reading red builds. |
+
+### The four delivery keys
+
+The Release page adds deployment frequency, lead time for change, change failure rate and time to
+restore. They are paired on purpose: the first two describe speed and the last two describe
+stability, so improving the half you like by wrecking the other shows up immediately. Shipping daily
+means nothing if a third of releases need a same-day fix.
+
+Each declares the rule it used, because a delivery metric whose definition is implicit cannot be
+compared with last month's:
+
+- **Lead time is measured merge → release**, not first-commit → release. That is the half you can
+  act on, and the half squash-merging does not destroy. Work that merged and has not shipped is
+  *excluded* rather than counted as infinitely slow — that it is waiting is itself the finding.
+- **A change failure is a patch release within 48 hours.** Applied literally, and every release it
+  counted is named, so you can argue with the number rather than take it on trust. A minor or major
+  follow-up is a planned release, not a remediation.
+- **Drafts and pre-releases are excluded.** Neither is a deployment to anybody.
+
+The bands are the widely cited thresholds, not a certification — the exact boundaries have moved
+between annual industry reports, and your own trend matters far more than which side of a line you
+land on.
 
 Two honesty rules hold throughout: a component that could not be measured is **omitted from the
 health score** rather than counted as zero, and a nav badge only appears once data was actually

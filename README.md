@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.188.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.189.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,9 +64,15 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.188.0
+## What's new in 0.189.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
+
+- **A Release page, and the four delivery keys.** Preparing a release is the one step that cannot be undone, and AtlasMind had all the pieces without a path through them. Seven gates now run root-cause-first — changelog entry, notes, secrets, version, tag, working tree, CI — and a gate reporting *unknown* is not treated as a pass, because a repository whose tags could not be listed genuinely does not know whether its tag is free.
+
+  The notes are shown exactly as they would be published: the changelog section for that version, byte for byte, never summarised or model-generated. If they contain anything shaped like a credential the release is **refused rather than quietly redacted** — publishing an edited version of what you reviewed, without telling you what was removed, is the worse failure.
+
+  Alongside them, the four delivery keys: deployment frequency, lead time, change failure rate and time to restore. Each declares the rule it used where the number appears, and every release counted as a failure is named, so the numbers can be argued with rather than taken on trust.
 
 - **Pull requests and CI now have their own dashboard pages.** Issues had a whole page while pull requests had a single card, which understated the stage where a change stops being private. Pull Requests lists what is in flight with review state, size and issue linkage; Pipeline carries the classified build failure with its evidence and an explanation of how that classification is decided — by rule over the log, with no model in the path. The tabs are regrouped accordingly, and Runtime moved into its own group since it describes AtlasMind's own state rather than the project's.
 

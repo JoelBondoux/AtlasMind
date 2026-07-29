@@ -8,10 +8,15 @@ import {
   deriveBranchMetrics,
   deriveCiMetrics,
   deriveCommitConformance,
+  deriveDoraMetrics,
   deriveIssueMetrics,
   derivePullRequestMetrics,
   deriveReleaseMetrics,
   deriveWorkflowHealth,
+  classifyDoraBand,
+  isPatchSuccessor,
+  CHANGE_FAILURE_WINDOW_HOURS,
+  DORA_BANDS,
   formatHours,
   formatVerdict,
   known,
@@ -474,5 +479,162 @@ describe('formatting', () => {
 
   it('measures whole days between timestamps', () => {
     expect(daysBetween(Date.parse(daysAgo(3)), NOW)).toBe(3);
+  });
+});
+
+describe('deriveDoraMetrics — the four keys', () => {
+  const hoursAgo = (n: number): string => new Date(NOW - n * 60 * 60 * 1000).toISOString();
+
+  const release = (tagName: string, publishedAt: string, extra = {}) => ({ tagName, publishedAt, ...extra });
+
+  it('reports a cadence per week from the window, not a raw count', () => {
+    const metrics = deriveDoraMetrics({
+      releases: [
+        release('v1.0.0', daysAgo(28)),
+        release('v1.1.0', daysAgo(21)),
+        release('v1.2.0', daysAgo(14)),
+        release('v1.3.0', daysAgo(7)),
+      ],
+      now: NOW,
+      windowDays: 28,
+    });
+    expect(metrics.deploymentFrequency).toEqual({ known: true, value: 1 });
+    expect(metrics.bands.deploymentFrequency).toBe('high');
+  });
+
+  it('excludes drafts and pre-releases — neither is a deployment to anybody', () => {
+    const metrics = deriveDoraMetrics({
+      releases: [
+        release('v1.0.0', daysAgo(5)),
+        release('v1.1.0-rc.1', daysAgo(4), { isPrerelease: true }),
+        release('v1.1.0', daysAgo(3), { isDraft: true }),
+      ],
+      now: NOW,
+      windowDays: 30,
+    });
+    expect(metrics.releasesInWindow).toBe(1);
+  });
+
+  it('says "no releases" rather than reporting a frequency of zero', () => {
+    const metrics = deriveDoraMetrics({ releases: [], now: NOW });
+    expect(metrics.deploymentFrequency.known).toBe(false);
+    expect(metrics.changeFailureRate.known).toBe(false);
+    expect(metrics.bands.deploymentFrequency).toBeUndefined();
+  });
+
+  it('measures lead time from merge to the release that carried it', () => {
+    const metrics = deriveDoraMetrics({
+      releases: [release('v1.0.0', hoursAgo(10))],
+      pullRequests: [
+        { number: 1, state: 'merged', createdAt: hoursAgo(40), mergedAt: hoursAgo(20) },
+        { number: 2, state: 'merged', createdAt: hoursAgo(40), mergedAt: hoursAgo(15) },
+        { number: 3, state: 'merged', createdAt: hoursAgo(40), mergedAt: hoursAgo(12) },
+      ],
+      now: NOW,
+    });
+    // 10h, 5h and 2h waits; the median of the three is 5.
+    expect(metrics.leadTimeHours).toEqual({ known: true, value: 5 });
+  });
+
+  it('treats unreleased merges as unshipped work, not as infinite lead time', () => {
+    const metrics = deriveDoraMetrics({
+      releases: [release('v1.0.0', hoursAgo(30))],
+      pullRequests: [{ number: 1, state: 'merged', createdAt: hoursAgo(5), mergedAt: hoursAgo(4) }],
+      now: NOW,
+    });
+    expect(metrics.leadTimeHours.known).toBe(false);
+    expect(metrics.leadTimeHours.known === false && metrics.leadTimeHours.reason).toContain('unreleased');
+  });
+
+  it('applies the declared change-failure rule literally', () => {
+    const metrics = deriveDoraMetrics({
+      releases: [
+        release('v1.0.0', hoursAgo(100)),
+        release('v1.0.1', hoursAgo(100 - CHANGE_FAILURE_WINDOW_HOURS + 2)),
+        release('v1.1.0', hoursAgo(20)),
+      ],
+      now: NOW,
+      windowDays: 30,
+    });
+    expect(metrics.failures).toEqual([
+      { tag: 'v1.0.0', followedBy: 'v1.0.1', hoursToRestore: CHANGE_FAILURE_WINDOW_HOURS - 2 },
+    ]);
+    expect(metrics.changeFailureRate).toEqual({ known: true, value: 33 });
+  });
+
+  it('does not count a planned minor release as a remediation', () => {
+    // A busy release day would otherwise read as an outage, and a metric that
+    // fires on normal work teaches people to ignore it.
+    const metrics = deriveDoraMetrics({
+      releases: [release('v1.0.0', hoursAgo(30)), release('v1.1.0', hoursAgo(28))],
+      now: NOW,
+      windowDays: 30,
+    });
+    expect(metrics.failures).toEqual([]);
+    expect(metrics.changeFailureRate).toEqual({ known: true, value: 0 });
+  });
+
+  it('does not count a patch that arrived after the declared window', () => {
+    const metrics = deriveDoraMetrics({
+      releases: [
+        release('v1.0.0', hoursAgo(200)),
+        release('v1.0.1', hoursAgo(200 - CHANGE_FAILURE_WINDOW_HOURS - 1)),
+      ],
+      now: NOW,
+      windowDays: 30,
+    });
+    expect(metrics.failures).toEqual([]);
+  });
+
+  it('reports no restore time when nothing needed restoring', () => {
+    const metrics = deriveDoraMetrics({
+      releases: [release('v1.0.0', daysAgo(5)), release('v1.1.0', daysAgo(2))],
+      now: NOW,
+    });
+    expect(metrics.timeToRestoreHours.known).toBe(false);
+    expect(metrics.timeToRestoreHours.known === false && metrics.timeToRestoreHours.reason)
+      .toContain('nothing to restore from');
+  });
+
+  it('names every release the rule counted, so the number can be argued with', () => {
+    const metrics = deriveDoraMetrics({
+      releases: [release('v2.0.0', hoursAgo(50)), release('v2.0.1', hoursAgo(40))],
+      now: NOW,
+      windowDays: 30,
+    });
+    expect(metrics.failures[0]).toMatchObject({ tag: 'v2.0.0', followedBy: 'v2.0.1' });
+  });
+});
+
+describe('isPatchSuccessor', () => {
+  it('accepts only a higher patch on the same major and minor', () => {
+    expect(isPatchSuccessor('v1.2.3', 'v1.2.4')).toBe(true);
+    expect(isPatchSuccessor('1.2.3', '1.2.9')).toBe(true);
+    expect(isPatchSuccessor('v1.2.3', 'v1.3.0')).toBe(false);
+    expect(isPatchSuccessor('v1.2.3', 'v2.0.0')).toBe(false);
+    expect(isPatchSuccessor('v1.2.4', 'v1.2.3')).toBe(false);
+  });
+
+  it('refuses rather than guessing at an unparseable tag', () => {
+    expect(isPatchSuccessor('nightly', 'v1.0.1')).toBe(false);
+    expect(isPatchSuccessor('v1.0.0', 'latest')).toBe(false);
+  });
+});
+
+describe('classifyDoraBand', () => {
+  it('reads higher-is-better and lower-is-better in the right directions', () => {
+    expect(classifyDoraBand('deploymentFrequency', 10)).toBe('elite');
+    expect(classifyDoraBand('deploymentFrequency', 0.1)).toBe('low');
+    expect(classifyDoraBand('leadTime', 2)).toBe('elite');
+    expect(classifyDoraBand('leadTime', 24 * 90)).toBe('low');
+    expect(classifyDoraBand('changeFailureRate', 2)).toBe('elite');
+    expect(classifyDoraBand('changeFailureRate', 50)).toBe('low');
+  });
+
+  it('declares its thresholds in source rather than inventing them at render time', () => {
+    for (const key of Object.keys(DORA_BANDS) as (keyof typeof DORA_BANDS)[]) {
+      const band = DORA_BANDS[key];
+      expect(band.better === 'higher' ? band.elite > band.high : band.elite < band.high).toBe(true);
+    }
   });
 });

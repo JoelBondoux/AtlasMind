@@ -91,6 +91,10 @@
       id: 'ship',
       label: 'Ship & record',
       pages: [
+        // Release is versioning, changelog, tags and the four delivery keys;
+        // Delivery is the environments a version moves through. Adjacent, and
+        // genuinely different questions.
+        ['release', 'Release'],
         ['delivery', 'Delivery'],
         ['documents', 'Documents'],
         ['ssot', 'SSOT'],
@@ -1511,6 +1515,7 @@
         ${renderSecurity(snapshot)}
         ${renderPrivacy(snapshot)}
         ${renderRisk(snapshot)}
+        ${renderRelease(snapshot)}
         ${renderDelivery(snapshot)}
         ${renderDocuments(snapshot)}
         ${renderSsot(snapshot)}
@@ -3191,6 +3196,189 @@
   // ── Pipeline ───────────────────────────────────────────────────────────
   // Stage 5. AtlasMind reads check *states* everywhere else; this is the page
   // where it reads a *log* and says why something failed.
+
+  // ── Release ────────────────────────────────────────────────────────────
+  // Stage 6. Two questions that look like one: *can* this version be released
+  // (the gates), and *how is delivery going* (the four keys). The first is about
+  // one moment, the second about a quarter, and a page that mixed them would
+  // answer neither.
+
+  const GATE_TONE = { pass: 'tag-good', fail: 'tag-critical', unknown: 'tag-warn' };
+  const GATE_WORD = { pass: 'ready', fail: 'blocked', unknown: 'unknown' };
+  const DORA_BAND_TONE = { elite: 'tag-good', high: 'tag-good', medium: 'tag-warn', low: 'tag-critical' };
+
+  function renderRelease(snapshot) {
+    const rel = snapshot.release || {};
+    const plan = rel.plan || { gates: [], blockedBy: [] };
+    const dora = rel.dora || { bands: {}, failures: [] };
+    const notes = plan.notes;
+
+    const intro = renderPageIntro({
+      kicker: 'Stage 6',
+      title: 'Release preparation and delivery performance',
+      summary: rel.planSummary || 'Nothing evaluated yet.',
+      chips: [
+        { label: plan.tag || '—', tone: plan.ready ? 'good' : 'warn' },
+        ...(rel.loadedAt ? [] : [{ label: 'releases not read', tone: 'warn' }]),
+      ],
+    });
+
+    // The gates, in evaluation order. `unknown` is rendered as its own state
+    // rather than folded into failure: "we could not check" and "we checked and
+    // it is wrong" call for different actions, and only one of them is yours.
+    const gateRows = (plan.gates || []).map(gate => `
+      <div class="recent-item">
+        <div class="row-head">
+          <strong>${escapeHtml(gate.label)}</strong>
+          <span class="tag ${GATE_TONE[gate.status] || ''}">${escapeHtml(GATE_WORD[gate.status] || gate.status)}</span>
+        </div>
+        <div class="list-meta">${escapeHtml(gate.detail)}</div>
+        ${gate.fixHint ? `<p class="stat-detail${gate.status === 'pass' ? '' : ' wf-unknown'}">${escapeHtml(gate.fixHint)}</p>` : ''}
+      </div>`).join('');
+
+    const gateHelp = renderWorkflowHelp('release.gates', {
+      label: 'why a release has gates at all',
+      why: 'A published version cannot be withdrawn. Anyone who fetched a tag keeps whatever it pointed at, package registries refuse a re-publish of the same number, and a release note is a permanent public record somebody is accountable for. Every other stage of this workflow is recoverable by editing and pushing again; this one is not, which is the whole reason it is checked before rather than fixed after.',
+      how: [
+        { text: 'A gate reporting "unknown" is not a pass. It means the question was asked and nothing answered — usually because `gh` or `git` could not be reached — and shipping on an unknown is the habit this stage exists to break.' },
+        { text: 'The tag gate is the one that catches a double publish: an existing tag means the publish workflow already fired for this version.' },
+        { text: 'AtlasMind never deletes or moves a tag to make room. Anyone who already fetched it would keep the old contents under the new name, and never find out.' },
+        { text: 'Release notes are the changelog section for this version, copied verbatim. Not summarised, not rewritten, and never model-generated — a generated release note is a claim nobody checked attached to a version nobody can change.' },
+        { text: 'If the notes contain anything shaped like a credential, the release is refused rather than quietly redacted. Publishing an edited version of what you reviewed, without telling you what was removed, is the worse of the two failures.' },
+      ],
+      commonMistakes: [
+        'Tagging before the changelog entry exists, so the release ships with an empty body that looks deliberate.',
+        'Deleting a bad tag and re-pushing it. The tag moves; the copies people already fetched do not.',
+        'Treating a green tick from an unread pipeline as a passing build.',
+      ],
+    });
+
+    const planCard = `
+      <article class="panel-card">
+        <div class="row-head">
+          <p class="card-kicker">Release gates${gateHelp.button}</p>
+          <span class="tag ${plan.ready ? 'tag-good' : 'tag-warn'}">${plan.ready ? 'all clear' : (plan.blockedBy || []).length + ' outstanding'}</span>
+        </div>
+        ${gateHelp.panel}
+        <div class="stack-list">${gateRows || '<div class="dashboard-empty">No gates evaluated.</div>'}</div>
+        <p class="stat-detail">Nothing here publishes anything. Tagging and publishing stay with you at every automation level, because a released version cannot be taken back.</p>
+      </article>`;
+
+    const versionCard = `
+      <article class="panel-card">
+        <p class="card-kicker">Version</p>
+        <div class="mini-grid">
+          ${renderMetricPill('In the manifest', plan.currentVersion || '—')}
+          ${renderMetricPill('Last published', plan.lastReleasedVersion || '—', { tone: plan.lastReleasedVersion ? '' : 'warn' })}
+          ${renderMetricPill('Commits suggest', plan.suggestedLevel || '—')}
+        </div>
+        <p class="stat-detail">The suggested level comes from the conventional-commit prefixes in the range — the same rule the promotion runner uses, not a second one. A breaking change makes it major, any <code>feat:</code> makes it minor, everything else is a patch.</p>
+        ${plan.lastReleasedVersion && plan.suggestedVersion !== plan.currentVersion
+          ? `<p class="stat-detail wf-unknown">Next version on that basis: ${escapeHtml(plan.suggestedVersion || '')}.</p>`
+          : ''}
+      </article>`;
+
+    const notesCard = `
+      <article class="panel-card">
+        <p class="card-kicker">Release notes</p>
+        ${notes
+          ? `<div class="list-meta">${escapeHtml(notes.heading)}</div>
+             <pre class="wf-notes">${escapeHtml(notes.body)}</pre>
+             ${notes.truncated ? '<p class="stat-detail wf-unknown">Truncated for display and for publishing — the changelog section is longer than the release-note limit.</p>' : ''}
+             ${(notes.secretTypes || []).length
+               ? `<p class="stat-detail wf-unknown">Blocked: this text contains something shaped like a credential (${escapeHtml(notes.secretTypes.join(', '))}). Remove it from the changelog and rotate the credential — AtlasMind will not publish a redacted version of notes you reviewed.</p>`
+               : '<p class="stat-detail">This is what would be published, byte for byte.</p>'}`
+          : `<div class="dashboard-empty"><div>
+              <strong>No changelog section for this version</strong>
+              <p class="section-copy">The release notes are the <code>CHANGELOG.md</code> section for the version being released, copied verbatim. Writing it is the step people skip, and the one readers actually use — it is the only place the reasoning behind a version survives after the pull request is closed.</p>
+            </div></div>`}
+      </article>`;
+
+    // The four keys. Two describe speed, two describe stability, which is what
+    // stops a team improving the pair it likes by ruining the other.
+    const doraHelp = renderWorkflowHelp('release.dora', {
+      label: 'what the four delivery keys measure',
+      why: 'Deployment frequency, lead time, change failure rate and time to restore are the standard professional framing for delivery performance. They are paired on purpose: the first two describe speed and the last two describe stability, so a team cannot improve the half it likes by quietly wrecking the other. Shipping daily means nothing if a third of releases need a same-day fix.',
+      how: [
+        { text: `Measured over the last ${dora.windowDays || 90} days, from published releases and merged pull requests.` },
+        { text: 'Lead time is measured from a pull request merging to the release that carried it — the half you can actually act on. Work that merged and has not shipped is excluded rather than counted as infinitely slow; that it is waiting is itself the finding.' },
+        { text: rel.changeFailureRule || '' },
+        { text: 'Draft and pre-release entries are excluded. Neither is a deployment to anybody.' },
+        { text: 'The bands are the widely cited thresholds, not a certification — the exact boundaries have moved between annual industry reports, and your own trend matters far more than which side of a line you land on.' },
+      ].filter(line => line.text),
+    });
+
+    const key = (label, verdict, band, format) => `
+      <div class="recent-item">
+        <div class="row-head">
+          <strong>${escapeHtml(label)}</strong>
+          <span>${renderVerdict(verdict, format)}${band ? ` <span class="tag ${DORA_BAND_TONE[band] || ''}">${escapeHtml(band)}</span>` : ''}</span>
+        </div>
+      </div>`;
+
+    const doraCard = `
+      <article class="panel-card">
+        <p class="card-kicker">Delivery performance${doraHelp.button}</p>
+        ${doraHelp.panel}
+        <div class="stack-list">
+          ${key('Deployment frequency', dora.deploymentFrequency, dora.bands && dora.bands.deploymentFrequency, value => `${value}/week`)}
+          ${key('Lead time for change', dora.leadTimeHours, dora.bands && dora.bands.leadTime, value => value < 48 ? `${value.toFixed(1)}h` : `${(value / 24).toFixed(1)}d`)}
+          ${key('Change failure rate', dora.changeFailureRate, dora.bands && dora.bands.changeFailureRate, value => `${value}%`)}
+          ${key('Time to restore', dora.timeToRestoreHours, dora.bands && dora.bands.timeToRestore, value => value < 48 ? `${value.toFixed(1)}h` : `${(value / 24).toFixed(1)}d`)}
+        </div>
+        ${(dora.failures || []).length
+          ? `<p class="stat-detail">Counted as failures: ${escapeHtml(dora.failures.map(f => `${f.tag} → ${f.followedBy}`).join(', '))}. Named so the number can be argued with rather than taken on trust.</p>`
+          : ''}
+        ${rel.loadFailure
+          ? `<p class="stat-detail wf-unknown">Releases could not be read: ${escapeHtml(rel.loadFailure)}</p>`
+          : ''}
+      </article>`;
+
+    const frequencyChart = renderChartCard(
+      'release-frequency',
+      'Releases per day',
+      `Published releases over the window. Cadence is worth watching as a shape rather than a number — a long flat stretch followed by a spike usually means work was queued, and a queued release is the one most likely to go wrong.`,
+      (dora.series || []).map(point => ({ label: point.label, value: point.value })),
+      'release',
+    );
+
+    const recent = (rel.releases || []).slice(0, 12).map(entry => `
+      <div class="recent-item">
+        <div class="row-head">
+          <strong>${escapeHtml(entry.tagName)}</strong>
+          <span class="list-meta">${escapeHtml((entry.publishedAt || '').slice(0, 10))}</span>
+        </div>
+        ${entry.isPrerelease || entry.isDraft
+          ? `<div class="list-meta">${entry.isDraft ? 'draft' : 'pre-release'} — excluded from the delivery metrics</div>`
+          : ''}
+      </div>`).join('');
+
+    const historyCard = `
+      <article class="panel-card">
+        <p class="card-kicker">Published releases</p>
+        ${rel.loadedAt || (rel.releases || []).length
+          ? `<div class="stack-list">${recent || '<div class="dashboard-empty">This repository has no published releases yet.</div>'}</div>`
+          : `<div class="dashboard-empty"><div>
+              <strong>Releases have not been read</strong>
+              <p class="section-copy">Reading the release list is a network call, so it happens when you ask rather than on every render. The gates above do not need it — they come from your own files, which is why they are already filled in.</p>
+              <button type="button" class="action-link" data-action="page" data-payload="issues">Open the Issues tab and refresh</button>
+            </div></div>`}
+      </article>`;
+
+    return `${pageSectionOpen('release')}
+      ${intro}
+      <div class="panel-grid">
+        ${planCard}
+        ${versionCard}
+      </div>
+      <div class="panel-grid">
+        ${notesCard}
+        ${doraCard}
+      </div>
+      ${frequencyChart}
+      ${historyCard}
+    </section>`;
+  }
 
   function renderPipeline(snapshot) {
     // Computed once: the button and the panel are two halves of one control,

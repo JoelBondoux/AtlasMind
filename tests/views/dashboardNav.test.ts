@@ -3,7 +3,11 @@ import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { normalizeDashboardPromptRequest } from '../../src/views/projectDashboardPanel.ts';
+import {
+  listChangelogVersions,
+  normalizeDashboardPromptRequest,
+  parseGhReleaseList,
+} from '../../src/views/projectDashboardPanel.ts';
 
 /**
  * The dashboard nav is rendered by `media/projectDashboard.js`, but prompts
@@ -118,5 +122,68 @@ describe('dashboard motion safety', () => {
     // of it. applyValueAnimations() is what makes them move.
     expect(WEBVIEW_SCRIPT).toContain('function applyValueAnimations(');
     expect(WEBVIEW_SCRIPT).toMatch(/data-anim-key="score-ring"/);
+  });
+});
+
+/**
+ * The changelog check that could not fail.
+ *
+ * `changelogHasCurrentVersion` used to be derived as "does `CHANGELOG.md`
+ * exist", which meant the single most commonly missing thing at release time —
+ * an entry for the version about to ship — was reported as present on every
+ * repository that had ever written a changelog at all. Stage 6 read as complete
+ * on a changelog whose last entry was six versions old.
+ */
+describe('listChangelogVersions', () => {
+  it('reads the versions a changelog actually documents', () => {
+    const doc = [
+      '# Changelog',
+      '',
+      '## [0.3.0] - 2026-07-29',
+      '- New.',
+      '',
+      '## [0.2.1]',
+      '- Older.',
+      '',
+      '## 0.2.0 — codename',
+      '- Oldest.',
+    ].join('\n');
+    expect(listChangelogVersions(doc)).toEqual(['0.3.0', '0.2.1', '0.2.0']);
+  });
+
+  it('does not report a version the document has no entry for', () => {
+    // The regression: presence of the file is not presence of the entry.
+    expect(listChangelogVersions('# Changelog\n\n## [0.1.0]\n- Old.\n')).not.toContain('0.2.0');
+  });
+
+  it('ignores headings that are not versions', () => {
+    expect(listChangelogVersions('# Changelog\n\n## [Unreleased]\n\n## Notes\n')).toEqual([]);
+  });
+
+  it('is total — nothing usable in, empty list out', () => {
+    expect(listChangelogVersions(undefined)).toEqual([]);
+    expect(listChangelogVersions('')).toEqual([]);
+    expect(listChangelogVersions('no headings at all')).toEqual([]);
+  });
+});
+
+describe('parseGhReleaseList', () => {
+  it('keeps the flags that decide whether a release counts as a deployment', () => {
+    const raw = JSON.stringify([
+      { tagName: 'v1.0.0', publishedAt: '2026-01-01T00:00:00Z' },
+      { tagName: 'v1.1.0-rc.1', publishedAt: '2026-01-02T00:00:00Z', isPrerelease: true },
+      { tagName: 'v1.1.0', isDraft: true },
+    ]);
+    expect(parseGhReleaseList(raw)).toEqual([
+      { tagName: 'v1.0.0', publishedAt: '2026-01-01T00:00:00Z' },
+      { tagName: 'v1.1.0-rc.1', publishedAt: '2026-01-02T00:00:00Z', isPrerelease: true },
+      { tagName: 'v1.1.0', isDraft: true },
+    ]);
+  });
+
+  it('never throws, whatever gh returns', () => {
+    expect(parseGhReleaseList('not json')).toEqual([]);
+    expect(parseGhReleaseList('{}')).toEqual([]);
+    expect(parseGhReleaseList('[null, 3, {"tagName": ""}]')).toEqual([]);
   });
 });

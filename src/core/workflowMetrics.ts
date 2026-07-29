@@ -661,6 +661,243 @@ export function deriveReleaseMetrics(input: {
   };
 }
 
+// ── Delivery performance (DORA) ──────────────────────────────────────────────
+
+/**
+ * The four keys, and why they are worth the trouble.
+ *
+ * Deployment frequency, lead time for change, change failure rate and time to
+ * restore are the standard professional framing for delivery performance, which
+ * makes them the right thing to *teach* as well as to measure. They are also
+ * unusually honest as metrics go: two describe speed and two describe stability,
+ * so a team cannot improve the pair it likes by quietly ruining the other.
+ *
+ * Every derivation below is pure over data the dashboard already fetched, and
+ * every one of them declares its window and its inclusion rule on the card. A
+ * delivery metric whose definition is implicit cannot be compared with last
+ * month's, which defeats the point of measuring it.
+ */
+
+/** One published release, as `gh release list --json` reports it. */
+export interface MetricReleaseInput {
+  tagName: string;
+  publishedAt?: string;
+  isPrerelease?: boolean;
+  isDraft?: boolean;
+}
+
+/** Default window. Long enough for a monthly cadence to register at all. */
+export const DORA_WINDOW_DAYS = 90;
+
+/**
+ * The declared change-failure rule.
+ *
+ * A change failure is *supposed* to mean "a deployment that required remediation",
+ * which no repository records directly. Everything measurable is a proxy, so the
+ * proxy is declared in one place, shown on the card, and applied literally —
+ * rather than inferred per-run by something that might reason differently twice.
+ *
+ * Deliberately narrow. A wider rule ("any patch release") would count ordinary
+ * incremental releases as failures, and a metric that fires on normal work
+ * teaches people to ignore it.
+ */
+export const CHANGE_FAILURE_WINDOW_HOURS = 48;
+export const DECLARED_CHANGE_FAILURE_RULE =
+  `A release counts as a failure when a patch release follows it within ${CHANGE_FAILURE_WINDOW_HOURS} hours. ` +
+  'That is a proxy — no repository records "this deployment needed remediation" — but it is applied literally ' +
+  'and identically every time, so the number can be compared with last month\'s.';
+
+export type DoraKey = 'deploymentFrequency' | 'leadTime' | 'changeFailureRate' | 'timeToRestore';
+export type DoraBand = 'elite' | 'high' | 'medium' | 'low';
+
+/**
+ * Orientation bands.
+ *
+ * These are the widely cited thresholds, not a certification: the exact
+ * boundaries have moved between annual industry reports, and a team's own trend
+ * matters far more than which side of a line it sits on. The numbers are here so
+ * they are reviewable in a diff rather than invented at render time.
+ */
+export const DORA_BANDS: Record<DoraKey, { elite: number; high: number; medium: number; better: 'higher' | 'lower' }> = {
+  // Deployments per week.
+  deploymentFrequency: { elite: 7, high: 1, medium: 0.25, better: 'higher' },
+  // Hours from merge to the release that carries it.
+  leadTime: { elite: 24, high: 24 * 7, medium: 24 * 30, better: 'lower' },
+  // Percent of releases followed by a remediating release.
+  changeFailureRate: { elite: 5, high: 15, medium: 30, better: 'lower' },
+  // Hours from the failing release to the one that fixed it.
+  timeToRestore: { elite: 1, high: 24, medium: 24 * 7, better: 'lower' },
+};
+
+export function classifyDoraBand(key: DoraKey, value: number): DoraBand {
+  const band = DORA_BANDS[key];
+  if (band.better === 'higher') {
+    if (value >= band.elite) { return 'elite'; }
+    if (value >= band.high) { return 'high'; }
+    if (value >= band.medium) { return 'medium'; }
+    return 'low';
+  }
+  if (value <= band.elite) { return 'elite'; }
+  if (value <= band.high) { return 'high'; }
+  if (value <= band.medium) { return 'medium'; }
+  return 'low';
+}
+
+export interface DoraFailure {
+  tag: string;
+  followedBy: string;
+  hoursToRestore: number;
+}
+
+export interface DoraMetrics {
+  /** Releases per week across the window. */
+  deploymentFrequency: MetricVerdict<number>;
+  /** Median hours from a pull request merging to the release that carried it. */
+  leadTimeHours: MetricVerdict<number>;
+  /** Percent of releases meeting the declared failure rule. */
+  changeFailureRate: MetricVerdict<number>;
+  /** Median hours from a failing release to its remediating release. */
+  timeToRestoreHours: MetricVerdict<number>;
+  bands: Partial<Record<DoraKey, DoraBand>>;
+  windowDays: number;
+  releasesInWindow: number;
+  /** Every release the rule counted, named — so the number can be argued with. */
+  failures: DoraFailure[];
+  /** Releases per day, for the frequency chart. */
+  series: MetricSeriesPoint[];
+}
+
+/**
+ * Derive the four keys from releases and merged pull requests.
+ *
+ * Lead time is measured merge → release rather than first-commit → release. Both
+ * are defensible; this one is chosen because it is the half a team can actually
+ * act on (how long finished work waits to ship) and because the other half
+ * depends on branch history that squash-merging destroys. The card states which
+ * is used, so nobody compares it against a differently-defined number.
+ */
+export function deriveDoraMetrics(input: {
+  releases: readonly MetricReleaseInput[];
+  pullRequests?: readonly MetricPullRequestInput[];
+  now: number;
+  windowDays?: number;
+}): DoraMetrics {
+  const windowDays = Math.max(1, Math.floor(input.windowDays ?? DORA_WINDOW_DAYS));
+  const cutoff = input.now - windowDays * MS_PER_DAY;
+
+  // Drafts and pre-releases are excluded: neither is a deployment to anybody.
+  const published = input.releases
+    .filter(release => !release.isDraft && !release.isPrerelease)
+    .map(release => ({ tag: release.tagName, at: parseTimestamp(release.publishedAt) }))
+    .filter((release): release is { tag: string; at: number } => release.at !== undefined)
+    .sort((a, b) => a.at - b.at);
+
+  const inWindow = published.filter(release => release.at >= cutoff);
+
+  const frequency = inWindow.length === 0
+    ? unknown<number>(
+      'No published releases in the window.',
+      'Publish a release, or widen the window, before reading a cadence.',
+    )
+    : known(Number(((inWindow.length / windowDays) * 7).toFixed(2)));
+
+  // Lead time: for each merged pull request, the first release published after
+  // it. A pull request merged after the last release has not shipped yet and is
+  // excluded rather than counted as infinitely slow.
+  const merges = (input.pullRequests ?? [])
+    .map(pr => parseTimestamp(pr.mergedAt))
+    .filter((at): at is number => at !== undefined && at >= cutoff)
+    .sort((a, b) => a - b);
+
+  const leadSamples: number[] = [];
+  for (const mergedAt of merges) {
+    const shipped = published.find(release => release.at >= mergedAt);
+    if (shipped) {
+      leadSamples.push((shipped.at - mergedAt) / (60 * 60 * 1000));
+    }
+  }
+  const leadTimeHours = merges.length === 0
+    ? unknown<number>(
+      'No merged pull requests in the window.',
+      'Lead time is measured from merge to the release that carried it.',
+    )
+    : leadSamples.length === 0
+      ? unknown<number>(
+        'Every merge in the window is still unreleased.',
+        'That is itself the answer: finished work is waiting. Publish a release to measure how long.',
+      )
+      : median(leadSamples);
+
+  // Change failures, by the declared rule and nothing else.
+  const failures: DoraFailure[] = [];
+  for (let index = 0; index < published.length - 1; index += 1) {
+    const current = published[index]!;
+    const next = published[index + 1]!;
+    if (current.at < cutoff) {
+      continue;
+    }
+    const hours = (next.at - current.at) / (60 * 60 * 1000);
+    if (hours > CHANGE_FAILURE_WINDOW_HOURS) {
+      continue;
+    }
+    if (!isPatchSuccessor(current.tag, next.tag)) {
+      continue;
+    }
+    failures.push({ tag: current.tag, followedBy: next.tag, hoursToRestore: Number(hours.toFixed(2)) });
+  }
+
+  const changeFailureRate = inWindow.length === 0
+    ? unknown<number>('No published releases in the window.')
+    : percentage(failures.length, inWindow.length);
+
+  const timeToRestoreHours = failures.length === 0
+    ? unknown<number>(
+      inWindow.length === 0
+        ? 'No published releases in the window.'
+        : 'No release in the window met the failure rule — there was nothing to restore from.',
+    )
+    : median(failures.map(failure => failure.hoursToRestore));
+
+  const bands: Partial<Record<DoraKey, DoraBand>> = {};
+  if (frequency.known) { bands.deploymentFrequency = classifyDoraBand('deploymentFrequency', frequency.value); }
+  if (leadTimeHours.known) { bands.leadTime = classifyDoraBand('leadTime', leadTimeHours.value); }
+  if (changeFailureRate.known) { bands.changeFailureRate = classifyDoraBand('changeFailureRate', changeFailureRate.value); }
+  if (timeToRestoreHours.known) { bands.timeToRestore = classifyDoraBand('timeToRestore', timeToRestoreHours.value); }
+
+  return {
+    deploymentFrequency: frequency,
+    leadTimeHours,
+    changeFailureRate,
+    timeToRestoreHours,
+    bands,
+    windowDays,
+    releasesInWindow: inWindow.length,
+    failures,
+    series: bucketByDay(inWindow.map(release => release.at), Math.min(windowDays, 90), input.now),
+  };
+}
+
+/**
+ * Whether `next` is the patch successor of `current` — the second half of the
+ * declared failure rule.
+ *
+ * Requires the same major and minor with a higher patch. A minor or major
+ * release within the window is a *planned* follow-up, not a remediation, and
+ * counting it would make an active release day look like an outage.
+ */
+export function isPatchSuccessor(current: string, next: string): boolean {
+  const parse = (tag: string): [number, number, number] | undefined => {
+    const match = /^v?(\d+)\.(\d+)\.(\d+)/.exec(tag.trim());
+    return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : undefined;
+  };
+  const a = parse(current);
+  const b = parse(next);
+  if (!a || !b) {
+    return false;
+  }
+  return a[0] === b[0] && a[1] === b[1] && b[2] > a[2];
+}
+
 // ── Overall health ───────────────────────────────────────────────────────────
 
 export interface HealthComponent {

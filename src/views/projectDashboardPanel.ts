@@ -36,20 +36,29 @@ import {
 import {
   deriveBranchMetrics,
   deriveCiMetrics,
+  deriveDoraMetrics,
   deriveIssueMetrics,
   derivePullRequestMetrics,
   deriveReleaseMetrics,
   deriveWorkflowHealth,
   known,
   unknown,
+  DECLARED_CHANGE_FAILURE_RULE,
   type BranchMetrics,
   type CiMetrics,
+  type DoraMetrics,
   type HealthComponent,
   type IssueMetrics,
+  type MetricReleaseInput,
   type PullRequestMetrics,
   type ReleaseMetrics,
   type WorkflowHealth,
 } from '../core/workflowMetrics.js';
+import {
+  buildReleasePlan,
+  describeReleasePlan,
+  type ReleasePlan,
+} from '../core/releasePreparation.js';
 import {
   describePullRequestAction,
   parseGhPullRequestList,
@@ -382,8 +391,8 @@ interface DashboardStat {
  */
 const DASHBOARD_PAGE_IDS = [
   'overview', 'score', 'gapAnalysis', 'workflow', 'roadmap', 'issues', 'pullRequests', 'director',
-  'repo', 'pipeline', 'testing', 'security', 'privacy', 'risk', 'delivery', 'documents', 'ssot',
-  'runtime', 'ideation',
+  'repo', 'pipeline', 'testing', 'security', 'privacy', 'risk', 'release', 'delivery', 'documents',
+  'ssot', 'runtime', 'ideation',
 ] as const;
 
 type DashboardPageId = typeof DASHBOARD_PAGE_IDS[number];
@@ -802,6 +811,28 @@ interface DashboardCiIntelligence {
   loadedAt: string;
 }
 
+/**
+ * Published releases, the tags that exist, and what a release from here would
+ * look like.
+ *
+ * Absent until a fetch succeeded. A repository whose releases were never read is
+ * not a repository with no releases, and only one of those two facts justifies
+ * telling somebody their deployment frequency is unmeasurable.
+ */
+interface DashboardReleaseSnapshot {
+  releases: MetricReleaseInput[];
+  /** Every tag `git tag` reported, so an existing tag can block a re-publish. */
+  tags: string[];
+  plan: ReleasePlan;
+  planSummary: string;
+  dora: DoraMetrics;
+  /** The rule the change-failure number applied, shown wherever it is shown. */
+  changeFailureRule: string;
+  loadedAt?: string;
+  /** Why the release list could not be read, when it could not. */
+  loadFailure?: string;
+}
+
 interface DashboardGuidedWorkflowSnapshot {
   stages: WorkflowStageDefinition[];
   progress: WorkflowProgress;
@@ -1210,6 +1241,8 @@ interface DashboardSnapshot {
     artifacts: ArtifactSignal[];
     stages: DashboardStagePipeline;
   };
+  /** Stage 6 — what a release from here would look like, and what blocks it. */
+  release: DashboardReleaseSnapshot;
   director: DashboardDirectorSnapshot;
   documents: DashboardDocumentsSnapshot;
   risk: DashboardRiskSnapshot;
@@ -1640,6 +1673,15 @@ export class ProjectDashboardPanel {
    */
   private ciState: DashboardCiIntelligence | undefined;
 
+  /**
+   * Published releases, from the same explicit refresh.
+   *
+   * Only the *fetched* half lives here. The release plan is rebuilt from local
+   * files on every render, so a changelog edit shows up immediately without
+   * spending a request — and the page still works with no `gh` at all.
+   */
+  private releaseState: { records: readonly MetricReleaseInput[]; loadedAt: string } | { failure: string } | undefined;
+
   public static createOrShow(context: vscode.ExtensionContext, atlas: AtlasMindContext, targetPage?: DashboardPageId): void {
     const column = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
 
@@ -1972,7 +2014,7 @@ export class ProjectDashboardPanel {
           }
           const configuration = vscode.workspace.getConfiguration('atlasmind');
           const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState);
           const seedItems = snapshot.gapAnalysis.items.filter(item => !item.resolved);
           this.queueNavigation('gapAnalysis');
           await this.postMessage({ type: 'navigate', payload: 'gapAnalysis' });
@@ -1999,7 +2041,7 @@ export class ProjectDashboardPanel {
           if (!workspaceRoot || message.payload.trim().length === 0) {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState);
           const targetItem = snapshot.gapAnalysis.items.find(item => item.id === message.payload.trim() && !item.resolved && item.type !== 'praise');
           if (!targetItem) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: 'That gap could not be found. Try re-running the analysis.' });
@@ -2025,7 +2067,7 @@ export class ProjectDashboardPanel {
           if (priority !== 'P1' && priority !== 'P2' && priority !== 'P3') {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState);
           const groupedItems = snapshot.gapAnalysis.items.filter(item => !item.resolved && item.type !== 'praise' && item.priority === priority);
           if (groupedItems.length === 0) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: `No open ${priority} items are available to resolve.` });
@@ -2051,7 +2093,7 @@ export class ProjectDashboardPanel {
           if (!gapId) {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState);
           const targetItem = snapshot.gapAnalysis.items.find(item => item.id === gapId);
           if (!targetItem) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: 'Gap item not found. Try re-running the analysis.' });
@@ -2110,7 +2152,7 @@ export class ProjectDashboardPanel {
 
   private async syncState(): Promise<void> {
     try {
-      const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState);
+      const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState);
       await this.postMessage({ type: 'state', payload: snapshot });
       if (this.pendingNavigationTarget) {
         await this.postMessage({ type: 'navigate', payload: this.pendingNavigationTarget });
@@ -2314,6 +2356,20 @@ export class ProjectDashboardPanel {
         }
       } catch {
         // Same reasoning as above.
+      }
+
+      // Published releases, for the delivery metrics. The failure is *kept*
+      // rather than swallowed: a repository that has never cut a release and one
+      // whose releases could not be read produce the same empty list, and the
+      // four delivery keys mean nothing if those two are reported alike.
+      try {
+        const releaseRaw = await runGh(workspaceRoot, [
+          'release', 'list', '--limit', '100',
+          '--json', 'tagName,publishedAt,isPrerelease,isDraft',
+        ]);
+        this.releaseState = { records: parseGhReleaseList(releaseRaw), loadedAt: new Date().toISOString() };
+      } catch (error) {
+        this.releaseState = { failure: ghFailureOf(error).detail };
       }
     } catch (error) {
       this.issuesState = { ...this.classifyIssueFailure(error), issues: [], busy: false };
@@ -4207,6 +4263,10 @@ function buildGuidedWorkflowSnapshot(input: {
   /** Manifest evidence for archetype detection. Absent means "we did not look". */
   archetypeEvidence?: { corpus: string; files: readonly string[]; language?: string };
   changelogPresent: boolean;
+  /** The changelog itself, so its headings can be read rather than assumed. */
+  changelog?: string;
+  /** Commits on top of the most recent tag, when git could answer. */
+  commitsSinceTag?: number;
   prTemplatePresent: boolean;
   codeownersPresent: boolean;
   issueTemplateCount: number;
@@ -4276,10 +4336,18 @@ function buildGuidedWorkflowSnapshot(input: {
   // that it has not looked rather than implying a green build.
   const ci = deriveCiMetrics([]);
 
+  // The versions the changelog *actually documents*, read from its headings.
+  //
+  // This used to be `changelogPresent ? [packageVersion] : []`, which asserted
+  // that any repository owning a `CHANGELOG.md` had an entry for the version it
+  // was about to ship. That is the single most commonly missing thing at release
+  // time, and the check that was supposed to catch it could not fail. It fed
+  // `changelogHasCurrentVersion`, so stage 6 read as complete on a changelog
+  // whose last entry was six versions old.
   const release = deriveReleaseMetrics({
     version: input.packageVersion,
-    changelogVersions: input.changelogPresent ? [input.packageVersion] : [],
-    commitsSinceTag: 0,
+    changelogVersions: listChangelogVersions(input.changelog),
+    commitsSinceTag: input.commitsSinceTag ?? 0,
     commitSubjects: input.gitSnapshot.commits.map(commit => commit.subject),
   });
 
@@ -4432,6 +4500,178 @@ function normalizeWorkflowProfile(value: string | undefined): 'solo' | 'studio' 
   return value === 'studio' || value === 'custom' ? value : 'solo';
 }
 
+/**
+ * What a release from here would look like, and what is stopping it.
+ *
+ * Split deliberately along the network boundary. The **plan** is computed from
+ * files already on disk — the manifest version, the changelog, the tag list, the
+ * working tree — so it is always present and always current, and a user with no
+ * `gh` at all still gets a useful answer about their own repository. The
+ * **published releases** and therefore the four delivery keys need a fetch, so
+ * they stay absent until one succeeds.
+ *
+ * That split is why the gates distinguish `fail` from `unknown`. Without a
+ * release list the "version moved on" gate genuinely has no answer, and saying
+ * so is the only honest option — a plan that reported the version as fine
+ * because it could not check would be worse than one that reported nothing.
+ */
+function buildReleaseSnapshot(input: {
+  packageVersion: string;
+  changelog?: string;
+  tags?: readonly string[];
+  workingTreeClean: boolean;
+  commitSubjects: readonly string[];
+  ciConclusion?: 'success' | 'failure' | 'pending' | 'none';
+  releases?: readonly MetricReleaseInput[];
+  pullRequests?: readonly PullRequestRecord[];
+  loadedAt?: string;
+  loadFailure?: string;
+  now: number;
+}): DashboardReleaseSnapshot {
+  // The most recent published release, by publish date rather than by list
+  // order — `gh` returns newest first today, but a metric that silently depends
+  // on somebody else's sort order breaks without a symptom.
+  const published = (input.releases ?? [])
+    .filter(release => !release.isDraft && !release.isPrerelease)
+    .slice()
+    .sort((a, b) => Date.parse(b.publishedAt ?? '') - Date.parse(a.publishedAt ?? ''));
+  const lastReleased = published[0]?.tagName.replace(/^v/i, '');
+
+  const plan = buildReleasePlan({
+    currentVersion: input.packageVersion,
+    ...(input.changelog === undefined ? {} : { changelog: input.changelog }),
+    ...(input.tags === undefined ? {} : { existingTags: input.tags }),
+    ...(lastReleased === undefined ? {} : { lastReleasedVersion: lastReleased }),
+    commitSubjects: input.commitSubjects,
+    workingTreeClean: input.workingTreeClean,
+    ...(input.ciConclusion === undefined ? {} : { ciConclusion: input.ciConclusion }),
+  });
+
+  return {
+    releases: [...(input.releases ?? [])],
+    tags: [...(input.tags ?? [])],
+    plan,
+    planSummary: describeReleasePlan(plan),
+    dora: deriveDoraMetrics({
+      releases: input.releases ?? [],
+      ...(input.pullRequests === undefined ? {} : {
+        pullRequests: input.pullRequests.map(pr => ({
+          number: pr.number,
+          state: pr.state,
+          createdAt: pr.createdAt,
+          ...(pr.mergedAt === undefined ? {} : { mergedAt: pr.mergedAt }),
+        })),
+      }),
+      now: input.now,
+    }),
+    changeFailureRule: DECLARED_CHANGE_FAILURE_RULE,
+    ...(input.loadedAt === undefined ? {} : { loadedAt: input.loadedAt }),
+    ...(input.loadFailure === undefined ? {} : { loadFailure: input.loadFailure }),
+  };
+}
+
+/**
+ * Every version a Keep-a-Changelog document has a heading for.
+ *
+ * Deliberately permissive about heading decoration — dates, links, codenames —
+ * and strict about the version itself, so a real entry is found whatever
+ * surrounds it and nothing that is not a version is mistaken for one.
+ */
+export function listChangelogVersions(raw: string | undefined): string[] {
+  if (typeof raw !== 'string' || !raw) {
+    return [];
+  }
+  const found: string[] = [];
+  for (const line of raw.split(/\r?\n/)) {
+    if (!line.startsWith('## ')) {
+      continue;
+    }
+    const match = /^##\s+\[?v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\]?/.exec(line);
+    if (match?.[1]) {
+      found.push(match[1]);
+    }
+    if (found.length >= 500) {
+      break;
+    }
+  }
+  return found;
+}
+
+/**
+ * Commits on top of the most recent reachable tag.
+ *
+ * `undefined` when there is no tag or git could not answer — distinct from
+ * zero, which means "the tag is the current commit" and is a fact worth stating.
+ */
+async function collectCommitsSinceTag(workspaceRoot: string | undefined): Promise<number | undefined> {
+  if (!workspaceRoot) {
+    return undefined;
+  }
+  try {
+    const described = (await runGit(workspaceRoot, ['describe', '--tags', '--abbrev=0'])).trim();
+    if (!described) {
+      return undefined;
+    }
+    const count = (await runGit(workspaceRoot, ['rev-list', `${described}..HEAD`, '--count'])).trim();
+    const parsed = Number.parseInt(count, 10);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  } catch {
+    // No tags yet is the common case here, and it is not an error.
+    return undefined;
+  }
+}
+
+/**
+ * The repository's local tags.
+ *
+ * `undefined` rather than `[]` when git could not answer, because an empty tag
+ * list and an unanswered question lead to opposite advice: one says the version
+ * is free to tag, the other says nobody knows.
+ */
+async function collectLocalTags(workspaceRoot: string | undefined): Promise<string[] | undefined> {
+  if (!workspaceRoot) {
+    return undefined;
+  }
+  try {
+    const raw = await runGit(workspaceRoot, ['tag', '--list']);
+    return raw.split(/\r?\n/).map(line => line.trim()).filter(Boolean).slice(0, 2000);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Parse `gh release list --json …`. Never throws; a bad entry is dropped. */
+export function parseGhReleaseList(raw: string): MetricReleaseInput[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) {
+    return [];
+  }
+  const out: MetricReleaseInput[] = [];
+  for (const entry of parsed.slice(0, 200)) {
+    if (!entry || typeof entry !== 'object') {
+      continue;
+    }
+    const record = entry as Record<string, unknown>;
+    const tagName = typeof record['tagName'] === 'string' ? record['tagName'].trim().slice(0, 120) : '';
+    if (!tagName) {
+      continue;
+    }
+    const publishedAt = typeof record['publishedAt'] === 'string' ? record['publishedAt'] : undefined;
+    out.push({
+      tagName,
+      ...(publishedAt === undefined ? {} : { publishedAt }),
+      ...(record['isPrerelease'] === true ? { isPrerelease: true } : {}),
+      ...(record['isDraft'] === true ? { isDraft: true } : {}),
+    });
+  }
+  return out;
+}
+
 async function collectDashboardSnapshot(
   atlas: AtlasMindContext,
   ideationAttachments: TaskImageAttachment[] = [],
@@ -4442,6 +4682,9 @@ async function collectDashboardSnapshot(
   // "no pull requests", which is a different fact from "we have not looked".
   pullRequests?: readonly PullRequestRecord[],
   ci?: DashboardCiIntelligence,
+  // Undefined until `gh release list` has succeeded. The release *plan* is built
+  // from local files regardless, so the page is useful without this.
+  releases?: { records: readonly MetricReleaseInput[]; loadedAt: string } | { failure: string },
 ): Promise<DashboardSnapshot> {
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const workspaceName = vscode.workspace.workspaceFolders?.[0]?.name ?? 'No Workspace';
@@ -4489,7 +4732,27 @@ async function collectDashboardSnapshot(
   const autoVerifyAfterWrite = configuration.get<boolean>('autoVerifyAfterWrite', false);
   const autoVerifyScripts = normalizeVerificationScripts(configuration.get<string[] | string>('autoVerifyScripts', []));
   const securityPolicyPresent = await fileExists(workspaceRoot ? path.join(workspaceRoot, 'SECURITY.md') : undefined);
-  const changelogPresent = await fileExists(workspaceRoot ? path.join(workspaceRoot, 'CHANGELOG.md') : undefined);
+  // Read rather than merely detected: the changelog section for the current
+  // version *is* the release notes, so its content is needed to say whether a
+  // release could go out — not just whether the file exists.
+  const changelog = await readWorkspaceText(workspaceRoot, 'CHANGELOG.md');
+  const changelogPresent = changelog !== undefined;
+  // Local tags, so an already-published version is caught before anything is
+  // attempted. `undefined` when git could not be asked — which the release gate
+  // reports as "a collision cannot be ruled out" rather than as "the tag is free".
+  const localTags = await collectLocalTags(workspaceRoot);
+  const commitsSinceTag = await collectCommitsSinceTag(workspaceRoot);
+  // The most recent conclusive run, if CI was read at all. `pending` and "not
+  // read" are kept apart: one is a build in progress, the other is no answer.
+  const latestCiConclusion = ci === undefined
+    ? undefined
+    : ci.runs.length === 0
+      ? 'none' as const
+      : ci.runs[0]!.conclusion === 'success'
+        ? 'success' as const
+        : ci.runs[0]!.conclusion === 'failure'
+          ? 'failure' as const
+          : 'pending' as const;
   const codeownersPresent = await fileExists(workspaceRoot ? path.join(workspaceRoot, '.github', 'CODEOWNERS') : undefined);
   const prTemplatePresent = await fileExists(workspaceRoot ? path.join(workspaceRoot, '.github', 'pull_request_template.md') : undefined);
   const issueTemplateCount = await countIssueTemplates(workspaceRoot);
@@ -4718,6 +4981,18 @@ async function collectDashboardSnapshot(
       delta: ssotDelta,
     },
     roadmap: roadmapSnapshot,
+    release: buildReleaseSnapshot({
+      packageVersion: packageSnapshot.version,
+      ...(changelog === undefined ? {} : { changelog }),
+      ...(localTags === undefined ? {} : { tags: localTags }),
+      workingTreeClean: !gitSnapshot.dirty,
+      commitSubjects: gitSnapshot.commits.map(commit => commit.subject),
+      ...(latestCiConclusion === undefined ? {} : { ciConclusion: latestCiConclusion }),
+      ...(releases && 'records' in releases ? { releases: releases.records, loadedAt: releases.loadedAt } : {}),
+      ...(releases && 'failure' in releases ? { loadFailure: releases.failure } : {}),
+      ...(pullRequests === undefined ? {} : { pullRequests }),
+      now: Date.now(),
+    }),
     guidedWorkflow: buildGuidedWorkflowSnapshot({
       configuration,
       gitSnapshot,
@@ -4732,6 +5007,8 @@ async function collectDashboardSnapshot(
       ...(pullRequests === undefined ? {} : { pullRequests }),
       ...(ci === undefined ? {} : { ci }),
       changelogPresent,
+      ...(changelog === undefined ? {} : { changelog }),
+      ...(commitsSinceTag === undefined ? {} : { commitsSinceTag }),
       prTemplatePresent,
       codeownersPresent,
       issueTemplateCount,
@@ -8950,6 +9227,27 @@ async function fileExists(filePath: string | undefined): Promise<boolean> {
   }
 }
 
+/**
+ * Read a workspace file, or `undefined` when there is nothing to read.
+ *
+ * `undefined` deliberately covers both "absent" and "unreadable": to every
+ * caller here they mean the same thing — no content to work from — and a
+ * distinction nobody acts on is a distinction that only invites wrong branches.
+ */
+async function readWorkspaceText(
+  workspaceRoot: string | undefined,
+  relative: string,
+): Promise<string | undefined> {
+  if (!workspaceRoot) {
+    return undefined;
+  }
+  try {
+    return await fs.readFile(path.join(workspaceRoot, relative), 'utf8');
+  } catch {
+    return undefined;
+  }
+}
+
 function pathExistsSync(filePath: string): boolean {
   return existsSync(filePath);
 }
@@ -10066,6 +10364,25 @@ const DASHBOARD_CSS = `
      goes wrong" should be able to find it without reading the steps. */
   .wf-help-mistakes { border-left-color: color-mix(in srgb, var(--dash-warn) 55%, var(--dash-border)); }
   .wf-help-mistakes li { color: color-mix(in srgb, var(--dash-warn) 75%, var(--dash-body)); }
+
+  /* The release notes exactly as they would be published. Monospaced and
+     scrollable rather than reflowed: this is the one place on the dashboard
+     showing bytes rather than a summary, and wrapping it would misrepresent
+     what goes out. */
+  .wf-notes {
+    font-family: var(--dash-mono);
+    font-size: 11px;
+    line-height: 1.6;
+    margin: 8px 0;
+    padding: 10px 12px;
+    max-height: 320px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    border: 1px solid var(--dash-border);
+    border-radius: var(--dash-radius);
+    background: color-mix(in srgb, var(--dash-border) 22%, transparent);
+  }
 
   .wf-stage {
     border: 1px solid var(--dash-border);

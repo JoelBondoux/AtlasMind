@@ -417,13 +417,14 @@ changelog; the target stage's promotion policy.
 **Owning agent.** `release-manager`, delegating mechanics to `github-operator`
 and pipeline configuration to `devops-engineer`.
 
-> `Status: proposed` — this agent does not exist yet.
+> `Status: proposed` — this agent does not exist yet. The stage's deterministic
+> half does not need it: preparation is a rule-driven plan, and an agent's role
+> here would be to explain a blocked gate, never to decide one.
 
-**GitHub surface.** `gh release create <tag> --notes-file --title` and
-`gh release view`. *Status: proposed from AtlasMind's own code* — note that
-release creation already happens in CI for AtlasMind's repository, so the
-capability exists at the pipeline layer; what is missing is a path AtlasMind can
-drive.
+**GitHub surface.** `gh release list --json tagName,publishedAt,isPrerelease,isDraft` ✅
+(read, on explicit refresh). `gh release create <tag> --notes-file --title` and
+`gh release view` *proposed* — note that release creation already happens in CI
+for AtlasMind's repository, so the capability exists at the pipeline layer.
 
 **Deterministic outputs.**
 
@@ -461,6 +462,30 @@ Two boundaries MUST be preserved exactly as they exist today:
 
 - Release remediation MAY edit files and make a path-scoped commit. It **never** pushes, tags, or force-pushes.
 - Promotion is **single-flight** under a lock with an expiry, so two operators cannot release simultaneously.
+
+**Release preparation gates.** Before any of the above, the stage answers whether
+this version *could* be released at all. Seven gates run in a fixed order, chosen
+so the first failure reported is the one closest to the root cause: changelog
+entry → notes have content → no secrets in the notes → version moved on → tag is
+free → working tree clean → CI passing. Being told CI is red is unhelpful when
+the actual problem is that no changelog entry exists.
+
+Each gate reports `pass`, `fail`, or `unknown`, and **`unknown` MUST NOT be
+treated as a pass.** A repository whose tag list could not be read genuinely does
+not know whether the tag is free, and a plan that reported it as free because it
+could not check would be worse than one that reported nothing.
+
+**A secret-shaped token in the release notes refuses the release.** It MUST NOT
+be redacted out and published. This inverts the boundary rule applied to inbound
+untrusted text elsewhere in this specification, deliberately: release notes are
+outbound and permanent, so publishing a quietly edited version of what the author
+reviewed — with no way for them to discover the edit — is the worse of the two
+failures.
+
+**The tag gate is what prevents the double publish.** An existing tag means the
+publish workflow has already fired for this version. A blocked release MUST NOT
+be resolved by deleting or moving the tag: anyone who already fetched it keeps
+the old contents under the new name and never finds out.
 
 **Automation rung.** `draft` is the maximum in the shipped default. **Tag and
 publish stay human-triggered.**

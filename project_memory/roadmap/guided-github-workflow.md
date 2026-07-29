@@ -1,6 +1,6 @@
 # Guided GitHub Workflow — Phased Roadmap
 
-> **Status:** Tier 1 shipped v0.181.0; Tier 2 shipped v0.183.0 (C3.4, C3.6 outstanding); Tier 3 CI intelligence shipped v0.184.0 (C5.1, C5.3 outstanding); **Tier 3.5 archetype specialisation shipped v0.185.0**; Tier 4 next. **Owner:** AtlasMind core. **Created:** 2026-07-28.
+> **Status:** Tier 1 shipped v0.181.0; Tier 2 shipped v0.183.0 (C3.4, C3.6 outstanding); Tier 3 CI intelligence shipped v0.184.0; **Tier 3.5 archetype specialisation shipped v0.185.0** (C7.4, C7.5 outstanding); **Tier 3 release half shipped v0.189.0 — C5.1 and C5.3 complete, so Tier 3's exit criteria are met**; Tier 4 next. **Owner:** AtlasMind core. **Created:** 2026-07-28.
 > This is the SSOT implementation plan for [`docs/guided-github-workflow.md`](../../docs/guided-github-workflow.md),
 > which is the normative specification. Where the two disagree, the specification wins and this
 > file is wrong. Build incrementally, respecting the entry criteria between tiers. Nothing here
@@ -60,8 +60,9 @@ config executed through the promotion runner's own audited path — not spawned 
 `gh api repos/{slug}/branches/{b}/protection`; `gh api repos/{slug}/commits/{ref}/check-runs`;
 `gh repo create`.
 
-**Not present anywhere in `src/`:** any `gh release` call, any tech-debt model — Tier 3's release half
-and Tier 4. CI runs and failed logs are read as of v0.184.0 (`gh run list`, `gh run view --log-failed`),
+**Not present anywhere in `src/`:** any tech-debt model — Tier 4. Releases are read as of v0.189.0
+(`gh release list`, plus local `git tag` and `git describe`), and the release *plan* is built entirely
+from local files so it works with no `gh` at all; `gh release create` remains proposed. CI runs and failed logs are read as of v0.184.0 (`gh run list`, `gh run view --log-failed`),
 classified by a rule table with no model in the path (`ciFailureAnalysis.ts`). Pull requests are read (v0.182.0) **and written**
 (v0.183.0: `gh pr create/review/merge/close`, behind the ladder and a modal). Branch naming landed in
 v0.182.0. The automation ladder itself — `min(master, ceiling, capability, stage)` — landed in
@@ -221,7 +222,7 @@ with every write gated.
 
 ---
 
-## Tier 3 — CI intelligence and release automation  *(CI intelligence shipped v0.184.0; C5.1 and C5.3 outstanding)*
+## Tier 3 — CI intelligence and release automation  ✅ **SHIPPED v0.184.0–v0.189.0**  *(C5.2 outstanding — fixed in docs, not yet in scripts)*
 
 **Entry criteria:** Tier 2 shipped. **Exit criteria:** a red build explains itself with evidence,
 and a release can be prepared from the dashboard.
@@ -266,7 +267,7 @@ and a release can be prepared from the dashboard.
 
 ### C5 — Release Automation
 
-#### C5.1 — Release preparation
+#### C5.1 — Release preparation  ✅ shipped v0.189.0
 
 - **Purpose:** The hard parts already exist and are pure; what is missing is a path AtlasMind can drive.
 - **Expected behaviour:** Classify the bump, apply it, write the changelog entry, verify monotonicity, present the plan against the five gates.
@@ -274,6 +275,7 @@ and a release can be prepared from the dashboard.
 - **GitHub API usage:** `gh release create <tag> --notes-file --title`, `gh release view`.
 - **Deterministic output requirements:** Reuses `classifyBumpLevel` / `bumpVersion` / `setPackageJsonVersion` / `insertChangelogEntry` / `compareSemver` unchanged. **Release notes are the changelog section verbatim — never model-generated.** Remediation never pushes, tags, or force-pushes.
 - **Priority:** High
+- **As shipped:** `releasePreparation.ts` — seven ordered gates where **`unknown` is not a pass**, and a **secret in the notes refuses the release rather than being redacted out of it** (the inverse of the inbound rule, because these notes are outbound and permanent). The plan is built from local files only, so it is useful with no `gh` at all. Building it also exposed a check that could not fail: `changelogHasCurrentVersion` was derived from *the file existing*, so the most commonly missing thing at release time was reported present on every repository that had ever written a changelog.
 
 #### C5.2 — Fix the double-publish chain
 
@@ -284,7 +286,7 @@ and a release can be prepared from the dashboard.
 - **Deterministic output requirements:** Exactly one publish attempt per version, from exactly one place.
 - **Priority:** Medium
 
-#### C5.3 — Release and delivery metrics (DORA)
+#### C5.3 — Release and delivery metrics (DORA)  ✅ shipped v0.189.0
 
 - **Purpose:** The four keys are the standard professional framing, which makes them the right thing to teach as well as to measure.
 - **Expected behaviour:** Deployment frequency, lead time for change (issue → merge), change failure rate, time to restore. Plus version/changelog drift and conventional-commit conformance.
@@ -292,6 +294,7 @@ and a release can be prepared from the dashboard.
 - **GitHub API usage:** `gh release list --json`, `gh pr list --json mergedAt`, run conclusions.
 - **Deterministic output requirements:** Each metric declares its window and its inclusion rule on the card. Change-failure detection uses a declared revert/hotfix rule, not inference.
 - **Priority:** Medium
+- **As shipped:** `deriveDoraMetrics` in `workflowMetrics.ts`. Lead time is **merge → release** — the half a team can act on, and the half squash-merging does not destroy — with unshipped merges *excluded* rather than counted as infinitely slow. The failure rule is `DECLARED_CHANGE_FAILURE_RULE` (a patch release within 48 hours), shown wherever the number is and applied literally; a minor or major follow-up is a planned release, not a remediation. Every counted release is named on the surface so the number can be argued with.
 
 ---
 
@@ -361,7 +364,7 @@ appeared zero times in any output branch), not selectable at bootstrap at all, a
 
 ## Tier 4 — maintenance, tech-debt, and unattended operation
 
-**Entry criteria:** Tiers 1–3 shipped and the audit record proven. **Exit criteria:** a team can
+**Entry criteria:** ✅ Tiers 1–3 shipped as of v0.189.0. The audit record (C1.6) is itself a Tier 4 item, so it is proven *by* this tier rather than before it. **Exit criteria:** a team can
 raise a stage to `propose` or `auto` and have the record show exactly what was done and why.
 
 ### C6 — Maintenance & Tech-Debt

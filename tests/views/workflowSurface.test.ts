@@ -278,3 +278,75 @@ describe('the page costs nothing to open', () => {
     expect(source).not.toContain('postMessage');
   });
 });
+
+/**
+ * The Release page carries a property the others do not: it is the only surface
+ * describing an action that cannot be undone. Everything here follows from that.
+ */
+describe('the Release page', () => {
+  const source = (): string => renderSource('renderRelease', 'renderPipeline');
+  const rendered = (): string => source()
+    .split('\n')
+    .filter(line => !line.trim().startsWith('//'))
+    .join('\n');
+
+  it('exists on both sides of the boundary and sits under "Ship & record"', () => {
+    expect(WEBVIEW_SCRIPT).toContain("pageSectionOpen('release')");
+    expect(WEBVIEW_SCRIPT).toContain('${renderRelease(snapshot)}');
+    expect(WEBVIEW_SCRIPT).toContain("['release', 'Release']");
+  });
+
+  it('states that publishing stays with the human', () => {
+    // The page shows a plan, gates and a set of notes; a reader could easily
+    // assume the button that is not there exists. Say so rather than rely on
+    // its absence being noticed.
+    expect(rendered()).toMatch(/stay with you|stays with you/);
+  });
+
+  it('renders unknown gates as their own state, not as failures', () => {
+    expect(rendered()).toContain('GATE_TONE');
+    // The tone map is declared above the render function, so it is asserted
+    // against the whole script rather than the extracted body.
+    expect(WEBVIEW_SCRIPT).toMatch(/GATE_TONE = \{[^}]*unknown: 'tag-warn'/);
+    expect(WEBVIEW_SCRIPT).toMatch(/GATE_TONE = \{[^}]*fail: 'tag-critical'/);
+    expect(WEBVIEW_SCRIPT).toMatch(/GATE_WORD = \{[^}]*unknown: 'unknown'/);
+  });
+
+  it('distinguishes "releases not read" from "no releases"', () => {
+    // Both produce an empty list, and only one of them justifies telling
+    // somebody their delivery cadence is unmeasurable.
+    expect(rendered()).toContain('Releases have not been read');
+    expect(rendered()).toContain('no published releases yet');
+  });
+
+  it('explains the feature in its empty states rather than reporting emptiness', () => {
+    expect(rendered()).toContain('No changelog section for this version');
+    expect(rendered()).toMatch(/copied verbatim/);
+  });
+
+  it('never offers to strip a secret out of the notes', () => {
+    // Refusal, not redaction: publishing an edited version of what the author
+    // reviewed, without saying what was removed, is the worse failure.
+    expect(rendered()).toMatch(/will not publish a redacted version/);
+    expect(rendered()).not.toMatch(/redact (them|it) (for you|automatically)/i);
+  });
+
+  it('shows the declared change-failure rule wherever the number appears', () => {
+    expect(rendered()).toContain('rel.changeFailureRule');
+  });
+
+  it('names the releases the failure rule counted', () => {
+    expect(rendered()).toMatch(/argued with/);
+  });
+
+  it('renders every verdict through the shared helper, never as a bare value', () => {
+    // `renderVerdict` is what turns "not measured" into an em dash with its
+    // reason instead of a confident zero.
+    expect(rendered()).toContain('renderVerdict(verdict, format)');
+    expect(rendered()).not.toMatch(/dora\.\w+\s*\+\s*'%'/);
+  });
+
+  it('keeps the DORA bands honest about being an orientation, not a certification', () => {
+    expect(rendered()).toMatch(/not a certification/);
+  });
+});

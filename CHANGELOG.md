@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.189.0] - 2026-07-29
+
+### Added
+- **A Release page, and the four delivery keys.** Stage 6 was the best-served stage in the specification and the least reachable: `classifyBumpLevel`, `bumpVersion`, `insertChangelogEntry` and `compareSemver` have been pure, exported and tested for a long time, with nothing putting them in order. There is now a path.
+
+  Seven gates run root-cause-first — changelog entry → notes have content → no secrets in the notes → version moved on → tag is free → working tree clean → CI passing — because being told CI is red is unhelpful when the actual problem is that no changelog entry exists. **A gate reporting "unknown" is not a pass:** a repository whose tags could not be listed genuinely does not know whether its tag is free, and shipping on an unknown is the habit this stage exists to break.
+
+  The release notes are shown exactly as they would be published — the changelog section for the version, byte for byte. Never summarised, never model-generated: a generated release note is a claim nobody checked attached to a version nobody can change.
+
+- **A secret in the release notes refuses the release rather than being redacted out of it.** This inverts the rule applied to inbound untrusted text everywhere else in AtlasMind, on purpose. Release notes are outbound and permanent, so quietly publishing an edited version of what you reviewed — with no way for you to discover the edit — is the worse of the two failures. The message names the shape found, never the value, and says to rotate the credential.
+
+- **The four delivery keys.** Deployment frequency, lead time for change, change failure rate and time to restore, over a 90-day window. They are paired so a team cannot improve the half it likes by wrecking the other: two describe speed, two describe stability.
+
+  Each declares its rule where the number appears. Lead time is measured **merge → release** — the half you can act on, and the half squash-merging does not destroy — and work that merged but has not shipped is *excluded* rather than counted as infinitely slow, because that it is waiting is itself the finding. A change failure is **a patch release within 48 hours**, applied literally; a minor or major follow-up is a planned release, not a remediation, and counting it would make a busy release day read as an outage. Every release the rule counted is named, so the number can be argued with rather than taken on trust.
+
+  The bands are described as a widely cited orientation rather than a certification — the exact boundaries have moved between annual industry reports, and your own trend matters more than which side of a line you land on.
+
+### Fixed
+- **A changelog check that could not fail.** `changelogHasCurrentVersion` was derived from whether `CHANGELOG.md` *exists*, so the single most commonly missing thing at release time was reported as present on every repository that had ever written a changelog at all. Stage 6 read as complete on a changelog whose last entry was six versions old. It now reads the document's headings.
+
+- **`commitsSinceTag` was hardcoded to zero** and rendered as a fact. It now comes from `git describe` and `git rev-list`, or reports nothing when there is no tag.
+
+- **A duplicate, empty `## [0.187.1]` heading in this file.** The extractor written this version finds the first matching heading, which was the empty one — so the tooling in this release would have published a blank release note for that version. Caught by the thing it describes.
 ## [0.188.0] - 2026-07-29
 
 ### Added
@@ -17,8 +40,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 - **The Workflow page stopped being a dumping ground.** It had accumulated ten cards plus the whole eight-stage curriculum. It now keeps what is genuinely about the workflow itself — the guide, health, the automation ladder, project shape, branch naming and release readiness — and the per-stage detail lives on the pages named after those stages.
-
-## [0.187.1] - 2026-07-29
 
 ## [0.187.1] - 2026-07-29
 
