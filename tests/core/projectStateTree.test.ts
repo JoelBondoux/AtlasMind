@@ -31,6 +31,29 @@ describe('a section AtlasMind did not assess is omitted, not shown empty', () =>
   });
 });
 
+describe('the view can always appear', () => {
+  it('produces a section whenever automation could be read at all', () => {
+    // The deadlock this guards: the view's `when` clause hid it because it had
+    // no sections, and it had no sections because being hidden meant its
+    // children were never requested. It could never appear.
+    //
+    // Automation comes from settings, which are always readable, so a real
+    // workspace always yields at least this section — and the view is therefore
+    // always reachable.
+    const sections = build({
+      automation: {
+        masterEnabled: false, effective: 'off', limitedBy: 'master', detail: 'off',
+        capabilities: [],
+      },
+    });
+    expect(hasProjectState(sections)).toBe(true);
+  });
+
+  it('is empty only when genuinely nothing could be assessed', () => {
+    expect(hasProjectState(build({}))).toBe(false);
+  });
+});
+
 describe('what AtlasMind may do', () => {
   const automation = (over: Partial<NonNullable<ProjectStateInput['automation']>> = {}) => ({
     automation: {

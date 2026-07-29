@@ -6,6 +6,15 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.187.1 — the Project State view could never appear
+
+- **Fixed a closed loop.** The view's `when` clause read a key computed from the provider's cache, but that cache was only filled by `getChildren` — which VS Code calls only for a *visible* view. Hidden because it had no data; no data because it was hidden. Shipped in 0.187.0 and visible to nobody.
+- The model is now rebuilt independently of rendering, and a test pins the property: settings are always readable, so a real workspace always produces a section and the view is always reachable.
+- **It now opens expanded.** The original reasoning (that it would steal height from Chat) was wrong — Chat is a webview many people hide, and every other row is collapsed. A summary you have to expand shows nothing.
+- Gathering state can no longer break activation and take the other nine views with it.
+
+> **Existing installs:** VS Code remembers your sidebar order and visibility. A new view will not jump into a sidebar you have rearranged — use the **⋯** menu to show it, or drag it where you want.
+
 ## v0.187.0 — a Project State view in the sidebar
 
 - The sidebar had **ten views of inventory** and none of state. Nothing said where you are in the workflow, or what AtlasMind is currently permitted to do — the second being safety-critical and previously visible only by opening the dashboard or reading four settings across two scopes.

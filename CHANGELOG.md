@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.187.1] - 2026-07-29
+
+### Fixed
+- **The Project State view could never appear.** Its `when` clause read a context key computed from the provider's cached sections — but that cache was only filled by `getChildren`, which VS Code calls only for a *visible* view. So the view was hidden because it had no sections, and it had no sections because being hidden meant its children were never requested. A closed loop with no way in: shipped in 0.187.0 and visible to nobody.
+
+  The model is now rebuilt independently of rendering, so the badge and the visibility key no longer depend on the view having already drawn itself. A test pins the property directly: automation state comes from settings, which are always readable, so a real workspace always produces at least one section and the view is always reachable.
+
+- **The view now opens expanded rather than collapsed.** The original reasoning — that expanding would steal height from the Chat view above it — was wrong: Chat is a webview many users hide, and the sidebar is otherwise a stack of collapsed rows. Every other view is a list you open when you want it; this one is a summary you glance at, and a collapsed summary shows nothing.
+
+- **Gathering state can no longer break activation.** `registerTreeViews` computes the state eagerly so the visibility key is right on the first render, and that runs during activation — a failure there would have taken the other nine views down with it. It now degrades to a hidden view, which is what an unreadable state should produce anyway.
+
+> **Note for existing installs:** VS Code remembers the order and visibility of sidebar views per user. A newly added view will not jump to its manifest position in a sidebar you have already rearranged — use the **⋯** menu on the AtlasMind sidebar to show it, or drag it where you want it.
+
 ## [0.187.0] - 2026-07-29
 
 ### Added

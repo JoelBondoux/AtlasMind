@@ -79,7 +79,15 @@ export function registerTreeViews(
    */
   const refreshProjectState = (): void => {
     projectStateProvider.refresh();
-    const sections = projectStateProvider.current();
+    // This runs during activation, so a failure to gather must not take the
+    // other nine views down with it. An unreadable state means the view hides,
+    // which is exactly what it should do when it has nothing to say.
+    let sections: ProjectStateSection[] = [];
+    try {
+      sections = projectStateProvider.compute();
+    } catch {
+      sections = [];
+    }
     const waiting = countAttentionItems(sections);
     projectStateTreeView.badge = waiting > 0
       ? { value: waiting, tooltip: `${waiting} thing${waiting === 1 ? '' : 's'} waiting on you` }
@@ -1121,8 +1129,17 @@ class ProjectStateTreeProvider implements vscode.TreeDataProvider<vscode.TreeIte
     this._onDidChangeTreeData.fire(undefined);
   }
 
-  /** The current model, for the badge and the context key. */
-  current(): ProjectStateSection[] {
+  /**
+   * Rebuild the model and return it.
+   *
+   * Deliberately independent of `getChildren`. The badge and the `when` clause
+   * are computed from this, and reading a cache that only `getChildren` fills
+   * created a deadlock: the view was hidden because it had no sections, and it
+   * had no sections because being hidden meant `getChildren` never ran. It
+   * could never appear.
+   */
+  compute(): ProjectStateSection[] {
+    this.sections = buildProjectState(this.gather());
     return this.sections;
   }
 
@@ -1132,7 +1149,7 @@ class ProjectStateTreeProvider implements vscode.TreeDataProvider<vscode.TreeIte
 
   getChildren(element?: vscode.TreeItem): vscode.TreeItem[] {
     if (!element) {
-      this.sections = buildProjectState(this.gather());
+      this.compute();
       return this.sections.map(section => {
         const item = new vscode.TreeItem(
           section.label,

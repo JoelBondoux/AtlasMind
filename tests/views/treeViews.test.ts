@@ -8,6 +8,15 @@ vi.mock('vscode', () => ({
     fire() {}
     event = vi.fn();
   },
+  workspace: {
+    // The Project State view reads settings per scope, so `inspect` must be
+    // present — `get` alone would resolve workspace above user, which is the
+    // precedence bug fixed in 0.185.1.
+    getConfiguration: vi.fn().mockReturnValue({
+      get: vi.fn(),
+      inspect: vi.fn().mockReturnValue(undefined),
+    }),
+  },
   window: {
     registerWebviewViewProvider: vi.fn(),
     registerTreeDataProvider: vi.fn(),
