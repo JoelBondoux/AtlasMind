@@ -313,6 +313,20 @@ Consequences that follow from that one decision: `median` refuses below `MIN_SAM
 
 Output shapes match the dashboard's existing render primitives — series for `renderChartCard`, slices for `renderDonutChart`, segments for `renderDistributionBar` — so the instrumentation wall is assembled from components that already exist. `deriveBranchMetrics` exempts integration and release branches from naming conformance, because a permanent unfixable gap teaches people to ignore gaps; `deriveCommitConformance` excludes platform-generated merge commits, which would otherwise penalise a team for using squash merges.
 
+### TeamRoles (`src/core/teamRoles.ts`)
+
+Roles a Director assigns, and what assigning one actually does. The honest framing leads the module, because the obvious reading of "roles and restrictions" is a permission system:
+
+> **A role is a configuration template and a declared expectation. It is not a permission boundary.**
+
+AtlasMind runs inside each person's editor and cannot prevent them editing their own settings. Claiming otherwise would be security theatre. What a role *can* do is real: **configure** (settings written at workspace scope apply to everyone, and since v0.185.1 an individual can still be stricter), **declare** (the assignment lives in a committed file, so expectations are reviewable rather than remembered), and **route review** — which is the only part GitHub enforces.
+
+Two deliberate limits. A role **never writes the master switch**: turning the workflow on stays each person's decision, and a role flipping it would remove the one control users are told makes them certain. And no shipped role grants `auto`. The Maintainer/Director split carries the useful separation — a Maintainer prepares a release but cannot write to a protected branch; a Contributor opens pull requests but cannot merge them.
+
+`sanitizeTeamRole` defaults every capability to denied and the ceiling to the most restrictive value, because a role document is hand-editable and a missing field must never read as consent. `resolveTeamRoles` merges edits over the built-ins and **restores a deleted built-in**, since deleting one would silently drop the expectations attached to everybody already assigned it.
+
+CODEOWNERS generation is where a role becomes enforceable. Only the managed block is written, so hand-written rules survive — CODEOWNERS routes review, and replacing somebody's rules would reassign it for paths nobody asked about. Input order is preserved because CODEOWNERS is **last-match-wins**. `normalizeGithubOwner` *validates rather than sanitises*: GitHub silently ignores an owner it cannot resolve, so a plausible-but-wrong handle would leave a path with no required reviewer and nobody would notice until a change landed unreviewed. A `*` pattern is refused for the same reason — it would override every more specific rule above it.
+
 ### ProjectArchetype (`src/core/projectArchetype.ts`)
 
 "What kind of software is this?" asked and answered once. Before this module there were **three** answers in the codebase and they disagreed: a twelve-option bootstrap picker whose value was consumed by a single regex, `testingScaffolder`'s seven-value `Archetype`, and `deliveryManager`'s four-value `DeliveryArchetype`. Games were the clearest casualty — detected from `phaser`/`bevy`/`pygame`, never acted on, not selectable at bootstrap, and shipped as `generic`.

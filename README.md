@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.185.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.186.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,9 +64,15 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.185.1
+## What's new in 0.186.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
+
+- **A Director can assign roles, and assigning one does something.** Five roles ship — Director, Maintainer, Contributor, Reviewer, Observer — each carrying an automation ceiling and a set of capabilities. Applying one writes the matching settings to the workspace after a confirmation listing every key and value, so the whole team works inside the same envelope.
+
+  Worth being clear about what a role is: **a configuration template and a declared expectation, not a permission boundary.** AtlasMind runs inside each person's editor and cannot stop them changing their own settings. It never turns the workflow on for anybody either — that stays each person's decision — and no shipped role grants unattended action.
+
+  Where restriction genuinely bites is **CODEOWNERS**, because GitHub enforces that rather than AtlasMind. Give a responsibility some path patterns and its owner a GitHub handle, and it becomes a review-routing rule. Only AtlasMind's managed block is written, so your own entries survive; an owner GitHub could not resolve is dropped *and reported*, because GitHub silently ignores one and the path would otherwise end up with no reviewer at all.
 
 - **The workflow now specialises by what kind of project you are building.** A game, a website, a library and a CLI do not share a CI pipeline, a release mechanism, a testing strategy, an expected documentation set, or the same idea of what counts as technical debt — and until now the guided workflow treated them identically, which meant it was tuned for none of them.
 

@@ -1870,6 +1870,17 @@ export interface TeamMember {
   contactId: string;
   /** Discipline/role on delivery, e.g. "backend-engineer", "QA". */
   discipline: string;
+  /**
+   * The workflow role assigned to this person — see `teamRoles.ts`.
+   *
+   * Distinct from `discipline`, which says what they *do*; this says what the
+   * workflow permits them. A role is a configuration template and a declared
+   * expectation, **never a permission boundary** — AtlasMind runs inside each
+   * person's editor and cannot enforce one. Where restriction genuinely bites
+   * is the CODEOWNERS entries a role plus responsibility paths generate,
+   * because GitHub enforces those.
+   */
+  roleId?: string;
   /** Optional allocation hint (display only), e.g. "50%", "2 days/wk". */
   allocation?: string;
   availability?: string;
@@ -1887,6 +1898,16 @@ export interface Responsibility {
   description?: string;
   ownerContactId: string;
   backupContactId?: string;
+  /**
+   * Path patterns this area covers, as GitHub CODEOWNERS reads them.
+   *
+   * Optional because plenty of responsibilities ("Release sign-off", "Client
+   * relationship") map to no path at all. Where paths *are* supplied, the owner
+   * and backup become required reviewers for them — which is the one place a
+   * role turns into an enforced restriction, since GitHub enforces CODEOWNERS
+   * and AtlasMind cannot.
+   */
+  paths?: string[];
   notes?: string;
 }
 
@@ -2017,6 +2038,16 @@ export interface ProjectDirectorConfig {
   stakeholders: Stakeholder[];
   teamMembers: TeamMember[];
   responsibilities: Responsibility[];
+  /**
+   * Edited or custom workflow roles, merged over the built-ins on read.
+   *
+   * Untyped here on purpose: this document is hand-editable, so it is read
+   * through `sanitizeTeamRole`, which defaults every capability to denied. A
+   * missing field must never read as consent. Deleting a built-in here does not
+   * remove it — that would silently drop the expectations attached to everybody
+   * already assigned it.
+   */
+  roles?: unknown[];
   assignments: Assignment[];
   followUps: FollowUp[];
   settings: ProjectDirectorSettings;

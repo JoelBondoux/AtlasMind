@@ -68,6 +68,15 @@ import {
 } from '../core/projectArchetype.js';
 import { resolveArchetypePack, type ArchetypePack } from '../core/archetypePacks.js';
 import {
+  CODEOWNERS_MARKERS,
+  buildCodeownersBlock,
+  describeRoleApplication,
+  resolveTeamRoles,
+  roleWorkspaceSettings,
+  type TeamRole,
+} from '../core/teamRoles.js';
+import { upsertManagedBlock } from '../utils/managedBlock.js';
+import {
   buildCiFailureReport,
   type CiFailureReport,
 } from '../core/ciFailureAnalysis.js';
@@ -280,6 +289,8 @@ type ProjectDashboardMessage =
   | { type: 'closeIssue'; payload: { number: number } }
   | { type: 'reopenIssue'; payload: { number: number } }
   | { type: 'commentIssue'; payload: { number: number; body: string } }
+  | { type: 'applyTeamRole'; payload: { roleId: string } }
+  | { type: 'generateCodeowners' }
   | { type: 'createPullRequest'; payload: { title: string; body?: string; base: string; head: string; draft?: boolean } }
   | { type: 'reviewPullRequest'; payload: { number: number; verdict: 'approve' | 'request-changes' | 'comment'; body?: string } }
   | { type: 'mergePullRequest'; payload: { number: number; base: string } }
@@ -1006,6 +1017,18 @@ interface DashboardDirectorSnapshot {
   storesRawPii: boolean;
   /** True once the user has acknowledged the one-time PII/GDPR storage notice. */
   piiAcknowledged: boolean;
+  /**
+   * The assignable roles, built-ins merged with any the Director edited.
+   *
+   * Resolved here rather than in the webview so the merge rule — a deleted
+   * built-in comes back — lives in one tested place.
+   */
+  roles: TeamRole[];
+  /**
+   * How many CODEOWNERS rules the current roster would produce, and what would
+   * be left out. Shown before the action so the button is not a surprise.
+   */
+  codeowners: { ruleCount: number; warnings: string[] };
   /** Count of overdue follow-ups (derived). */
   overdueCount: number;
   /** Derived urgency per follow-up id, so the client can group without re-deriving. */
@@ -1849,6 +1872,12 @@ export class ProjectDashboardPanel {
       case 'seedDirectorFromRepo':
         await this.handleSeedDirector();
         return;
+      case 'applyTeamRole':
+        await this.handleApplyTeamRole(message.payload);
+        return;
+      case 'generateCodeowners':
+        await this.handleGenerateCodeowners();
+        return;
       case 'runRiskAnalysis':
         await this.handleRunRiskAnalysis(message.payload.domain);
         return;
@@ -2555,6 +2584,146 @@ export class ProjectDashboardPanel {
     // Re-read either way: a failed write may still have partially applied, and
     // the list is the only honest report of what GitHub now holds.
     await this.handleRefreshIssues();
+  }
+
+  /**
+   * Apply a role's settings to the workspace.
+   *
+   * Writes to **workspace** scope deliberately: the point of a role is that it
+   * applies to everyone who opens the repository. Since v0.185.1 that is safe in
+   * the direction that matters — a person can still set themselves stricter, and
+   * the most restrictive scope wins.
+   *
+   * The confirmation lists every key and value, because a role writes several
+   * settings at once and approving a change nobody can read is not consent. The
+   * master switch is deliberately not among them: turning the workflow *on*
+   * stays each person's own decision.
+   */
+  private async handleApplyTeamRole(payload: unknown): Promise<void> {
+    const roleId = typeof (payload as { roleId?: unknown })?.roleId === 'string'
+      ? (payload as { roleId: string }).roleId
+      : '';
+    const config = this.atlas.projectDirectorManager?.getConfig?.();
+    const role = resolveTeamRoles(config?.roles).find(candidate => candidate.id === roleId);
+    if (!role) {
+      void vscode.window.showWarningMessage('That role no longer exists.');
+      return;
+    }
+
+    const changes = roleWorkspaceSettings(role);
+    const confirmation = await vscode.window.showWarningMessage(
+      `Apply the ${role.label} role to this workspace?`,
+      { modal: true, detail: describeRoleApplication(role) },
+      'Yes, apply it',
+    );
+    if (confirmation !== 'Yes, apply it') {
+      return;
+    }
+
+    const configuration = vscode.workspace.getConfiguration();
+    try {
+      for (const change of changes) {
+        await configuration.update(change.key, change.value, vscode.ConfigurationTarget.Workspace);
+      }
+      void vscode.window.showInformationMessage(
+        `Applied the ${role.label} role. Each person can still set themselves more restrictive, and the workflow stays off until they turn it on.`,
+      );
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not write the role settings: ${detail.slice(0, 300)}`);
+    }
+    await this.syncState();
+  }
+
+  /**
+   * Write the managed CODEOWNERS block from the Director's responsibilities.
+   *
+   * This is the one place a role becomes an enforced restriction rather than a
+   * declared expectation, because GitHub enforces CODEOWNERS and AtlasMind
+   * cannot. It is therefore the one place worth being most careful:
+   *
+   * - only the managed block is rewritten, so hand-written rules survive;
+   * - an owner GitHub could not resolve is dropped and reported, because GitHub
+   *   silently ignores one and the path would end up with no reviewer at all;
+   * - the confirmation shows the exact block before anything is written.
+   */
+  private async handleGenerateCodeowners(): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const config = this.atlas.projectDirectorManager?.getConfig?.();
+    if (!workspaceRoot || !config) {
+      void vscode.window.showWarningMessage('Open a workspace with a Project Director roster first.');
+      return;
+    }
+
+    // A GitHub handle lives on the contact as a `github` communication link —
+    // a public identifier, which is the kind the roster prefers to a raw one.
+    const handleFor = (contactId: string | undefined): string[] => {
+      const contact = config.contacts.find(candidate => candidate.id === contactId);
+      return (contact?.links ?? [])
+        .filter(link => link.kind === 'github')
+        .map(link => link.handle);
+    };
+
+    const { block, entries, warnings } = buildCodeownersBlock({
+      responsibilities: config.responsibilities.map(responsibility => ({
+        area: responsibility.area,
+        ...(responsibility.paths === undefined ? {} : { paths: responsibility.paths }),
+        ownerHandles: handleFor(responsibility.ownerContactId),
+        backupHandles: handleFor(responsibility.backupContactId),
+      })),
+    });
+
+    if (entries.length === 0) {
+      void vscode.window.showWarningMessage(
+        'Nothing to write to CODEOWNERS.',
+        {
+          modal: true,
+          detail: warnings.length > 0
+            ? warnings.join('\n\n')
+            : 'No responsibility has both a path pattern and a contact with a GitHub handle. Add paths to a responsibility, and a GitHub link to its owner.',
+        },
+      );
+      return;
+    }
+
+    const file = path.join(workspaceRoot, '.github', 'CODEOWNERS');
+    let existing = '';
+    try {
+      existing = await fs.readFile(file, 'utf8');
+    } catch {
+      existing = '';
+    }
+
+    const detail = [
+      `${entries.length} rule${entries.length === 1 ? '' : 's'} will be written to .github/CODEOWNERS.`,
+      existing.length > 0
+        ? 'Only AtlasMind\'s managed block is replaced — your own entries are left untouched.'
+        : 'The file does not exist yet and will be created.',
+      '',
+      block,
+      ...(warnings.length > 0 ? ['', 'Left out:', ...warnings.map(warning => `• ${warning}`)] : []),
+    ].join('\n');
+
+    const confirmation = await vscode.window.showWarningMessage(
+      'Write CODEOWNERS?',
+      { modal: true, detail },
+      'Yes, write it',
+    );
+    if (confirmation !== 'Yes, write it') {
+      return;
+    }
+
+    try {
+      await fs.mkdir(path.dirname(file), { recursive: true });
+      await fs.writeFile(file, upsertManagedBlock(existing, block, CODEOWNERS_MARKERS), 'utf8');
+      void vscode.window.showInformationMessage(
+        `Wrote ${entries.length} CODEOWNERS rule${entries.length === 1 ? '' : 's'}. GitHub will request review from these owners on matching paths.`,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not write CODEOWNERS: ${message.slice(0, 300)}`);
+    }
+    await this.syncState();
   }
 
   /** Hand an issue to chat as *reported content*, never as instructions. */
@@ -3733,6 +3902,21 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
   // never supplies a command or an argument list — only these fields.
   if (candidate['type'] === 'createIssue') {
     return sanitizeIssueDraft(candidate['payload']) !== undefined;
+  }
+
+  // A role id is looked up against the role list, so it only has to be a slug —
+  // an unrecognised one resolves to no role rather than a partial match.
+  if (candidate['type'] === 'applyTeamRole') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null
+      && typeof payload['roleId'] === 'string'
+      && /^[a-z0-9][a-z0-9-]{0,59}$/.test(payload['roleId']);
+  }
+
+  if (candidate['type'] === 'generateCodeowners') {
+    // No payload: the content comes entirely from the persisted roster, so the
+    // webview cannot influence what gets written.
+    return true;
   }
 
   // Pull-request writes carry the same rule as issue writes: the shape is
@@ -5992,6 +6176,10 @@ async function collectDirectorSnapshot(
     teamMode: 'solo',
     storesRawPii: false,
     piiAcknowledged: false,
+    // Built-ins with no persisted edits, and nothing to write until a roster
+    // exists. Both are recomputed below once the config loads.
+    roles: resolveTeamRoles(undefined),
+    codeowners: { ruleCount: 0, warnings: [] },
     overdueCount: 0,
     followUpUrgency: {},
     runs: [],
@@ -6056,12 +6244,30 @@ async function collectDirectorSnapshot(
     ownerName: ownerByRun.get(run.id),
   }));
 
+  // A preview of what generating CODEOWNERS would produce, computed from the
+  // same function that writes it — so the count shown and the file written
+  // cannot disagree.
+  const githubHandles = (contactId: string | undefined): string[] =>
+    (config.contacts.find(candidate => candidate.id === contactId)?.links ?? [])
+      .filter(link => link.kind === 'github')
+      .map(link => link.handle);
+  const codeownersPreview = buildCodeownersBlock({
+    responsibilities: config.responsibilities.map(responsibility => ({
+      area: responsibility.area,
+      ...(responsibility.paths === undefined ? {} : { paths: responsibility.paths }),
+      ownerHandles: githubHandles(responsibility.ownerContactId),
+      backupHandles: githubHandles(responsibility.backupContactId),
+    })),
+  });
+
   return {
     ...base,
     config,
     teamMode: resolveTeamMode(config),
     storesRawPii: configStoresRawPii(config),
     piiAcknowledged,
+    roles: resolveTeamRoles(config.roles),
+    codeowners: { ruleCount: codeownersPreview.entries.length, warnings: codeownersPreview.warnings },
     overdueCount: countOverdueFollowUps(config),
     followUpUrgency,
     runs: runViews,

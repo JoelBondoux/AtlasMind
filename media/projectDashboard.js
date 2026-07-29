@@ -728,6 +728,14 @@
       render();
       return;
     }
+    if (action === 'apply-team-role') {
+      vscode.postMessage({ type: 'applyTeamRole', payload: { roleId: payload } });
+      return;
+    }
+    if (action === 'generate-codeowners') {
+      vscode.postMessage({ type: 'generateCodeowners' });
+      return;
+    }
     if (action === 'workflow-help') {
       state.workflowHelpOpen[payload] = !state.workflowHelpOpen[payload];
       // Re-focus this exact toggle after the rebuild, so a keyboard user who
@@ -5692,6 +5700,62 @@
       </article>`;
   }
 
+  /**
+   * Assignable roles, and the two things assigning one actually does.
+   *
+   * The card leads with what a role is *not*, because the obvious reading of
+   * "roles and restrictions" is a permission system, and AtlasMind cannot be
+   * one — it runs inside each person's editor. Saying so here is cheaper than
+   * somebody discovering it later.
+   */
+  function renderTeamRoles(snapshot) {
+    const d = snapshot.director || {};
+    const roles = d.roles || [];
+    const codeowners = d.codeowners || { ruleCount: 0, warnings: [] };
+    if (roles.length === 0) { return ''; }
+
+    const cap = (role, key, label) =>
+      role.capabilities && role.capabilities[key]
+        ? `<span class="tag tag-good">${escapeHtml(label)}</span>`
+        : '';
+
+    return `
+      <article class="panel-card">
+        <p class="card-kicker">Team roles</p>
+        <p class="stat-detail">A role sets the workflow envelope for everyone who opens this repository, and records who is expected to do what. It is <strong>not</strong> a permission boundary — AtlasMind runs in each person's editor and cannot enforce one. Where restriction genuinely bites is CODEOWNERS, because GitHub enforces that.</p>
+        <div class="stack-list">
+          ${roles.map(role => `
+            <div class="recent-item">
+              <div class="row-head">
+                <strong>${escapeHtml(role.label)}</strong>
+                <span class="tag">${escapeHtml(role.ceiling)}</span>
+              </div>
+              <div class="stat-detail">${escapeHtml(role.blurb)}</div>
+              <div class="tag-row">
+                ${cap(role, 'issueWrites', 'issues')}
+                ${cap(role, 'pullRequestWrites', 'pull requests')}
+                ${cap(role, 'releaseWrites', 'releases')}
+                ${cap(role, 'protectedRefWrites', 'protected branches')}
+                <button type="button" class="action-link" data-action="apply-team-role" data-payload="${escapeAttr(role.id)}">Apply to this workspace</button>
+              </div>
+            </div>`).join('')}
+        </div>
+        <p class="stat-detail">Applying a role never turns the workflow on — that stays each person's own decision — and anyone can still set themselves more restrictive than their role.</p>
+        <div class="row-head">
+          <span>CODEOWNERS</span>
+          <span class="tag ${codeowners.ruleCount > 0 ? 'tag-good' : 'tag-warn'}">${codeowners.ruleCount} rule${codeowners.ruleCount === 1 ? '' : 's'}</span>
+        </div>
+        <p class="stat-detail">${codeowners.ruleCount > 0
+          ? 'Generated from responsibilities that have both a path pattern and an owner with a GitHub handle. Only AtlasMind\'s managed block is written — your own entries are left alone.'
+          : 'Nothing to write yet. A responsibility needs a path pattern, and its owner needs a GitHub link on their contact.'}</p>
+        ${(codeowners.warnings || []).length
+          ? `<ul class="stat-detail wf-unknown">${codeowners.warnings.slice(0, 5).map(warning =>
+            `<li>${escapeHtml(warning)}</li>`).join('')}</ul>`
+          : ''}
+        <button type="button" class="action-link" data-action="generate-codeowners">Write CODEOWNERS</button>
+      </article>`;
+  }
+
   function renderDirectorResponsibilities(cfg) {
     const contactOptions = cfg.contacts.map(c => ({ value: c.id, label: c.name }));
     const rows = cfg.responsibilities.map(r => `
@@ -6030,6 +6094,7 @@
         ${rosterCard}
       </div>
       <div class="review-grid">
+        ${renderTeamRoles(snapshot)}
         ${renderDirectorResponsibilities(cfg)}
         ${renderDirectorAssignments(cfg, d)}
       </div>

@@ -336,6 +336,45 @@ function asBool(value: unknown): boolean {
   return value === true;
 }
 
+/**
+ * A slug-shaped identifier, or nothing.
+ *
+ * Used for a role id, which is looked up rather than displayed. Coercing a
+ * malformed value would risk matching a *different* role, so anything that is
+ * not already a clean slug resolves to no role at all.
+ */
+function optSlug(value: unknown, max: number): string | undefined {
+  const trimmed = clampStr(value, max).toLowerCase();
+  return /^[a-z0-9][a-z0-9-]*$/.test(trimmed) ? trimmed : undefined;
+}
+
+/**
+ * CODEOWNERS path patterns.
+ *
+ * These end up in a file GitHub reads to route review, so they are
+ * control-stripped, length-capped and count-capped, and anything containing
+ * whitespace is dropped — a pattern with a space in it silently splits into a
+ * pattern and an owner, which would assign review to something that is not a
+ * person. Returns `undefined` rather than an empty array so the field stays
+ * absent when unused.
+ */
+function cleanPathPatterns(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const out: string[] = [];
+  for (const entry of value.slice(0, 40)) {
+    if (typeof entry !== 'string') {
+      continue;
+    }
+    const pattern = entry.replace(/[\u0000-\u001f\u007f]+/g, '').trim().slice(0, 200);
+    if (pattern.length > 0 && !/\s/.test(pattern) && !out.includes(pattern)) {
+      out.push(pattern);
+    }
+  }
+  return out.length > 0 ? out : undefined;
+}
+
 function slugify(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || String(Date.now());
 }
@@ -484,6 +523,10 @@ export function sanitizeProjectDirectorConfig(input: unknown): ProjectDirectorCo
       id,
       contactId,
       discipline,
+      // A role id is a slug, not free text: it is looked up against the role
+      // list, and an unrecognised one resolves to no role rather than to a
+      // partially-matched one.
+      roleId: optSlug(t['roleId'], 60),
       allocation: optStr(t['allocation'], 60),
       availability: optStr(t['availability'], 120),
       notes: optStr(t['notes'], MAX_LONG),
@@ -507,6 +550,7 @@ export function sanitizeProjectDirectorConfig(input: unknown): ProjectDirectorCo
       description: optStr(r['description'], MAX_LONG),
       ownerContactId,
       backupContactId: validRef(r['backupContactId']),
+      paths: cleanPathPatterns(r['paths']),
       notes: optStr(r['notes'], MAX_LONG),
     });
   }

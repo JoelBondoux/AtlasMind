@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.186.0] - 2026-07-29
+
+### Added
+- **A Director can assign roles, and assigning one does something.** Five roles ship — Director, Maintainer, Contributor, Reviewer, Observer — each carrying an automation ceiling and a set of capabilities. Applying one writes the matching settings to the workspace, so they apply to everyone who opens the repository, after a confirmation that lists every key and value.
+
+  The framing matters more here than the feature: **a role is a configuration template and a declared expectation, not a permission boundary.** AtlasMind runs inside each person's editor and cannot prevent them editing their own settings; claiming otherwise would be security theatre. What it can do is real — configure the envelope, record who is expected to do what in a committed file, and route review.
+
+  Two deliberate limits. A role **never writes the master switch**: turning the workflow on stays each person's own decision, since that switch is described to them as the one control they need in order to be certain. And no shipped role grants `auto` — unattended action is something an individual opts into, not something handed out on assignment.
+
+  The role split is where the useful separation lives: a Maintainer can prepare a release but not write to a protected branch, and a Contributor can open a pull request but not merge it — which is the separation a review requirement exists to create.
+
+- **CODEOWNERS generation, which is where restriction actually bites.** Responsibilities gain optional path patterns; a responsibility with paths and an owner carrying a GitHub handle becomes a CODEOWNERS rule. This is the one part of the feature GitHub enforces rather than AtlasMind, which is exactly why it is the part worth having.
+
+  Only AtlasMind's managed block is written — hand-written rules survive untouched, because CODEOWNERS routes review and replacing somebody's rules would reassign it for paths nobody asked about. Input order is preserved, since CODEOWNERS is last-match-wins and reordering silently changes who reviews what. An owner GitHub could not resolve is **dropped and reported** rather than written: GitHub silently ignores an unresolvable owner, so the path would end up with no required reviewer and nobody would find out until a change landed unreviewed. A `*` pattern is refused for the same class of reason — it would make its owners required reviewers on every file and override every more specific rule above it.
+
 ## [0.185.1] - 2026-07-29
 
 ### Fixed

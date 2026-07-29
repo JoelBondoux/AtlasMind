@@ -6,6 +6,14 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.186.0 — roles a Director can assign
+
+- **Five roles** — Director, Maintainer, Contributor, Reviewer, Observer — each with an automation ceiling and capabilities. Applying one writes the settings to the workspace, so they apply to everyone who opens the repository, after a confirmation listing every key and value.
+- **A role is a configuration template and a declared expectation, not a permission boundary.** AtlasMind runs in each person's editor and cannot enforce one; saying otherwise would be security theatre.
+- **A role never turns the workflow on**, and no shipped role grants `auto` — unattended action is something an individual opts into.
+- **CODEOWNERS generation is where restriction actually bites**, because GitHub enforces it. Responsibilities gain path patterns; only AtlasMind's managed block is written, so hand-written rules survive. An owner GitHub could not resolve is dropped *and reported* — GitHub silently ignores one, so the path would have had no reviewer.
+- The Maintainer/Director split is the useful one: a Maintainer prepares a release but cannot write to a protected branch, and a Contributor opens pull requests but cannot merge them.
+
 ## v0.185.1 — a person can always be more cautious than their team
 
 - **Fixed:** the automation ladder read the *resolved* setting value, and VS Code resolves workspace above user — so a repository committing `maxAutomationLevel: auto` raised everyone's ceiling, and setting `observe` for yourself was overridden. The specification promised the reverse.
