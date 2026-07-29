@@ -419,3 +419,30 @@ describe('the workflow card shows what an empty command means', () => {
     expect(rendered()).toContain('cfg.problems');
   });
 });
+
+describe('the audit card', () => {
+  const rendered = (): string => workflowRenderedStrings();
+
+  it('says an empty ledger means nothing has run, not that nothing went wrong', () => {
+    // The single most likely misreading of an empty audit trail, and the one
+    // that would make it worse than useless.
+    expect(rendered()).toMatch(/means nothing has run, not that nothing went wrong/);
+  });
+
+  it('shows a determinism breach with both fingerprints', () => {
+    // A count tells somebody they have a problem; the fingerprints and dates
+    // tell them where to look.
+    expect(rendered()).toContain('breach.inputsFingerprint');
+    expect(rendered()).toContain('output.outputsFingerprint');
+  });
+
+  it('shows a capped level alongside the one that was asked for', () => {
+    expect(rendered()).toContain('asked for');
+    expect(rendered()).toContain('record.limitedBy');
+  });
+
+  it('states that dropped records were dropped rather than forgetting silently', () => {
+    expect(rendered()).toContain('droppedByCap');
+    expect(rendered()).toMatch(/never quietly forgets/);
+  });
+});

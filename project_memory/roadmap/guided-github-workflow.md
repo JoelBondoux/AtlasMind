@@ -1,6 +1,6 @@
 # Guided GitHub Workflow — Phased Roadmap
 
-> **Status:** Tier 1 shipped v0.181.0; Tier 2 shipped v0.183.0 (C3.4, C3.6 outstanding); Tier 3 CI intelligence shipped v0.184.0; **Tier 3.5 archetype specialisation shipped v0.185.0** (C7.4, C7.5 outstanding); **Tier 3 release half shipped v0.189.0 — C5.1 and C5.3 complete, so Tier 3's exit criteria are met**; **Tier 4 started v0.190.0 with C1.1 and C1.7**. **Owner:** AtlasMind core. **Created:** 2026-07-28.
+> **Status:** Tier 1 shipped v0.181.0; Tier 2 shipped v0.183.0 (C3.4, C3.6 outstanding); Tier 3 CI intelligence shipped v0.184.0; **Tier 3.5 archetype specialisation shipped v0.185.0** (C7.4, C7.5 outstanding); **Tier 3 release half shipped v0.189.0 — C5.1 and C5.3 complete, so Tier 3's exit criteria are met**; **Tier 4 in progress — C1.1 and C1.7 shipped v0.190.0–v0.191.0, C1.6 shipped v0.192.0; C6 and C1.8 outstanding**. **Owner:** AtlasMind core. **Created:** 2026-07-28.
 > This is the SSOT implementation plan for [`docs/guided-github-workflow.md`](../../docs/guided-github-workflow.md),
 > which is the normative specification. Where the two disagree, the specification wins and this
 > file is wrong. Build incrementally, respecting the entry criteria between tiers. Nothing here
@@ -414,7 +414,7 @@ raise a stage to `propose` or `auto` and have the record show exactly what was d
 
 ### C1 (continued) — unattended operation
 
-#### C1.6 — The workflow audit record
+#### C1.6 — The workflow audit record  ✅ shipped v0.192.0
 
 - **Purpose:** Make every other stage's determinism claim verifiable rather than aspirational.
 - **Expected behaviour:** Append a `WorkflowRunRecord` per transition with `inputsFingerprint`, `outputsFingerprint`, gate results, actor and effective level. A stage that cannot write its record does not proceed.
@@ -422,6 +422,7 @@ raise a stage to `propose` or `auto` and have the record show exactly what was d
 - **GitHub API usage:** n/a.
 - **Deterministic output requirements:** Two runs with the same `inputsFingerprint` must produce the same `outputsFingerprint`; a mismatch names the stage and both runs.
 - **Priority:** High
+- **As shipped:** `workflowAuditRecord.ts` + `runRecorded`/`recordRefusal` on the dashboard panel. Wired into issue writes, pull-request writes and their refusals. Building it found a **dead safety switch**: `atlasmind.workflow.allowIssueWrites` was documented and nothing consulted it, so a user could turn it off believing it stopped issue writes. Issue writes now take the same ladder gate pull-request writes have had since v0.183.0 — a behaviour change, and a deliberate one: a false assurance is worse than no switch.
 
 #### C1.7 — Workflow configuration editing UI  ✅ shipped v0.190.0
 

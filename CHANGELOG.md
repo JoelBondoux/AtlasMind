@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.192.0] - 2026-07-29
+
+### Added
+- **The workflow now records what it did.** Branch names are derived, pull-request titles are classified by rule, CI failures are matched against an ordered table, release notes are copied verbatim. Every one of those is a determinism claim, and a determinism claim is either verifiable or it is marketing. `project_memory/operations/workflow-history.json` is what makes them verifiable: two runs with the same inputs must produce the same outputs, and where they did not, **both runs are named** — a count tells you that you have a problem, the ids tell you where.
+
+  **Inputs and outputs are recorded as fingerprints, never as values.** This ledger is committed, so storing what was processed would put issue bodies, review comments and CI logs into your repository. A fingerprint proves the same input produced the same output without publishing either, and the record type has no field that could hold a payload.
+
+  **The record is written before the action, not after.** That is the wrong way round from the obvious one, deliberately: a record written afterwards is missing exactly when it matters most, because the run that crashed is the run somebody needs to read about. **An action whose record cannot be written does not happen** — an action that quietly skipped its record because a disk was full would be the one nobody could account for later.
+
+  A refused action is recorded too. “We were not allowed to” is a fact worth keeping, and it is the one somebody asks about when a switch turns out to be off.
+
+### Fixed
+- **A safety switch that did nothing.** `atlasmind.workflow.allowIssueWrites` has shipped as a documented setting since v0.181.0, and **nothing consulted it** — the capability was handled in the ladder and no call site ever passed it. Somebody could turn it off believing it stopped AtlasMind writing to their issue tracker, and it did not. A false assurance is worse than no switch at all.
+
+  Issue writes now take the same ladder gate pull-request writes have had since v0.183.0. **This is a behaviour change:** creating, commenting on, closing or reopening an issue from the dashboard now needs `atlasmind.workflow.enabled` and `atlasmind.workflow.allowIssueWrites` on, exactly as pull-request writes already do. The refusal names which switch is holding it, so nobody has to toggle four settings at random.
 ## [0.191.0] - 2026-07-29
 
 ### Added

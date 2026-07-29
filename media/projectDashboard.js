@@ -3690,6 +3690,69 @@
         <button type="button" class="action-link" data-action="command" data-payload="atlasmind.openSettings">Open settings</button>
       </article>`;
 
+    // The audit record. Every other part of this workflow makes a determinism
+    // claim; this is the card where those claims are either true or visibly not.
+    const audit = snapshot.audit || { summary: {}, recent: [] };
+    const auditSummary = audit.summary || {};
+    const breaches = auditSummary.breaches || [];
+    const auditHelp = renderWorkflowHelp('workflow.audit', {
+      label: 'what the audit record proves',
+      why: 'Branch names are derived, pull-request titles are classified by rule, CI failures are matched against an ordered table, release notes are copied verbatim. Every one of those is a determinism claim, and a determinism claim is either verifiable or it is marketing. The record makes it verifiable: two runs with the same inputs must produce the same outputs, and where they did not, both runs are named.',
+      how: [
+        { text: 'Inputs and outputs are recorded as fingerprints, never as values. This ledger is committed, so storing what was processed would put issue bodies, review comments and CI logs into your repository.' },
+        { text: 'The record is written before the action, not after. A record written afterwards is missing exactly when it matters most — the run that crashed is the run somebody needs to read about.' },
+        { text: 'An action whose record cannot be written does not happen. An action that quietly skipped its record would be the one nobody could account for later.' },
+        { text: 'A refused action is recorded too. “We were not allowed to” is a fact worth keeping, and it is the one somebody asks about when a switch turns out to be off.' },
+        { text: 'Records transition through complete or failed; they are never deleted or rewritten. The ledger is capped, and the truncation is stated in the file rather than applied silently.' },
+      ],
+      commonMistakes: [
+        'Reading an empty ledger as “nothing went wrong”. It means nothing has run.',
+        'Treating a failed run as a determinism breach. A failure has no output, so there is nothing to compare.',
+      ],
+    });
+
+    const auditCard = `
+      <article class="panel-card">
+        <div class="row-head">
+          <p class="card-kicker">What has been done${auditHelp.button}</p>
+          ${breaches.length
+            ? `<span class="tag tag-critical">${breaches.length} determinism breach${breaches.length === 1 ? '' : 'es'}</span>`
+            : (auditSummary.total ? '<span class="tag tag-good">consistent</span>' : '')}
+        </div>
+        ${auditHelp.panel}
+        <div class="mini-grid">
+          ${renderMetricPill('Recorded', String(auditSummary.total || 0))}
+          ${renderMetricPill('Unfinished', String(auditSummary.unfinished || 0), { tone: (auditSummary.unfinished || 0) > 0 ? 'warn' : 'good' })}
+          ${renderMetricPill('Refused', String(auditSummary.refused || 0))}
+        </div>
+        ${breaches.length
+          ? `<div class="stack-list">${breaches.map(breach => `
+              <div class="recent-item">
+                <div class="row-head"><strong>${escapeHtml(breach.stageId)} · ${escapeHtml(breach.action)}</strong></div>
+                <div class="list-meta">Inputs <code>${escapeHtml(breach.inputsFingerprint)}</code> produced ${
+                  breach.outputs.map(output => `<code>${escapeHtml(output.outputsFingerprint)}</code> (${escapeHtml((output.at || '').slice(0, 10))})`).join(' and ')}</div>
+              </div>`).join('')}</div>`
+          : ''}
+        ${(audit.recent || []).length
+          ? `<div class="stack-list">${audit.recent.slice(0, 8).map(record => `
+              <div class="recent-item">
+                <div class="row-head">
+                  <strong>${escapeHtml(record.action)}</strong>
+                  <span class="tag ${record.outcome === 'complete' ? 'tag-good' : record.outcome === 'failed' ? 'tag-critical' : 'tag-warn'}">${escapeHtml(record.outcome)}</span>
+                </div>
+                <div class="list-meta">${escapeHtml(record.stageId)} · ${escapeHtml((record.at || '').slice(0, 16).replace('T', ' '))} · ${
+                  record.effectiveLevel === record.requestedLevel
+                    ? escapeHtml(record.effectiveLevel)
+                    : `${escapeHtml(record.effectiveLevel)} (asked for ${escapeHtml(record.requestedLevel)}${record.limitedBy ? `, capped by ${escapeHtml(record.limitedBy)}` : ''})`}</div>
+              </div>`).join('')}</div>`
+          : `<div class="dashboard-empty"><div>
+              <strong>Nothing recorded yet</strong>
+              <p class="section-copy">This is the record of what the workflow has actually done — which stage, at what level, with what result. An empty ledger means nothing has run, not that nothing went wrong.</p>
+            </div></div>`}
+        ${auditSummary.droppedByCap
+          ? `<p class="stat-detail wf-unknown">${auditSummary.droppedByCap} older records have been dropped by the retention cap. The count is kept so the ledger never quietly forgets.</p>`
+          : ''}
+      </article>`;
     // The committed workflow file. This is the one card on the page that edits
     // something a team reviews, so it says so, and every control is one field
     // whose exact change the host confirms before writing.
@@ -3842,6 +3905,7 @@
       <div class="panel-grid">
         ${healthCard}
         ${configCard}
+        ${auditCard}
         ${archCard}
         ${ladderCard}
         ${branchCard}

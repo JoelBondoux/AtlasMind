@@ -6,6 +6,15 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.192.0 — The workflow records what it did
+
+Every part of this workflow makes a determinism claim, and a determinism claim is either verifiable or it is marketing. `project_memory/operations/workflow-history.json` makes them verifiable: two runs with the same inputs must produce the same outputs, and where they did not, **both runs are named**.
+
+**Fingerprints, not values.** The ledger is committed, so storing what was processed would put issue bodies, review comments and CI logs into your repository. A fingerprint proves the same input produced the same output without publishing either.
+
+**Record first, then act.** A record written afterwards is missing exactly when it matters most — the run that crashed is the run somebody needs to read about. An action whose record cannot be written does not happen.
+
+**Fixed: a safety switch that did nothing.** `atlasmind.workflow.allowIssueWrites` had shipped as a documented setting since v0.181.0 with nothing consulting it. Issue writes now take the same ladder gate pull-request writes have had since v0.183.0 — a behaviour change, and a deliberate one: a false assurance is worse than no switch.
 ## v0.191.0 — The rest of the workflow schema
 
 v0.190.0 implemented most of the specification's workflow schema and not all of it. Four things were described there and absent from the code, including `command` — whose rule the module header *cited* while the field did not exist.

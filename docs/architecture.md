@@ -377,6 +377,20 @@ The rules are ordered and first-match-wins, and the order is part of the contrac
 
 A CI log is untrusted input. `sanitizeCiLog` strips ANSI *before* redacting (a secret wrapped in colour codes would not match a redaction pattern otherwise), then caps size keeping the **tail** — a failure message is at the end of a log, and keeping the head would reliably discard the only part anybody needs. Truncation and redaction are both reported on the report, never silent, and `buildCiFailurePrompt` fences the excerpt as REPORTED CONTENT.
 
+### WorkflowAuditRecord (`src/core/workflowAuditRecord.ts`)
+
+Every other part of this workflow makes a determinism claim. Branch names are derived, pull-request titles are classified by rule, CI failures are matched against an ordered table, release notes are copied verbatim. Those claims are either verifiable or they are marketing, and this is what makes them verifiable.
+
+**Fingerprints, not payloads.** A record stores a hash of the inputs and a hash of the outputs, never the values. That is not a size optimisation — the ledger lives in `project_memory/`, which is git-tracked, so storing what was processed would commit issue bodies, review comments and CI logs into the repository. A fingerprint proves the same input produced the same output without publishing either. `WorkflowRunRecord` has no field that could hold a payload, and a test asserts it.
+
+Everything rests on `canonicalJson`: object keys sorted recursively, so key order cannot change a fingerprint. Without it the determinism check would cry wolf on every run — `{a:1,b:2}` and `{b:2,a:1}` describe the same input — and a check that cries wolf gets turned off. Fingerprints are truncated to 16 hex characters, long enough that an accidental collision across a thousand records is not a practical concern and short enough that a human can compare two by eye in a diff, which is the whole point of putting them in a committed file. Nothing decides an authorization from a fingerprint.
+
+**Record first, then act.** The ordering is the wrong way round from the obvious one, deliberately: a record written afterwards is missing exactly when it matters most, because the run that crashed is the run somebody needs to read about. Writing first can leave a record for an action that then failed — which is why `outcome` exists and why `started` is a real state rather than a gap. **A record that cannot be written stops the action**, because an action that quietly skipped its record because a disk was full would be the one nobody could account for later. A *refusal* is recorded best-effort instead: nothing is about to happen, so failing to record it cannot create the gap the blocking rule protects against.
+
+`findDeterminismBreaches` groups by `(stageId, action, inputsFingerprint)`. The same inputs to different actions have no reason to agree, and treating them as a breach would fill the report with false positives nobody could act on. Incomplete runs are skipped, because a failure has no output and comparing "no output" against a real one would report every failure as non-determinism. A breach names both runs rather than reporting a count: a count tells somebody they have a problem, the ids tell them where it is.
+
+The actor is deliberately coarse — `user` / `agent` / `automation`. The file is committed, so a name or address here would be personal data in a public repository, and it would add nothing: git already records who committed, with far better provenance.
+
 ### WorkflowConfig (`src/core/workflowConfig.ts`)
 
 The workflow as data a team owns. Everything else in the guided workflow reads from somewhere — the curriculum from observed state, the ladder from settings, the metrics from `gh`. This is the one place where a team *says* what their workflow is, and it is a committed file rather than a setting for one reason: a change to how a team works should arrive as a diff with a reviewer, not as a habit nobody wrote down.

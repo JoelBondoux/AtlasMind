@@ -60,6 +60,15 @@ import {
   type ReleasePlan,
 } from '../core/releasePreparation.js';
 import {
+  WORKFLOW_HISTORY_SSOT_PATH,
+  WorkflowAuditLedger,
+  beginWorkflowRun,
+  completeWorkflowRun,
+  type WorkflowActor,
+  type WorkflowHistorySummary,
+  type WorkflowRunRecord,
+} from '../core/workflowAuditRecord.js';
+import {
   WorkflowConfigManager,
   applyWorkflowConfigEdit,
   stageBlockers,
@@ -918,6 +927,11 @@ interface DashboardGuidedWorkflowSnapshot {
   };
   /** The committed workflow file, and what it says. */
   workflowConfig: DashboardWorkflowConfigSnapshot;
+  /**
+   * The audit record: what the workflow has done, and whether it was
+   * deterministic. Always present — an empty ledger is a fact, not an absence.
+   */
+  audit: { summary: WorkflowHistorySummary; recent: WorkflowRunRecord[]; path: string };
   branches: BranchMetrics;
   ci: CiMetrics;
   release: ReleaseMetrics;
@@ -1727,6 +1741,22 @@ export class ProjectDashboardPanel {
    */
   private workflowConfigManager: WorkflowConfigManager | undefined;
 
+  /**
+   * The append-only record of what the workflow has done.
+   *
+   * Constructed lazily and reloaded after each write, so a ledger edited
+   * outside the editor (or by a colleague's commit) is read rather than
+   * overwritten from a stale copy.
+   */
+  private auditLedgerInstance: WorkflowAuditLedger | undefined;
+
+  private get auditLedger(): WorkflowAuditLedger {
+    this.auditLedgerInstance ??= new WorkflowAuditLedger(
+      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+    );
+    return this.auditLedgerInstance;
+  }
+
   private get workflowConfig(): WorkflowConfigManager {
     this.workflowConfigManager ??= new WorkflowConfigManager(
       vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
@@ -2072,7 +2102,7 @@ export class ProjectDashboardPanel {
           }
           const configuration = vscode.workspace.getConfiguration('atlasmind');
           const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger);
           const seedItems = snapshot.gapAnalysis.items.filter(item => !item.resolved);
           this.queueNavigation('gapAnalysis');
           await this.postMessage({ type: 'navigate', payload: 'gapAnalysis' });
@@ -2099,7 +2129,7 @@ export class ProjectDashboardPanel {
           if (!workspaceRoot || message.payload.trim().length === 0) {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger);
           const targetItem = snapshot.gapAnalysis.items.find(item => item.id === message.payload.trim() && !item.resolved && item.type !== 'praise');
           if (!targetItem) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: 'That gap could not be found. Try re-running the analysis.' });
@@ -2125,7 +2155,7 @@ export class ProjectDashboardPanel {
           if (priority !== 'P1' && priority !== 'P2' && priority !== 'P3') {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger);
           const groupedItems = snapshot.gapAnalysis.items.filter(item => !item.resolved && item.type !== 'praise' && item.priority === priority);
           if (groupedItems.length === 0) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: `No open ${priority} items are available to resolve.` });
@@ -2151,7 +2181,7 @@ export class ProjectDashboardPanel {
           if (!gapId) {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger);
           const targetItem = snapshot.gapAnalysis.items.find(item => item.id === gapId);
           if (!targetItem) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: 'Gap item not found. Try re-running the analysis.' });
@@ -2210,7 +2240,7 @@ export class ProjectDashboardPanel {
 
   private async syncState(): Promise<void> {
     try {
-      const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig);
+      const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger);
       await this.postMessage({ type: 'state', payload: snapshot });
       if (this.pendingNavigationTarget) {
         await this.postMessage({ type: 'navigate', payload: this.pendingNavigationTarget });
@@ -2479,6 +2509,31 @@ export class ProjectDashboardPanel {
       return;
     }
 
+    // The same ladder gate pull-request writes have had since v0.183.0.
+    //
+    // `atlasmind.workflow.allowIssueWrites` shipped as a documented safety
+    // switch that **nothing consulted** — `automationFor` handled the
+    // capability and no call site passed it. A switch a user can turn off
+    // believing it stops issue writes, which it does not, is a false
+    // assurance, and a false assurance is worse than no switch at all.
+    const decision = this.automationFor('issueWrites', 'auto');
+    if (!permits(decision.level, FIRST_WRITING_LEVEL)) {
+      await this.recordRefusal({
+        stageId: 'planning',
+        action: message.type,
+        actor: 'user',
+        decision,
+        requestedLevel: 'propose',
+        inputs: { repo: slug, action: message.type },
+        detail: decision.detail,
+      });
+      void vscode.window.showWarningMessage(
+        `AtlasMind is not permitted to write to the issue tracker right now (level: ${decision.level}).`,
+        { modal: true, detail: decision.detail },
+      );
+      return;
+    }
+
     let args: string[];
     let description: string;
     let successNote: string;
@@ -2532,8 +2587,26 @@ export class ProjectDashboardPanel {
     }
 
     try {
-      await runGh(workspaceRoot, args);
-      void vscode.window.showInformationMessage(successNote);
+      // Record, then act. The record names the action and fingerprints the
+      // arguments; the arguments themselves stay out of the committed ledger,
+      // because an issue body is third-party text.
+      const wrote = await this.runRecorded(
+        {
+          stageId: 'planning',
+          action: message.type,
+          actor: 'user',
+          decision,
+          requestedLevel: 'propose',
+          inputs: { repo: slug, action: message.type, args },
+        },
+        async () => {
+          await runGh(workspaceRoot, args);
+          return { ok: true };
+        },
+      );
+      if (wrote) {
+        void vscode.window.showInformationMessage(successNote);
+      }
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       void vscode.window.showWarningMessage(`The issue action failed: ${detail.slice(0, 300)}`);
@@ -2541,6 +2614,113 @@ export class ProjectDashboardPanel {
     // Re-read either way: a failed write may still have partially applied, and
     // the list is the only honest report of what the tracker now holds.
     await this.handleRefreshIssues();
+  }
+
+  /**
+   * Run an action with an audit record around it.
+   *
+   * **Record first, then act.** That ordering is the wrong way round from the
+   * obvious one on purpose: a record written afterwards is missing exactly when
+   * it matters most, because the run that crashed is the run somebody needs to
+   * read about. A record that cannot be written **stops the action** — the whole
+   * point of the ledger is that it is complete, and an action that quietly
+   * skipped its record because a disk was full would be the one nobody could
+   * account for later.
+   *
+   * The action's inputs are **fingerprinted, not stored**. This ledger is
+   * committed, so recording what was processed would put issue bodies and review
+   * comments into the repository.
+   */
+  private async runRecorded<T>(
+    spec: {
+      stageId: WorkflowStageId;
+      action: string;
+      actor: WorkflowActor;
+      decision: AutomationDecision;
+      requestedLevel: AutomationLevel;
+      /** Whatever determines the outcome. Hashed; never persisted. */
+      inputs: unknown;
+    },
+    act: () => Promise<T>,
+    /** What to fingerprint as the output. Defaults to the returned value. */
+    outputsOf: (result: T) => unknown = result => result,
+  ): Promise<T | undefined> {
+    const opened = beginWorkflowRun({
+      stageId: spec.stageId,
+      action: spec.action,
+      actor: spec.actor,
+      requestedLevel: spec.requestedLevel,
+      effectiveLevel: spec.decision.level,
+      ...(spec.decision.limitedBy === undefined ? {} : { limitedBy: spec.decision.limitedBy }),
+      gates: [{ gate: 'automation ladder', passed: spec.decision.limitedBy === 'none', detail: spec.decision.detail }],
+      inputs: spec.inputs,
+      at: new Date().toISOString(),
+    });
+
+    try {
+      await this.auditLedger.record(opened);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(
+        `Not doing that: AtlasMind could not write its audit record (${detail.slice(0, 200)}). `
+        + 'An action that skipped its record would be the one nobody could account for later.',
+      );
+      return undefined;
+    }
+
+    try {
+      const result = await act();
+      await this.auditLedger.record(completeWorkflowRun(opened, {
+        outputs: outputsOf(result),
+        outcome: 'complete',
+      }));
+      return result;
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      // Best-effort on the closing write only. The opening record already
+      // exists, so the run is accounted for either way; failing here as well
+      // would replace a useful error with a confusing one.
+      try {
+        await this.auditLedger.record(completeWorkflowRun(opened, { outcome: 'failed', detail }));
+      } catch {
+        // The opened record stands as the account of what happened.
+      }
+      throw error;
+    }
+  }
+
+  /** Record an action that was refused before it ran, and why. */
+  private async recordRefusal(spec: {
+    stageId: WorkflowStageId;
+    action: string;
+    actor: WorkflowActor;
+    decision: AutomationDecision;
+    requestedLevel: AutomationLevel;
+    inputs: unknown;
+    detail: string;
+  }): Promise<void> {
+    const opened = beginWorkflowRun({
+      stageId: spec.stageId,
+      action: spec.action,
+      actor: spec.actor,
+      requestedLevel: spec.requestedLevel,
+      effectiveLevel: spec.decision.level,
+      ...(spec.decision.limitedBy === undefined ? {} : { limitedBy: spec.decision.limitedBy }),
+      gates: [{ gate: 'automation ladder', passed: false, detail: spec.decision.detail }],
+      inputs: spec.inputs,
+      at: new Date().toISOString(),
+    });
+    try {
+      // A refusal is recorded best-effort rather than blocking: nothing is
+      // about to happen, so failing to record it cannot leave an unaccounted
+      // action — which is the only thing the blocking rule protects against.
+      await this.auditLedger.record(completeWorkflowRun(opened, {
+        outcome: 'refused',
+        detail: spec.detail,
+      }));
+    } catch {
+      // Nothing happened, so there is nothing unaccounted for.
+    }
   }
 
   /**
@@ -2603,6 +2783,15 @@ export class ProjectDashboardPanel {
     // which is `draft`, so a write needs the user to raise it deliberately.
     const decision = this.automationFor('pullRequestWrites', 'auto');
     if (!permits(decision.level, FIRST_WRITING_LEVEL)) {
+      await this.recordRefusal({
+        stageId: 'pull-request',
+        action: message.type,
+        actor: 'user',
+        decision,
+        requestedLevel: 'propose',
+        inputs: { repo: slug, action: message.type },
+        detail: decision.detail,
+      });
       void vscode.window.showWarningMessage(
         `AtlasMind is not permitted to write pull requests right now (level: ${decision.level}).`,
         { modal: true, detail: decision.detail },
@@ -2699,8 +2888,25 @@ export class ProjectDashboardPanel {
     }
 
     try {
-      await runGh(workspaceRoot, args);
-      void vscode.window.showInformationMessage(successNote);
+      // Record, then act. The arguments are fingerprinted rather than stored:
+      // a pull-request body is third-party text and this ledger is committed.
+      const wrote = await this.runRecorded(
+        {
+          stageId: 'pull-request',
+          action: message.type,
+          actor: 'user',
+          decision,
+          requestedLevel: 'propose',
+          inputs: { repo: slug, action: message.type, args },
+        },
+        async () => {
+          await runGh(workspaceRoot, args);
+          return { ok: true };
+        },
+      );
+      if (wrote) {
+        void vscode.window.showInformationMessage(successNote);
+      }
     } catch (error) {
       void vscode.window.showWarningMessage(`The pull request action failed: ${ghFailureOf(error).detail}`);
     }
@@ -4464,6 +4670,9 @@ function buildGuidedWorkflowSnapshot(input: {
   workflowConfig?: WorkflowConfig;
   /** Why the file could not be used, when it exists but this build must not. */
   workflowConfigNotice?: string;
+  /** The audit ledger's summary, and the most recent records for the list. */
+  auditSummary?: WorkflowHistorySummary;
+  auditRecent?: WorkflowRunRecord[];
   /** Agent ids in this workspace, so a stage owner can be checked to exist. */
   knownAgentIds?: readonly string[];
   /** The changelog itself, so its headings can be read rather than assumed. */
@@ -4703,6 +4912,11 @@ function buildGuidedWorkflowSnapshot(input: {
       labels: { archetype: { ...ARCHETYPE_LABEL }, trait: { ...TRAIT_LABEL } },
     },
     branches,
+    audit: {
+      summary: input.auditSummary ?? { total: 0, unfinished: 0, failed: 0, refused: 0, byStage: [], byOutcome: [], breaches: [], droppedByCap: 0 },
+      recent: input.auditRecent ?? [],
+      path: WORKFLOW_HISTORY_SSOT_PATH,
+    },
     workflowConfig: {
       path: WORKFLOW_SSOT_PATH,
       ...(input.workflowConfig === undefined ? {} : {
@@ -4983,6 +5197,7 @@ async function collectDashboardSnapshot(
   // Held by the panel so it is read once and after each write, not on every
   // render — this is a synchronous file read on the render path.
   workflowConfigManager?: WorkflowConfigManager,
+  auditLedger?: WorkflowAuditLedger,
 ): Promise<DashboardSnapshot> {
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const workspaceName = vscode.workspace.workspaceFolders?.[0]?.name ?? 'No Workspace';
@@ -5310,6 +5525,10 @@ async function collectDashboardSnapshot(
       ...(workflowConfigManager?.getNotice() === undefined
         ? {} : { workflowConfigNotice: workflowConfigManager!.getNotice()! }),
       knownAgentIds: agents.map(agent => agent.id),
+      ...(auditLedger === undefined ? {} : {
+        auditSummary: auditLedger.getSummary(),
+        auditRecent: auditLedger.getFile().records.slice(0, 25),
+      }),
       ...(changelog === undefined ? {} : { changelog }),
       ...(commitsSinceTag === undefined ? {} : { commitsSinceTag }),
       prTemplatePresent,

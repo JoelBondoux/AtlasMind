@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.191.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.192.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,9 +64,15 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.191.0
+## What's new in 0.192.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
+
+- **The workflow records what it did.** Every part of this workflow makes a determinism claim — branch names are derived, titles are classified by rule, release notes are copied verbatim — and a determinism claim is either verifiable or it is marketing. `workflow-history.json` makes them verifiable: two runs with the same inputs must produce the same outputs, and where they did not, both runs are named.
+
+  Inputs and outputs are recorded as **fingerprints, never values**, because the ledger is committed and storing what was processed would put issue bodies and review comments into your repository. The record is written **before** the action, and an action whose record cannot be written does not happen.
+
+- **A safety switch that did nothing now works.** `atlasmind.workflow.allowIssueWrites` had shipped as a documented setting that nothing consulted. Issue writes now take the same ladder gate pull-request writes already had — a deliberate behaviour change, because a false assurance is worse than no switch.
 
 - **Your workflow is now a file you own.** `project_memory/operations/workflow.json` holds your branches, naming convention, label taxonomy, and each stage's requested automation level — a committed file rather than a setting, so a change to how your team works arrives as a diff with a reviewer rather than a habit nobody wrote down. A readable mirror is generated beside it for the person reviewing that diff.
 

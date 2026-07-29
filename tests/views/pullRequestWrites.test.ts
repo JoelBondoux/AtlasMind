@@ -102,7 +102,15 @@ describe('the automation ladder gates the action', () => {
   });
 
   it('returns rather than falling through when the ladder refuses', () => {
-    expect(handler).toMatch(/if \(!permits\(decision\.level, FIRST_WRITING_LEVEL\)\) \{[\s\S]{0,400}?return;/);
+    // Asserted by *ordering* rather than by character distance: the refusal
+    // block grows as it gains an audit record, and a distance-based match
+    // would fail on a change that strengthens the very property it pins.
+    const gateAt = handler.indexOf('if (!permits(decision.level, FIRST_WRITING_LEVEL))');
+    const returnAt = handler.indexOf('return;', gateAt);
+    const sendAt = handler.indexOf('await runGh(');
+    expect(gateAt).toBeGreaterThan(-1);
+    expect(returnAt).toBeGreaterThan(gateAt);
+    expect(returnAt).toBeLessThan(sendAt);
   });
 
   it('names the gate that refused, so nobody toggles four settings at random', () => {
