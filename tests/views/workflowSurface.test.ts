@@ -350,3 +350,49 @@ describe('the Release page', () => {
     expect(rendered()).toMatch(/not a certification/);
   });
 });
+
+/**
+ * The workflow configuration card is the only control on the dashboard that
+ * edits a file the team reviews. That makes two things load-bearing: it must
+ * say so, and it must never write without showing the exact change first.
+ */
+describe('the workflow configuration card', () => {
+  const rendered = (): string => workflowRenderedStrings();
+
+  it('offers to declare a workflow rather than creating one silently', () => {
+    // Every other persisted document seeds itself on first read. This one does
+    // not, because it gets committed — writing one because somebody opened a
+    // tab would be putting words in their mouth in a file others review.
+    expect(rendered()).toContain('create-workflow-config');
+    expect(rendered()).toContain('This project has no declared workflow');
+  });
+
+  it('says declaring a workflow turns nothing on', () => {
+    expect(rendered()).toMatch(/Declaring a workflow turns nothing on/);
+  });
+
+  it('sends only a stage id and a boolean, never a command or a path', () => {
+    expect(WEBVIEW_SCRIPT).toContain("type: 'editWorkflowConfig'");
+    expect(WEBVIEW_SCRIPT).toMatch(/stages: \[\{ id: payload, enabled: !stage\.enabled \}\]/);
+  });
+
+  it('reads the current value from the snapshot the button was drawn from', () => {
+    // A toggle sends the inverse of what it displayed. Reading the value from
+    // anywhere else means a click arriving after a refresh flips a stage the
+    // user never looked at.
+    expect(WEBVIEW_SCRIPT).toContain('function workflowStageById(id)');
+    expect(WEBVIEW_SCRIPT).toContain('wfStageCache =');
+  });
+
+  it('states that the file cannot raise what actually happens', () => {
+    expect(rendered()).toMatch(/lowest of/);
+  });
+
+  it('warns before writing rather than after', () => {
+    expect(rendered()).toMatch(/you will see the exact change first/i);
+  });
+
+  it('reports a file it must not overwrite instead of offering to edit it', () => {
+    expect(rendered()).toContain('cfg.notice');
+  });
+});

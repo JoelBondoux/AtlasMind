@@ -755,6 +755,23 @@
       vscode.postMessage({ type: 'generateCodeowners' });
       return;
     }
+    if (action === 'create-workflow-config') {
+      vscode.postMessage({ type: 'createWorkflowConfig', payload: { profile: payload } });
+      return;
+    }
+    // Every stage edit is one field. The host confirms with the exact change
+    // listed, so batching several into one dialog would mean confirming a list
+    // nobody assembled deliberately.
+    if (action === 'workflow-stage-toggle') {
+      const stage = workflowStageById(payload);
+      if (stage) {
+        vscode.postMessage({
+          type: 'editWorkflowConfig',
+          payload: { stages: [{ id: payload, enabled: !stage.enabled }] },
+        });
+      }
+      return;
+    }
     if (action === 'workflow-help') {
       state.workflowHelpOpen[payload] = !state.workflowHelpOpen[payload];
       // Re-focus this exact toggle after the rebuild, so a keyboard user who
@@ -3080,6 +3097,18 @@
   let wfGlossaryCache = null;
   function snapshotGlossary() { return wfGlossaryCache; }
 
+  /**
+   * The committed stage list, cached the same way.
+   *
+   * A toggle sends the *inverse* of the current value, so it has to read that
+   * value from the same snapshot the button was drawn from — otherwise a click
+   * arriving after a refresh would flip a stage the user never looked at.
+   */
+  let wfStageCache = null;
+  function workflowStageById(id) {
+    return (wfStageCache || []).find(stage => stage.id === id);
+  }
+
   /** A metric verdict: the number, or an honest account of why there isn't one. */
   function renderVerdict(verdict, format) {
     if (verdict && verdict.known === true) {
@@ -3491,6 +3520,7 @@
     wfGlossaryCache = (wf.glossary || []).reduce((all, entry) => {
       all[entry.key] = entry; return all;
     }, {});
+    wfStageCache = (wf.workflowConfig && wf.workflowConfig.config && wf.workflowConfig.config.stages) || [];
 
     const progress = wf.progress || { done: 0, total: 0, finished: false };
     const pct = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
@@ -3660,6 +3690,77 @@
         <button type="button" class="action-link" data-action="command" data-payload="atlasmind.openSettings">Open settings</button>
       </article>`;
 
+    // The committed workflow file. This is the one card on the page that edits
+    // something a team reviews, so it says so, and every control is one field
+    // whose exact change the host confirms before writing.
+    const cfg = wf.workflowConfig || {};
+    const configHelp = renderWorkflowHelp('workflow.config', {
+      label: 'why the workflow is a committed file',
+      why: 'A workflow kept in settings is a workflow each person has their own version of, and the version that matters is whichever one nobody wrote down. Putting it in a file that gets committed means a team that disagrees with a default disagrees in public — with a diff and a reviewer — rather than in a habit. It is also the difference between a workflow you have and a workflow you can point at when somebody new joins.',
+      how: [
+        { text: 'The file sets intent; your settings set the ceiling. A stage can request "auto" and still do nothing, because what actually happens is the lowest of four independent gates.' },
+        { text: 'A stage you do not use is disabled, never deleted. Disabling leaves the decision in the record; deleting erases the evidence it was ever made.' },
+        { text: 'Profiles seed, they do not govern. Changing the profile later never rewrites stages you customised.' },
+        { text: 'Fields written by a newer AtlasMind survive a round trip, so an older build saving the file cannot silently drop a colleague’s settings.' },
+        { text: 'The markdown mirror beside it is generated. Edit the JSON or this page; hand edits to the mirror are lost on the next save.' },
+      ],
+      commonMistakes: [
+        'Keeping the workflow out of version control, which recreates the drift it exists to solve.',
+        'Assuming a stage set to "auto" will act. Four gates all have to agree, and they all default closed.',
+      ],
+    });
+
+    const configCard = cfg.config ? (() => {
+      const config = cfg.config;
+      const enabledCount = (config.stages || []).filter(stage => stage.enabled).length;
+      const stageRows = (config.stages || []).map(stage => `
+        <div class="recent-item">
+          <div class="row-head">
+            <button type="button" class="action-link" data-action="workflow-stage-toggle" data-payload="${escapeAttr(stage.id)}"
+              aria-label="${stage.enabled ? 'Disable' : 'Enable'} ${escapeAttr(stage.name)}">
+              ${stage.enabled ? '☑' : '☐'} ${escapeHtml(stage.name)}
+            </button>
+            <span class="tag">${escapeHtml(stage.automationLevel)}</span>
+          </div>
+          ${(stage.requiredChecks || []).length
+            ? `<div class="list-meta">Attests: ${escapeHtml(stage.requiredChecks.join(' · '))}</div>`
+            : ''}
+          ${(stage.blockers || []).length
+            ? `<p class="stat-detail wf-unknown">Blocked: ${escapeHtml(stage.blockers.join('; '))}</p>`
+            : ''}
+        </div>`).join('');
+
+      return `
+      <article class="panel-card">
+        <div class="row-head">
+          <p class="card-kicker">Your workflow file${configHelp.button}</p>
+          <span class="tag ${enabledCount > 0 ? 'tag-good' : ''}">${enabledCount} of ${(config.stages || []).length} enabled</span>
+        </div>
+        ${configHelp.panel}
+        <div class="list-meta">${escapeHtml(cfg.path || '')} · ${escapeHtml(config.profile)} profile · merges into <code>${escapeHtml(config.branches.integration)}</code>, releases from <code>${escapeHtml(config.branches.release)}</code></div>
+        <div class="stack-list">${stageRows}</div>
+        <p class="stat-detail">A stage requests a level; what happens is the lowest of that, your ceiling, the matching capability switch, and the master switch. Toggling one here writes the committed file — you will see the exact change first.</p>
+      </article>`;
+    })() : `
+      <article class="panel-card">
+        <div class="row-head">
+          <p class="card-kicker">Your workflow file${configHelp.button}</p>
+          <span class="tag tag-warn">not declared</span>
+        </div>
+        ${configHelp.panel}
+        ${cfg.notice
+          ? `<p class="stat-detail wf-unknown">${escapeHtml(cfg.notice)}</p>`
+          : `<div class="dashboard-empty"><div>
+              <strong>This project has no declared workflow</strong>
+              <p class="section-copy">AtlasMind is using its built-in defaults, which is fine until two people disagree about them. Declaring the workflow writes <code>${escapeHtml(cfg.path || 'project_memory/operations/workflow.json')}</code> and a readable mirror beside it, both of which you commit — so how your team works becomes something reviewed rather than remembered.</p>
+              <p class="section-copy">Every stage starts disabled and at <code>observe</code>. Declaring a workflow turns nothing on.</p>
+              <div class="tag-row">
+                <button type="button" class="action-link" data-action="create-workflow-config" data-payload="solo">Declare it — solo</button>
+                <button type="button" class="action-link" data-action="create-workflow-config" data-payload="studio">Declare it — small studio</button>
+              </div>
+            </div></div>`}
+      </article>`;
+
     // What kind of project this is, and what that changes. Detected and declared
     // are shown separately: detection is a suggestion from the manifests, the
     // declaration is the decision. Where they disagree we say so rather than
@@ -3727,6 +3828,7 @@
       ${strip}
       <div class="panel-grid">
         ${healthCard}
+        ${configCard}
         ${archCard}
         ${ladderCard}
         ${branchCard}

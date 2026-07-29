@@ -1,0 +1,143 @@
+{
+  "version": 1,
+  "profile": "solo",
+  "status": "active",
+  "branches": {
+    "integration": "develop",
+    "release": "main",
+    "protected": [
+      "main",
+      "master",
+      "production",
+      "prod",
+      "release",
+      "stable",
+      "development"
+    ]
+  },
+  "naming": {
+    "convention": "type-issue-slug",
+    "maxLength": 60,
+    "types": [
+      "feat",
+      "fix",
+      "chore",
+      "docs",
+      "refactor",
+      "test",
+      "perf"
+    ]
+  },
+  "labels": {
+    "declared": [
+      "bug",
+      "enhancement",
+      "documentation",
+      "security",
+      "dependencies",
+      "workflow"
+    ]
+  },
+  "stages": [
+    {
+      "id": "planning",
+      "name": "Planning & issue intake",
+      "enabled": true,
+      "automationLevel": "observe",
+      "ownerAgentId": "github-operator",
+      "requiredChecks": [
+        "Acceptance criteria written"
+      ],
+      "requiredStatusChecks": [],
+      "blockers": [],
+      "managed": true
+    },
+    {
+      "id": "branching",
+      "name": "Branch creation & naming",
+      "enabled": true,
+      "automationLevel": "observe",
+      "ownerAgentId": "github-operator",
+      "requiredChecks": [],
+      "requiredStatusChecks": [],
+      "blockers": [],
+      "managed": true
+    },
+    {
+      "id": "development",
+      "name": "Local development & orchestration",
+      "enabled": true,
+      "automationLevel": "observe",
+      "requiredChecks": [],
+      "requiredStatusChecks": [],
+      "blockers": [],
+      "managed": true
+    },
+    {
+      "id": "pull-request",
+      "name": "Pull requests & reviews",
+      "enabled": true,
+      "automationLevel": "observe",
+      "ownerAgentId": "github-operator",
+      "requiredChecks": [
+        "Self-reviewed the diff",
+        "Linked to an issue",
+        "Version bumped and changelog written"
+      ],
+      "requiredStatusChecks": [
+        "CI"
+      ],
+      "blockers": [],
+      "managed": true
+    },
+    {
+      "id": "ci",
+      "name": "CI/CD & failure analysis",
+      "enabled": true,
+      "automationLevel": "observe",
+      "requiredChecks": [],
+      "requiredStatusChecks": [
+        "CI"
+      ],
+      "blockers": [],
+      "managed": true
+    },
+    {
+      "id": "release",
+      "name": "Release automation",
+      "enabled": true,
+      "automationLevel": "observe",
+      "requiredChecks": [
+        "Changelog entry written",
+        "Version bumped",
+        "README banner matches package.json"
+      ],
+      "requiredStatusChecks": [
+        "CI"
+      ],
+      "blockers": [],
+      "managed": true
+    },
+    {
+      "id": "maintenance",
+      "name": "Maintenance & tech debt",
+      "enabled": false,
+      "automationLevel": "observe",
+      "requiredChecks": [],
+      "requiredStatusChecks": [],
+      "blockers": [],
+      "managed": true
+    },
+    {
+      "id": "automation",
+      "name": "Automation policy",
+      "enabled": false,
+      "automationLevel": "observe",
+      "requiredChecks": [],
+      "requiredStatusChecks": [],
+      "blockers": [],
+      "managed": true
+    }
+  ],
+  "updatedAt": "2026-07-29T13:46:28.843Z"
+}

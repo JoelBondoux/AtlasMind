@@ -6,6 +6,17 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.190.0 — The workflow becomes a file you own
+
+**`project_memory/operations/workflow.json`.** Branches, naming convention, label taxonomy, and each stage's requested automation level with its attestations and blockers — a committed file rather than a setting, so a change to how a team works arrives as a diff with a reviewer rather than a habit nobody wrote down. A readable markdown mirror is generated beside it for whoever reviews that diff.
+
+**A stage may be disabled but never deleted.** Disabling leaves the decision in the record; deleting erases the evidence it was made. Deleting one by hand is not an error — it is restored, disabled, which is the safe direction.
+
+**The file sets intent; your settings set the ceiling.** A stage can request `auto` and still do nothing, because what happens is the lowest of four independent gates. Every level change says so in the same sentence.
+
+**Never created implicitly.** Every other persisted document seeds itself on first read. This one gets committed, so writing one because somebody opened a tab would be putting words in their mouth in a file other people review.
+
+**Fixed:** "Declare your workflow" had been in the guide since the curriculum shipped with the flag behind it hardcoded `false` — a step nobody could ever complete, on any project. And the guide named `develop` and `main` at everybody, so a project using different branch names was taught a workflow referring to branches it does not have.
 ## v0.189.0 — Release preparation, and the four delivery keys
 
 **A Release page.** Stage 6 was the best-served stage in the specification and the least reachable — the version-bump, changelog and semver functions had been pure and tested for a long time with nothing putting them in order. Seven gates now run root-cause-first (changelog entry → notes → secrets → version → tag → working tree → CI), because being told CI is red is unhelpful when the real problem is that no changelog entry exists.

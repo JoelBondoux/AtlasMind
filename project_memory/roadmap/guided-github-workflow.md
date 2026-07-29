@@ -1,6 +1,6 @@
 # Guided GitHub Workflow — Phased Roadmap
 
-> **Status:** Tier 1 shipped v0.181.0; Tier 2 shipped v0.183.0 (C3.4, C3.6 outstanding); Tier 3 CI intelligence shipped v0.184.0; **Tier 3.5 archetype specialisation shipped v0.185.0** (C7.4, C7.5 outstanding); **Tier 3 release half shipped v0.189.0 — C5.1 and C5.3 complete, so Tier 3's exit criteria are met**; Tier 4 next. **Owner:** AtlasMind core. **Created:** 2026-07-28.
+> **Status:** Tier 1 shipped v0.181.0; Tier 2 shipped v0.183.0 (C3.4, C3.6 outstanding); Tier 3 CI intelligence shipped v0.184.0; **Tier 3.5 archetype specialisation shipped v0.185.0** (C7.4, C7.5 outstanding); **Tier 3 release half shipped v0.189.0 — C5.1 and C5.3 complete, so Tier 3's exit criteria are met**; **Tier 4 started v0.190.0 with C1.1 and C1.7**. **Owner:** AtlasMind core. **Created:** 2026-07-28.
 > This is the SSOT implementation plan for [`docs/guided-github-workflow.md`](../../docs/guided-github-workflow.md),
 > which is the normative specification. Where the two disagree, the specification wins and this
 > file is wrong. Build incrementally, respecting the entry criteria between tiers. Nothing here
@@ -60,7 +60,7 @@ config executed through the promotion runner's own audited path — not spawned 
 `gh api repos/{slug}/branches/{b}/protection`; `gh api repos/{slug}/commits/{ref}/check-runs`;
 `gh repo create`.
 
-**Not present anywhere in `src/`:** any tech-debt model — Tier 4. Releases are read as of v0.189.0
+**Not present anywhere in `src/`:** any tech-debt model — C6, still outstanding. Releases are read as of v0.189.0
 (`gh release list`, plus local `git tag` and `git describe`), and the release *plan* is built entirely
 from local files so it works with no `gh` at all; `gh release create` remains proposed. CI runs and failed logs are read as of v0.184.0 (`gh run list`, `gh run view --log-failed`),
 classified by a rule table with no model in the path (`ciFailureAnalysis.ts`). Pull requests are read (v0.182.0) **and written**
@@ -91,7 +91,16 @@ nothing to GitHub.
 
 ### C1 — Workflow Engine & Configuration
 
-#### C1.1 — The workflow configuration model
+#### C1.1 — The workflow configuration model  ✅ shipped v0.190.0
+
+> **Correction.** This item was recorded as shipped in Tier 1 (v0.181.0) and was not. No
+> `workflowConfig.ts` existed; `workflowConfigPresent` was hardcoded `false` in the dashboard, so the
+> curriculum's "declare your workflow" step could never be completed by anybody — a permanently open
+> gap, which is precisely the failure mode the archetype packs are written to avoid ("a dashboard
+> with a permanent false gap teaches people to ignore gaps"). `integrationBranch` and
+> `protectedBranches` were likewise hardcoded to *this repository's* branch names, so every other
+> project was taught a workflow naming branches it does not have. Found while building C1.7, which
+> needs this model to have something to edit.
 
 - **Purpose:** Make the workflow data a team owns and reviews, rather than prose that drifts.
 - **Expected behaviour:** Seed `workflow.json` + `workflow.md` mirror from a profile; sanitize on read; refuse a document written by a newer AtlasMind rather than overwriting it; preserve unknown fields on rewrite.
@@ -407,7 +416,7 @@ raise a stage to `propose` or `auto` and have the record show exactly what was d
 - **Deterministic output requirements:** Two runs with the same `inputsFingerprint` must produce the same `outputsFingerprint`; a mismatch names the stage and both runs.
 - **Priority:** High
 
-#### C1.7 — Workflow configuration editing UI
+#### C1.7 — Workflow configuration editing UI  ✅ shipped v0.190.0
 
 - **Purpose:** Let a team change its workflow where it reads it, and see the diff it will commit.
 - **Expected behaviour:** Edit stages, rungs, checks and taxonomy. Shows the resulting diff before writing. Cannot delete a `managed` entry.
@@ -415,6 +424,7 @@ raise a stage to `propose` or `auto` and have the record show exactly what was d
 - **GitHub API usage:** n/a.
 - **Deterministic output requirements:** Round-trips unknown fields; refuses a newer-version document rather than overwriting it.
 - **Priority:** Medium
+- **As shipped:** A card on the Workflow page. The file is **never created implicitly** — every other persisted document seeds on first read, and this one deliberately does not, because it gets committed and writing one because somebody opened a tab would put words in their mouth in a file others review. Every edit is one field whose exact change the host lists in a `{modal:true}` confirmation before writing, since the person clicking the button and the person reading the pull request need to be looking at the same thing. Refusals are reported, not silent.
 
 #### C1.8 — A first-class handoff tool
 

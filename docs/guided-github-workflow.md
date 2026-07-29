@@ -299,11 +299,11 @@ request template; the code-owners file; the profile's approver policy.
 
 **GitHub surface.**
 
-> `Status: proposed — see project_memory/roadmap/guided-github-workflow.md`
->
-> **Every operation in this table is net-new.** AtlasMind has no pull-request
-> code today — no type, no call, no sanitizer. This is the largest single gap
-> between this specification and the shipped product.
+> **Built as of v0.183.0.** Every operation in this table was net-new when this
+> specification was written — AtlasMind had no pull-request code at all, no type,
+> no call, no sanitizer. Reading landed in v0.182.0 and writing in v0.183.0, each
+> write behind the automation ladder and a confirmation naming the repository and
+> the exact action. `pullRequestTracker.ts` is the untrusted-input boundary.
 
 | Operation | Command |
 |---|---|
@@ -348,9 +348,8 @@ timer that spends a rate limit nobody asked to spend.
 **Inputs.** The head commit; the workflow definitions; check-run states; test
 report artifacts.
 
-**Owning agent.** `ci-analyst`.
-
-> `Status: proposed` — this agent does not exist yet.
+**Owning agent.** `ci-analyst`. **Built in v0.184.0**, routing-neutral as
+specified below.
 
 **GitHub surface.**
 
@@ -417,9 +416,9 @@ changelog; the target stage's promotion policy.
 **Owning agent.** `release-manager`, delegating mechanics to `github-operator`
 and pipeline configuration to `devops-engineer`.
 
-> `Status: proposed` — this agent does not exist yet. The stage's deterministic
-> half does not need it: preparation is a rule-driven plan, and an agent's role
-> here would be to explain a blocked gate, never to decide one.
+> **Built in v0.184.0**, routing-neutral as specified below. The stage's
+> deterministic half does not need it: preparation is a rule-driven plan, and an
+> agent's role here is to explain a blocked gate, never to decide one.
 
 **GitHub surface.** `gh release list --json tagName,publishedAt,isPrerelease,isDraft` ✅
 (read, on explicit refresh). `gh release create <tag> --notes-file --title` and
@@ -503,7 +502,9 @@ coverage gaps; integration drift.
 **Owning agent.** `refactorer` for code debt; `dependency-manager` for
 dependencies; `docs-writer` for stale documentation.
 
-> `Status: proposed` — the `refactorer` agent and the debt register do not exist.
+> **Partly built.** The `refactorer` agent shipped in v0.184.0. The debt register
+> does not exist — `Status: proposed`, so the agent currently has nothing to
+> reason over.
 
 **GitHub surface.** `gh issue list --label`, `gh issue comment`, `gh issue close`
 and `gh issue reopen` ✅; `gh pr list --author app/dependabot` *proposed*.
@@ -575,6 +576,21 @@ above `observe` requires **all** of them to permit it.
 This follows the pattern already used for the delivery pipeline: a machine file
 and a readable mirror, both tracked, so a change to how a team works shows up in
 a diff.
+
+**The file is never created implicitly.** Every other persisted document in
+AtlasMind seeds itself on first read; this one MUST NOT, because it is committed.
+Writing a statement about how a team works into their repository because somebody
+opened a tab would be putting words in their mouth, in a file other people
+review. It is created only on an explicit, confirmed action.
+
+**A managed stage MAY be disabled; it MUST NOT be deletable.** A reader that
+finds a managed stage missing restores it **disabled** rather than treating the
+file as invalid. Deleting a stage by hand is therefore not an error — it simply
+does not take effect, which is the intended behaviour: disabling leaves the
+decision in the record, and deleting erases the evidence that it was made.
+
+**Unknown fields MUST survive a round trip.** An older AtlasMind saving a file
+written by a newer one must not silently drop the fields it does not understand.
 
 ### 4.2 Schema
 
@@ -924,7 +940,9 @@ compete with them during agent selection.
 | Routing needs | *omitted* | *omitted* | *omitted* |
 | Pinned skills | none | none | none |
 
-> `Status: proposed` — none of the three exist yet.
+> **Built.** All three shipped in v0.184.0, routing-neutral as specified.
+> `refactorer` owns a stage whose deterministic half — the debt register — is
+> still `Status: proposed`, so it currently has nothing to reason over.
 
 ### 10.3 Why routing is not distorted
 

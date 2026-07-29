@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.190.0] - 2026-07-29
+
+### Added
+- **Your workflow is now a file you own.** Everything else in the guided workflow reads from somewhere — the curriculum from your repository's state, the ladder from settings, the metrics from GitHub. This is the one place where a team *says* what their workflow is, and it is a committed file rather than a setting for one reason: a change to how a team works should arrive as a diff with a reviewer, not as a habit nobody wrote down.
+
+  `project_memory/operations/workflow.json` holds the branches, the naming convention, the label taxonomy, and each stage's requested automation level with its attestations and blockers. A readable markdown mirror is generated beside it, so the pull request that changes how your team works is legible to the person reviewing it.
+
+  Four rules carry weight rather than shape. **A stage may be disabled but never deleted** — disabling leaves the decision in the record, deleting erases the evidence it was made, and only one of those survives somebody asking "why don't we do code review?" a year later. **The file sets intent; your settings set the ceiling** — a stage can request `auto` and still do nothing, and every level change says so in the same sentence. **Profiles seed but do not govern** — changing the profile later never rewrites stages you customised. **Fields written by a newer AtlasMind survive a round trip**, so an older build saving the file cannot silently drop a colleague's settings.
+
+- **A card on the Workflow page to declare and edit it.** The file is **never created implicitly.** Every other persisted document in AtlasMind seeds itself on first read; this one does not, because it gets committed, and writing one into your repository because you opened a tab would be putting words in your mouth in a file other people review.
+
+  Every edit shows the exact change in a confirmation before anything is written — the person clicking the button and the person reading the diff need to be looking at the same thing. Refusals are shown too: an edit that silently did nothing would be indistinguishable from one that worked. Pointing the integration branch at a protected branch is refused with a reason, since feature work merges into it constantly and doing so would either break every merge or erode the protection.
+
+### Fixed
+- **A workflow step nobody could ever complete.** "Declare your workflow" has been in the guide since the curriculum shipped, and the flag behind it was hardcoded `false` — so the step was permanently outstanding for every user, on every project, regardless of what they did. A dashboard with a gap that cannot be closed teaches people to ignore gaps, which is the exact failure this project's own archetype packs are written to avoid.
+
+- **The workflow guide named this repository's branches at everybody else.** `integrationBranch` and `protectedBranches` were hardcoded to `develop` and `main`, so a project using `trunk`, or `master`, or anything else, was taught a workflow referring to branches it does not have. Both now come from the workflow file where there is one.
+
+- **AtlasMind's own workflow is now declared**, in `project_memory/operations/workflow.json`. The repository is meant to be a worked instance of the workflow it specifies, and until now the one artifact that would make that concrete did not exist. Six of the eight stages are enabled at `observe`; maintenance and the automation policy are not, because neither is built yet.
+
+- **Two things caught by declaring it.** The seed was inventing a required CI check name (`ci`), which AtlasMind cannot know — a guessed context either blocks forever because nothing reports it, or is decorative because nothing enforces it, and both look identical to whoever inherits the file. It now seeds none. And the seed put the *integration* branch in the protected set, because `develop` is both the commonest integration branch there is and a member of the protected-name list — producing a configuration the editor would then refuse to accept. The integration branch is now excluded in one place, with a test pinning that a seed round-trips through its own editor unchanged.
+
+### Changed
+- **The roadmap record corrected.** C1.1 (the workflow configuration model) was marked shipped in v0.181.0 and had never been built. The correction is recorded in `project_memory/roadmap/guided-github-workflow.md` rather than quietly amended — a roadmap that edits its own history is worth less than one that shows where it was wrong.
+
+- **Four stale status markers in the specification.** `docs/guided-github-workflow.md` still said AtlasMind had no pull-request code (shipped v0.182.0–v0.183.0) and that none of `ci-analyst`, `release-manager` or `refactorer` existed (all three shipped v0.184.0). A specification whose "not built yet" markers are wrong is worse than one with none, because the markers are what a reader trusts.
 ## [0.189.0] - 2026-07-29
 
 ### Added

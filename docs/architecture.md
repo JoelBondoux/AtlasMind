@@ -377,6 +377,24 @@ The rules are ordered and first-match-wins, and the order is part of the contrac
 
 A CI log is untrusted input. `sanitizeCiLog` strips ANSI *before* redacting (a secret wrapped in colour codes would not match a redaction pattern otherwise), then caps size keeping the **tail** — a failure message is at the end of a log, and keeping the head would reliably discard the only part anybody needs. Truncation and redaction are both reported on the report, never silent, and `buildCiFailurePrompt` fences the excerpt as REPORTED CONTENT.
 
+### WorkflowConfig (`src/core/workflowConfig.ts`)
+
+The workflow as data a team owns. Everything else in the guided workflow reads from somewhere — the curriculum from observed state, the ladder from settings, the metrics from `gh`. This is the one place where a team *says* what their workflow is, and it is a committed file rather than a setting for one reason: a change to how a team works should arrive as a diff with a reviewer, not as a habit nobody wrote down.
+
+Four rules carry semantics rather than shape, and each exists because the obvious alternative has a failure mode.
+
+**A `managed` stage may be disabled but never deleted.** A team that decides a stage does not apply to them should say so; a team that deletes it leaves no evidence the decision was made. Disabling is a record, deletion is an erasure, and only one of those survives somebody asking "why don't we do code review?" a year later. `sanitizeStages` therefore *restores* a managed stage the file has lost — disabled, which is the safe direction. Deleting one by hand is not an error; it simply does not work.
+
+**The file sets intent; settings set the ceiling.** A stage may request `auto` and get `observe`, because `effective = min(master, ceiling, capability, stage)` and a repository must not be able to force unattended action onto somebody's machine. Every level change reported by `applyWorkflowConfigEdit` says so in the same sentence, because the number people remember is the one they typed.
+
+**Profiles seed; they do not govern.** Changing `profile` after the file exists never rewrites stages — a team that customised their workflow and then flipped a dropdown would lose that work with no diff to notice it in. A profile changes what a team is *asked to attest* (a studio names a second reviewer, a solo developer does not), never how much AtlasMind may do.
+
+**Unknown fields survive a round trip.** Dropping them would mean a newer AtlasMind's settings silently vanish the first time an older build saves the file.
+
+The manager mirrors `documentsManager` including the asymmetry that matters — seeding never writes over a newer-format file, an explicit save does — with one deliberate difference: **it is never seeded on render.** Every other persisted document creates itself on first read. This one gets committed, so writing one into somebody's repository because they opened a tab would be putting words in their mouth in a file other people review.
+
+Building this closed a gap that could not be closed: `workflowConfigPresent` had been hardcoded `false` since the curriculum shipped, so "declare your workflow" was a step nobody could ever complete. `integrationBranch` and `protectedBranches` were likewise hardcoded to this repository's own branch names, teaching every other project a workflow naming branches it does not have.
+
 ### ReleasePreparation (`src/core/releasePreparation.ts`)
 
 Stage 6, and the only stage of this workflow describing an action that cannot be undone. Every property here follows from that.

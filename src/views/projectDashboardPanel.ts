@@ -60,6 +60,13 @@ import {
   type ReleasePlan,
 } from '../core/releasePreparation.js';
 import {
+  WorkflowConfigManager,
+  applyWorkflowConfigEdit,
+  WORKFLOW_SSOT_PATH,
+  type WorkflowConfig,
+  type WorkflowConfigEdit,
+} from '../core/workflowConfig.js';
+import {
   describePullRequestAction,
   parseGhPullRequestList,
   type PullRequestRecord,
@@ -298,6 +305,8 @@ type ProjectDashboardMessage =
   | { type: 'closeIssue'; payload: { number: number } }
   | { type: 'reopenIssue'; payload: { number: number } }
   | { type: 'commentIssue'; payload: { number: number; body: string } }
+  | { type: 'createWorkflowConfig'; payload: { profile: string } }
+  | { type: 'editWorkflowConfig'; payload: unknown }
   | { type: 'applyTeamRole'; payload: { roleId: string } }
   | { type: 'generateCodeowners' }
   | { type: 'createPullRequest'; payload: { title: string; body?: string; base: string; head: string; draft?: boolean } }
@@ -833,6 +842,20 @@ interface DashboardReleaseSnapshot {
   loadFailure?: string;
 }
 
+/**
+ * The committed workflow configuration, when there is one.
+ *
+ * `config` absent means the file does not exist — the common case, and not a
+ * fault. `notice` set means it exists and this build must not write over it,
+ * which the page has to say rather than silently offering an editor that would
+ * destroy a newer format.
+ */
+interface DashboardWorkflowConfigSnapshot {
+  path: string;
+  config?: WorkflowConfig;
+  notice?: string;
+}
+
 interface DashboardGuidedWorkflowSnapshot {
   stages: WorkflowStageDefinition[];
   progress: WorkflowProgress;
@@ -882,6 +905,8 @@ interface DashboardGuidedWorkflowSnapshot {
     pack: ArchetypePack;
     labels: { archetype: Record<string, string>; trait: Record<string, string> };
   };
+  /** The committed workflow file, and what it says. */
+  workflowConfig: DashboardWorkflowConfigSnapshot;
   branches: BranchMetrics;
   ci: CiMetrics;
   release: ReleaseMetrics;
@@ -1682,6 +1707,22 @@ export class ProjectDashboardPanel {
    */
   private releaseState: { records: readonly MetricReleaseInput[]; loadedAt: string } | { failure: string } | undefined;
 
+  /**
+   * The committed workflow file.
+   *
+   * Held rather than re-read on every render because it is a file read on the
+   * synchronous render path, and re-read explicitly after every write so the
+   * page shows what is actually on disk rather than what it just sent.
+   */
+  private workflowConfigManager: WorkflowConfigManager | undefined;
+
+  private get workflowConfig(): WorkflowConfigManager {
+    this.workflowConfigManager ??= new WorkflowConfigManager(
+      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+    );
+    return this.workflowConfigManager;
+  }
+
   public static createOrShow(context: vscode.ExtensionContext, atlas: AtlasMindContext, targetPage?: DashboardPageId): void {
     const column = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
 
@@ -1923,6 +1964,12 @@ export class ProjectDashboardPanel {
       case 'seedDirectorFromRepo':
         await this.handleSeedDirector();
         return;
+      case 'createWorkflowConfig':
+        await this.handleCreateWorkflowConfig(message.payload);
+        return;
+      case 'editWorkflowConfig':
+        await this.handleEditWorkflowConfig(message.payload);
+        return;
       case 'applyTeamRole':
         await this.handleApplyTeamRole(message.payload);
         return;
@@ -2014,7 +2061,7 @@ export class ProjectDashboardPanel {
           }
           const configuration = vscode.workspace.getConfiguration('atlasmind');
           const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig);
           const seedItems = snapshot.gapAnalysis.items.filter(item => !item.resolved);
           this.queueNavigation('gapAnalysis');
           await this.postMessage({ type: 'navigate', payload: 'gapAnalysis' });
@@ -2041,7 +2088,7 @@ export class ProjectDashboardPanel {
           if (!workspaceRoot || message.payload.trim().length === 0) {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig);
           const targetItem = snapshot.gapAnalysis.items.find(item => item.id === message.payload.trim() && !item.resolved && item.type !== 'praise');
           if (!targetItem) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: 'That gap could not be found. Try re-running the analysis.' });
@@ -2067,7 +2114,7 @@ export class ProjectDashboardPanel {
           if (priority !== 'P1' && priority !== 'P2' && priority !== 'P3') {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig);
           const groupedItems = snapshot.gapAnalysis.items.filter(item => !item.resolved && item.type !== 'praise' && item.priority === priority);
           if (groupedItems.length === 0) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: `No open ${priority} items are available to resolve.` });
@@ -2093,7 +2140,7 @@ export class ProjectDashboardPanel {
           if (!gapId) {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig);
           const targetItem = snapshot.gapAnalysis.items.find(item => item.id === gapId);
           if (!targetItem) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: 'Gap item not found. Try re-running the analysis.' });
@@ -2152,7 +2199,7 @@ export class ProjectDashboardPanel {
 
   private async syncState(): Promise<void> {
     try {
-      const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState);
+      const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig);
       await this.postMessage({ type: 'state', payload: snapshot });
       if (this.pendingNavigationTarget) {
         await this.postMessage({ type: 'navigate', payload: this.pendingNavigationTarget });
@@ -2664,6 +2711,134 @@ export class ProjectDashboardPanel {
    * master switch is deliberately not among them: turning the workflow *on*
    * stays each person's own decision.
    */
+  /**
+   * Create `workflow.json` from a profile.
+   *
+   * Never happens implicitly. Every other persisted document in AtlasMind seeds
+   * itself on first read, and this one deliberately does not: a workflow
+   * configuration is a statement about how a team works, it gets **committed**,
+   * and writing one into somebody's repository because they opened a tab would
+   * be putting words in their mouth in a file other people review.
+   */
+  private async handleCreateWorkflowConfig(payload: unknown): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      void vscode.window.showWarningMessage('Open a workspace folder before declaring a workflow.');
+      return;
+    }
+    if (this.workflowConfig.hasConfig()) {
+      void vscode.window.showInformationMessage('This workspace already has a workflow configuration.');
+      return;
+    }
+    const notice = this.workflowConfig.getNotice();
+    if (notice) {
+      // The file exists and was written by a newer AtlasMind. It is not corrupt
+      // — this build simply cannot read it — so replacing it would destroy a
+      // working configuration.
+      void vscode.window.showWarningMessage(notice);
+      return;
+    }
+
+    const profile = normalizeWorkflowProfile(
+      typeof (payload as { profile?: unknown })?.profile === 'string'
+        ? (payload as { profile: string }).profile
+        : undefined,
+    );
+
+    const confirmation = await vscode.window.showWarningMessage(
+      `Create ${WORKFLOW_SSOT_PATH} from the ${profile} profile?`,
+      {
+        modal: true,
+        detail:
+          'This writes two files into your repository, which you would then commit: '
+          + `\`${WORKFLOW_SSOT_PATH}\` and a generated markdown mirror beside it.\n\n`
+          + 'Every stage is created disabled and at "observe". A profile changes what you are '
+          + 'asked to attest, never what AtlasMind may do unattended — nothing here turns anything on.',
+      },
+      'Yes, create it',
+    );
+    if (confirmation !== 'Yes, create it') {
+      return;
+    }
+
+    try {
+      const seeded = await this.workflowConfig.create({
+        profile,
+        integrationBranch: this.issuesState.repoSlug ? undefined : undefined,
+      });
+      if (!seeded) {
+        void vscode.window.showWarningMessage('The workflow file could not be created.');
+        return;
+      }
+      void vscode.window.showInformationMessage(
+        `Created ${WORKFLOW_SSOT_PATH}. Every stage starts disabled — enable the ones you use, and commit the file so the team shares one workflow.`,
+      );
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not write the workflow file: ${detail.slice(0, 300)}`);
+    }
+    await this.syncState();
+  }
+
+  /**
+   * Apply an edit to the committed workflow configuration.
+   *
+   * The confirmation lists the exact changes rather than summarising them,
+   * because this file becomes a diff somebody else reviews: the person clicking
+   * the button and the person reading the pull request need to be looking at the
+   * same thing. Refusals are shown too — an edit that silently did nothing would
+   * be indistinguishable from one that worked.
+   */
+  private async handleEditWorkflowConfig(payload: unknown): Promise<void> {
+    const current = this.workflowConfig.getConfig();
+    if (!current) {
+      void vscode.window.showWarningMessage('There is no workflow configuration to edit yet.');
+      return;
+    }
+    const edit = sanitizeWorkflowConfigEdit(payload);
+    if (!edit) {
+      return;
+    }
+
+    const result = applyWorkflowConfigEdit(current, edit);
+    if (result.changes.length === 0) {
+      void vscode.window.showInformationMessage(
+        result.refused.length > 0
+          ? `Nothing changed. ${result.refused.join(' ')}`
+          : 'Nothing changed.',
+      );
+      return;
+    }
+
+    const confirmation = await vscode.window.showWarningMessage(
+      `Update ${WORKFLOW_SSOT_PATH}?`,
+      {
+        modal: true,
+        detail: [
+          result.changes.map(change => `• ${change}`).join('\n'),
+          ...(result.refused.length > 0 ? ['', `Not applied: ${result.refused.join(' ')}`] : []),
+          '',
+          'This file is committed, so this becomes a diff your team reviews.',
+        ].join('\n'),
+      },
+      'Yes, update it',
+    );
+    if (confirmation !== 'Yes, update it') {
+      return;
+    }
+
+    try {
+      await this.workflowConfig.save(result.config);
+      void vscode.window.showInformationMessage(
+        `Updated ${WORKFLOW_SSOT_PATH}.${result.refused.length > 0 ? ` ${result.refused.join(' ')}` : ''}`,
+      );
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not write the workflow file: ${detail.slice(0, 300)}`);
+    }
+    await this.syncState();
+  }
+
   private async handleApplyTeamRole(payload: unknown): Promise<void> {
     const roleId = typeof (payload as { roleId?: unknown })?.roleId === 'string'
       ? (payload as { roleId: string }).roleId
@@ -3978,6 +4153,17 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
       && /^[a-z0-9][a-z0-9-]{0,59}$/.test(payload['roleId']);
   }
 
+  // Both workflow writes touch a file that gets committed, so the shape is
+  // checked here and every value is sanitized again in the config module.
+  if (candidate['type'] === 'createWorkflowConfig') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null && typeof payload['profile'] === 'string';
+  }
+
+  if (candidate['type'] === 'editWorkflowConfig') {
+    return sanitizeWorkflowConfigEdit(candidate['payload']) !== undefined;
+  }
+
   if (candidate['type'] === 'generateCodeowners') {
     // No payload: the content comes entirely from the persisted roster, so the
     // webview cannot influence what gets written.
@@ -4263,6 +4449,10 @@ function buildGuidedWorkflowSnapshot(input: {
   /** Manifest evidence for archetype detection. Absent means "we did not look". */
   archetypeEvidence?: { corpus: string; files: readonly string[]; language?: string };
   changelogPresent: boolean;
+  /** The committed workflow file, read once per snapshot. */
+  workflowConfig?: WorkflowConfig;
+  /** Why the file could not be used, when it exists but this build must not. */
+  workflowConfigNotice?: string;
   /** The changelog itself, so its headings can be read rather than assumed. */
   changelog?: string;
   /** Commits on top of the most recent tag, when git could answer. */
@@ -4278,7 +4468,11 @@ function buildGuidedWorkflowSnapshot(input: {
   // permissions: the team's answer should win over an individual's, which is
   // exactly VS Code's default precedence. Only settings that gate an action
   // take the most-restrictive-scope rule.
-  const profile = normalizeWorkflowProfile(input.configuration.get<string>('workflow.profile', 'solo'));
+  // The file is the declaration where there is one. A setting that disagreed
+  // with a committed workflow would be a second answer to a question that
+  // should have exactly one.
+  const profile = input.workflowConfig?.profile
+    ?? normalizeWorkflowProfile(input.configuration.get<string>('workflow.profile', 'solo'));
   // Read scopes, matching how the gate actually decides — otherwise the card
   // would display a ceiling the enforcement does not use, which is worse than
   // showing nothing.
@@ -4364,8 +4558,11 @@ function buildGuidedWorkflowSnapshot(input: {
     hasIssueTemplates: input.issueTemplateCount > 0,
     declaredLabelCount: issueMetrics ? issueMetrics.byLabel.length : 0,
     currentBranch: input.gitSnapshot.currentBranch,
-    integrationBranch: 'develop',
-    protectedBranches: ['main'],
+    // From the file where there is one. These were hardcoded to this
+    // repository's own branch names, so every other project was taught a
+    // workflow naming branches it does not have.
+    integrationBranch: input.workflowConfig?.branches.integration ?? 'develop',
+    protectedBranches: input.workflowConfig?.branches.protected ?? ['main'],
     workingTreeClean: !input.gitSnapshot.dirty,
     nonConformingBranchCount: branches.nonConforming.length,
     enabledTestingMethodologyIds: enabledMethodologies,
@@ -4383,7 +4580,11 @@ function buildGuidedWorkflowSnapshot(input: {
     changelogHasCurrentVersion: release.changelogCurrent,
     commitsSinceLastTag: release.commitsSinceTag,
     hasDebtRegister: false,
-    workflowConfigPresent: false,
+    // Read from disk rather than hardcoded. This was `false` from the moment
+    // the curriculum shipped, which made "declare your workflow" a step nobody
+    // could ever complete — a permanently open gap, and a dashboard with one of
+    // those teaches people to ignore gaps.
+    workflowConfigPresent: input.workflowConfig !== undefined,
     workflowEnabled: enabled,
     profile,
   };
@@ -4489,6 +4690,11 @@ function buildGuidedWorkflowSnapshot(input: {
       labels: { archetype: { ...ARCHETYPE_LABEL }, trait: { ...TRAIT_LABEL } },
     },
     branches,
+    workflowConfig: {
+      path: WORKFLOW_SSOT_PATH,
+      ...(input.workflowConfig === undefined ? {} : { config: input.workflowConfig }),
+      ...(input.workflowConfigNotice === undefined ? {} : { notice: input.workflowConfigNotice }),
+    },
     ci,
     release,
     health: deriveWorkflowHealth(components),
@@ -4568,6 +4774,52 @@ function buildReleaseSnapshot(input: {
     ...(input.loadedAt === undefined ? {} : { loadedAt: input.loadedAt }),
     ...(input.loadFailure === undefined ? {} : { loadFailure: input.loadFailure }),
   };
+}
+
+/**
+ * Validate a workflow edit arriving from the webview.
+ *
+ * The webview supplies **data only** — never a command, never a path — and this
+ * is where that stops being a convention. `applyWorkflowConfigEdit` sanitizes
+ * every value again on the other side; this pass exists to reject a payload
+ * whose *shape* is wrong before it gets there, so a malformed message produces
+ * nothing rather than a partial edit.
+ */
+export function sanitizeWorkflowConfigEdit(payload: unknown): WorkflowConfigEdit | undefined {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return undefined;
+  }
+  const raw = payload as Record<string, unknown>;
+  const strings = (value: unknown, cap: number): string[] | undefined =>
+    Array.isArray(value)
+      ? value.slice(0, cap).filter((entry): entry is string => typeof entry === 'string')
+      : undefined;
+
+  const stages = Array.isArray(raw['stages'])
+    ? raw['stages'].slice(0, 40)
+      .filter((entry): entry is Record<string, unknown> =>
+        Boolean(entry) && typeof entry === 'object' && typeof (entry as Record<string, unknown>)['id'] === 'string')
+      .map(entry => ({
+        id: entry['id'] as string,
+        ...(typeof entry['enabled'] === 'boolean' ? { enabled: entry['enabled'] } : {}),
+        ...(typeof entry['automationLevel'] === 'string' ? { automationLevel: entry['automationLevel'] } : {}),
+        ...(strings(entry['requiredChecks'], 20) === undefined ? {} : { requiredChecks: strings(entry['requiredChecks'], 20)! }),
+        ...(strings(entry['requiredStatusChecks'], 20) === undefined ? {} : { requiredStatusChecks: strings(entry['requiredStatusChecks'], 20)! }),
+        ...(strings(entry['blockers'], 20) === undefined ? {} : { blockers: strings(entry['blockers'], 20)! }),
+      }))
+    : undefined;
+
+  const edit: WorkflowConfigEdit = {
+    ...(typeof raw['profile'] === 'string' ? { profile: raw['profile'] } : {}),
+    ...(typeof raw['integrationBranch'] === 'string' ? { integrationBranch: raw['integrationBranch'] } : {}),
+    ...(typeof raw['releaseBranch'] === 'string' ? { releaseBranch: raw['releaseBranch'] } : {}),
+    ...(strings(raw['labels'], 200) === undefined ? {} : { labels: strings(raw['labels'], 200)! }),
+    ...(strings(raw['branchTypes'], 30) === undefined ? {} : { branchTypes: strings(raw['branchTypes'], 30)! }),
+    ...(stages === undefined ? {} : { stages }),
+  };
+
+  // An edit with no recognised field is a malformed message, not a no-op edit.
+  return Object.keys(edit).length > 0 ? edit : undefined;
 }
 
 /**
@@ -4685,6 +4937,9 @@ async function collectDashboardSnapshot(
   // Undefined until `gh release list` has succeeded. The release *plan* is built
   // from local files regardless, so the page is useful without this.
   releases?: { records: readonly MetricReleaseInput[]; loadedAt: string } | { failure: string },
+  // Held by the panel so it is read once and after each write, not on every
+  // render — this is a synchronous file read on the render path.
+  workflowConfigManager?: WorkflowConfigManager,
 ): Promise<DashboardSnapshot> {
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const workspaceName = vscode.workspace.workspaceFolders?.[0]?.name ?? 'No Workspace';
@@ -5007,6 +5262,10 @@ async function collectDashboardSnapshot(
       ...(pullRequests === undefined ? {} : { pullRequests }),
       ...(ci === undefined ? {} : { ci }),
       changelogPresent,
+      ...(workflowConfigManager?.getConfig() === undefined
+        ? {} : { workflowConfig: workflowConfigManager!.getConfig()! }),
+      ...(workflowConfigManager?.getNotice() === undefined
+        ? {} : { workflowConfigNotice: workflowConfigManager!.getNotice()! }),
       ...(changelog === undefined ? {} : { changelog }),
       ...(commitsSinceTag === undefined ? {} : { commitsSinceTag }),
       prTemplatePresent,
