@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.188.0] - 2026-07-29
+
+### Added
+- **Pull Requests and Pipeline are now pages, not cards.** Issues had a whole page while pull requests had a single card — an odd split, given stage 4 is where a change stops being private and where CI runs, review happens, and the reasoning gets recorded. The Pull Requests page lists what is in flight with review state, size, and whether an issue is linked, alongside review-latency and throughput metrics.
+
+  The Pipeline page carries what most rewards a page of its own: the classified failure with its evidence lines, recent run outcomes, and a **?** explaining how the classification is decided — first-match-wins over the log with no model in the path, infrastructure checked before dependency failure because an unreachable registry looks exactly like a lockfile problem.
+
+- **The dashboard tabs are regrouped.** *Where we stand* · *The work* (Workflow, Roadmap, Issues, Pull Requests, Director) · *The code* (Repo, Pipeline, Testing) · *Is it safe* · *Ship & record* · **The engine** (Runtime). Runtime moved out of "The work", where it was the only tab not about the work — it describes AtlasMind's own state, not the project's.
+
+### Changed
+- **The Workflow page stopped being a dumping ground.** It had accumulated ten cards plus the whole eight-stage curriculum. It now keeps what is genuinely about the workflow itself — the guide, health, the automation ladder, project shape, branch naming and release readiness — and the per-stage detail lives on the pages named after those stages.
+
+## [0.187.1] - 2026-07-29
+
 ## [0.187.1] - 2026-07-29
 
 ### Fixed

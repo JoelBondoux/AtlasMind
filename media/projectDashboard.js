@@ -61,8 +61,10 @@
         ['workflow', 'Workflow'],
         ['roadmap', 'Roadmap'],
         ['issues', 'Issues'],
+        // Issues had a page and pull requests had a single card, despite being
+        // the stage where a change stops being private. Parity.
+        ['pullRequests', 'Pull Requests'],
         ['director', 'Director'],
-        ['runtime', 'Runtime'],
       ],
     },
     {
@@ -70,6 +72,9 @@
       label: 'The code',
       pages: [
         ['repo', 'Repo'],
+        // CI sat as one card on Workflow while carrying the failure taxonomy —
+        // the thing that most rewards a page of its own.
+        ['pipeline', 'Pipeline'],
         ['testing', 'Testing'],
       ],
     },
@@ -89,6 +94,16 @@
         ['delivery', 'Delivery'],
         ['documents', 'Documents'],
         ['ssot', 'SSOT'],
+      ],
+    },
+    {
+      // Runtime is AtlasMind's own state — agents, models, providers, sessions
+      // — not the project's. It sat under "The work", where it was the only
+      // tab not about the work.
+      id: 'engine',
+      label: 'The engine',
+      pages: [
+        ['runtime', 'Runtime'],
       ],
     },
   ];
@@ -1487,6 +1502,8 @@
         ${renderWorkflow(snapshot)}
         ${renderRoadmap(snapshot)}
         ${renderIssues(snapshot)}
+        ${renderPullRequests(snapshot)}
+        ${renderPipeline(snapshot)}
         ${renderDirector(snapshot)}
         ${renderRuntime(snapshot)}
         ${renderRepo(snapshot)}
@@ -3068,6 +3085,213 @@
     return `<span class="wf-unknown" title="${escapeAttr(reason + hint)}">—</span>`;
   }
 
+  // ── Pull Requests ──────────────────────────────────────────────────────
+  // Stage 4 of the guided workflow: where a change stops being private. Issues
+  // had a whole page and this had one card, which understated the stage where
+  // CI runs, review happens, and the reasoning gets recorded.
+
+  const PR_STATE_TONE = { open: '', draft: 'tag-warn', merged: 'tag-good', closed: '' };
+
+  function renderPullRequests(snapshot) {
+    const wf = snapshot.guidedWorkflow || {};
+    const metrics = wf.pullRequests;
+    const records = wf.pullRequestRecords;
+
+    const intro = renderPageIntro({
+      kicker: 'Stage 4',
+      title: 'Pull requests and review',
+      summary: metrics
+        ? `${metrics.open} open, ${metrics.awaitingReview} awaiting review, ${metrics.merged} merged in the window.`
+        : 'Pull requests have not been read yet. AtlasMind fetches them on the same refresh as issues, because the GitHub API is rate-limited.',
+      chips: metrics && metrics.awaitingReview > 0
+        ? [{ label: `${metrics.awaitingReview} awaiting review`, tone: 'warn' }]
+        : [],
+    });
+
+    if (!metrics) {
+      return `${pageSectionOpen('pullRequests')}
+        ${intro}
+        <div class="dashboard-empty"><div>
+          <strong>Pull requests have not been loaded</strong>
+          <p class="section-copy">A pull request is where a change stops being private: the point CI runs, the point a second pair of eyes can see it, and the durable record of why the change looked right at the time. Even working alone it is worth opening one — CI is the reviewer.</p>
+          <button type="button" class="action-link" data-action="page" data-payload="issues">Open the Issues tab and refresh</button>
+        </div></div>
+      </section>`;
+    }
+
+    const open = (records || []).filter(pr => pr.state === 'open' || pr.state === 'draft');
+
+    const list = open.length > 0
+      ? open.map(pr => {
+        const reviews = pr.reviews || [];
+        const submitted = reviews.filter(r => r.verdict !== 'pending');
+        const changesRequested = submitted.some(r => r.verdict === 'changes-requested');
+        const approved = submitted.some(r => r.verdict === 'approved');
+        const size = (pr.additions || 0) + (pr.deletions || 0);
+        return `
+          <div class="recent-item">
+            <div class="row-head">
+              <strong>#${escapeHtml(String(pr.number))} ${escapeHtml(pr.title)}</strong>
+              <span class="tag ${PR_STATE_TONE[pr.state] || ''}">${escapeHtml(pr.state)}</span>
+            </div>
+            <div class="list-meta">
+              ${escapeHtml(pr.headRefName)} → ${escapeHtml(pr.baseRefName)}
+              ${pr.author ? ' · ' + escapeHtml(pr.author) : ''}
+              · ${size} line${size === 1 ? '' : 's'}
+            </div>
+            <div class="tag-row">
+              ${changesRequested ? '<span class="tag tag-critical">changes requested</span>' : ''}
+              ${approved && !changesRequested ? '<span class="tag tag-good">approved</span>' : ''}
+              ${submitted.length === 0 ? '<span class="tag tag-warn">awaiting review</span>' : ''}
+              ${(pr.linkedIssues || []).length === 0
+                // Stated rather than left out: an unlinked PR means the diff and
+                // the reasoning behind it end up in separate places.
+                ? '<span class="tag tag-warn">no linked issue</span>'
+                : `<span class="tag">closes #${escapeHtml(String(pr.linkedIssues[0]))}</span>`}
+              ${pr.url ? `<button type="button" class="action-link" data-action="external-url" data-payload="${escapeAttr(pr.url)}">Open on GitHub</button>` : ''}
+            </div>
+          </div>`;
+      }).join('')
+      : `<div class="dashboard-empty"><div>
+          <strong>No open pull requests</strong>
+          <p class="section-copy">Nothing is in flight. The metrics below still describe what has merged.</p>
+        </div></div>`;
+
+    return `${pageSectionOpen('pullRequests')}
+      ${intro}
+      <article class="panel-card">
+        <p class="card-kicker">In flight</p>
+        <div class="stack-list">${list}</div>
+      </article>
+      <div class="panel-grid">
+        <article class="panel-card">
+          <p class="card-kicker">Review health</p>
+          <div class="mini-grid">
+            ${renderMetricPill('Time to first review', formatDuration(metrics.medianTimeToFirstReviewMs))}
+            ${renderMetricPill('Time to merge', formatDuration(metrics.medianTimeToMergeMs))}
+            ${renderMetricPill('Linked to an issue', renderVerdictText(metrics.linkedRate, value => `${value}%`))}
+          </div>
+          <p class="stat-detail">A long time to first review usually means work is queued rather than that people are slow — the fix is scheduling, not effort. Medians below three samples report no verdict rather than a misleading number.</p>
+        </article>
+        <article class="panel-card">
+          <p class="card-kicker">Size</p>
+          ${renderDistributionBar('pr-size', metrics.sizeDistribution || [], {
+            title: 'Merged pull requests by lines changed',
+            caption: 'A 40-line diff gets read; a 400-line one gets skimmed',
+            emptyLabel: 'Nothing merged yet to size.',
+          })}
+        </article>
+      </div>
+      ${renderChartCard('pr-throughput', 'Merge throughput',
+        'Pull requests merged per day. Long flat stretches usually mean work is waiting in review rather than that nobody is writing it.',
+        (metrics.throughput || []).map(point => ({ label: point.label, value: point.value })), 'pullRequests')}
+    </section>`;
+  }
+
+  // ── Pipeline ───────────────────────────────────────────────────────────
+  // Stage 5. AtlasMind reads check *states* everywhere else; this is the page
+  // where it reads a *log* and says why something failed.
+
+  function renderPipeline(snapshot) {
+    // Computed once: the button and the panel are two halves of one control,
+    // and calling the builder twice would recompute the whole payload.
+    const taxonomyHelp = renderWorkflowHelp('pipeline.taxonomy', {
+      label: 'how AtlasMind decides why a build failed',
+      why: 'The cause is decided by an ordered rule table over the log text, first match wins, with no model in the path. That is deliberate: a taxonomy that varies run to run cannot be charted, and a chart of CI failures over time is one of the most useful things a team can look at. An agent explains a classification and proposes a fix — it never chooses the classification.',
+      how: [
+        { text: 'Infrastructure is checked first, because an unreachable registry looks exactly like a dependency failure — and telling somebody to fix their lockfile when npm was down wastes an afternoon.' },
+        { text: 'Then dependency install, because nothing after a failed install had a chance to run; reporting the compile error would send you to fix code that never built.' },
+        { text: 'Then compile, lint, test failure, and timeout — each narrower than the last.' },
+        { text: 'Flakiness comes from history rather than one log: a job that both passed and failed on the same commit is flaky whatever its latest log says.' },
+        { text: 'When nothing matches, the answer is unknown and it escalates. A confidently wrong root cause costs more than an honest admission.' },
+        { text: 'AtlasMind never re-runs a job automatically. Re-running until green turns a flaky test into policy.' },
+      ],
+    });
+    const wf = snapshot.guidedWorkflow || {};
+    const intel = wf.ciIntelligence;
+    const runs = (intel && intel.runs) || [];
+    const report = intel && intel.report;
+
+    const counts = runs.reduce((acc, run) => {
+      const key = run.status !== 'completed' ? 'running'
+        : run.conclusion === 'success' ? 'passing'
+          : run.conclusion === 'failure' ? 'failing' : 'other';
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {});
+    const completed = (counts.passing || 0) + (counts.failing || 0);
+
+    const intro = renderPageIntro({
+      kicker: 'Stage 5',
+      title: 'Pipeline and failure analysis',
+      summary: intel
+        ? `${runs.length} recent run${runs.length === 1 ? '' : 's'} on this branch${completed > 0 ? `, ${Math.round(((counts.passing || 0) / completed) * 100)}% passing` : ''}.`
+        : 'CI has not been read yet. Fetching runs and downloading a failed log are slow, rate-limited calls, so they happen when you ask.',
+      chips: report ? [{ label: report.classification, tone: report.classification === 'unknown' ? 'warn' : 'critical' }] : [],
+    });
+
+    if (!intel) {
+      return `${pageSectionOpen('pipeline')}
+        ${intro}
+        <div class="dashboard-empty"><div>
+          <strong>CI has not been read</strong>
+          <p class="section-copy">CI is the only reviewer that never gets tired and never approves something because it is Friday. On a solo project it is not a supplement to review — it is the review. AtlasMind reports no verdict rather than implying a green build.</p>
+          <button type="button" class="action-link" data-action="page" data-payload="issues">Open the Issues tab and refresh</button>
+        </div></div>
+      </section>`;
+    }
+
+    const runRows = runs.slice(0, 15).map(run => `
+      <div class="recent-item">
+        <div class="row-head">
+          <strong>${escapeHtml(run.workflowName || run.displayTitle || 'Run')}</strong>
+          <span class="tag ${run.conclusion === 'success' ? 'tag-good' : run.conclusion === 'failure' ? 'tag-critical' : 'tag-warn'}">${
+            escapeHtml(run.status !== 'completed' ? run.status : (run.conclusion || 'unknown'))}</span>
+        </div>
+        <div class="list-meta">${escapeHtml(run.displayTitle || '')}</div>
+      </div>`).join('');
+
+    return `${pageSectionOpen('pipeline')}
+      ${intro}
+      <div class="panel-grid">
+        <article class="panel-card">
+          <p class="card-kicker">Outcome</p>
+          <div class="mini-grid">
+            ${renderMetricPill('Passing', String(counts.passing || 0), { tone: 'good' })}
+            ${renderMetricPill('Failing', String(counts.failing || 0), { tone: (counts.failing || 0) > 0 ? 'critical' : 'good' })}
+            ${renderMetricPill('Pass rate', completed > 0 ? Math.round(((counts.passing || 0) / completed) * 100) + '%' : '—')}
+          </div>
+          ${renderDistributionBar('pipeline-outcome', [
+            { key: 'pass', label: 'Passing', value: counts.passing || 0, tone: 'good' },
+            { key: 'run', label: 'Running', value: counts.running || 0, tone: 'accent' },
+            { key: 'fail', label: 'Failing', value: counts.failing || 0, tone: 'critical' },
+            { key: 'other', label: 'Cancelled or skipped', value: counts.other || 0, tone: 'warn' },
+          ], {
+            title: 'Recent runs on this branch',
+            caption: 'The shape over time matters more than the latest result',
+            emptyLabel: 'No runs recorded for this branch.',
+          })}
+        </article>
+        <article class="panel-card">
+          <p class="card-kicker">Latest failure</p>
+          ${report ? renderCiFailure(report) : ''}
+          ${!report && intel.logFailure
+            ? `<p class="stat-detail wf-unknown">A run failed, but its log could not be read: ${escapeHtml(intel.logFailure)}</p>`
+            : ''}
+          ${!report && !intel.logFailure
+            ? '<div class="dashboard-empty"><div><strong>No failing runs</strong><p class="section-copy">Nothing on this branch has failed recently.</p></div></div>'
+            : ''}
+          ${taxonomyHelp.button}
+          ${taxonomyHelp.panel}
+        </article>
+      </div>
+      <article class="panel-card">
+        <p class="card-kicker">Recent runs</p>
+        <div class="stack-list">${runRows || '<div class="dashboard-empty">No runs on this branch.</div>'}</div>
+      </article>
+    </section>`;
+  }
+
   function renderWorkflow(snapshot) {
     const wf = snapshot.guidedWorkflow;
     if (!wf) {
@@ -3183,64 +3407,8 @@
           : ''}
       </article>`;
 
-    const issuesCard = issues
-      ? `<article class="panel-card">
-          <p class="card-kicker">Issues</p>
-          <div class="mini-grid">
-            ${renderMetricPill('Open', String(issues.open))}
-            ${renderMetricPill('Unassigned', String(issues.unassigned), { tone: issues.unassigned > 0 ? 'warn' : 'good' })}
-            ${renderMetricPill('Stale', String(issues.stale), { tone: issues.stale > 0 ? 'warn' : 'good' })}
-          </div>
-          ${renderDistributionBar('wf-issue-age', issues.ageDistribution || [], {
-            title: 'Open issues by age',
-            caption: 'Ageing is the signal, not the total',
-            emptyLabel: 'No open issues to age.',
-          })}
-          ${(issues.byLabel || []).length
-            ? renderDonutChart('wf-issue-labels', issues.byLabel, { emptyLabel: 'No labels on open issues.' })
-            : ''}
-        </article>`
-      : `<article class="panel-card">
-          <p class="card-kicker">Issues</p>
-          <div class="dashboard-empty"><div>
-            <strong>Issues have not been loaded</strong>
-            <p class="section-copy">Issue intake is stage 1 of the workflow: it is where an intention becomes something with a number that every later stage can point at. AtlasMind does not fetch them automatically because the GitHub API is rate-limited.</p>
-            <button type="button" class="action-link" data-action="page" data-payload="issues">Open the Issues tab to load them</button>
-          </div></div>
-        </article>`;
-
-    // Pull requests. Absent until a refresh has actually run — and "we have not
-    // looked" must never render as "none open", which is why this is a distinct
-    // empty state rather than a row of zeroes.
-    const prs = wf.pullRequests;
-    const prCard = prs
-      ? `<article class="panel-card">
-          <p class="card-kicker">Pull requests</p>
-          <div class="mini-grid">
-            ${renderMetricPill('Open', String(prs.open))}
-            ${renderMetricPill('Awaiting review', String(prs.awaitingReview), { tone: prs.awaitingReview > 0 ? 'warn' : 'good' })}
-            ${renderMetricPill('Time to first review', formatDuration(prs.medianTimeToFirstReviewMs))}
-            ${renderMetricPill('Time to merge', formatDuration(prs.medianTimeToMergeMs))}
-            ${renderMetricPill('Linked to an issue', renderVerdictText(prs.linkedRate, value => `${value}%`))}
-          </div>
-          ${renderDistributionBar('wf-pr-size', prs.sizeDistribution || [], {
-            title: 'Merged pull requests by size',
-            caption: 'Review quality falls off a cliff with size — a 40-line diff gets read, a 400-line one gets skimmed',
-            emptyLabel: 'Nothing merged yet to size.',
-          })}
-          ${renderChartCard('wf-pr-throughput', 'Merge throughput',
-            'Pull requests merged per day. Long flat stretches usually mean work is queued in review rather than that nobody is writing it.',
-            (prs.throughput || []).map(point => ({ label: point.label, value: point.value })), 'workflow')}
-        </article>`
-      : `<article class="panel-card">
-          <p class="card-kicker">Pull requests</p>
-          <div class="dashboard-empty"><div>
-            <strong>Pull requests have not been loaded</strong>
-            <p class="section-copy">Stage 4 is where a change stops being private: it is the point CI runs, the point a second pair of eyes can see it, and the durable record of why the change looked right at the time. AtlasMind reads them on the same refresh as issues, rather than automatically, because the GitHub API is rate-limited.</p>
-            <button type="button" class="action-link" data-action="page" data-payload="issues">Open the Issues tab and refresh</button>
-          </div></div>
-        </article>`;
-
+    // Branch health stays on Workflow rather than moving to Repo: naming
+    // conformance is a property of stage 2, and Repo is about the working tree.
     const branchCard = `
       <article class="panel-card">
         <p class="card-kicker">Branches</p>
@@ -3258,58 +3426,6 @@
           ? `<p class="stat-detail">Not matching <code>&lt;type&gt;/&lt;issue&gt;-&lt;slug&gt;</code>: ${
             escapeHtml(branches.nonConforming.slice(0, 8).join(', '))}${branches.nonConforming.length > 8 ? '…' : ''}</p>`
           : '<p class="stat-detail">Every branch matches the naming convention.</p>'}
-      </article>`;
-
-    // CI. Three genuinely different states, never collapsed: not looked,
-    // looked and healthy, looked and failing. A commit with no checks has not
-    // failed — it has not been checked, and only one of those needs fixing.
-    const intel = wf.ciIntelligence;
-    const runs = (intel && intel.runs) || [];
-    const report = intel && intel.report;
-
-    const outcomeCounts = runs.reduce((acc, run) => {
-      const key = run.status !== 'completed' ? 'running'
-        : run.conclusion === 'success' ? 'passing'
-          : run.conclusion === 'failure' ? 'failing' : 'other';
-      acc[key] = (acc[key] || 0) + 1;
-      return acc;
-    }, {});
-    const completed = (outcomeCounts.passing || 0) + (outcomeCounts.failing || 0);
-
-    const ciCard = `
-      <article class="panel-card">
-        <p class="card-kicker">Continuous integration</p>
-        ${!intel
-          ? `<div class="dashboard-empty"><div>
-              <strong>CI has not been read</strong>
-              <p class="section-copy">CI is the only reviewer that never gets tired and never approves something because it is Friday. AtlasMind reports no verdict rather than implying a green build — reading runs and downloading a failed log are slow, rate-limited calls, so they happen when you ask.</p>
-              <button type="button" class="action-link" data-action="page" data-payload="issues">Open the Issues tab and refresh</button>
-            </div></div>`
-          : `<div class="mini-grid">
-              ${renderMetricPill('Runs read', String(runs.length))}
-              ${renderMetricPill('Passing', String(outcomeCounts.passing || 0), { tone: 'good' })}
-              ${renderMetricPill('Failing', String(outcomeCounts.failing || 0), { tone: (outcomeCounts.failing || 0) > 0 ? 'critical' : 'good' })}
-              ${renderMetricPill('Pass rate', completed > 0 ? Math.round(((outcomeCounts.passing || 0) / completed) * 100) + '%' : '—')}
-            </div>
-            ${renderDistributionBar('wf-ci-runs', [
-              { key: 'pass', label: 'Passing', value: outcomeCounts.passing || 0, tone: 'good' },
-              { key: 'run', label: 'Running', value: outcomeCounts.running || 0, tone: 'accent' },
-              { key: 'fail', label: 'Failing', value: outcomeCounts.failing || 0, tone: 'critical' },
-              { key: 'other', label: 'Cancelled or skipped', value: outcomeCounts.other || 0, tone: 'warn' },
-            ], {
-              title: 'Recent runs on this branch',
-              caption: 'The shape over time matters more than the latest result',
-              emptyLabel: 'No runs recorded for this branch.',
-            })}
-            ${report ? renderCiFailure(report) : ''}
-            ${!report && intel.logFailure
-              // "Failed, and we could not read why" is a third state, and saying
-              // nothing would let it read as the second.
-              ? `<p class="stat-detail wf-unknown">A run failed, but its log could not be read: ${escapeHtml(intel.logFailure)}</p>`
-              : ''}
-            ${!report && !intel.logFailure && runs.length > 0
-              ? '<p class="stat-detail">No failing runs on this branch.</p>'
-              : ''}`}
       </article>`;
 
     const releaseCard = `
@@ -3425,10 +3541,7 @@
         ${healthCard}
         ${archCard}
         ${ladderCard}
-        ${issuesCard}
-        ${prCard}
         ${branchCard}
-        ${ciCard}
         ${releaseCard}
       </div>
       ${activity}

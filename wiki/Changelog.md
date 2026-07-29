@@ -6,6 +6,13 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.188.0 — Pull Requests and Pipeline get their own pages
+
+- **Pull Requests** is now a page rather than a card. Issues had a whole page while stage 4 — where a change stops being private — had one. It lists what is in flight with review state, size and issue linkage, plus review-latency and throughput.
+- **Pipeline** is now a page, carrying the classified failure with its evidence and a **?** explaining how the classification is decided: first-match-wins over the log, no model in the path.
+- **Tabs regrouped**: Where we stand · The work · The code · Is it safe · Ship & record · **The engine**. Runtime moved out of "The work", where it was the only tab not about the work.
+- **The Workflow page stopped being a dumping ground** — ten cards plus the curriculum. It keeps what is about the workflow itself; per-stage detail lives on the pages named after those stages.
+
 ## v0.187.1 — the Project State view could never appear
 
 - **Fixed a closed loop.** The view's `when` clause read a key computed from the provider's cache, but that cache was only filled by `getChildren` — which VS Code calls only for a *visible* view. Hidden because it had no data; no data because it was hidden. Shipped in 0.187.0 and visible to nobody.

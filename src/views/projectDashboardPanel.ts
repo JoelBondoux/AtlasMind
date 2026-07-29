@@ -381,8 +381,9 @@ interface DashboardStat {
  * so `createOrShow(..., 'ideation')` type-checked and rendered a blank dashboard.
  */
 const DASHBOARD_PAGE_IDS = [
-  'overview', 'score', 'gapAnalysis', 'workflow', 'roadmap', 'issues', 'director', 'runtime', 'repo', 'testing',
-  'security', 'privacy', 'risk', 'delivery', 'documents', 'ssot', 'ideation',
+  'overview', 'score', 'gapAnalysis', 'workflow', 'roadmap', 'issues', 'pullRequests', 'director',
+  'repo', 'pipeline', 'testing', 'security', 'privacy', 'risk', 'delivery', 'documents', 'ssot',
+  'runtime', 'ideation',
 ] as const;
 
 type DashboardPageId = typeof DASHBOARD_PAGE_IDS[number];
@@ -823,6 +824,14 @@ interface DashboardGuidedWorkflowSnapshot {
   issues?: IssueMetrics;
   /** Absent until pull requests have actually been fetched — absent ≠ zero. */
   pullRequests?: PullRequestMetrics;
+  /**
+   * The pull requests themselves, for the list those metrics summarise.
+   *
+   * Already sanitized by `pullRequestTracker` — bodies clamped and
+   * control-stripped, non-`https` urls dropped — so the webview receives text
+   * that is safe to render once escaped.
+   */
+  pullRequestRecords?: PullRequestRecord[];
   /** Absent until CI has actually been read — absent ≠ healthy. */
   ciIntelligence?: DashboardCiIntelligence;
   /**
@@ -4399,6 +4408,7 @@ function buildGuidedWorkflowSnapshot(input: {
     ],
     ...(issueMetrics === undefined ? {} : { issues: issueMetrics }),
     ...(prMetrics === undefined ? {} : { pullRequests: prMetrics }),
+    ...(input.pullRequests === undefined ? {} : { pullRequestRecords: [...input.pullRequests] }),
     ...(input.ci === undefined ? {} : { ciIntelligence: input.ci }),
     archetype: {
       ...(declared === undefined ? {} : { declared }),

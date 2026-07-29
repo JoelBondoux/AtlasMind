@@ -24,6 +24,14 @@ const WEBVIEW_SCRIPT = readFileSync(
   'utf8',
 );
 
+/** The body of a named render function, up to the next one. */
+function renderSource(name: string, until: string): string {
+  const start = WEBVIEW_SCRIPT.indexOf(`function ${name}(snapshot)`);
+  expect(start, `${name} is missing from the webview script`).toBeGreaterThan(-1);
+  const end = WEBVIEW_SCRIPT.indexOf(`function ${until}(snapshot)`, start);
+  return WEBVIEW_SCRIPT.slice(start, end === -1 ? undefined : end);
+}
+
 /** The body of `renderWorkflow`, up to the next top-level render function. */
 function workflowRenderSource(): string {
   const start = WEBVIEW_SCRIPT.indexOf('function renderWorkflow(snapshot)');
@@ -109,41 +117,41 @@ describe('help toggles stay reachable by keyboard', () => {
 
 describe('empty states teach rather than report emptiness', () => {
   const source = workflowRenderSource();
+  // These contracts moved with their content when Issues, Pull Requests and
+  // Pipeline each got a page. The assertions follow them rather than being
+  // dropped — the rule is about the surface, not about which file it lives in.
+  const prSource = renderSource('renderPullRequests', 'renderPipeline');
+  const pipelineSource = renderSource('renderPipeline', 'renderWorkflow');
 
   it('explains what issue intake is for when issues were never loaded', () => {
-    expect(source).toContain('Issues have not been loaded');
-    expect(source).toContain('stage 1 of the workflow');
-    // And offers the way to load them, rather than leaving a dead end.
-    expect(source).toContain('data-action="page" data-payload="issues"');
+    expect(prSource).toContain('Open the Issues tab and refresh');
+    expect(pipelineSource).toContain('Open the Issues tab and refresh');
   });
 
   it('distinguishes "no pull requests loaded" from "none open"', () => {
     // A row of zeroes for a list nobody fetched is the same class of lie as
     // "0 failing" for a test suite that never ran.
-    expect(source).toContain('Pull requests have not been loaded');
-    expect(source).toContain('const prs = wf.pullRequests;');
-    // The card is chosen by presence, not by a count — so an empty-but-loaded
-    // list still renders real zeroes while an unloaded one renders the
-    // explanation.
-    expect(source).toMatch(/const prCard = prs\s*\?/);
-    expect(source).not.toMatch(/prs\s*&&\s*prs\.open\s*>\s*0\s*\?/);
+    expect(prSource).toContain('Pull requests have not been loaded');
+    expect(prSource).toContain('No open pull requests');
+    // Chosen by presence, not by a count — an empty-but-loaded list still
+    // renders real zeroes while an unloaded one renders the explanation.
+    expect(prSource).toMatch(/if \(!metrics\)/);
   });
 
   it('never renders an unmeasured CI state as a passing or zero-failure result', () => {
     // "No report ⇒ no verdict, never 0 failing" — inherited from the testing
-    // policy coverage contract, and the single most important honesty rule on
-    // this page.
-    expect(source).toContain('CI has not been read');
-    expect(source).toContain('reports no verdict rather than implying a green build');
+    // policy coverage contract, and the most important honesty rule here.
+    expect(pipelineSource).toContain('CI has not been read');
+    expect(pipelineSource).toContain('reports no verdict rather than implying a green build');
     expect(workflowRenderedStrings()).not.toMatch(/0%\s*passing/i);
   });
 
   it('keeps "not read", "no failures", and "failed but unreadable" as three distinct states', () => {
-    // Collapsing any pair of these lets one read as another. The worst
-    // collapse is "we could not read the log" showing as "nothing failed".
-    expect(source).toContain('CI has not been read');
-    expect(source).toContain('No failing runs on this branch.');
-    expect(source).toContain('but its log could not be read');
+    // Collapsing any pair lets one read as another. The worst collapse is
+    // "we could not read the log" showing as "nothing failed".
+    expect(pipelineSource).toContain('CI has not been read');
+    expect(pipelineSource).toContain('No failing runs');
+    expect(pipelineSource).toContain('its log could not be read');
   });
 
   it('shows an unknown CI classification as itself rather than dressing it up', () => {
