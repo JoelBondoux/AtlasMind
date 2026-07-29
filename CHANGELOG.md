@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.184.0] - 2026-07-28
+
+### Added
+- **A red build now explains itself.** AtlasMind has always read check *states*; it has never read a *log*. That is the difference between knowing a build failed and knowing why. It now fetches recent runs and the failed log, and classifies the cause with an **ordered rule table over the log text — no model in the path**: `dependency-install → compile → lint → test-failure → timeout → flake-suspect → infra → unknown`, first match wins.
+
+  The rule-table decision is the whole design, not an implementation detail. A taxonomy that varies run to run cannot be charted, and a chart of CI failures over time is one of the most useful things a team can look at. An agent's job here is to *explain* a classification and propose a fix — never to choose it. The order matters too: a run that could not install its dependencies also fails to compile, and reporting the compile error would send you to fix code that never had a chance to build. Infrastructure is checked first, because an unreachable registry looks exactly like a dependency failure and telling somebody to fix their lockfile when npm was down wastes an afternoon.
+
+  **`unknown` is a real answer.** When nothing matches, AtlasMind says so and escalates rather than guessing — a confidently wrong root cause costs more than an honest admission. Flakiness is decided from *history*, not from one log: a job that both passed and failed on the same commit is flaky whatever its latest log says.
+
+  CI logs are untrusted input — they echo branch names, commit messages, and whatever else ended up in a build. Each is ANSI-stripped, secret-redacted, size-capped and tail-preserved (a failure message is at the *end* of a log), with truncation and redaction both **reported** rather than silent. The excerpt reaching an agent is fenced as REPORTED CONTENT.
+
+- **Three new agents own the workflow's later stages.** `ci-analyst` explains a classified failure and is told not to re-classify it, not to re-run a job, and not to edit a pipeline definition. `release-manager` checks the derived version matches the compatibility impact and that release notes stay the changelog verbatim; it never pushes, tags, or publishes. `refactorer` records deferred work with a file and line as evidence and proposes rather than applies.
+
+  All three ship **without routing needs and without pinned skills**, addressed by stage ownership rather than by the classifier, so they cannot displace `github-operator` or `devops-engineer` for work those agents already own. A test asserts that — including that their prose avoids the reserved routing vocabulary, which is the one way an agent with no declared needs can re-enter the contest by the back door.
+
+### Fixed
+- **The double-publish chain is gone (C5.2).** `publish:release` was `vsce publish && npm run tag:release`. It published *and* pushed the tag, and the tag push triggered `publish.yml`, which ran `publish:release` again — the second attempt failing on "version already exists". One release, two publish paths racing. `publish:release` now publishes and nothing else; `tag:release` tags. For an emergency local publish, run both in that order. 0.181.0 documented the hazard as an interim; this removes it.
+
+- **A pip dependency failure could never have been detected.** The rule required the literal word `pip` before the message, and pip's own output does not contain it — so `Could not find a version that satisfies the requirement` would have fallen through to `unknown`. Caught by a fixture written from real output rather than from memory.
+
 ## [0.183.0] - 2026-07-28
 
 ### Added

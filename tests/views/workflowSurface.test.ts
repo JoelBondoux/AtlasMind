@@ -133,9 +133,57 @@ describe('empty states teach rather than report emptiness', () => {
     // "No report ⇒ no verdict, never 0 failing" — inherited from the testing
     // policy coverage contract, and the single most important honesty rule on
     // this page.
-    expect(source).toContain('No check runs read for this commit');
+    expect(source).toContain('CI has not been read');
     expect(source).toContain('reports no verdict rather than implying a green build');
     expect(workflowRenderedStrings()).not.toMatch(/0%\s*passing/i);
+  });
+
+  it('keeps "not read", "no failures", and "failed but unreadable" as three distinct states', () => {
+    // Collapsing any pair of these lets one read as another. The worst
+    // collapse is "we could not read the log" showing as "nothing failed".
+    expect(source).toContain('CI has not been read');
+    expect(source).toContain('No failing runs on this branch.');
+    expect(source).toContain('but its log could not be read');
+  });
+
+  it('shows an unknown CI classification as itself rather than dressing it up', () => {
+    const failure = WEBVIEW_SCRIPT.slice(
+      WEBVIEW_SCRIPT.indexOf('function renderCiFailure'),
+      WEBVIEW_SCRIPT.indexOf('function formatDuration'),
+    );
+    expect(failure).toContain('AtlasMind is not guessing');
+    expect(failure).toContain('needs a human');
+  });
+
+  it('reports log truncation and redaction rather than hiding them', () => {
+    const failure = WEBVIEW_SCRIPT.slice(
+      WEBVIEW_SCRIPT.indexOf('function renderCiFailure'),
+      WEBVIEW_SCRIPT.indexOf('function formatDuration'),
+    );
+    expect(failure).toContain('report.truncated');
+    expect(failure).toContain('report.redacted');
+  });
+
+  it('escapes every log evidence line before rendering it', () => {
+    // A CI log is untrusted: it echoes branch names, commit messages, and
+    // whatever else ended up in the build output.
+    const failure = WEBVIEW_SCRIPT.slice(
+      WEBVIEW_SCRIPT.indexOf('function renderCiFailure'),
+      WEBVIEW_SCRIPT.indexOf('function formatDuration'),
+    );
+    expect(failure).toContain('report.evidenceLines || []).map(line => escapeHtml(line))');
+    expect(failure).toContain('escapeHtml(report.jobName');
+  });
+
+  it('lets long log lines scroll inside their own container', () => {
+    // A single long line must never make the page body scroll horizontally.
+    const css = readFileSync(
+      path.join(process.cwd(), 'src', 'views', 'projectDashboardPanel.ts'),
+      'utf8',
+    );
+    const block = css.slice(css.indexOf('.wf-ci-evidence'), css.indexOf('.wf-glossary dt'));
+    expect(block).toContain('overflow: auto');
+    expect(block).toContain('max-height');
   });
 
   it('renders an absent verdict as an em dash with its reason, never as zero', () => {

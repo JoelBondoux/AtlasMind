@@ -87,16 +87,18 @@ The specification's stage 6 (Release Automation), instantiated. **The release is
 4. The tag push triggers **`Release — publish Marketplace from tag`**, which publishes via `vsce`
    and creates the GitHub Release with generated notes.
 
-> **Do not run `npm run publish:release` for a normal release.**
+> **Publishing and tagging are separate commands, deliberately.**
 >
-> `publish:release` is `vsce publish && npm run tag:release`. It publishes *and* pushes the tag —
-> and the tag push triggers `publish.yml`, which runs `publish:release` again in CI. The second
-> attempt fails on "version already exists", which looks like a broken pipeline but is really two
-> publish paths racing. Use `tag:release` alone and let CI publish.
+> `publish:release` runs `vsce publish` and nothing else. `tag:release` pushes the tag.
 >
-> `publish:release` remains the correct tool for an emergency local publish when Actions is
-> unavailable. Fixing the chain so only one path can publish is tracked as **C5.2** in
-> [the roadmap](../project_memory/roadmap/guided-github-workflow.md).
+> They were chained until v0.184.0, and the chain was a live hazard: the tag push triggers
+> `publish.yml`, which ran `publish:release` again in CI, and the second attempt failed on
+> "version already exists" — which looks like a broken pipeline but was really two publish paths
+> racing. One release now has exactly one publish path (CI, from the tag) and one tag path
+> (`tag:release`, run deliberately).
+>
+> For an **emergency local publish** when Actions is unavailable, run `npm run publish:release`
+> and then `npm run tag:release`, in that order.
 
 Direct pushes to `main` are blocked, including for admins. Keep `main` releasable at all times. If
 preview and stable delivery are split again later, keep `main` for stable and add a dedicated

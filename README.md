@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.183.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.184.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -48,7 +48,7 @@ Project Dashboard, Project Run Center, Cost Dashboard, Mission Control, Website 
 
 ### Grow the team around the project
 
-Start with 18 built-in agents and 43 built-in skills. Add custom agents, assign models and testing responsibilities, connect MCP servers, or discover new agentic resources when the project needs more.
+Start with 21 built-in agents and 43 built-in skills. Add custom agents, assign models and testing responsibilities, connect MCP servers, or discover new agentic resources when the project needs more.
 
 ---
 
@@ -64,9 +64,15 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.183.0
+## What's new in 0.184.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
+
+- **A red build that explains itself.** AtlasMind has always read check *states*; it has never read a *log* — the difference between knowing a build failed and knowing why. It now fetches the failed log and classifies the cause with an **ordered rule table and no model in the path**: dependency-install, compile, lint, test-failure, timeout, flake-suspect, infrastructure, or unknown.
+
+  That is deliberate rather than incidental. A taxonomy that varies run to run cannot be charted, and a chart of CI failures over time is one of the most useful things a team can look at — so agents *explain* a classification and never choose it. Order matters too: infrastructure is checked first, because an unreachable registry looks exactly like a dependency failure, and telling you to fix your lockfile when npm was down wastes an afternoon. When nothing matches, AtlasMind says **unknown** and escalates rather than guessing.
+
+  Logs are treated as untrusted input — ANSI-stripped, secret-redacted, size-capped and tail-preserved, since a failure message is at the *end* of a log — with truncation and redaction both reported rather than silent.
 
 - **The automation ladder, and pull requests you can act on.** AtlasMind can now open, review, merge and close pull requests from the dashboard — the first thing it does that other people can see. Three gates in order: the automation ladder must reach `propose`, a protected base branch is a **veto** rather than a level anyone can raise, and a modal names the repository and the exact action before anything is sent.
 

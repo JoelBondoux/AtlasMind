@@ -3252,26 +3252,56 @@
           : '<p class="stat-detail">Every branch matches the naming convention.</p>'}
       </article>`;
 
-    // CI. The "no checks" state says so and offers the fix — never "0% passing",
-    // because a commit with no checks has not failed, it has not been checked.
+    // CI. Three genuinely different states, never collapsed: not looked,
+    // looked and healthy, looked and failing. A commit with no checks has not
+    // failed — it has not been checked, and only one of those needs fixing.
+    const intel = wf.ciIntelligence;
+    const runs = (intel && intel.runs) || [];
+    const report = intel && intel.report;
+
+    const outcomeCounts = runs.reduce((acc, run) => {
+      const key = run.status !== 'completed' ? 'running'
+        : run.conclusion === 'success' ? 'passing'
+          : run.conclusion === 'failure' ? 'failing' : 'other';
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {});
+    const completed = (outcomeCounts.passing || 0) + (outcomeCounts.failing || 0);
+
     const ciCard = `
       <article class="panel-card">
         <p class="card-kicker">Continuous integration</p>
-        ${ci.state === 'none'
+        ${!intel
           ? `<div class="dashboard-empty"><div>
-              <strong>No check runs read for this commit</strong>
-              <p class="section-copy">CI is the only reviewer that never gets tired and never approves something because it is Friday. AtlasMind reports no verdict rather than implying a green build.</p>
+              <strong>CI has not been read</strong>
+              <p class="section-copy">CI is the only reviewer that never gets tired and never approves something because it is Friday. AtlasMind reports no verdict rather than implying a green build — reading runs and downloading a failed log are slow, rate-limited calls, so they happen when you ask.</p>
+              <button type="button" class="action-link" data-action="page" data-payload="issues">Open the Issues tab and refresh</button>
             </div></div>`
           : `<div class="mini-grid">
-              ${renderMetricPill('Passing', String(ci.passing || 0), { tone: 'good' })}
-              ${renderMetricPill('Failing', String(ci.failing || 0), { tone: (ci.failing || 0) > 0 ? 'critical' : 'good' })}
-              ${renderMetricPill('Pass rate', renderVerdictText(ci.passRate, value => `${value}%`))}
+              ${renderMetricPill('Runs read', String(runs.length))}
+              ${renderMetricPill('Passing', String(outcomeCounts.passing || 0), { tone: 'good' })}
+              ${renderMetricPill('Failing', String(outcomeCounts.failing || 0), { tone: (outcomeCounts.failing || 0) > 0 ? 'critical' : 'good' })}
+              ${renderMetricPill('Pass rate', completed > 0 ? Math.round(((outcomeCounts.passing || 0) / completed) * 100) + '%' : '—')}
             </div>
-            ${renderDistributionBar('wf-ci', ci.byCheck || [], {
-              title: 'Checks on the head commit',
-              caption: 'Worst state wins — one failure makes the commit red',
-              emptyLabel: 'No checks reported.',
-            })}`}
+            ${renderDistributionBar('wf-ci-runs', [
+              { key: 'pass', label: 'Passing', value: outcomeCounts.passing || 0, tone: 'good' },
+              { key: 'run', label: 'Running', value: outcomeCounts.running || 0, tone: 'accent' },
+              { key: 'fail', label: 'Failing', value: outcomeCounts.failing || 0, tone: 'critical' },
+              { key: 'other', label: 'Cancelled or skipped', value: outcomeCounts.other || 0, tone: 'warn' },
+            ], {
+              title: 'Recent runs on this branch',
+              caption: 'The shape over time matters more than the latest result',
+              emptyLabel: 'No runs recorded for this branch.',
+            })}
+            ${report ? renderCiFailure(report) : ''}
+            ${!report && intel.logFailure
+              // "Failed, and we could not read why" is a third state, and saying
+              // nothing would let it read as the second.
+              ? `<p class="stat-detail wf-unknown">A run failed, but its log could not be read: ${escapeHtml(intel.logFailure)}</p>`
+              : ''}
+            ${!report && !intel.logFailure && runs.length > 0
+              ? '<p class="stat-detail">No failing runs on this branch.</p>'
+              : ''}`}
       </article>`;
 
     const releaseCard = `
@@ -3344,6 +3374,48 @@
         ${stages}
       </section>
     </section>`;
+  }
+
+  /** Plain-language account of each failure class, mirroring CLASS_EXPLANATION. */
+  const CI_CLASS_LABEL = {
+    'dependency-install': 'Dependency install',
+    compile: 'Compile',
+    lint: 'Lint',
+    'test-failure': 'Test failure',
+    timeout: 'Timeout',
+    'flake-suspect': 'Flake suspect',
+    infra: 'Infrastructure',
+    unknown: 'Unknown',
+  };
+
+  /**
+   * The classified failure, with its evidence.
+   *
+   * The classification came from a rule table, not a model — so it is stated as
+   * a finding. `unknown` is shown as itself rather than dressed up: a
+   * confidently wrong root cause costs more than an honest admission.
+   */
+  function renderCiFailure(report) {
+    const cls = report.classification || 'unknown';
+    const tone = cls === 'unknown' ? 'warn' : cls === 'infra' || cls === 'flake-suspect' ? 'accent' : 'critical';
+    const evidence = (report.evidenceLines || []).map(line => escapeHtml(line)).join('\n');
+    return `
+      <div class="wf-ci-failure">
+        <div class="row-head">
+          <strong>${escapeHtml(report.jobName || 'A job')} failed</strong>
+          <span class="tag tag-${tone === 'critical' ? 'critical' : 'warn'}">${escapeHtml(CI_CLASS_LABEL[cls] || cls)}</span>
+        </div>
+        ${report.stepName ? `<div class="list-meta">Step: ${escapeHtml(report.stepName)}</div>` : ''}
+        ${evidence ? `<pre class="wf-ci-evidence">${evidence}</pre>` : '<p class="stat-detail wf-unknown">No evidence lines were captured.</p>'}
+        <div class="list-meta">
+          ${report.truncated ? 'Earlier output was truncated. ' : ''}${report.redacted ? 'Secret-shaped values were removed. ' : ''}
+          ${cls === 'unknown'
+            ? 'Nothing matched a known pattern, so AtlasMind is not guessing — this one needs a human.'
+            : report.suggestedOwnerAgentId
+              ? `Best placed to act: <code>${escapeHtml(report.suggestedOwnerAgentId)}</code>.`
+              : ''}
+        </div>
+      </div>`;
   }
 
   /** A duration verdict as text, scaling its unit with magnitude. */

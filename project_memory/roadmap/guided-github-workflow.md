@@ -1,6 +1,6 @@
 # Guided GitHub Workflow — Phased Roadmap
 
-> **Status:** Tier 1 shipped v0.181.0; Tier 2 shipped v0.183.0 (C3.4 and C3.6 outstanding); Tier 3 next. **Owner:** AtlasMind core. **Created:** 2026-07-28.
+> **Status:** Tier 1 shipped v0.181.0; Tier 2 shipped v0.183.0 (C3.4, C3.6 outstanding); Tier 3 CI intelligence shipped v0.184.0 (C5.1, C5.3 outstanding); Tier 4 next. **Owner:** AtlasMind core. **Created:** 2026-07-28.
 > This is the SSOT implementation plan for [`docs/guided-github-workflow.md`](../../docs/guided-github-workflow.md),
 > which is the normative specification. Where the two disagree, the specification wins and this
 > file is wrong. Build incrementally, respecting the entry criteria between tiers. Nothing here
@@ -9,7 +9,7 @@
 
 ## Context — why
 
-AtlasMind ships eighteen agents, a planner, a task scheduler, an issue tracker, a guarded
+AtlasMind shipped eighteen agents, a planner, a task scheduler, an issue tracker, a guarded
 promotion engine, and a complete release-versioning engine — and no workflow. Nothing tells a
 user *the order in which to do the work*, so every user assembles their own, and AtlasMind's
 guidance about GitHub varies by which file happens to be read.
@@ -60,8 +60,9 @@ config executed through the promotion runner's own audited path — not spawned 
 `gh api repos/{slug}/branches/{b}/protection`; `gh api repos/{slug}/commits/{ref}/check-runs`;
 `gh repo create`.
 
-**Not present anywhere in `src/`:** any `gh run` call, any `gh release` call, any CI log retrieval,
-any tech-debt model — all of which is Tier 3 and 4. Pull requests are read (v0.182.0) **and written**
+**Not present anywhere in `src/`:** any `gh release` call, any tech-debt model — Tier 3's release half
+and Tier 4. CI runs and failed logs are read as of v0.184.0 (`gh run list`, `gh run view --log-failed`),
+classified by a rule table with no model in the path (`ciFailureAnalysis.ts`). Pull requests are read (v0.182.0) **and written**
 (v0.183.0: `gh pr create/review/merge/close`, behind the ladder and a modal). Branch naming landed in
 v0.182.0. The automation ladder itself — `min(master, ceiling, capability, stage)` — landed in
 v0.183.0 as `workflowAutomation.ts`; before that the settings existed but nothing evaluated them.
@@ -220,7 +221,7 @@ with every write gated.
 
 ---
 
-## Tier 3 — CI intelligence and release automation
+## Tier 3 — CI intelligence and release automation  *(CI intelligence shipped v0.184.0; C5.1 and C5.3 outstanding)*
 
 **Entry criteria:** Tier 2 shipped. **Exit criteria:** a red build explains itself with evidence,
 and a release can be prepared from the dashboard.

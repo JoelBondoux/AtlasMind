@@ -57,6 +57,10 @@ import {
 } from '../core/pullRequestTracker.js';
 import { PROTECTED_BRANCH_NAMES } from '../core/branchNaming.js';
 import {
+  buildCiFailureReport,
+  type CiFailureReport,
+} from '../core/ciFailureAnalysis.js';
+import {
   FIRST_WRITING_LEVEL,
   explainAutomationLevel,
   normalizeAutomationLevel,
@@ -748,6 +752,32 @@ interface DashboardIssuesSnapshot {
  * (`workflowCurriculum.ts`, `workflowMetrics.ts`) and simply carried through
  * here, so the numbers on this page are unit-tested rather than eyeballed.
  */
+/** One CI run, as `gh run list` reports it. */
+interface DashboardCiRun {
+  databaseId: number;
+  workflowName: string;
+  displayTitle: string;
+  conclusion: string;
+  status: string;
+  headSha: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Recent runs plus a classified report for the latest failure.
+ *
+ * `report` absent with runs present means nothing has failed. `logFailure`
+ * set means something failed but the log could not be read — a different
+ * fact, and one the surface has to state rather than imply.
+ */
+interface DashboardCiIntelligence {
+  runs: DashboardCiRun[];
+  report?: CiFailureReport;
+  logFailure?: string;
+  loadedAt: string;
+}
+
 interface DashboardGuidedWorkflowSnapshot {
   stages: WorkflowStageDefinition[];
   progress: WorkflowProgress;
@@ -770,6 +800,8 @@ interface DashboardGuidedWorkflowSnapshot {
   issues?: IssueMetrics;
   /** Absent until pull requests have actually been fetched — absent ≠ zero. */
   pullRequests?: PullRequestMetrics;
+  /** Absent until CI has actually been read — absent ≠ healthy. */
+  ciIntelligence?: DashboardCiIntelligence;
   branches: BranchMetrics;
   ci: CiMetrics;
   release: ReleaseMetrics;
@@ -1538,6 +1570,15 @@ export class ProjectDashboardPanel {
    */
   private pullRequestsState: PullRequestRecord[] | undefined;
 
+  /**
+   * Recent CI runs and the latest classified failure.
+   *
+   * Loaded alongside issues and pull requests on the same explicit refresh.
+   * `undefined` until a load succeeds, so the surface can distinguish "no
+   * failures" from "never looked" — the second must never render as the first.
+   */
+  private ciState: DashboardCiIntelligence | undefined;
+
   public static createOrShow(context: vscode.ExtensionContext, atlas: AtlasMindContext, targetPage?: DashboardPageId): void {
     const column = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
 
@@ -1864,7 +1905,7 @@ export class ProjectDashboardPanel {
           }
           const configuration = vscode.workspace.getConfiguration('atlasmind');
           const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState);
           const seedItems = snapshot.gapAnalysis.items.filter(item => !item.resolved);
           this.queueNavigation('gapAnalysis');
           await this.postMessage({ type: 'navigate', payload: 'gapAnalysis' });
@@ -1891,7 +1932,7 @@ export class ProjectDashboardPanel {
           if (!workspaceRoot || message.payload.trim().length === 0) {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState);
           const targetItem = snapshot.gapAnalysis.items.find(item => item.id === message.payload.trim() && !item.resolved && item.type !== 'praise');
           if (!targetItem) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: 'That gap could not be found. Try re-running the analysis.' });
@@ -1917,7 +1958,7 @@ export class ProjectDashboardPanel {
           if (priority !== 'P1' && priority !== 'P2' && priority !== 'P3') {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState);
           const groupedItems = snapshot.gapAnalysis.items.filter(item => !item.resolved && item.type !== 'praise' && item.priority === priority);
           if (groupedItems.length === 0) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: `No open ${priority} items are available to resolve.` });
@@ -1943,7 +1984,7 @@ export class ProjectDashboardPanel {
           if (!gapId) {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState);
           const targetItem = snapshot.gapAnalysis.items.find(item => item.id === gapId);
           if (!targetItem) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: 'Gap item not found. Try re-running the analysis.' });
@@ -2002,7 +2043,7 @@ export class ProjectDashboardPanel {
 
   private async syncState(): Promise<void> {
     try {
-      const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState);
+      const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState);
       await this.postMessage({ type: 'state', payload: snapshot });
       if (this.pendingNavigationTarget) {
         await this.postMessage({ type: 'navigate', payload: this.pendingNavigationTarget });
@@ -2194,6 +2235,18 @@ export class ProjectDashboardPanel {
       } catch {
         // Left as-is rather than emptied: a failed refresh must not turn a
         // previously-read list into a confident "none".
+      }
+
+      // CI intelligence, also best-effort. A repository can have readable
+      // issues and unreadable runs, and failing the whole refresh over the
+      // tertiary read would hide the two that succeeded.
+      try {
+        const branch = (await runGit(workspaceRoot, ['rev-parse', '--abbrev-ref', 'HEAD'])).trim();
+        if (branch && branch !== 'HEAD') {
+          this.ciState = await gatherCiIntelligence(workspaceRoot, branch);
+        }
+      } catch {
+        // Same reasoning as above.
       }
     } catch (error) {
       this.issuesState = { ...this.classifyIssueFailure(error), issues: [], busy: false };
@@ -3920,6 +3973,7 @@ function buildGuidedWorkflowSnapshot(input: {
   testing: TestingDashboardSnapshot;
   issues: DashboardIssuesSnapshot;
   pullRequests?: readonly PullRequestRecord[];
+  ci?: DashboardCiIntelligence;
   changelogPresent: boolean;
   prTemplatePresent: boolean;
   codeownersPresent: boolean;
@@ -4099,6 +4153,7 @@ function buildGuidedWorkflowSnapshot(input: {
     ],
     ...(issueMetrics === undefined ? {} : { issues: issueMetrics }),
     ...(prMetrics === undefined ? {} : { pullRequests: prMetrics }),
+    ...(input.ci === undefined ? {} : { ciIntelligence: input.ci }),
     branches,
     ci,
     release,
@@ -4120,6 +4175,7 @@ async function collectDashboardSnapshot(
   // Undefined until a load has actually succeeded. An empty array would claim
   // "no pull requests", which is a different fact from "we have not looked".
   pullRequests?: readonly PullRequestRecord[],
+  ci?: DashboardCiIntelligence,
 ): Promise<DashboardSnapshot> {
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const workspaceName = vscode.workspace.workspaceFolders?.[0]?.name ?? 'No Workspace';
@@ -4404,6 +4460,7 @@ async function collectDashboardSnapshot(
       testing: testingSnapshot,
       issues,
       ...(pullRequests === undefined ? {} : { pullRequests }),
+      ...(ci === undefined ? {} : { ci }),
       changelogPresent,
       prTemplatePresent,
       codeownersPresent,
@@ -5121,6 +5178,113 @@ async function fetchBranchProtection(
  * Best-effort: returns undefined when gh is unavailable or the repo is not on
  * GitHub. Worst state per name wins (fail > pending > pass).
  */
+/**
+ * Recent CI runs, and a classified report for whichever failed most recently.
+ *
+ * Fetched on explicit request only. `gh run view --log-failed` downloads a log,
+ * which is slow and rate-limited — a page that did it on every render would
+ * spend the user's quota to show a tab they may not be looking at.
+ *
+ * The log never reaches a surface unsanitized: `buildCiFailureReport` strips
+ * ANSI, redacts secrets, caps the size and marks truncation. Classification is
+ * a rule table with no model in it, so the same log always produces the same
+ * class and the taxonomy can be charted over time.
+ */
+async function gatherCiIntelligence(
+  workspaceRoot: string,
+  branch: string,
+): Promise<DashboardCiIntelligence> {
+  const runs = await runGh(workspaceRoot, [
+    'run', 'list',
+    '--branch', branch,
+    '--limit', '30',
+    '--json', 'databaseId,displayTitle,conclusion,status,workflowName,createdAt,updatedAt,headSha',
+  ]);
+
+  const parsed = parseGhRunList(runs);
+  if (parsed.length === 0) {
+    return { runs: [], loadedAt: new Date().toISOString() };
+  }
+
+  // Only the most recent failure is analysed. Fetching a log per failed run
+  // would multiply a slow call by thirty for information nobody asked for.
+  const failed = parsed.find(run => run.conclusion === 'failure');
+  if (!failed) {
+    return { runs: parsed, loadedAt: new Date().toISOString() };
+  }
+
+  try {
+    const log = await runGhOrThrow(
+      workspaceRoot,
+      ['run', 'view', String(failed.databaseId), '--log-failed'],
+      // A log is a download, not a status query; the read-only default of eight
+      // seconds is not enough.
+      { timeoutMs: 45_000, maxBufferBytes: 8 * 1024 * 1024 },
+    );
+    // Attempts on the same commit decide flakiness — a property of history that
+    // no single log can establish.
+    const attempts = parsed
+      .filter(run => run.headSha === failed.headSha && run.workflowName === failed.workflowName)
+      .map(run => ({ conclusion: run.conclusion }));
+
+    return {
+      runs: parsed,
+      report: buildCiFailureReport({
+        runId: String(failed.databaseId),
+        jobName: failed.workflowName || failed.displayTitle,
+        log,
+        attempts,
+      }),
+      loadedAt: new Date().toISOString(),
+    };
+  } catch (error) {
+    // A log we could not read is reported as such. "No failure detail" and
+    // "the build is fine" are different facts.
+    return {
+      runs: parsed,
+      logFailure: ghFailureOf(error).detail,
+      loadedAt: new Date().toISOString(),
+    };
+  }
+}
+
+/** Parse `gh run list --json …`. Never throws; a bad entry is dropped. */
+export function parseGhRunList(raw: string): DashboardCiRun[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) {
+    return [];
+  }
+  const out: DashboardCiRun[] = [];
+  for (const entry of parsed.slice(0, 100)) {
+    if (!entry || typeof entry !== 'object') {
+      continue;
+    }
+    const record = entry as Record<string, unknown>;
+    const id = record['databaseId'];
+    if (typeof id !== 'number' || !Number.isFinite(id)) {
+      continue;
+    }
+    const text = (value: unknown, max: number): string =>
+      typeof value === 'string' ? value.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, max) : '';
+    out.push({
+      databaseId: id,
+      workflowName: text(record['workflowName'], 120),
+      displayTitle: text(record['displayTitle'], 200),
+      conclusion: text(record['conclusion'], 40).toLowerCase(),
+      status: text(record['status'], 40).toLowerCase(),
+      headSha: text(record['headSha'], 64),
+      createdAt: text(record['createdAt'], 40),
+      updatedAt: text(record['updatedAt'], 40),
+    });
+  }
+  return out;
+}
+
 async function gatherLiveCiStatus(workspaceRoot: string, sourceRef: string): Promise<Record<string, 'pass' | 'fail' | 'pending'> | undefined> {
   const ref = normalizeBranchRef(sourceRef);
   if (!ref || ref === 'Not a git repository' || ref === 'Detached') {
@@ -9582,6 +9746,30 @@ const DASHBOARD_CSS = `
      measured" is not a failure, and styling it like one would train people to
      ignore the styling. */
   .wf-unknown { color: var(--dash-muted); font-style: italic; }
+
+  /* A classified CI failure and the lines that decided it. */
+  .wf-ci-failure {
+    margin-top: 10px;
+    padding: 10px 12px;
+    border-left: 2px solid color-mix(in srgb, var(--dash-critical) 55%, var(--dash-border));
+    background: color-mix(in srgb, var(--dash-critical) 6%, transparent);
+    border-radius: 0 var(--dash-radius) var(--dash-radius) 0;
+  }
+
+  /* Evidence is log text: monospaced, and allowed to scroll rather than forcing
+     the page to. A long line must never make the body scroll horizontally. */
+  .wf-ci-evidence {
+    margin: 6px 0;
+    padding: 8px 10px;
+    max-height: 220px;
+    overflow: auto;
+    font-family: var(--dash-mono);
+    font-size: 11px;
+    line-height: 1.5;
+    white-space: pre;
+    background: color-mix(in srgb, var(--dash-border) 35%, transparent);
+    border-radius: 8px;
+  }
 
   .wf-glossary dt { font-size: 12px; font-weight: 600; margin-top: 8px; }
   .wf-glossary dd { font-size: 12px; color: var(--dash-muted); margin: 2px 0 0; line-height: 1.6; max-width: 78ch; }

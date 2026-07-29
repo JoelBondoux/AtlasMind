@@ -68,7 +68,7 @@ The release is **Actions-driven**. When asked to publish or ship a release, foll
 6. **Wait for PR merge**: do NOT tag until the PR has merged into `main` and CI checks pass. Confirm the merge before continuing.
 7. **Tag**: `npm run tag:release` — pushes `v<version>`. The tag push triggers `Release — publish Marketplace from tag`, which publishes via `vsce` and creates the GitHub Release entry.
 
-**Do not run `npm run publish:release` for a normal release.** It is `vsce publish && npm run tag:release`: it publishes *and* pushes the tag, and the tag push then triggers CI to run `publish:release` again, which fails on "version already exists". Reserve it for an emergency local publish when Actions is unavailable.
+**`npm run publish:release` publishes only; it no longer pushes a tag.** The two were chained until v0.184.0, and the chain was a hazard: the tag push triggered `publish.yml`, which ran `publish:release` again and failed on "version already exists". One release now has exactly one publish path (CI, from the tag) and one tag path (`npm run tag:release`, run deliberately). For an emergency local publish when Actions is unavailable, run both in that order.
 
 ## Architecture Quick Reference
 

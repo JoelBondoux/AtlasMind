@@ -285,11 +285,11 @@ only.
 ```bash
 npm run package    # Produces a .vsix file
 npm run package:vsix    # Packages with the checked-in @vscode/vsce dependency
-npm run publish:release    # Publishes the current build, then tags the release
+npm run publish:release    # Publishes the current build (does not tag)
 npm run tag:release    # Re-run the git tag step on its own if it failed after publish
 ```
 
-`publish:release` runs `vsce publish` and then `npm run tag:release`, which creates and pushes a `v<version>` annotated git tag (`.github/scripts/tag-release.mjs`). The tagger is cross-platform and idempotent — it skips if the tag already exists — so every Marketplace release stays traceable to a tagged commit without a manual step.
+`publish:release` runs `vsce publish` and nothing else. Tagging is `npm run tag:release`, which creates and pushes a `v<version>` annotated git tag (`.github/scripts/tag-release.mjs`, cross-platform and idempotent — it skips if the tag already exists). The two are deliberately **not** chained: the tag push triggers `publish.yml`, so chaining them made one release attempt two publishes, the second failing on "version already exists". Normal flow is `tag:release` locally, then CI publishes from the tag.
 
 The checked-in `.gitignore` keeps the local `project_memory_old/` backup outside source control, and `.vscodeignore` is the packaging boundary for local and release VSIX files. It intentionally excludes workspace-only content such as all `project_memory*` directories (including local archive or backup variants), `wiki/`, local `.vsix` outputs, Vitest JSON report artifacts, assistant instruction folders, and extra dependency test or docs folders so the packaged extension stays closer to runtime-only contents. Review the `vsce package` file listing before publishing; a workspace-memory directory in that listing is a release blocker.
 

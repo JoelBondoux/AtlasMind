@@ -6,6 +6,16 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.184.0 — a red build that explains itself
+
+- **AtlasMind now reads CI logs, not just check states.** That is the difference between knowing a build failed and knowing why. It fetches recent runs and the failed log, then classifies the cause with an **ordered rule table — no model in the path**: dependency-install → compile → lint → test-failure → timeout → flake-suspect → infra → unknown.
+- **Why a rule table and not a prompt.** A taxonomy that varies run to run cannot be charted, and a chart of CI failures over time is one of the most useful things a team can look at. Agents *explain* a classification; they never choose it.
+- **Order is part of the contract.** Infrastructure is checked first, because an unreachable registry looks exactly like a dependency failure — and telling somebody to fix their lockfile when npm was down wastes an afternoon.
+- **`unknown` is a real answer.** When nothing matches, AtlasMind says so and escalates rather than guessing. Flakiness comes from *history*, not one log: a job that both passed and failed on the same commit is flaky whatever its latest log says.
+- **Logs are untrusted input** — ANSI-stripped, secret-redacted, size-capped and tail-preserved (the failure is at the *end* of a log), with truncation and redaction both reported rather than silent.
+- **Three new agents**: `ci-analyst`, `release-manager`, `refactorer` — routing-neutral by design, so they cannot displace the agents that already own routed work.
+- **Fixed:** the double-publish chain. `publish:release` published *and* tagged, and the tag push made CI publish again. Publishing and tagging are now separate commands.
+
 ## v0.183.0 — the automation ladder, and pull requests you can act on
 
 - **The ladder is now real.** 0.181.0 shipped the settings and displayed them; nothing evaluated them. The effective level for a stage is now genuinely `min(master, ceiling, capability, stage)`, every gate closed by default — which is what makes *"full automation is possible, never default"* true by construction rather than by policy. Your own settings can only ever **lower** it.

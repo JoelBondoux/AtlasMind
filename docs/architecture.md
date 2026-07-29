@@ -313,6 +313,18 @@ Consequences that follow from that one decision: `median` refuses below `MIN_SAM
 
 Output shapes match the dashboard's existing render primitives — series for `renderChartCard`, slices for `renderDonutChart`, segments for `renderDistributionBar` — so the instrumentation wall is assembled from components that already exist. `deriveBranchMetrics` exempts integration and release branches from naming conformance, because a permanent unfixable gap teaches people to ignore gaps; `deriveCommitConformance` excludes platform-generated merge commits, which would otherwise penalise a team for using squash merges.
 
+### CiFailureAnalysis (`src/core/ciFailureAnalysis.ts`)
+
+Why a CI run failed, decided by rule rather than by model. AtlasMind has always read check *states*; it has never read a *log*, and that is the difference between knowing a build failed and knowing why.
+
+**No model participates in classification**, and that is the design rather than an implementation choice. A taxonomy that varies run to run cannot be charted, and a chart of CI failures over time is one of the most useful things a team can look at. An agent's job is to *explain* a classification and propose a fix — never to choose it, which is why `ci-analyst`'s prompt tells it not to re-classify.
+
+The rules are ordered and first-match-wins, and the order is part of the contract: `infra → dependency-install → compile → lint → test-failure → timeout`. A run that could not install its dependencies also fails to compile, so reporting the compile error would send somebody to fix code that never had a chance to build; and an unreachable registry looks exactly like a dependency failure, so infrastructure is checked before it. Patterns are deliberately narrow — a rule that matches too eagerly is worse than one falling through to `unknown`, because `unknown` asks a human while a wrong class sends them somewhere else entirely.
+
+**`unknown` is a real answer**, not a fallback for guessing: it escalates to a human and names no agent. **Flakiness is a property of history, not of one log** — `detectFlakeSuspect` needs both a pass and a fail on the same commit, and overrides whatever the latest log says, because no amount of reading one failure can establish it.
+
+A CI log is untrusted input. `sanitizeCiLog` strips ANSI *before* redacting (a secret wrapped in colour codes would not match a redaction pattern otherwise), then caps size keeping the **tail** — a failure message is at the end of a log, and keeping the head would reliably discard the only part anybody needs. Truncation and redaction are both reported on the report, never silent, and `buildCiFailurePrompt` fences the excerpt as REPORTED CONTENT.
+
 ### WorkflowAutomation (`src/core/workflowAutomation.ts`)
 
 Where the specification's central claim is kept: **full automation is possible, never default.** That has to be true by construction rather than by policy, and the mechanism is a minimum over four independent gates that all default closed — `effective = min(master, userCeiling, capability, stage)`. A project's committed workflow file may request `auto`; if any one of the four disagrees, `auto` does not happen. Personal settings can only *lower* the result, so a repository cannot force unattended action onto somebody's machine and a developer cannot grant themselves more than the repository allows. An exhaustive test walks the whole lattice rather than arguing the property.
