@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.227.1] - 2026-07-31
+
+### Changed
+- **The ideation-and-research roadmap now records what did *not* ship.** Three releases delivered the scan catalog, the register, source detection, the schedule, the digest, six advisors, the runner, three commands, `/research` and the staged workspace — and five things were deliberately left. They are named in a *What is left* table with the reason each was deferred, and folded into the developer backlog, because a plan whose phases all read "shipped" while five items sit undone is a plan nobody can use to decide what to do next.
+
+  Two kickoff questions are also recorded as decided rather than left open: the digest's "so what" is **deterministic**, from a declared sentence per scan, because the same register must produce the same digest; and `funding`/`regulatory` stay in the research register while the commercial and legal advisors keep their own — research says what is true outside, oversight says what it means for us.
+
+
 ## [0.227.0] - 2026-07-30
 
 ### Changed

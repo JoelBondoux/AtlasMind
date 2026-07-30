@@ -1,7 +1,9 @@
 # Ideation and Research — Phased Roadmap
 
-> **Status:** C0 and the pure engine shipped in **v0.225.0**; C1 partially (both pure modules), C2
-> onward not started. **Owner:** AtlasMind core. **Created:** 2026-07-30. **Baseline:** v0.224.1.
+> **Status:** C0 **shipped v0.225.0**. C1 **shipped v0.225.0 + v0.227.0** except C1.4 and C1.6.
+> C3, C4 and C5 **shipped v0.225.0 + v0.226.0** as far as the engine goes; what remains of each is
+> surface, listed under *What is left* below. C2 not started.
+> **Owner:** AtlasMind core. **Created:** 2026-07-30. **Baseline:** v0.224.1.
 > This is the SSOT implementation plan. Its normative specification is
 > [`docs/ideation-and-research.md`](../../docs/ideation-and-research.md) — **C0 and the pure engine
 > shipped in v0.225.0**. Where that specification and this file disagree, the specification wins and
@@ -212,7 +214,7 @@ are positional and renumber on insert).
 
 **Exit:** the specification is written and the catalog compiles with tests. Nothing is user-visible.
 
-### C1 — The board becomes intuitive
+### C1 — The board becomes intuitive — **shipped v0.225.0 + v0.227.0, except C1.4 and C1.6**
 
 No research. Ships value alone and is the phase the user feels first.
 
@@ -254,7 +256,7 @@ to, and reach the backlog — without reading a guide.
 **Exit:** ideation is reachable without leaving the dashboard, and the five internal registers can
 feed the board.
 
-### C3 — The research register
+### C3 — The research register — **engine shipped v0.225.0; C3.2 and C3.3 outstanding**
 
 **Entry:** C2 shipped. Still zero network.
 
@@ -268,7 +270,7 @@ feed the board.
 **Exit:** internal findings flow into the board and out to the backlog with provenance intact. The
 register works end to end with nothing fetched.
 
-### C4 — External scans
+### C4 — External scans — **shipped v0.225.0 + v0.226.0**
 
 **Entry:** C3 shipped. This is the first phase that reaches the network and spends money.
 
@@ -291,7 +293,7 @@ register works end to end with nothing fetched.
 **Exit:** an external scan runs on explicit request, produces cited findings or an honest
 `no-source`, and its cost is on the record.
 
-### C5 — Scheduling and the digest
+### C5 — Scheduling and the digest — **shipped v0.226.0, except C5.3's UI and C5.4**
 
 **Entry:** C4 shipped and at least one external scan has produced cited findings against a real source.
 
@@ -358,3 +360,28 @@ Per the checklist in `CLAUDE.md`, and in the same commits as the code:
 
 A new `wiki/Ideation.md` and `docs/ideation-and-research.md` are created by this plan and must be
 added to `wiki/_Sidebar.md` and the documentation table in `CLAUDE.md`.
+
+## What is left
+
+Recorded here rather than in a commit message, because the parts that shipped are worth reading
+against the parts that did not.
+
+| Item | Phase | Why it was deferred |
+|---|---|---|
+| Audit the four scored card fields — confidence, evidence strength, risk, cost to validate | C1.4 | Each is a slider with a per-kind default and no reader anybody can point at. The audit's outcome is *wire it or remove it*, and both answers are a behaviour change that deserves its own review rather than riding along with a layout commit. |
+| Keyboard card and link creation, plus an ARIA list view of the board | C1.6 | The canvas is a custom drag surface. A genuine non-pointer path through it is a piece of work, not a pass over the markup, and shipping a half-one would be worse than the honest gap. |
+| The Ideation dashboard page | C2 | The snapshot it needs is already collected (`collectResearchSnapshot`, `readiness`), and the `ideation` page id is still reserved with no tab behind it. This is the largest remaining piece. |
+| Finding → evidence card, with provenance rendered both ways | C3.2, C3.3 | The register records `derivedCardId` and the board records `derived`; nothing yet writes the first from a finding. Small, and best done alongside C2 so it has a surface to live on. |
+| The automation-ladder UI and the spend projection shown before `auto` | C5.3, C5.4 | The ladder is enforced (`min(master, per-scan)`, cap stops runs) and editable in settings. What is missing is the screen that shows a projected monthly cost *before* somebody switches a scan to `auto`, which the spec requires and settings.json cannot provide. |
+| `/ideate` | C2.4 | Belongs with the dashboard page it would link to. |
+
+Two open questions from the kickoff have been decided in the code and are recorded here so the
+decision is not re-litigated from the module headers:
+
+- **The digest's "so what" is deterministic**, from a declared `implication` sentence per scan in the
+  catalog. Not a fenced model reading. The deciding argument was that the same register must produce
+  the same digest — that is what makes it reviewable and diffable — and a generated paragraph in a
+  committed file is a claim nobody checked, attributed to the project.
+- **`funding` and `regulatory` stay in the research register**, with the commercial and legal
+  oversight advisors keeping their own. Research says what is true outside; oversight says what it
+  means for us.

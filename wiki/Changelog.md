@@ -16,6 +16,12 @@ Silent, and in the direction that costs money: every model-variant turn looked l
 
 ---
 
+## v0.227.1 - The ideation roadmap says what did not ship
+
+Three releases delivered most of the ideation and research work. Five things were deliberately left — the Ideation dashboard page, findings becoming evidence cards, the spend projection shown before a scan may run unattended, `/ideate`, and two accessibility and audit items on the board itself. They are now written down with the reason each was deferred, rather than being absent from a plan whose phases all read "shipped".
+
+---
+
 ## v0.227.0 — The ideation guide stops describing the layout and becomes it
 
 Five sections used to be on the ideation page at once, with a four-card guide above them explaining the order they were meant to be used in. That guide had been moved twice already on the theory that placement was the problem. It was not — a guide that has to explain a layout is a symptom of the layout.
