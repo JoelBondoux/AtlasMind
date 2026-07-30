@@ -1,6 +1,9 @@
 import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import manifest from '../package.json';
+
+const REPO_ROOT = path.resolve(__dirname, '..');
 
 type WalkthroughStep = {
   id: string;
@@ -608,5 +611,49 @@ describe('package manifest', () => {
     expect(enabled).toMatchObject({ type: 'boolean', default: true });
     expect(federation).toMatchObject({ type: 'string', default: 'referrals' });
     expect(insecure).toMatchObject({ type: 'boolean', default: false });
+  });
+});
+
+describe('.vscodeignore excludes generated local artifacts', () => {
+  /**
+   * `test-results/` shipped inside atlasmind-0.224.0.vsix — 836 KB of this
+   * repository's own test names, in every user's install. It was gitignored, so
+   * it never showed in a diff, and `.vscodeignore` is a separate list that
+   * nobody thinks to update when adding a build output.
+   *
+   * The rule this pins is the general one: anything a build writes into the
+   * working tree is excluded from the package unless somebody says otherwise.
+   */
+  const GENERATED_DIRECTORIES = ['coverage', 'test-results', 'out/test', 'node_modules/**/test'];
+
+  it('names every directory a build writes into the working tree', () => {
+    const ignore = readFileSync(path.join(REPO_ROOT, '.vscodeignore'), 'utf8');
+    const patterns = ignore
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(line => line.length > 0 && !line.startsWith('#'));
+
+    for (const directory of ['coverage', 'test-results']) {
+      expect(
+        patterns.some(pattern => pattern === `${directory}/**` || pattern === `${directory}/`),
+        `.vscodeignore does not exclude ${directory}/ — it would ship inside the VSIX`,
+      ).toBe(true);
+    }
+    expect(GENERATED_DIRECTORIES.length).toBeGreaterThan(0);
+  });
+
+  it('excludes whatever vitest.config.ts writes an outputFile to', () => {
+    // Read the actual configured path rather than restating it: the two drifting
+    // apart is exactly how this shipped in the first place.
+    const config = readFileSync(path.join(REPO_ROOT, 'vitest.config.ts'), 'utf8');
+    const outputFile = /junit:\s*'([^']+)'/.exec(config)?.[1];
+    expect(outputFile, 'vitest.config.ts no longer declares a junit outputFile').toBeTruthy();
+
+    const directory = outputFile!.split('/')[0]!;
+    const ignore = readFileSync(path.join(REPO_ROOT, '.vscodeignore'), 'utf8');
+    expect(
+      ignore.split(/\r?\n/).some(line => line.trim() === `${directory}/**`),
+      `vitest writes to ${outputFile} but .vscodeignore does not exclude ${directory}/`,
+    ).toBe(true);
   });
 });

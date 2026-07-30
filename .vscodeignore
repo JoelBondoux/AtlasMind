@@ -23,6 +23,11 @@ SECURITY.md
 
 # Exclude development artifacts
 coverage/**
+# Written by every `vitest run` (see vitest.config.ts) so the Testing dashboard
+# has a verdict to read. It is evidence of a local run — never something to ship
+# inside the extension, where it would be ~800 KB of this repository's own test
+# names in every user's install.
+test-results/**
 node_modules/**/test/**
 node_modules/**/tests/**
 node_modules/**/example/**

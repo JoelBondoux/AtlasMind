@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.224.1] - 2026-07-30
+
+### Fixed
+- **`test-results/` was being packaged into the VSIX.** The JUnit report added in v0.220.0 is gitignored, so it never appeared in a diff — but `.vscodeignore` is a separate list, and nothing had told it. `atlasmind-0.224.0.vsix` therefore carried 836 KB of this repository's own test names into every install. Excluded now, with `tests/packageManifest.test.ts` reading the `outputFile` path out of `vitest.config.ts` and asserting `.vscodeignore` excludes it — restating the path in the guard is how the two would drift apart again.
+
 ## [0.224.0] - 2026-07-30
 
 ### Added

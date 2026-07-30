@@ -16,6 +16,12 @@ Silent, and in the direction that costs money: every model-variant turn looked l
 
 ---
 
+## v0.224.1 - The test report stops shipping inside the extension
+
+The JUnit report added in v0.220.0 is gitignored, so it never appeared in a diff. But `.vscodeignore` is a separate list, and nothing had told it — so `atlasmind-0.224.0.vsix` carried 836 KB of this repository's own test names into every install. Excluded now, with a guard that reads the output path out of `vitest.config.ts` rather than restating it, since restating it is how the two would drift apart again.
+
+---
+
 ## v0.224.0 - Reconcile the policy with the repository
 
 A testing matrix drifts in one direction. Enabling a methodology takes a click; noticing months later that it never produced anything takes somebody deliberately looking. **Reconcile with the repository**, on the Testing page, compares the declared policy with what is actually here and proposes a change for each disagreement: drop what was declared and never started, keep what has tooling underway, adopt what the project practises but never declared. Nothing is written until you approve the exact lines.
