@@ -1,6 +1,95 @@
 {
   "version": 1,
-  "entries": [],
-  "updatedAt": "2026-07-29T14:59:50.901Z",
-  "lastScanAt": "2026-07-29T14:59:50.901Z"
+  "entries": [
+    {
+      "id": "test:project_memory/index/testing-config.json:bdd-is-enabled-with-no-evidence-it-runs",
+      "domain": "test",
+      "title": "BDD is enabled with no evidence it runs",
+      "evidencePath": "project_memory/index/testing-config.json",
+      "detectedAt": "2026-07-30T04:39:18.633Z",
+      "severity": "medium",
+      "rule": "uncovered-methodology",
+      "status": "open",
+      "transitions": []
+    },
+    {
+      "id": "test:project_memory/index/testing-config.json:atdd-is-enabled-with-no-evidence-it-runs",
+      "domain": "test",
+      "title": "ATDD is enabled with no evidence it runs",
+      "evidencePath": "project_memory/index/testing-config.json",
+      "detectedAt": "2026-07-30T04:39:18.633Z",
+      "severity": "medium",
+      "rule": "uncovered-methodology",
+      "status": "open",
+      "transitions": []
+    },
+    {
+      "id": "test:project_memory/index/testing-config.json:mutation-testing-is-enabled-with-no-evidence-it-runs",
+      "domain": "test",
+      "title": "Mutation Testing is enabled with no evidence it runs",
+      "evidencePath": "project_memory/index/testing-config.json",
+      "detectedAt": "2026-07-30T04:39:18.633Z",
+      "severity": "medium",
+      "rule": "uncovered-methodology",
+      "status": "open",
+      "transitions": []
+    },
+    {
+      "id": "test:project_memory/index/testing-config.json:property-based-is-enabled-with-no-evidence-it-runs",
+      "domain": "test",
+      "title": "Property-Based is enabled with no evidence it runs",
+      "evidencePath": "project_memory/index/testing-config.json",
+      "detectedAt": "2026-07-30T04:39:18.633Z",
+      "severity": "medium",
+      "rule": "uncovered-methodology",
+      "status": "open",
+      "transitions": []
+    },
+    {
+      "id": "test:project_memory/index/testing-config.json:end-to-end-is-enabled-with-no-evidence-it-runs",
+      "domain": "test",
+      "title": "End-to-End is enabled with no evidence it runs",
+      "evidencePath": "project_memory/index/testing-config.json",
+      "detectedAt": "2026-07-30T04:39:18.633Z",
+      "severity": "medium",
+      "rule": "uncovered-methodology",
+      "status": "open",
+      "transitions": []
+    },
+    {
+      "id": "test:project_memory/index/testing-config.json:contract-is-enabled-with-no-evidence-it-runs",
+      "domain": "test",
+      "title": "Contract is enabled with no evidence it runs",
+      "evidencePath": "project_memory/index/testing-config.json",
+      "detectedAt": "2026-07-30T04:39:18.633Z",
+      "severity": "medium",
+      "rule": "uncovered-methodology",
+      "status": "open",
+      "transitions": []
+    },
+    {
+      "id": "test:project_memory/index/testing-config.json:model-based-mbt-is-enabled-with-no-evidence-it-runs",
+      "domain": "test",
+      "title": "Model-Based (MBT) is enabled with no evidence it runs",
+      "evidencePath": "project_memory/index/testing-config.json",
+      "detectedAt": "2026-07-30T04:39:18.633Z",
+      "severity": "medium",
+      "rule": "uncovered-methodology",
+      "status": "open",
+      "transitions": []
+    },
+    {
+      "id": "test:project_memory/index/testing-config.json:performance-is-enabled-with-no-evidence-it-runs",
+      "domain": "test",
+      "title": "Performance is enabled with no evidence it runs",
+      "evidencePath": "project_memory/index/testing-config.json",
+      "detectedAt": "2026-07-30T04:39:18.633Z",
+      "severity": "medium",
+      "rule": "uncovered-methodology",
+      "status": "open",
+      "transitions": []
+    }
+  ],
+  "updatedAt": "2026-07-30T04:39:18.633Z",
+  "lastScanAt": "2026-07-30T04:39:18.633Z"
 }

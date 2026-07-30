@@ -352,7 +352,8 @@ These remain available inside their owning views and do not appear in the Comman
 | `Toggle Model Enabled` | Models row inline action | Enables or disables a provider or individual model |
 | `Open Model Info` | Models row inline action | Opens the provider's model documentation |
 | `Configure Model Provider` | Provider row action | Prompts for provider credentials or opens local model configuration |
-| `Refresh Available Models` | Configured provider row action | Refreshes the routed provider catalog after credential or upstream changes |
+| `Refresh Available Models` | Configured provider row action **and the Models view title bar** | Refreshes the routed provider catalog after credential or upstream changes. It always refreshed every provider, whichever row it was invoked from, so the title bar is its honest home. |
+| `Configure Subscription Plan` | Subscription provider row inline action | Sets the plan tier and monthly allowance for a subscription-backed provider (ACP, Copilot, Claude CLI). Registered since the subscription tracking shipped, but declared in no manifest entry and attached to no menu — working and unreachable until v0.212.0. A plan is keyed **per provider**, so it sits on the provider row rather than on the per-vendor ACP rows beneath it, where it would imply a per-agent plan that does not exist. |
 | `Assign To Agents` | Model row inline action | Assigns a provider's models or an individual model to selected agents |
 | Rename | Sessions row or session-folder row inline action and F2 | Renames the selected chat thread or session folder |
 | `Create Session Folder` | Sessions view title bar | Creates a persistent folder for filing related chat threads |

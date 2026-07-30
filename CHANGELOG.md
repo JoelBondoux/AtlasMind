@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.212.0] - 2026-07-30
+
+### Fixed
+- **The settings route was invisible on every sidebar view, for two compounding reasons.** v0.202.0 capped each titlebar at five slots — correctly, since VS Code collapses the rest behind `…` — and the settings link was the item demoted to make room. It was moved to a `4_config` group, which VS Code renders **only inside the overflow menu**. And separately, four of the five settings commands (`openSettingsChat`, `openSettingsModels`, `openSettingsSafety`, `openSettingsProject`) had **no `icon` declared at all**, so promoting the group alone would still have drawn nothing.
+
+  Both are fixed: the four commands gain `$(gear)`, and the route is promoted to `navigation` on the ten views with a free slot. Chat keeps its in the overflow, because its five slots are genuinely full and the cap is the rule this had to work within rather than around.
+
+- **`$ Configure plan` never said whose plan.** Three subscription providers can be on screen at once and every one of those buttons carried the same five words — while the quick pick it opens has always titled itself with the provider. The button was the only step in the flow that did not say what it acted on. It now names the provider and carries a tooltip.
+
+- **The ACP card gave an instruction with no way to follow it**: *turn on "Let subscription agents act" under Settings → Safety*, and then left you to find it. Provider copy now routes any settings page it names. The link is substituted onto the **escaped** string, so the copy stays untrusted-safe — verified against an injection attempt — and the webview sends a *page id* which the host resolves through a fixed map, never a command name it could choose.
+
+### Added
+- **The Models title bar gains a refresh.** It existed only as a per-row action, and already refreshed every provider regardless of the row it was invoked from — so the title bar is its honest home.
+
+- **The subscription plan action is reachable.** `atlasmind.models.configureSubscription` had been registered in `commands.ts` since subscription tracking shipped, **declared in no manifest entry and attached to no menu** — so it could not be reached from the palette or any surface. Working and unreachable, which is a failure mode this repository keeps rediscovering under new names. It is now declared, iconed, and inline on subscription provider rows.
+
+  It sits on the **provider** row rather than the per-vendor ACP rows beneath it, and that placement is the correction rather than an accident of convenience: `configureSubscription` is keyed by `providerId` alone, so one plan covers the whole `acp` provider. A "configure plan" action on the Claude row and another on the Codex row would have implied a per-agent plan that does not exist — the same confusion as the unlabelled button, relocated rather than fixed.
+
+  Placed at `inline@6` after finding `inline@4` already taken by `models.toggleEnabled`, which matches these rows too via `/^model-/`. Two entries sharing an inline group have unspecified order.
+
+### Notes
+- `tests/views/sidebarTitlebarIcons.test.ts` pins all five: every settings command has an icon, every view with a free slot shows one, the five-slot ceiling still holds, the plan action is declared and collision-free, and provider copy only links a page that has a command behind it — a phrase matching with no destination would draw a button that goes nowhere, which is worse than the plain text it replaced.
+- The v0.202.0 titlebar test asserted exact navigation sets for Sessions and Project State and needed updating. Its stated rule already included "its own settings page"; the entry simply was not in a group that could be seen.
+
 ## [0.211.0] - 2026-07-30
 
 ### Added

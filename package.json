@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.211.0",
+  "version": "0.212.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -144,19 +144,23 @@
       },
       {
         "command": "atlasmind.openSettingsChat",
-        "title": "AtlasMind: Open Chat Settings"
+        "title": "AtlasMind: Open Chat Settings",
+        "icon": "$(gear)"
       },
       {
         "command": "atlasmind.openSettingsModels",
-        "title": "AtlasMind: Open Model Settings"
+        "title": "AtlasMind: Open Model Settings",
+        "icon": "$(gear)"
       },
       {
         "command": "atlasmind.openSettingsSafety",
-        "title": "AtlasMind: Open Safety Settings"
+        "title": "AtlasMind: Open Safety Settings",
+        "icon": "$(gear)"
       },
       {
         "command": "atlasmind.openSettingsProject",
-        "title": "AtlasMind: Open Project Settings"
+        "title": "AtlasMind: Open Project Settings",
+        "icon": "$(gear)"
       },
       {
         "command": "atlasmind.syncTestingProtocols",
@@ -506,6 +510,11 @@
         "command": "atlasmind.refreshProjectState",
         "title": "AtlasMind: Refresh Project State",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "atlasmind.models.configureSubscription",
+        "title": "AtlasMind: Configure Subscription Plan",
+        "icon": "$(credit-card)"
       }
     ],
     "keybindings": [
@@ -578,7 +587,7 @@
         {
           "command": "atlasmind.openSettingsSafety",
           "when": "view == atlasmind.projectStateView",
-          "group": "4_config@1"
+          "group": "navigation@3"
         },
         {
           "command": "atlasmind.openProjectDirector",
@@ -588,7 +597,7 @@
         {
           "command": "atlasmind.openSettingsProject",
           "when": "view == atlasmind.projectDirectorView",
-          "group": "4_config@1"
+          "group": "navigation@2"
         },
         {
           "command": "atlasmind.openProjectRunCenter",
@@ -598,7 +607,7 @@
         {
           "command": "atlasmind.openSettingsProject",
           "when": "view == atlasmind.projectRunsView",
-          "group": "4_config@1"
+          "group": "navigation@2"
         },
         {
           "command": "atlasmind.openChatView",
@@ -613,7 +622,7 @@
         {
           "command": "atlasmind.openSettingsChat",
           "when": "view == atlasmind.sessionsView",
-          "group": "4_config@1"
+          "group": "navigation@3"
         },
         {
           "command": "atlasmind.updateProjectMemory",
@@ -628,7 +637,7 @@
         {
           "command": "atlasmind.openSettingsProject",
           "when": "view == atlasmind.memoryView",
-          "group": "4_config@1"
+          "group": "navigation@2"
         },
         {
           "command": "atlasmind.openAgentPanel",
@@ -638,7 +647,7 @@
         {
           "command": "atlasmind.openSettings",
           "when": "view == atlasmind.agentsView",
-          "group": "4_config@1"
+          "group": "navigation@2"
         },
         {
           "command": "atlasmind.skills.addSkill",
@@ -658,7 +667,7 @@
         {
           "command": "atlasmind.openSettings",
           "when": "view == atlasmind.skillsView",
-          "group": "4_config@1"
+          "group": "navigation@4"
         },
         {
           "command": "atlasmind.compareModels",
@@ -678,7 +687,7 @@
         {
           "command": "atlasmind.openSettingsModels",
           "when": "view == atlasmind.modelsView",
-          "group": "4_config@1"
+          "group": "navigation@4"
         },
         {
           "command": "atlasmind.openMcpServers",
@@ -688,7 +697,7 @@
         {
           "command": "atlasmind.openSettingsSafety",
           "when": "view == atlasmind.mcpServersView",
-          "group": "4_config@1"
+          "group": "navigation@2"
         },
         {
           "command": "atlasmind.ard.search",
@@ -703,7 +712,12 @@
         {
           "command": "atlasmind.openSettings",
           "when": "view == atlasmind.discoveryView",
-          "group": "4_config@1"
+          "group": "navigation@3"
+        },
+        {
+          "command": "atlasmind.models.refreshProvider",
+          "when": "view == atlasmind.modelsView",
+          "group": "navigation@5"
         }
       ],
       "view/item/context": [
@@ -821,6 +835,11 @@
           "command": "atlasmind.acp.setUpBridge",
           "when": "view == atlasmind.modelsView && viewItem == acp-bridge-incomplete",
           "group": "inline@1"
+        },
+        {
+          "command": "atlasmind.models.configureSubscription",
+          "when": "view == atlasmind.modelsView && viewItem =~ /-subscription$/",
+          "group": "inline@6"
         }
       ],
       "commandPalette": [
@@ -930,6 +949,10 @@
         },
         {
           "command": "atlasmind.acp.setUpBridge",
+          "when": "false"
+        },
+        {
+          "command": "atlasmind.models.configureSubscription",
           "when": "false"
         }
       ]

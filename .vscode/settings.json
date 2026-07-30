@@ -28,5 +28,16 @@
     "atlasmind.autoVerifyScripts": ["compile", "lint", "test"],
     "atlasmind.autoVerifyTimeoutMs": 120000,
     "atlasmind.maxToolIterations": 40,
-    "atlasmind.projectApprovalFileThreshold": 20
+    "atlasmind.projectApprovalFileThreshold": 20,
+    "atlasmind.acp.agents": [
+        {
+            "id": "claude",
+            "command": "claude-agent-acp",
+            "args": []
+        },
+        {
+            "id": "codex",
+            "command": "codex-acp"
+        }
+    ]
 }

@@ -466,9 +466,14 @@ describe('package manifest', () => {
       .filter(entry => (entry.group ?? '').startsWith('navigation'))
       .map(entry => entry.command);
 
-    // Sessions is about sessions: start one, file them. Nothing else.
+    // Sessions is about sessions: start one, file them, and reach its own
+    // settings page. The settings route was always part of this rule — "its own
+    // two or three plus one route to the surface that manages it in depth and
+    // its own settings page" — but it sat in a non-`navigation` group, which VS
+    // Code only ever draws inside the `...` overflow. Contributed and invisible.
     expect(forView('atlasmind.sessionsView').sort()).toEqual([
       'atlasmind.openChatView',
+      'atlasmind.openSettingsChat',
       'atlasmind.sessions.createFolder',
     ]);
 
@@ -480,6 +485,7 @@ describe('package manifest', () => {
     expect(forView('atlasmind.projectStateView')).toEqual([
       'atlasmind.openProjectDashboard',
       'atlasmind.refreshProjectState',
+      'atlasmind.openSettingsSafety',
     ]);
 
     // Agents had no way to add one while Skills had "add skill" — an asymmetry

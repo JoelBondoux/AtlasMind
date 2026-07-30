@@ -6,6 +6,18 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.212.0 — The settings gear comes back, and a command stops hiding
+
+**The settings route was invisible on every sidebar view, for two compounding reasons.** v0.202.0 capped each titlebar at five slots — correctly, since VS Code collapses the rest behind `…` — and the settings link was demoted to make room, into a `4_config` group that VS Code renders *only* inside the overflow menu. Separately, four of the five settings commands had **no icon declared at all**, so promoting the group alone would still have drawn nothing. Both fixed: the four gain a gear, and the route is promoted on the ten views with a free slot. Chat keeps its in the overflow, because its five slots are genuinely full.
+
+**The Models title bar gains a refresh**, which existed only as a per-row action and already refreshed every provider regardless of the row it was invoked from.
+
+**"$ Configure plan" never said whose plan.** Three subscription providers can be on screen at once and every button read the same five words — while the dialog it opened had always named the provider. The button was the only step that did not say what it acted on.
+
+**The plan action is now reachable at all.** `atlasmind.models.configureSubscription` had been registered in code since subscription tracking shipped, declared in no manifest entry and attached to no menu: working and unreachable. It sits on the **provider** row, not the per-vendor ACP rows beneath it — a plan is keyed per provider, so a per-row action there would have implied a per-agent plan that does not exist.
+
+**The ACP card's instruction is a link.** It said to turn on "Let subscription agents act" under Settings → Safety and left you to find it. Provider copy now routes any settings page it names, with the link substituted onto the *escaped* string so the copy stays injection-safe, and the webview sending a page id the host resolves through a fixed map rather than a command name it could choose.
+
 ## v0.211.0 — Atlas tells you the workflow exists, when it applies
 
 The chat path never read the declared workflow. Only the Workflow dashboard page and (from 0.210.0) *other* tools' instruction files did — `src/chat/`, the orchestrator, the planner and the mission runner had no reference to it. So typing *"commit this and push it"* into Atlas got zero workflow awareness: the rules lived on a page you may never have opened and in a file written for a different tool.

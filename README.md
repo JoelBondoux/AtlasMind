@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.211.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.212.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,9 +68,15 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.211.0
+## What's new in 0.212.0
 
 Since the last Marketplace publication, **v0.208.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **The settings gear is back on the sidebar, and four other routes stopped hiding.** Every view's settings link had been moved into the `…` overflow menu to fit a five-icon titlebar — and four of the five settings commands had no icon at all, so they could not have been drawn even there. Ten of the eleven views now show the gear; Chat keeps its in the overflow because its titlebar is genuinely full. The Models title bar also gains the refresh that previously existed only as a per-row action, and always refreshed every provider anyway.
+
+  **"Configure plan" now says whose plan.** Three subscription providers can be on screen together and every button read the same five words — while the dialog it opened had always named the provider. And the plan action is now reachable from the Models tree: the command behind it had been registered in code since subscription tracking shipped, declared in no manifest entry and attached to no menu. Working, and unreachable.
+
+  **The ACP card's instruction is now a link.** It told you to turn on "Let subscription agents act" under Settings → Safety, then left you to find it.
 
 - **Atlas tells you the workflow exists, at the moment it applies.** If you ask it to commit, push, branch, open a pull request or cut a release, it now says what your declared workflow expects first — naming your integration branch, and warning you outright if you are sitting on a protected one. Then it offers to follow the workflow or to carry on as asked.
 
