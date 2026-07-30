@@ -3,16 +3,16 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createCliToolApprovalGate, parseCliArgs, resolveCliSsotRoot } from '../../src/cli/main.ts';
+import { removeTempDir } from '../helpers/tempDir.js';
 
 const tempRoots: string[] = [];
 
-afterEach(async () => {
+afterEach(() => {
   while (tempRoots.length > 0) {
-    const target = tempRoots.pop();
-    if (!target) {
-      continue;
-    }
-    await fs.rm(target, { recursive: true, force: true });
+    // Never throws: on Windows a just-written tree can hold EBUSY/EPERM/ENOTEMPTY
+    // for a moment, and a test that passed every assertion must not then fail on
+    // housekeeping. See `tests/helpers/tempDir.ts`.
+    removeTempDir(tempRoots.pop());
   }
 });
 

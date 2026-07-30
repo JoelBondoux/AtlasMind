@@ -6,6 +6,14 @@ import type { ProjectRunRecord, TaskImageAttachment } from '../types.js';
 import { buildAssistantResponseMetadata, buildQuickReplyPayload, buildWorkstationContext, reconcileAssistantResponse } from '../chat/participant.js';
 import { resolvePickedImageAttachments } from '../chat/imageAttachments.js';
 import { getWebviewHtmlShell, QUICK_REPLY_CSS } from './webviewUtils.js';
+import { addRoadmapItemFromExternalSurface } from './projectDashboardPanel.js';
+import {
+  collectCardConnectionSources,
+  deriveCardRoadmapText,
+  isDerivableCardKind,
+  normalizeForRoadmapMatch,
+  type IdeationDerivedRecord,
+} from '../core/ideationDerivation.js';
 
 const PROJECT_IDEATION_VIEW_TYPE = 'atlasmind.projectIdeation';
 const MAX_IDEATION_CARDS = 48;
@@ -78,6 +86,15 @@ interface IdeationCardRecord {
   riskScore: number;
   costToValidate: number;
   syncTargets: IdeationSyncTarget[];
+  /**
+   * What this card became, once it has been raised as work.
+   *
+   * Joined on the roadmap item's *normalized text*, not its id: roadmap ids are
+   * positional (`roadmap-${index + 1}`, assigned after filtering), so inserting
+   * one item renumbers every item below it and a stored id would mean something
+   * different a week later.
+   */
+  derived?: IdeationDerivedRecord;
   parentCardId?: string;
   sourceRunId?: string;
   archivedAt?: string;
@@ -275,6 +292,7 @@ type ProjectIdeationMessage =
   | { type: 'extractEvidenceFromCard'; payload: { cardId: string } }
   | { type: 'generateValidationBrief'; payload: { cardId: string } }
   | { type: 'syncCardToSsot'; payload: { cardId: string } }
+  | { type: 'raiseCardAsWork'; payload: { cardId: string } }
   | { type: 'archiveCard'; payload: { cardId: string; archive: boolean } }
   | { type: 'runDeepBoardAnalysis' }
   | { type: 'generateReviewCheckpoint'; payload: { cardId: string } };
@@ -450,6 +468,9 @@ export class ProjectIdeationPanel {
         return;
       case 'syncCardToSsot':
         await this.syncCardToSsot(message.payload.cardId);
+        return;
+      case 'raiseCardAsWork':
+        await this.raiseCardAsWork(message.payload.cardId);
         return;
       case 'archiveCard':
         await this.archiveCard(message.payload.cardId, message.payload.archive);
@@ -1139,6 +1160,104 @@ export class ProjectIdeationPanel {
     }
   }
 
+  /**
+   * Raise a card as a roadmap item — the door from stage 0 into stage 1.
+   *
+   * The board had nine card kinds and no path to the backlog, so a card called
+   * `requirement` could not become a requirement. This is that path.
+   *
+   * **Nothing is generated.** The text and the evidence come from a rule table
+   * over the card and its edges, so the same card produces the same item every
+   * time and the roadmap stays a file somebody can review. The board's typed
+   * connections become the evidence — the one thing here that no hand-typed
+   * backlog item ever has.
+   *
+   * **The roadmap is written by the dashboard's writer**, not a second one in
+   * this file: the markdown format is load-bearing for a tracked file, and the
+   * first symptom of two writers would be a roadmap the dashboard cannot parse.
+   *
+   * **The board records what the card became**, so the next read does not raise
+   * it again as a duplicate.
+   */
+  private async raiseCardAsWork(cardId: string): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      await this.postMessage({ type: 'ideationStatus', payload: 'No workspace folder found, so there is no roadmap to add to.' });
+      return;
+    }
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
+    const { registry, workspace, board } = await this.loadCurrentIdeationContext();
+    const card = board.cards.find(item => item.id === cardId);
+    if (!card) {
+      await this.postMessage({ type: 'ideationStatus', payload: 'That card is no longer on the board.' });
+      return;
+    }
+    if (!isDerivableCardKind(card.kind)) {
+      // An Atlas reply and an attachment are not work. Said plainly rather than
+      // silently doing nothing.
+      await this.postMessage({
+        type: 'ideationStatus',
+        payload: `A ${card.kind} card is not work in itself — make a card for what you want done, and link this one to it as evidence.`,
+      });
+      return;
+    }
+
+    const derivation = deriveCardRoadmapText(
+      { id: card.id, title: card.title, summary: card.body, kind: card.kind },
+      collectCardConnectionSources(board.cards, board.connections, card.id),
+    );
+
+    // The roadmap is committed, so the exact line is shown before it is written.
+    // Built as a value rather than inline, because the detail is several
+    // conditional paragraphs and a nested template would be unreadable.
+    const detailParts: string[] = [derivation.text];
+    if (derivation.evidence.length > 0) {
+      detailParts.push(derivation.evidence.join('\n'));
+    }
+    if (derivation.contradicted) {
+      detailParts.push('Another card on the board contradicts this one. Raising it does not settle that.');
+    }
+    detailParts.push('The roadmap is a tracked file, so this will show up as a change to commit.');
+
+    const confirmation = await vscode.window.showInformationMessage(
+      'Add this to the roadmap?',
+      { modal: true, detail: detailParts.join('\n\n') },
+      'Add to roadmap',
+    );
+    if (confirmation !== 'Add to roadmap') {
+      return;
+    }
+
+    const written = await addRoadmapItemFromExternalSurface(this.atlas, derivation.text);
+    if (!written) {
+      await this.postMessage({ type: 'ideationStatus', payload: 'The roadmap could not be written, so nothing was recorded on the card either.' });
+      return;
+    }
+
+    // Recorded only after the write succeeded: a card claiming to have produced
+    // an item that does not exist is worse than one that produced nothing.
+    const cardIndex = board.cards.findIndex(item => item.id === cardId);
+    if (cardIndex >= 0) {
+      const now = new Date().toISOString();
+      board.cards[cardIndex].derived = {
+        roadmapText: written.text,
+        roadmapNormalized: written.normalized,
+        derivedAt: now,
+      };
+      board.cards[cardIndex].revision += 1;
+      board.cards[cardIndex].updatedAt = now;
+      board.updatedAt = now;
+      await this.persistWorkspaceBoard(workspaceRoot, ssotPath, registry, workspace, board);
+    }
+
+    await this.postMessage({
+      type: 'ideationStatus',
+      payload: `Added to the roadmap: “${written.text}”. Open the Project Dashboard → Roadmap to prioritise it or raise it as an issue.`,
+    });
+    await this.syncState();
+  }
+
   private async syncCardToSsot(cardId: string): Promise<void> {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!workspaceRoot) {
@@ -1260,7 +1379,7 @@ export function isProjectIdeationMessage(message: unknown): message is ProjectId
   if (candidate['type'] === 'ingestCanvasMedia') {
     return isIngestCanvasMediaPayload(candidate['payload']);
   }
-  if (candidate['type'] === 'promoteCardToProjectRun' || candidate['type'] === 'extractEvidenceFromCard' || candidate['type'] === 'generateValidationBrief' || candidate['type'] === 'syncCardToSsot' || candidate['type'] === 'generateReviewCheckpoint') {
+  if (candidate['type'] === 'promoteCardToProjectRun' || candidate['type'] === 'extractEvidenceFromCard' || candidate['type'] === 'generateValidationBrief' || candidate['type'] === 'syncCardToSsot' || candidate['type'] === 'raiseCardAsWork' || candidate['type'] === 'generateReviewCheckpoint') {
     return typeof candidate['payload'] === 'object'
       && candidate['payload'] !== null
       && typeof (candidate['payload'] as Record<string, unknown>)['cardId'] === 'string'
@@ -2059,12 +2178,41 @@ function sanitizeIdeationCard(card: IdeationCardRecord & { imageSources?: string
     riskScore: clampNumber(card.riskScore ?? defaultRiskScoreForKind(normalizeIdeationKind(card.kind)), 0, 100),
     costToValidate: clampNumber(card.costToValidate ?? defaultCostToValidateForKind(normalizeIdeationKind(card.kind)), 0, 100),
     syncTargets: Array.isArray(card.syncTargets) ? card.syncTargets.filter(isIdeationSyncTarget) : [],
+    ...(sanitizeDerivedRecord(card.derived) === undefined
+      ? {} : { derived: sanitizeDerivedRecord(card.derived)! }),
     ...(typeof card.parentCardId === 'string' && card.parentCardId.trim().length > 0 ? { parentCardId: card.parentCardId.trim() } : {}),
     ...(typeof card.sourceRunId === 'string' && card.sourceRunId.trim().length > 0 ? { sourceRunId: card.sourceRunId.trim() } : {}),
     ...(typeof card.archivedAt === 'string' && card.archivedAt.trim().length > 0 ? { archivedAt: normalizeIso(card.archivedAt) } : {}),
     revision: Math.max(1, Math.floor(card.revision ?? 1)),
     createdAt: normalizeIso(card.createdAt),
     updatedAt: normalizeIso(card.updatedAt),
+  };
+}
+
+/**
+ * Read a stored derivation back, or drop it.
+ *
+ * A partial record is worse than none: a `roadmapNormalized` with no
+ * `roadmapText` produces a broken-link message that cannot say what it used to
+ * point at, which reads as a bug rather than as history.
+ */
+function sanitizeDerivedRecord(value: unknown): IdeationDerivedRecord | undefined {
+  if (typeof value !== 'object' || value === null) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  const text = typeof record['roadmapText'] === 'string' ? record['roadmapText'].trim() : '';
+  if (text === '') {
+    return undefined;
+  }
+  const issue = record['issueNumber'];
+  return {
+    roadmapText: text.slice(0, 400),
+    // Recomputed rather than trusted, so a hand-edited board cannot hold a
+    // normalization that no longer matches how the roadmap compares text.
+    roadmapNormalized: normalizeForRoadmapMatch(text.slice(0, 400)),
+    derivedAt: normalizeIso(typeof record['derivedAt'] === 'string' ? record['derivedAt'] : undefined),
+    ...(typeof issue === 'number' && Number.isInteger(issue) && issue > 0 ? { issueNumber: issue } : {}),
   };
 }
 

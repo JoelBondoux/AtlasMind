@@ -4540,6 +4540,32 @@
       : '—';
   }
 
+  // What is still sitting on the ideation board and never became work.
+  //
+  // On the Roadmap page rather than a page of its own: the question it answers
+  // is “is the backlog everything?”, which only means something beside the
+  // backlog. Absent when the board is empty — a project with no board should not
+  // be told it has nothing on it.
+  function boardBacklogCard(roadmap) {
+    var backlog = (roadmap && roadmap.boardBacklog) || { total: 0, needsAttention: 0 };
+    if (backlog.total === 0) {
+      return '';
+    }
+    var attention = backlog.needsAttention;
+    var cardWord = backlog.total === 1 ? 'card has' : 'cards have';
+    var detail = attention > 0
+      ? '<strong>' + attention + '</strong> of them '
+        + (attention === 1 ? 'is a problem, requirement or risk' : 'are problems, requirements or risks')
+        + ' — somebody wrote down that something was wrong or needed, and it never reached the backlog.'
+      : 'None of them are problems, requirements or risks, so nothing is being lost — a board is for holding ideas.';
+    return '<article class="panel-card">'
+      + '<p class="card-kicker">Still on the ideation board</p>'
+      + '<p class="stat-detail">' + backlog.total + ' ' + cardWord + ' not become work. ' + detail + '</p>'
+      + '<button type="button" class="action-link" data-action="command"'
+      + ' data-payload="atlasmind.openProjectIdeation">Open the ideation board</button>'
+      + '</article>';
+  }
+
   function renderRoadmap(snapshot) {
     const roadmap = snapshot.roadmap || { items: [], nextSuggestedWork: [], completedCount: 0, outstandingCount: 0, filePath: 'project_memory/roadmap/improvement-plan.md' };
     const roadmapDone = roadmap.items.length > 0
@@ -4581,6 +4607,7 @@
               <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(roadmap.filePath)}">Open roadmap file</button>
             </div>
           </article>
+          ${boardBacklogCard(roadmap)}
           <article class="panel-card">
             <p class="section-kicker">Atlas weighting</p>
             <h3>Recommended next work</h3>
@@ -4641,6 +4668,9 @@
           ${gateChips}
         </div>
         <div class="tag-row">
+          ${item.origin
+            ? `<span class="tag" title="${escapeAttr('Raised from the ideation card “' + item.origin.cardTitle + '” (' + item.origin.cardKind + '). The board keeps the reasoning.')}">from ideation</span>`
+            : ''}
           <button type="button" class="action-link" data-action="roadmap-toggle" data-payload="${escapeAttr(item.id)}">${item.completed ? 'Mark active' : 'Mark done'}</button>
           <button type="button" class="action-link" data-action="roadmap-edit" data-payload="${escapeAttr(item.id)}">Edit</button>
           ${item.completed ? '' : `<button type="button" class="action-link" data-action="roadmap-raise-issue" data-payload="${escapeAttr(item.id)}" title="Draft a GitHub issue from this item. Nothing is posted until you confirm.">Raise as issue</button>`}

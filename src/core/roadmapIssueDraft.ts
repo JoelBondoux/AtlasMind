@@ -34,6 +34,15 @@ export interface RoadmapDraftSource {
   readonly priorityReason: string;
   /** Declared gates this item is tagged for, in declared order. */
   readonly gates: readonly string[];
+  /**
+   * The ideation card this item was raised from, where there is one.
+   *
+   * Carried into the issue so the chain is followable: card → roadmap item →
+   * issue, each step naming the one before it. Following a chain beats copying an
+   * issue number back onto the card, which goes stale the moment an issue is
+   * transferred or deleted.
+   */
+  readonly origin?: { readonly cardId: string; readonly cardTitle: string; readonly cardKind: string };
 }
 
 /**
@@ -69,6 +78,8 @@ export const MAX_DERIVED_TITLE_LENGTH = 120;
 export interface RoadmapIssueDraft extends IssueDraft {
   /** The roadmap item this came from, so the two can be reconciled later. */
   readonly roadmapItemId: string;
+  /** Passed through, so a caller can follow the chain back to the board. */
+  readonly origin?: RoadmapDraftSource['origin'];
   /**
    * Label intents that found nothing in the taxonomy.
    *
@@ -149,6 +160,7 @@ export function deriveRoadmapIssueDraft(
 
   return {
     roadmapItemId: item.id,
+    ...(item.origin === undefined ? {} : { origin: item.origin }),
     title,
     body: buildDraftBody(item, cleaned, title, labels, dropped),
     labels,
@@ -188,13 +200,30 @@ function buildDraftBody(
   }
   lines.push('## Where this came from');
   lines.push('');
+  // Named by its *file*, not by its id.
+  //
+  // Roadmap ids are positional — `roadmap-${index + 1}`, assigned after
+  // filtering — so inserting one item renumbers every item below it. The first
+  // version of this line quoted the id, which would have pointed at a different
+  // item within a week. The item's text is already in the issue above; the file
+  // is the part that needs naming.
   lines.push(
-    // The id survives verbatim. It is what lets somebody find the roadmap line
-    // this issue came from, and a cleaned or clamped id finds nothing.
-    `Raised from the AtlasMind roadmap (\`improvement-plan.md\`), item \`${item.id}\`. `
+    'Raised from the AtlasMind roadmap, `roadmap/improvement-plan.md`. '
     + 'The roadmap remains the source of truth for whether this is still wanted; '
     + 'closing this issue does not tick it off, and ticking it off does not close this issue.',
   );
+  if (item.origin !== undefined) {
+    lines.push('');
+    lines.push(
+      // The chain, one link at a time: card → roadmap item → issue, each step
+      // naming the one before it. Following a chain beats copying an issue
+      // number back onto the card, which goes stale the moment an issue is
+      // transferred or deleted.
+      `That item came from the ideation board — card \`${item.origin.cardId}\` `
+      + `(${item.origin.cardKind}), “${item.origin.cardTitle}”. `
+      + 'The board keeps the reasoning behind it.',
+    );
+  }
   if (dropped.length > 0) {
     lines.push('');
     lines.push(

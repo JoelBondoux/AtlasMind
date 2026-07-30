@@ -485,6 +485,20 @@ The tag gate is what catches a double publish: an existing tag means the publish
 
 **Nothing here executes anything.** `buildReleasePlan` is pure over observed state, and tagging and publishing stay with the human at every automation rung.
 
+### IdeationDerivation (`src/core/ideationDerivation.ts`)
+
+Ideation as stage 0 of the workflow. The board held nine card kinds and had two outbound paths — launch an autonomous run, or append prose to a memory file — so nothing fed the backlog and a card called `requirement` could not become a requirement.
+
+**Focus is not decided here.** `prioritizeDashboardRoadmapItems` already derives a roadmap item's focus from its *text*, with one published keyword table. A second classifier keyed on card kind would eventually disagree with it, and the disagreement would surface as an item whose priority reason contradicts its own label. So this module shapes the text and lets the existing rule read it — which also means a card-derived item behaves exactly like a hand-typed one, with no special case to remember. A test reads the source to confirm no focus vocabulary appears here at all.
+
+**A kind becomes a prefix only where it changes what the sentence commits to.** A `problem` titled “Webhook has no rate limit” must not enter the backlog as a goal — the work is `Fix: …`. A `risk` becomes `Mitigate: …` and an `experiment` `Trial: …`. A `requirement` or an `idea` gets nothing, because deciding to put an idea on the roadmap *is* the commitment and hedging it would misreport the decision just made. `decapitalizeFirstWord` exists because the first version tested `/^[A-Z][a-z]/`, which matched the `Gi` in `GitHub` and produced `Fix: gitHub token expires silently`; the rule is now the whole first word, since any capital past the first character means the word is a name.
+
+**Connections are the evidence, and direction is load-bearing.** “This depends on X” and “X depends on this” are opposite plans, so all five relations are written out in both directions rather than computed from one template. Evidence is ranked by consequence — a `contradiction` first, because it argues against doing the work at all — and a contradiction is surfaced as a **caution** rather than listed among the supporting points. This is the one thing ideation knows that no hand-typed issue body contains.
+
+**Provenance is keyed on text, not on ids.** Card ids are durable; roadmap item ids are positional (`roadmap-${index + 1}`, assigned after filtering), so inserting one item renumbers every item below it. The card stores the item's **normalized text** — the same key the roadmap already uses to detect duplicates — and `resolveDerivedRoadmapItem` finds the item wherever it has moved to, reporting `missing` with the previous text when a rename breaks the link rather than matching whatever now sits at that position. `normalizeForRoadmapMatch` is pinned to the dashboard's `normalizeRoadmapText` by a test, both textually and behaviourally: two normalizers drifting apart would break every stored link at once.
+
+`collectCardConnectionSources` lives here rather than in either panel because both need it — the board writes the roadmap item, and the dashboard recomputes the evidence when that item becomes an issue. Two copies would eventually disagree about direction, which is the one thing here that must not be wrong.
+
 ### RoadmapIssueDraft (`src/core/roadmapIssueDraft.ts`)
 
 A roadmap item, turned into an issue draft. `IssueDraft` existed with only a sanitizer, and issues could only be created by hand-typing a title, a body and a comma-separated label list into a form — while the roadmap held the same work structured, prioritised and gate-tagged. Somebody planning here and tracking on GitHub retyped every item.

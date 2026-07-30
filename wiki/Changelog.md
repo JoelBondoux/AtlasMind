@@ -6,6 +6,29 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.208.0 — Ideation becomes stage 0 of the workflow
+
+The board had nine card kinds — including `problem`, `requirement`, `risk` and `evidence` — and exactly two outbound paths: launch an autonomous run, or append prose to a memory file. Neither reached the backlog, so the eight-stage workflow started at *Planning & Issue Intake* with nothing feeding it, and a card called `requirement` could not become a requirement.
+
+**Raise as work** turns a card into a roadmap item. Nothing is generated — a rule table over the card and its edges, so the same card yields the same line and the roadmap stays reviewable. A `problem` becomes `Fix: …`, a `risk` becomes `Mitigate: …`; the work is the fix, not the problem. A `requirement` or an `idea` needs no prefix, because putting an idea on the roadmap *is* the commitment.
+
+**Focus is deliberately not decided in the new module.** The roadmap already derives focus from item text with one keyword table, and a second classifier keyed on card kind would eventually disagree with it.
+
+**The board's connections become the issue's reasoning** — what the work depends on, what supports it, what argues against it. Direction is load-bearing (“this depends on X” and “X depends on this” are opposite plans), and a contradiction is stated as a **caution** rather than listed among the supporting points.
+
+**Provenance both ways, keyed on text not ids.** Roadmap ids are positional and renumber on insert, so a stored id would mean something different a week later. A renamed item is reported as no longer linked — never shown against whatever now occupies that position.
+
+### Fixed
+
+**The dashboard had been reading the board through a stale vocabulary.** Its card-kind list was the older set and its sanitizer coerced anything else to `concept`, so five of the nine current kinds were relabelled on every read. `summarizeIdeationBoard` renders the kind **into a model prompt**, so a `problem` and an `idea` reached the model indistinguishable. Both vocabularies are recognised now, since older boards really contain the legacy names.
+
+**It could not see the board's typed relations at all** — no `relation` or `direction` on its copy of the connection record. Neither is required when reading, because older boards have neither; an untyped edge reads as `supports`, the weakest of the five, so nothing is promoted into a dependency or contradiction nobody drew.
+
+**Two NUL bytes committed in v0.207.0**, in a hostile-input test, from a heredoc mangling a double space — and one replaced the exact double space the assertion checks for, so that test had been passing without testing what it reads as.
+
+**The v0.207.0 issue-provenance line quoted a positional id**, which would have pointed at a different item within a week. It names the roadmap file instead.
+
+**Four more Windows temp-cleanup flakes**, the same class as v0.201.1.
 ## v0.207.1 — Bootstrap no longer eats your ideation board
 
 `seedBootstrapIdeation` wrote `ideas/atlas-ideation-board.json` unconditionally, so a second bootstrap on an existing project replaced every card, connection and piece of evidence with defaults derived from the intake answers — and returned `true` either way, so the report said "Seeded ideation defaults" for what was an erasure.

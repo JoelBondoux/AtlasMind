@@ -150,11 +150,35 @@ describe('labels come only from the declared taxonomy', () => {
 describe('the body says where the issue came from', () => {
   const draft = deriveRoadmapIssueDraft(item({ gates: ['mvp'] }), LABELS);
 
-  it('names the roadmap and the item', () => {
+  it('names the roadmap file, and deliberately not the item id', () => {
     // An issue that came from a roadmap and does not say so becomes a duplicate
-    // the first time somebody reads the roadmap again.
-    expect(draft.body).toContain('improvement-plan.md');
-    expect(draft.body).toContain('`item-7`');
+    // the first time somebody reads the roadmap again — so the file is named.
+    expect(draft.body).toContain('roadmap/improvement-plan.md');
+    // But *not* the id. Roadmap ids are positional (`roadmap-${index + 1}`,
+    // assigned after filtering), so inserting one item renumbers every item below
+    // it and a quoted id would point somewhere else within a week. The item's own
+    // text is already in the issue above, which is the durable reference.
+    expect(draft.body).not.toContain('`item-7`');
+    expect(draft.body).toContain(draft.title);
+  });
+
+  it('names the ideation card when the item came from one', () => {
+    // The chain, one link at a time: card → roadmap item → issue. Following a
+    // chain beats copying an issue number onto the card, which goes stale the
+    // moment an issue is transferred or deleted.
+    const withOrigin = deriveRoadmapIssueDraft(
+      item({ origin: { cardId: 'card-9', cardTitle: 'Six weeks of support tickets', cardKind: 'evidence' } }),
+      LABELS,
+    );
+    expect(withOrigin.body).toContain('`card-9`');
+    expect(withOrigin.body).toContain('Six weeks of support tickets');
+    expect(withOrigin.body).toContain('(evidence)');
+    expect(withOrigin.origin?.cardId).toBe('card-9');
+  });
+
+  it('says nothing about a board when the item did not come from one', () => {
+    expect(draft.body).not.toContain('ideation board');
+    expect(draft.origin).toBeUndefined();
   });
 
   it('states that the two do not close each other', () => {
@@ -195,12 +219,12 @@ describe('the draft survives the sanitizer it will be passed through', () => {
   it('survives an item whose text is hostile', () => {
     // Roadmap text is a file in the workspace, so it is not trusted input.
     const draft = deriveRoadmapIssueDraft(
-      item({ text: 'Fix  the\r\n parser <script>alert(1)</script>' }),
+      item({ text: 'Fix  the\r\n parser <script>alert(1)</script>' }),
       LABELS,
     );
     const safe = sanitizeIssueDraft(draft);
     expect(safe).toBeDefined();
-    expect(safe!.title).not.toContain(' ');
+    expect(safe!.title).not.toContain('  ');
     expect(safe!.title).not.toContain('\n');
   });
 });

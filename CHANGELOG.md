@@ -6,6 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.208.0] - 2026-07-30
+
+### Added
+- **The ideation board is stage 0 of the workflow now, with a door into stage 1.** The board had nine card kinds — including `problem`, `requirement`, `risk` and `evidence` — and exactly two outbound paths: launch an autonomous run, or append prose to a memory file. Neither reached the backlog, so the eight-stage workflow started at *Planning & Issue Intake* with nothing feeding it, and a card literally called `requirement` could not become a requirement.
+
+  **Raise as work** turns a card into a roadmap item. Nothing is generated — the wording comes from a rule table over the card and its edges, so the same card produces the same line every time and the roadmap stays a file somebody can review. A `problem` becomes `Fix: …` and a `risk` becomes `Mitigate: …`, because the work is the fix rather than the problem; a `requirement` or an `idea` needs no prefix, since putting an idea on the roadmap *is* the commitment.
+
+  **Focus is deliberately not decided in the new module.** The roadmap already derives an item's focus from its text with one published keyword table; a second classifier keyed on card kind would eventually disagree, and the disagreement would show as an item whose priority reason contradicts its own label.
+
+- **The board's connections become the issue's reasoning.** This is the one thing ideation knows that no hand-typed issue body ever contains: what a piece of work depends on, what supports it, and what argues against it. Direction is load-bearing — “this depends on X” and “X depends on this” are opposite plans — so each of the five relations is written out both ways rather than templated. A **contradiction is stated as a caution**, never listed among the supporting points: raising work while hiding the card that argues against it is the worst use of a board that recorded the argument.
+
+  Recomputed from the board as it is *now* rather than stored when the item was raised, so a connection added since is still true.
+
+- **Provenance runs both ways, and each direction uses the key that survives.** The card keeps the roadmap item's **normalized text**; the roadmap page shows an item's originating card by matching it. Not an id in either direction: roadmap ids are positional (`roadmap-${index + 1}`, assigned after filtering), so inserting one item renumbers every item below it and a stored id would mean something different a week later. A renamed item is reported as **no longer linked**, with what it used to say — never shown against whatever now occupies that position.
+
+- **What is still on the board, beside the backlog.** The Roadmap page counts cards that never became work, and separates the ones that matter: an idea nobody has acted on is not a problem, but a written-down `problem`, `requirement` or `risk` that never reached the backlog is. Absent entirely when there is no board.
+
+### Fixed
+- **The dashboard had been reading the ideation board through a stale vocabulary.** Its copy of the card kinds was the older set (`concept`, `insight`, `question`, `opportunity`, `user-need`) and its sanitizer coerced anything unrecognised to `concept` — so five of the nine kinds the panel actually writes were silently relabelled on every read.
+
+  That was not cosmetic. `summarizeIdeationBoard` renders `- [kind] title` **into a model prompt**, so a `problem` card and an `idea` card arrived at the model indistinguishable, erasing exactly the distinction card kinds exist to make. Both vocabularies are now recognised, because boards written by older versions really do contain the legacy names, and the fallback is a current kind rather than a legacy one.
+
+- **The dashboard could not see the board's typed relations at all.** Its copy of the connection record had no `relation` or `direction` field, so every edge was an unlabelled line — which is why an issue raised from a card had no way to say what the card depended on. Neither field is *required* when reading, because a board written before the panel had typed edges has neither; an untyped edge reads as `supports`, the weakest of the five, so nothing is promoted into a dependency or a contradiction nobody drew. A model-suggested link gets the same weakest relation, for the same reason.
+
+- **Two NUL bytes committed in v0.207.0, in a security-boundary test.** They came from a shell heredoc mangling a double space, and one of them replaced the exact double space the assertion checks for — so the hostile-input test had been passing without testing what it reads as. Repaired, with a repository-wide sweep confirming no others.
+
+- **The v0.207.0 issue-provenance line quoted a positional id.** `item \`roadmap-7\`` would have pointed at a different item as soon as anything above it was added or removed. The issue now names the roadmap *file*; the item's own text is already in the issue and is the durable reference.
+
+- **Four more Windows temp-cleanup flakes.** `projectRunHistory` and the CLI test still called bare `fs.rm` on a just-written tree, which throws `EBUSY`/`EPERM`/`ENOTEMPTY` on Windows — the same class fixed in v0.201.1 and the reason `tests/helpers/tempDir.ts` exists. One of them failed locally during this change; a test that passes every assertion and then fails on housekeeping is a false negative.
 ## [0.207.1] - 2026-07-30
 
 ### Fixed

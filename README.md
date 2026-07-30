@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.207.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.208.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,9 +64,17 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.207.1
+## What's new in 0.208.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
+
+- **The ideation board is stage 0 of the workflow now.** It had nine card kinds — including `problem`, `requirement` and `risk` — and two outbound paths: launch an autonomous run, or append prose to a memory file. Neither reached the backlog, so a card literally called `requirement` could not become a requirement.
+
+  **Raise as work** turns a card into a roadmap item. Nothing is generated: a `problem` becomes `Fix: …` and a `risk` becomes `Mitigate: …`, because the work is the fix rather than the problem. The board's **connections travel with it as the reasoning** — what the work depends on, what supports it, and what contradicts it, which is the one thing here no hand-typed issue body ever has. A contradiction is stated as a caution, never listed as support.
+
+  Provenance runs both ways, keyed on the item's text rather than its id — roadmap ids are positional and renumber on insert, so a stored id would mean something different a week later. A renamed item reports as no longer linked instead of pointing at whatever took its place.
+
+- **Fixed: the dashboard had been reading the board through a stale vocabulary.** Five of the nine card kinds were silently relabelled `concept` on every read — and since the board summary goes into a model prompt, a `problem` card and an `idea` card reached the model indistinguishable. It also could not see the board's typed relations at all, which is why an issue raised from a card had no way to say what it depended on.
 
 - **Fixed: re-running bootstrap destroyed your ideation board.** It wrote `ideas/atlas-ideation-board.json` unconditionally, so a second bootstrap replaced every card, connection and piece of evidence with defaults from the intake answers — and reported it as "Seeded ideation defaults". The board is a document you author, not a scaffold AtlasMind maintains: seeding now never overwrites, and the report says which of the two things happened.
 

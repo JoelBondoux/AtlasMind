@@ -52,6 +52,18 @@ The `Planner` sends the goal + workspace context to the LLM, which returns a `Pr
 
 AtlasMind now also treats `project_memory/roadmap/improvement-plan.md` as a weighted developer backlog during planning and “what next?” guidance. The manual order of items matters, but it is not absolute: critical, security, architectural, and delivery-risk signals can still override a lower-risk item that simply happens to be near the top.
 
+### An ideation card can be raised as a roadmap item
+
+The ideation board holds nine card kinds — `idea`, `problem`, `experiment`, `user-insight`, `risk`, `requirement`, `evidence`, plus Atlas replies and attachments. Until v0.208.0 it had two outbound paths: launch an autonomous run, or append prose to a memory file. Neither reached the backlog, so the eight-stage workflow began at *Planning & Issue Intake* with nothing feeding it and a card called `requirement` could not become a requirement.
+
+Each card's inspector now carries **Add to roadmap**. The wording is derived, not generated: a `problem` becomes `Fix: …` and a `risk` becomes `Mitigate: …`, because the work is the fix rather than the problem. A `requirement` or an `idea` gets no prefix — putting an idea on the roadmap *is* the commitment, and hedging it would misreport the decision just made. You see the exact line in a dialog before anything is written, because the roadmap is a tracked file.
+
+**The card's connections travel with it.** When that roadmap item is later raised as a GitHub issue, the issue body carries what the work depends on, what supports it, and what contradicts it — the one thing an ideation board knows that no hand-typed issue body contains. Direction matters and is preserved: “this depends on X” and “X depends on this” are opposite plans. A **contradiction is stated as a caution**, never listed among the supporting points.
+
+**Provenance runs both ways.** The card shows the roadmap item it produced; the Roadmap page marks items that came from ideation. Both directions join on the item's *text* rather than its id, because roadmap ids are positional and renumber whenever an item is inserted above them — so an item that moved is still found, and an item that was renamed is reported as no longer linked rather than shown against whatever now occupies its place.
+
+The Roadmap page also counts what is **still on the board**, separating the cards that matter: an idea nobody has acted on is not a problem, but a written-down problem, requirement or risk that never reached the backlog is.
+
 ### A roadmap item can be raised as a GitHub issue
 
 Each open item on the Project Dashboard's **Roadmap** page carries **Raise as issue**. The roadmap held the work structured, prioritised and gate-tagged; issues could only be created by hand-typing a title, a body and a comma-separated label list. Anybody planning here and tracking on GitHub retyped every item.

@@ -35,6 +35,13 @@ import {
 } from '../core/workflowCurriculum.js';
 import { deriveRoadmapIssueDraft } from '../core/roadmapIssueDraft.js';
 import {
+  buildCardEvidenceSection,
+  collectCardConnectionSources,
+  countUnrealizedByKind,
+  deriveCardRoadmapText,
+  normalizeForRoadmapMatch,
+} from '../core/ideationDerivation.js';
+import {
   describeMissingLinks,
   githubLinksForPage,
   parseRepoSlug,
@@ -551,14 +558,39 @@ const DASHBOARD_PAGE_IDS = [
 
 type DashboardPageId = typeof DASHBOARD_PAGE_IDS[number];
 
+/**
+ * Card kinds, as the *union of both vocabularies that exist on disk*.
+ *
+ * The ideation panel's kinds changed — `idea`, `problem`, `requirement`,
+ * `user-insight`, `evidence` — and this list was left on the older set. Since
+ * `sanitizeIdeationCard` coerced anything unrecognised to `concept`, five of the
+ * nine current kinds were silently relabelled on every read.
+ *
+ * That was not cosmetic. `summarizeIdeationBoard` renders `- [kind] title` into a
+ * model prompt, so a `problem` card and an `idea` card arrived at the model
+ * indistinguishable — erasing exactly the distinction the card kinds exist to
+ * make.
+ *
+ * Both sets are kept because both are really out there: a board written by an
+ * older AtlasMind contains `concept` and `question`, and coercing *those* away
+ * would repeat the mistake in the other direction.
+ */
 type IdeationCardKind =
+  // Current, as written by the ideation panel.
+  | 'idea'
+  | 'problem'
+  | 'requirement'
+  | 'user-insight'
+  | 'evidence'
+  // Legacy, still present in boards written by earlier versions.
   | 'concept'
   | 'insight'
   | 'question'
   | 'opportunity'
+  | 'user-need'
+  // Common to both.
   | 'risk'
   | 'experiment'
-  | 'user-need'
   | 'atlas-response'
   | 'attachment';
 
@@ -566,6 +598,11 @@ type IdeationCardAuthor = 'user' | 'atlas';
 
 type IdeationAnchor = 'center' | 'north' | 'east' | 'south' | 'west';
 
+// A deliberately narrower copy of the ideation panel's own record: this panel
+// renders a board it does not own, and only needs the fields it shows. The
+// duplication predates this comment and is worth collapsing into `types.ts`;
+// until then, a field added there and not here is dropped silently, because the
+// sanitizer builds a fresh object and keeps only what it names.
 interface IdeationCardRecord {
   id: string;
   title: string;
@@ -576,6 +613,8 @@ interface IdeationCardRecord {
   y: number;
   color: string;
   imageSources: string[];
+  /** What this card became, for showing a roadmap item's origin. */
+  derived?: { roadmapText: string; roadmapNormalized: string; derivedAt: string; issueNumber?: number };
   createdAt: string;
   updatedAt: string;
 }
@@ -600,6 +639,16 @@ interface IdeationConnectionRecord {
   fromCardId: string;
   toCardId: string;
   label: string;
+  /**
+   * What the edge means, and which way it points.
+   *
+   * Both were absent from this copy of the record, so a board's typed relations
+   * were invisible to this panel — which is why an issue raised from a card could
+   * not say what the card depends on. Defaulted rather than required, because a
+   * board written before the ideation panel had relations has neither.
+   */
+  relation: 'supports' | 'causal' | 'dependency' | 'contradiction' | 'opportunity';
+  direction: 'none' | 'forward' | 'reverse' | 'both';
 }
 
 interface IdeationHistoryEntry {
@@ -880,6 +929,14 @@ interface DashboardRoadmapItem {
   priorityReason: string;
   /** Retained as `gates.includes('mvp')` — the MVP gate keeps its own name. */
   isMvp: boolean;
+  /**
+   * The ideation card this item was raised from, where there is one.
+   *
+   * Matched on normalized text rather than an id, because roadmap ids are
+   * positional and renumber on insert. A rename breaks the link, which is
+   * reported as a missing origin rather than shown against the wrong card.
+   */
+  origin?: { cardId: string; cardTitle: string; cardKind: string };
   /** Every declared gate this item is tagged for, in declared order. */
   gates: string[];
   mvpCandidate: boolean;
@@ -1168,6 +1225,14 @@ interface DashboardRoadmapSnapshot {
   nextSuggestedWork: DashboardRoadmapItem[];
   /** The MVP gate's route. Kept under its own name — it feeds the score. */
   mvp: DashboardMvpSnapshot;
+  /**
+   * What is still sitting on the ideation board.
+   *
+   * `needsAttention` counts only problems, requirements and risks: an idea
+   * nobody has acted on is not a problem, but something written down as wrong or
+   * needed that never reached the backlog is.
+   */
+  boardBacklog: { total: number; needsAttention: number };
   /** Declared gates with their progress, in declared order (`mvp` first). */
   gates: DashboardRoadmapGateView[];
   /** One route per gate, keyed by gate id, so switching gates needs no round trip. */
@@ -3521,6 +3586,15 @@ export class ProjectDashboardPanel {
     const declared = this.taxonomyState?.labels.map(label => label.name) ?? [];
     const draft = deriveRoadmapIssueDraft(item, declared);
 
+    // Where the item came from an ideation card, the board's reasoning goes into
+    // the issue — what this depends on, what supports it, what contradicts it.
+    // That is the one thing here that a hand-typed issue body never has.
+    //
+    // Recomputed from the board as it is *now* rather than stored when the item
+    // was raised: a connection added since is still true, and an issue quoting a
+    // month-old snapshot of the board would be quietly wrong.
+    const body = await this.appendCardEvidence(draft.body, item.origin?.cardId);
+
     if (draft.alreadyComplete) {
       const proceed = await vscode.window.showWarningMessage(
         'That item is already ticked off.',
@@ -3540,11 +3614,43 @@ export class ProjectDashboardPanel {
     this.pendingNavigationTarget = 'issues';
     await this.postMessage({ type: 'issueDraft', payload: {
       title: draft.title,
-      body: draft.body,
+      body,
       labels: draft.labels,
       ...(draft.droppedLabels.length === 0 ? {} : { droppedLabels: [...draft.droppedLabels] }),
     } });
     await this.syncState();
+  }
+
+  /**
+   * Append an ideation card's reasoning to an issue body.
+   *
+   * Returns the body unchanged when the item did not come from a card, or when
+   * the card has since been deleted — a missing card is not an error worth
+   * interrupting a draft for, and an issue with no evidence section is a normal
+   * issue.
+   */
+  private async appendCardEvidence(body: string, cardId: string | undefined): Promise<string> {
+    if (cardId === undefined) {
+      return body;
+    }
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
+    const activeWorkspace = await loadActiveIdeationWorkspace(workspaceRoot, ssotPath);
+    const board = await loadIdeationBoard(workspaceRoot, ssotPath, activeWorkspace);
+    const card = board.cards.find(entry => entry.id === cardId);
+    if (card === undefined) {
+      return body;
+    }
+    const source = { id: card.id, title: card.title, summary: card.body, kind: card.kind };
+    const derivation = deriveCardRoadmapText(
+      source,
+      collectCardConnectionSources(board.cards, board.connections, card.id),
+    );
+    return `${body}
+
+## From the ideation board
+
+${buildCardEvidenceSection(source, derivation)}`;
   }
 
   /**
@@ -6602,7 +6708,7 @@ async function collectDashboardSnapshot(
       blockedEntries,
       delta: ssotDelta,
     },
-    roadmap: roadmapSnapshot,
+    roadmap: withIdeationOrigins(roadmapSnapshot, ideationBoard),
     taxonomy: {
       loaded: taxonomy !== undefined,
       labels: taxonomy?.labels ?? [],
@@ -9595,6 +9701,8 @@ async function collectRoadmapSnapshot(workspaceRoot: string | undefined, ssotPat
       mvp: buildMvpSnapshot([], MVP_GATE_ID),
       gates: buildGateViews(gates, []),
       gateRoutes: buildGateRoutes(gates, []),
+      // Filled by `withIdeationOrigins`; nothing here has read the board.
+      boardBacklog: { total: 0, needsAttention: 0 },
     };
   }
 
@@ -9612,6 +9720,8 @@ async function collectRoadmapSnapshot(workspaceRoot: string | undefined, ssotPat
     mvp: buildMvpSnapshot(items, MVP_GATE_ID),
     gates: buildGateViews(gates, items),
     gateRoutes: buildGateRoutes(gates, items),
+    // Filled by `withIdeationOrigins`; nothing here has read the board.
+    boardBacklog: { total: 0, needsAttention: 0 },
   };
 }
 
@@ -9871,6 +9981,102 @@ function buildMvpPlanPrompt(outstanding: DashboardMvpStep[], hasTaggedItems: boo
     list,
     'Recommend an ordered sequence that front-loads foundational, security, and architectural work, calls out dependencies between the items, and identifies the single best next step to take now. Keep the response concise.',
   ].join('\n\n');
+}
+
+/**
+ * Prepend one item to the roadmap, for a caller outside this panel.
+ *
+ * Exists so the ideation board does not grow a second roadmap serializer. The
+ * markdown format — managed block, gate tags, the `- [ ]` checklist — is
+ * load-bearing for a git-tracked file, and two writers of it would drift; the
+ * first symptom would be a roadmap the dashboard could no longer parse.
+ *
+ * Returns the **normalized text**, which is the key a caller stores to find this
+ * item again. Not an id: ids here are positional and renumber on insert.
+ * Returns `undefined` when there is nothing to write to.
+ */
+export async function addRoadmapItemFromExternalSurface(
+  atlas: AtlasMindContext,
+  text: string,
+): Promise<{ normalized: string; text: string } | undefined> {
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const trimmed = text.trim();
+  if (!workspaceRoot || trimmed === '') {
+    return undefined;
+  }
+  const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
+  const filePath = path.join(workspaceRoot, ssotPath, 'roadmap', 'improvement-plan.md');
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  const existing = await fs.readFile(filePath, 'utf-8').catch(() => '');
+
+  const declaredGates = normalizeGates(parseRoadmapGates(existing));
+  // Gate tags are metadata: strip any that leaked into the text and re-derive
+  // them, so the round trip stays idempotent.
+  const stripped = extractItemGates(trimmed, declaredGates);
+  const existingItems = parseDashboardRoadmapItems(existing, declaredGates)
+    .map(item => ({ text: item.text, completed: item.completed, gates: item.gates }));
+
+  // Prepended, matching what the dashboard's own “Add item” does: a newly raised
+  // item is the one you just decided on, and the roadmap is manually ordered.
+  const nextDocument = serializeDashboardRoadmapDocument(
+    existing,
+    [{ text: stripped.text, completed: false, gates: stripped.gates }, ...existingItems],
+    declaredGates,
+  );
+  await fs.writeFile(filePath, nextDocument, 'utf-8');
+
+  const ssotRoot = vscode.Uri.file(path.join(workspaceRoot, ssotPath));
+  await atlas.memoryManager.loadFromDisk(ssotRoot);
+  atlas.memoryRefresh.fire();
+  return { normalized: normalizeRoadmapText(stripped.text), text: stripped.text };
+}
+
+/**
+ * Attach each roadmap item's ideation origin, and count what is still on the
+ * board.
+ *
+ * The join is the card's stored normalized text against the item's, because
+ * roadmap ids are positional and renumber on insert — so an item that moved is
+ * still found, and an item that was *renamed* is honestly reported as no longer
+ * linked rather than shown against whatever now sits where it used to be.
+ *
+ * No new I/O: the board is already read once per snapshot.
+ */
+function withIdeationOrigins(
+  roadmap: DashboardRoadmapSnapshot,
+  board: IdeationBoardRecord,
+): DashboardRoadmapSnapshot {
+  const byNormalized = new Map<string, IdeationCardRecord>();
+  for (const card of board.cards) {
+    if (card.derived?.roadmapNormalized) {
+      byNormalized.set(card.derived.roadmapNormalized, card);
+    }
+  }
+
+  const attach = (item: DashboardRoadmapItem): DashboardRoadmapItem => {
+    const card = byNormalized.get(normalizeForRoadmapMatch(item.text));
+    return card === undefined
+      ? item
+      : { ...item, origin: { cardId: card.id, cardTitle: card.title, cardKind: card.kind } };
+  };
+
+  const items = roadmap.items.map(attach);
+  return {
+    ...roadmap,
+    items,
+    // The suggestion list holds the same objects, so it is re-derived rather than
+    // left pointing at un-attached copies.
+    nextSuggestedWork: roadmap.nextSuggestedWork.map(attach),
+    boardBacklog: countUnrealizedByKind(
+      board.cards.map(card => ({
+        id: card.id,
+        title: card.title,
+        kind: card.kind,
+        ...(card.derived === undefined ? {} : { derived: card.derived }),
+      })),
+      items,
+    ),
+  };
 }
 
 function serializeDashboardRoadmapDocument(
@@ -10432,11 +10638,23 @@ function isIdeationCardRecord(value: unknown): value is IdeationCardRecord {
     && typeof candidate['updatedAt'] === 'string';
 }
 
+function isIdeationRelation(value: unknown): value is IdeationConnectionRecord['relation'] {
+  return typeof value === 'string'
+    && ['supports', 'causal', 'dependency', 'contradiction', 'opportunity'].includes(value);
+}
+
+function isIdeationDirection(value: unknown): value is IdeationConnectionRecord['direction'] {
+  return typeof value === 'string' && ['none', 'forward', 'reverse', 'both'].includes(value);
+}
+
 function isIdeationConnectionRecord(value: unknown): value is IdeationConnectionRecord {
   if (typeof value !== 'object' || value === null) {
     return false;
   }
   const candidate = value as Record<string, unknown>;
+  // `relation` and `direction` are deliberately not required: a board written
+  // before the ideation panel had typed edges has neither, and refusing those
+  // connections would silently empty an older board's graph.
   return typeof candidate['id'] === 'string'
     && typeof candidate['fromCardId'] === 'string'
     && typeof candidate['toCardId'] === 'string'
@@ -10610,6 +10828,11 @@ function sanitizeIdeationBoard(value: Partial<IdeationBoardRecord> | IdeationBoa
         fromCardId: connection.fromCardId,
         toCardId: connection.toCardId,
         label: clampText(connection.label, 36),
+        // `supports` is the neutral reading: it is the weakest claim of the five,
+        // so an untyped edge is not promoted into a dependency or a contradiction
+        // that nobody drew.
+        relation: isIdeationRelation(connection.relation) ? connection.relation : 'supports',
+        direction: isIdeationDirection(connection.direction) ? connection.direction : 'none',
       }))
     : fallback.connections;
   const history = Array.isArray(value.history)
@@ -10641,19 +10864,30 @@ function sanitizeIdeationCard(card: IdeationCardRecord): IdeationCardRecord {
     id: card.id.trim() || createIdeationId('card'),
     title: clampText(card.title, 80) || 'Untitled idea',
     body: clampText(card.body, 320),
-    kind: isIdeationCardKind(card.kind) ? card.kind : 'concept',
+    // Falls back to the current neutral kind, not the legacy `concept`: a card
+    // AtlasMind cannot recognise should read as an unclassified idea rather than
+    // be relabelled into a vocabulary this board never used.
+    kind: isIdeationCardKind(card.kind) ? card.kind : 'idea',
     author: card.author === 'atlas' ? 'atlas' : 'user',
     x: clampNumber(card.x, -1600, 1600),
     y: clampNumber(card.y, -1200, 1200),
     color: normalizeIdeationColor(card.color),
     imageSources: Array.isArray(card.imageSources) ? card.imageSources.filter(source => typeof source === 'string').slice(0, 4) : [],
+    ...(card.derived !== undefined && typeof card.derived.roadmapText === 'string'
+      && card.derived.roadmapText.trim() !== ''
+      ? { derived: card.derived }
+      : {}),
     createdAt: normalizeIso(card.createdAt),
     updatedAt: normalizeIso(card.updatedAt),
   };
 }
 
 function isIdeationCardKind(value: string): value is IdeationCardKind {
-  return ['concept', 'insight', 'question', 'opportunity', 'risk', 'experiment', 'user-need', 'atlas-response', 'attachment'].includes(value);
+  return [
+    'idea', 'problem', 'requirement', 'user-insight', 'evidence',
+    'concept', 'insight', 'question', 'opportunity', 'user-need',
+    'risk', 'experiment', 'atlas-response', 'attachment',
+  ].includes(value);
 }
 
 function normalizeIdeationColor(value: string): string {
@@ -10849,6 +11083,14 @@ function applyIdeationResponse(
       fromCardId: focusCard.id,
       toCardId: card.id,
       label: buildIdeationLinkLabel(card.kind, index),
+      // `supports`, forward, for every suggested card. The model was asked to
+      // expand the focus card, not to assert a dependency or a contradiction —
+      // and those two carry real weight: a `dependency` reorders work, and a
+      // `contradiction` becomes a caution on any issue raised from the card.
+      // Claiming either from a suggestion nobody reviewed would put structure on
+      // the board that no human drew.
+      relation: 'supports' as const,
+      direction: 'forward' as const,
     }))
     : [];
   nextBoard.connections = [...nextBoard.connections, ...links].slice(-MAX_IDEATION_CONNECTIONS);
