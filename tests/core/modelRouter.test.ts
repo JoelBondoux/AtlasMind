@@ -1221,6 +1221,150 @@ describe('model struggle memory', () => {
   });
 });
 
+describe('model-scoped subscription quotas — one provider, several plans', () => {
+  /**
+   * `acp` fronts a Claude subscription and a ChatGPT subscription at once. Every
+   * property below is the difference between describing those separately and
+   * describing whichever was configured last.
+   */
+  function acpRouter(): ModelRouter {
+    const router = new ModelRouter();
+    router.registerProvider({
+      id: 'acp',
+      displayName: 'ACP Agents (subscription)',
+      apiKeySettingKey: 'atlasmind.provider.acp.apiKey',
+      enabled: true,
+      pricingModel: 'subscription',
+      models: [
+        { id: 'acp/claude', provider: 'acp', name: 'Claude via ACP', contextWindow: 200000, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat'], enabled: true },
+        { id: 'acp/codex', provider: 'acp', name: 'Codex via ACP', contextWindow: 200000, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat'], enabled: true },
+      ],
+    });
+    return router;
+  }
+
+  const claudeMax: SubscriptionQuota = { totalRequests: 900, remainingRequests: 900, costPerRequestUnit: 200 / 900 };
+  const chatgptPlus: SubscriptionQuota = { totalRequests: 150, remainingRequests: 150, costPerRequestUnit: 20 / 150 };
+
+  it('keeps two plans on one provider distinct', () => {
+    const router = acpRouter();
+    router.setModelSubscriptionQuota('acp/claude', claudeMax);
+    router.setModelSubscriptionQuota('acp/codex', chatgptPlus);
+
+    expect(router.subscriptionQuotaForModel('acp/claude')?.totalRequests).toBe(900);
+    expect(router.subscriptionQuotaForModel('acp/codex')?.totalRequests).toBe(150);
+  });
+
+  it('spends the plan the model is billed against, and only that one', () => {
+    // The failure this pins is silent: a Codex turn deducting from the Claude
+    // allowance leaves both numbers wrong and neither obviously so.
+    const router = acpRouter();
+    router.setModelSubscriptionQuota('acp/claude', claudeMax);
+    router.setModelSubscriptionQuota('acp/codex', chatgptPlus);
+
+    const spent = router.consumeSubscriptionUnits('acp/codex', 1);
+
+    expect(spent).toEqual({ scope: 'acp/codex', remainingRequests: 149, totalRequests: 150 });
+    expect(router.subscriptionQuotaForModel('acp/claude')?.remainingRequests).toBe(900);
+  });
+
+  it('exhausts one plan without exhausting the other', () => {
+    const router = acpRouter();
+    router.setModelSubscriptionQuota('acp/claude', { ...claudeMax, remainingRequests: 1 });
+    router.setModelSubscriptionQuota('acp/codex', chatgptPlus);
+
+    router.consumeSubscriptionUnits('acp/claude', 5);
+
+    // Floored at zero rather than going negative, and Codex is untouched.
+    expect(router.subscriptionQuotaForModel('acp/claude')?.remainingRequests).toBe(0);
+    expect(router.subscriptionQuotaForModel('acp/codex')?.remainingRequests).toBe(150);
+  });
+
+  it('falls back to the provider plan for providers that front exactly one', () => {
+    // Copilot must keep the behaviour it has: no scoped quota, so the provider's
+    // is the answer, and consuming spends it under the provider id.
+    const router = new ModelRouter();
+    registerProviders(router);
+    router.updateSubscriptionQuota('copilot', { totalRequests: 300, remainingRequests: 300 });
+
+    expect(router.subscriptionQuotaForModel('copilot/gpt-4o')?.totalRequests).toBe(300);
+    const spent = router.consumeSubscriptionUnits('copilot/gpt-4o', 2);
+    expect(spent).toEqual({ scope: 'copilot', remainingRequests: 298, totalRequests: 300 });
+    expect(router.getSubscriptionQuota('copilot')?.remainingRequests).toBe(298);
+  });
+
+  it('prefers the model-scoped plan over the provider default', () => {
+    const router = acpRouter();
+    router.updateSubscriptionQuota('acp', { totalRequests: 10, remainingRequests: 10 });
+    router.setModelSubscriptionQuota('acp/claude', claudeMax);
+
+    expect(router.subscriptionQuotaForModel('acp/claude')?.totalRequests).toBe(900);
+    // The unscoped sibling still sees the provider's, so a partially configured
+    // install is not left with nothing.
+    expect(router.subscriptionQuotaForModel('acp/codex')?.totalRequests).toBe(10);
+  });
+
+  it('bills an effort variant to its agent\'s plan', () => {
+    // `acp/claude#high` is the same subscription as `acp/claude` — a variant is
+    // a different *effort*, not a different plan. Without the base-id fallback,
+    // adding effort variants would silently detach every configured ACP plan:
+    // the user's entry sits on `acp/claude` while every turn routes to a
+    // variant, so the plan reads as configured and is never once consulted.
+    const router = acpRouter();
+    router.registerProvider({
+      id: 'acp',
+      displayName: 'ACP Agents (subscription)',
+      apiKeySettingKey: 'atlasmind.provider.acp.apiKey',
+      enabled: true,
+      pricingModel: 'subscription',
+      models: [
+        { id: 'acp/claude', provider: 'acp', name: 'Claude via ACP', contextWindow: 200000, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat'], enabled: true },
+        { id: 'acp/claude#high', provider: 'acp', name: 'Claude via ACP (high effort)', contextWindow: 200000, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat'], enabled: true, premiumRequestMultiplier: 2 },
+      ],
+    });
+    router.setModelSubscriptionQuota('acp/claude', claudeMax);
+
+    expect(router.subscriptionQuotaForModel('acp/claude#high')?.totalRequests).toBe(900);
+
+    const spent = router.consumeSubscriptionUnits('acp/claude#high', 2);
+
+    // Deducted from the base plan, and reported under the key the user configured.
+    expect(spent).toEqual({ scope: 'acp/claude', remainingRequests: 898, totalRequests: 900 });
+    expect(router.subscriptionQuotaForModel('acp/claude')?.remainingRequests).toBe(898);
+  });
+
+  it('lets a variant carry its own plan when one is explicitly set', () => {
+    // The fallback is a fallback, not an override: an exact match still wins.
+    const router = acpRouter();
+    router.setModelSubscriptionQuota('acp/claude', claudeMax);
+    router.setModelSubscriptionQuota('acp/claude#high', { totalRequests: 10, remainingRequests: 10 });
+
+    expect(router.subscriptionQuotaForModel('acp/claude#high')?.totalRequests).toBe(10);
+    expect(router.consumeSubscriptionUnits('acp/claude#high', 1)?.scope).toBe('acp/claude#high');
+    expect(router.subscriptionQuotaForModel('acp/claude')?.remainingRequests).toBe(900);
+  });
+
+  it('reports no spend rather than a zero when nothing is configured', () => {
+    // An unmeasured plan is not a depleted one — returning a decrement here
+    // would let the router treat an unconfigured subscription as exhausted.
+    const router = acpRouter();
+    expect(router.consumeSubscriptionUnits('acp/claude', 1)).toBeUndefined();
+  });
+
+  it('excludes a depleted model without depleting its sibling', () => {
+    // The routing consequence: budget gating reads the scoped quota, so an
+    // exhausted Claude plan must not gate out the Codex model.
+    const router = acpRouter();
+    router.setModelSubscriptionQuota('acp/claude', { ...claudeMax, remainingRequests: 0 });
+    router.setModelSubscriptionQuota('acp/codex', chatgptPlus);
+
+    const candidates = router.getCandidateModels?.({ budget: 'cheap', speed: 'balanced' })
+      ?? [];
+    const ids = candidates.map((model: { id: string }) => model.id);
+    expect(ids).toContain('acp/codex');
+  });
+});
+
 function registerProviders(router: ModelRouter): void {
   const providers: ProviderConfig[] = [
     {

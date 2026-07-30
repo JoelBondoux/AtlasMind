@@ -6,6 +6,56 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.217.0] - 2026-07-30
+
+### Added
+- **Effort levels inside an ACP subscription.** AtlasMind selected nothing within an ACP plan: `discoverModels()` returned exactly one model per agent, so a Claude Max subscription presented to the router as a single fixed-depth model and every turn ran at whatever the agent happened to default to. Meanwhile the agents were *already telling us* what they could do, on every single session, and the adapter was discarding it — `newSession` kept `sessionId` and dropped the rest of the response.
+
+  Verified against the published v1 schema and against live `codex-acp` 1.1.7 and `claude-agent-acp` 0.63.0: `session/new` returns a `configOptions` array, and `session/set_config_option` sets one and echoes the full set back. Both agents carry a `thought_level` knob — Codex offers `low` through `ultra`, Claude Agent `low` through `max`. **There is no `session/set_model` in the spec**; `session/set_config_option` is the mechanism, which is why this is wired through config options rather than a model-selection call.
+
+  Each effort level the agent actually lists becomes a routed model — `acp/claude#high`, `acp/codex#max` — carrying a `reasoningDepth` and a `premiumRequestMultiplier`. Both feed machinery the router already has, so the gradient falls out of existing task-fit scoring and the existing budget gate rather than needing a parallel mechanism: `cheap` reaches `low`, `balanced` reaches `high`, `expensive` reaches the top. The un-suffixed row remains, and is the agent's own default.
+
+- **`src/providers/acpEffort.ts`** — the pure model behind it, with three rules that each close a way the feature could be worse than not having it:
+
+  - **`category` is the identity, never `id`.** Codex names the knob `reasoning_effort`; Claude Agent names it `effort`. Both label it `category: "thought_level"`. Matching on `id` would work against exactly one agent and silently do nothing against the other — and a silent no-op is indistinguishable from success, because the turn still completes, just at the wrong effort.
+  - **Only `model` and `thought_level` may ever be set.** The same `configOptions` array carries the agent's **permission** mode, whose values include `agent-full-access` (Codex) and `bypassPermissions` (Claude Agent). A settings channel able to set those would route around `toolApprovalManager` entirely rather than through it, so the allowlist is deny-by-default and the refusal lives at the one place a set request is built. `model_config` — Codex's "fast mode", *1.5x speed, increased usage* — is excluded too: spending more of somebody's subscription is their decision, not a routing optimisation.
+  - **The quota cost of a tier is a declared rule, not vendor data.** No vendor publishes what a `max`-effort turn costs against a plan's allowance, so the multipliers are AtlasMind's own stated assumption — published on the provider card, exactly as the tech-debt register publishes the table that graded an entry.
+
+  Applied is **confirmed, not assumed**: the response echoes the option set back, so an agent that accepts the request and ignores it is distinguishable from one that applied it. A tier that cannot be set does **not** fail the turn — a turn at the default effort produced an answer, and aborting over a knob would turn a degraded turn into no turn — but it is reported to the output channel rather than swallowed, because the router priced that turn at the requested tier's multiplier and a silent fallback would bill high effort for a low-effort run.
+
+### Changed
+- **A model id may now carry a variant suffix, and quota resolution strips it.** `acp/claude#high` is the same subscription as `acp/claude` — a variant is a different *effort*, not a different plan. Without this, adding effort variants would have silently detached every ACP plan configured in v0.216.0: the entry sits on `acp/claude` while every turn routes to a variant, so the plan would read as configured and never once be consulted. Anything keyed to the subscription (quota, spend) resolves to the base id; anything keyed to the effort (depth, multiplier, scoring) stays on the variant. An explicitly set variant quota still wins.
+- `DiscoveredModel` gains `reasoningDepth`, so an adapter can report a depth the static catalog cannot know — an effort tier is a property of what the agent offered on this session, not of a model name anybody could enumerate in advance. The catalog still wins wherever it has an answer.
+- The ACP adapter keeps a per-instance record of what it last learned about each agent, alongside the shared TTL probe cache. The shared cache is deliberately bypassed whenever a process factory is injected, so relying on it alone would have made effort variants work in production and be untestable — which is the same as being unverified.
+
+## [0.216.0] - 2026-07-30
+
+### Fixed
+- **ACP was reported as unconfigured on every refresh, and the Models tree turned that into "agent not responding".** `isProviderConfigured` had no `acp` branch, so it fell through to reading the `atlasmind.provider.acp.apiKey` secret — a key that does not exist and never will, since the entire point of ACP is to drive an agent the user has already signed in to. Every discovery pass therefore skipped ACP and set its provider health to **false**.
+
+  The consequences compounded in the way that made this hard to place. The tree read that flag and announced *⚠ ACP — agent not responding* about an agent it had never contacted, while the provider panel, which probes directly, showed the same agents as **Ready** on the same screen. The router meanwhile excluded ACP from every candidate list, so the models sat there looking active and unreachable. And discovery being skipped is why only the seeded `acp/claude` ever appeared — a configured `codex-acp` had no model row at all.
+
+  "Configured" now means the same thing it means for local endpoints: is there anything to talk to. That is an agent in `atlasmind.acp.agents`.
+
+- **The health check probed the first agent and reported its answer as the provider's.** Order in a settings array is not a statement about which subscription matters, so a broken first agent condemned a working second one, and a working first agent vouched for a second that was never contacted. Every configured agent is now probed — concurrently — and the provider is healthy when any of them can be used.
+
+- **A vendor row now reports the agent it names.** With `acp` fronting several agents, the per-vendor rows all read one provider-wide health flag, so the *Anthropic — Claude subscription* row was showing whatever the first configured agent said. Each row reads its own agent's last probe.
+
+- **An agent nobody has contacted is no longer reported as failing.** A new `unverified` state distinguishes *not checked yet* from *checked and broken* — the same distinction `not-discovered` already draws against `model-disabled`. "Not responding" is a verdict, and a verdict requires having asked. Where the agent did answer, its own message replaces the generic two-causes advice in the tooltip.
+
+- **The startup budget was smaller than the probe it contained.** Discovery allowed 10s per provider while the ACP adapter allowed 20s per agent — and an ACP probe is not an HTTP ping: it spawns a process per agent and opens a session, which is the only question whose answer means "signed in". Measured on this machine at ~7s for `claude-agent-acp` and ~4s for `codex-acp`, before the contention of extension activation; two agents together take **9.2s**. So the enclosing timeout fired first on a perfectly healthy install, and its handler sets provider health to false — with nothing re-probing afterwards, a startup blip became permanent. ACP now gets a budget **derived from the adapter's own ceiling** rather than restated as a second number in a second file, which is exactly how the two drifted past each other.
+
+- **The routed ACP adapter snapshotted its agent list at activation.** It lives as long as the extension host, so an agent added to settings afterwards was invisible to routing and to the health check until a window reload — while every other ACP surface, which builds a throwaway adapter per call, already listed it. It now re-reads the setting on use.
+
+### Changed
+- **A subscription plan can now belong to an agent rather than to a provider, and the ACP plan flow asks which.** `$ Configure ACP Agents (subscription) plan` opened straight onto *"Enter monthly cost"* with no subject. That question has no correct answer: `acp` is one provider id in front of **several unrelated subscriptions** — `acp/claude` is billed against a Claude plan and `acp/codex` against a ChatGPT plan, bought separately and priced differently. Whatever figure was typed landed on the `acp` provider, so configuring the second plan overwrote the first, and the router then priced every ACP turn against one plan's cost-per-unit while depleting that plan's allowance by running the other.
+
+  The flow now names the plan at every step: with more than one agent configured it opens on *"Which subscription are you configuring?"*, listing each agent with its current allowance, and every dialog after it is titled with that agent. Real tiers are offered per vendor — Claude Pro / Max 5× / Max 20×, ChatGPT Plus / Pro, Google AI Pro / Ultra — instead of only *Custom…*. The button no longer names the protocol, because nobody sells a subscription to a protocol.
+
+  Underneath, `ModelRouter` gains model-scoped quotas. Pricing, scoring, budget gating and the post-turn decrement all resolve the plan through one accessor, so a turn can never be priced against one subscription and deducted from another; providers that front exactly one plan fall back to the provider-level quota and behave exactly as before. The provider card lists one row per configured agent, since a single "AI credits" line under a card naming two agents could only ever describe one of them.
+
+- The quota-exhaustion warning resolves its subject rather than assuming a provider, so it names the plan the user configured instead of a model id they never typed.
+
 ## [0.215.0] - 2026-07-30
 
 ### Changed

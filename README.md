@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.215.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.217.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,11 +68,25 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.215.0
+## What's new in 0.217.0
 
 Since the last Marketplace publication, **v0.214.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
 
-- **The dashboard header now shows what version is where.** The header carried two pills — a guessed production branch and whatever branch was checked out — which answered *which branch am I on?* rather than *what is deployed where*. It now renders one pill per stage of your delivery pipeline, in pipeline order, so a Staging stage added on the Delivery page appears in the header without being defined twice.
+- **Effort levels inside a subscription.** An ACP subscription used to present to the router as a single model running at whatever the agent defaulted to. The agents were already advertising more on every session — a `thought_level` option with tiers from `low` to `max` (Codex adds `ultra`) — and AtlasMind was discarding it along with the rest of the session response.
+
+  Each tier the agent actually offers is now a routable model: `acp/claude#high`, `acp/codex#max`. They carry a reasoning depth and a quota cost, so the router's existing budget modes express the gradient — `cheap` reaches `low`, `balanced` reaches `high`, `expensive` reaches the top — and the plain `acp/claude` row still means "the agent's own default".
+
+  **AtlasMind will not touch the agent's permission mode.** The same list that offers effort also offers `bypassPermissions` and `agent-full-access`, so only two categories can ever be set — the model and the effort — and Codex's "fast mode" (*1.5x speed, increased usage*) is excluded too, because spending your plan faster is your call. The quota cost of each tier is an AtlasMind assumption rather than a published vendor figure, and it says so on the provider card.
+
+- **ACP works.** An installed, signed-in agent was being reported as *"agent not responding"* by the Models tree while the provider panel showed the same agent as **Ready** — and the router quietly refused to route to it either way. The cause was that ACP had no branch in the "is this provider configured?" check, so it fell through to looking for an API key. ACP is keyless by construction: the whole point is to drive an agent you have already signed in to. Every refresh therefore marked it unconfigured, skipped model discovery, and set provider health to false.
+
+  Four related faults are fixed with it. Every configured agent is now probed rather than only the first, so a broken agent no longer condemns a working one. Each vendor row reports **its own** agent instead of a provider-wide flag. An agent nobody has contacted is reported as *not checked yet* rather than as failing, because "not responding" is a verdict and a verdict requires having asked. And the startup budget is no longer smaller than the probe it contains — an ACP probe spawns a process per agent and opens a session, which takes about nine seconds for two agents, against a ten-second timeout whose expiry marked the provider unhealthy for the rest of the session.
+
+- **A subscription plan can belong to an agent, and the ACP plan dialog asks which one.** *Configure plan* opened on "Enter monthly cost" with no subject — a question with no correct answer, because `acp` fronts several unrelated subscriptions: your Claude plan pays for `acp/claude` and your ChatGPT plan pays for `acp/codex`. The figure landed on the provider, so the second plan you configured overwrote the first, and the router then priced every ACP turn against one plan while depleting the other.
+
+  The flow now opens on *"Which subscription are you configuring?"*, offers each vendor's real tiers, and titles every step with the agent it is about. The provider card lists one row per agent, and each plan is spent only by the model it pays for.
+
+- **The dashboard header shows what version is where.** The header carried two pills — a guessed production branch and whatever branch was checked out — which answered *which branch am I on?* rather than *what is deployed where*. It now renders one pill per stage of your delivery pipeline, in pipeline order, so a Staging stage added on the Delivery page appears in the header without being defined twice.
 
   The working tree gets a pill of its own, because it is the one reading taken from `package.json` on disk rather than from git, and so the only one that can be ahead of every branch — marked when the tree is dirty, which is precisely when it differs. A stage whose branch does not exist yet reports that, rather than borrowing a plausible version and claiming a deployment nobody made.
 

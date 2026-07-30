@@ -126,6 +126,43 @@ AtlasMind opens a real session instead. The reserved ACP error `-32000` means a 
 
 ACP models are priced at zero per token because the subscription already paid. The router's subscription handling, not the adapter, is what keeps that from automatically winning budget mode.
 
+### Effort levels inside the subscription
+
+An ACP subscription used to be one model to the router, running at whatever the agent defaulted to. The agents were already advertising more on every session, and AtlasMind was throwing it away.
+
+Each effort level your agent actually offers is now a routed model:
+
+| Agent | Tiers offered |
+|---|---|
+| `claude-agent-acp` | `low` `medium` `high` `xhigh` `max` |
+| `codex-acp` | `low` `medium` `high` `xhigh` `max` `ultra` |
+
+They appear as `acp/claude#high`, `acp/codex#max`, and so on, alongside the plain `acp/claude` row — which still means *the agent's own default*. Each tier carries a reasoning depth and a quota cost, so the budget mode you already set expresses the gradient: **cheap** reaches `low`, **balanced** reaches `high`, **auto/expensive** reach the top. Variants show up once the agent has been probed — refresh the models if you have just added one.
+
+**AtlasMind will not touch your agent's permission mode.** The same list that offers effort also offers `bypassPermissions` (Claude Agent) and `agent-full-access` (Codex). Only two things can ever be set — the model and the effort — so a routing decision can never widen what an agent is allowed to do. Codex's "fast mode" (*1.5x speed, increased usage*) is excluded as well: spending your plan faster is your call, not a routing optimisation.
+
+**The quota cost of each tier is our assumption, not a vendor figure.** No vendor publishes what a max-effort turn costs against a plan, so the numbers are AtlasMind's own stated rule and the provider card says so. If your remaining count drifts, correct it on the plan.
+
+If a tier cannot be applied, the turn still runs at the agent's default rather than failing — and the ACP output channel says so, because it was priced at the tier you asked for.
+
+### Which subscription — because `acp` fronts several
+
+Every other subscription provider is one provider in front of one plan. `acp` is not: your Claude plan pays for `acp/claude` and your ChatGPT plan pays for `acp/codex`, bought separately and priced differently. So a plan is configured **per agent**, not per provider.
+
+**Configure agent plan** on the ACP card opens on *"Which subscription are you configuring?"* when more than one agent is set up, lists each agent with its current allowance, and titles every step after it with that agent. Each vendor's real tiers are offered — Claude Pro / Max 5× / Max 20×, ChatGPT Plus / Pro, Google AI Pro / Ultra — with *Custom…* still available for anything unlisted. The card shows one row per agent.
+
+The plan you configure is the one that gets spent: pricing, budget gating and the post-turn decrement all resolve through the same accessor, so a Codex turn can never be charged to your Claude allowance. Providers that front exactly one plan (Copilot, Claude Code CLI) are unaffected.
+
+Before v0.216.0 the button opened directly on "Enter monthly cost" with no subject, and whatever you typed landed on the provider — so configuring a second plan overwrote the first.
+
+### When a row says an agent is not responding
+
+Health is tracked **per agent**, so the *Anthropic — Claude subscription* row reports `claude-agent-acp` and nothing else. Every configured agent is probed, concurrently, and the provider counts as healthy when any of them can be used — a broken agent no longer condemns a working one.
+
+An agent AtlasMind has not managed to contact yet shows **not checked yet**, not "agent not responding". A probe spawns the agent and opens a session, which takes a few seconds; refreshing the models runs it. If a row does say *not responding*, the tooltip carries what the agent itself reported, rather than guessing between the two usual causes.
+
+ACP counts as configured when there is an agent in `atlasmind.acp.agents` — never by an API key, since there is no ACP key to hold. Before v0.216.0 there was no such check, so an installed and signed-in agent was reported as not responding on every startup while the provider panel showed it as ready.
+
 See [[Tool-Execution]] for what an ACP agent is allowed to *do*, which is a separate gate.
 
 ## Specialist And Future Providers

@@ -6,6 +6,34 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.217.0 — Effort levels inside a subscription
+
+An ACP subscription presented to the router as **one model**, running at whatever the agent defaulted to. The agents were already advertising more than that on every session — `session/new` returns a `configOptions` array carrying a `thought_level` knob — and the adapter kept the session id and discarded the rest.
+
+Each effort level your agent actually offers is now a routed model: `acp/claude#high`, `acp/codex#max`, alongside the plain row that still means *the agent's own default*. Each tier carries a reasoning depth and a quota cost, so the budget mode you already set expresses the gradient — **cheap** reaches `low`, **balanced** reaches `high`, **expensive** reaches the top — through machinery the router already had rather than anything ACP-specific.
+
+**Set through `session/set_config_option`, because there is no `session/set_model`.** The mechanism was read from the published v1 schema and confirmed against live `codex-acp` 1.1.7 and `claude-agent-acp` 0.63.0. The two agents name the knob differently — `reasoning_effort` and `effort` — but both label it `category: "thought_level"`, so the category is what AtlasMind matches on. Keying on the id would have worked against one agent and silently done nothing against the other, which looks exactly like success because the turn still completes.
+
+**AtlasMind will not touch the agent's permission mode.** The same list that offers effort also offers `bypassPermissions` and `agent-full-access`. Only the model and the effort can ever be set, so a routing decision can never widen what an agent is allowed to do — and Codex's "fast mode" (*1.5x speed, increased usage*) is excluded too, because spending your plan faster is your decision.
+
+**The cost of a tier is a declared rule.** No vendor publishes what a max-effort turn costs against a plan, so the multipliers are AtlasMind's own stated assumption, printed on the provider card the way the debt register prints the rule that graded an entry. And a tier that cannot be applied does not fail the turn — it runs at the default and says so, because it was priced at the tier you asked for.
+
+---
+
+## v0.216.0 — ACP works, and a plan says whose
+
+An installed, signed-in ACP agent was reported as **⚠ ACP — agent not responding** by the Models tree, while the provider panel showed the same agent as **Ready** on the same screen, and the router refused to route to it either way.
+
+**The cause was one missing branch.** The "is this provider configured?" check had no case for `acp`, so it fell through to reading `atlasmind.provider.acp.apiKey` — a key that does not exist and never will, since the whole point of ACP is to drive an agent you have already signed in to. Every refresh marked ACP unconfigured, which skipped model discovery *and* set provider health to false. The tree then reported that flag as a verdict on the agent. It also explains why only the seeded `acp/claude` ever appeared: a configured `codex-acp` had no model row because discovery never ran.
+
+**Four related faults went with it.** Every configured agent is now probed rather than only the first, so a broken agent no longer condemns a working one and a vendor row no longer reports another vendor's agent. An agent nobody has contacted shows **not checked yet** rather than *not responding* — a verdict requires having asked. The startup budget is no longer smaller than the probe it contains: an ACP probe spawns a process per agent and opens a session, about nine seconds for two agents, against a ten-second timeout whose expiry marked the provider unhealthy for the rest of the session. And the long-lived routed adapter re-reads the agent list instead of snapshotting it at activation, so an agent added later is visible without a window reload.
+
+**A subscription plan can now belong to an agent.** *Configure plan* on the ACP card opened straight onto "Enter monthly cost" with no subject — a question with no correct answer, because `acp` fronts several unrelated subscriptions: your Claude plan pays for `acp/claude` and your ChatGPT plan for `acp/codex`. Whatever figure you typed landed on the provider, so configuring the second plan overwrote the first, and the router then priced every ACP turn against one plan while depleting the other.
+
+The flow now opens on **"Which subscription are you configuring?"**, offers each vendor's real tiers — Claude Pro / Max 5× / Max 20×, ChatGPT Plus / Pro, Google AI Pro / Ultra — and titles every step with the agent it is about. The card lists one row per agent, and each plan is spent only by the model it pays for. Providers that front exactly one plan are unaffected.
+
+---
+
 ## v0.215.0 — The header says what version is where
 
 The Project Dashboard header carried two pills: a *guessed* production branch and whatever branch was checked out. That answers "which branch am I on?" — while the project already models the real answer on the Delivery page, as an ordered pipeline of stages each naming the branch whose committed version represents it. The header ignored it, so adding a Staging stage changed nothing there.

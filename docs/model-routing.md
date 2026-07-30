@@ -325,7 +325,73 @@ Two different things are reported, and conflating them made every ACP completion
 - **`usage_update`** (a `session/update` notification) carries `{ used, size, cost? }` — the *cumulative* context token count and the context-window size. It is a progress bar, not a bill, and is never charged as input tokens; doing so would re-bill the whole conversation on every message.
 - **The `session/prompt` result** carries `usage.inputTokens` / `usage.outputTokens` for the turn. This field is not in the published `PromptResponse` schema, but it is the only place a real per-turn count appears and every current agent sends it in the same shape. Absent or unusable counts report **zero** rather than an estimate, and nothing is derived from `totalTokens` — splitting a total into input and output would be arithmetic nobody measured.
 
-Because ACP models are subscription-backed, they are priced at zero per token; the router's subscription handling, not the adapter, is what stops that from winning budget mode by default.
+Because ACP models are subscription-backed, they are priced at zero per token; the router's subscription handling, not the adapter, is what stops that from winning budget mode by default. Which subscription is a per-model question — see [Scope: one provider can front several plans](#scope-one-provider-can-front-several-plans).
+
+### Effort is a routed model, set through `session/set_config_option`
+
+**There is no `session/set_model` in ACP v1.** The spec's session-setup page notes that a `session/new` response *MAY* carry model or configuration state, and the mechanism for changing it is `session/set_config_option` — verified against the published schema at `ACP_SPEC_VERIFIED_AT` and against live `codex-acp` 1.1.7 and `claude-agent-acp` 0.63.0, both of which implement it and echo the full option set back.
+
+`session/new` returns `configOptions`. Both agents carry one whose **category** is `thought_level`:
+
+| Agent | Option id | Values |
+|---|---|---|
+| `codex-acp` | `reasoning_effort` | `low` `medium` `high` `xhigh` `max` `ultra` |
+| `claude-agent-acp` | `effort` | `default` `low` `medium` `high` `xhigh` `max` |
+
+**The id differs; the category does not.** Matching on `id` would work against exactly one agent and silently no-op against the other — a failure indistinguishable from success, because the turn still completes, just at the wrong effort. `acpEffort.ts` therefore matches on `category` everywhere.
+
+Each tier the agent lists becomes a routed model id with a `#` variant suffix — `acp/claude#high` — carrying:
+
+- **`reasoningDepth`**, which the router's `scoreTaskFit` already uses, so a high-reasoning task prefers a higher tier without any ACP-specific scoring;
+- **`premiumRequestMultiplier`**, which `matchesBudgetGate` already reads, so `cheap` (≤1) reaches `low`/`medium`, `balanced` (≤2) reaches `high`, and `auto`/`expensive` reach the top.
+
+The un-suffixed row remains and means "the agent's own default" — it carries neither annotation, because asserting a depth for a setting nobody chose would be inventing one. Variants appear only **after** the agent has been probed, for the same reason `vision` does: `discoverModels` runs on every tree render and must not spawn.
+
+`default` is deliberately not a tier — it is the base row, and emitting it as a variant would create a second model id meaning the same run.
+
+#### What may be set, and what may never be
+
+`ACP_SETTABLE_CONFIG_CATEGORIES` is an allowlist holding exactly `model` and `thought_level`. It is deny-by-default, and the refusal lives in `AcpSession.setConfigOption` — the one place a set request is built — rather than at each call site.
+
+The reason is that the same `configOptions` array carries the agent's **permission** mode:
+
+| Agent | Category `mode` includes |
+|---|---|
+| `codex-acp` | `read-only`, `agent`, **`agent-full-access`** |
+| `claude-agent-acp` | `default`, `acceptEdits`, `plan`, **`bypassPermissions`** |
+
+A config channel able to set those would route around `toolApprovalManager` rather than through it — a privilege escalation wearing the clothes of a routing optimisation. A test asserts no `mode` change and no value matching `bypass`/`full-access` is ever written to the wire.
+
+`model_config` — Codex's "fast mode", described by the agent as *"1.5x speed, increased usage"* — is excluded for a different reason: spending more of the user's subscription is their decision.
+
+#### The cost of a tier is a declared rule
+
+No vendor publishes what a `max`-effort turn costs against a plan's allowance. The multipliers in `ACP_EFFORT_TIERS` are therefore **AtlasMind's own stated assumption**, published as `ACP_EFFORT_RULE_NOTE` on the provider card — the same convention the tech-debt register uses when it prints the rule that graded an entry. They are what makes the gradient arguable rather than merely trusted.
+
+#### Applied is confirmed, not assumed
+
+`session/set_config_option` returns the full option set with the new `currentValue`, so an agent that accepts the request and ignores it is distinguishable from one that applied it. A tier that cannot be set does **not** fail the turn — a turn at the default effort produced an answer, and aborting over a knob would turn a degraded turn into no turn — but it is reported through `onEffortNotApplied` to the output channel, because the router priced that turn at the requested tier's multiplier and a silent fallback would bill high effort for a low-effort run.
+
+#### Variants and subscription plans
+
+A variant is a different *effort*, not a different plan, so `acp/claude#high` bills to whatever plan is configured on `acp/claude`. See [Scope: one provider can front several plans](#scope-one-provider-can-front-several-plans) — `subscriptionQuotaForModel` and `consumeSubscriptionUnits` strip the suffix when no exact match exists. Without that, adding variants would have silently detached every configured ACP plan: the entry sits on the base id while every turn routes to a variant.
+
+**Model *family* is deliberately not enumerated.** Codex advertises 7 families × 6 efforts = 33 `availableModels`; turning that cross product into routed rows would flood the tree with models the router has no basis to choose between. Effort is the axis it can reason about; family stays at the agent's own setting.
+
+### Health is per agent, and a verdict requires having asked
+
+`acp` is one provider id in front of *n* agents, which breaks two assumptions the rest of the provider machinery makes.
+
+- **`healthCheck()` probes every configured agent, concurrently, and is healthy when any can be used.** It used to probe `agents[0]` and report that answer as the provider's — wrong in both directions once more than one agent is configured: a broken first agent condemned a working second one, and a working first agent vouched for a second that was never contacted. Order in a settings array is not a statement about which subscription matters.
+- **Per-vendor surfaces read `peekAcpAgentProbe(agentId)`**, the last thing *that* agent said, rather than the provider-wide health flag. Otherwise the *Anthropic — Claude subscription* row reports whatever `codex-acp` said.
+- **Never probed is not the same as probed and failing.** An agent with no recorded probe renders as `unverified` ("not checked yet"), not `unhealthy` ("agent not responding"). Announcing a failure for a process nobody spawned is the misreport this distinction exists to prevent — the same distinction `not-discovered` draws against `model-disabled`.
+
+Two configuration properties follow from the probe being expensive:
+
+- **ACP is "configured" when an agent is in `atlasmind.acp.agents`** — never by an API key. It is keyless by construction, so falling through to a secret lookup reported it unconfigured on every refresh, which skipped discovery *and* set provider health to false.
+- **The enclosing discovery budget is derived from `ACP_PROBE_TIMEOUT_MS`, not restated.** An ACP probe spawns a process per agent and opens a session — roughly 9s for two agents on a warm machine, against a 10s per-provider startup budget whose expiry marks the provider unhealthy with nothing to re-probe afterwards. Two numbers in two files is exactly how they drifted past each other.
+
+The long-lived routed adapter takes its agent list as a **getter**, not an array: it is constructed once at activation, so a snapshot left an agent added later invisible to routing until a window reload, while every throwaway adapter built per panel click already saw it.
 
 ## Specialist And Future Providers
 
@@ -518,6 +584,26 @@ interface SubscriptionQuota {
 | Remaining > 30% | Zero effective cost (simple path) or `costPerRequestUnit × multiplier` (when set) |
 | Remaining 1–30% | **Conservation threshold**: effective cost blends linearly toward listed API price as quota depletes. At 0% remaining, effective cost equals listed price. |
 | Remaining = 0 | **Exhausted**: model is scored at full listed API price and falls through to normal budget-tier gating (no bypass). |
+
+#### Scope: one provider can front several plans
+
+For every provider but one, the provider *is* the subscription, and keying the quota by provider id says the same thing. `acp` is the exception: it is one provider id in front of several unrelated subscriptions — `acp/claude` is billed against a Claude plan, `acp/codex` against a ChatGPT plan, bought separately and priced differently. A single `acp` quota cannot describe both, and the failure is silent in the worst direction: the second plan configured overwrites the first, so the router prices Codex turns against Claude Max's cost-per-unit and depletes one plan's allowance by running the other.
+
+So a quota may also be scoped to a **model**, which for ACP is exactly one agent and therefore exactly one subscription:
+
+```typescript
+router.setModelSubscriptionQuota('acp/codex', chatgptPlusQuota);
+router.subscriptionQuotaForModel('acp/codex');  // the scoped plan
+router.subscriptionQuotaForModel('copilot/gpt-4o');  // falls back to the provider's
+```
+
+Three rules hold this together:
+
+- **`subscriptionQuotaForModel` is the only accessor pricing, scoring and budget gating use.** Reading `provider.subscriptionQuota` directly is what made a multi-plan provider report one plan's numbers for all of them.
+- **`consumeSubscriptionUnits(modelId, units)` owns the scope decision**, so a turn can never be *priced* against the model's plan and *deducted* from the provider's. It returns the scope it spent, which the exhaustion warning resolves to a name rather than assuming a provider id.
+- **Provider-level quotas are untouched.** Copilot and `claude-cli` behave exactly as before; only a provider that actually fronts more than one plan pays the cost of saying which.
+
+The `$ Configure agent plan` control on the ACP card asks which agent's subscription is being described before it asks anything about the plan, and offers that vendor's real tiers (Claude Pro / Max 5× / Max 20×, ChatGPT Plus / Pro, Google AI Pro / Ultra). Storage is keyed on the model id; provider ids never contain a slash, which is what lets one persisted record hold both kinds of key.
 
 ### Premium Request Multiplier
 

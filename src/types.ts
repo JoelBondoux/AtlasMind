@@ -798,8 +798,13 @@ export interface OrchestratorHooks {
    * Called after a subscription request completes and quota has been decremented.
    * `remainingRequests` is the new value after decrement; `totalRequests` is the
    * billing-period cap.  Use this to persist quota and emit exhaustion warnings.
+   *
+   * `scope` names the plan that was spent, which is a **provider id** for a
+   * provider fronting a single subscription and a **model id** for one fronting
+   * several (ACP). Resolve it for display rather than assuming a provider — see
+   * `ModelRouter.setModelSubscriptionQuota`.
    */
-  onQuotaUpdated?: (providerId: string, remainingRequests: number, totalRequests: number) => void;
+  onQuotaUpdated?: (scope: string, remainingRequests: number, totalRequests: number) => void;
 
   /**
    * Called after a model's execution outcome is recorded (Direction 2 —

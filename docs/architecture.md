@@ -111,6 +111,8 @@ Maintains a map of `ProviderConfig` objects plus provider health state. `selectM
 
 The router carries two learned, decaying routing channels (both gated by `feedbackRoutingWeight`): a positive **outcome bias** (EWMA of graded execution quality, in `executionOutcomes`) and a **struggle memory** (`struggleSignals`) — a persistent, task-signature-keyed de-weight for models that repeatedly fail a *kind* of task. Normal orchestrator grades incorporate expected tool use, tool success/failure counts, verification, TDD status, incomplete-delivery signals, and the final recovered response; clean text is no longer automatically a perfect execution outcome. The explicit Model Comparison harness intentionally retains its coarse completion-integrity grade and optional judge. `recordModelStruggle()` folds a severity-weighted, decaying increment (kinds: timeout, empty, tool-call-as-text, error-finish, user-correction) keyed by `phase|modality|reasoning|requiresTools`; `scoreModel()` subtracts the decayed penalty, and `selectBestModel()` applies a **tier-escape** (re-opening candidacy one budget tier higher and re-ranking) when the top pick is a chronic struggler, so a capable model can take over the task kind a cheap model keeps failing. `recoverModelStruggle()` halves the penalty on a clean turn; `getStruggleSignals()`/`setStruggleSignals()` snapshot/restore for persistence (`globalState` key `atlasmind.modelStruggleSignals`); `getStruggleSummary()` exposes active de-weights for the Model Comparison panel hint.
 
+**Subscription quotas may be scoped to a model rather than to a provider.** For every provider but one, the provider *is* the subscription, so keying by provider id says the same thing; `acp` is one provider id in front of several unrelated plans (`acp/claude` on a Claude subscription, `acp/codex` on a ChatGPT one). `setModelSubscriptionQuota()` / `getModelSubscriptionQuota()` / `listModelSubscriptionQuotas()` hold those, and **`subscriptionQuotaForModel()` is the single accessor** every pricing, scoring and budget-gating path uses — reading `provider.subscriptionQuota` directly is what made a multi-plan provider report one plan's numbers for all of them. `consumeSubscriptionUnits(modelId, units)` owns the scope decision and returns the scope it spent, so a turn cannot be priced against one subscription and deducted from another. Providers fronting exactly one plan fall back to the provider-level quota unchanged. Persistence keys both kinds in one record: provider ids never contain a slash, model ids always do.
+
 Key behaviors added in 0.73.0–0.73.1:
 - **Deprecation filter**: models with a `deprecatedAt` date in the past are auto-excluded from candidates.
 - **Failure TTL**: stale failure records (older than 5 min) are cleared so transient errors don't permanently exclude providers.
@@ -1001,7 +1003,8 @@ extension.ts
               │     ├── providers/acpProtocol.ts     (wire framing, pure)
               │     ├── providers/acpLaunch.ts       (command → spawnable invocation, pure)
               │     ├── providers/acpPermission.ts   (authorization policy, pure)
-              │     └── providers/acpInstaller.ts    (install planning, pure)
+              │     ├── providers/acpInstaller.ts    (install planning, pure)
+              │     └── providers/acpEffort.ts       (effort tiers + settable-config allowlist, pure)
               └── providers/localModelRecommendationRegistry.ts
 
 tests/core/

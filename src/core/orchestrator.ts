@@ -1761,14 +1761,11 @@ export class Orchestrator {
     ) {
       const modelInfo = this.router.getModelInfo(billedModel);
       const premiumUnits = modelInfo?.premiumRequestMultiplier ?? 1;
-      const existingQuota = this.router.getSubscriptionQuota(finalCost.providerId);
-      if (existingQuota) {
-        const newRemaining = Math.max(0, existingQuota.remainingRequests - premiumUnits);
-        this.router.updateSubscriptionQuota(finalCost.providerId, {
-          ...existingQuota,
-          remainingRequests: newRemaining,
-        });
-        this.onQuotaUpdated?.(finalCost.providerId, newRemaining, existingQuota.totalRequests);
+      // The router decides which plan this model is billed against, so a turn
+      // can never be priced against one subscription and deducted from another.
+      const spent = this.router.consumeSubscriptionUnits(billedModel, premiumUnits);
+      if (spent) {
+        this.onQuotaUpdated?.(spent.scope, spent.remainingRequests, spent.totalRequests);
       }
     }
 
@@ -3977,7 +3974,10 @@ export class Orchestrator {
       };
     }
 
-    const quota = provider.subscriptionQuota;
+    // Scoped to the model, not the provider: an ACP turn on `acp/codex` must be
+    // priced against the ChatGPT plan that pays for it, not against whichever
+    // plan happened to be configured last. See `setModelSubscriptionQuota`.
+    const quota = this.router.subscriptionQuotaForModel(modelInfo.id);
     const premiumUnits = modelInfo.premiumRequestMultiplier ?? 1;
     const subscriptionValueUsd = (quota?.costPerRequestUnit ?? 0) * premiumUnits;
     const includedDisplayCostUsd = subscriptionValueUsd > 0 ? subscriptionValueUsd : listedCostUsd;

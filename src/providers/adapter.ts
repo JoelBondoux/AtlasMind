@@ -105,6 +105,17 @@ export interface DiscoveredModel {
    */
   premiumRequestMultiplier?: number;
   /**
+   * Reasoning depth, when the adapter learned it from the agent rather than the
+   * static catalog.
+   *
+   * Added for ACP effort variants (`acp/claude#high`), whose depth is not a fact
+   * about a model name a catalog could hold — it is the effort tier the agent
+   * offered on this session. The catalog still wins for everything it knows
+   * about; this fills the gap for models that only exist because a provider
+   * reported them.
+   */
+  reasoningDepth?: number;
+  /**
    * Whether the model supports prompt caching, reported dynamically by the
    * provider's discovery so cache capability tracks provider changes. Overrides
    * the static catalog/provider-set fallback when present (including an explicit

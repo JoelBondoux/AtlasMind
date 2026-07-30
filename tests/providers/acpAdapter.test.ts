@@ -130,6 +130,58 @@ const request = (over: Partial<CompletionRequest> = {}): CompletionRequest => ({
 
 beforeEach(() => resetAcpProbeCache());
 
+/**
+ * An agent that advertises config options and honours `session/set_config_option`,
+ * shaped like the live `claude-agent-acp` / `codex-acp` responses.
+ */
+function configurableAgent(options?: { effortId?: string; refuseSet?: boolean; ignoreSet?: boolean }) {
+  const effortId = options?.effortId ?? 'effort';
+  const state: Record<string, string> = { mode: 'default', model: 'opus', [effortId]: 'default' };
+  const configOptions = () => [
+    { id: 'mode', name: 'Mode', category: 'mode', type: 'select', currentValue: state['mode'], options: [{ value: 'default', name: 'Manual' }, { value: 'bypassPermissions', name: 'Bypass' }] },
+    { id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: state['model'], options: [{ value: 'opus', name: 'Opus' }, { value: 'haiku', name: 'Haiku' }] },
+    { id: effortId, name: 'Effort', category: 'thought_level', type: 'select', currentValue: state[effortId], options: [{ value: 'default', name: 'Default' }, { value: 'low', name: 'Low' }, { value: 'high', name: 'High' }] },
+  ];
+  const agents: FakeAgent[] = [];
+  const factory: AcpProcessFactory = () => {
+    const agent = new FakeAgent((self, frame) => {
+      const id = frame['id'];
+      const params = (frame['params'] ?? {}) as Record<string, unknown>;
+      switch (frame['method']) {
+        case 'initialize':
+          self.emitFrame({ jsonrpc: '2.0', id, result: INITIALIZE_OK });
+          return;
+        case 'session/new':
+          self.emitFrame({ jsonrpc: '2.0', id, result: { sessionId: 'sess_1', configOptions: configOptions() } });
+          return;
+        case 'session/set_config_option': {
+          if (options?.refuseSet) {
+            self.emitFrame({ jsonrpc: '2.0', id, error: { code: -32602, message: 'not supported' } });
+            return;
+          }
+          if (!options?.ignoreSet) {
+            state[String(params['configId'])] = String(params['value']);
+          }
+          self.emitFrame({ jsonrpc: '2.0', id, result: { configOptions: configOptions() } });
+          return;
+        }
+        case 'session/prompt':
+          self.emitFrame({
+            jsonrpc: '2.0', method: 'session/update',
+            params: { sessionId: 'sess_1', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'ok' } } },
+          });
+          self.emitFrame({ jsonrpc: '2.0', id, result: { stopReason: 'end_turn' } });
+          return;
+        default:
+          return;
+      }
+    });
+    agents.push(agent);
+    return agent;
+  };
+  return { factory, agents, state };
+}
+
 describe('AcpAdapter — a full turn', () => {
   it('completes a prompt and returns the assembled text', async () => {
     const { factory, agents } = scriptedAgent();
@@ -527,6 +579,71 @@ describe('AcpAdapter — discovery and probing', () => {
     expect(spawned).toBe(0);
   });
 
+  it('is healthy when any configured agent works, not only the first', async () => {
+    // The bug this pins: `healthCheck` probed `agents[0]` and reported its
+    // answer as the provider's. Order in a settings array says nothing about
+    // which subscription matters, so a broken first agent condemned a working
+    // second one — and every ACP model, including the working agent's, was
+    // dropped from routing.
+    const working = scriptedAgent().factory;
+    const adapter = new AcpAdapter({
+      agents: [{ id: 'broken', command: 'missing-acp' }, { id: 'fine', command: 'fake-agent-acp' }],
+      spawnProcess: agent => {
+        if (agent.command === 'missing-acp') { throw new Error('spawn missing-acp ENOENT'); }
+        return working(agent);
+      },
+    });
+
+    expect(await adapter.healthCheck()).toBe(true);
+  });
+
+  it('reports each agent separately, so a vendor row cannot inherit another vendor\'s verdict', async () => {
+    const working = scriptedAgent().factory;
+    const adapter = new AcpAdapter({
+      agents: [{ id: 'broken', command: 'missing-acp' }, { id: 'fine', command: 'fake-agent-acp' }],
+      spawnProcess: agent => {
+        if (agent.command === 'missing-acp') { throw new Error('spawn missing-acp ENOENT'); }
+        return working(agent);
+      },
+    });
+
+    const results = await adapter.probeAll();
+
+    expect(results.map(entry => entry.agent.id)).toEqual(['broken', 'fine']);
+    expect(results[0]!.result).toMatchObject({ installed: false, authenticated: false });
+    expect(results[1]!.result).toMatchObject({ installed: true, authenticated: true });
+  });
+
+  it('re-reads a getter, so an agent added after construction is seen', async () => {
+    // The routed adapter lives as long as the extension host. Snapshotting the
+    // settings array at construction meant a newly added agent was invisible to
+    // routing until a window reload, while the provider panel — which builds a
+    // fresh adapter per click — already listed it as ready.
+    const configured: AcpAgentConfig[] = [];
+    const adapter = new AcpAdapter({ agents: () => configured, spawnProcess: scriptedAgent().factory });
+
+    expect(await adapter.listModels()).toEqual([]);
+    configured.push(AGENT);
+    expect(await adapter.listModels()).toEqual(['acp/fake']);
+  });
+
+  it('degrades a throwing agents getter to none, rather than failing the turn', async () => {
+    const adapter = new AcpAdapter({
+      agents: () => { throw new Error('settings unreadable'); },
+      spawnProcess: () => { throw new Error('should not spawn'); },
+    });
+    expect(await adapter.listModels()).toEqual([]);
+    expect(await adapter.healthCheck()).toBe(false);
+  });
+
+  it('is unhealthy when every configured agent fails', async () => {
+    const adapter = new AcpAdapter({
+      agents: [{ id: 'a', command: 'missing-a' }, { id: 'b', command: 'missing-b' }],
+      spawnProcess: () => { throw new Error('spawn ENOENT'); },
+    });
+    expect(await adapter.healthCheck()).toBe(false);
+  });
+
   it('prices subscription capacity at zero per token', async () => {
     const adapter = new AcpAdapter({ agents: [AGENT], spawnProcess: scriptedAgent().factory });
     const [model] = await adapter.discoverModels();
@@ -814,5 +931,151 @@ describe('ACP_PROVIDER_BRIDGES — the subscription offer on a pay-per-token car
       expect(bridge.offerLabel.toLowerCase()).toContain('subscription');
       expect(bridge.install.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('AcpAdapter — effort inside a subscription', () => {
+  it('offers one routed model per effort tier the agent listed, after a probe', async () => {
+    const { factory } = configurableAgent();
+    const adapter = new AcpAdapter({ agents: [AGENT], spawnProcess: factory });
+
+    // Before probing there is one row: the agent's own default. A variant
+    // offered before the agent has said it supports one would route a turn to
+    // an effort it never agreed to.
+    expect((await adapter.discoverModels()).map(m => m.id)).toEqual(['acp/fake']);
+
+    await adapter.healthCheck();
+
+    const models = await adapter.discoverModels();
+    expect(models.map(m => m.id)).toEqual(['acp/fake', 'acp/fake#low', 'acp/fake#high']);
+  });
+
+  it('gives each tier the depth and quota cost the router already reasons about', async () => {
+    const { factory } = configurableAgent();
+    const adapter = new AcpAdapter({ agents: [AGENT], spawnProcess: factory });
+    await adapter.healthCheck();
+
+    const models = await adapter.discoverModels();
+    const low = models.find(m => m.id === 'acp/fake#low')!;
+    const high = models.find(m => m.id === 'acp/fake#high')!;
+
+    expect(low.reasoningDepth).toBeLessThan(high.reasoningDepth!);
+    expect(low.premiumRequestMultiplier).toBeLessThan(high.premiumRequestMultiplier!);
+    // The base row carries neither: it is whatever the agent chose, and
+    // asserting a depth for it would be inventing one.
+    expect(models.find(m => m.id === 'acp/fake')!.reasoningDepth).toBeUndefined();
+  });
+
+  it('sets the requested effort before prompting', async () => {
+    const { factory, agents, state } = configurableAgent();
+    const adapter = new AcpAdapter({ agents: [AGENT], spawnProcess: factory });
+
+    await adapter.complete(request({ model: 'acp/fake#high' }));
+
+    expect(state['effort']).toBe('high');
+    const written = agents[0]!.written.map(f => f['method']);
+    // Order matters: an effort set after the prompt would have changed nothing.
+    expect(written.indexOf('session/set_config_option')).toBeLessThan(written.indexOf('session/prompt'));
+  });
+
+  it('matches the effort knob by category even when the agent names it differently', async () => {
+    // Codex calls it `reasoning_effort`; a client keyed on `effort` would
+    // silently no-op against it while the turn still completed.
+    const { factory, state } = configurableAgent({ effortId: 'reasoning_effort' });
+    const adapter = new AcpAdapter({ agents: [AGENT], spawnProcess: factory });
+
+    await adapter.complete(request({ model: 'acp/fake#high' }));
+
+    expect(state['reasoning_effort']).toBe('high');
+  });
+
+  it('sets nothing at all for the base model', async () => {
+    const { factory, agents } = configurableAgent();
+    const adapter = new AcpAdapter({ agents: [AGENT], spawnProcess: factory });
+
+    await adapter.complete(request({ model: 'acp/fake' }));
+
+    expect(agents[0]!.method('session/set_config_option')).toBeUndefined();
+  });
+
+  it('routes a variant to its own agent, not to the first one', async () => {
+    // The suffix has to be stripped before the agent lookup, or every variant
+    // falls through to `agents[0]` and quietly runs on the wrong subscription.
+    const first = configurableAgent();
+    const second = configurableAgent();
+    const adapter = new AcpAdapter({
+      agents: [{ id: 'one', command: 'one-acp' }, { id: 'two', command: 'two-acp' }],
+      spawnProcess: (agent, cwd) => (agent.command === 'one-acp' ? first.factory : second.factory)(agent, cwd),
+    });
+
+    await adapter.complete(request({ model: 'acp/two#high' }));
+
+    expect(second.agents.length).toBe(1);
+    expect(first.agents.length).toBe(0);
+    expect(second.state['effort']).toBe('high');
+  });
+
+  it('still answers when the effort cannot be applied, and says so', async () => {
+    // A turn at the default effort produced an answer; aborting over a knob
+    // would turn a degraded turn into no turn.
+    const events: Array<{ requested: string; reason: string }> = [];
+    const { factory } = configurableAgent({ refuseSet: true });
+    const adapter = new AcpAdapter({
+      agents: [AGENT], spawnProcess: factory,
+      onEffortNotApplied: e => events.push(e),
+    });
+
+    const result = await adapter.complete(request({ model: 'acp/fake#high' }));
+
+    expect(result.content).toBe('ok');
+    expect(events).toHaveLength(1);
+    expect(events[0]!.requested).toBe('high');
+  });
+
+  it('reports an agent that accepts the request and ignores it', async () => {
+    // Confirmed, not assumed: the response echoes the full option set back, so
+    // an agent that said yes and changed nothing is distinguishable from one
+    // that applied it. Otherwise the router bills high effort for a default run.
+    const events: Array<{ requested: string; reason: string }> = [];
+    const { factory } = configurableAgent({ ignoreSet: true });
+    const adapter = new AcpAdapter({
+      agents: [AGENT], spawnProcess: factory,
+      onEffortNotApplied: e => events.push(e),
+    });
+
+    await adapter.complete(request({ model: 'acp/fake#high' }));
+
+    expect(events).toHaveLength(1);
+    expect(events[0]!.reason).toContain('default');
+  });
+
+  it('never sends a permission-mode change on the wire', async () => {
+    // The load-bearing safety property. `mode` values include
+    // `bypassPermissions` / `agent-full-access`; a config channel able to set
+    // one would route around toolApprovalManager rather than through it.
+    const { factory, agents, state } = configurableAgent();
+    const adapter = new AcpAdapter({ agents: [AGENT], spawnProcess: factory });
+
+    await adapter.healthCheck();
+    await adapter.complete(request({ model: 'acp/fake#high' }));
+
+    const sets = agents.flatMap(a => a.written.filter(f => f['method'] === 'session/set_config_option'));
+    for (const frame of sets) {
+      const params = frame['params'] as Record<string, unknown>;
+      expect(params['configId']).not.toBe('mode');
+      expect(String(params['value'])).not.toMatch(/bypass|full-access/i);
+    }
+    expect(state['mode']).toBe('default');
+  });
+
+  it('offers no variant for an agent that never opened a session', async () => {
+    // An agent that refused has told us nothing about what it would configure.
+    const adapter = new AcpAdapter({
+      agents: [AGENT],
+      spawnProcess: () => { throw new Error('spawn fake-agent-acp ENOENT'); },
+    });
+    await adapter.healthCheck();
+
+    expect((await adapter.discoverModels()).map(m => m.id)).toEqual(['acp/fake']);
   });
 });
