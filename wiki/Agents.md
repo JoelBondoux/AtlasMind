@@ -106,6 +106,8 @@ Enabling a methodology has three effects, and until v0.221.0 only the first two 
 
 Practices — V-Model, White-Box, Test Design Techniques, Black-Box, Gray-Box, Exploratory, Agile Testing — are ways of working that leave no artifact. They are named to the agent as context but never requested as files, and the Testing page never counts them as gaps.
 
+**A methodology can also hold work back — if you ask it to.** Each entry carries an optional `blocking` flag (schema version 2, off by default). When set on an enabled methodology, AtlasMind's write gate refuses non-test writes until a failing test has been observed. It is opt-in *per methodology* rather than a project-wide switch, because enabling a methodology is a statement of intent that should stay safe to make, whereas turning one into a gate changes how every task in the project runs. Declare the full standard you hold yourself to, and block on the one or two you are willing to stop work over. Where AtlasMind cannot read the config at all, the gate stays on.
+
 **Enabling a methodology you do not practise produces a permanent, visible gap.** That is the intended behaviour rather than a flaw: the alternative is a declaration that means nothing. Turn on what the project genuinely does, and add the rest deliberately.
 
 #### Configuration — Settings Panel → Testing

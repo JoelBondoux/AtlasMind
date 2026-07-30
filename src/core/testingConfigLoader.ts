@@ -8,8 +8,17 @@ import type {
   TestingMethodologyId,
 } from '../types.js';
 import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
+import { interpretVersionedDocument } from './schemaMigration.js';
+import type { VersionedDocumentRead } from './schemaMigration.js';
 
-const TESTING_CONFIG_SSOT_PATH = 'project_memory/index/testing-config.json';
+/**
+ * The one place this path is written.
+ *
+ * It previously appeared in three files — here, `settingsPanel.ts` (beside a
+ * byte-identical copy of the reader), and `testingProtocolSync.ts` — so the
+ * project had two readers that could disagree about whether a config was usable.
+ */
+export const TESTING_CONFIG_SSOT_PATH = 'project_memory/index/testing-config.json';
 const TESTING_PRESENCE_TERMS = [
   'test',
   'spec',
@@ -29,23 +38,58 @@ const TESTING_PRESENCE_TERMS = [
   'end-to-end',
 ];
 
+/** Is this a testing config this build can use? Shape only — versioning is the ladder's job. */
+function isProjectTestingConfig(value: unknown): value is ProjectTestingConfig {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return Array.isArray(candidate['methodologies']);
+}
+
+/**
+ * Read the workspace's testing configuration.
+ *
+ * Routed through `interpretVersionedDocument` rather than checking the version
+ * itself. The previous gate was `parsed.version === 1`, which collapsed two very
+ * different situations into the same `undefined`: a corrupt file, and a file
+ * written by a *newer* AtlasMind. The second is the dangerous one — every caller
+ * treats `undefined` as "this project has no testing policy", and the writers
+ * then persist a fresh default straight over a newer build's file. Since the
+ * shape is a list of enabled methodologies, that is a silent way to switch a
+ * project's whole testing policy off.
+ *
+ * `interpretVersionedDocument` keeps *invalid* (safe to replace) and *refused*
+ * (never safe to replace) apart, and runs the 1→2 migration ladder on the way
+ * through. This function still answers `undefined` in both cases, because
+ * reading is all it does — {@link readProjectTestingConfigDocument} is for the
+ * callers that are about to write and therefore need the distinction.
+ */
 export function readProjectTestingConfig(workspaceRoot: string): ProjectTestingConfig | undefined {
+  return readProjectTestingConfigDocument(workspaceRoot).config;
+}
+
+/**
+ * The same read, with the answer a *writer* needs: whether a file exists that
+ * this build must not overwrite. A caller that seeds a default must check
+ * `preserveExisting` before persisting, or it will destroy a newer build's file.
+ */
+export function readProjectTestingConfigDocument(workspaceRoot: string): VersionedDocumentRead<ProjectTestingConfig> {
   const configPath = path.join(workspaceRoot, TESTING_CONFIG_SSOT_PATH);
   if (!existsSync(configPath)) {
-    return undefined;
+    return { preserveExisting: false };
   }
 
+  let parsed: unknown;
   try {
-    const raw = readFileSync(configPath, 'utf8');
-    const parsed = JSON.parse(raw) as ProjectTestingConfig;
-    if (parsed.version === 1 && Array.isArray(parsed.methodologies)) {
-      return parsed;
-    }
+    parsed = JSON.parse(readFileSync(configPath, 'utf8'));
   } catch {
-    // Ignore invalid or unreadable project testing config.
+    // Unreadable or not JSON: corrupt rather than futuristic, so replacing it is
+    // allowed. A parse failure is never grounds for preserving a file.
+    return { preserveExisting: false };
   }
 
-  return undefined;
+  return interpretVersionedDocument<ProjectTestingConfig>('testing-config', parsed, isProjectTestingConfig);
 }
 
 export function inferTestingMethodologyForSubTask(

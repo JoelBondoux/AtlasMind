@@ -3969,3 +3969,126 @@ describe('the declared testing policy reaches the agent that writes the code', (
     expect(prompt).not.toContain('TESTING POLICY');
   });
 });
+
+describe('the write gate follows the declared testing policy', () => {
+  /**
+   * The gate predates the testing matrix and never consulted it: it fired on role
+   * and task wording alone. So a project that had switched TDD *off* still got the
+   * gate, and the thirteen other methodologies it had switched *on* got no gate at
+   * all — the config and the only real enforcement in the system had nothing to do
+   * with each other.
+   */
+  function withTestingConfig(methodologies: Array<Record<string, unknown>>): string {
+    const root = mkdtempSync(nodePath.join(tmpdir(), 'atlasmind-tdd-gate-'));
+    mkdirSync(nodePath.join(root, 'project_memory', 'index'), { recursive: true });
+    writeFileSync(
+      nodePath.join(root, 'project_memory', 'index', 'testing-config.json'),
+      JSON.stringify({ version: 2, updatedAt: '2026-07-30T00:00:00.000Z', methodologies }),
+      'utf8',
+    );
+    return root;
+  }
+
+  async function runImplementationTask(root: string): Promise<{ blocked: boolean }> {
+    const providerCalls: CompletionRequest[] = [];
+    const writeHandler = vi.fn().mockResolvedValue('written');
+    const provider: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn(async (request: CompletionRequest) => {
+        providerCalls.push(request);
+        if (providerCalls.length === 1) {
+          return {
+            content: '',
+            model: 'local/echo-1',
+            inputTokens: 16,
+            outputTokens: 4,
+            finishReason: 'tool_calls',
+            toolCalls: [{ id: 'tool-1', name: 'file-write', arguments: { path: 'src/login.ts', content: 'export const fixed = true;' } }],
+          } satisfies CompletionResponse;
+        }
+        return {
+          content: 'Done.',
+          model: 'local/echo-1',
+          inputTokens: 18,
+          outputTokens: 6,
+          finishReason: 'stop',
+        } satisfies CompletionResponse;
+      }),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const orchestrator = makeOrchestrator(
+      provider,
+      [{
+        id: 'file-write',
+        name: 'File Write',
+        description: 'Write a workspace file',
+        parameters: { type: 'object', required: ['path', 'content'], properties: { path: { type: 'string' }, content: { type: 'string' } } },
+        execute: writeHandler,
+      }],
+      makeSkillContext({ workspaceRootPath: root }),
+    );
+
+    // No `projectTddPolicy` in context: this is the *inferred* path, which is the
+    // one the config governs.
+    const result = await orchestrator.processTask({
+      id: 'task-config-driven-gate',
+      userMessage: 'Implement the login fix in src/login.ts and update the application code.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    return { blocked: result.artifacts?.tddStatus === 'blocked' };
+  }
+
+  it('does not gate when no enabled methodology asks to block', async () => {
+    const root = withTestingConfig([
+      { id: 'unit', enabled: true },
+      { id: 'e2e', enabled: true },
+      { id: 'tdd', enabled: false },
+    ]);
+    try {
+      // Enabling a methodology is a statement of intent and must stay safe to
+      // make. Fourteen declarations should not silently change how every task in
+      // the project runs.
+      expect((await runImplementationTask(root)).blocked).toBe(false);
+    } finally {
+      removeTempDir(root);
+    }
+  });
+
+  it('gates when an enabled methodology is marked blocking', async () => {
+    const root = withTestingConfig([
+      { id: 'tdd', enabled: true, blocking: true },
+      { id: 'unit', enabled: true },
+    ]);
+    try {
+      expect((await runImplementationTask(root)).blocked).toBe(true);
+    } finally {
+      removeTempDir(root);
+    }
+  });
+
+  it('does not gate on a blocking methodology that is switched off', async () => {
+    const root = withTestingConfig([{ id: 'tdd', enabled: false, blocking: true }]);
+    try {
+      expect((await runImplementationTask(root)).blocked).toBe(false);
+    } finally {
+      removeTempDir(root);
+    }
+  });
+
+  it('keeps the gate when the project has no config to read', async () => {
+    // No file, an unreadable file, or one written by a newer build all mean "this
+    // project has not told us". Dropping a safety behaviour on the strength of a
+    // file we could not read is the wrong direction to fail in.
+    const root = mkdtempSync(nodePath.join(tmpdir(), 'atlasmind-tdd-gate-none-'));
+    try {
+      expect((await runImplementationTask(root)).blocked).toBe(true);
+    } finally {
+      removeTempDir(root);
+    }
+  });
+});

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.221.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.222.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,9 +68,15 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.221.0
+## What's new in 0.222.0
 
 Since the last Marketplace publication, **v0.219.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **A methodology can now hold work back, and only if you say so.** AtlasMind's one real enforcement — the gate that refuses non-test writes until a failing test has been seen — never read the testing matrix at all. It fired on the task's role and wording, so a project that had switched TDD *off* still got the gate, and the thirteen methodologies it had switched *on* got no gate whatsoever. The config governs it now.
+
+  Blocking is **opt-in per methodology**, not a project-wide switch. Enabling a methodology is a statement of intent and should stay safe to make; turning one into a gate changes how every task in the project runs, and that is a decision worth taking one methodology at a time. You can declare fourteen methodologies as the standard you hold yourself to and block on only the one or two you are willing to stop work over. Where AtlasMind cannot read your config at all, the gate stays on: dropping a safety behaviour because a file would not parse is the wrong direction to fail in.
+
+- **A testing config written by a newer AtlasMind is no longer treated as no config at all.** The reader hard-gated on `version === 1`, so a future file read as `undefined` — which every writer in the project takes as licence to persist a fresh default over the top. For a document whose entire content is *which methodologies are on*, that is a silent way to switch a project's testing policy off. It now goes through the same migration ladder as every other persisted document, which keeps *corrupt* (safe to replace) and *newer* (never safe to replace) apart. The two byte-identical copies of that reader, and the three hand-written copies of the file path, are down to one each.
 
 - **A testing methodology you enable is now stated to the agent writing the code.** This is the fix for the failure that started all of this: a project could carry fourteen enabled methodologies, believe them in force, and have tests written for none of them. The policy was never wrong — it was never *shown* to anyone who could act on it. Testing policy reached a prompt through one channel, and that channel required the task to already be classified as testing, or the subtask's own text to already contain a testing word. So the turns implementing features — the only turns that could have written the tests — were exactly the ones told nothing.
 

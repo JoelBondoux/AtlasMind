@@ -675,10 +675,32 @@ export interface ProjectTestingMethodologyConfig {
   assignedModelId?: string;
   /** Free-form notes visible in the Testing Strategy dashboard. */
   notes?: string;
+  /**
+   * Hold back non-test writes until this methodology's evidence has been seen.
+   *
+   * Off by default, and deliberately opt-in per methodology rather than a single
+   * project-wide switch. Enabling a methodology is a statement of intent that
+   * should be safe to make; turning one into a *gate* changes how every task in
+   * the project runs, and that is a decision worth taking one methodology at a
+   * time. A project can therefore declare fourteen methodologies as the standard
+   * it holds itself to and block on only the one or two it is willing to stop
+   * work over.
+   *
+   * Introduced with schema version 2; absent on a v1 file and migrated in as
+   * `false`, so no existing project acquires a gate it did not ask for.
+   */
+  blocking?: boolean;
 }
 
 export interface ProjectTestingConfig {
-  version: 1;
+  /**
+   * 1 — the original shape.
+   * 2 — methodologies may carry `blocking`.
+   *
+   * Read through `interpretVersionedDocument`, so a file written by a newer
+   * AtlasMind is *refused* rather than treated as absent and overwritten.
+   */
+  version: 1 | 2;
   updatedAt: string;
   methodologies: ProjectTestingMethodologyConfig[];
 }

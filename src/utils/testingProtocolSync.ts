@@ -160,8 +160,15 @@ const TESTING_PROTOCOL_MARKERS = { start: MANAGED_BLOCK_START, end: MANAGED_BLOC
 const DEBT_MARKER_MARKERS = { start: DEBT_MARKER_BLOCK_START, end: DEBT_MARKER_BLOCK_END };
 const WORKFLOW_MARKERS = { start: WORKFLOW_BLOCK_START, end: WORKFLOW_BLOCK_END };
 
-/** Where the testing block is rendered from. Mirrors `testingConfigLoader`. */
-export const TESTING_CONFIG_SOURCE_PATH = 'project_memory/index/testing-config.json';
+/**
+ * Where the testing block is rendered from.
+ *
+ * Re-exported from `testingConfigLoader` rather than restated. It was a third
+ * hand-written copy of the same string, and a path that appears in three files
+ * is one rename away from a sync that silently reads nothing.
+ */
+export { TESTING_CONFIG_SSOT_PATH as TESTING_CONFIG_SOURCE_PATH } from '../core/testingConfigLoader.js';
+import { TESTING_CONFIG_SSOT_PATH as TESTING_CONFIG_SOURCE_PATH } from '../core/testingConfigLoader.js';
 
 /**
  * The blocks a git hook can verify, and the document each is rendered from.

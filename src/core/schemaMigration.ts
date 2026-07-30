@@ -60,7 +60,7 @@ export const CURRENT_SCHEMA_VERSIONS: Readonly<Record<SchemaDocumentKind, number
   'risk-oversight': 1,
   'security-review': 1,
   'data-privacy': 1,
-  'testing-config': 1,
+  'testing-config': 2,
   missions: 1,
   'personality-profile': 1,
   'mcp-environment': 1,
@@ -84,20 +84,21 @@ export interface SchemaMigrationStep {
   migrate: (document: Record<string, unknown>) => Record<string, unknown>;
 }
 
-/**
- * Every registered migration.
- *
- * Empty because no format has changed yet. The first entry will look like:
- *
- * ```ts
- * {
- *   kind: 'documents', from: 1, to: 2,
- *   summary: 'Shelves gained an explicit owner.',
- *   migrate: doc => ({ ...doc, version: 2, filing: (doc.filing as []).map(…) }),
- * }
- * ```
- */
-export const SCHEMA_MIGRATIONS: readonly SchemaMigrationStep[] = [];
+/** Every registered migration. */
+export const SCHEMA_MIGRATIONS: readonly SchemaMigrationStep[] = [
+  {
+    kind: 'testing-config',
+    from: 1,
+    to: 2,
+    summary: 'A testing methodology can now hold back non-test writes until its evidence has been seen.',
+    // `blocking` is left absent rather than written as `false`. Both read the
+    // same way, and an absent field says "this project never considered the
+    // question", where an explicit `false` would say "this project decided
+    // against it" — a distinction the Testing page can show and a migration has
+    // no standing to invent on the user's behalf.
+    migrate: document => ({ ...document, version: 2 }),
+  },
+];
 
 export type SchemaMigrationOutcome<T> =
   /** Already at the current version. */

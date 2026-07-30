@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.222.0] - 2026-07-30
+
+### Added
+- **`ProjectTestingMethodologyConfig.blocking` (schema version 2).** A methodology can hold back non-test writes until its evidence has been seen. Off by default and opt-in *per methodology* rather than as a project-wide switch: enabling a methodology is a statement of intent and must stay safe to make, whereas turning one into a gate changes how every task in the project runs. A project can therefore declare fourteen methodologies as the standard it holds itself to and block on only the one or two it is willing to stop work over.
+
+  The 1→2 migration adds no `blocking` field. Absent means "this project never considered the question"; an explicit `false` would mean "this project decided against it", which a migration has no standing to claim on the user's behalf.
+
+### Changed
+- **The write gate reads the testing config.** `evaluateProjectTddWriteGate` is the only real enforcement in the system, and `buildProjectTddPolicy` / `requiresProjectTddWriteGate` never consulted `testing-config.json` — they matched on the subtask's role and wording. So a project that had switched TDD *off* still got the gate, and the thirteen methodologies it had switched *on* got no gate at all: the declaration and the enforcement had nothing to do with one another. Both the subtask path and the inferred freeform path now honour `projectWantsTddWriteGate`.
+
+  An unreadable, absent, or newer-than-this-build config keeps the gate. In each of those cases the honest reading is "this project has not told us", and removing a safety behaviour on the strength of a file we could not read is the wrong direction to fail in.
+
+### Fixed
+- **`readProjectTestingConfig` no longer reports a newer file as "no testing policy".** It hard-gated on `parsed.version === 1`, collapsing *corrupt* and *written by a newer AtlasMind* into the same `undefined` — and every caller treats `undefined` as licence to seed and persist a fresh default. For a document whose whole content is which methodologies are enabled, that is a silent way to switch a project's testing policy off. It is routed through `interpretVersionedDocument` now, which is the module that exists to keep those two apart, and `readProjectTestingConfigDocument` exposes `preserveExisting` for the callers that are about to write.
+
+- **One reader and one path constant, where there were two and three.** `settingsPanel.ts` carried a byte-identical copy of the reader — two implementations that could disagree about whether a config was usable, and both with the same version bug — and the SSOT path was hand-written in three files. A path repeated three times is one rename away from a sync that silently reads nothing. Both now re-export from `testingConfigLoader.ts`.
+
+- `tests/core/schemaMigration.test.ts` asserted the migration registry was empty. That was true when no format had ever changed; the invariant it was actually protecting — every declared version is reachable from 1 — is kept and strengthened to require a contiguous, single-stepped ladder.
+
 ## [0.221.0] - 2026-07-30
 
 ### Added

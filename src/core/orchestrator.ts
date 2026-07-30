@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { AgentDefinition, BudgetMode, DataPrivacyMatch, MemoryEntry, ModelCapability, ModelStruggleKind, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, SubTaskStatus, TaskProfile, TaskRequest, TaskResult, TestingMethodologyId, ToolExecutionArtifact } from '../types.js';
+import type { AgentDefinition, BudgetMode, ProjectTestingConfig, DataPrivacyMatch, MemoryEntry, ModelCapability, ModelStruggleKind, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, SubTaskStatus, TaskProfile, TaskRequest, TaskResult, TestingMethodologyId, ToolExecutionArtifact } from '../types.js';
 import type { AgentAutoUpdater } from './agentAutoUpdater.js';
 import { buildDebtMarkerGuidance, parseCustomDebtMarkers } from './debtRegister.js';
 import {
@@ -1418,8 +1418,13 @@ export class Orchestrator {
 
     const requestBudget = request.constraints.maxCostUsd;
     const agentBudget = agent.costLimitUsd;
+    // The freeform gate answers the same question as the subtask one, so it obeys
+    // the same declaration: a project that has enabled no blocking methodology is
+    // not held back on a chat-driven change either.
     const projectTddPolicy = parseProjectTddPolicy(request.context['projectTddPolicy'])
-      ?? inferFreeformTddPolicy(request.userMessage, baseTaskProfile);
+      ?? (projectWantsTddWriteGate(this.readTestingConfig())
+        ? inferFreeformTddPolicy(request.userMessage, baseTaskProfile)
+        : { mode: 'not-applicable' as const, dependencyRedSignal: false });
     const budgetCapUsd = [requestBudget, agentBudget]
       .filter((value): value is number => typeof value === 'number' && value > 0)
       .reduce<number | undefined>((min, value) => min === undefined ? value : Math.min(min, value), undefined);
@@ -1984,10 +1989,11 @@ export class Orchestrator {
     // Detect the active testing methodology for this subtask and apply any
     // model override configured in the Testing Methodology Matrix.
     let subTaskMethodologyId: TestingMethodologyId | undefined;
+    const testingConfigForTask = this.readTestingConfig();
     {
       const wsRoot = this.skillContext.workspaceRootPath;
       if (wsRoot) {
-        const testingConfig = readProjectTestingConfig(wsRoot);
+        const testingConfig = testingConfigForTask;
         if (testingConfig) {
           subTaskMethodologyId = inferTestingMethodologyForSubTask(task, testingConfig);
           if (subTaskMethodologyId) {
@@ -2014,7 +2020,7 @@ export class Orchestrator {
         userMessage: message,
         context: {
           __subTask: true,
-          projectTddPolicy: buildProjectTddPolicy(task, depOutputs),
+          projectTddPolicy: buildProjectTddPolicy(task, depOutputs, testingConfigForTask),
           ...(projectGoal ? { sessionContextBundle: projectBundle } : {}),
           ...(subTaskMethodologyId ? { __testingMethodologyHint: buildMethodologySystemPromptHint(subTaskMethodologyId) } : {}),
         },
@@ -3693,14 +3699,23 @@ export class Orchestrator {
    * must never take a turn down with it.
    */
   private buildTestingObligation(): string {
+    return buildTestingObligationGuidance(this.readTestingConfig());
+  }
+
+  /**
+   * The workspace's testing configuration, or `undefined` when there is no
+   * workspace, no file, or one this build must not use. Never throws: an
+   * unreadable config must not take a turn down with it.
+   */
+  private readTestingConfig(): ProjectTestingConfig | undefined {
     const workspaceRoot = this.skillContext.workspaceRootPath;
     if (!workspaceRoot) {
-      return '';
+      return undefined;
     }
     try {
-      return buildTestingObligationGuidance(readProjectTestingConfig(workspaceRoot));
+      return readProjectTestingConfig(workspaceRoot);
     } catch {
-      return '';
+      return undefined;
     }
   }
 
@@ -4139,7 +4154,34 @@ function buildToolFailureGuidance(toolResults: ReadonlyArray<{ toolCall: ToolCal
   return 'If this is transient, please try again. If it keeps failing, tell me which tool reported it and I can help narrow the blocker.';
 }
 
-function buildProjectTddPolicy(task: SubTask, depOutputs: Record<string, string>): ProjectTddPolicy {
+/**
+ * Does this project want writes held back until a failing test has been seen?
+ *
+ * The write gate predates the testing matrix and never consulted it, so it fired
+ * on role and task wording alone — which meant a project that had switched TDD
+ * *off* still got the gate, and the thirteen other methodologies it had switched
+ * *on* got no gate at all. The config governs it now, and `blocking` is opt-in
+ * per methodology (schema v2): declaring a methodology should be safe, turning
+ * one into a gate changes how every task in the project runs.
+ *
+ * `undefined` config means no file, an unreadable file, or one written by a newer
+ * build — and in every one of those cases the honest answer is "this project has
+ * not told us", so the historical behaviour is kept rather than silently dropping
+ * a gate somebody may be relying on. Removing a safety behaviour on the strength
+ * of a file we could not read is the wrong direction to fail in.
+ */
+function projectWantsTddWriteGate(config: ProjectTestingConfig | undefined): boolean {
+  if (!config) {
+    return true;
+  }
+  return config.methodologies.some(entry => entry.enabled && entry.blocking === true);
+}
+
+function buildProjectTddPolicy(
+  task: SubTask,
+  depOutputs: Record<string, string>,
+  testingConfig: ProjectTestingConfig | undefined,
+): ProjectTddPolicy {
   const combinedText = `${task.title}\n${task.description}`;
   if (isTestAuthoringSubTask(task.role, combinedText)) {
     return {
@@ -4148,7 +4190,7 @@ function buildProjectTddPolicy(task: SubTask, depOutputs: Record<string, string>
     };
   }
 
-  if (!requiresProjectTddWriteGate(task.role, combinedText)) {
+  if (!projectWantsTddWriteGate(testingConfig) || !requiresProjectTddWriteGate(task.role, combinedText)) {
     return {
       mode: 'not-applicable',
       dependencyRedSignal: false,

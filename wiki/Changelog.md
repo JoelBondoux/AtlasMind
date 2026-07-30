@@ -16,6 +16,16 @@ Silent, and in the direction that costs money: every model-variant turn looked l
 
 ---
 
+## v0.222.0 — A methodology can hold work back, if you say so
+
+AtlasMind's one real enforcement — the gate that refuses non-test writes until a failing test has been seen — never read the testing matrix. It fired on the task's role and wording, so a project that had switched TDD *off* still got the gate, and the thirteen methodologies it had switched *on* got no gate whatsoever. The declaration and the enforcement had nothing to do with each other.
+
+Blocking is now a per-methodology opt-in rather than a project-wide switch. Enabling a methodology is a statement of intent and should stay safe to make; turning one into a gate changes how every task in the project runs. Declare fourteen as the standard you hold yourself to, and block on the one or two you are willing to stop work over. Where the config cannot be read at all the gate stays on — dropping a safety behaviour because a file would not parse is the wrong direction to fail in.
+
+Alongside it, a real data-loss hazard closed: the config reader hard-gated on `version === 1`, so a file written by a newer AtlasMind read as *no testing policy at all* — and that is what every writer treats as licence to persist a fresh default over the top. For a document whose entire content is which methodologies are on, that is a silent way to switch a project's testing policy off. It goes through the shared migration ladder now, which keeps *corrupt* and *newer* apart.
+
+---
+
 ## v0.221.0 — A testing policy that reaches the code
 
 The fix for the failure v0.220.0 made visible. This project enabled fourteen testing methodologies in June and eight of them still had no evidence of any kind seven weeks later — not because the declaration was wrong, but because it was never shown to a model that could act on it.

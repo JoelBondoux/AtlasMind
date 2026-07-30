@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { buildTestingObligationGuidance } from '../../src/core/testingConfigLoader.ts';
+import {
+  buildTestingObligationGuidance,
+  readProjectTestingConfig,
+  readProjectTestingConfigDocument,
+} from '../../src/core/testingConfigLoader.ts';
+import { removeTempDir } from '../helpers/tempDir.ts';
 import { TESTING_METHODOLOGY_DEFINITIONS } from '../../src/types.ts';
 import type { ProjectTestingConfig, TestingMethodologyId } from '../../src/types.ts';
 
@@ -87,6 +93,78 @@ describe('buildTestingObligationGuidance', () => {
       const guidance = buildTestingObligationGuidance(config([id as TestingMethodologyId]));
       expect(guidance, `${id} is practiceOnly in the scanner but asked for an artifact here`)
         .not.toContain('Produce it, or state why not');
+    }
+  });
+});
+
+describe('readProjectTestingConfig — versioned document boundary', () => {
+  const withConfigFile = <T>(document: unknown, run: (root: string) => T): T => {
+    const root = mkdtempSync(path.join(tmpdir(), 'atlasmind-testing-schema-'));
+    try {
+      mkdirSync(path.join(root, 'project_memory', 'index'), { recursive: true });
+      writeFileSync(
+        path.join(root, 'project_memory', 'index', 'testing-config.json'),
+        JSON.stringify(document),
+        'utf8',
+      );
+      return run(root);
+    } finally {
+      removeTempDir(root);
+    }
+  };
+
+  it('reads a v1 file and brings it forward', () => {
+    withConfigFile(
+      { version: 1, updatedAt: '2026-06-09T00:00:00.000Z', methodologies: [{ id: 'unit', enabled: true }] },
+      root => {
+        const read = readProjectTestingConfigDocument(root);
+        expect(read.config?.methodologies[0]?.id).toBe('unit');
+        expect(read.preserveExisting).toBe(false);
+        // The migration adds no `blocking` field. Absent says "never considered";
+        // an explicit false would say "decided against", which a migration has no
+        // standing to claim on the user's behalf.
+        expect(read.config?.methodologies[0]).not.toHaveProperty('blocking');
+      },
+    );
+  });
+
+  it('refuses a file written by a newer AtlasMind instead of reporting no policy', () => {
+    // The old reader hard-gated on `version === 1`, so this read as `undefined` —
+    // indistinguishable from "no testing policy", which is what every writer in
+    // the project treats as licence to persist a fresh default over the top. For
+    // a document whose whole content is "which methodologies are on", that is a
+    // silent way to switch a project's testing policy off.
+    withConfigFile(
+      { version: 99, updatedAt: '2030-01-01T00:00:00.000Z', methodologies: [{ id: 'unit', enabled: true }] },
+      root => {
+        const read = readProjectTestingConfigDocument(root);
+        expect(read.preserveExisting).toBe(true);
+        expect(read.config).toBeUndefined();
+        expect(read.notice).toBeTruthy();
+      },
+    );
+  });
+
+  it('treats an unparseable file as replaceable, not as precious', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'atlasmind-testing-schema-'));
+    try {
+      mkdirSync(path.join(root, 'project_memory', 'index'), { recursive: true });
+      writeFileSync(path.join(root, 'project_memory', 'index', 'testing-config.json'), '{ not json', 'utf8');
+      const read = readProjectTestingConfigDocument(root);
+      expect(read.preserveExisting).toBe(false);
+      expect(read.config).toBeUndefined();
+    } finally {
+      removeTempDir(root);
+    }
+  });
+
+  it('reports no config and nothing to preserve when the file is absent', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'atlasmind-testing-schema-'));
+    try {
+      expect(readProjectTestingConfigDocument(root)).toEqual({ preserveExisting: false });
+      expect(readProjectTestingConfig(root)).toBeUndefined();
+    } finally {
+      removeTempDir(root);
     }
   });
 });

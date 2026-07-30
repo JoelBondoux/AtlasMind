@@ -12,6 +12,7 @@ import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
 import { scanAiInstructionFiles, syncAiInstructionFiles } from '../utils/aiInstructionSync.js';
 import { syncTestingProtocols, readWorkflowGuidanceInput } from '../utils/testingProtocolSync.js';
 import { scaffoldTestingFramework } from '../core/testingScaffolder.js';
+import { readProjectTestingConfig, TESTING_CONFIG_SSOT_PATH } from '../core/testingConfigLoader.js';
 import { IMMUTABLE_GUARDRAILS } from '../core/orchestrator.js';
 import type { ArdDiscoveredResource, ArdDiscoveryEndpoint } from '../types.js';
 import { getDisplayCurrency, getExchangeRate } from '../core/currencyFormatter.js';
@@ -5598,24 +5599,16 @@ function renderTestingStatCard(label: string, value: string, meta: string): stri
     </article>`;
 }
 
-const TESTING_CONFIG_SSOT_PATH = 'project_memory/index/testing-config.json';
+/**
+ * Re-exported so existing importers keep working. There is now exactly one
+ * reader: this file used to carry a byte-identical copy, which meant two
+ * implementations that could disagree about whether a config was usable, and
+ * both hard-gated on `version === 1` — so a file written by a newer AtlasMind
+ * read as "no testing policy at all" and was liable to be overwritten with a
+ * fresh default.
+ */
+export { readProjectTestingConfig };
 
-export function readProjectTestingConfig(workspaceRoot: string): import('../types.js').ProjectTestingConfig | undefined {
-  const configPath = path.join(workspaceRoot, TESTING_CONFIG_SSOT_PATH);
-  if (!existsSync(configPath)) {
-    return undefined;
-  }
-  try {
-    const raw = readFileSync(configPath, 'utf8');
-    const parsed = JSON.parse(raw) as import('../types.js').ProjectTestingConfig;
-    if (parsed.version === 1 && Array.isArray(parsed.methodologies)) {
-      return parsed;
-    }
-    return undefined;
-  } catch {
-    return undefined;
-  }
-}
 
 export async function writeProjectTestingConfig(
   workspaceRoot: string,
