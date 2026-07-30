@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.214.0] - 2026-07-30
+
+### Added
+- **The Overview now says what needs a person.** A new *Needs you* band sits above the stat grid and gathers, from the pages that already know, the things that are failing, shut or past due: failing tests, a red pipeline, blocked memory writes, overdue follow-ups, release gates that are not passing, blocked promotion paths, high-severity debt, open risk findings, documents due review, stale issues. Each card is clickable and routes to the page that owns the fact.
+
+  **It is empty when nothing needs you**, which is the whole design. The Overview once closed with a grid of twelve equally-weighted shortcut cards, and that grid was removed for being a second navigation system pretending to be a summary. A navigation grid can never be empty; this band renders a single muted line and no card frame at all when every check comes back clear.
+
+  **Unassessed is never reported as clear.** The failure mode that would make the band actively harmful is silence earned by not looking, presented as silence earned by everything passing — so a project with no test report, no readable issue tracker, an unscanned debt register or an unassessed risk register says exactly that, in its own category, ranked below real findings but never omitted. The empty state distinguishes *checked and clear* from *too little was assessed to say*, and the sentence comes from the module so no surface can restate it more optimistically.
+
+  **Ranked by consequence, not magnitude**, following the same rule the observed-delta band uses: a red pipeline outranks forty stale issues, ties break on declaration order so the list cannot shuffle between renders, and the six-card cap always states its remainder. Every card publishes the declared rule that graded it, as the tech-debt register does, so a grade can be argued with rather than merely trusted.
+
+  **What moved** appears as a compact strip beneath the cards, drawn from the same observed delta the Workflow page renders — and every chip routes there, because the Workflow page owns the only *Mark as seen* control and a delta must advance exactly once.
+
+- **`src/core/attentionFeed.ts`** — the pure, `vscode`-free model behind it: a published rule table whose declaration order *is* the ranking, eleven optional input groups where absent means "not assessed" rather than "nothing there", and a summary sentence carried on the feed so every surface tells the same story.
+
 ## [0.213.2] - 2026-07-30
 
 ### Added

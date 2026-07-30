@@ -1950,6 +1950,7 @@
 
     return `
       ${pageSectionOpen('overview')}
+        ${renderAttentionBand(snapshot)}
         <div class="stats-grid">
           ${stats.map(stat => renderStatCard(stat)).join('')}
         </div>
@@ -7250,6 +7251,85 @@
   // The short-horizon slice of the score recommendations, shown at the foot of
   // Overview. Replaces a grid of twelve shortcut cards that all duplicated a
   // destination already on the page.
+  /**
+   * What needs a person, drawn from every adjacent page onto the Overview.
+   *
+   * Placed above the stat grid because it is the only band here that can be
+   * empty. The stats always show a number and so are always the same shape; this
+   * one is either loud or absent, and putting an absent band under nine
+   * permanently-populated cards would hide the loud case on the days it matters.
+   *
+   * The rendering keeps three of the module's five rules, since they are visual
+   * rather than logical: **an empty feed renders one line, not a card** (the
+   * twelve-card grid that used to close this page was removed for being a
+   * navigation system pretending to be a summary); **the remainder is always
+   * stated** where the cap truncated; and **every card names the rule that
+   * graded it**, so a grade can be argued with instead of merely trusted.
+   */
+  function renderAttentionBand(snapshot) {
+    const feed = snapshot.attention;
+    if (!feed) {
+      return '';
+    }
+
+    const URGENCY_WORD = { now: 'Now', soon: 'Soon', unassessed: 'Not assessed' };
+    const delta = snapshot.guidedWorkflow && snapshot.guidedWorkflow.delta;
+    // Only a delta with something in it earns space here. `first-look` and
+    // `unchanged` are worth explaining, but the Workflow page owns that
+    // explanation and this band exists to be quiet when there is no news.
+    const moved = delta && delta.status === 'changed' && delta.changes.length > 0
+      ? `
+        <div class="attention-moved">
+          <span class="attention-moved-kicker">What moved</span>
+          ${delta.changes.slice(0, 3).map(change => `
+            <button type="button" class="attention-moved-chip" data-action="page" data-payload="workflow" title="${escapeAttr(change.summary)}">
+              ${escapeHtml(change.label)}
+            </button>`).join('')}
+          <button type="button" class="action-link" data-action="page" data-payload="workflow">${escapeHtml(delta.headline)} ›</button>
+        </div>`
+      : '';
+
+    if (feed.totalCount === 0) {
+      // Two different claims, and collapsing them would congratulate the user
+      // for not looking. The sentence itself comes from the module so it cannot
+      // drift; only the unexamined case adds a route to somewhere that fixes it.
+      return `
+        <section class="attention-band attention-band-clear">
+          <p class="attention-clear">${escapeHtml(feed.summary)}</p>
+          ${feed.emptyState === 'clear' ? '' : `
+            <div class="tag-row">
+              <button type="button" class="action-link" data-action="page" data-payload="workflow">Work through the setup ›</button>
+            </div>`}
+          ${moved}
+        </section>`;
+    }
+
+    return `
+      <section class="attention-band">
+        <div class="attention-head">
+          <div>
+            <p class="section-kicker">Needs you</p>
+            <h3>${escapeHtml(feed.summary)}</h3>
+          </div>
+          <span class="stat-detail">Gathered from the pages that own each fact. Ranked by consequence, not by count.</span>
+        </div>
+        <div class="attention-grid">
+          ${feed.items.map(item => `
+            <button type="button" class="attention-card attention-${escapeAttr(item.urgency)}" data-action="page" data-payload="${escapeAttr(item.pageTarget)}">
+              <span class="attention-urgency">${escapeHtml(URGENCY_WORD[item.urgency] || item.urgency)}</span>
+              <strong class="attention-label">${escapeHtml(item.label)}</strong>
+              <span class="attention-detail">${escapeHtml(item.detail)}</span>
+              <span class="attention-rule">Rule: ${escapeHtml(item.rule)}</span>
+            </button>`).join('')}
+        </div>
+        ${feed.droppedByCap > 0
+          ? `<p class="stat-detail">${escapeHtml(String(feed.droppedByCap))} more ${feed.droppedByCap === 1 ? 'item is' : 'items are'} not shown. The cap keeps the list readable; the pages themselves carry the full set.</p>`
+          : ''}
+        ${moved}
+      </section>
+    `;
+  }
+
   function renderOverviewNextActions(snapshot) {
     const all = (snapshot.score && snapshot.score.recommendations) || [];
     // Prefer the quick wins; fall back to longer horizons so the section is not

@@ -56,6 +56,11 @@ import {
   type ObservedSnapshot,
 } from '../core/observedDelta.js';
 import {
+  buildAttentionFeed,
+  type AttentionFeed,
+  type AttentionInput,
+} from '../core/attentionFeed.js';
+import {
   deriveBranchMetrics,
   deriveCiMetrics,
   deriveDoraMetrics,
@@ -1598,6 +1603,14 @@ interface DashboardSnapshot {
   ideation: DashboardIdeationSnapshot;
   gapAnalysis: DashboardGapAnalysisSnapshot;
   privacy: DashboardPrivacySnapshot;
+  /**
+   * What needs a person, gathered from the pages above onto the Overview.
+   *
+   * Derived from this same snapshot rather than collected separately, so the
+   * feed can never disagree with the page it points at — if the Testing page
+   * says three failing, this says three failing, because it read that field.
+   */
+  attention: AttentionFeed;
   // There is deliberately no `quickActions` here. Overview used to end with a
   // grid of twelve equally-weighted shortcut cards, every one of which
   // duplicated a destination already on screen — a tab, the hero score ring, a
@@ -6672,7 +6685,10 @@ async function collectDashboardSnapshot(
   });
   const gapAnalysis = await collectGapAnalysisSnapshot(workspaceRoot, ssotPath, heuristicGapItems);
 
-  return {
+  // Named rather than returned directly so the attention feed can be derived
+  // from the finished snapshot — reading the same fields the pages render is
+  // what stops the Overview and the page it links to disagreeing.
+  const snapshot: Omit<DashboardSnapshot, 'attention'> = {
     generatedAt: new Date().toISOString(),
     ssotPresent: ssotSnapshot.totalFiles > 0 || memoryEntries.length > 0,
     workspaceName,
@@ -6885,6 +6901,76 @@ async function collectDashboardSnapshot(
     },
     gapAnalysis,
     privacy: privacySnapshot,
+  };
+
+  return { ...snapshot, attention: buildAttentionFeed(buildAttentionInput(snapshot, latestCiConclusion)) };
+}
+
+/**
+ * Map the assembled snapshot onto the eleven groups the attention feed reads.
+ *
+ * The mapping is where rule 5 — *unassessed is not clear* — is actually kept or
+ * broken, and it is broken by defaulting. Every group here is supplied only when
+ * the page behind it was genuinely read; where it was not, the group is left
+ * `undefined`, because `{ open: 0 }` and "nobody looked" render identically once
+ * they reach the feed and only one of them is true.
+ */
+function buildAttentionInput(
+  snapshot: Omit<DashboardSnapshot, 'attention'>,
+  latestCiConclusion: 'success' | 'failure' | 'pending' | 'none' | undefined,
+): AttentionInput {
+  const coverage = snapshot.testing.policyCoverage;
+  // The first stage the curriculum could not proceed past. `blocked` is a status
+  // the curriculum assigns from observed state, not a guess made here.
+  const blockedStage = snapshot.guidedWorkflow.stages.find(stage => stage.status === 'blocked');
+
+  return {
+    // Absent when no testing policy has been enabled at all — there is then no
+    // matrix to be uncovered against, so silence is correct rather than hidden.
+    ...(coverage === undefined ? {} : {
+      testing: {
+        failing: coverage.totalFailed,
+        hasReport: coverage.report !== undefined,
+        uncovered: coverage.missingCount,
+      },
+    }),
+    // `latestCiConclusion` is undefined until CI has actually been fetched, and
+    // `'none'` means fetched-but-no-runs. Both are "not failing"; only the first
+    // is "not known", and the feed needs them apart.
+    pipeline: {
+      loaded: latestCiConclusion !== undefined,
+      latestFailed: latestCiConclusion === 'failure',
+    },
+    // A `ready` status without a summary has still told us nothing countable,
+    // so it is reported as unreadable rather than as zero of everything.
+    issues: snapshot.issues.status === 'ready' && snapshot.issues.summary
+      ? {
+        loaded: true,
+        stale: snapshot.issues.summary.staleCount,
+        unassigned: snapshot.issues.summary.unassignedCount,
+      }
+      : { loaded: false, stale: 0, unassigned: 0 },
+    ssot: { blocked: snapshot.ssot.blockedEntries, warned: snapshot.ssot.warnedEntries },
+    director: { overdue: snapshot.director.overdueCount },
+    documents: { reviewDue: snapshot.documents.reviewDueCount, missing: snapshot.documents.missingCount },
+    risk: { assessed: snapshot.risk.assessed, open: snapshot.risk.openCount },
+    // A register with no scan date has never run. Its emptiness then means
+    // "not scanned", not "nothing found", which is the distinction the feed
+    // exists to preserve.
+    debt: {
+      scanned: snapshot.debt.lastScanAt !== undefined,
+      open: snapshot.debt.metrics.open,
+      high: snapshot.debt.metrics.bySeverity.find(bucket => bucket.key === 'high')?.value ?? 0,
+    },
+    // `blockedBy` is the release plan's own list of gates that are not passing,
+    // and it already treats `unknown` as not-a-pass. Recounting it here would be
+    // a second opinion on a question the Release page has already answered.
+    release: { blockedGates: snapshot.release.plan.blockedBy.length },
+    delivery: { blockedPaths: snapshot.delivery.stages.paths.filter(path => path.blocked).length },
+    workflow: {
+      nextStepBlocked: blockedStage !== undefined,
+      ...(blockedStage === undefined ? {} : { nextStepTitle: blockedStage.name }),
+    },
   };
 }
 
@@ -11815,6 +11901,124 @@ const DASHBOARD_CSS = `
     gap: 6px;
   }
 
+  /* ── Needs you (Overview header) ──────────────────────────────────────
+     The one band on this page that can be empty, so it is styled to disappear
+     rather than to hold a place: a cleared project gets a single muted line and
+     no card frame at all. Urgency is carried by a left border rather than a
+     filled background — six saturated cards in a row read as an alarm state
+     even when three of them say "not assessed". */
+  .attention-band {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 4px;
+  }
+
+  .attention-band-clear { gap: 8px; }
+
+  .attention-clear {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--vscode-descriptionForeground);
+  }
+
+  .attention-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .attention-head h3 { margin: 2px 0 0; }
+  .attention-head .section-kicker { margin: 0; }
+  .attention-head .stat-detail { max-width: 46ch; text-align: right; }
+
+  .attention-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 10px;
+  }
+
+  .attention-card {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px 14px;
+    text-align: left;
+    border: 1px solid var(--dash-border);
+    border-left-width: 3px;
+    border-radius: 10px;
+    background: var(--dash-panel);
+    color: var(--vscode-foreground);
+    cursor: pointer;
+    transition: border-color 120ms ease, transform 120ms ease;
+  }
+
+  .attention-card:hover {
+    transform: translateY(-1px);
+    border-color: var(--dash-accent-strong);
+  }
+
+  .attention-card.attention-now { border-left-color: var(--dash-critical); }
+  .attention-card.attention-soon { border-left-color: var(--dash-warn); }
+  .attention-card.attention-unassessed { border-left-color: var(--dash-muted); }
+
+  .attention-urgency {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--vscode-descriptionForeground);
+  }
+
+  .attention-label { font-size: 13.5px; }
+
+  .attention-detail {
+    font-size: 11.5px;
+    line-height: 1.45;
+    color: var(--vscode-descriptionForeground);
+  }
+
+  /* The grade, published on the card rather than in a tooltip. A severity you
+     cannot see the reasoning for is one you end up ignoring. */
+  .attention-rule {
+    font-size: 10.5px;
+    line-height: 1.4;
+    opacity: 0.72;
+    color: var(--vscode-descriptionForeground);
+  }
+
+  /* "What moved" in one strip. The Workflow page owns the full delta and the
+     only "Mark as seen" control, so every chip here routes there rather than
+     duplicating a state machine that must advance exactly once. */
+  .attention-moved {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .attention-moved-kicker {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--vscode-descriptionForeground);
+  }
+
+  .attention-moved-chip {
+    padding: 3px 9px;
+    font-size: 11px;
+    border: 1px solid var(--dash-border);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--vscode-foreground);
+    cursor: pointer;
+  }
+
+  .attention-moved-chip:hover { border-color: var(--dash-accent-strong); }
+
   /* ── Recommended next (Overview footer) ───────────────────────────────
      Replaces a grid of twelve shortcut cards, every one of which duplicated a
      destination already reachable from the tabs, the hero score ring, a stat
@@ -14164,8 +14368,8 @@ const DASHBOARD_CSS = `
   .policy-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; margin-top: 12px; }
   .policy-card { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.28)); background: var(--vscode-editorWidget-background, rgba(127,127,127,0.06)); border-left-width: 3px; border-left-style: solid; }
   .policy-card.status-covered { border-left-color: var(--dash-good, #4ec9b0); }
-  .policy-card.status-tooling-only { border-left-color: var(--dash-warn, #cca700); }
-  .policy-card.status-missing { border-left-color: var(--dash-critical, #f14c4c); }
+  .policy-card.status-tooling-only { border-left-color: var(--dash-warn); }
+  .policy-card.status-missing { border-left-color: var(--dash-critical); }
   .policy-card.status-not-file-evident { border-left-color: var(--vscode-widget-border, rgba(127,127,127,0.4)); opacity: 0.82; }
   .policy-card.has-failures { box-shadow: 0 0 0 1px color-mix(in srgb, var(--dash-critical, #f14c4c) 45%, transparent) inset; }
   .policy-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }

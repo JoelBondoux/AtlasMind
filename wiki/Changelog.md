@@ -6,6 +6,18 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.214.0 — The Overview says what needs a person
+
+A *Needs you* band sits above the stat grid and gathers, from the pages that already know, what is failing, shut or past due: failing tests, a red pipeline, blocked memory writes, overdue follow-ups, release gates not passing, blocked promotion paths, high-severity debt, open risk findings, documents due review, stale issues. Every card routes to the page that owns the fact.
+
+**It is empty when nothing needs you.** The Overview once closed with a grid of twelve equally-weighted shortcut cards, removed for being a second navigation system pretending to be a summary. A navigation grid can never be empty; this band renders one muted line and no card frame when every check comes back clear.
+
+**Unassessed is never reported as clear.** A project with no test report, no readable issue tracker, an unscanned debt register or an unassessed risk register says exactly that, in its own category — ranked below real findings, never omitted. Silence earned by not looking is the one failure mode that would make the band worse than nothing, and the empty state distinguishes *checked and clear* from *too little was assessed to say*.
+
+**Ranked by consequence, not magnitude.** A red pipeline outranks forty stale issues; ties break on declaration order so the list cannot shuffle; the six-card cap always states its remainder; and every card publishes the declared rule that graded it, so a grade can be argued with rather than trusted. *What moved* appears as a compact strip whose chips all route to the Workflow page, which owns the only *Mark as seen* control.
+
+---
+
 ## v0.213.2 — What AtlasMind will say when it cannot tell
 
 `docs/game-engine-integration.md` specifies the engine half — Unreal, Unity and Godot identity, the `game.json` schema, asset and build-log reading, the bridge protocol and the security boundary — completing the specification work begun in v0.213.1.

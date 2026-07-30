@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.213.2</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.214.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,9 +68,15 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.213.2
+## What's new in 0.214.0
 
 Since the last Marketplace publication, **v0.208.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **The Overview now says what needs a person.** A *Needs you* band above the stat grid gathers, from the pages that already know, the things that are failing, shut or past due — failing tests, a red pipeline, blocked memory writes, overdue follow-ups, release gates that are not passing, high-severity debt, stale issues — as clickable cards that route to the page owning the fact.
+
+  It is **empty when nothing needs you**, which is the point: the Overview once closed with twelve equally-weighted shortcut cards, and that grid was removed for being a second navigation system pretending to be a summary. A navigation grid can never be empty; this one renders a single muted line when every check comes back clear.
+
+  And **unassessed is never reported as clear**. No test report, no readable issue tracker, an unscanned debt register — each says so in its own category rather than contributing to a quiet page. Silence earned by not looking is the one failure that would make the band worse than nothing. Cards are ranked by consequence rather than count (a red pipeline outranks forty stale issues), capped with the remainder stated, and each publishes the declared rule that graded it.
 
 - **Specified: a project can be more than one thing, in more than one place.** [project-composition.md](docs/project-composition.md) is a *specification, not a shipped feature* — nothing in this release behaves differently. It defines how AtlasMind will model a project made of several components (an engine fork, gameplay systems, shared libraries, backend services, tools, content), each with its own role, archetype and version control system, so a single-repo project becomes the simplest case rather than the assumed one.
 

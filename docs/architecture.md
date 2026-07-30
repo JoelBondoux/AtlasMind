@@ -545,6 +545,24 @@ The reported list is capped, with the remainder stated. Above the cap it stops b
 
 **Storage is the caller's, and it must be per-developer.** `OBSERVED_SNAPSHOT_NOTE` states this in the module so it cannot be got wrong quietly: `project_memory/` is git-tracked on purpose, so a baseline kept there would mean "when did *anybody* last look", would appear as an uncommitted change every time the dashboard opened, and would conflict between two people looking on the same day. The dashboard keeps it in `workspaceState` beside the delivery review's `reviewedAt`, and holds the computed delta for the session — advancing the baseline on every render would empty the delta from the second render onwards, so the surface would work exactly once and then quietly report nothing forever.
 
+### AttentionFeed (`src/core/attentionFeed.ts`)
+
+What needs a person, gathered from every dashboard page onto the Overview. `ObservedDelta` answers *what changed?*; this answers *what is wrong or due right now*, which the Overview previously did not answer at all — it opened with nine permanently-populated stat cards ("43% coverage", "8 workflows"), and nothing on the page distinguished a project with three failing tests and a blocked release gate from one with neither.
+
+The design constraint comes from what used to close this page: a grid of twelve equally-weighted shortcut cards, removed for being a second navigation system competing with the first. **The distinguishing property of this band is that it is empty when nothing needs you**, which a navigation grid can never be. Five rules keep it from becoming the thing that was removed.
+
+**Only what needs a person.** Not "43% coverage" — "3 tests failing". The Project State badge learned this first: a count that includes everything is permanently non-zero and therefore ignored. Warned SSOT entries do not qualify; blocked ones do, because one of them stops something.
+
+**Severity from a declared rule, never a judgement.** Each of the sixteen rules carries the sentence that grades it, published on the card, so a grade can be argued with rather than trusted. The tech-debt register's reasoning applied to a different register.
+
+**Ranked by consequence, not magnitude.** Declaration order *is* the ranking, and it is an editorial decision rather than something emergent from counts — a red pipeline outranks forty stale issues, and sorting by magnitude would let the forty win. Ties break on that same order, so the list cannot shuffle between renders and become unreadable.
+
+**Capped, with the remainder stated.** Six items are shown; a list that silently truncates reads as "that's everything".
+
+**Unassessed is not clear.** The rule that matters most, and the reason `AttentionInput`'s eleven groups are each optional: **absent means "not assessed" rather than "nothing there"**. A page that could not be read — no `gh`, no test report, a debt register never scanned, risk never assessed — contributes its own `unassessed` item rather than contributing nothing. Silence earned by not looking is the single failure mode that would make this band worse than not having it. The same distinction survives into the empty state, which is `clear` only when at least four groups were actually supplied and `unexamined` otherwise; `summary` is carried on the feed rather than left to each renderer, because two surfaces phrasing the same counts their own way is how "3 unassessed" becomes "all clear" on one screen and not the other.
+
+The mapping from the dashboard snapshot lives in `projectDashboardPanel.ts` and is where those rules are actually kept or broken — by defaulting. It reads the release plan's own `blockedBy` list rather than recounting gates, because that list already encodes "an `unknown` gate is not a pass"; it treats an absent `lastScanAt` as never-scanned rather than as an empty register; and it derives the feed from the finished snapshot rather than collecting separately, so the Overview and the page it links to cannot disagree about a number.
+
 ### WorkflowAutomation (`src/core/workflowAutomation.ts`)
 
 Where the specification's central claim is kept: **full automation is possible, never default.** That has to be true by construction rather than by policy, and the mechanism is a minimum over four independent gates that all default closed — `effective = min(master, userCeiling, capability, stage)`. A project's committed workflow file may request `auto`; if any one of the four disagrees, `auto` does not happen. Personal settings can only *lower* the result, so a repository cannot force unattended action onto somebody's machine and a developer cannot grant themselves more than the repository allows. An exhaustive test walks the whole lattice rather than arguing the property.
