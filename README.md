@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.209.3</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.210.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,9 +68,15 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.209.3
+## What's new in 0.210.0
 
 Since the last Marketplace publication, **v0.208.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Your workflow rules now reach the agents that are not AtlasMind.** AtlasMind's workflow gates only ever restrained AtlasMind — they could not bind you, Claude Code, Copilot or Cursor, none of which can see a VS Code setting. So an external agent committing straight to your integration branch was not breaking the rules; it had no way to know any existed.
+
+  The declared workflow is now projected into the instruction files those tools already read (`CLAUDE.md`, `.github/copilot-instructions.md`, `AGENTS.md`, Cursor, Cline, Gemini, Windsurf, Aider) as a third managed block, alongside the testing protocols and debt markers. It states the branch rules, how far an agent may go at each stage, which evidence a stage wants, and the label taxonomy — every line derived from the committed file, never model-generated. Crucially it prints the level your *ceiling* actually permits, so a stage asking for more cannot invite an agent to act on authority nobody granted.
+
+- **A pre-commit check keeps those blocks honest — and never edits your files.** Tick **Verify AI instruction sets before each commit** (on by default) and a commit is refused when a managed block no longer matches the document it came from, naming the command that fixes it. Verify-only is deliberate: a hook that rewrote files would mean the commit you staged is not the commit that lands, and a two-way sync at commit time would pull one tool's edits in and broadcast them to every other tool's instruction file unreviewed.
 
 - **The subscription you already pay for actually works as capacity.** ACP has been in AtlasMind since v0.170.0 as "use your Claude or ChatGPT subscription", and on Windows nobody could have used it. Four faults, each fatal on its own, all found by running it against live agents rather than reading the code.
 

@@ -6,6 +6,22 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.210.0 — The workflow rules reach the agents that are not AtlasMind
+
+AtlasMind's workflow gates are **self-restraints**. The effective level of a stage is `min(master, ceiling, capability, stage)`, and that arithmetic governs what *AtlasMind* may do — it cannot bind the human, and it cannot bind Claude Code, Copilot or Cursor, none of which can read a VS Code setting or a file in `project_memory/`.
+
+So the rules were enforced against the one participant that had already agreed to them, and invisible to every other. **An external agent committing straight to the integration branch was not violating the workflow; it had no way to know one existed.** There is no stronger gate to be had over a process AtlasMind does not run, so the fix is the mechanism that does work: put the rules in the file the agent already reads.
+
+The committed `workflow.json` is now rendered as instructions into `CLAUDE.md`, `.github/copilot-instructions.md`, `AGENTS.md`, Cursor, Cline, Gemini, Windsurf and Aider — a **third** managed block beside testing protocols and debt markers. Branch rules and which branches are never pushed to, how far the reader may go at each stage, the evidence each stage wants, the label taxonomy.
+
+Four things it does deliberately: every line is **derived** from the file rather than model-generated (a hallucinated rule an agent then follows is worse than no block); it prints the level your **ceiling** permits rather than the level a stage asked for (printing `auto` under an `observe` ceiling would invite an agent to act on authority nobody granted); levels render as instructions rather than labels, since `propose` means nothing to a reader who has not seen the ladder; and where no stage is enabled — the default — it **says so** instead of omitting the section, because a missing table reads as "no rules apply".
+
+**A pre-commit check keeps the blocks honest, and never writes.** `atlasmind.instructions.verifyOnCommit` (on by default) refuses a commit when a block no longer matches its source, naming the command that fixes it — how this project already treats a missing version bump.
+
+Verify-only was chosen over auto-sync on purpose. The existing hook only ever reads and refuses; making it mutate would mean the commit you staged is not the commit that lands. And a *bi-directional* sync at commit time would pull other agents' edits in and broadcast them to all eight instruction files unreviewed — one tool's change silently becoming every tool's instruction, on exactly the files other agents write to.
+
+Detecting staleness from a shell is the interesting part: re-rendering is impossible without a VS Code host, and a second copy of the rendering would drift and cry wolf until somebody switched the check off. So the sync records a **digest of the source document inside the block**, and staleness is a digest comparison. What that detects is stated rather than overclaimed — the source changed since the block was written, not a hand-edit that leaves the digest alone. The debt-marker block is deliberately unchecked, because it comes from a setting a hook cannot read.
+
 ## v0.209.3 — The dashboard tabs get their styling back
 
 Every unselected tab on the Project Dashboard nav rendered as a light grey pill with grey text on a dark panel — the browser's default button look, with no theme colour in it.

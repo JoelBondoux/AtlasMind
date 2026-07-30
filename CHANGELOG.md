@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.210.0] - 2026-07-30
+
+### Added
+- **The declared workflow is projected into every AI agent's instruction file.** This closes a hole the workflow feature had from the start, and the hole was structural rather than a bug: AtlasMind's gates are **self-restraints**. The effective level of a stage is `min(master, ceiling, capability, stage)`, and that arithmetic governs what *AtlasMind* may do. It cannot bind the human, and it cannot bind Claude Code, Copilot or Cursor — none of which can read a VS Code setting or a file in `project_memory/`.
+
+  So the rules were enforced against the one participant that had already agreed to them and invisible to every other. An external agent committing straight to the integration branch was not violating the workflow; **it had no way to know one existed.** There is no stronger gate available over a process AtlasMind does not run, so the mechanism is the one that does work: put the rules in the file the agent already reads.
+
+  New `src/core/workflowGuidance.ts` renders the committed `workflow.json` as instructions — branch rules and which branches are never pushed to, how far the reader may go at each stage, the evidence each stage wants, and the label taxonomy. It is written into `CLAUDE.md`, `.github/copilot-instructions.md`, `AGENTS.md`, Cursor, Cline, Gemini, Windsurf and Aider as a **third** managed block, alongside testing protocols and debt markers — third rather than folded in, because the questions differ, the change rates differ, and a file holding one block and not the others should keep what it has.
+
+  Four properties are load-bearing:
+
+  - **Derived, never generated.** Every line traces to the committed file. A model asked to summarise a workflow produces plausible rules nobody declared, and an agent would then follow them — worse than no block, because it reads as authoritative. A test asserts the text contains no invented rule vocabulary.
+  - **It prints the level the *ceiling* permits, not the level a stage asked for.** A stage declaring `auto` under an `observe` ceiling is an `observe` stage. Printing `auto` would invite an agent to act on authority nobody granted, which is the one way this block could cause harm.
+  - **Levels become instructions, not labels.** `propose` means nothing to a reader who has never seen AtlasMind's ladder, so it renders as "open it for review and wait for a human decision".
+  - **A blocked stage collapses to `off`.** A blocker is not a preference to be weighed against a level; it states the stage cannot run. And where no stage is enabled — the default, since stages ship disabled — the block *says so* rather than omitting the section, because a missing table reads as "no rules apply".
+
+- **A pre-commit check that the managed blocks are current, and never writes.** `atlasmind.instructions.verifyOnCommit` (default **on**) refuses a commit when a block no longer matches the document it was rendered from, naming the command that fixes it — exactly how this repository already treats a missing version bump.
+
+  **Verify-only was chosen over the auto-sync that was asked for**, for reasons worth recording. The existing hook is entirely verification: it reads and refuses, and never touches the working tree. Making it mutate would mean *the commit you staged and reviewed is not the commit that lands*. And a **bi-directional** sync at commit time would pull other agents' edits into the repository and broadcast them to all eight instruction files unreviewed — one tool's change silently becoming every tool's instruction, on a path where those files are precisely what other agents write to. `/sync-instructions` also resolves significant conflicts in chat, and a hook cannot hold a conversation.
+
+  How staleness is detected without a VS Code host is the interesting part. Re-rendering is impossible from a shell (the renderers need a testing config, the agent list and a settings reader), and a second copy of the rendering would drift and cry wolf until somebody disabled the check — removing the check *and* teaching that AtlasMind's gates are noise. So the sync **records a digest of the source document inside the block**, and staleness is a digest comparison needing nothing but the filesystem.
+
+  What it detects is stated precisely rather than overclaimed: the source changed after the block was written. It does **not** catch a hand-edit that leaves the digest alone — the block says it is overwritten on the next sync, and it is. The debt-marker block is **deliberately unchecked**, because it is driven by a VS Code setting a git hook cannot read; listing it would make the hook report a file as stale forever. And a block a file does not carry is never reported, so adopting one tool does not become a standing complaint about the eight you do not use.
+
+  Three ways out, all documented in the failure message itself, because an undocumented bypass gets bypassed with `--no-verify` — which disables the compile, lint and test gates in the same hook: untick the checkbox, `ATLASMIND_SKIP_INSTRUCTION_CHECK=1` for one commit, or nothing at all when the check cannot run (no build output, no instruction files) since **a check that cannot run is not a failure**.
+
+  The checkbox writes **workspace** scope, and that is a requirement rather than a convention: the hook reads `.vscode/settings.json` because it has no VS Code host, so a User-scoped value would be a control that silently does nothing.
+
+### Verified
+- Rendered the block from this repository's real `workflow.json` and confirmed it reports every stage as `off` while the master switch is off — accurate, not merely plausible. Then stamped a fake `CLAUDE.md`, confirmed the checker passes; edited `workflow.json`, confirmed it fails with the file named. Both opt-out paths exercised, and the check confirmed silent on a repository carrying no blocks.
+
 ## [0.209.3] - 2026-07-30
 
 ### Fixed

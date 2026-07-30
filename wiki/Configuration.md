@@ -99,6 +99,7 @@ See [[Tool Execution]] for the full approval and safety model.
 | `atlasmind.chatSessionTurnLimit` | number | `6` | How many recent turns are carried forward as context. Minimum: 1 |
 | `atlasmind.chatSessionContextChars` | number | `2500` | Max characters for compacted session context. Minimum: 400 |
 | `atlasmind.contextCompressionEnabled` | boolean | `true` | Compact the prompt context to cut token volume and estimated spend on long conversations. |
+| `atlasmind.instructions.verifyOnCommit` | boolean | `true` | Refuse a commit when a managed block in an AI instruction file no longer matches the file it was generated from. **Verify only — never edits anything**, so the commit you staged is the one that lands; it refuses and names the fix, like the version-bump check. Checks only the file-generated blocks (testing matrix, workflow) — the debt-marker block comes from a setting a hook cannot read. Skip with `ATLASMIND_SKIP_INSTRUCTION_CHECK=1`. Stored in **workspace** scope, because a git hook cannot see a User value. |
 | `atlasmind.maxToolCallsPerTurn` | number | `8` | Most parallel tool calls the model may issue in one turn. |
 | `atlasmind.toolExecutionTimeoutMs` | number | `15000` | Per-tool execution timeout, in milliseconds. |
 | `atlasmind.providerTimeoutMs` | number | `30000` | Longest AtlasMind waits for a model provider to respond, in milliseconds. |

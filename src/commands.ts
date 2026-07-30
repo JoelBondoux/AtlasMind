@@ -323,7 +323,7 @@ export function registerCommands(
         void vscode.window.showInformationMessage('No testing configuration saved yet — open Settings → Testing and save the matrix first.');
         return;
       }
-      const { syncTestingProtocols } = await import('./utils/testingProtocolSync.js');
+      const { syncTestingProtocols, readWorkflowGuidanceInput } = await import('./utils/testingProtocolSync.js');
       const agents = getAtlas()?.agentRegistry?.listAgents() ?? [];
       const result = await syncTestingProtocols(
         workspaceRoot,
@@ -332,6 +332,7 @@ export function registerCommands(
         parseCustomDebtMarkers(
           vscode.workspace.getConfiguration('atlasmind').get<string[]>('debt.markers', []),
         ),
+        readWorkflowGuidanceInput(workspaceRoot),
       );
       if (result.success) {
         void vscode.window.showInformationMessage(result.summary);

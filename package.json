@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.209.3",
+  "version": "0.210.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -2063,6 +2063,12 @@
           },
           "default": [],
           "description": "Absolute paths to other AtlasMind projects whose ideation boards may be read for cross-project context. At most three are consulted, and nothing is ever written to another project."
+        },
+        "atlasmind.instructions.verifyOnCommit": {
+          "type": "boolean",
+          "default": true,
+          "description": "Refuse a commit when an AI instruction file has a stale AtlasMind block. Verify only — never edits files.",
+          "markdownDescription": "Before each commit, check that the AtlasMind-managed blocks in your AI instruction files\n(`CLAUDE.md`, `.github/copilot-instructions.md`, `AGENTS.md`, Cursor, Cline, Gemini,\nWindsurf, Aider) still match the documents they were generated from.\n\n**On by default, and verify-only: the check never edits a file.** It refuses the commit and\nnames the command that fixes it — the same way this repository already treats a missing\nversion bump. That is deliberate rather than cautious:\n\n- A hook that rewrote files would mean the commit you staged and reviewed is not the commit\n  that lands.\n- A *bi-directional* sync at commit time would pull another agent's edits into this project\n  and broadcast them to every other tool's instruction file without review — one tool's\n  change silently becoming every tool's instruction.\n\nIt only checks blocks generated from **files** (the testing matrix and the workflow). The\ndebt-marker block comes from a setting, which a git hook cannot read, so it is not checked\nrather than guessed at.\n\nA block that a file does not carry is never reported: adopting one tool should not become a\nstanding complaint about the eight you do not use.\n\nSkip a single commit with `ATLASMIND_SKIP_INSTRUCTION_CHECK=1`. Because a git hook has no\nVS Code host, this is read from `.vscode/settings.json` — so the checkbox writes **workspace**\nscope, and a User-scoped value would not be seen."
         }
       }
     }
