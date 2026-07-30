@@ -6,6 +6,20 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.209.1 — Slash commands work in the chat panel
+
+They never had. `runPrompt` never looked for a leading `/`, so all nineteen commands the manifest declares reached the orchestrator as ordinary prose — and on a machine with no provider configured, `/acp` was answered by the built-in echo adapter with *"Answered from context."* Declared, documented, autocompleted by the composer, and inert.
+
+**Silence was the harm.** A command that visibly fails gets reported; one that returns a plausible model answer teaches the user the feature works and they are holding it wrong. And the specific fall-through was worse than generic: `/acp` and `/buzz` are *setup* commands, run precisely because nothing is set up yet, and they were being handed to an agent holding every connected tool. `participant.ts` closed exactly this hole for the VS Code chat surface in v0.164.0 and documents why; nothing tied the panel to that lesson.
+
+**One dispatch, two surfaces.** `runDeterministicSlashCommand` is factored out of `handleChatRequest`, and the panel replays those same handlers through a `ChatResponseStream` that writes into memory. Seventeen commands, one implementation. The rejected alternative was a table pairing each command with an equivalent VS Code command — nineteen chances for the panel to answer `/agents` differently from `@atlas`, kept correct by hand forever. Handler buttons become the panel's existing guide chips, so only ids cross into the webview. A stream feature the panel cannot draw degrades to a note naming it rather than throwing: losing an anchor beats losing the command.
+
+**A path is not a command.** `/usr/local/bin/claude-agent-acp is missing`, `/etc/hosts` and `/README.md` stay prose, because asking about a file by absolute path is constant in a coding assistant. Only a single lowercase, optionally-hyphenated word qualifies. A near-miss like `/agent` is corrected rather than forwarded — the same bug in miniature.
+
+**`/project` forces its goal but not its approval.** A goal typed after `/project` often will not match the prose intent router's patterns, so the command would otherwise become an ordinary chat turn. Forcing it is the fix; pre-approving it would have removed the file-count proposal gate as a side effect of routing, and that gate is the only thing between `/project` and an unattended run. `/project` with no goal is refused rather than run against the empty string.
+
+Two things the work turned up about its own tests: the first version awaited two dynamic imports before concluding a prompt was prose, delaying the busy indicator on **every** message — an existing test counting microtasks caught it, and the router is now synchronous and statically imported. And `slashCommandRouting.test.ts` sliced source between `handleChatRequest` and `case 'voice':`; moving that label above the function left the slice empty and the assertion passing vacuously. It is anchored on function boundaries now.
+
 ## v0.209.0 — The ACP connection actually works
 
 ACP has shipped since v0.170.0 as "use the subscription you already pay for". On Windows nobody could have used it. **Four faults, each fatal on its own**, all found by running the thing against live agents rather than reasoning about it.

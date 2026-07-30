@@ -7,6 +7,8 @@
 
 AtlasMind registers the native VS Code chat participant under the id `atlasmind` and exposes it in chat as `@atlas`. Type `@atlas` followed by a slash command or a freeform question.
 
+**Both chat surfaces accept the same commands.** The AtlasMind chat panel takes them without the `@atlas` prefix — just type `/acp`. It runs the *same* handlers the participant does rather than its own copies, so the two cannot answer `/agents` differently, and any button a command offers appears as a clickable chip. Two behaviours are worth knowing: a command that is not recognised is corrected rather than answered by a model (`/agent` names `/agents`), and a prompt that merely starts with a slash is still a question — `/usr/local/bin/thing is missing` is read as prose, because asking about a file by absolute path is not a failed command lookup. Before v0.209.1 the panel had no slash handling at all: every command reached a model as prose, which on an unconfigured machine meant the built-in echo adapter replying "Answered from context."
+
 Short continuation prompts such as `Proceed`, `Continue`, or `Proceed autonomously` now reuse the latest substantive user request in the active session and escalate it into the same autonomous project execution flow as `/project`. When the VS Code Chat view includes attached references or earlier participant turns, AtlasMind also folds that native chat context into the orchestrator request before routing the model.
 
 ## Slash Commands

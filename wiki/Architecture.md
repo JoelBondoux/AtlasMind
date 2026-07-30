@@ -40,6 +40,7 @@ AtlasMind is a VS Code extension built in TypeScript, and it now also ships a sm
 | **SkillScanner** | `src/core/skillScanner.ts` | Security scanner with 12 rules for custom skill validation |
 | **TestingConfigLoader** | `src/core/testingConfigLoader.ts` | Reads testing-config.json; infers methodology for subtasks; resolves per-methodology model overrides |
 | **TestingScaffolder** | `src/core/testingScaffolder.ts` | Constructs a language- and archetype-aware starter testing framework (idiomatic example tests + strategy playbook) for Node/Python/Rust/Go/.NET/Java from enabled methodologies; non-destructive |
+| **Panel slash commands** | `src/views/chatSlashRouting.ts`, `src/views/chatStreamCollector.ts`, `src/chat/participant.ts` (`runDeterministicSlashCommand`) | The chat panel had **no slash dispatch at all**: `runPrompt` passed everything through as prose, so all nineteen declared commands reached a model — and with no provider configured, `/acp` was answered by the built-in echo adapter with "Answered from context." Silence was the harm: a command returning a plausible model answer teaches the user it works, and `/acp`/`/buzz` are *setup* commands, so the fall-through handed a "nothing is configured yet" question to an agent holding every connected tool. The fix is **one dispatch, two surfaces** — `runDeterministicSlashCommand` is factored out of `handleChatRequest` and the panel replays those same handlers through a `ChatResponseStream` that writes into memory, rather than growing seventeen near-copies that would answer `/agents` differently within a release. Handler buttons become the existing guide chips, so only ids cross into the webview. Unrenderable stream features degrade to a note naming them, never a throw: losing an anchor beats losing the command. The parse is narrower than "starts with a slash" so `/etc/hosts` stays a question about a file, and a typo'd `/agent` is corrected rather than forwarded. `/project` and `/loop` route onto the panel's own long-running paths; `/project` forces its goal past the prose intent router but **not** past the file-count approval gate, which pre-approving would have removed as a side effect of routing. Prose costs no microtask — the router is synchronous and statically imported, after a first version's dynamic imports delayed the busy indicator on every message. Pure + unit-tested, with the command list pinned to the manifest in both directions |
 | **Quick-reply pills** | `src/chat/participant.ts` (`buildQuickReplyPayload`), `src/views/webviewUtils.ts` (`QUICK_REPLY_CSS`) | One-tap answers are a property of Atlas asking a question, not of the Chat panel. A response is turned into a webview-ready `{ question, replies }` payload — pills only, never a bare question — and consumed by the Chat panel, the Project Ideation panel, the Vision panel, and the dashboard ideation path. Model output crosses one boundary: labels and prompts are length-capped, control-stripped, and count-capped there, because the label is rendered and the prompt is *submitted* on click. One shared CSS definition keeps the four surfaces from drifting |
 | **SchemaMigration** | `src/core/schemaMigration.ts` | Versioned-document handling for every SSOT register. Distinguishes a corrupt file (replaceable) from one written by a newer AtlasMind (must be preserved) — the old validity gate treated both as "no file" and seeded over them. Migration steps chain forward per kind; the decision lives in one place so the managers cannot drift. Pure + unit-tested |
 | **SetupWalkthrough** | `src/core/setupWalkthrough.ts` | The shape every setup guide shares: steps, next-step selection, progress, rendering. `isOpeningAction` is an allowlist that keeps a plan from becoming an installer, and a step blocked only by an optional prerequisite is never nominated. Buzz and ACP both delegate to it, so the guides cannot drift |
@@ -302,7 +303,7 @@ src/
 |- types.ts              Shared interfaces and constants
 |- commands.ts           VS Code command registrations
 |- chat/
-|  |- participant.ts     @atlas chat participant with slash commands
+|  |- participant.ts     @atlas chat participant; owns the one slash dispatch both surfaces use
 |  `- sessionConversation.ts  Persistent workspace chat sessions
 |- core/
 |  |- orchestrator.ts    Central task coordinator
@@ -375,6 +376,8 @@ src/
 |- views/
 |  |- treeViews.ts       Sidebar tree view providers, including Sessions
 |  |- chatPanel.ts       Dedicated AtlasMind session workspace webview
+|  |- chatSlashRouting.ts   What a leading `/` means in the panel (pure)
+|  |- chatStreamCollector.ts Replays the participant's handlers into memory
 |  |- projectDashboardPanel.ts  Cross-cutting workspace dashboard for repo, runtime, SSOT, security, and delivery signals
 |  |- personalityProfilePanel.ts Guided questionnaire for Atlas role, tone, memory policy, and live workflow defaults
 |  |- settingsPanel.ts   Settings webview

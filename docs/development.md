@@ -116,7 +116,7 @@ AtlasMind/
 │   ├── memory/           SSOT memory manager
 │   ├── providers/        LLM provider adapters (for example `anthropic.ts`, `claude-cli.ts`, `copilot.ts`); also `acp.ts` + `acpProtocol.ts` + `acpLaunch.ts` + `acpPermission.ts` + `acpInstaller.ts` (Agent Client Protocol), `copilotMultiplierSync.ts`, `localModelSync.ts`, and `localModelRecommendationRegistry.ts`
 │   ├── skills/           Built-in skill handlers (for example `dockerCli.ts`, `terminalRun.ts`, `gitApplyPatch.ts`)
-│   ├── views/            Webview panels and tree views (including `personalityProfilePanel.ts`, `modelComparisonPanel.ts`, `missionControlPanel.ts`, `websiteStudioPanel.ts`)
+│   ├── views/            Webview panels and tree views (including `personalityProfilePanel.ts`, `modelComparisonPanel.ts`, `missionControlPanel.ts`, `websiteStudioPanel.ts`); the chat panel's slash handling is `chatSlashRouting.ts` (pure router) + `chatStreamCollector.ts` (replays the participant's handlers into memory)
 │   ├── voice/            TTS/STT: `voiceManager.ts` bridge, `hostSpeechSynthesizer.ts` (OS TTS), `localTranscriber.ts` (on-device Whisper STT)
 │   └── bootstrap/        Project bootstrapper
 ├── tests/                Vitest unit tests

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.209.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.209.1</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,9 +64,15 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.209.0
+## What's new in 0.209.1
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
+
+- **Slash commands work in the AtlasMind chat panel.** They never had. The panel passed whatever you typed straight through as ordinary prose, so all nineteen commands — declared in the manifest, listed in the docs, autocompleted by the composer — did nothing. With no model provider set up, `/acp` came back from the built-in echo adapter as *"Answered from context."*
+
+  Silence was the real problem. A command that visibly fails gets reported; one that returns a plausible answer teaches you the feature works and you are using it wrong. And `/acp` and `/buzz` are *setup* commands you run precisely because nothing is set up — so the fall-through handed those questions to an agent holding every connected tool.
+
+  The panel now runs the **same handlers** the `@atlas` chat surface does, rather than its own copies, so the two cannot answer `/agents` differently. Buttons come through as chips you can click. A typo like `/agent` tells you the real command instead of guessing. And a path stays a path: `/usr/local/bin/thing is missing` is still a question about a file, not a failed command lookup.
 
 - **The subscription you already pay for actually works as capacity now.** ACP has been in AtlasMind since v0.170.0 as "use your Claude or ChatGPT subscription", and on Windows nobody could have used it. Four faults, each fatal on its own, all of them found by running the thing rather than reading it.
 

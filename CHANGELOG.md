@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.209.1] - 2026-07-30
+
+### Fixed
+- **Every slash command was inert in the AtlasMind chat panel.** `runPrompt` never looked for a leading `/`, so all nineteen commands the manifest declares reached the orchestrator as ordinary prose. On a machine with no provider configured, `/acp` was therefore answered by the built-in echo adapter with *"Answered from context."* — a command that is declared, documented, autocompleted by the composer, and does nothing.
+
+  **Silent is the part that mattered.** A command that visibly fails gets reported; one that produces a plausible answer from a model teaches the user the feature works and they are holding it wrong. And the specific fall-through was worse than generic: `/acp` and `/buzz` are *setup* commands, asked precisely because nothing is set up yet, and they were being handed to an agent holding every connected tool — a far wider surface than either command was ever meant to have. `participant.ts` closed exactly this hole for the VS Code chat surface in v0.164.0 and documents why; the panel never got the same treatment, and nothing tied the two together.
+
+- **The two surfaces now share one dispatch instead of one having none.** `runDeterministicSlashCommand` is factored out of `handleChatRequest`, and the panel replays those same handlers through `ChatStreamCollector` — a `ChatResponseStream` that writes into memory. Seventeen commands, one implementation. The alternative considered and rejected was a table pairing each command with an equivalent VS Code command: nineteen chances for the panel to answer `/agents` differently from `@atlas`, kept correct by hand forever.
+
+  Handler buttons become the panel's existing guide chips, so only ids cross into the webview and the commands they map to stay extension-side — the boundary the Buzz guide already draws. Stream features the panel cannot draw degrade to a note naming them rather than throwing, because losing an anchor is better than losing the command, and a silently truncated answer is the failure this whole path replaces.
+
+- **A path is not a command.** The parse is deliberately narrower than "starts with a slash": `/usr/local/bin/claude-agent-acp is missing`, `/etc/hosts`, and `/README.md` stay prose, because asking about a file by absolute path is constant in a coding assistant and hijacking it would break that. Only a single lowercase, optionally-hyphenated word qualifies.
+
+- **A near-miss is corrected rather than forwarded.** `/agent` — the singular of a real command, and the likeliest typo — now names the available commands instead of quietly becoming a model call, which is the same bug in miniature.
+
+- **`/project` and `/loop` route onto the panel's own long-running paths**, which already own run proposals, loop checkpoints and the run-center wiring. `/project` forces its goal past the prose intent router — a goal typed after `/project` often will not match those patterns, so the command would otherwise have become an ordinary chat turn — but **deliberately does not pre-approve it.** The approval token that `New Loop` uses would have removed the file-count proposal gate as a side effect of routing, and that gate is the only thing between `/project` and an unattended run. `/project` with no goal is refused rather than run against the empty string.
+
+### Changed
+- **Ordinary prose costs nothing at the new branch — not even a microtask.** The first version awaited two dynamic imports before concluding a prompt was prose, which delayed the busy indicator on every single message; an existing test counting microtasks caught it immediately. The router is now synchronous and statically imported, and the collector is imported only on the branch that needs it.
+
+- **The slash-command list lives in one module** (`views/chatSlashRouting.ts`) and `participant.ts` re-exports it under its old name. Two copies is how one surface came to have never heard of commands the manifest declares. A test pins the list against `package.json` in both directions, so adding a command without teaching every surface fails the build.
+
+- **`tests/chat/slashCommandRouting.test.ts` is re-anchored on function boundaries** rather than on a `case` label. It sliced the dispatch from `handleChatRequest` to `case 'voice':`, and factoring the deterministic commands out moved that label *above* the function — leaving the slice empty and the assertion passing vacuously. A source-inspecting test whose anchor can drift out from under it is worth less than it looks.
+
 ## [0.209.0] - 2026-07-30
 
 ### Fixed

@@ -38,6 +38,7 @@ import {
   DEFAULT_MISSION_GOAL_CONFIDENCE,
 } from '../constants.js';
 import { mergeImageAttachments, resolveInlineImageAttachments, resolvePickedImageAttachments } from './imageAttachments.js';
+import { ATLAS_SLASH_COMMANDS } from '../views/chatSlashRouting.js';
 import {
   applyManagedInstructionBlock,
   detectedWritebackTools,
@@ -814,11 +815,68 @@ function extractTopicTokens(text: string): string[] {
  * the failure of a stale list is silent: the command just quietly starts
  * behaving like a freeform question.
  */
-export const KNOWN_SLASH_COMMANDS = new Set([
-  'acp', 'agents', 'bootstrap', 'buzz', 'cost', 'director', 'discover', 'followups',
-  'import', 'loop', 'memory', 'project', 'runs', 'setup', 'ship', 'skills',
-  'sync-instructions', 'vision', 'voice',
-]);
+/**
+ * The commands both chat surfaces accept.
+ *
+ * Re-exported from `views/chatSlashRouting.ts`, which owns the list, rather than
+ * declared here a second time. Two copies is how the chat panel came to have
+ * never heard of commands the manifest declares — and the panel's failure mode
+ * for an unrecognised command was to hand it to a model, silently.
+ */
+export const KNOWN_SLASH_COMMANDS: ReadonlySet<string> = new Set<string>(ATLAS_SLASH_COMMANDS);
+
+/**
+ * Run one deterministic slash command against a response stream.
+ *
+ * Split out of {@link handleChatRequest} so the AtlasMind chat panel can run the
+ * **same** handlers through a collecting stream instead of growing its own
+ * near-copies. `/project` and `/loop` are deliberately absent: they are
+ * long-running, need cancellation and a prepared run context, and each surface
+ * already owns that path natively — the panel through its composer's run and
+ * loop modes. Returns `false` for anything it does not handle, so a caller can
+ * tell "ran it" from "not mine" without matching on the command list twice.
+ */
+export async function runDeterministicSlashCommand(
+  command: string,
+  argument: string,
+  stream: vscode.ChatResponseStream,
+  token: vscode.CancellationToken,
+  atlas: AtlasMindContext,
+  sessionId: string,
+): Promise<boolean> {
+  switch (command) {
+    case 'bootstrap': await handleBootstrapCommand(stream, atlas); return true;
+    case 'import': await handleImportCommand(stream, atlas); return true;
+    case 'agents': await handleAgentsCommand(stream, atlas); return true;
+    case 'skills': await handleSkillsCommand(stream, atlas); return true;
+    case 'discover': await handleDiscoverCommand(argument, stream, atlas); return true;
+    case 'memory': await handleMemoryCommand(argument, stream, atlas); return true;
+    case 'cost': await handleCostCommand(stream, atlas); return true;
+    case 'runs': await handleRunsCommand(stream); return true;
+    case 'director': await handleDirectorCommand(stream, atlas); return true;
+    case 'buzz': await handleBuzzCommand(argument, stream, atlas, token); return true;
+    case 'acp': await handleAcpCommand(argument, stream, atlas); return true;
+    case 'setup': await handleSetupCommand(argument, stream, atlas, token); return true;
+    case 'followups': await handleFollowUpsCommand(stream, atlas); return true;
+    case 'ship': await handleShipCommand(argument, stream, atlas); return true;
+    case 'sync-instructions': await handleSyncInstructionsCommand(argument, stream, atlas); return true;
+    case 'voice': await handleVoiceCommand(stream); return true;
+    case 'vision':
+      // The only entry here that reaches a model. `handleVisionCommand` reads
+      // nothing from the request but its prompt, so a minimal stand-in is
+      // faithful rather than a shortcut — and it is passed explicitly so this
+      // stays visible if the handler ever starts reading more.
+      await handleVisionCommand(
+        { prompt: argument, command: 'vision', references: [] } as unknown as vscode.ChatRequest,
+        stream,
+        atlas,
+        sessionId,
+      );
+      return true;
+    default:
+      return false;
+  }
+}
 
 async function handleChatRequest(
   request: vscode.ChatRequest,
@@ -855,35 +913,17 @@ async function handleChatRequest(
     }
   }
 
+  // The deterministic commands live in `runDeterministicSlashCommand`, which the
+  // chat panel also calls. Anything it claims is handled; the cases below are
+  // the two that need a prepared run context and cancellation, plus freeform.
+  if (command && command !== 'project' && command !== 'loop' && command !== 'vision') {
+    const handled = await runDeterministicSlashCommand(command, prompt, stream, token, atlas, sessionId);
+    if (handled) {
+      return { metadata: { command, outcome: undefined } };
+    }
+  }
+
   switch (command) {
-    case 'bootstrap':
-      await handleBootstrapCommand(stream, atlas);
-      break;
-
-    case 'import':
-      await handleImportCommand(stream, atlas);
-      break;
-
-    case 'agents':
-      await handleAgentsCommand(stream, atlas);
-      break;
-
-    case 'skills':
-      await handleSkillsCommand(stream, atlas);
-      break;
-
-    case 'discover':
-      await handleDiscoverCommand(prompt, stream, atlas);
-      break;
-
-    case 'memory':
-      await handleMemoryCommand(prompt, stream, atlas);
-      break;
-
-    case 'cost':
-      await handleCostCommand(stream, atlas);
-      break;
-
     case 'project': {
       const { sessionContextBundle, sessionContext } = await prepareProjectRunContext(atlas, sessionId);
       projectOutcome = await runProjectCommand(prompt, stream, token, atlas, sessionId, sessionContextBundle, sessionContext);
@@ -896,43 +936,9 @@ async function handleChatRequest(
       break;
     }
 
-    case 'runs':
-      await handleRunsCommand(stream);
-      break;
-
-    case 'director':
-      await handleDirectorCommand(stream, atlas);
-      break;
-
-    case 'buzz':
-      await handleBuzzCommand(prompt, stream, atlas, token);
-      break;
-
-    case 'acp':
-      await handleAcpCommand(prompt, stream, atlas);
-      break;
-
-    case 'setup':
-      await handleSetupCommand(prompt, stream, atlas, token);
-      break;
-
-    case 'followups':
-      await handleFollowUpsCommand(stream, atlas);
-      break;
-
-    case 'ship':
-      await handleShipCommand(prompt, stream, atlas);
-      break;
-
-    case 'sync-instructions':
-      await handleSyncInstructionsCommand(prompt, stream, atlas);
-      break;
-
-    case 'voice':
-      await handleVoiceCommand(stream);
-      break;
-
     case 'vision':
+      // Kept here rather than delegated: this surface has the real
+      // `ChatRequest`, whose references the handler may come to need.
       await handleVisionCommand(request, stream, atlas, sessionId);
       break;
 

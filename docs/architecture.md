@@ -922,7 +922,8 @@ Command Palette or walkthrough -> openPersonalityProfile
 
 ```
 extension.ts
-  ├── chat/participant.ts
+  ├── chat/participant.ts            (owns the one slash dispatch both chat surfaces use)
+  │     └── views/chatSlashRouting.ts  (what a leading `/` means, pure)
   ├── commands.ts
   │     ├── views/settingsPanel.ts
   │     ├── views/personalityProfilePanel.ts
