@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.223.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.224.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,9 +68,15 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.223.0
+## What's new in 0.224.0
 
 Since the last Marketplace publication, **v0.219.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Reconcile the testing policy with what is actually in the repository.** A testing matrix drifts one way: enabling a methodology takes a click, noticing months later that it never produced anything takes somebody deliberately looking. **Reconcile with the repository** on the Testing page compares the two and proposes a change for each disagreement - drop what was declared and never started, keep what has tooling underway, adopt what the project practises but never declared. Nothing is written until you approve the exact lines, and dropping is a first-class outcome: a declaration the project has outgrown is a stale statement, not work you failed to do.
+
+- **Every write to the testing matrix now reaches the AI tools that read it.** Three places could change the matrix and only one of them synced. Turning a methodology off from the Project Dashboard left `CLAUDE.md`, `AGENTS.md` and `.github/copilot-instructions.md` still instructing every external agent to follow it - the config said one thing and the tools reading it said another, with nothing on screen to suggest they had diverged. All three go through one path now.
+
+- **Auto-assess proposes rather than decides.** It used to arrive with every match pre-ticked, which is how a single click could enable thirteen methodologies - mutation, contract, model-based and end-to-end testing on a project with none of them - and leave eight permanent gaps that nobody read as gaps. Only methodologies the repository can already show evidence or tooling for arrive ticked. The rest are still offered, one keystroke away, labelled as what they are: an intention rather than a fact.
 
 - **Testing is worth points, and an unevidenced policy costs them.** The project score had eight components and 127 points, and testing was not one of them — so a project with fourteen declared methodologies and evidence for none scored *better* than one that declared nothing, because neither carried a testing number and the first looked more organised everywhere else. There is now a **Testing evidence** component worth 15: ten for the share of enabled methodologies that have evidence, five for having a test report at all. A project with nothing declared scores zero and is told the points are unclaimed, not that it has failed — nobody has looked, which is different from looking and finding it broken.
 

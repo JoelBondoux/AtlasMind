@@ -827,6 +827,13 @@
       vscode.postMessage({ type: 'scanDebt' });
       return;
     }
+    if (action === 'reconcile-testing') {
+      // No payload: the host derives the proposal from the same snapshot this
+      // page rendered, so the webview cannot choose what a reconciliation
+      // changes. The confirmation showing the exact diff lives host-side too.
+      vscode.postMessage({ type: 'reconcileTestingPolicy' });
+      return;
+    }
     if (action === 'open-debt-evidence') {
       vscode.postMessage({ type: 'openDebtEvidence', payload: { id: payload } });
       return;
@@ -2812,6 +2819,10 @@
           <span class="tag ${gapRows.length > 0 || failingRows.length > 0 ? 'tag-warn' : 'tag-good'}">${escapeHtml(`${coverage.coveredCount}/${coverage.activeCount} with tests`)}</span>
         </div>
         <div class="stat-detail">${escapeHtml(coverage.summary)}</div>
+        <div class="tag-row" style="margin-top:8px">
+          <button type="button" class="action-link" data-action="reconcile-testing">Reconcile with the repository…</button>
+          <span class="list-meta">Compares what is declared with what is actually here, and proposes the changes. Nothing is written until you confirm the exact lines.</span>
+        </div>
         ${reportLine}
         <div class="panel-grid" style="margin-top:12px">
           ${renderDistributionBar('policy-coverage', [

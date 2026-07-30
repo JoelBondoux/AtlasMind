@@ -166,6 +166,21 @@ export interface TestingDashboardSnapshot {
   /** Agents available for methodology assignment. */
   availableAgentSummaries: Array<{ id: string; name: string }>;
   /**
+   * The evidence `policyCoverage` was derived from.
+   *
+   * Carried so a caller can ask the same question about methodologies that are
+   * switched *off* — the coverage rows only cover enabled ones, so a project
+   * quietly practising something it never declared is invisible without this.
+   * Re-scanning the workspace to find out would be a second walk producing a
+   * second answer.
+   */
+  policyEvidence?: {
+    testFiles: import('../core/testingPolicyCoverage.js').TestingPolicyTestFile[];
+    dependencies: string[];
+    scripts: string[];
+    configFiles: string[];
+  };
+  /**
    * Per-enabled-policy evidence: what has tests, what has none, and what is
    * failing according to the project's own test report. See
    * {@link ../core/testingPolicyCoverage.ts}.
@@ -1313,26 +1328,13 @@ export class SettingsPanel {
       return;
     }
     try {
-      await writeProjectTestingConfig(workspaceRoot, config);
-      // Keep external AI agent instruction files in sync with the matrix so
-      // tools outside AtlasMind (Claude Code, Copilot, etc.) pick up the same
-      // protocols automatically. Best-effort: a sync failure must not block save.
-      try {
-        const agents = this.atlasContext?.agentRegistry?.listAgents() ?? [];
-        const result = await syncTestingProtocols(
+      const { syncSummary } = await persistTestingConfig(
         workspaceRoot,
         config,
-        agents,
-        parseCustomDebtMarkers(
-          vscode.workspace.getConfiguration('atlasmind').get<string[]>('debt.markers', []),
-        ),
-        readWorkflowGuidanceInput(workspaceRoot),
+        this.atlasContext?.agentRegistry?.listAgents() ?? [],
       );
-        if (result.success) {
-          void vscode.window.showInformationMessage(`Testing strategy saved. ${result.summary}`);
-        }
-      } catch {
-        /* non-fatal: save already succeeded */
+      if (syncSummary) {
+        void vscode.window.showInformationMessage(`Testing strategy saved. ${syncSummary}`);
       }
       this.panel.webview.html = this.getHtml();
     } catch (err) {
@@ -1457,10 +1459,34 @@ export class SettingsPanel {
     let selectedIds: import('../types.js').TestingMethodologyId[] | undefined;
 
     if (modeChoice.value === 'auto') {
+      // Pre-tick only what this project can already show evidence or tooling for.
+      //
+      // Everything matching the corpus used to arrive ticked, which is how one
+      // click could enable thirteen methodologies — including mutation, contract,
+      // model-based and end-to-end testing on a project with none of them — and
+      // leave eight permanent gaps that nobody read as gaps. The rest are still
+      // offered, and still one keystroke away; they simply arrive as proposals
+      // rather than as decisions already taken on the user's behalf.
+      //
+      // The evidence comes from the same coverage derivation the Testing page
+      // renders, so what is pre-ticked here and what reads as *Tested* there are
+      // the same judgement.
+      const evidenced = new Set(
+        (collectTestingDashboardSnapshot(this.atlasContext).policyCoverage?.rows ?? [])
+          .filter(row => row.status === 'covered' || row.status === 'tooling-only' || row.status === 'not-file-evident')
+          .map(row => row.id),
+      );
       const accepted = await vscode.window.showQuickPick(
-        inferred.map(item => ({ label: item.label, description: item.reason, picked: true, id: item.id })),
+        inferred.map(item => ({
+          label: item.label,
+          description: evidenced.has(item.id)
+            ? `${item.reason} — evidence already present`
+            : `${item.reason} — nothing on disk yet, so enabling this declares an intention`,
+          picked: evidenced.has(item.id),
+          id: item.id,
+        })),
         {
-          placeHolder: 'Recommended methodologies — deselect any you do not need, then press Enter',
+          placeHolder: 'Ticked where evidence already exists. Tick anything else you intend to practise, then press Enter',
           canPickMany: true,
           ignoreFocusOut: true,
           title: 'Auto-Assessed Methodologies',
@@ -1530,10 +1556,18 @@ export class SettingsPanel {
       }),
     };
 
-    await writeProjectTestingConfig(workspaceRoot, newConfig);
+    // Through the shared path, so auto-assess pushes the new matrix to the
+    // external instruction files too. It previously wrote the file alone, which
+    // is how a project could enable thirteen methodologies in one click and leave
+    // every AI tool reading the old set.
+    const { syncSummary } = await persistTestingConfig(
+      workspaceRoot,
+      newConfig,
+      this.atlasContext?.agentRegistry?.listAgents() ?? [],
+    );
     this.panel.webview.html = this.getHtml();
     void vscode.window.showInformationMessage(
-      `Testing strategy updated: ${selectedIds.length} methodolog${selectedIds.length === 1 ? 'y' : 'ies'} active.`,
+      `Testing strategy updated: ${selectedIds.length} methodolog${selectedIds.length === 1 ? 'y' : 'ies'} active.${syncSummary ? ` ${syncSummary}` : ''}`,
     );
   }
 
@@ -5620,6 +5654,43 @@ export async function writeProjectTestingConfig(
 }
 
 /**
+ * Save the testing matrix **and** push it to the AI instruction files that read it.
+ *
+ * The two used to be separate, and only one of three writers did both: the
+ * Settings page synced, while the Project Dashboard's methodology toggle and the
+ * auto-assess flow wrote the file alone. So turning a methodology off from the
+ * dashboard left `CLAUDE.md`, `AGENTS.md` and `.github/copilot-instructions.md`
+ * still instructing every external agent to follow it — the config said one thing
+ * and the tools reading it said another, with nothing on screen to suggest they
+ * had diverged.
+ *
+ * The sync is best-effort and deliberately cannot fail the save: the file on disk
+ * is the source of truth, and a mirror that could block it would make a
+ * write-through cache out of a copy.
+ */
+export async function persistTestingConfig(
+  workspaceRoot: string,
+  config: import('../types.js').ProjectTestingConfig,
+  agents: import('../types.js').AgentDefinition[],
+): Promise<{ syncSummary?: string }> {
+  await writeProjectTestingConfig(workspaceRoot, config);
+  try {
+    const result = await syncTestingProtocols(
+      workspaceRoot,
+      config,
+      agents,
+      parseCustomDebtMarkers(
+        vscode.workspace.getConfiguration('atlasmind').get<string[]>('debt.markers', []),
+      ),
+      readWorkflowGuidanceInput(workspaceRoot),
+    );
+    return result.success ? { syncSummary: result.summary } : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
  * Builds a lowercase corpus string used by the auto-assess heuristics.
  * Sources: package.json deps/scripts/private flag, test config file names,
  * UI/web surface presence, API spec presence, SECURITY.md, git contributor
@@ -5890,6 +5961,12 @@ export function collectTestingDashboardSnapshot(
     ...(newestTestFileMs > 0 ? { newestTestFileMs } : {}),
     frameworkLabel,
   });
+  const policyEvidence = {
+    testFiles: policyTestFiles,
+    dependencies: dependencyNames,
+    scripts: allScriptNames,
+    configFiles: [...configFiles, ...probePolicyConfigFiles(workspaceRoot)],
+  };
 
   const coverageInfoPath = path.join(workspaceRoot, 'coverage', 'lcov.info');
   const coverage = parseLcovCoverage(coverageInfoPath);
@@ -5898,6 +5975,7 @@ export function collectTestingDashboardSnapshot(
     : (existsSync(path.join(workspaceRoot, 'coverage', 'index.html')) ? 'coverage/index.html' : undefined);
 
   return {
+    policyEvidence,
     frameworkLabel,
     testingPolicyLabel,
     testingPolicyDetail,

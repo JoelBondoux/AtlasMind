@@ -16,6 +16,16 @@ Silent, and in the direction that costs money: every model-variant turn looked l
 
 ---
 
+## v0.224.0 - Reconcile the policy with the repository
+
+A testing matrix drifts in one direction. Enabling a methodology takes a click; noticing months later that it never produced anything takes somebody deliberately looking. **Reconcile with the repository**, on the Testing page, compares the declared policy with what is actually here and proposes a change for each disagreement: drop what was declared and never started, keep what has tooling underway, adopt what the project practises but never declared. Nothing is written until you approve the exact lines.
+
+Dropping is a first-class outcome. A declaration the project has outgrown is a stale statement, not work you failed to do - and a policy nobody can withdraw from is one people stop reading.
+
+Two smaller things that let the drift happen. Three places could change the matrix and only one of them synced the AI instruction files, so turning a methodology off from the dashboard left every external agent still being told to follow it. And auto-assess arrived with every match pre-ticked, which is how one click could enable thirteen methodologies on a project with evidence for five. It now ticks only what the repository can already show, and offers the rest as intentions.
+
+---
+
 ## v0.223.0 — Testing is worth points, and a release checks the policy
 
 The project score had eight components and 127 points, and testing was not one of them. So a project with fourteen declared methodologies and evidence for none scored *better* than one that declared nothing — neither carried a testing number, and the first looked more organised everywhere else. That is the one comparison a health score most needs to make, and it was making it backwards.

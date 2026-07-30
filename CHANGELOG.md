@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.224.0] - 2026-07-30
+
+### Added
+- **`testingReconciliation.ts` - compare the declared testing policy with the repository, and propose what to do.** A testing matrix drifts in one direction: enabling a methodology takes a click, and noticing months later that it never produced anything takes somebody deliberately looking. This project enabled fourteen in a single pass and eight still had no evidence seven weeks later. The coverage board reported those gaps accurately the whole time; what was missing was a way to *act* on them without hand-editing a tracked JSON file.
+
+  Four properties. **Dropping is a first-class outcome, not a failure** - a methodology declared in June that the project has since decided against is a stale declaration, and presenting every gap as "write these tests" would make withdrawing one feel like giving up. **`commit` is a real answer with a real cost**: a methodology whose tooling is installed is kept, because somebody started, and the proposal says out loud that it stays a visible gap rather than filing it under "accepted". **Practices are never proposed for anything**, since they leave no artifact and there is no evidence to be missing. And **nothing is decided in the derivation** - the caller confirms, and applying is a separate call, because the outcome rewrites a file that governs how every agent in the project behaves.
+
+  `applyTestingReconciliation` changes only whether a methodology is declared. The assigned agent, model override, notes and `blocking` flag all survive a drop, so re-enabling later restores what was there rather than a blank row. The confirmation shows the **exact lines** via `describeTestingReconciliation`: approving "reconcile the testing policy?" with a count would be approving a rewrite of a tracked file without seeing what it says.
+
+  Adoption is derived separately from the coverage rows, which only cover *enabled* methodologies - so a project quietly practising something it never declared is invisible without it. `integration` on this repository was exactly that: switched off in the config while its tests sat in the tree and ran on every commit.
+
+### Changed
+- **Every write to the testing matrix now syncs the AI instruction files.** Three writers could change it and only one did both: the Settings page synced, while the Project Dashboard's methodology toggle and the auto-assess flow wrote the file alone. So turning a methodology off from the dashboard left `CLAUDE.md`, `AGENTS.md` and `.github/copilot-instructions.md` still instructing every external agent to follow it - the config said one thing, the tools reading it said another, and nothing on screen suggested they had diverged. `persistTestingConfig` is now the single path. The sync stays best-effort and deliberately cannot fail the save: the file on disk is the source of truth, and a mirror able to block it would turn a copy into a write-through cache.
+
+- **Auto-assess pre-ticks only what the repository can already show.** Every corpus match used to arrive `picked: true`, which is how one click enabled thirteen methodologies - including mutation, contract, model-based and end-to-end testing on a project with none of them - and produced eight permanent gaps nobody read as gaps. Evidence comes from the same coverage derivation the Testing page renders, so what is ticked here and what reads as *Tested* there are one judgement. Everything else is still offered and still one keystroke away, described as an intention rather than presented as a decision already taken.
+
+- `TestingDashboardSnapshot` carries `policyEvidence`, the inputs its coverage was derived from, so a caller can ask the same question about switched-off methodologies without a second workspace walk producing a second answer.
+
+### Fixed
+- **The dashboard's testing message validator rejected schema v2.** It pinned `payload.version === 1`, so after v0.222.0 the Project Dashboard's methodology toggle would have silently refused every config written since. Both live versions are accepted.
+
 ## [0.223.0] - 2026-07-30
 
 ### Added

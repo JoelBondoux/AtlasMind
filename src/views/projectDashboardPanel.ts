@@ -9,8 +9,15 @@ import type { AtlasMindContext } from '../extension.js';
 import type { TaskImageAttachment } from '../types.js';
 import { buildAssistantResponseMetadata, buildQuickReplyPayload, buildWorkstationContext, reconcileAssistantResponse } from '../chat/participant.js';
 import { resolvePickedImageAttachments } from '../chat/imageAttachments.js';
-import { collectTestingDashboardSnapshot, writeProjectTestingConfig, type TestingDashboardSnapshot } from './settingsPanel.js';
-import type { TestingPolicyCoverage } from '../core/testingPolicyCoverage.js';
+import { collectTestingDashboardSnapshot, persistTestingConfig, type TestingDashboardSnapshot } from './settingsPanel.js';
+import { deriveTestingPolicyCoverage, type TestingPolicyCoverage } from '../core/testingPolicyCoverage.js';
+import {
+  reconcileTestingPolicy,
+  applyTestingReconciliation,
+  describeTestingReconciliation,
+} from '../core/testingReconciliation.js';
+import { readProjectTestingConfig } from '../core/testingConfigLoader.js';
+import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
 import { getWebviewHtmlShell } from './webviewUtils.js';
 import {
   buildIssueWorkPrompt,
@@ -465,6 +472,7 @@ type ProjectDashboardMessage =
   | { type: 'resolveGapGroup'; payload: string }
   | { type: 'openGapFiles'; payload: string }
   | { type: 'saveTestingConfig'; payload: import('../types.js').ProjectTestingConfig }
+  | { type: 'reconcileTestingPolicy' }
   | { type: 'saveDataPrivacyConfig'; payload: import('../types.js').DataPrivacyConfig }
   | { type: 'saveDeliveryConfig'; payload: import('../types.js').DeliveryConfig }
   | { type: 'requestPromotionPlan'; payload: { pathId: string; mode: 'execute' | 'runbook' } }
@@ -2332,11 +2340,24 @@ export class ProjectDashboardPanel {
       case 'closePullRequest':
         await this.handlePullRequestWrite(message);
         return;
+      case 'reconcileTestingPolicy':
+        await this.handleReconcileTestingPolicy();
+        return;
+
       case 'saveTestingConfig':
         {
           const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
           if (workspaceRoot) {
-            await writeProjectTestingConfig(workspaceRoot, message.payload);
+            // Through the shared path, not a bare write. This toggle used to
+            // persist the file alone, so turning a methodology off here left
+            // CLAUDE.md, AGENTS.md and copilot-instructions.md still telling every
+            // external agent to follow it — with nothing on screen to say the two
+            // had diverged.
+            await persistTestingConfig(
+              workspaceRoot,
+              message.payload,
+              this.atlas.agentRegistry?.listAgents() ?? [],
+            );
             await this.syncState();
           }
         }
@@ -3412,6 +3433,68 @@ export class ProjectDashboardPanel {
    * becomes `obsolete` rather than `resolved`), but it still commits a change to
    * a tracked file, so the user gets told what it will do first.
    */
+  /**
+   * Compare the declared testing policy with the repository, and offer the diff.
+   *
+   * The confirmation shows the **exact lines** rather than a count. Approving
+   * "reconcile the testing policy?" would be approving a rewrite of a git-tracked
+   * file that governs how every agent in this project behaves, without seeing
+   * what it says. Deriving the proposal host-side means the webview supplies no
+   * data — it asks for the comparison, and the comparison reads the same snapshot
+   * the page is rendering.
+   */
+  private async handleReconcileTestingPolicy(): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      return;
+    }
+
+    const config = readProjectTestingConfig(workspaceRoot);
+    const testing = collectTestingDashboardSnapshot(this.atlas);
+    const coverage = testing.policyCoverage;
+
+    // Adoption is derived here because the coverage rows only cover *enabled*
+    // methodologies: a methodology that is switched off has no row, and a project
+    // quietly practising something it never declared is the most useful thing
+    // this can find.
+    const enabled = new Set((config?.methodologies ?? []).filter(entry => entry.enabled).map(entry => entry.id));
+    const disabledIds = TESTING_METHODOLOGY_DEFINITIONS.map(definition => definition.id).filter(id => !enabled.has(id));
+    const disabledEvidence = deriveTestingPolicyCoverage({
+      enabledMethodologies: disabledIds,
+      testFiles: testing.policyEvidence?.testFiles ?? [],
+      dependencies: testing.policyEvidence?.dependencies ?? [],
+      scripts: testing.policyEvidence?.scripts ?? [],
+      configFiles: testing.policyEvidence?.configFiles ?? [],
+    });
+    const unenabledWithEvidence = disabledEvidence.rows
+      .filter(row => row.status === 'covered')
+      .map(row => row.id);
+
+    const reconciliation = reconcileTestingPolicy({ config, coverage, unenabledWithEvidence });
+
+    if (!config || reconciliation.changes.length === 0) {
+      void vscode.window.showInformationMessage(reconciliation.summary);
+      return;
+    }
+
+    const confirmation = await vscode.window.showWarningMessage(
+      `Reconcile the testing policy with the repository? ${reconciliation.changes.length} change(s) to project_memory/index/testing-config.json.`,
+      { modal: true, detail: describeTestingReconciliation(reconciliation.changes) },
+      'Apply',
+    );
+    if (confirmation !== 'Apply') {
+      return;
+    }
+
+    await persistTestingConfig(
+      workspaceRoot,
+      applyTestingReconciliation(config, reconciliation.changes),
+      this.atlas.agentRegistry?.listAgents() ?? [],
+    );
+    await this.syncState();
+    void vscode.window.showInformationMessage(`Testing policy reconciled: ${reconciliation.changes.length} change(s) applied.`);
+  }
+
   private async handleScanDebt(): Promise<void> {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!workspaceRoot) {
@@ -5687,8 +5770,19 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
   }
 
   if (candidate['type'] === 'saveTestingConfig') {
+    // Both live schema versions. v2 added the per-methodology `blocking` flag;
+    // pinning this to 1 would have made the dashboard toggle silently reject
+    // every config written since.
     const p = candidate['payload'] as Record<string, unknown> | undefined;
-    return typeof p === 'object' && p !== null && p['version'] === 1 && Array.isArray(p['methodologies']);
+    return typeof p === 'object' && p !== null
+      && (p['version'] === 1 || p['version'] === 2)
+      && Array.isArray(p['methodologies']);
+  }
+
+  if (candidate['type'] === 'reconcileTestingPolicy') {
+    // No payload: the proposal is derived host-side from the snapshot, so the
+    // webview cannot choose which methodologies a reconciliation would change.
+    return true;
   }
 
   if (candidate['type'] === 'saveDeliveryConfig') {
