@@ -6,6 +6,16 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.213.0 — The sidebar tells you what is ready to ship
+
+A **Ready to ship?** section in Project State lists every promotion path with whether anything *declared* is standing in its way: `blocked` (red, and the only verdict that counts as needing a person), `gated` with a count of the gates the plan will evaluate, or `clear`. It expands itself only when something is blocked.
+
+**The row opens the plan; it never promotes.** Promotion runs behind a built plan, per-gate attestations and a type-to-confirm on a protected target — a one-click row in a tree would route around all three. A test asserts no row can ever be wired to a promotion command.
+
+**What it may honestly claim is limited by how it is built.** The Project State tree computes synchronously — it reads in-memory state and shells out to nothing, because it recomputes on ten different events. So nothing here has seen the working tree, the version delta or live CI. The vocabulary avoids "safe" and "ready" for exactly that reason, and every tooltip ends by naming what was *not* checked. A green row that had silently skipped those would be a shipping light that never read the code.
+
+The blocker rules are shared with the Delivery dashboard rather than reimplemented — two definitions of "blocked" would drift, and the sidebar would hold the untested one.
+
 ## v0.212.2 — A failing dashboard action no longer vanishes
 
 Reported as "the Delivery Promote buttons appear to not do anything". The whole chain behind them turned out to be correct — the button, the click delegate, the payload validator, the handler, all four replies, the modal and its CSS. Every link verified, including running the validator against this repository's real promotion path ids.

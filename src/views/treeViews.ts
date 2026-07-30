@@ -17,6 +17,7 @@ import { SSOT_FOLDERS } from '../types.js';
 import type { AgentDefinition, ArdDiscoveredResource, ArdDiscoveryEndpoint, McpServerState, MemoryEntry, ProjectRunRecord, ProviderConfig, SkillDefinition, SkillScanResult } from '../types.js';
 import { ACP_PROVIDER_ID, findAcpBridge, parseAcpAgentSettings } from '../providers/acp.js';
 import { countOverdueFollowUps, deriveFollowUpUrgency, resolveTeamMode } from '../core/projectDirectorManager.js';
+import { assessPipelinePromotions } from '../core/promotionReadiness.js';
 import type { SessionConversationSummary, SessionFolderSummary } from '../chat/sessionConversation.js';
 import { ChatViewProvider } from './chatPanel.js';
 
@@ -1229,6 +1230,19 @@ class ProjectStateTreeProvider implements vscode.TreeDataProvider<vscode.TreeIte
         { label: 'Protected branch writes', enabled: flag('workflow.allowProtectedRefWrites') },
       ],
     };
+
+    // The delivery pipeline is already in memory on its manager, so assessing
+    // every promotion path costs nothing — which is the constraint that decides
+    // what this section may claim. See `promotionReadiness.ts`: the verdicts are
+    // about what is *declared*, because git and CI are not reachable from a
+    // synchronous gather.
+    const deliveryConfig = this.atlas.deliveryManager?.getConfig();
+    if (deliveryConfig) {
+      const paths = assessPipelinePromotions(deliveryConfig.paths, deliveryConfig.stages);
+      if (paths.length > 0) {
+        input.promote = { paths };
+      }
+    }
 
     // Follow-ups are already in memory on the Director manager, so this costs
     // nothing. Runs likewise.

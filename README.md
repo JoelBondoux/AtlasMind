@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.212.2</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.213.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,9 +68,13 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.212.2
+## What's new in 0.213.0
 
 Since the last Marketplace publication, **v0.208.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **The sidebar tells you what is ready to ship.** A new **Ready to ship?** section in Project State lists every promotion path — Local → Integration, Integration → Production — with whether anything declared is standing in its way. A blocked path is red and opens the section on sight; a gated one says how many gates it has; a clear one says so.
+
+  It **opens the plan rather than promoting.** Promotion runs behind a plan, per-gate attestations and a type-to-confirm on a protected target, and a one-click row in a tree would route around all three. And because the sidebar is built synchronously — no git, no `gh` — every tooltip states plainly that the working tree, the version delta and live CI are checked when the plan opens, not there. A green row that had quietly skipped those would be a shipping light that never read the code.
 
 - **The settings gear is back on the sidebar, and four other routes stopped hiding.** Every view's settings link had been moved into the `…` overflow menu to fit a five-icon titlebar — and four of the five settings commands had no icon at all, so they could not have been drawn even there. Ten of the eleven views now show the gear; Chat keeps its in the overflow because its titlebar is genuinely full. The Models title bar also gains the refresh that previously existed only as a per-row action, and always refreshed every provider anyway.
 

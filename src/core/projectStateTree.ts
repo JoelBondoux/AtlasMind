@@ -28,7 +28,7 @@
 
 import type { AutomationLevel, BindingGate } from './workflowAutomation.js';
 
-export type ProjectStateSectionId = 'permissions' | 'position' | 'attention' | 'deferred';
+export type ProjectStateSectionId = 'permissions' | 'position' | 'attention' | 'deferred' | 'promote';
 
 export interface ProjectStateNode {
   id: string;
@@ -85,6 +85,26 @@ export interface ProjectStateInput {
     /** Stages held by a manual check nobody has attested. */
     blockedStages?: string[];
   };
+  /**
+   * Promotion paths, already assessed.
+   *
+   * Assessed by the caller rather than here because the verdict rules live in
+   * `promotionReadiness.ts` beside the dashboard's, and a second copy of "what
+   * counts as blocked" would drift — with the sidebar holding the untested one.
+   */
+  promote?: {
+    paths: Array<{
+      pathId: string;
+      fromName: string;
+      toName: string;
+      verdict: 'blocked' | 'gated' | 'clear';
+      summary: string;
+      tooltip: string;
+      icon: string;
+      needsAttention: boolean;
+      isProtected: boolean;
+    }>;
+  };
   deferred?: {
     /** Documents whose source changed after their last review. */
     staleDocuments?: number;
@@ -113,6 +133,10 @@ export function buildProjectState(input: ProjectStateInput): ProjectStateSection
   const position = buildPosition(input.workflow);
   if (position) {
     sections.push(position);
+  }
+  const promote = buildPromote(input.promote);
+  if (promote) {
+    sections.push(promote);
   }
   const attention = buildAttention(input.attention);
   if (attention) {
@@ -311,6 +335,49 @@ function buildAttention(attention: ProjectStateInput['attention']): ProjectState
     icon: 'bell',
     nodes,
     expanded: nodes.some(node => node.needsAttention),
+  };
+}
+
+/**
+ * "Ready to ship?" — one row per promotion path.
+ *
+ * The action **opens the plan**; it never promotes. That is the whole safety
+ * design of this section: promotion runs behind a plan, per-gate attestations
+ * and a type-to-confirm on a protected target, and a one-click row in a tree
+ * would route around all three. What belongs here is the *glance* — which paths
+ * are set up and unblocked — with the decision left where the evidence is.
+ *
+ * Only a blocker counts as needing attention. A gated path is not a problem;
+ * it is a path with gates, which is what a gate is for.
+ */
+function buildPromote(promote: ProjectStateInput['promote']): ProjectStateSection | undefined {
+  if (!promote || promote.paths.length === 0) {
+    return undefined;
+  }
+  const nodes: ProjectStateNode[] = promote.paths.map(path => ({
+    id: `promote.${path.pathId}`,
+    label: `${path.fromName} → ${path.toName}${path.isProtected ? ' 🔒' : ''}`,
+    description: path.summary,
+    tooltip: path.tooltip,
+    icon: path.icon,
+    needsAttention: path.needsAttention,
+    // Opens the Delivery page, where the plan, the gates and the confirmation
+    // live. Never a promotion command.
+    command: { command: 'atlasmind.openProjectDashboard', title: 'Open the Delivery page', args: ['delivery'] },
+  }));
+
+  const blocked = promote.paths.filter(path => path.verdict === 'blocked').length;
+  return {
+    id: 'promote',
+    label: 'Ready to ship?',
+    tooltip: blocked > 0
+      ? `${blocked} promotion path${blocked === 1 ? ' is' : 's are'} blocked by something you can fix. Opening a path shows the full plan.`
+      : 'Promotion paths and whether anything declared is in their way. Opening one shows the plan, its gates and the confirmation.',
+    icon: 'rocket',
+    // Expanded when something is blocked, because that is the case worth
+    // seeing without a click.
+    expanded: blocked > 0,
+    nodes,
   };
 }
 

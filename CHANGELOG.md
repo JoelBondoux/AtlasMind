@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.213.0] - 2026-07-30
+
+### Added
+- **A "Ready to ship?" section in the Project State sidebar**, listing every promotion path with whether anything *declared* is standing in its way. `src/core/promotionReadiness.ts` assesses each path: `blocked` (red, and the only verdict that counts as needing a person), `gated` (unblocked, with N gates the plan will evaluate), or `clear`. The section expands itself only when something is blocked, since that is the case worth seeing without a click.
+
+  **The row opens the plan; it never promotes.** Promotion runs behind a built plan, per-gate attestations and a type-to-confirm on a protected target — a one-click row in a tree would route around all three. A test asserts no row can ever be wired to a promotion command.
+
+  **What it may honestly claim is limited by how it is built.** `ProjectStateTreeProvider.compute()` is synchronous by design: it reads in-memory registries and shells out to nothing, because it recomputes on ten different events. So nothing here has seen the working tree, the version delta or live CI. The vocabulary avoids "safe" and "ready" for exactly that reason — asserted by test — and every tooltip ends by naming what was *not* checked. A green row that had silently skipped those would be the most dangerous thing this feature could produce: a shipping light that never read the code.
+
+  The blocker rules are shared with the Delivery dashboard rather than reimplemented. Two definitions of "blocked" would drift, and the sidebar would be holding the untested one.
+
+### Notes
+- Verified against this repository's real pipeline: both paths render as `gated` with accurate counts (4 and 5 gates), and Integration → Production carries the lock and the "always confirms, never force-pushes" note.
+- A path naming a stage that no longer exists is dropped rather than rendered with a placeholder — a row offering to promote from nowhere is worse than no row.
+
 ## [0.212.2] - 2026-07-30
 
 ### Fixed

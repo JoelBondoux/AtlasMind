@@ -100,7 +100,7 @@ describe('rows that show a problem link to it', () => {
   it('leaves no actionable row without somewhere to go', () => {
     // The two exceptions are deliberate: a section header expands on click, and
     // a row saying nothing is wrong has nothing to open.
-    const headers = new Set(['permissions', 'position', 'attention', 'deferred']);
+    const headers = new Set(['permissions', 'position', 'attention', 'deferred', 'promote']);
     const nothingWrong = new Set(['attention.clear']);
     const orphans = nodes()
       .filter(node => !node.hasCommand)
