@@ -44,7 +44,8 @@ export type SchemaDocumentKind =
   | 'missions'
   | 'personality-profile'
   | 'mcp-environment'
-  | 'workflow';
+  | 'workflow'
+  | 'research';
 
 /**
  * The version each kind is written at today.
@@ -65,6 +66,7 @@ export const CURRENT_SCHEMA_VERSIONS: Readonly<Record<SchemaDocumentKind, number
   'personality-profile': 1,
   'mcp-environment': 1,
   workflow: 1,
+  research: 1,
 };
 
 /** One step up the version ladder for one kind. Pure by contract. */

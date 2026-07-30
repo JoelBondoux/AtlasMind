@@ -16,6 +16,24 @@ Silent, and in the direction that costs money: every model-variant turn looked l
 
 ---
 
+## v0.225.0 — Ideation learns something nobody typed into it
+
+Stage 0 of the workflow had exactly two inbound paths: you, and Atlas re-reading the board you had already filled in. So ideation could structure a decision but never inform one, and a board full of confident cards about an unexamined market looked identical to a board full of researched ones.
+
+**Seven research scans, and deliberately not the five people ask for first.** gap, security, risk, debt and testing coverage are already answered by registers in AtlasMind — a second answer would eventually contradict the first, surfacing as a board citing evidence the Gap Analysis page denies. Those five are *subscribed to*. Scanning is built only for competition, customers, technology, feature gaps, market, funding and regulation — every one of which reaches outside your repository, where nothing owns the question.
+
+**A citation, or it is not a finding.** A model asked about a market will answer: fluently, specifically, with plausible numbers. Written into git-tracked project memory and read six weeks later by somebody deciding what to build, that answer is indistinguishable from research. So the check lives in the sanitizer, not in a prompt — an uncited claim is recorded as a *question*, never counted as evidence — and it holds through a hand-edit of the file.
+
+**With no way to look, AtlasMind refuses rather than guessing.** Before a scan runs it decides whether anything *could* have looked — an EXA key, a connected MCP search tool, or the built-in fetch. With none, the scan reports `no-source` and names the setup step. Fetching a page somebody named is kept separate from finding one nobody has: a fetch-only project running a competition scan would get the model's memory with one real citation stapled to it, which is worse than no scan, because it looks sourced.
+
+**Scheduled means due, not automatic.** Scans have a cadence and become due; running one stays a decision, on a three-rung ladder you cap yourself. Six weeks with the editor closed produces one due scan, not six — and an automatic pass runs exactly one, never-assessed before merely overdue.
+
+**The digest answers three questions and the third is not optional.** What changed outside, what it means, and what is still unassessed. No model writes any of it: each scan's "so what" is a sentence declared once and published, so it can be argued with. And a scan going from never-run to twelve findings is reported as a first assessment, not as twelve competitors appearing.
+
+**The board itself:** eleven starter frames derived from your project's archetype — a game and a CLI tool no longer open the same empty canvas — every seeded card phrased as a question rather than a conclusion. And a readiness reading that says what the board cannot defend: unresolved contradictions first, then problems with nothing behind them, wish lists, and cards that never reached the backlog. A record, never a gate.
+
+---
+
 ## v0.224.1 - The test report stops shipping inside the extension
 
 The JUnit report added in v0.220.0 is gitignored, so it never appeared in a diff. But `.vscodeignore` is a separate list, and nothing had told it — so `atlasmind-0.224.0.vsix` carried 836 KB of this repository's own test names into every install. Excluded now, with a guard that reads the output path out of `vitest.config.ts` rather than restating it, since restating it is how the two would drift apart again.

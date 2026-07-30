@@ -519,6 +519,44 @@ Ideation as stage 0 of the workflow. The board held nine card kinds and had two 
 
 `collectCardConnectionSources` lives here rather than in either panel because both need it — the board writes the roadmap item, and the dashboard recomputes the evidence when that item becomes an issue. Two copies would eventually disagree about direction, which is the one thing here that must not be wrong.
 
+
+### Research register (`src/core/researchScanCatalog.ts`, `src/core/researchRegister.ts`, `src/core/researchSources.ts`, `src/core/researchSchedule.ts`, `src/core/researchDigest.ts`)
+
+Ideation is stage 0 of the guided workflow, and until v0.225.0 every inbound path to it was the user
+or Atlas re-reading the board's own contents. The research register is the missing inbound edge: a
+scan asks a question about the world *outside* this repository, records what it found, and offers
+each finding to the board as evidence.
+
+The normative specification is [`ideation-and-research.md`](ideation-and-research.md). The five
+properties that shape the code:
+
+1. **A scan is classified by where its evidence lives.** `gap`, `security`, `risk`, `debt` and
+   `testing` are already answered by registers in this codebase, so they are declared as
+   `RESEARCH_SUBSCRIPTIONS` — pointers — rather than re-scanned. Only the seven outward-facing
+   questions get scanners. A test asserts no declared scan is `internal`.
+2. **A citation, or it is not a finding.** The check is in `sanitizeIncomingFindings`, not in a
+   prompt. An uncited claim becomes a `question`: recorded, never counted as evidence. `https` only.
+3. **Absent is not empty.** `detectResearchSources` decides before a run whether anything could have
+   looked; with nothing available an external scan returns `no-source` with a named setup step.
+4. **Due is a fact, running is a decision.** `buildResearchSchedule` computes due-ness from the last
+   run that *answered*; `nextAutomaticScan` returns at most one scan per pass.
+5. **The digest introduces no claims.** It groups and ranks recorded findings, reusing
+   `observedDelta`'s five rules for its "what changed" section.
+
+Persistence lives in `project_memory/analysis/` — `research.json` (source of truth), `research.md`
+(mirror, publishing the rule table and catalog), `research-history.json` (capped, append-only) and
+`research-digest.md`.
+
+### Ideation board templates and readiness (`src/core/ideationBoardTemplates.ts`, `src/core/ideationReadiness.ts`)
+
+`ideationBoardTemplates.ts` derives starter frames from the detected archetype and traits. Every
+seeded card is a question rather than a conclusion, and nothing is placed at a coordinate — the board
+owns layout.
+
+`ideationReadiness.ts` produces a reading of what a board can and cannot defend, from ten declared
+rules ordered by consequence: an unresolved contradiction first, then unevidenced problems, wish-list
+boards, unconnected cards, and cards that never reached the backlog. It blocks nothing.
+
 ### RoadmapIssueDraft (`src/core/roadmapIssueDraft.ts`)
 
 A roadmap item, turned into an issue draft. `IssueDraft` existed with only a sanitizer, and issues could only be created by hand-typing a title, a body and a comma-separated label list into a form — while the roadmap held the same work structured, prioritised and gate-tagged. Somebody planning here and tracking on GitHub retyped every item.

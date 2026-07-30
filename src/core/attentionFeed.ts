@@ -93,6 +93,16 @@ export interface AttentionInput {
   release?: { blockedGates: number };
   delivery?: { blockedPaths: number };
   workflow?: { nextStepBlocked: boolean; nextStepTitle?: string };
+  /**
+   * Research scans, and **only when research is switched on**.
+   *
+   * The one group whose absence is not "not assessed" but "deliberately off".
+   * Rule 5 says an absent group must never make the page quiet, and it does not
+   * here either — a project that switched research off has not overlooked
+   * anything, it has decided. Passing a group full of zeroes would instead make
+   * a disabled feature raise items forever.
+   */
+  research?: { due: number; neverScanned: number; blocked: number };
 }
 
 /**
@@ -270,7 +280,49 @@ const RULES: readonly AttentionRule[] = [
       : undefined),
   },
 
+  {
+    id: 'research-due',
+    urgency: 'soon',
+    rule: 'an enabled research scan is past its declared cadence',
+    pageTarget: 'ideation',
+    evaluate: input => (input.research && input.research.due > 0
+      ? {
+        label: `${input.research.due} research scan${input.research.due === 1 ? '' : 's'} due`,
+        detail: 'The world outside the repository has had time to move since these last looked.',
+        count: input.research.due,
+      }
+      : undefined),
+  },
+
   // ── unassessed: nobody looked, which is not the same as fine ──────
+  {
+    id: 'research-no-source',
+    urgency: 'unassessed',
+    rule: 'research is switched on but no source can answer an outward question',
+    pageTarget: 'ideation',
+    evaluate: input => (input.research && input.research.blocked > 0
+      ? {
+        label: 'Research has nothing to look with',
+        detail: 'Scans are switched on but no search source is configured, so they would only report '
+          + 'what a model already believed. AtlasMind refuses to run them.',
+        count: input.research.blocked,
+      }
+      : undefined),
+  },
+  {
+    id: 'research-never-scanned',
+    urgency: 'unassessed',
+    rule: 'an enabled research scan has never produced an answer',
+    pageTarget: 'ideation',
+    evaluate: input => (input.research && input.research.neverScanned > 0
+      ? {
+        label: `${input.research.neverScanned} question${input.research.neverScanned === 1 ? '' : 's'} never researched`,
+        detail: 'Market, competition, customers, funding — switched on and never looked at. Unknown '
+          + 'rather than nothing there.',
+        count: input.research.neverScanned,
+      }
+      : undefined),
+  },
   {
     id: 'tests-no-report',
     urgency: 'unassessed',
@@ -394,6 +446,7 @@ export function buildAttentionFeed(input: AttentionInput): AttentionFeed {
     const assessed = [
       input.testing, input.pipeline, input.issues, input.ssot, input.director,
       input.documents, input.risk, input.debt, input.release, input.delivery, input.workflow,
+      input.research,
     ].filter(group => group !== undefined).length;
     feed.emptyState = assessed >= 4 ? 'clear' : 'unexamined';
   }

@@ -32,6 +32,12 @@ AtlasMind now ships a compact developer-focused built-in set for freeform routin
 | `ethics-oversight` | Ethics Oversight | User harm, fairness and bias, consent, dark patterns, transparency, accessibility as an ethical duty. Read-only, advisory — never an ethics approval |
 | `legal-oversight` | Legal Oversight | Dependency and third-party licence compatibility, IP, GDPR/CCPA, liability, terms of service, regulated data. Read-only, advisory — not a lawyer and not legal advice |
 | `commercial-oversight` | Commercial Oversight | Monetisation and business viability, vendor cost and lock-in, contractual and customer obligations, competitor positioning, go-to-market impact. Read-only, advisory |
+| `competitive-analyst` | Competitive Analyst | Who else solves this, how they are positioned and priced, what they shipped recently, and which capabilities this project lacks. Read-only, cited, advisory |
+| `customer-researcher` | Customer Researcher | What people publicly ask for and complain about in products of this shape. Quotes sources, names no individuals. Read-only, cited, advisory |
+| `technology-analyst` | Technology Analyst | Deprecations, end-of-life dates and breaking changes in the platforms and dependencies this project stands on. Read-only, cited, advisory |
+| `market-analyst` | Market Analyst | Category size and direction, segments, adjacent categories. Every figure cited with its date; an unavailable figure is reported as unavailable. Read-only, advisory |
+| `funding-analyst` | Funding Analyst | Grants, accelerators, sponsorship and open-source funding schemes, with eligibility and deadlines cited from the programme's own page. Read-only, advisory |
+| `regulatory-analyst` | Regulatory Analyst | Obligations that apply to a product of this shape, by jurisdiction, with the dates they take effect. Not legal advice. Read-only, cited, advisory |
 | `github-operator` | GitHub Operator | Evidence-backed pull requests, issues, CI diagnosis, branch/commit operations, and project-policy-aware releases |
 | `ci-analyst` | CI Analyst | Explains a *classified* pipeline failure from its evidence lines and proposes the smallest fix. Never re-classifies (the rule table decided), never re-runs a job, never edits a pipeline definition |
 | `release-manager` | Release Manager | Confirms the derived version matches the compatibility impact and that release notes stay the changelog verbatim. Never pushes, tags, or publishes |

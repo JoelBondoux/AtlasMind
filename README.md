@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.224.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.225.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,9 +68,17 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.224.1
+## What's new in 0.225.0
 
 Since the last Marketplace publication, **v0.219.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Ideation can learn something you did not already type into it.** Seven research scans — competition, customers, technology, feature gaps, market, funding, regulation — ask questions about the world outside your repository and record what they find as evidence the board can use. Gap, security, risk, debt and testing are deliberately *not* among them: AtlasMind already answers those, and a second answer would eventually contradict the first.
+
+  **Every finding carries a source, or it is not a finding.** A model asked about a market will answer, fluently and plausibly, and that answer filed into your project memory is indistinguishable from research six weeks later. An uncited claim is recorded as a *question to research* and never counted as evidence. With no way to search at all, a scan reports that it could not look — it does not report that it found nothing.
+
+- **Scans become due; running one stays your decision.** Each scan has a cadence, and AtlasMind tells you when the world has had time to move. Six weeks away produces one due scan, not six. The research digest then answers three questions in order — what changed outside, what it means for what you are building, and what is *still* unassessed — deterministically, with no model writing any of it. See [the specification](docs/ideation-and-research.md).
+
+- **An empty ideation board is a starting point now.** Eleven starter frames derived from your project's shape, so a game and a command-line tool do not open the same blank canvas, with every seeded card phrased as a question rather than an answer. Plus a readiness reading that says what the board cannot defend — unresolved contradictions first, then problems with nothing behind them, and cards that never reached the backlog. A record, never a gate.
 
 - **Reconcile the testing policy with what is actually in the repository.** A testing matrix drifts one way: enabling a methodology takes a click, noticing months later that it never produced anything takes somebody deliberately looking. **Reconcile with the repository** on the Testing page compares the two and proposes a change for each disagreement - drop what was declared and never started, keep what has tooling underway, adopt what the project practises but never declared. Nothing is written until you approve the exact lines, and dropping is a first-class outcome: a declaration the project has outgrown is a stale statement, not work you failed to do.
 
