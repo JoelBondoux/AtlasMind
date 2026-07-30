@@ -6,6 +6,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.209.0] - 2026-07-30
+
+### Fixed
+- **The ACP connection did not work. Four separate faults, each sufficient on its own, and all of them verified against live agents rather than reasoned about.** ACP has shipped since v0.170.0 as "use the subscription you already pay for", and nobody could have used it on Windows.
+
+  **1 — AtlasMind told you to install a package that provides a differently-named binary.** The adapter spawned `claude-agent-acp`; the install command said `npm install -g @zed-industries/claude-code-acp`, whose `bin` is `claude-code-acp`. Following AtlasMind's own instructions therefore produced a binary AtlasMind would then fail to find. The two facts lived in different files — the adapter, the installer and the `/acp` guide each carried their own copy — so nothing in the code could notice they disagreed. That package has since been deprecated and renamed to `@agentclientprotocol/claude-agent-acp`, which *does* provide `claude-agent-acp`. There is now one list, every install command is derived from it, and a test asserts each command against the package that really provides it.
+
+  **2 — `cargo install codex-acp` installed nothing, because no such crate exists.** The Codex path required Rust, planned a rustup install for anybody without it, and could never have produced a working agent. Codex's adapter ships on npm like every other one, so the Rust prerequisite and the rustup dead end are gone rather than kept for a case that never existed.
+
+  **3 — Windows could not spawn an ACP agent at all.** Every published adapter is an npm `bin`, and an npm `bin` on Windows is three sibling shims — an extensionless shell script, a `.cmd`, and a `.ps1` — none of which is an executable image. `spawn(command, args, { shell: false })` therefore failed with **`ENOENT`** for a perfectly correct global install, and `ENOENT` reads as "you have not installed it" to somebody who has. Resolving to the `.cmd` does not help either: Node has refused to spawn `.cmd`/`.bat` without a shell since the fix for CVE-2024-27980, and a shell is not on the table — the whole point of `shell: false` is that there is no interpolation to escape.
+
+  New `src/providers/acpLaunch.ts` resolves the shim to the JavaScript entry point its own package **declares** in `package.json` `bin`, and spawns Node against that. It reads a contract the package author wrote rather than parsing npm's generated shell scripts, and it handles the case where the names do not match at all — `gemini` lives in `@google/gemini-cli`. A real `.exe` is still spawned directly; POSIX is untouched, where the shim is executable and there is nothing to work around.
+
+  **4 — an agent that listed its logins was reported as signed out, and refused.** `authMethods` in the `initialize` response advertises which logins *exist*; it says nothing about whether this user owes one. `codex-acp` lists `api-key` and `chat-gpt` unconditionally, then creates sessions and completes turns perfectly for somebody already signed in — so reading that non-empty list as "not authenticated" refused every working ChatGPT subscription, with no way to make the message go away. The spec's actual signal is the reserved error **`-32000` auth_required** on the gated request, and that is what AtlasMind reads now. The probe opens a real session to find out, so it reports that the agent *can be used* rather than that it started.
+
+- **Every ACP completion was recorded as costing nothing.** Token counts were read from `inputTokens`/`outputTokens` on the `usage_update` notification. No agent has ever sent those: the spec's `usage_update` is `{ used, size, cost? }` — cumulative *context occupancy*, a progress bar rather than a bill — and the per-turn counts arrive on the `session/prompt` result. Both are now read for what they are, and context is deliberately never billed as input tokens, which would re-charge the whole conversation on every message.
+
+  Off-spec, and read anyway with the compromise confined to the safe direction: `usage` is not in the published `PromptResponse` schema, but it is the only place a real count appears and every current agent sends it identically. Absent or unusable counts still report zero rather than an estimate. Nothing is derived from `totalTokens` — splitting a total into input and output would be arithmetic nobody measured, handed to the cost tracker as though somebody had.
+
+- **A spawn failure now says what to do about it.** Not-found names the command, says a binary installed after VS Code started is often not on this window's PATH until a reload, and an unspawnable shim explains itself instead of surfacing a bare `ENOENT`.
+
+### Added
+- **Three more subscriptions became routable capacity: Gemini CLI, GitHub Copilot CLI, and Qwen Code.** Gemini was previously excluded on the correct grounds that its ACP invocation was unpublished; the ACP registry declares it now, so the offer on the Google card is a button that works rather than one that cannot. All three are ordinary interactive CLIs with an ACP mode, so `args` is part of the launch command and is carried everywhere an agent is registered — a `gemini` configured without `--acp` opens a REPL that never speaks a word of JSON-RPC and times the handshake out with nothing to explain why.
+
+- **goose, OpenCode, Cursor and Kimi CLI are named with their launch commands.** These ship as platform archives, and AtlasMind will not download and unpack one — so there is no install button, because a button that cannot work is worse than none. What is worth having is the command: somebody who already runs goose should not have to work out the ACP flag, and "any agent that speaks ACP" is not a useful answer to "which ones, and how".
+
+### Changed
+- **Launch commands are transcribed from the ACP registry, at a pinned version, by a human.** Deliberately not fetched at runtime: a launch command that arrives over the network and is then spawned is remote code execution with extra steps — the same line `acpInstaller.ts` and `buzzDocsSource.ts` already hold.
+
+- **The comparison matrix is out of the wiki.** `wiki/Home.md` carried a "How It Compares" table rating six competitors across nineteen capabilities. It was already contradicting itself on the same page — "31 built-in skills" in the matrix, 43 in the navigation table directly above it — which is the predictable end state of a document asserting facts about software we do not ship and do not watch. A stale claim about a competitor is worse than no claim, and v0.147.0 had already removed the standalone comparison page for exactly this reason; this table survived that cleanup.
+
+### Verified
+- Driven end to end through the compiled adapter against live agents, not mocks: `claude-agent-acp` 0.63.0 streamed a reply with `inputTokens: 2, outputTokens: 5`; `codex-acp` 1.1.7 streamed a reply with `inputTokens: 28693, outputTokens: 6` **while advertising two auth methods**, which the previous build would have refused; `gemini --acp` 0.53.0 resolved through the shim bypass with its flag intact, handshook at protocol v1, and was correctly reported as *not signed in* by way of a real `-32000`, naming all four logins it offers. The same build that accepts Codex rejects Gemini, which is the discrimination the old code could not make.
+
 ## [0.208.3] - 2026-07-30
 
 ### Changed

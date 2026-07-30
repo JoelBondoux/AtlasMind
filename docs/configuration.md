@@ -111,6 +111,7 @@ When either mode is set to `auto`, the task profiler infers the appropriate leve
 | `atlasmind.autoVerifyTimeoutMs` | `number` | `120000` | Per-script timeout in milliseconds for automatic verification. |
 | `atlasmind.chatSessionTurnLimit` | `number` | `6` | Number of recent freeform turns AtlasMind carries forward into subsequent requests. |
 | `atlasmind.chatSessionContextChars` | `number` | `2500` | Maximum compacted character budget reserved for session carry-forward context. |
+| `atlasmind.contextCompressionEnabled` | `boolean` | `true` | Enable the prompt-context compaction path, which reduces token volume and estimated spend on long conversations. |
 
 ## Project Execution (`/project`)
 
@@ -178,10 +179,13 @@ Integration with [Buzz](https://buzz.xyz) — the open-source, Nostr-based works
 |---|---|---|---|
 | `atlasmind.buzz.enabled` | `boolean` | `false` | Enable Buzz integration: record Buzz identities/channels and allow the bundled Buzz Communications MCP bridge to connect. Live Director sends additionally require the guided connector, a pinned official CLI, and the per-project `outboundEnabled` gate. |
 | `atlasmind.buzz.relayUrl` | `string` | `ws://localhost:3000` | Buzz relay URL (`BUZZ_RELAY_URL`). Defaults to a local self-hosted relay. A remote relay sends project data off-machine and additionally requires `atlasmind.buzz.allowRemoteRelay`. |
+| `atlasmind.buzz.relayMode` | `string` | `"undecided"` | Which way you run Buzz — `undecided`, `local`, or `hosted` — so the setup guide shows only the path that applies. Set by answering the guide. It changes guidance only and connects nothing. |
+| `atlasmind.buzz.autonomousReplies` | `boolean` | `false` | **Declared but not yet read by anything, so changing it currently has no effect.** When wired, it will let agents reply to bound Buzz identities without confirming each message; until then every send still asks. Documented as inert rather than omitted, because a setting that appears in the Settings UI and silently does nothing is worse than one that says so. |
+| `atlasmind.buzz.autonomousReplyLimitPerHour` | `number` | `10` | **Also not yet active.** When autonomous replies are wired this will cap them per recipient per hour, after which the next message needs confirmation. |
 | `atlasmind.buzz.inboundEnabled` | `boolean` | `false` | Hold a **read-only** subscription to the Buzz relay and derive AtlasMind work items from the activity. Also requires `atlasmind.buzz.enabled`. The subscription can never publish to Buzz. |
 | `atlasmind.buzz.inboundChannels` | `string[]` | `[]` | Buzz channel ids (UUIDs) to watch. Empty means every channel the agent key can read. |
 | `atlasmind.buzz.autoCreateFollowUps` | `boolean` | `false` | Record inbound activity as Project Director follow-ups. Off by default because `project_memory/` is git-tracked — while off, inbound items are reported, not written. |
-| `atlasmind.acp.agents` | `array` | `[]` | Agent Client Protocol agents AtlasMind may use as subscription-backed completion capacity, e.g. `[{ "id": "claude", "command": "claude-agent-acp" }]`. Empty by default: nothing is spawned until you name a command you have installed, and AtlasMind never installs or `npx`-fetches an agent. By default agents run as a completion source: no MCP pass-through, and any permission request they make is refused. `atlasmind.acp.toolsEnabled` changes that. |
+| `atlasmind.acp.agents` | `array` | `[]` | Agent Client Protocol agents AtlasMind may use as subscription-backed completion capacity, e.g. `[{ "id": "claude", "command": "claude-agent-acp" }, { "id": "gemini", "command": "gemini", "args": ["--acp"] }]`. Empty by default: nothing is spawned until you name a command you have installed, and AtlasMind never installs or `npx`-fetches an agent behind your back. **`args` is load-bearing** for CLIs that need a flag to enter ACP mode — `gemini`, `copilot` and `qwen` are interactive REPLs without `--acp`, so an entry missing the flag starts a process that never speaks JSON-RPC. By default agents run as a completion source: no MCP pass-through, and any permission request they make is refused. `atlasmind.acp.toolsEnabled` changes that. See [ACP agents](model-routing.md#acp-agents) for the launch, authentication and token-accounting details. |
 | `atlasmind.acp.toolsEnabled` | `boolean` | `false` | Allow ACP agents to run their own tools, with AtlasMind approving each operation. Off by default: the agent answers but cannot act. The work runs inside the agent's process; AtlasMind decides whether each operation may proceed. AtlasMind never selects an agent's `allow_always` option — a standing grant would live in the agent's own state, unrevokable from here — and declines outright if that is the only way to approve. A missing or throwing approval gate is a refusal, never a bypass. |
 | `atlasmind.acp.mcpServers` | `array` | `[]` | Names of MCP servers an ACP agent may connect to. Empty by default, and only consulted when `acp.toolsEnabled` is on. Servers whose credentials live in SecretStorage are never forwarded — that would copy a key given to AtlasMind into another vendor's process — nor are HTTP/SSE servers, whose headers carry bearer tokens. Skipped servers are reported in the output channel. |
 | `atlasmind.buzz.agentBindings` | `object` | `{}` | Map a Buzz identity (`npub…` or 64-char hex) to one AtlasMind agent id, or to a list of them, so inbound work from that Buzz agent lands with the right specialist. With several, the first owns the work — a follow-up has exactly one owner — and the rest are recorded as also-relevant. Unbound identities stay unassigned. |
@@ -250,6 +254,23 @@ The autonomous goal-seeking loop (`/loop` chat command and the Mission Control p
 | Setting | Type | Default | Description |
 |---|---|---|---|
 | `atlasmind.dailyCostLimitUsd` | `number` | `0` | Maximum daily spend in USD. `0` = unlimited. Warns at 80%, then blocks new requests once the limit is reached. |
+| `atlasmind.displayCurrency` | `string` | `"USD"` | Currency used for every cost display. One of `auto` or an ISO code from `USD`, `EUR`, `GBP`, `JPY`, `CAD`, `AUD`, `CHF`, `CNY`, `INR`, `BRL`, `MXN`, `KRW`, `SEK`, `NOK`, `DKK`, `NZD`, `SGD`, `HKD`, `ZAR`. `auto` reads your OS locale. Costs are **stored in USD** and converted for display only, with rates fetched at startup and cached for 24 hours — so a rate change never rewrites a recorded spend. |
+
+## Guided GitHub workflow
+
+The workflow is a **committed file** (`project_memory/operations/workflow-config.json`), not a setting: a change to how a team works should arrive as a diff with a reviewer. These settings are the *ceiling* over that file, and the two are combined as a minimum — a stage can request `auto` and still only `observe`. All four capability switches default closed.
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `atlasmind.workflow.enabled` | `boolean` | `false` | Master switch for the guided GitHub workflow. Off by default: the Workflow dashboard still teaches and measures, but AtlasMind takes no action on your repository. Turning it on does not by itself permit anything. |
+| `atlasmind.workflow.maxAutomationLevel` | `string` | `"observe"` | Your personal ceiling on what AtlasMind may do: `off`, `observe`, `draft`, `propose`, `auto`. Can only **lower** the project's declared level, never raise it. Defaults to read-and-display-only. |
+| `atlasmind.workflow.profile` | `string` | `"solo"` | Which profile to teach and measure against. `solo` expects one person to be author, reviewer and releaser; `studio` expects authorship and approval to be separable; `custom` leaves it to the committed file. A profile **seeds** stages but never rewrites customised ones. |
+| `atlasmind.workflow.archetype` | `string` | `""` | What kind of project this is — one of `game`, `website`, `web-app`, `api`, `cli`, `library`, `desktop`, `mobile`, `generic`. Changes CI steps, release model, testing recommendations, expected documentation and refactor advice. Empty means **undeclared**: AtlasMind detects a suggestion but never treats it as a decision. |
+| `atlasmind.workflow.traits` | `string[]` | `[]` | Facts that cut across the project's shape: `ships-binaries`, `has-native-build`, `is-published-package`, `has-ui`, `has-server`, `platform-hosted`, `handles-personal-data`. Each **adds** expectations on top of the archetype rather than replacing them. |
+| `atlasmind.workflow.allowIssueWrites` | `boolean` | `false` | Allow AtlasMind to create, comment on, edit, close or reopen GitHub issues. Off by default; every write still asks for confirmation naming the repository and the exact action. |
+| `atlasmind.workflow.allowPullRequestWrites` | `boolean` | `false` | Allow AtlasMind to create pull requests, post reviews, and merge. Off by default; every write still confirms. |
+| `atlasmind.workflow.allowReleaseWrites` | `boolean` | `false` | Allow AtlasMind to prepare releases — version bump, changelog entry, tag and GitHub Release. Off by default, and tagging and publishing stay human-triggered regardless. |
+| `atlasmind.workflow.allowProtectedRefWrites` | `boolean` | `false` | Allow AtlasMind to write to a protected branch. Off by default and **rarely correct** — a protected branch exists precisely so changes reach it only through a reviewed pull request. |
 
 ## Experimental
 

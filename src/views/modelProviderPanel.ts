@@ -1156,7 +1156,11 @@ export async function useSubscriptionForProvider(atlas: AtlasMindContext, provid
   const configuration = vscode.workspace.getConfiguration('atlasmind');
   const configured = parseAcpAgentSettings(configuration.get<unknown>('acp.agents'));
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  const candidate = { id: bridge.agentId, command: bridge.command };
+  const candidate = {
+    id: bridge.agentId,
+    command: bridge.command,
+    ...(bridge.args.length > 0 ? { args: [...bridge.args] } : {}),
+  };
   const probe = await new AcpAdapter({
     agents: [candidate],
     ...(workspaceRoot ? { cwd: workspaceRoot } : {}),
@@ -1348,8 +1352,8 @@ async function configureAcpProvider(atlas: AtlasMindContext): Promise<void> {
     [
       ...VERIFIED_ACP_AGENTS.map(agent => ({
         label: agent.label,
-        description: agent.command,
-        detail: 'Launch command published in the official ACP agent list.',
+        description: [agent.command, ...agent.args].join(' '),
+        detail: `Launch command declared in the ACP registry. Installs with npm as ${agent.npmPackage}.`,
         agent,
       })),
       {
@@ -1367,23 +1371,36 @@ async function configureAcpProvider(atlas: AtlasMindContext): Promise<void> {
 
   let id = picked.agent?.id ?? '';
   let command = picked.agent?.command ?? '';
+  // The ACP-mode arguments matter as much as the command: `gemini`, `copilot` and
+  // `qwen` are ordinary interactive CLIs until `--acp` is passed, so persisting
+  // the command alone would launch a REPL that never speaks a word of JSON-RPC
+  // and time the handshake out with nothing to explain why.
+  let args: string[] = [...(picked.agent?.args ?? [])];
   if (!picked.agent) {
     const entered = await vscode.window.showInputBox({
       title: 'ACP agent command',
-      prompt: 'The executable that starts the agent in ACP mode, e.g. my-agent-acp.',
+      prompt: 'The command that starts the agent in ACP mode, e.g. my-agent-acp, or my-cli --acp.',
       ignoreFocusOut: true,
       validateInput: value => (value ?? '').trim().length === 0 ? 'Enter the command that starts the agent.' : undefined,
     });
     if (!entered) {
       return;
     }
-    command = entered.trim();
+    // Split on whitespace so "my-cli --acp" works as typed. Nothing is passed to
+    // a shell, so there is no quoting to honour and none is pretended: an
+    // argument containing a space has to be configured in the settings file.
+    const words = entered.trim().split(/\s+/);
+    command = words[0] ?? '';
+    args = words.slice(1);
     id = command.replace(/[^a-zA-Z0-9-]/g, '').toLowerCase().slice(0, 32) || 'agent';
   }
 
   const configuration = vscode.workspace.getConfiguration('atlasmind');
   const existing = parseAcpAgentSettings(configuration.get<unknown>('acp.agents'));
-  const next = [...existing.filter(agent => agent.id !== id), { id, command }];
+  const next = [
+    ...existing.filter(agent => agent.id !== id),
+    { id, command, ...(args.length > 0 ? { args } : {}) },
+  ];
   await configuration.update('acp.agents', next, vscode.ConfigurationTarget.Workspace);
 
   // Report what is actually true rather than declaring success on a write.

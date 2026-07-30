@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.208.3</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.209.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,9 +64,23 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.208.3
+## What's new in 0.209.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
+
+- **The subscription you already pay for actually works as capacity now.** ACP has been in AtlasMind since v0.170.0 as "use your Claude or ChatGPT subscription", and on Windows nobody could have used it. Four faults, each fatal on its own, all of them found by running the thing rather than reading it.
+
+  AtlasMind **told you to install the wrong package.** It spawned `claude-agent-acp` while the install command it displayed provided a binary called `claude-code-acp` — so following AtlasMind's own instructions produced something AtlasMind then could not find. The Codex path was worse: `cargo install codex-acp` asked you to install Rust in order to install a crate **that does not exist.** Both facts lived in a different file from the command they were supposed to match, so nothing could notice.
+
+  Even with the right binary, **Windows could not start it.** These adapters install as npm commands, and an npm command on Windows is a small script rather than a real program — so the spawn failed with `ENOENT`, which reads as "you haven't installed it" to somebody who just did. AtlasMind now finds the actual entry point the package declares and runs that. A failure explains itself, including the common case where a fresh install is not on the window's PATH until you reload.
+
+  And **an agent that listed its sign-in options was declared signed out.** Codex advertises "API key" and "ChatGPT" on every startup whether you are logged in or not, so AtlasMind refused every working ChatGPT subscription with a message you could not clear. It now decides by opening a real session and reading the answer — which means it tells you the agent *works*, not merely that it started.
+
+  Separately, **every ACP reply was recorded as free.** Token counts were read from a field no agent sends. Real counts now reach the cost dashboard, and the context-size figure is deliberately not billed — charging it would re-bill your whole conversation on every message.
+
+  Verified against live agents rather than mocks: Claude and Codex both stream a reply with true token counts, and Gemini is correctly reported as needing a sign-in — the same build accepting one and refusing the other, which is the distinction the old code could not draw.
+
+- **Three more subscriptions joined: Gemini, GitHub Copilot CLI, and Qwen Code.** Gemini was left out before because its ACP launch command was unpublished — guessing one would have been a button that cannot work. It is published now, so "Use my Gemini subscription" appears on the Google card. goose, OpenCode, Cursor and Kimi are named with their commands too; AtlasMind will not download and unpack an archive for you, so it tells you the command instead of offering a button that would fail.
 
 - **The ideation board is stage 0 of the workflow now.** It had nine card kinds — including `problem`, `requirement` and `risk` — and two outbound paths: launch an autonomous run, or append prose to a memory file. Neither reached the backlog, so a card literally called `requirement` could not become a requirement.
 
@@ -222,7 +236,7 @@ Since the last Marketplace publication, **v0.145.3**, source builds have added:
 
 - **Your Claude or ChatGPT subscription can now do the work, not just describe it.** ACP agents shipped able to answer and nothing else. Turn on **Let subscription agents act** (Settings → Safety, off by default) and the agent can edit files, run commands, search, and fetch — with AtlasMind asking you before each operation and recording what ran. The agent does the work in its own process; AtlasMind decides whether it may. Two things it will not do on your behalf: it never accepts an agent's *"always allow"* — it answers *"allow once"* instead, because a standing grant would live inside the agent where you could not find or revoke it — and it never forwards an MCP server whose credentials you gave AtlasMind to keep. Each vendor's ACP route now also appears as its own row in the Models sidebar, directly under that vendor's API entry, so "the other way to reach Claude" is visible rather than filed under an acronym.
 
-- **"Use my Claude subscription" — on the Anthropic card, where you would look for it.** ACP is a protocol name, and nobody goes shopping for a protocol: if you have never heard of it, you had no reason to click the ACP provider and no way to know it applied to you. The Anthropic and OpenAI cards now carry a plain-language button offering to route those models through the subscription you already pay for. If the adapter it needs is not installed, you get the install command and the step-by-step guide rather than an error; if it is installed but signed out, it says which; if it is ready, it is configured and enabled in one click. Google is deliberately absent — Gemini implements the protocol but publishes no launch command, so a button there could not work.
+- **"Use my Claude subscription" — on the Anthropic card, where you would look for it.** ACP is a protocol name, and nobody goes shopping for a protocol: if you have never heard of it, you had no reason to click the ACP provider and no way to know it applied to you. The Anthropic and OpenAI cards now carry a plain-language button offering to route those models through the subscription you already pay for. If the adapter it needs is not installed, you get the install command and the step-by-step guide rather than an error; if it is installed but signed out, it says which; if it is ready, it is configured and enabled in one click. Google is deliberately absent — Gemini implements the protocol but publishes no launch command, so a button there could not work. *(Superseded in 0.209.0: the launch command is published now, and the Google card carries the offer.)*
 - **Three settings that did nothing now say so.** A settings audit found that `atlasmind.remote.enabled` and the two Buzz autonomous-reply settings were declared, documented, and read by no code at all. The Buzz ones failed safe — every message still asked for confirmation — but `remote.enabled` was worse than useless: setting it to `false` gave the impression you had switched remote control off when the real gate is the command plus a workspace approval. Their descriptions now say plainly that they are not active and what the real control is, and a new guard fails the build if another setting is ever declared that nothing reads.
 - **ACP agents are now something you can click.** The ACP provider shipped with no surface: the only way to use it was hand-editing a JSON setting. It now appears in **Model Providers** like any other — **Configure** offers the agents whose launch command is published, or takes your own, then probes it and tells you whether it is installed and signed in rather than just saving and hoping. And **Allowed models** in the Agent editor is no longer a bare text box: the models your enabled providers actually offer are one click away, with subscription-backed ones marked, so a provider you configured is discoverable instead of something you had to know the id of.
 - **Your project memory is no longer at risk from opening it in an older AtlasMind.** Files in `project_memory/` carry a format version, but every reader treated an unfamiliar version as *no file at all* — so an older build would seed a fresh default and **write it over** your documents registry, delivery pipeline, risk register, or people roster, silently. AtlasMind now tells the difference between a file that is corrupt (safe to replace) and one written by a newer version (left exactly as it was, with the reason shown on the page). This is also the mechanism that lets a format change at all, which is what a 1.0 compatibility promise needs behind it.

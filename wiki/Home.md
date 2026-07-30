@@ -66,32 +66,6 @@ For headless workflows, the CLI now rejects malformed flags instead of treating 
 
 ---
 
-## How It Compares
-
-| Capability | AtlasMind | Claude Code | Cursor | Copilot | Aider | Open Hands |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|
-| Runs inside VS Code | ✅ | ✅ | ✅ (fork) | ✅ | ❌ (terminal) | ❌ (browser/GUI) |
-| Multiple AI agents | ✅ | ✅ | ❌ | ⚠️ sessions and agent types | ❌ | ✅ |
-| Custom agent definitions | ✅ | ✅ | ❌ | ✅ | ❌ | ⚠️ limited |
-| Multi-provider model routing | ✅ | ⚠️ third-party providers | ✅ | ⚠️ built-in and third-party agents | ✅ | ✅ |
-| Budget-aware model selection | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Long-term project memory | ✅ (SSOT) | ⚠️ (CLAUDE.md + memory) | ❌ | ⚠️ custom instructions/context | ❌ | ❌ |
-| Memory security scanning | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Built-in skills / tools | 31 | ~15 | ~10 | ~8 | ~6 | ~20 |
-| MCP server integration | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
-| Custom skill import | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Autonomous project planner | ✅ | ⚠️ agent workflows | ⚠️ plan mode | ⚠️ plan agent | ❌ | ✅ |
-| Per-tool approval gating | ✅ | ✅ | ✅ | ⚠️ varies by agent/tool | ✅ | ❌ |
-| Real-time cost tracking | ✅ | ❌ | ❌ | ❌ | ⚠️ basic | ❌ |
-| Rollback checkpoints | ✅ | ❌ | ❌ | ❌ | ✅ (git) | ❌ |
-| Voice input/output | ✅ | ❌ | ❌ | ❌ | ⚠️ voice input | ❌ |
-| Vision / image input | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Open source | ✅ MIT | ❌ | ❌ | ❌ | ✅ Apache | ⚠️ core MIT |
-
-> Capability comparisons are approximate and reflect the state of each tool as of early 2026. Check each project's docs for the latest.
-
----
-
 ## License
 
 AtlasMind is open-source under the [MIT License](https://github.com/JoelBondoux/AtlasMind/blob/main/LICENSE).

@@ -1,18 +1,36 @@
 import { describe, expect, it } from 'vitest';
 import {
-  ACP_AGENT_SUGGESTIONS,
   ACP_SETUP_GUIDE,
+  acpLaunchLine,
   buildAcpSetupPlan,
   isAcpProviderReady,
+  type AcpAgentSuggestion,
   type AcpSetupState,
 } from '../../src/core/acpSetupPlan.ts';
 import { nextSetupStep, summarizeSetupProgress } from '../../src/core/setupWalkthrough.ts';
+import { VERIFIED_ACP_AGENTS, acpInstallCommand } from '../../src/providers/acp.ts';
+
+/**
+ * The suggestions the caller injects, built the way `collectAcpSetupSteps` does.
+ *
+ * Deliberately derived from `VERIFIED_ACP_AGENTS` here too: a test that typed
+ * its own install strings could pass while the guide recommended a package that
+ * installs a differently-named binary — which is exactly what shipped.
+ */
+const SUGGESTIONS: AcpAgentSuggestion[] = VERIFIED_ACP_AGENTS.map(agent => ({
+  id: agent.id,
+  label: agent.label.replace(/\s*\(.*\)$/, ''),
+  command: agent.command,
+  args: agent.args,
+  install: acpInstallCommand(agent.npmPackage),
+}));
 
 const state = (over: Partial<AcpSetupState> = {}): AcpSetupState => ({
   configuredAgents: [],
   clientProtocolVersion: 1,
   providerEnabled: false,
   hasCompletedATurn: false,
+  suggestions: SUGGESTIONS,
   ...over,
 });
 
@@ -68,14 +86,23 @@ describe('buildAcpSetupPlan — ordering follows how things actually fail', () =
 });
 
 describe('buildAcpSetupPlan — what it says', () => {
-  it('names both published launch commands, and no unpublished one', () => {
+  it('names every published launch command, with its own install', () => {
     const steps = buildAcpSetupPlan(state());
     const text = JSON.stringify(steps.find(step => step.id === 'agent'));
-    expect(text).toContain('claude-agent-acp');
-    expect(text).toContain('codex-acp');
-    // Gemini implements ACP but publishes no invocation; there is nothing
-    // truthful to tell someone to type.
-    expect(text.toLowerCase()).not.toContain('gemini');
+    for (const agent of SUGGESTIONS) {
+      expect(text, agent.id).toContain(agent.command);
+      expect(text, agent.id).toContain(agent.install);
+    }
+  });
+
+  it('names no agent it cannot tell the user how to launch', () => {
+    // The rule that kept Gemini out until its invocation was published: an agent
+    // may only be suggested if there is something truthful to type. It is now
+    // here because the ACP registry declares `gemini --acp`.
+    const text = JSON.stringify(buildAcpSetupPlan(state({ suggestions: [] })));
+    for (const agent of SUGGESTIONS) {
+      expect(text).not.toContain(agent.install);
+    }
   });
 
   it('quotes install commands as somebody else\'s text, never as an AtlasMind button', () => {
@@ -143,9 +170,29 @@ describe('isAcpProviderReady', () => {
   });
 });
 
-describe('ACP_AGENT_SUGGESTIONS', () => {
+describe('the suggestions the guide shows', () => {
   it('pairs each published command with a real install command', () => {
-    expect(ACP_AGENT_SUGGESTIONS.map(agent => agent.command)).toEqual(['claude-agent-acp', 'codex-acp']);
-    expect(ACP_AGENT_SUGGESTIONS.every(agent => agent.install.trim().length > 0)).toBe(true);
+    expect(SUGGESTIONS.map(agent => agent.command))
+      .toEqual(['claude-agent-acp', 'codex-acp', 'gemini', 'copilot', 'qwen']);
+    expect(SUGGESTIONS.every(agent => agent.install.trim().length > 0)).toBe(true);
+  });
+
+  it('never recommends the renamed package or the crate that never existed', () => {
+    const installs = SUGGESTIONS.map(agent => agent.install).join('\n');
+    // The guide used to say `npm install -g @zed-industries/claude-code-acp`
+    // while telling the user to configure `claude-agent-acp` — a package whose
+    // bin is `claude-code-acp`. Following the guide could not work.
+    expect(installs).not.toContain('@zed-industries/claude-code-acp');
+    expect(installs).not.toContain('cargo install');
+  });
+
+  it('shows the ACP-mode flag as part of the command to type', () => {
+    // `gemini` alone opens an interactive REPL. Telling somebody to configure
+    // the bare command would send them to a prompt that never answers.
+    expect(acpLaunchLine({ command: 'gemini', args: ['--acp'] })).toBe('gemini --acp');
+    expect(acpLaunchLine({ command: 'claude-agent-acp', args: [] })).toBe('claude-agent-acp');
+
+    const guidance = buildAcpSetupPlan(state()).find(step => step.id === 'agent')?.guidance ?? [];
+    expect(guidance.map(entry => entry.text).join('\n')).toContain('gemini --acp');
   });
 });

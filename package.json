@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.208.3",
+  "version": "0.209.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -127,7 +127,7 @@
           },
           {
             "name": "sync-instructions",
-            "description": "Two-way sync AI instruction sets across tools (Claude, Copilot, Cursor\u2026), resolving conflicts in chat"
+            "description": "Two-way sync AI instruction sets across tools (Claude, Copilot, Cursor…), resolving conflicts in chat"
           }
         ]
       }
@@ -1021,7 +1021,7 @@
       },
       {
         "view": "atlasmind.discoveryView",
-        "contents": "Discover external agentic resources via ARD.\nAgent Finders ship disabled \u2014 enable one to search.\n[Open Resource Discovery](command:atlasmind.openResourceDiscovery)\n[Discover Resources](command:atlasmind.ard.search)"
+        "contents": "Discover external agentic resources via ARD.\nAgent Finders ship disabled — enable one to search.\n[Open Resource Discovery](command:atlasmind.openResourceDiscovery)\n[Discover Resources](command:atlasmind.ard.search)"
       },
       {
         "view": "atlasmind.modelsView",
@@ -1138,7 +1138,7 @@
           "type": "boolean",
           "default": true,
           "description": "Enable Agentic Resource Discovery (ARD): the Resource Discovery tab in Settings, the /discover chat command, and the read-only discover-resources skill. Discovery only finds resources; it never installs anything without your action.",
-          "markdownDescription": "Enable [Agentic Resource Discovery](https://agenticresourcediscovery.org/) (ARD).\n\nWhen on, AtlasMind exposes the **Resource Discovery** panel, the `/discover` chat command, and a read-only `discover-resources` skill agents can call mid-task. Discovery is **before invocation** \u2014 it only locates resources; nothing is installed without your explicit action, and Agent Finders ship disabled."
+          "markdownDescription": "Enable [Agentic Resource Discovery](https://agenticresourcediscovery.org/) (ARD).\n\nWhen on, AtlasMind exposes the **Resource Discovery** panel, the `/discover` chat command, and a read-only `discover-resources` skill agents can call mid-task. Discovery is **before invocation** — it only locates resources; nothing is installed without your explicit action, and Agent Finders ship disabled."
         },
         "atlasmind.ard.federationMode": {
           "type": "string",
@@ -1154,7 +1154,7 @@
             "Query only the selected registry; do not federate."
           ],
           "description": "How ARD searches fan out across federated discovery registries.",
-          "markdownDescription": "How ARD searches fan out across federated discovery registries.\n\n- `auto` \u2014 the registry merges upstream results server-side.\n- `referrals` \u2014 AtlasMind follows referral records to other registries, up to a small depth bound (default).\n- `none` \u2014 query only the selected registry.\n\nFederation depth is capped to prevent referral loops, and all referral URLs are HTTPS-screened against private hosts."
+          "markdownDescription": "How ARD searches fan out across federated discovery registries.\n\n- `auto` — the registry merges upstream results server-side.\n- `referrals` — AtlasMind follows referral records to other registries, up to a small depth bound (default).\n- `none` — query only the selected registry.\n\nFederation depth is capped to prevent referral loops, and all referral URLs are HTTPS-screened against private hosts."
         },
         "atlasmind.ard.maxResults": {
           "type": "number",
@@ -1174,13 +1174,13 @@
           "type": "boolean",
           "default": false,
           "description": "Allow ARD Agent Finders that use http:// or localhost (e.g. the ARD conformance demo registry). When false, discovery requires HTTPS and rejects private/loopback addresses to prevent SSRF.",
-          "markdownDescription": "Allow ARD Agent Finders that use `http://` or `localhost` \u2014 for example the [ARD conformance demo](https://github.com/ards-project/ard-spec) registry.\n\nWhen `false` (default), discovery requires HTTPS and rejects private / loopback / link-local addresses to prevent SSRF. This setting only relaxes the check for finders **you** explicitly marked insecure; followed referral URLs are always screened."
+          "markdownDescription": "Allow ARD Agent Finders that use `http://` or `localhost` — for example the [ARD conformance demo](https://github.com/ards-project/ard-spec) registry.\n\nWhen `false` (default), discovery requires HTTPS and rejects private / loopback / link-local addresses to prevent SSRF. This setting only relaxes the check for finders **you** explicitly marked insecure; followed referral URLs are always screened."
         },
         "atlasmind.chat.revealOnApprovalRequest": {
           "type": "boolean",
           "default": true,
-          "description": "Bring the AtlasMind chat panel forward when a tool approval is waiting. A notification is shown either way \u2014 turning this off only stops the panel taking focus.",
-          "markdownDescription": "Bring the AtlasMind chat panel forward when a tool approval needs an answer.\n\nAn approval **blocks the run until it is answered**, and the approval bar lives in this panel \u2014 which you may not be looking at. Without this, the run appears to hang.\n\nA dismissible notification naming the waiting action is shown regardless, so turning this off only stops the panel taking focus; it never leaves you unaware. Nothing is announced while the panel is already on screen."
+          "description": "Bring the AtlasMind chat panel forward when a tool approval is waiting. A notification is shown either way — turning this off only stops the panel taking focus.",
+          "markdownDescription": "Bring the AtlasMind chat panel forward when a tool approval needs an answer.\n\nAn approval **blocks the run until it is answered**, and the approval bar lives in this panel — which you may not be looking at. Without this, the run appears to hang.\n\nA dismissible notification naming the waiting action is shown regardless, so turning this off only stops the panel taking focus; it never leaves you unaware. Nothing is announced while the panel is already on screen."
         },
         "atlasmind.buzz.relayMode": {
           "type": "string",
@@ -1191,7 +1191,7 @@
             "hosted"
           ],
           "enumDescriptions": [
-            "Not yet chosen \u2014 the setup guide will ask.",
+            "Not yet chosen — the setup guide will ask.",
             "You run a Buzz relay on this machine (needs Docker).",
             "Someone else runs the relay; you connect to their wss:// URL."
           ],
@@ -1201,19 +1201,19 @@
           "type": "boolean",
           "default": false,
           "description": "Enable Buzz (buzz.xyz) integration: record Buzz identities/channels on Project Director contacts and reach them via a Buzz deep link. Off by default; Buzz is an early-stage, self-hosted workspace and nothing connects to it until you opt in.",
-          "markdownDescription": "Enable [Buzz](https://buzz.xyz) integration \u2014 the open-source, Nostr-based workspace for humans and AI agents.\n\nWhen on, Project Director contacts can carry a **Buzz** channel (npub / @handle / #channel) and AtlasMind can reach them via a Buzz deep link. Off by default: Buzz is early-stage and self-hosted, so nothing connects until you opt in. Automated outbound posting additionally requires a connected Buzz comms tool and the per-project `outboundEnabled` gate."
+          "markdownDescription": "Enable [Buzz](https://buzz.xyz) integration — the open-source, Nostr-based workspace for humans and AI agents.\n\nWhen on, Project Director contacts can carry a **Buzz** channel (npub / @handle / #channel) and AtlasMind can reach them via a Buzz deep link. Off by default: Buzz is early-stage and self-hosted, so nothing connects until you opt in. Automated outbound posting additionally requires a connected Buzz comms tool and the per-project `outboundEnabled` gate."
         },
         "atlasmind.buzz.relayUrl": {
           "type": "string",
           "default": "ws://localhost:3000",
           "description": "Buzz relay URL (BUZZ_RELAY_URL). Defaults to a local self-hosted relay (ws://localhost:3000). A remote relay sends project data off-machine and additionally requires atlasmind.buzz.allowRemoteRelay.",
-          "markdownDescription": "Buzz relay URL \u2014 the `BUZZ_RELAY_URL` a connected Buzz surface targets.\n\nDefaults to a **local, self-hosted** relay (`ws://localhost:3000`), matching AtlasMind's local-first, self-sovereign posture. Pointing at a **remote** relay sends project data off-machine, so it is additionally gated behind `atlasmind.buzz.allowRemoteRelay` and the redaction/consent boundary."
+          "markdownDescription": "Buzz relay URL — the `BUZZ_RELAY_URL` a connected Buzz surface targets.\n\nDefaults to a **local, self-hosted** relay (`ws://localhost:3000`), matching AtlasMind's local-first, self-sovereign posture. Pointing at a **remote** relay sends project data off-machine, so it is additionally gated behind `atlasmind.buzz.allowRemoteRelay` and the redaction/consent boundary."
         },
         "atlasmind.buzz.inboundEnabled": {
           "type": "boolean",
           "default": false,
-          "description": "Subscribe to Buzz activity and turn it into AtlasMind work items. Off by default; also requires atlasmind.buzz.enabled. The subscription is read-only \u2014 it can never post to Buzz.",
-          "markdownDescription": "Hold a **read-only** subscription to your Buzz relay and derive AtlasMind work items from the activity.\n\nOff by default, and additionally requires `atlasmind.buzz.enabled` \u2014 nothing connects on upgrade. The subscription sends only subscribe/authenticate/keep-alive frames and **can never publish to Buzz**.\n\nConversations are **derived, never mirrored**: an inbound message becomes a follow-up with a pointer back to the Buzz thread, never the message body. Recording those follow-ups into project memory additionally requires `atlasmind.buzz.autoCreateFollowUps`.\n\nAn authenticating relay needs an agent key \u2014 run **AtlasMind: Set Buzz Agent Key**."
+          "description": "Subscribe to Buzz activity and turn it into AtlasMind work items. Off by default; also requires atlasmind.buzz.enabled. The subscription is read-only — it can never post to Buzz.",
+          "markdownDescription": "Hold a **read-only** subscription to your Buzz relay and derive AtlasMind work items from the activity.\n\nOff by default, and additionally requires `atlasmind.buzz.enabled` — nothing connects on upgrade. The subscription sends only subscribe/authenticate/keep-alive frames and **can never publish to Buzz**.\n\nConversations are **derived, never mirrored**: an inbound message becomes a follow-up with a pointer back to the Buzz thread, never the message body. Recording those follow-ups into project memory additionally requires `atlasmind.buzz.autoCreateFollowUps`.\n\nAn authenticating relay needs an agent key — run **AtlasMind: Set Buzz Agent Key**."
         },
         "atlasmind.buzz.inboundChannels": {
           "type": "array",
@@ -1228,7 +1228,7 @@
           "type": "boolean",
           "default": false,
           "description": "Record inbound Buzz activity as Project Director follow-ups. Off by default: project memory is git-tracked, so AtlasMind reports inbound items rather than writing them until you opt in.",
-          "markdownDescription": "Record derived inbound Buzz activity as **Project Director follow-ups**.\n\nOff by default, deliberately: `project_memory/` is **git-tracked**, so writing to it from a network event is something you should opt into rather than inherit from an upgrade. While off, inbound activity is reported without being persisted.\n\nOnly a short, sanitised title and a pointer back to the Buzz thread are ever stored \u2014 never the message body."
+          "markdownDescription": "Record derived inbound Buzz activity as **Project Director follow-ups**.\n\nOff by default, deliberately: `project_memory/` is **git-tracked**, so writing to it from a network event is something you should opt into rather than inherit from an upgrade. While off, inbound activity is reported without being persisted.\n\nOnly a short, sanitised title and a pointer back to the Buzz thread are ever stored — never the message body."
         },
         "atlasmind.buzz.agentBindings": {
           "type": "object",
@@ -1237,7 +1237,7 @@
             "type": "string"
           },
           "description": "Map a Buzz identity (npub or 64-character hex) to an AtlasMind agent id, so inbound work from that Buzz agent lands with the right specialist.",
-          "markdownDescription": "Assign specific **AtlasMind agents** to specific **Buzz agents**.\n\nMaps a Buzz identity to an AtlasMind agent id, so inbound work from that identity is attributed to the right specialist \u2014 a Buzz build-bot's messages can land with your DevOps agent instead of arriving unattributed.\n\n```json\n{\n  \"npub1abc\u2026\": \"devops-engineer\",\n  \"7e7e9c42\u2026\": \"security-specialist\"\n}\n```\n\nKeys accept an `npub\u2026` or a 64-character hex key (the bech32 checksum is validated, so a mistyped npub is rejected rather than binding to the wrong identity; an `nsec` secret key is refused). An unbound identity simply stays unassigned \u2014 AtlasMind never guesses an agent.\n\nThis is a **local routing preference only**. Buzz still owns the keypair, the directory, and the authorship ledger."
+          "markdownDescription": "Assign specific **AtlasMind agents** to specific **Buzz agents**.\n\nMaps a Buzz identity to an AtlasMind agent id, so inbound work from that identity is attributed to the right specialist — a Buzz build-bot's messages can land with your DevOps agent instead of arriving unattributed.\n\n```json\n{\n  \"npub1abc…\": \"devops-engineer\",\n  \"7e7e9c42…\": \"security-specialist\"\n}\n```\n\nKeys accept an `npub…` or a 64-character hex key (the bech32 checksum is validated, so a mistyped npub is rejected rather than binding to the wrong identity; an `nsec` secret key is refused). An unbound identity simply stays unassigned — AtlasMind never guesses an agent.\n\nThis is a **local routing preference only**. Buzz still owns the keypair, the directory, and the authorship ledger."
         },
         "atlasmind.acp.agents": {
           "type": "array",
@@ -1255,14 +1255,14 @@
               },
               "command": {
                 "type": "string",
-                "description": "Executable that starts the agent in ACP mode."
+                "description": "Executable that starts the agent in ACP mode, e.g. claude-agent-acp, or gemini with args [\"--acp\"]."
               },
               "args": {
                 "type": "array",
                 "items": {
                   "type": "string"
                 },
-                "description": "Arguments passed to the command."
+                "description": "Arguments passed to the command. Required for CLIs that need a flag to enter ACP mode, e.g. [\"--acp\"] for gemini, copilot and qwen."
               },
               "env": {
                 "type": "object",
@@ -1277,21 +1277,21 @@
               }
             }
           },
-          "description": "ACP agents AtlasMind may use as subscription-backed completion capacity. Empty by default \u2014 nothing is spawned until you name a command you have installed.",
-          "markdownDescription": "Agents AtlasMind can drive over the [Agent Client Protocol](https://agentclientprotocol.com) (ACP), using **your existing subscription** instead of pay-per-token API credit.\n\nEach entry names a command **you have already installed**. AtlasMind never downloads, installs, or `npx`-fetches an agent, and the list is empty by default.\n\n```json\n[\n  { \"id\": \"claude\", \"command\": \"claude-agent-acp\" },\n  { \"id\": \"codex\", \"command\": \"codex-acp\" }\n]\n```\n\nThose two commands are the ones named in ACP's own agent list. Other ACP agents work too \u2014 supply whatever command starts them in ACP mode.\n\nBy default agents run as a **completion source, not an executor**: no MCP servers are passed through and every permission request they make is refused. Set `#atlasmind.acp.toolsEnabled#` to let them act, one approved operation at a time.\n\nCompared with the older `claude-cli` bridge this streams, has no ~26,000-character prompt ceiling, and can send images when the agent declares support."
+          "description": "ACP agents AtlasMind may use as subscription-backed completion capacity. Empty by default — nothing is spawned until you name a command you have installed.",
+          "markdownDescription": "Agents AtlasMind can drive over the [Agent Client Protocol](https://agentclientprotocol.com) (ACP), using **your existing subscription** instead of pay-per-token API credit.\n\nEach entry names a command **you have already installed**. AtlasMind never downloads or `npx`-fetches an agent behind your back, and the list is empty by default.\n\n```json\n[\n  { \"id\": \"claude\",  \"command\": \"claude-agent-acp\" },\n  { \"id\": \"codex\",   \"command\": \"codex-acp\" },\n  { \"id\": \"gemini\",  \"command\": \"gemini\",  \"args\": [\"--acp\"] },\n  { \"id\": \"copilot\", \"command\": \"copilot\", \"args\": [\"--acp\"] },\n  { \"id\": \"qwen\",    \"command\": \"qwen\",    \"args\": [\"--acp\"] }\n]\n```\n\n**`args` is not optional for the last three.** `gemini`, `copilot` and `qwen` are ordinary interactive CLIs until the ACP flag is passed — configure one without its flag and it opens a prompt that never answers.\n\nThese commands are transcribed from the [ACP registry](https://github.com/agentclientprotocol/registry). Others work too, including agents you install yourself: goose (`goose acp`), OpenCode (`opencode acp`), Cursor (`cursor-agent acp`), Kimi (`kimi acp`). Supply whatever command starts the agent in ACP mode.\n\nBy default agents run as a **completion source, not an executor**: no MCP servers are passed through and every permission request they make is refused. Set `#atlasmind.acp.toolsEnabled#` to let them act, one approved operation at a time.\n\nSigning in is always the agent's own login flow — AtlasMind never handles that credential. Compared with the older `claude-cli` bridge this streams, has no ~26,000-character prompt ceiling, and can send images when the agent declares support."
         },
         "atlasmind.buzz.autonomousReplies": {
           "type": "boolean",
           "default": false,
-          "description": "\u26a0\ufe0f Not yet active \u2014 this setting is declared but nothing reads it, so changing it currently has no effect. When wired, it will let AtlasMind agents reply to Buzz identities you have bound to an agent without confirming each message. Until then every Buzz send still asks for confirmation \u2014 the safe direction, but not what this switch implies.",
-          "markdownDescription": "**Not yet active.** This setting is declared but nothing reads it, so changing it has no effect today: every Buzz send still asks for confirmation.\n\nWhen it is wired it will allow **agent-to-agent** Buzz replies to go out without a dialog, so an AtlasMind specialist can hold a loop with a Buzz agent. The design is deliberately narrow:\n\n- It will apply **only** to recipients listed in `atlasmind.buzz.agentBindings`. That binding is your declaration that the identity is an agent \u2014 AtlasMind never infers it, and an unbound identity is treated as a person who may act on what it reads.\n- It will be **rate-bounded** per recipient by `atlasmind.buzz.autonomousReplyLimitPerHour`. A loop that re-fires on every inbound event is the realistic failure, and there is no unsend.\n- Inbound Buzz messages are **untrusted input**. An agent that reads a message and replies autonomously gives its author partial influence over what AtlasMind then says to others. Arm this only where that is acceptable."
+          "description": "⚠️ Not yet active — this setting is declared but nothing reads it, so changing it currently has no effect. When wired, it will let AtlasMind agents reply to Buzz identities you have bound to an agent without confirming each message. Until then every Buzz send still asks for confirmation — the safe direction, but not what this switch implies.",
+          "markdownDescription": "**Not yet active.** This setting is declared but nothing reads it, so changing it has no effect today: every Buzz send still asks for confirmation.\n\nWhen it is wired it will allow **agent-to-agent** Buzz replies to go out without a dialog, so an AtlasMind specialist can hold a loop with a Buzz agent. The design is deliberately narrow:\n\n- It will apply **only** to recipients listed in `atlasmind.buzz.agentBindings`. That binding is your declaration that the identity is an agent — AtlasMind never infers it, and an unbound identity is treated as a person who may act on what it reads.\n- It will be **rate-bounded** per recipient by `atlasmind.buzz.autonomousReplyLimitPerHour`. A loop that re-fires on every inbound event is the realistic failure, and there is no unsend.\n- Inbound Buzz messages are **untrusted input**. An agent that reads a message and replies autonomously gives its author partial influence over what AtlasMind then says to others. Arm this only where that is acceptable."
         },
         "atlasmind.buzz.autonomousReplyLimitPerHour": {
           "type": "number",
           "default": 10,
           "minimum": 1,
           "maximum": 100,
-          "description": "\u26a0\ufe0f Not yet active \u2014 this setting is declared but nothing reads it, so changing it currently has no effect. When autonomous replies are wired, this will cap them per recipient per hour; once reached, the next message needs confirmation.",
+          "description": "⚠️ Not yet active — this setting is declared but nothing reads it, so changing it currently has no effect. When autonomous replies are wired, this will cap them per recipient per hour; once reached, the next message needs confirmation.",
           "markdownDescription": "Cap on autonomous replies **per recipient per hour** when `atlasmind.buzz.autonomousReplies` is on.\n\nWhen the cap is reached the next message falls back to a confirmation dialog rather than being dropped, so a stuck loop becomes visible instead of silent."
         },
         "atlasmind.buzz.allowRemoteRelay": {
@@ -1303,14 +1303,14 @@
         "atlasmind.presence.keepAwake": {
           "type": "boolean",
           "default": false,
-          "description": "Keep this computer awake (prevent system sleep) while an AtlasMind activity needs the agent to stay online \u2014 a long Mission Loop run, an active Remote Control gateway session, or a connected Buzz presence. Off by default: AtlasMind never holds your machine awake unless you opt in, and the wake lock is released the moment the activity ends.",
-          "markdownDescription": "Keep this computer awake \u2014 prevent the OS from sleeping \u2014 **while an AtlasMind activity needs the agent to stay online**: a long autonomous **Mission Loop** run, an active **Remote Control** gateway session, or a connected **Buzz** presence.\n\nWhen `false` (default), AtlasMind never holds a wake lock; your normal power settings apply and a background run may be suspended when the machine sleeps. When `true`, AtlasMind acquires an OS keep-awake lock (Windows `SetThreadExecutionState`, macOS `caffeinate`, Linux `systemd-inhibit`) and releases it as soon as it is no longer needed.\n\nThis affects power use. It is additionally constrained by `atlasmind.presence.acPowerOnly` (suspended on battery by default) and auto-released by `atlasmind.presence.maxAwakeMinutes`. The status bar shows when the machine is being held awake; click it to stop."
+          "description": "Keep this computer awake (prevent system sleep) while an AtlasMind activity needs the agent to stay online — a long Mission Loop run, an active Remote Control gateway session, or a connected Buzz presence. Off by default: AtlasMind never holds your machine awake unless you opt in, and the wake lock is released the moment the activity ends.",
+          "markdownDescription": "Keep this computer awake — prevent the OS from sleeping — **while an AtlasMind activity needs the agent to stay online**: a long autonomous **Mission Loop** run, an active **Remote Control** gateway session, or a connected **Buzz** presence.\n\nWhen `false` (default), AtlasMind never holds a wake lock; your normal power settings apply and a background run may be suspended when the machine sleeps. When `true`, AtlasMind acquires an OS keep-awake lock (Windows `SetThreadExecutionState`, macOS `caffeinate`, Linux `systemd-inhibit`) and releases it as soon as it is no longer needed.\n\nThis affects power use. It is additionally constrained by `atlasmind.presence.acPowerOnly` (suspended on battery by default) and auto-released by `atlasmind.presence.maxAwakeMinutes`. The status bar shows when the machine is being held awake; click it to stop."
         },
         "atlasmind.presence.keepDisplayAwake": {
           "type": "boolean",
           "default": false,
           "description": "When keep-awake is active, also keep the display on. Off by default: AtlasMind keeps the system awake but lets the screen sleep, which uses less power. Only enable if an activity needs the display on.",
-          "markdownDescription": "When `atlasmind.presence.keepAwake` is holding the system awake, **also keep the display powered on**.\n\nWhen `false` (default), AtlasMind keeps the *system* from sleeping so the agent stays online, but still lets the **screen** turn off \u2014 the lower-power option that is enough for headless runs, remote sessions, and Buzz presence. Set to `true` only when an activity genuinely needs the display awake. Has no effect unless `keepAwake` is `true`. (On Linux the system inhibitor already keeps the machine working; display behaviour follows your desktop settings.)"
+          "markdownDescription": "When `atlasmind.presence.keepAwake` is holding the system awake, **also keep the display powered on**.\n\nWhen `false` (default), AtlasMind keeps the *system* from sleeping so the agent stays online, but still lets the **screen** turn off — the lower-power option that is enough for headless runs, remote sessions, and Buzz presence. Set to `true` only when an activity genuinely needs the display awake. Has no effect unless `keepAwake` is `true`. (On Linux the system inhibitor already keeps the machine working; display behaviour follows your desktop settings.)"
         },
         "atlasmind.presence.acPowerOnly": {
           "type": "boolean",
@@ -1324,7 +1324,7 @@
           "minimum": 0,
           "maximum": 1440,
           "description": "Safety backstop: automatically release the keep-awake lock after this many minutes, even if an activity is still running (0 = no backstop; hold until the activity ends). Prevents a stuck activity from holding the machine awake indefinitely.",
-          "markdownDescription": "Safety backstop: automatically **release** the keep-awake lock after this many minutes, even if a qualifying activity is still running.\n\nThis bounds the maximum time AtlasMind can hold your machine awake, so a stuck or runaway activity can never keep it awake indefinitely. When the backstop fires, the activity keeps running under your normal power settings (and may be suspended if the machine then sleeps).\n\nExamples:\n- Default balance: `240` (4 hours)\n- Short supervised sessions: `60`\n- No backstop \u2014 hold until the activity ends: `0`\n\nHas no effect unless `atlasmind.presence.keepAwake` is `true`."
+          "markdownDescription": "Safety backstop: automatically **release** the keep-awake lock after this many minutes, even if a qualifying activity is still running.\n\nThis bounds the maximum time AtlasMind can hold your machine awake, so a stuck or runaway activity can never keep it awake indefinitely. When the backstop fires, the activity keeps running under your normal power settings (and may be suspended if the machine then sleeps).\n\nExamples:\n- Default balance: `240` (4 hours)\n- Short supervised sessions: `60`\n- No backstop — hold until the activity ends: `0`\n\nHas no effect unless `atlasmind.presence.keepAwake` is `true`."
         },
         "atlasmind.agentAutoUpdateCadence": {
           "type": "string",
@@ -1382,19 +1382,19 @@
           "type": "string",
           "default": "",
           "description": "Optional model ID to pin for the planning/decomposition phase (the 'brain'). Leave empty to route planning normally.",
-          "markdownDescription": "Optional model ID pinned for the planning/decomposition phase \u2014 the project planner's 'brain'. Planning is a no-tool reasoning step, so this is a good place to use a strong reasoner (or a Claude subscription via `claude-cli`) while execution subtasks still route to tool-capable workers.\n\nWhen set to a known model ID, the planner uses it directly (bypassing budget/speed gates, since it is a deliberate choice); execution routing is unaffected. Leave empty (default) to route planning with normal budget/speed/outcome scoring. If the model is unknown or unavailable, AtlasMind falls back to normal routing.\n\nExamples:\n- `anthropic/claude-sonnet-4`\n- `claude-cli/opus`\n- `openai/o3`"
+          "markdownDescription": "Optional model ID pinned for the planning/decomposition phase — the project planner's 'brain'. Planning is a no-tool reasoning step, so this is a good place to use a strong reasoner (or a Claude subscription via `claude-cli`) while execution subtasks still route to tool-capable workers.\n\nWhen set to a known model ID, the planner uses it directly (bypassing budget/speed gates, since it is a deliberate choice); execution routing is unaffected. Leave empty (default) to route planning with normal budget/speed/outcome scoring. If the model is unknown or unavailable, AtlasMind falls back to normal routing.\n\nExamples:\n- `anthropic/claude-sonnet-4`\n- `claude-cli/opus`\n- `openai/o3`"
         },
         "atlasmind.synthesisModelId": {
           "type": "string",
           "default": "",
           "description": "Optional model ID to pin for the synthesis phase (summarizing results/sessions into reasoning context). Leave empty to route synthesis normally.",
-          "markdownDescription": "Optional model ID pinned for the synthesis phase \u2014 summarizing results or a chat session into reusable reasoning context. Like planning, synthesis is a no-tool reasoning step, so this completes the planner-brain / tool-executor / synthesis role-routing trio: pin a strong reasoner here while tool-using execution still routes to workers.\n\nWhen set to a known model ID, synthesis uses it directly (bypassing budget/speed gates); empty (default) routes synthesis with normal scoring. Falls back to normal routing if the model is unknown.\n\nExamples:\n- `anthropic/claude-sonnet-4`\n- `claude-cli/opus`"
+          "markdownDescription": "Optional model ID pinned for the synthesis phase — summarizing results or a chat session into reusable reasoning context. Like planning, synthesis is a no-tool reasoning step, so this completes the planner-brain / tool-executor / synthesis role-routing trio: pin a strong reasoner here while tool-using execution still routes to workers.\n\nWhen set to a known model ID, synthesis uses it directly (bypassing budget/speed gates); empty (default) routes synthesis with normal scoring. Falls back to normal routing if the model is unknown.\n\nExamples:\n- `anthropic/claude-sonnet-4`\n- `claude-cli/opus`"
         },
         "atlasmind.draftModelId": {
           "type": "string",
           "default": "",
           "description": "Optional model ID pinned to draft mechanical/low-stakes tasks (e.g. a fast local model). Struggle-gated escalation upgrades to a stronger model if the draft falls short. Leave empty to route normally.",
-          "markdownDescription": "Optional model ID pinned to **draft** mechanical, low-stakes tasks (routine edits, script runs, narrow test generation) \u2014 the local-draft half of local-draft / frontier-escalate routing. A fast local model is a good choice.\n\nWhen set, draftable tasks (auto budget + mechanical) start with this model; if the draft struggles (low confidence / repeated tool failures), AtlasMind's existing escalation upgrades to a stronger reasoning-capable model automatically. The pin applies only to the first attempt and never blocks escalation. Empty (default) routes normally; an unknown model falls back to normal routing.\n\nExamples:\n- `local/llama-3.1-8b-instruct`\n- `google/gemini-2.0-flash`"
+          "markdownDescription": "Optional model ID pinned to **draft** mechanical, low-stakes tasks (routine edits, script runs, narrow test generation) — the local-draft half of local-draft / frontier-escalate routing. A fast local model is a good choice.\n\nWhen set, draftable tasks (auto budget + mechanical) start with this model; if the draft struggles (low confidence / repeated tool failures), AtlasMind's existing escalation upgrades to a stronger reasoning-capable model automatically. The pin applies only to the first attempt and never blocks escalation. Empty (default) routes normally; an unknown model falls back to normal routing.\n\nExamples:\n- `local/llama-3.1-8b-instruct`\n- `google/gemini-2.0-flash`"
         },
         "atlasmind.localOpenAiEndpoints": {
           "type": "array",
@@ -1421,7 +1421,7 @@
             "additionalProperties": false
           },
           "description": "Labeled local OpenAI-compatible endpoints AtlasMind aggregates under the Local provider. Each entry has a stable id, a human-facing label, and a baseUrl.",
-          "markdownDescription": "Configure one or more labeled local OpenAI-compatible endpoints AtlasMind aggregates under the **Local** provider. Each entry has a stable `id`, a human-facing `label`, and a `baseUrl`, which lets AtlasMind keep multiple local engines online together and still show which endpoint owns each routed local model.\n\nManage these from **AtlasMind Settings \u2192 Models & Integrations \u2192 OpenAI-compatible endpoints** rather than editing JSON by hand.\n\nExample:\n```json\n[\n  { \"id\": \"ollama\", \"label\": \"Ollama\", \"baseUrl\": \"http://127.0.0.1:11434/v1\" },\n  { \"id\": \"lm-studio\", \"label\": \"LM Studio\", \"baseUrl\": \"http://127.0.0.1:1234/v1\" }\n]\n```\n\nWhen only the legacy `atlasmind.localOpenAiBaseUrl` is explicitly set, AtlasMind auto-migrates it into this structured list once."
+          "markdownDescription": "Configure one or more labeled local OpenAI-compatible endpoints AtlasMind aggregates under the **Local** provider. Each entry has a stable `id`, a human-facing `label`, and a `baseUrl`, which lets AtlasMind keep multiple local engines online together and still show which endpoint owns each routed local model.\n\nManage these from **AtlasMind Settings → Models & Integrations → OpenAI-compatible endpoints** rather than editing JSON by hand.\n\nExample:\n```json\n[\n  { \"id\": \"ollama\", \"label\": \"Ollama\", \"baseUrl\": \"http://127.0.0.1:11434/v1\" },\n  { \"id\": \"lm-studio\", \"label\": \"LM Studio\", \"baseUrl\": \"http://127.0.0.1:1234/v1\" }\n]\n```\n\nWhen only the legacy `atlasmind.localOpenAiBaseUrl` is explicitly set, AtlasMind auto-migrates it into this structured list once."
         },
         "atlasmind.localOpenAiBaseUrl": {
           "type": "string",
@@ -1468,14 +1468,14 @@
         "atlasmind.autoRefreshStaleMemory": {
           "type": "boolean",
           "default": false,
-          "description": "Automatically re-import stale imported SSOT memory entries on startup and file changes. Off by default \u2014 the re-import is an expensive LLM re-summarization; when off, AtlasMind still flags stale memory so you can refresh on demand via Update Memory.",
+          "description": "Automatically re-import stale imported SSOT memory entries on startup and file changes. Off by default — the re-import is an expensive LLM re-summarization; when off, AtlasMind still flags stale memory so you can refresh on demand via Update Memory.",
           "markdownDescription": "Automatically re-import stale imported SSOT memory entries on startup and when workspace files change.\n\n**Off by default.** The auto-refresh re-summarizes every stale imported entry with the LLM, which is slow on startup and costs tokens. When off, AtlasMind still detects staleness and surfaces the **Update Memory** action so you can refresh on demand. Turn this on only if you want imported memory kept continuously in sync automatically and accept the cost.\n\nExamples:\n- Fast startup, refresh memory manually: `false` (default)\n- Always keep imported memory in lockstep with the workspace: `true`"
         },
         "atlasmind.autoStartProposedProjectRuns": {
           "type": "boolean",
           "default": true,
           "description": "Allow proposed project runs to start automatically only while Autopilot is on. Interactive chat instead shows Start run, Save for later, and Cancel actions. The file-count safety gate still applies.",
-          "markdownDescription": "Controls whether a project-run proposal may flow straight into execution while **Autopilot is ON**.\n\nBehaviour:\n- **Autopilot ON + setting ON** \u2014 the run starts immediately with a brief notice.\n- **Autopilot OFF** \u2014 chat shows a decision card with **Start run**, **Save for later**, and **Cancel**.\n- **Setting OFF** \u2014 the decision card is shown even under Autopilot.\n- **Save for later** creates a reviewed preview in Project Run Center without executing it.\n- Unusually large runs still hit the `projectApprovalFileThreshold` safety gate before changing files.\n\nExamples:\n- Permit hands-off proposal flow only under Autopilot: `true` (default)\n- Always require a run decision card: `false`"
+          "markdownDescription": "Controls whether a project-run proposal may flow straight into execution while **Autopilot is ON**.\n\nBehaviour:\n- **Autopilot ON + setting ON** — the run starts immediately with a brief notice.\n- **Autopilot OFF** — chat shows a decision card with **Start run**, **Save for later**, and **Cancel**.\n- **Setting OFF** — the decision card is shown even under Autopilot.\n- **Save for later** creates a reviewed preview in Project Run Center without executing it.\n- Unusually large runs still hit the `projectApprovalFileThreshold` safety gate before changing files.\n\nExamples:\n- Permit hands-off proposal flow only under Autopilot: `true` (default)\n- Always require a run decision card: `false`"
         },
         "atlasmind.showImportProjectAction": {
           "type": "boolean",
@@ -1616,7 +1616,7 @@
           "type": "boolean",
           "default": true,
           "description": "Enable the autonomous goal-seeking Mission Loop (the /loop chat command and Mission Control panel).",
-          "markdownDescription": "Enable the autonomous goal-seeking **Mission Loop** \u2014 the `/loop` chat command and the Mission Control panel. When disabled, AtlasMind will not start any looping run.\n\nThe loop plans, executes, and re-evaluates progress toward a goal across multiple iterations, stopping when the goal is met or a guardrail confines progress. It is safety-first: every run is bounded by a closed parameter envelope and pauses for approval at configured checkpoints.\n\nExamples:\n- Allow autonomous loops: `true`\n- Lock the feature off in a restricted workspace: `false`"
+          "markdownDescription": "Enable the autonomous goal-seeking **Mission Loop** — the `/loop` chat command and the Mission Control panel. When disabled, AtlasMind will not start any looping run.\n\nThe loop plans, executes, and re-evaluates progress toward a goal across multiple iterations, stopping when the goal is met or a guardrail confines progress. It is safety-first: every run is bounded by a closed parameter envelope and pauses for approval at configured checkpoints.\n\nExamples:\n- Allow autonomous loops: `true`\n- Lock the feature off in a restricted workspace: `false`"
         },
         "atlasmind.loop.defaultMaxIterations": {
           "type": "number",
@@ -1689,7 +1689,7 @@
           "minimum": 0,
           "maximum": 1,
           "description": "Minimum goal-evaluator confidence (0..1) required to accept an 'achieved' verdict and stop the loop successfully.",
-          "markdownDescription": "Minimum confidence (0..1) the goal evaluator must report before an `achieved` verdict is accepted and the loop stops successfully. Below this, the loop keeps iterating \u2014 a low-confidence evaluator can never falsely declare success.\n\nExamples:\n- Stop more readily: `0.6`\n- Default balance: `0.7`\n- Demand high certainty: `0.85`"
+          "markdownDescription": "Minimum confidence (0..1) the goal evaluator must report before an `achieved` verdict is accepted and the loop stops successfully. Below this, the loop keeps iterating — a low-confidence evaluator can never falsely declare success.\n\nExamples:\n- Stop more readily: `0.6`\n- Default balance: `0.7`\n- Demand high certainty: `0.85`"
         },
         "atlasmind.toolWebhookEnabled": {
           "type": "boolean",
@@ -1770,17 +1770,17 @@
           "enumDescriptions": [
             "Auto-detect currency from OS locale",
             "US Dollar ($)",
-            "Euro (\u20ac)",
-            "British Pound (\u00a3)",
-            "Japanese Yen (\u00a5)",
+            "Euro (€)",
+            "British Pound (£)",
+            "Japanese Yen (¥)",
             "Canadian Dollar (CA$)",
             "Australian Dollar (A$)",
             "Swiss Franc (Fr)",
-            "Chinese Yuan (\u00a5)",
-            "Indian Rupee (\u20b9)",
+            "Chinese Yuan (¥)",
+            "Indian Rupee (₹)",
             "Brazilian Real (R$)",
             "Mexican Peso ($)",
-            "South Korean Won (\u20a9)",
+            "South Korean Won (₩)",
             "Swedish Krona (kr)",
             "Norwegian Krone (kr)",
             "Danish Krone (kr)",
@@ -1808,7 +1808,7 @@
           "type": "boolean",
           "default": false,
           "description": "Use the operating system's built-in speech engine (host-side) for text-to-speech instead of the in-panel Web Speech engine. Works without the Voice Panel open and uses no network or API key.",
-          "markdownDescription": "Use the operating system's built-in speech engine for text-to-speech instead of the in-panel Web Speech engine.\n\nWhen enabled, AtlasMind speaks via the host OS engine (Windows SAPI through PowerShell, macOS `say`, or Linux `espeak-ng`). This runs entirely on-device \u2014 no network and no API key \u2014 and works even when the Voice Panel is closed. An ElevenLabs API key, when configured, still takes priority. On Linux, `espeak-ng` must be installed.\n\nExamples:\n- Fully local, hands-free playback without opening the panel: `true`\n- Prefer the in-webview Web Speech voices: `false`"
+          "markdownDescription": "Use the operating system's built-in speech engine for text-to-speech instead of the in-panel Web Speech engine.\n\nWhen enabled, AtlasMind speaks via the host OS engine (Windows SAPI through PowerShell, macOS `say`, or Linux `espeak-ng`). This runs entirely on-device — no network and no API key — and works even when the Voice Panel is closed. An ElevenLabs API key, when configured, still takes priority. On Linux, `espeak-ng` must be installed.\n\nExamples:\n- Fully local, hands-free playback without opening the panel: `true`\n- Prefer the in-webview Web Speech voices: `false`"
         },
         "atlasmind.voice.sttEngine": {
           "type": "string",
@@ -1830,7 +1830,7 @@
           "type": "string",
           "default": "",
           "description": "Path to an installed whisper.cpp 'whisper-cli' executable for on-device speech-to-text. Required on macOS/Linux (e.g. via `brew install whisper-cpp`); on Windows a verified build is downloaded automatically when left empty.",
-          "markdownDescription": "Absolute path to an installed whisper.cpp `whisper-cli` executable used for on-device speech-to-text.\n\nOn **Windows x64** this can be left empty \u2014 AtlasMind downloads an official, SHA-256-verified `whisper-cli` on first use. On **macOS/Linux** there is no official prebuilt binary, so install whisper.cpp (for example `brew install whisper-cpp`) and point this setting at the resulting `whisper-cli`."
+          "markdownDescription": "Absolute path to an installed whisper.cpp `whisper-cli` executable used for on-device speech-to-text.\n\nOn **Windows x64** this can be left empty — AtlasMind downloads an official, SHA-256-verified `whisper-cli` on first use. On **macOS/Linux** there is no official prebuilt binary, so install whisper.cpp (for example `brew install whisper-cpp`) and point this setting at the resulting `whisper-cli`."
         },
         "atlasmind.voice.rate": {
           "type": "number",
@@ -1913,8 +1913,8 @@
         "atlasmind.remote.enabled": {
           "type": "boolean",
           "default": false,
-          "description": "\u26a0\ufe0f Not the control that starts or stops remote control \u2014 this setting currently has no effect. The remote-control server starts only when you run the AtlasMind remote-control command and approve this workspace, and it stops when you disable it there. Turning this off does not disable remote control.",
-          "markdownDescription": "**This is not the control that starts or stops remote control, and it currently has no effect.**\n\nThe remote-control server starts only when you run the AtlasMind remote-control command *and* approve this workspace at the prompt; it stops when you disable it from the same place. Setting this to `false` does **not** disable remote control \u2014 check the status-bar indicator, which reflects what is actually running."
+          "description": "⚠️ Not the control that starts or stops remote control — this setting currently has no effect. The remote-control server starts only when you run the AtlasMind remote-control command and approve this workspace, and it stops when you disable it there. Turning this off does not disable remote control.",
+          "markdownDescription": "**This is not the control that starts or stops remote control, and it currently has no effect.**\n\nThe remote-control server starts only when you run the AtlasMind remote-control command *and* approve this workspace at the prompt; it stops when you disable it from the same place. Setting this to `false` does **not** disable remote control — check the status-bar indicator, which reflects what is actually running."
         },
         "atlasmind.remote.mode": {
           "type": "string",
@@ -1928,7 +1928,7 @@
           ],
           "default": "localhost",
           "description": "Transport and authentication mode for the remote-control server.",
-          "markdownDescription": "Transport and authentication mode for the remote-control server.\n\n- **`localhost`** (default) \u2014 a same-machine web client (vscode.dev / github.dev / code-server) pairs with the token over `ws://127.0.0.1`.\n- **`gateway`** \u2014 the server is fronted by an SSO-gated Cloudflare Worker and a Cloudflare Tunnel, so you can reach it from a browser signed into your platform login. The server authenticates each connection by the `x-atlas-origin-secret` header the Worker injects (reusing the pairing-token secret) instead of an in-band token, so the browser never holds a token. Pin `atlasmind.remote.port` to a stable value so the tunnel target stays fixed. Run **AtlasMind: Enable Remote Control (Gateway)** to switch on this mode. See the Remote Control documentation for the full topology and security model."
+          "markdownDescription": "Transport and authentication mode for the remote-control server.\n\n- **`localhost`** (default) — a same-machine web client (vscode.dev / github.dev / code-server) pairs with the token over `ws://127.0.0.1`.\n- **`gateway`** — the server is fronted by an SSO-gated Cloudflare Worker and a Cloudflare Tunnel, so you can reach it from a browser signed into your platform login. The server authenticates each connection by the `x-atlas-origin-secret` header the Worker injects (reusing the pairing-token secret) instead of an in-band token, so the browser never holds a token. Pin `atlasmind.remote.port` to a stable value so the tunnel target stays fixed. Run **AtlasMind: Enable Remote Control (Gateway)** to switch on this mode. See the Remote Control documentation for the full topology and security model."
         },
         "atlasmind.remote.port": {
           "type": "number",
@@ -1942,7 +1942,7 @@
           "type": "boolean",
           "default": false,
           "description": "Master switch for the guided GitHub workflow. Off by default: the Workflow dashboard still teaches and measures, but AtlasMind takes no action on your repository.",
-          "markdownDescription": "**Off by default \u2014 this is the master switch.**\n\nWith it off, the Workflow page of the Project Dashboard is fully usable: it explains all eight stages, shows how far your repository has got, and charts the numbers. It simply never *acts*.\n\nTurning it on does not, by itself, let AtlasMind do anything. The effective automation level for any stage is the **minimum** of four independent gates:\n\n1. this master switch,\n2. `#atlasmind.workflow.maxAutomationLevel#` \u2014 your personal ceiling,\n3. the matching capability switch (`allowIssueWrites`, `allowPullRequestWrites`, `allowReleaseWrites`),\n4. the level declared for that stage in the project's workflow configuration.\n\nAll four default closed, which is what makes full automation *possible* without ever making it the default. See [the specification](https://github.com/JoelBondoux/AtlasMind/blob/main/docs/guided-github-workflow.md)."
+          "markdownDescription": "**Off by default — this is the master switch.**\n\nWith it off, the Workflow page of the Project Dashboard is fully usable: it explains all eight stages, shows how far your repository has got, and charts the numbers. It simply never *acts*.\n\nTurning it on does not, by itself, let AtlasMind do anything. The effective automation level for any stage is the **minimum** of four independent gates:\n\n1. this master switch,\n2. `#atlasmind.workflow.maxAutomationLevel#` — your personal ceiling,\n3. the matching capability switch (`allowIssueWrites`, `allowPullRequestWrites`, `allowReleaseWrites`),\n4. the level declared for that stage in the project's workflow configuration.\n\nAll four default closed, which is what makes full automation *possible* without ever making it the default. See [the specification](https://github.com/JoelBondoux/AtlasMind/blob/main/docs/guided-github-workflow.md)."
         },
         "atlasmind.workflow.archetype": {
           "type": "string",
@@ -1959,8 +1959,8 @@
             "generic"
           ],
           "default": "",
-          "description": "What kind of project this is. Changes CI steps, release model, testing recommendations, expected documentation, and refactor advice. Empty means undeclared \u2014 AtlasMind detects a suggestion but never acts on it as a decision.",
-          "markdownDescription": "**What kind of project this is** \u2014 the single biggest lever on how the guided workflow specialises.\n\nA game, a website, a library and a CLI do not share a CI pipeline, a release mechanism, a testing strategy, or the same idea of what counts as technical debt. Declaring the shape switches all six.\n\n**Detection suggests; this setting decides.** AtlasMind reads your manifests and proposes a shape, but a project deliberately declared one thing while its dependencies look like another is a *decision*, not a mistake \u2014 so the declaration always wins, and the Workflow page shows both when they differ.\n\nLeaving this empty is honest rather than broken: `generic` behaviour applies, and the page says the shape is undeclared instead of pretending to know. **A wrong archetype is worse than none**, because it asks for evidence the project will never produce and creates a permanent gap \u2014 which teaches people to ignore gaps.\n\nUse `#atlasmind.workflow.traits#` for facts that cut across shapes, such as shipping binaries or handling personal data."
+          "description": "What kind of project this is. Changes CI steps, release model, testing recommendations, expected documentation, and refactor advice. Empty means undeclared — AtlasMind detects a suggestion but never acts on it as a decision.",
+          "markdownDescription": "**What kind of project this is** — the single biggest lever on how the guided workflow specialises.\n\nA game, a website, a library and a CLI do not share a CI pipeline, a release mechanism, a testing strategy, or the same idea of what counts as technical debt. Declaring the shape switches all six.\n\n**Detection suggests; this setting decides.** AtlasMind reads your manifests and proposes a shape, but a project deliberately declared one thing while its dependencies look like another is a *decision*, not a mistake — so the declaration always wins, and the Workflow page shows both when they differ.\n\nLeaving this empty is honest rather than broken: `generic` behaviour applies, and the page says the shape is undeclared instead of pretending to know. **A wrong archetype is worse than none**, because it asks for evidence the project will never produce and creates a permanent gap — which teaches people to ignore gaps.\n\nUse `#atlasmind.workflow.traits#` for facts that cut across shapes, such as shipping binaries or handling personal data."
         },
         "atlasmind.workflow.traits": {
           "type": "array",
@@ -1977,7 +1977,7 @@
             ]
           },
           "default": [],
-          "description": "Facts about this project that cut across its shape \u2014 ships binaries, publishes a package, handles personal data, and so on. Each adds expectations on top of the archetype rather than replacing them.",
+          "description": "Facts about this project that cut across its shape — ships binaries, publishes a package, handles personal data, and so on. Each adds expectations on top of the archetype rather than replacing them.",
           "markdownDescription": "Facts that cut across project shapes, so the archetype list does not have to grow a new member every time something ships differently.\n\nA Shopify theme is a `website` that happens to be **platform-hosted**; a VS Code extension is a `library` that is both **platform-hosted** and **published**. Modelling those as their own archetypes would multiply the list per platform.\n\nTraits are **additive**: each one adds CI steps, documentation expectations and refactor heuristics on top of the archetype's, and never removes any. If a trait needed to *remove* an expectation, that would be a sign it should have been its own archetype.\n\n- `handles-personal-data` adds a secret-and-personal-data scan and a privacy document, because anything committed is effectively permanent.\n- `is-published-package` adds a publish dry-run, because a published version number cannot be reused.\n- `ships-binaries` adds an artifact smoke check, because a binary that builds but does not start fails only on a user's machine."
         },
         "atlasmind.workflow.profile": {
@@ -1989,7 +1989,7 @@
           ],
           "default": "solo",
           "description": "Which workflow profile to teach and measure against. 'solo' expects one person to be author, reviewer and releaser; 'studio' expects authorship and approval to be separable.",
-          "markdownDescription": "Which profile the Workflow page teaches against.\n\n- **`solo`** \u2014 one human is author, reviewer and releaser. Zero required approvals, because requiring your own approval is theatre and trains you to dismiss a gate. CI becomes the reviewer, which is why its checks stop being optional.\n- **`studio`** \u2014 3\u201310 people, authorship and approval separable. At least one approver distinct from the author. This is the one place the two profiles differ in *kind* rather than in degree.\n- **`custom`** \u2014 you have declared your own stage values and neither preset should be assumed.\n\nA profile **seeds**; it does not govern. Once a project's workflow configuration exists, that file wins, and changing this setting never silently rewrites it."
+          "markdownDescription": "Which profile the Workflow page teaches against.\n\n- **`solo`** — one human is author, reviewer and releaser. Zero required approvals, because requiring your own approval is theatre and trains you to dismiss a gate. CI becomes the reviewer, which is why its checks stop being optional.\n- **`studio`** — 3–10 people, authorship and approval separable. At least one approver distinct from the author. This is the one place the two profiles differ in *kind* rather than in degree.\n- **`custom`** — you have declared your own stage values and neither preset should be assumed.\n\nA profile **seeds**; it does not govern. Once a project's workflow configuration exists, that file wins, and changing this setting never silently rewrites it."
         },
         "atlasmind.workflow.maxAutomationLevel": {
           "type": "string",
@@ -2001,38 +2001,38 @@
             "auto"
           ],
           "default": "observe",
-          "description": "Your personal ceiling on what AtlasMind may do in the workflow. Can only lower the project's declared level, never raise it. Defaults to 'observe' \u2014 read and display only.",
+          "description": "Your personal ceiling on what AtlasMind may do in the workflow. Can only lower the project's declared level, never raise it. Defaults to 'observe' — read and display only.",
           "markdownDescription": "**Your personal ceiling. Defaults to `observe`.**\n\nFive rungs, each strictly more capable than the last:\n\n| Rung | AtlasMind may |\n|---|---|\n| `off` | nothing |\n| `observe` | read state, compute metrics, display |\n| `draft` | produce an artifact and show it |\n| `propose` | act, after an explicit confirmation naming the repository and the exact action |\n| `auto` | act unattended, still inside the stage's gates |\n\nThis setting can only **lower** the effective level, never raise it. You may run the whole workflow at `observe` on your machine while the repository declares `propose`; you cannot run at `auto` if the repository says otherwise.\n\nSome things never automate at any rung: force-pushing, deleting a tag or release, re-running a CI job, editing a CI workflow file, and merging a dependency update."
         },
         "atlasmind.workflow.allowIssueWrites": {
           "type": "boolean",
           "default": false,
           "description": "Allow AtlasMind to create, comment on, edit, close or reopen GitHub issues. Off by default; every write still asks for confirmation naming the repository and the exact action.",
-          "markdownDescription": "**Off by default.** Permits stage 1 (Planning & Issue Intake) and stage 7 (Maintenance) to write to your issue tracker.\n\nEven with this on, every write is outward-facing and public, so each one asks for a confirmation naming the repository and the exact action. AtlasMind never auto-closes an issue \u2014 closing somebody's report is a social act, not a cleanup task.\n\nRequires `#atlasmind.workflow.enabled#` and a stage level of `propose` or higher."
+          "markdownDescription": "**Off by default.** Permits stage 1 (Planning & Issue Intake) and stage 7 (Maintenance) to write to your issue tracker.\n\nEven with this on, every write is outward-facing and public, so each one asks for a confirmation naming the repository and the exact action. AtlasMind never auto-closes an issue — closing somebody's report is a social act, not a cleanup task.\n\nRequires `#atlasmind.workflow.enabled#` and a stage level of `propose` or higher."
         },
         "atlasmind.workflow.allowPullRequestWrites": {
           "type": "boolean",
           "default": false,
           "description": "Allow AtlasMind to create pull requests, post reviews, and merge. Off by default; every write still asks for confirmation.",
-          "markdownDescription": "**Off by default.** Permits stage 4 (Pull Requests & Reviews) to write.\n\nA pull request is a public proposal, so every creation, review and merge asks for confirmation first. Note that review comments arriving *from* GitHub are treated as untrusted input regardless of this setting \u2014 anyone who can comment can write text designed to be read as an instruction, so review bodies are always sanitized and fenced before an agent sees them.\n\nRequires `#atlasmind.workflow.enabled#` and a stage level of `propose` or higher."
+          "markdownDescription": "**Off by default.** Permits stage 4 (Pull Requests & Reviews) to write.\n\nA pull request is a public proposal, so every creation, review and merge asks for confirmation first. Note that review comments arriving *from* GitHub are treated as untrusted input regardless of this setting — anyone who can comment can write text designed to be read as an instruction, so review bodies are always sanitized and fenced before an agent sees them.\n\nRequires `#atlasmind.workflow.enabled#` and a stage level of `propose` or higher."
         },
         "atlasmind.workflow.allowReleaseWrites": {
           "type": "boolean",
           "default": false,
-          "description": "Allow AtlasMind to prepare releases \u2014 version bump, changelog entry, tag and GitHub Release. Off by default; tagging and publishing stay human-triggered.",
-          "markdownDescription": "**Off by default.** Permits stage 6 (Release Automation) to write.\n\nEven with this on, `draft` is the maximum in the shipped default: AtlasMind prepares the version bump and the changelog entry, and **tagging and publishing stay human-triggered**.\n\nRelease notes are the changelog section for that version, *verbatim* \u2014 never generated by a model. A release note is a durable public claim, and the changelog is where that claim was already reviewed.\n\nRequires `#atlasmind.workflow.enabled#`."
+          "description": "Allow AtlasMind to prepare releases — version bump, changelog entry, tag and GitHub Release. Off by default; tagging and publishing stay human-triggered.",
+          "markdownDescription": "**Off by default.** Permits stage 6 (Release Automation) to write.\n\nEven with this on, `draft` is the maximum in the shipped default: AtlasMind prepares the version bump and the changelog entry, and **tagging and publishing stay human-triggered**.\n\nRelease notes are the changelog section for that version, *verbatim* — never generated by a model. A release note is a durable public claim, and the changelog is where that claim was already reviewed.\n\nRequires `#atlasmind.workflow.enabled#`."
         },
         "atlasmind.workflow.allowProtectedRefWrites": {
           "type": "boolean",
           "default": false,
-          "description": "Allow AtlasMind to write to a protected branch. Off by default and rarely correct \u2014 a protected branch exists precisely so that changes reach it only through a reviewed pull request.",
-          "markdownDescription": "**Off by default, and this is a hard ceiling rather than an ordinary preference.**\n\nA protected branch exists precisely so that changes reach it only through a pull request that passed its checks. Enabling this removes the protection at the moment it would have helped, so it should be enabled only for a specific, temporary reason.\n\nWith this off, `auto` is *unreachable* for any stage whose base is protected \u2014 not discouraged, unreachable.\n\nAtlasMind never force-pushes regardless of this setting. Where a force is unavoidable it uses a lease, and to a protected branch it refuses outright."
+          "description": "Allow AtlasMind to write to a protected branch. Off by default and rarely correct — a protected branch exists precisely so that changes reach it only through a reviewed pull request.",
+          "markdownDescription": "**Off by default, and this is a hard ceiling rather than an ordinary preference.**\n\nA protected branch exists precisely so that changes reach it only through a pull request that passed its checks. Enabling this removes the protection at the moment it would have helped, so it should be enabled only for a specific, temporary reason.\n\nWith this off, `auto` is *unreachable* for any stage whose base is protected — not discouraged, unreachable.\n\nAtlasMind never force-pushes regardless of this setting. Where a force is unavoidable it uses a lease, and to a protected branch it refuses outright."
         },
         "atlasmind.acp.toolsEnabled": {
           "type": "boolean",
           "default": false,
           "description": "Allow ACP agents (Claude subscription, Codex/ChatGPT subscription) to run their own tools, asking your approval for each operation. Off by default: agents answer questions but cannot act.",
-          "markdownDescription": "**Off by default.** Lets an ACP agent \u2014 a Claude or ChatGPT subscription driven over the [Agent Client Protocol](https://agentclientprotocol.com) \u2014 actually *do* things: edit files, run commands, search, fetch.\n\nEvery operation still needs your approval. When the agent asks, AtlasMind shows what it wants to do and waits; nothing runs unless you allow it.\n\nTwo things worth knowing before turning this on:\n\n- **The work happens inside the agent's process, not inside AtlasMind.** AtlasMind decides *whether* each operation may proceed, and shows you what ran, but the agent performs it with whatever access it already has.\n- **AtlasMind never grants a permanent permission.** Where an agent offers \"always allow\", AtlasMind declines it and answers \"allow once\" instead \u2014 a standing grant would live in the agent's own state, where you could not find or revoke it.\n\nWith this off, agents still work for chat, code, and reasoning; they simply cannot act. See also `#atlasmind.acp.mcpServers#`."
+          "markdownDescription": "**Off by default.** Lets an ACP agent — a Claude or ChatGPT subscription driven over the [Agent Client Protocol](https://agentclientprotocol.com) — actually *do* things: edit files, run commands, search, fetch.\n\nEvery operation still needs your approval. When the agent asks, AtlasMind shows what it wants to do and waits; nothing runs unless you allow it.\n\nTwo things worth knowing before turning this on:\n\n- **The work happens inside the agent's process, not inside AtlasMind.** AtlasMind decides *whether* each operation may proceed, and shows you what ran, but the agent performs it with whatever access it already has.\n- **AtlasMind never grants a permanent permission.** Where an agent offers \"always allow\", AtlasMind declines it and answers \"allow once\" instead — a standing grant would live in the agent's own state, where you could not find or revoke it.\n\nWith this off, agents still work for chat, code, and reasoning; they simply cannot act. See also `#atlasmind.acp.mcpServers#`."
         },
         "atlasmind.acp.mcpServers": {
           "type": "array",
@@ -2040,7 +2040,7 @@
           "items": {
             "type": "string"
           },
-          "description": "Names of MCP servers ACP agents may use. Empty by default \u2014 an agent gets no MCP servers unless you name them here. Requires atlasmind.acp.toolsEnabled.",
+          "description": "Names of MCP servers ACP agents may use. Empty by default — an agent gets no MCP servers unless you name them here. Requires atlasmind.acp.toolsEnabled.",
           "markdownDescription": "Which of your MCP servers an ACP agent may connect to, **by name**. Empty by default, and only consulted when `#atlasmind.acp.toolsEnabled#` is on.\n\nNaming a server here means the agent's process launches that server's command with its environment. Two kinds are held back even when listed, and AtlasMind says so in its output channel:\n\n- **Servers whose credentials live in VS Code SecretStorage.** Forwarding those would copy a key you gave *AtlasMind* into another vendor's process as a side effect of ticking a box. Such a server keeps working normally through AtlasMind's own tools.\n- **HTTP/SSE servers**, whose headers carry bearer tokens. Only stdio servers are shared."
         },
         "atlasmind.debt.markers": {
@@ -2049,7 +2049,7 @@
             "type": "string"
           },
           "default": [],
-          "markdownDescription": "Extra comment markers the tech-debt scan looks for, on top of the built-in `TODO`, `FIXME`, `HACK` and `XXX`.\n\nWrite each as `NAME` or `NAME:severity`, for example `[\"DEBT\", \"REVISIT:high\", \"NOTE:low\"]`. An unqualified marker is graded **medium** \u2014 somebody who bothered to declare a marker is asserting that something is wrong, which is the same reason `FIXME` outranks `TODO`.\n\nEach marker becomes a *declared rule*, named on every entry it grades and published in the rule table of `tech-debt.md`. That is what keeps the register comparable: a grade you can look up is a grade you can argue with.\n\nThe built-in four cannot be redefined. Letting a project grade its own `TODO` as high would make two projects' registers incomparable, which is the one thing the rule table exists to prevent. A marker mentioning a credential is still graded high whatever you called it.\n\nMarkers are letters, digits, underscore and hyphen only, and at most 20 are read."
+          "markdownDescription": "Extra comment markers the tech-debt scan looks for, on top of the built-in `TODO`, `FIXME`, `HACK` and `XXX`.\n\nWrite each as `NAME` or `NAME:severity`, for example `[\"DEBT\", \"REVISIT:high\", \"NOTE:low\"]`. An unqualified marker is graded **medium** — somebody who bothered to declare a marker is asserting that something is wrong, which is the same reason `FIXME` outranks `TODO`.\n\nEach marker becomes a *declared rule*, named on every entry it grades and published in the rule table of `tech-debt.md`. That is what keeps the register comparable: a grade you can look up is a grade you can argue with.\n\nThe built-in four cannot be redefined. Letting a project grade its own `TODO` as high would make two projects' registers incomparable, which is the one thing the rule table exists to prevent. A marker mentioning a credential is still graded high whatever you called it.\n\nMarkers are letters, digits, underscore and hyphen only, and at most 20 are read."
         },
         "atlasmind.testingPolicyOverride": {
           "type": "string",

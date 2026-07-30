@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { formatCommandLine, planAcpAgentInstall, requiresUnobtainableElevation, runAcpInstallPlan, type AcpInstallPlan } from '../../src/providers/acpInstaller.ts';
+import { SELF_INSTALLED_ACP_AGENTS, VERIFIED_ACP_AGENTS } from '../../src/providers/acp.ts';
 
 /** A machine with exactly the listed commands on PATH. */
 function machine(platform: string, present: string[]) {
@@ -26,7 +27,7 @@ describe('planAcpAgentInstall — planning performs nothing', () => {
     // AtlasMind is about to reinstall their toolchain.
     const plan = plannable(planAcpAgentInstall('claude', machine('darwin', ['npm', 'brew'])));
     expect(plan.steps).toHaveLength(1);
-    expect(plan.steps[0]!.humanCommand).toBe('npm install -g @zed-industries/claude-code-acp');
+    expect(plan.steps[0]!.humanCommand).toBe('npm install -g @agentclientprotocol/claude-agent-acp');
   });
 
   it('plans the runtime first when npm is missing — the novice case', () => {
@@ -34,12 +35,39 @@ describe('planAcpAgentInstall — planning performs nothing', () => {
     const plan = plannable(planAcpAgentInstall('claude', machine('win32', ['winget'])));
     expect(plan.steps).toHaveLength(2);
     expect(plan.steps[0]!.humanCommand).toContain('winget install --id OpenJS.NodeJS.LTS');
-    expect(plan.steps[1]!.humanCommand).toBe('npm install -g @zed-industries/claude-code-acp');
+    expect(plan.steps[1]!.humanCommand).toBe('npm install -g @agentclientprotocol/claude-agent-acp');
   });
 
-  it('plans cargo for codex when cargo is already present', () => {
-    const withCargo = plannable(planAcpAgentInstall('codex', machine('linux', ['cargo'])));
-    expect(withCargo.steps.map(step => step.humanCommand)).toEqual(['cargo install codex-acp']);
+  /**
+   * Codex used to be planned as `cargo install codex-acp`, which needed Rust
+   * and installed nothing — **no such crate exists.** The adapter ships on npm
+   * like every other one, so the Rust prerequisite is gone rather than kept for
+   * a case that never existed.
+   */
+  it('plans npm for codex, not the crate that does not exist', () => {
+    const plan = plannable(planAcpAgentInstall('codex', machine('linux', ['npm'])));
+    expect(plan.steps.map(step => step.humanCommand))
+      .toEqual(['npm install -g @agentclientprotocol/codex-acp']);
+  });
+
+  it('has an install recipe for every agent it offers in the picker', () => {
+    // An agent listed as verified but unplannable would be a picker entry that
+    // reports "AtlasMind has no install recipe" the moment it is chosen.
+    for (const agent of VERIFIED_ACP_AGENTS) {
+      const plan = planAcpAgentInstall(agent.id, machine('linux', ['npm']));
+      expect(plan.status, agent.id).toBe('plannable');
+      expect(plannable(plan).steps[0]!.humanCommand)
+        .toBe(`npm install -g ${agent.npmPackage}`);
+    }
+  });
+
+  it('plans nothing for an agent AtlasMind will not download an archive for', () => {
+    // goose, opencode, Cursor and Kimi ship as platform archives. They are named
+    // in the guide so the command is discoverable, but there is no install to
+    // offer and pretending otherwise would be a button that cannot work.
+    for (const agent of SELF_INSTALLED_ACP_AGENTS) {
+      expect(planAcpAgentInstall(agent.id, machine('linux', ['npm'])).status, agent.id).toBe('manual');
+    }
   });
 
   it('REFUSES to offer a run that needs a password it cannot ask for', () => {
@@ -58,8 +86,8 @@ describe('planAcpAgentInstall — planning performs nothing', () => {
     if (plan.status === 'manual') {
       expect(plan.reason).toMatch(/administrator rights/i);
       // Still tells them exactly what to run themselves.
-      expect(plan.humanCommand).toContain('apt-get install -y cargo');
-      expect(plan.humanCommand).toContain('cargo install codex-acp');
+      expect(plan.humanCommand).toContain('apt-get install -y nodejs');
+      expect(plan.humanCommand).toContain('npm install -g @agentclientprotocol/codex-acp');
     } else {
       // Planned only where it can actually run — i.e. as root, with no sudo.
       expect(plannable(plan).steps.some(step => step.requiresElevation)).toBe(false);
@@ -107,7 +135,7 @@ describe('planAcpAgentInstall — degrading rather than guessing', () => {
     const plan = planAcpAgentInstall('claude', machine('linux', []));
     expect(plan.status).toBe('manual');
     if (plan.status === 'manual') {
-      expect(plan.humanCommand).toBe('npm install -g @zed-industries/claude-code-acp');
+      expect(plan.humanCommand).toBe('npm install -g @agentclientprotocol/claude-agent-acp');
     }
   });
 
@@ -124,13 +152,14 @@ describe('planAcpAgentInstall — degrading rather than guessing', () => {
   });
 
   it('NEVER produces a step that goes through a shell or pipes a download', () => {
-    // Rust's own documented installer is `curl … | sh`. Piping a download into a
-    // shell on the user's behalf is the thing this module exists to avoid, so no
-    // planned step may name a shell, a downloader, or carry shell metacharacters.
+    // Several agents' own documented installers are `curl … | sh` one-liners.
+    // Piping a download into a shell on the user's behalf is the thing this
+    // module exists to avoid, so no planned step may name a shell, a downloader,
+    // or carry shell metacharacters.
     const platforms = ['win32', 'darwin', 'linux'];
-    const managers = ['winget', 'brew', 'apt-get', 'dnf', 'pacman', 'npm', 'cargo'];
+    const managers = ['winget', 'brew', 'apt-get', 'dnf', 'pacman', 'npm'];
     for (const platform of platforms) {
-      for (const agentId of ['claude', 'codex']) {
+      for (const agentId of VERIFIED_ACP_AGENTS.map(agent => agent.id)) {
         for (const present of [[], ...managers.map(manager => [manager])]) {
           const plan = planAcpAgentInstall(agentId, machine(platform, present));
           if (plan.status !== 'plannable') {
@@ -170,7 +199,7 @@ describe('runAcpInstallPlan', () => {
     const outcome = await runAcpInstallPlan(plan, probe, undefined, exec);
 
     expect(ran).toHaveLength(2);
-    expect(ran[1]).toContain('install -g @zed-industries/claude-code-acp');
+    expect(ran[1]).toContain('install -g @agentclientprotocol/claude-agent-acp');
     expect(outcome.ok).toBe(true);
   });
 
@@ -248,16 +277,16 @@ describe('spawning — the `spawn npm ENOENT` regression', () => {
   });
 
   it('spawns a real .exe directly rather than routing it through node', () => {
-    // cargo resolves to cargo.EXE — a genuine executable image, and the bypass
-    // must not apply to it.
+    // A genuine executable image needs no bypass, and applying one anyway would
+    // hand Node a path that is not a script.
     const plan = plannable(planAcpAgentInstall('codex', {
       platform: 'win32',
-      findExecutable: command => (command === 'cargo' ? 'C:\\Users\\joel\\.cargo\\bin\\cargo.EXE' : undefined),
+      findExecutable: command => (command === 'npm' ? 'C:\\tools\\npm.EXE' : undefined),
       fileExists: () => true,
     }));
     const step = plan.steps[0]!;
-    expect(step.command).toBe('C:\\Users\\joel\\.cargo\\bin\\cargo.EXE');
-    expect(step.args).toEqual(['install', 'codex-acp']);
+    expect(step.command).toBe('C:\\tools\\npm.EXE');
+    expect(step.args).toEqual(['install', '-g', '@agentclientprotocol/codex-acp']);
   });
 
   it('goes around a Windows .cmd shim via node.exe rather than using a shell', () => {
@@ -272,9 +301,9 @@ describe('spawning — the `spawn npm ENOENT` regression', () => {
     const step = plan.steps[0]!;
     expect(step.command).toBe('C:\\Program Files\\nodejs\\node.exe');
     expect(step.args[0]).toBe('C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js');
-    expect(step.args.slice(1)).toEqual(['install', '-g', '@zed-industries/claude-code-acp']);
+    expect(step.args.slice(1)).toEqual(['install', '-g', '@agentclientprotocol/claude-agent-acp']);
     // Still shown to the user as the command they recognise.
-    expect(step.humanCommand).toBe('npm install -g @zed-industries/claude-code-acp');
+    expect(step.humanCommand).toBe('npm install -g @agentclientprotocol/claude-agent-acp');
   });
 
   it('degrades to manual rather than guessing when the shim cannot be resolved', () => {

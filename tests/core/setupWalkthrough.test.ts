@@ -184,9 +184,13 @@ describe('every shipped guide obeys the opening-action rule', () => {
   });
 
   it('the ACP plan offers only opening actions, in every state', () => {
+    const suggestions = [
+      { id: 'claude', label: 'Claude Agent', command: 'claude-agent-acp', args: [], install: 'npm install -g @agentclientprotocol/claude-agent-acp' },
+      { id: 'gemini', label: 'Gemini CLI', command: 'gemini', args: ['--acp'], install: 'npm install -g @google/gemini-cli' },
+    ];
     const states = [
-      { configuredAgents: [], clientProtocolVersion: 1, providerEnabled: false, hasCompletedATurn: false },
-      { configuredAgents: [{ id: 'claude', command: 'claude-agent-acp' }], installed: true, authenticated: true, clientProtocolVersion: 1, providerEnabled: true, hasCompletedATurn: true },
+      { configuredAgents: [], clientProtocolVersion: 1, providerEnabled: false, hasCompletedATurn: false, suggestions },
+      { configuredAgents: [{ id: 'claude', command: 'claude-agent-acp' }], installed: true, authenticated: true, clientProtocolVersion: 1, providerEnabled: true, hasCompletedATurn: true, suggestions },
     ];
     for (const state of states) {
       expect(findNonOpeningActions(buildAcpSetupPlan(state))).toEqual([]);

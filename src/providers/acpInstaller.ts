@@ -31,6 +31,7 @@
 
 import { existsSync } from 'node:fs';
 import { buildRuntimeInstallInvocation, execFileAsync } from '../mcp/mcpRuntime.js';
+import { VERIFIED_ACP_AGENTS } from './acp.js';
 import type { RecommendedRuntimePackageManager, SupportedRuntimePlatform } from '../constants.js';
 
 /** One command AtlasMind proposes to run, shown verbatim before anything runs. */
@@ -131,54 +132,33 @@ const NODE_INSTALLS: Partial<Record<SupportedRuntimePlatform, RuntimeInstallOpti
 };
 
 /**
- * Rust, for `cargo install codex-acp`.
- *
- * Rust's own documented installer is a `curl … | sh` one-liner. It is not here
- * and will not be: piping a downloaded script into a shell is the exact thing
- * this module exists to avoid, and doing it *on the user's behalf* would be
- * worse than the dead end it replaces. Where a distribution packages cargo, that
- * package is used; where none does, the plan reports `manual` and the user is
- * shown rustup's own instructions to follow themselves.
- */
-const CARGO_INSTALLS: Partial<Record<SupportedRuntimePlatform, RuntimeInstallOption[]>> = {
-  win32: [{ packageManager: 'winget', packageId: 'Rustlang.Rustup', displayName: 'Rust (rustup)' }],
-  darwin: [{ packageManager: 'brew', packageId: 'rust', displayName: 'Rust' }],
-  linux: [
-    { packageManager: 'apt-get', packageId: 'cargo', displayName: 'Rust (cargo)' },
-    { packageManager: 'dnf', packageId: 'cargo', displayName: 'Rust (cargo)' },
-    { packageManager: 'pacman', packageId: 'rust', displayName: 'Rust' },
-    { packageManager: 'brew', packageId: 'rust', displayName: 'Rust' },
-  ],
-};
-
-/**
  * How AtlasMind installs each agent it names.
  *
- * Only agents whose install command is *published by their vendor* appear here,
- * the same rule `VERIFIED_ACP_AGENTS` follows. A guessed install command is
- * worse than none: it fails in a way the user cannot diagnose, having been told
- * AtlasMind was handling it.
+ * **Derived from {@link VERIFIED_ACP_AGENTS}, not written out again.** Keeping a
+ * second copy of "which package provides which command" is precisely what broke:
+ * this table used to say `npm install -g @zed-industries/claude-code-acp` while
+ * `agentCommand` said `claude-agent-acp`, and since that package's `bin` is
+ * `claude-code-acp`, running AtlasMind's own install produced a binary AtlasMind
+ * would then fail to find. Nothing in the code could notice the disagreement,
+ * because the two facts lived in different files. Now there is one fact.
+ *
+ * Codex used to be planned as `cargo install codex-acp`, which needed Rust and
+ * installed nothing: **no such crate exists.** The adapter ships as an npm
+ * package like every other one here, so the Rust runtime recipe — and the
+ * rustup dead end it came with — is gone rather than kept for a case that never
+ * existed.
+ *
+ * Every agent in the verified list gets a recipe, so a new entry there cannot be
+ * offered in the picker while being uninstallable.
  */
-const ACP_AGENT_RECIPES: Readonly<Record<string, AcpAgentRecipe>> = {
-  claude: {
-    agentCommand: 'claude-agent-acp',
-    displayName: 'Claude Code ACP adapter',
+const ACP_AGENT_RECIPES: Readonly<Record<string, AcpAgentRecipe>> = Object.fromEntries(
+  VERIFIED_ACP_AGENTS.map(agent => [agent.id, {
+    agentCommand: agent.command,
+    displayName: `${agent.label.replace(/\s*\(.*\)$/, '')} ACP adapter`,
     prerequisite: { command: 'npm', displayName: 'Node.js (npm)', installs: NODE_INSTALLS },
-    install: {
-      command: 'npm',
-      args: ['install', '-g', '@zed-industries/claude-code-acp'],
-    },
-  },
-  codex: {
-    agentCommand: 'codex-acp',
-    displayName: 'Codex ACP adapter',
-    prerequisite: { command: 'cargo', displayName: 'Rust (cargo)', installs: CARGO_INSTALLS },
-    install: {
-      command: 'cargo',
-      args: ['install', 'codex-acp'],
-    },
-  },
-};
+    install: { command: 'npm', args: ['install', '-g', agent.npmPackage] },
+  } satisfies AcpAgentRecipe]),
+);
 
 export interface AcpInstallProbe {
   platform: string;

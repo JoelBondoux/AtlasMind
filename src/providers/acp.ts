@@ -36,9 +36,12 @@
 
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import type { CompletionRequest, CompletionResponse, DiscoveredModel, ProviderAdapter } from './adapter.js';
+import { createAcpLaunchProbe, resolveAcpLaunch } from './acpLaunch.js';
 import {
+  ACP_ERROR_AUTH_REQUIRED,
   ACP_PERMISSION_METHOD,
   ACP_PROTOCOL_VERSION,
+  parsePromptUsage,
   buildInitializeRequest,
   buildPermissionCancelledResponse,
   buildPermissionSelectedResponse,
@@ -70,18 +73,107 @@ const PROBE_TIMEOUT_MS = 20_000;
 const ACP_PROBE_TTL_MS = 10_000;
 
 /**
- * Agents whose ACP launch command is **named in the official agent list**.
+ * Agents whose ACP launch command is **declared in the ACP registry**.
  *
- * Only verified entries live here. Gemini CLI is listed by the ecosystem as
- * ACP-implementing but its exact invocation is not published, so it is
- * deliberately absent: the roadmap's rule is "never guess an external contract",
- * and a wrong default command produces a spawn failure the user cannot diagnose.
- * Anything not listed is still usable — as a user-authored command.
+ * Every entry here was transcribed from that registry's `agent.json` files (see
+ * {@link ACP_REGISTRY_SOURCE}) at {@link ACP_SPEC_VERIFIED_AT}, which is the
+ * difference between this list and the guesswork it replaces. The previous
+ * version paired the command `claude-agent-acp` with an install of
+ * `@zed-industries/claude-code-acp` — a package that has since been renamed and
+ * whose `bin` was `claude-code-acp`. So following AtlasMind's own instructions
+ * installed a binary with a different name from the one AtlasMind then spawned,
+ * and the Claude subscription path could not work for anybody. `install` and
+ * `command` are now taken from the same source, and a test asserts that every
+ * `install` names the package that actually provides `command`.
+ *
+ * `args` is why Gemini, Copilot and Qwen can be here at all: they are not
+ * ACP-specific binaries but general CLIs with an ACP mode, so the flag is part
+ * of the launch command. Gemini was previously excluded on the grounds that its
+ * invocation was unpublished — the registry publishes it now.
+ *
+ * Agents distributed only as downloadable archives (goose, opencode, Cursor,
+ * Kimi, Junie, Mistral Vibe, Amp) are deliberately absent from *this* list even
+ * though they speak ACP: AtlasMind will not download and unpack an archive, so
+ * it has no install to offer. They still work — the user installs them and names
+ * the command, which is what {@link parseAcpAgentSettings} is for. The commands
+ * are recorded in {@link SELF_INSTALLED_ACP_AGENTS} so the guide can name them.
  */
-export const VERIFIED_ACP_AGENTS: ReadonlyArray<{ id: string; label: string; command: string; modelId: string }> = [
-  { id: 'claude', label: 'Claude Agent (claude-agent-acp)', command: 'claude-agent-acp', modelId: 'acp/claude' },
-  { id: 'codex', label: 'Codex CLI (codex-acp)', command: 'codex-acp', modelId: 'acp/codex' },
+export interface VerifiedAcpAgent {
+  id: string;
+  label: string;
+  command: string;
+  /** Arguments that put the CLI into ACP mode. Empty for a dedicated adapter. */
+  args: string[];
+  modelId: string;
+  /** The npm package whose `bin` provides `command`. */
+  npmPackage: string;
+}
+
+export const VERIFIED_ACP_AGENTS: readonly VerifiedAcpAgent[] = [
+  {
+    id: 'claude',
+    label: 'Claude Agent (claude-agent-acp)',
+    command: 'claude-agent-acp',
+    args: [],
+    modelId: 'acp/claude',
+    npmPackage: '@agentclientprotocol/claude-agent-acp',
+  },
+  {
+    id: 'codex',
+    label: 'Codex (codex-acp)',
+    command: 'codex-acp',
+    args: [],
+    modelId: 'acp/codex',
+    npmPackage: '@agentclientprotocol/codex-acp',
+  },
+  {
+    id: 'gemini',
+    label: 'Gemini CLI (gemini --acp)',
+    command: 'gemini',
+    args: ['--acp'],
+    modelId: 'acp/gemini',
+    npmPackage: '@google/gemini-cli',
+  },
+  {
+    id: 'copilot',
+    label: 'GitHub Copilot CLI (copilot --acp)',
+    command: 'copilot',
+    args: ['--acp'],
+    modelId: 'acp/copilot',
+    npmPackage: '@github/copilot',
+  },
+  {
+    id: 'qwen',
+    label: 'Qwen Code (qwen --acp)',
+    command: 'qwen',
+    args: ['--acp'],
+    modelId: 'acp/qwen',
+    npmPackage: '@qwen-code/qwen-code',
+  },
 ];
+
+/**
+ * ACP agents the user installs themselves, with the invocation the registry
+ * declares.
+ *
+ * These ship as platform archives rather than packages, and unpacking a
+ * downloaded archive is not something AtlasMind does — so there is no install
+ * button, and offering one would be a button that cannot work. What is worth
+ * having is the *command*: someone who already runs goose or opencode should not
+ * have to work out the ACP flag, and "any agent that speaks ACP" is not a useful
+ * answer to "which ones, and how".
+ */
+export const SELF_INSTALLED_ACP_AGENTS: ReadonlyArray<{ id: string; label: string; command: string; args: string[] }> = [
+  { id: 'goose', label: 'goose', command: 'goose', args: ['acp'] },
+  { id: 'opencode', label: 'OpenCode', command: 'opencode', args: ['acp'] },
+  { id: 'cursor', label: 'Cursor', command: 'cursor-agent', args: ['acp'] },
+  { id: 'kimi', label: 'Kimi CLI', command: 'kimi', args: ['acp'] },
+];
+
+/** How AtlasMind tells a user to install one of the packaged agents. */
+export function acpInstallCommand(npmPackage: string): string {
+  return `npm install -g ${npmPackage}`;
+}
 
 /**
  * Which pay-per-token provider each ACP agent is the subscription alternative to.
@@ -91,10 +183,16 @@ export const VERIFIED_ACP_AGENTS: ReadonlyArray<{ id: string; label: string; com
  * offer belongs on the **Anthropic** card, phrased in those terms, rather than
  * behind a separate entry they must first know exists and then decode.
  *
- * Only vendors whose launch command is actually published appear here. Google
- * is absent for the same reason it is absent from {@link VERIFIED_ACP_AGENTS}:
- * Gemini CLI implements ACP but publishes no invocation, so an offer on the
- * Google card would be a button that cannot work.
+ * Only vendors whose launch command is actually published appear here. Google is
+ * now among them: Gemini CLI's ACP invocation was unpublished when this list was
+ * written and is declared in the registry today, so the offer on the Google card
+ * is a button that works rather than one that cannot.
+ *
+ * `install` is **derived** from the agent's entry in {@link VERIFIED_ACP_AGENTS}
+ * rather than written out again here. Keeping a second copy is what produced the
+ * bug this list shipped with for thirty-odd versions: the install string said
+ * `@zed-industries/claude-code-acp` while `command` said `claude-agent-acp`, and
+ * nothing could notice they disagreed.
  */
 export interface AcpProviderBridge {
   /** The pay-per-token provider this is offered alongside. */
@@ -102,6 +200,15 @@ export interface AcpProviderBridge {
   /** Agent id used in the model id `acp/<id>`. */
   agentId: string;
   command: string;
+  /**
+   * Arguments that put the CLI into ACP mode.
+   *
+   * Carried on the bridge and not just in the verified list, because the
+   * subscription button writes the agent's settings entry itself. Gemini CLI is
+   * an interactive REPL without `--acp`, so a bridge that dropped the flag would
+   * register an agent that starts, prints a banner, and never answers.
+   */
+  args: string[];
   /** What the user calls the thing they already pay for. */
   subscriptionName: string;
   /** Button text — the user's words, not the protocol's. */
@@ -109,24 +216,49 @@ export interface AcpProviderBridge {
   install: string;
 }
 
-export const ACP_PROVIDER_BRIDGES: readonly AcpProviderBridge[] = [
+/** Which vendor card carries which agent's offer, and in whose words. */
+const ACP_BRIDGE_OFFERS: ReadonlyArray<{
+  providerId: string;
+  agentId: string;
+  subscriptionName: string;
+  offerLabel: string;
+}> = [
   {
     providerId: 'anthropic',
     agentId: 'claude',
-    command: 'claude-agent-acp',
     subscriptionName: 'Claude subscription',
     offerLabel: 'Use my Claude subscription',
-    install: 'npm install -g @zed-industries/claude-code-acp',
   },
   {
     providerId: 'openai',
     agentId: 'codex',
-    command: 'codex-acp',
     subscriptionName: 'ChatGPT Plus or Pro subscription',
     offerLabel: 'Use my ChatGPT subscription',
-    install: 'cargo install codex-acp',
+  },
+  {
+    providerId: 'google',
+    agentId: 'gemini',
+    subscriptionName: 'Google AI Pro or Ultra subscription',
+    offerLabel: 'Use my Gemini subscription',
   },
 ];
+
+export const ACP_PROVIDER_BRIDGES: readonly AcpProviderBridge[] = ACP_BRIDGE_OFFERS.flatMap(offer => {
+  const agent = VERIFIED_ACP_AGENTS.find(entry => entry.id === offer.agentId);
+  // A bridge for an agent this build does not know how to launch would be an
+  // offer with no command behind it, so it is dropped rather than half-built.
+  return agent
+    ? [{
+      providerId: offer.providerId,
+      agentId: offer.agentId,
+      command: agent.command,
+      args: agent.args,
+      subscriptionName: offer.subscriptionName,
+      offerLabel: offer.offerLabel,
+      install: acpInstallCommand(agent.npmPackage),
+    }]
+    : [];
+});
 
 /** The subscription offer for a provider, when one exists. */
 export function findAcpBridge(providerId: string): AcpProviderBridge | undefined {
@@ -365,19 +497,31 @@ export class AcpAdapter implements ProviderAdapter {
           message: `${agent.command} speaks ACP version ${initialized.protocolVersion}; AtlasMind speaks ${ACP_PROTOCOL_VERSION}. Update the agent, or use a version that matches.`,
         };
       }
+      // Whether the agent is signed in can only be found out by asking it to do
+      // something that needs a login, so the probe **creates a session**. The
+      // list of auth methods cannot answer it: `codex-acp` advertises `api-key`
+      // and `chat-gpt` on every handshake, signed in or not, so reading a
+      // non-empty list as "not authenticated" refused every working ChatGPT
+      // subscription. See ACP_ERROR_AUTH_REQUIRED.
+      //
+      // The session is thrown away immediately, and this costs one extra
+      // round-trip on a probe that is already TTL-cached. What it buys is worth
+      // more than the round-trip: the probe now reports that the agent can
+      // actually be used, rather than that it started.
+      const authenticated = await session.canCreateSession();
       return {
         installed: true,
-        // A non-empty authMethods list is the spec's way of saying "authenticate
-        // first". AtlasMind never performs that login — it is the vendor's flow.
-        authenticated: initialized.authMethods.length === 0,
+        authenticated: authenticated.ok,
         protocolVersion: initialized.protocolVersion,
         ...(initialized.agentName ? { agentName: initialized.agentName } : {}),
         command: agent.command,
         supportsImages: initialized.supportsImages,
         supportsAudio: initialized.supportsAudio,
-        ...(initialized.authMethods.length > 0
-          ? { message: `${agent.command} is installed but not authenticated. Sign in with the agent's own login flow (${initialized.authMethods.join(', ')}).` }
-          : {}),
+        ...(authenticated.ok
+          ? {}
+          : { message: authenticated.authRequired
+            ? `${agent.command} is installed but not signed in. Use the agent's own login flow${initialized.authMethods.length > 0 ? ` (${initialized.authMethods.join(', ')})` : ''} — AtlasMind never handles that credential.`
+            : `${agent.command} started but could not open a session: ${authenticated.message}` }),
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -431,9 +575,12 @@ export class AcpAdapter implements ProviderAdapter {
       if (!initialized.compatible) {
         throw new Error(`${agent.command} speaks ACP version ${initialized.protocolVersion}, but AtlasMind speaks ${ACP_PROTOCOL_VERSION}.`);
       }
-      if (initialized.authMethods.length > 0) {
-        throw new Error(`${agent.command} is not authenticated. Sign in with the agent's own login flow first.`);
-      }
+      // Deliberately no check on `initialized.authMethods` here. It lists the
+      // logins the agent *offers*, not the ones this user still owes, and
+      // refusing on a non-empty list is what made the Codex path unusable for
+      // signed-in users. If a login really is required, `session/new` says so
+      // with ACP_ERROR_AUTH_REQUIRED and that is turned into the message below.
+      //
       // A getter that throws must not silently become "no servers" — but it also
       // must not take down a turn, so it degrades to the deny-by-default empty
       // list, which is the same thing an unconfigured install sends.
@@ -443,7 +590,20 @@ export class AcpAdapter implements ProviderAdapter {
       } catch {
         mcpServers = [];
       }
-      await session.newSession(mcpServers);
+      try {
+        await session.newSession(mcpServers);
+      } catch (error) {
+        // A login the user has to perform is not the same failure as a broken
+        // agent, and saying so is the difference between an actionable message
+        // and "something went wrong".
+        if (error instanceof AcpAuthRequiredError) {
+          throw new Error(
+            `${agent.command} needs you to sign in before it will answer. Run it once in a terminal and follow its own login`
+            + `${initialized.authMethods.length > 0 ? ` (${initialized.authMethods.join(', ')})` : ''}. AtlasMind never handles that credential.`,
+          );
+        }
+        throw error;
+      }
       const turn = await session.prompt(buildPromptBlocks(request, initialized), onTextChunk, request.signal);
       return {
         content: turn.text,
@@ -548,7 +708,8 @@ class AcpSession {
   private readonly pending = new Map<number, { resolve: (result: Record<string, unknown>) => void; reject: (error: Error) => void }>();
   private onText: ((chunk: string) => void) | undefined;
   private text = '';
-  private usage: { inputTokens?: number; outputTokens?: number } = {};
+  /** Latest reported context occupancy. Diagnostic; never billed. */
+  private context: { usedTokens?: number; windowTokens?: number } = {};
 
   constructor(
     private readonly agent: AcpAgentConfig,
@@ -590,6 +751,32 @@ class AcpSession {
     }
   }
 
+  /**
+   * Whether this agent will open a session for us — the only honest test of
+   * "signed in".
+   *
+   * Reports rather than throws, because the probe's job is to describe what it
+   * found. `authRequired` is kept separate from every other failure so the
+   * caller can say "sign in" where that is the answer and not where it is not:
+   * a crashed agent reported as an authentication problem sends the user to a
+   * login screen that will not help.
+   */
+  async canCreateSession(): Promise<{ ok: boolean; authRequired: boolean; message: string }> {
+    try {
+      await this.newSession([]);
+      return { ok: true, authRequired: false, message: '' };
+    } catch (error) {
+      if (error instanceof AcpAuthRequiredError) {
+        return { ok: false, authRequired: true, message: error.message };
+      }
+      return {
+        ok: false,
+        authRequired: false,
+        message: (error instanceof Error ? error.message : String(error)).slice(0, 300),
+      };
+    }
+  }
+
   async prompt(
     blocks: AcpPromptBlock[],
     onTextChunk: ((chunk: string) => void) | undefined,
@@ -608,14 +795,18 @@ class AcpSession {
     try {
       const result = await this.request(buildSessionPromptRequest(this.nextId, this.sessionId, blocks));
       const stop = parseStopReason(result);
+      // Token counts come off the prompt **result**, which is where every agent
+      // actually reports them. The `usage_update` notification carries context
+      // occupancy instead — reading input/output tokens out of it was why every
+      // ACP turn used to be recorded as costing nothing at all.
+      const usage = parsePromptUsage(result);
       return {
         text: this.text,
         finishReason: toFinishReason(stop),
-        // The spec's usage update is optional; absent counts are reported as 0
-        // rather than estimated, because a fabricated token count would feed the
-        // cost tracker a number nobody measured.
-        inputTokens: this.usage.inputTokens ?? 0,
-        outputTokens: this.usage.outputTokens ?? 0,
+        // Absent counts are reported as 0 rather than estimated: a fabricated
+        // token count would feed the cost tracker a number nobody measured.
+        inputTokens: usage.inputTokens ?? 0,
+        outputTokens: usage.outputTokens ?? 0,
       };
     } finally {
       signal?.removeEventListener('abort', abort);
@@ -682,7 +873,9 @@ class AcpSession {
         return;
       }
       case 'error': {
-        this.pending.get(frame.id)?.reject(new Error(`The ACP agent returned an error (${frame.code}): ${frame.message}`));
+        this.pending.get(frame.id)?.reject(frame.code === ACP_ERROR_AUTH_REQUIRED
+          ? new AcpAuthRequiredError(frame.message)
+          : new Error(`The ACP agent returned an error (${frame.code}): ${frame.message}`));
         this.pending.delete(frame.id);
         return;
       }
@@ -820,16 +1013,52 @@ class AcpSession {
       this.emitToolEvent(update.toolCall);
       return;
     }
-    if (update.kind === 'usage') {
-      if (update.inputTokens !== undefined) { this.usage.inputTokens = update.inputTokens; }
-      if (update.outputTokens !== undefined) { this.usage.outputTokens = update.outputTokens; }
+    if (update.kind === 'context') {
+      // Context occupancy, not the turn's bill. Kept for the run log's benefit
+      // and deliberately **not** folded into the token counts — `used` is a
+      // cumulative context total, so charging it as this turn's input tokens
+      // would bill the whole conversation again on every message.
+      this.context = {
+        ...(update.usedTokens === undefined ? {} : { usedTokens: update.usedTokens }),
+        ...(update.windowTokens === undefined ? {} : { windowTokens: update.windowTokens }),
+      };
     }
   }
 }
 
-/** Spawn the agent for real. Never through a shell, and never installed by us. */
+/**
+ * The agent requires a login before it will do this.
+ *
+ * A distinct type rather than a string match on a message, because the two
+ * callers need to act differently — the probe reports "not signed in", a turn
+ * tells the user which login to run — and matching on wording would break the
+ * moment an agent rephrased its error.
+ */
+export class AcpAuthRequiredError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AcpAuthRequiredError';
+  }
+}
+
+/**
+ * Spawn the agent for real. Never through a shell, and never installed by us.
+ *
+ * The command is resolved through {@link resolveAcpLaunch} first, because on
+ * Windows spawning it by name simply does not work: every published ACP adapter
+ * is an npm `bin`, and an npm `bin` on Windows is a shim that
+ * `spawn(…, { shell: false })` cannot execute. That failure surfaced as
+ * `spawn claude-agent-acp ENOENT`, which reads as "you have not installed it" to
+ * a user who has — so the resolution failure carries a written explanation
+ * instead.
+ */
 const defaultAcpProcessFactory: AcpProcessFactory = (config, cwd) => {
-  const child: ChildProcessWithoutNullStreams = spawn(config.command, config.args ?? [], {
+  const launch = resolveAcpLaunch(config, createAcpLaunchProbe());
+  if (launch.status === 'unresolved') {
+    throw new Error(launch.reason);
+  }
+
+  const child: ChildProcessWithoutNullStreams = spawn(launch.command, launch.args, {
     cwd,
     windowsHide: true,
     shell: false,

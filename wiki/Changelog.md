@@ -6,6 +6,26 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.209.0 — The ACP connection actually works
+
+ACP has shipped since v0.170.0 as "use the subscription you already pay for". On Windows nobody could have used it. **Four faults, each fatal on its own**, all found by running the thing against live agents rather than reasoning about it.
+
+**AtlasMind told you to install the wrong package.** The adapter spawned `claude-agent-acp`; the install command it displayed was `npm install -g @zed-industries/claude-code-acp`, whose `bin` is `claude-code-acp`. Following AtlasMind's own instructions produced a binary AtlasMind then failed to find. That package has since been renamed to `@agentclientprotocol/claude-agent-acp`, which does provide the right command. The adapter, the installer and the `/acp` guide each carried a separate copy of the pairing, so nothing in the code could notice they disagreed — there is one list now, every install command is derived from it, and a test checks each against the package that really provides it.
+
+**`cargo install codex-acp` installed nothing, because no such crate exists.** The Codex path asked you to install Rust in order to install a package that was never published there. It ships on npm like every other adapter, so the Rust prerequisite and the rustup dead end are gone.
+
+**Windows could not spawn an ACP agent at all.** Every published adapter is an npm `bin`, and npm writes a `bin` on Windows as three shims — extensionless shell script, `.cmd`, `.ps1` — none of them an executable image. `spawn(…, { shell: false })` therefore failed with `ENOENT` for a perfectly correct global install, and `ENOENT` reads as "you have not installed it" to somebody who has. The `.cmd` is no help either: Node has refused those without a shell since CVE-2024-27980, and a shell is exactly what `shell: false` exists to avoid. New `acpLaunch.ts` reads the JavaScript entry point the owning package *declares* in its `package.json` `bin` field and spawns Node against it — a contract the author wrote, rather than npm's generated scripts parsed — which also handles `gemini` living inside `@google/gemini-cli`. Real executables still spawn directly; POSIX is untouched.
+
+**An agent that listed its logins was declared signed out, and refused.** `authMethods` advertises which logins *exist*; it says nothing about whether you owe one. `codex-acp` lists `api-key` and `chat-gpt` unconditionally, then works perfectly for somebody already signed in — so reading that list as "not authenticated" refused every working ChatGPT subscription with a message you could not clear. The spec's actual signal is the reserved error `-32000`, and the probe now opens a real session to find out, so it reports that the agent *can be used* rather than that it started.
+
+**Every ACP completion was recorded as free.** Token counts were read from `inputTokens`/`outputTokens` on the `usage_update` notification, which no agent sends: that notification carries `{ used, size, cost? }` — cumulative *context occupancy* — and the per-turn counts arrive on the prompt result. Both are read for what they are, and context is deliberately never billed as input tokens, which would re-charge the whole conversation on every message.
+
+**Three more subscriptions became capacity: Gemini CLI, GitHub Copilot CLI, and Qwen Code.** Gemini was previously excluded on the correct grounds that its invocation was unpublished; the ACP registry declares it now. All three are interactive CLIs with an ACP mode, so `args` is part of the launch command and is carried everywhere an agent is registered. goose, OpenCode, Cursor and Kimi are named with their commands but have no install button, because AtlasMind will not download and unpack an archive.
+
+**Verified against live agents:** `claude-agent-acp` 0.63.0 streamed a reply with `inputTokens: 2, outputTokens: 5`; `codex-acp` 1.1.7 streamed one with `inputTokens: 28693, outputTokens: 6` **while advertising two auth methods**, which the previous build would have refused; `gemini --acp` resolved through the shim bypass with its flag intact and was correctly reported as not signed in via a real `-32000`. The same build accepting Codex refuses Gemini — the distinction the old code could not draw.
+
+**The comparison matrix is out of the wiki.** `Home.md` rated six competitors across nineteen capabilities and was already contradicting itself on the same page — "31 built-in skills" in the matrix, 43 in the table above it. That is the predictable end state of a document asserting facts about software we neither ship nor watch, and a stale claim about a competitor is worse than no claim. v0.147.0 removed the standalone comparison page for the same reason; this table survived that cleanup.
+
 ## v0.208.3 — Publishing without a secret
 
 The Marketplace publish now authenticates through **Microsoft Entra ID** with GitHub OIDC workload identity federation, as the user-assigned managed identity `vscode-marketplace-publisher`. There is no Marketplace credential in the repository to expire, rotate or leak. PAT authentication for the Marketplace is retired on **1 December 2026**.

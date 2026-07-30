@@ -2045,7 +2045,11 @@ export async function collectBuzzSetupSteps(atlas: AtlasMindContext): Promise<im
  * has been named, because there would be nothing to probe *for*.
  */
 export async function collectAcpSetupSteps(atlas: AtlasMindContext): Promise<import('../core/setupWalkthrough.js').SetupStep[]> {
-  const [{ buildAcpSetupPlan }, { parseAcpAgentSettings, AcpAdapter }, { ACP_PROTOCOL_VERSION }] = await Promise.all([
+  const [
+    { buildAcpSetupPlan },
+    { parseAcpAgentSettings, AcpAdapter, VERIFIED_ACP_AGENTS, acpInstallCommand },
+    { ACP_PROTOCOL_VERSION },
+  ] = await Promise.all([
     import('../core/acpSetupPlan.js'),
     import('../providers/acp.js'),
     import('../providers/acpProtocol.js'),
@@ -2074,6 +2078,15 @@ export async function collectAcpSetupSteps(atlas: AtlasMindContext): Promise<imp
     // "Has it ever answered here" is read from cost records, which is the only
     // evidence that survives a reload — and evidence, rather than a claim.
     hasCompletedATurn: atlas.costTracker.getRecords().some(record => (record.model ?? '').startsWith('acp/')),
+    // The one list of agents, install commands and ACP-mode flags, passed in
+    // rather than restated — see `AcpSetupState.suggestions`.
+    suggestions: VERIFIED_ACP_AGENTS.map(agent => ({
+      id: agent.id,
+      label: agent.label.replace(/\s*\(.*\)$/, ''),
+      command: agent.command,
+      args: agent.args,
+      install: acpInstallCommand(agent.npmPackage),
+    })),
   });
 }
 

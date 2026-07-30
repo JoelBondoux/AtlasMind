@@ -964,6 +964,7 @@ extension.ts
               ├── providers/copilot.ts
               ├── providers/acp.ts
               │     ├── providers/acpProtocol.ts     (wire framing, pure)
+              │     ├── providers/acpLaunch.ts       (command → spawnable invocation, pure)
               │     ├── providers/acpPermission.ts   (authorization policy, pure)
               │     └── providers/acpInstaller.ts    (install planning, pure)
               └── providers/localModelRecommendationRegistry.ts

@@ -244,8 +244,8 @@ current budget/speed settings and inferred task profile.
 | Provider | ID | Discovery source | Notes |
 |---|---|---|---|
 | Anthropic (Claude) | `anthropic` | Runtime discovery via adapter `discoverModels()` / `listModels()` | Seeded with one fallback model until refresh completes |
-| ACP Agents (subscription) | `acp` | User-authored agent list (`atlasmind.acp.agents`); models are `acp/<id>` | Drives any Agent Client Protocol agent (`claude-agent-acp`, `codex-acp`, …) over JSON-RPC on stdio, reusing that vendor's subscription. Unlike the `claude-cli` bridge it **streams**, has **no ~26,000-character prompt ceiling** (prompts travel over stdio, not argv), and sends **images** when the agent declares `promptCapabilities.image`. A completion source by default — no MCP pass-through, permission requests refused. With `atlasmind.acp.toolsEnabled` the agent runs its own tools, each authorized through `ToolApprovalManager`; `allow_always` is never selected and a missing gate denies. Declares `vision` once a handshake reports image support, and never `function_calling` — ACP cannot carry AtlasMind's own tool schemas. Seeded disabled; AtlasMind never installs an agent |
-| Claude Code CLI (chat only) *(superseded)* | `claude-cli` | Adapter-managed alias list validated through local `claude auth status` | Reuses a locally installed Claude CLI login in constrained print mode, starts with `claude-cli/sonnet` until refresh confirms the CLI is ready, strips pseudo-tool markup from print responses, and surfaces a clear provider error when the CLI returns JSON without assistant text. **Superseded by the ACP provider**, which streams and has no argv prompt ceiling; retained as the fallback until ACP is proven against a real agent binary |
+| ACP Agents (subscription) | `acp` | User-authored agent list (`atlasmind.acp.agents`); models are `acp/<id>` | Drives any Agent Client Protocol agent (`claude-agent-acp`, `codex-acp`, `gemini --acp`, `copilot --acp`, `qwen --acp`, …) over JSON-RPC on stdio, reusing that vendor's subscription. Unlike the `claude-cli` bridge it **streams**, has **no ~26,000-character prompt ceiling** (prompts travel over stdio, not argv), and sends **images** when the agent declares `promptCapabilities.image`. A completion source by default — no MCP pass-through, permission requests refused. With `atlasmind.acp.toolsEnabled` the agent runs its own tools, each authorized through `ToolApprovalManager`; `allow_always` is never selected and a missing gate denies. Declares `vision` once a handshake reports image support, and never `function_calling` — ACP cannot carry AtlasMind's own tool schemas. Seeded disabled; AtlasMind never installs an agent unattended. See [ACP agents](#acp-agents) below for the launch, authentication and usage details |
+| Claude Code CLI (chat only) *(superseded)* | `claude-cli` | Adapter-managed alias list validated through local `claude auth status` | Reuses a locally installed Claude CLI login in constrained print mode, starts with `claude-cli/sonnet` until refresh confirms the CLI is ready, strips pseudo-tool markup from print responses, and surfaces a clear provider error when the CLI returns JSON without assistant text. **Superseded by the ACP provider**, which streams, has no argv prompt ceiling, and has now been driven end to end against real `claude-agent-acp` and `codex-acp` binaries; retained as a fallback |
 | OpenAI | `openai` | Runtime discovery via `/models` through the OpenAI-compatible adapter | Seeded with one fallback model until refresh completes |
 | Google (Gemini) | `google` | Runtime discovery via AI Studio OpenAI-compatible `/models` endpoint | Seeded with one fallback model until refresh completes |
 | Azure OpenAI | `azure` | Deployment list comes from `atlasmind.azureOpenAiDeployments`; execution uses a resource-specific Azure endpoint with `api-key` auth | Starts empty until you configure an endpoint and at least one deployment |
@@ -272,6 +272,60 @@ AtlasMind now refreshes all enabled providers during startup, including GitHub C
 Provider failover now stays inside the candidate set that still satisfies the task's routing constraints. If a workspace-debug or tool-required request runs out of models that support the needed capabilities, AtlasMind fails the request explicitly instead of silently dropping to the built-in `local/echo-1` text fallback.
 
 When a routed model fails during execution, AtlasMind marks that model as failed for the current session, removes it from future candidate selection, increments a per-model failure counter, and shows a warning state in the Models sidebar. A successful provider refresh clears transient failures; provider-confirmed removal/deprecation tombstones remain excluded for the session and are filtered out even if stale discovery lists them again.
+
+## ACP agents
+
+The `acp` provider drives a coding agent over the [Agent Client Protocol](https://agentclientprotocol.com) — JSON-RPC 2.0 over a subprocess's stdio — so a subscription you already pay for becomes capacity the router can select. Four things about it are easy to get wrong, and each one was got wrong at some point before v0.209.0.
+
+### Launch commands come from the registry, transcribed by hand
+
+`VERIFIED_ACP_AGENTS` in `src/providers/acp.ts` is the single list of agents AtlasMind will name, and every install command is **derived from it**. Each entry was read from the [ACP registry](https://github.com/agentclientprotocol/registry)'s own `agent.json` at the version pinned in `ACP_SPEC_VERIFIED_AT`.
+
+| Agent | Command | npm package |
+|---|---|---|
+| Claude Agent | `claude-agent-acp` | `@agentclientprotocol/claude-agent-acp` |
+| Codex | `codex-acp` | `@agentclientprotocol/codex-acp` |
+| Gemini CLI | `gemini --acp` | `@google/gemini-cli` |
+| GitHub Copilot CLI | `copilot --acp` | `@github/copilot` |
+| Qwen Code | `qwen --acp` | `@qwen-code/qwen-code` |
+
+Two rules hold here:
+
+- **The package and the command are one fact, not two.** A second copy is what let AtlasMind advise `npm install -g @zed-industries/claude-code-acp` while spawning `claude-agent-acp` — that package's `bin` is `claude-code-acp`, so following the instructions produced a binary AtlasMind then could not find. A test asserts every command against the package that really provides it.
+- **`args` travels with the command.** `gemini`, `copilot` and `qwen` are ordinary interactive CLIs until the ACP flag is passed. Registering one without its flag launches a REPL that never speaks JSON-RPC and times the handshake out with nothing to explain why.
+
+The registry is **not** fetched at runtime. A launch command that arrives over the network and is then spawned is remote code execution with extra steps.
+
+`SELF_INSTALLED_ACP_AGENTS` records goose (`goose acp`), OpenCode (`opencode acp`), Cursor (`cursor-agent acp`) and Kimi CLI (`kimi acp`). These ship as platform archives, which AtlasMind will not download or unpack, so they have no install recipe — the command is recorded so it is discoverable, and the installer honestly reports `manual`.
+
+### Windows cannot spawn an npm `bin` directly
+
+Every published adapter above is an npm `bin`, and on Windows npm installs a `bin` as three sibling shims — an extensionless shell script, a `.cmd`, and a `.ps1`. None is an executable image, so `spawn(command, args, { shell: false })` fails with `ENOENT` for a completely correct global install. Resolving to the `.cmd` does not help: Node has refused to spawn `.cmd`/`.bat` without `shell: true` since the fix for CVE-2024-27980, and a shell is precisely what `shell: false` exists to avoid.
+
+`src/providers/acpLaunch.ts` therefore **bypasses** the shim. It reads the owning package's `package.json` `bin` field — a contract the package author declared, rather than npm's generated scripts — and spawns Node against the entry point it names. This also handles the case where the names do not match at all: `gemini` lives in `@google/gemini-cli`. A real `.exe` is spawned directly, and POSIX is untouched because the shim there is executable.
+
+### `authMethods` is an advertisement, not a verdict
+
+The `initialize` response's `authMethods` lists the logins an agent *offers*. It says nothing about whether the current user still owes one. `codex-acp` advertises `api-key` and `chat-gpt` on every handshake, signed in or not — so treating a non-empty list as "not authenticated" refuses every working ChatGPT subscription.
+
+The spec's real signal is the reserved error code **`-32000` (authentication required)** returned by the gated request. AtlasMind's probe therefore attempts `session/new` and reports:
+
+| Outcome | Meaning |
+|---|---|
+| session created | signed in and usable |
+| `-32000` | not signed in; the message names the advertised logins to run |
+| any other error | the agent is broken, reported as such rather than as a login problem |
+
+The probe is TTL-cached, so the extra round-trip is paid rarely, and it buys a stronger claim: that the agent *can be used*, not merely that it started.
+
+### Token counts come off the prompt result
+
+Two different things are reported, and conflating them made every ACP completion look free:
+
+- **`usage_update`** (a `session/update` notification) carries `{ used, size, cost? }` — the *cumulative* context token count and the context-window size. It is a progress bar, not a bill, and is never charged as input tokens; doing so would re-bill the whole conversation on every message.
+- **The `session/prompt` result** carries `usage.inputTokens` / `usage.outputTokens` for the turn. This field is not in the published `PromptResponse` schema, but it is the only place a real per-turn count appears and every current agent sends it in the same shape. Absent or unusable counts report **zero** rather than an estimate, and nothing is derived from `totalTokens` — splitting a total into input and output would be arithmetic nobody measured.
+
+Because ACP models are subscription-backed, they are priced at zero per token; the router's subscription handling, not the adapter, is what stops that from winning budget mode by default.
 
 ## Specialist And Future Providers
 

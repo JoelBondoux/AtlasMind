@@ -257,6 +257,81 @@ describe('a document naming a setting names one the manifest declares', () => {
     }
     expect(broken, 'these documents cite settings the manifest does not declare').toEqual([]);
   });
+
+  /**
+   * The other direction, which was missing and had let fourteen settings ship
+   * undocumented.
+   *
+   * Checking only docs → manifest catches a document describing something that
+   * does not exist, and nothing else. It cannot catch a *shipped* setting that
+   * appears in the Settings UI and is described nowhere — which is how the whole
+   * `atlasmind.workflow.*` family, an entire feature's worth of switches
+   * including four capability gates, reached 0.208.3 absent from
+   * `docs/configuration.md`. Undiscoverable and functioning is the state this
+   * repository already calls the worst of the three; a one-way check licensed it.
+   */
+  it('documents every atlasmind.* setting the manifest declares', () => {
+    const undocumented: string[] = [];
+    for (const file of ['docs/configuration.md', 'wiki/Configuration.md']) {
+      let body: string;
+      try {
+        body = read(file);
+      } catch {
+        continue;
+      }
+      for (const key of declaredSettings()) {
+        if (!body.includes(key)) {
+          undocumented.push(`${file} ← ${key}`);
+        }
+      }
+    }
+    expect(undocumented, 'the manifest declares these settings and no document describes them').toEqual([]);
+  });
+});
+
+/**
+ * A counted claim has to match the count.
+ *
+ * The wiki's competitor matrix said "31 built-in skills" while the navigation
+ * table on the *same page* said 43. Nothing was wrong with either sentence when
+ * it was written; the number simply moved and one copy did not. Every check
+ * above resolves a *name* — a file, a link, a setting — and a name that goes
+ * stale usually breaks loudly. A number goes stale silently and stays plausible,
+ * which is why it outlived every other kind of drift here.
+ */
+describe('a documented count matches the code', () => {
+  const skillIndex = read('src/skills/index.ts');
+  const builtinCount = (
+    skillIndex.slice(skillIndex.indexOf('export function createBuiltinSkills'))
+      .split('\n}')[0] ?? ''
+  ).match(/withPanelPath\(/g)?.length ?? 0;
+
+  it('found the built-in skills', () => {
+    expect(builtinCount).toBeGreaterThan(20);
+  });
+
+  it('agrees with every "N built-in skills" claim in the docs', () => {
+    const wrong: string[] = [];
+    for (const file of [...DOC_FILES, ...WIKI_FILES, ...ROOT_DOCS]) {
+      // The changelog is a record of what was true at each release, so a past
+      // entry naming an old count is correct and must not be "fixed".
+      if (/Changelog\.md$/i.test(file) || file === 'CHANGELOG.md') {
+        continue;
+      }
+      let body: string;
+      try {
+        body = read(file);
+      } catch {
+        continue;
+      }
+      for (const match of body.matchAll(/(\d+)\s+built-in skills/gi)) {
+        if (Number(match[1]) !== builtinCount) {
+          wrong.push(`${file} → claims ${match[1]}, code has ${builtinCount}`);
+        }
+      }
+    }
+    expect(wrong, 'these documents state a built-in skill count the code contradicts').toEqual([]);
+  });
 });
 
 describe('a claim about what git tracks matches what git tracks', () => {
