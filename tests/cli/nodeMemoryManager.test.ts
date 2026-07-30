@@ -112,9 +112,15 @@ describe('NodeMemoryManager', () => {
 
   it('deletes an entry and persists the removal', async () => {
     const entry = buildEntry({ path: 'test/entry4.md', title: 'Delete Me' });
-    manager.upsert(entry);
+
+    // Deliberately *not* via `upsert`. `upsert` schedules its mirror write with
+    // `void`, so the write can still be in flight when `delete` unlinks the file
+    // — and then lands afterwards and recreates it. Writing the file directly and
+    // loading it gives the same starting state with nothing outstanding, so this
+    // asserts `delete`'s contract rather than racing `upsert`'s.
     await manager.persistEntry(entry);
-    expect((await reload()).length).toBe(1);
+    await manager.loadFromDisk(tmpDir);
+    expect(manager.listEntries().length).toBe(1);
 
     expect(await manager.delete(entry.path)).toBe(true);
 

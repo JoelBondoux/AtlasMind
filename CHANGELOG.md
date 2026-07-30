@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.221.0] - 2026-07-30
+
+### Added
+- **`buildTestingObligationGuidance` — the declared testing policy, stated to the agent that writes the code.** This is the fix for the failure the v0.220.0 work only made visible: this project enabled fourteen methodologies on 2026-06-09 and eight of them still had no evidence of any kind seven weeks later. The declaration was never wrong. It was never in front of a model that could honour it.
+
+  Testing policy reached a prompt through exactly one channel, `buildMethodologySystemPromptHint`, behind two gates. A direct task had to be classified as testing **and** match an `assignedAgentId` (`orchestrator.ts:1177-1204`). A subtask had to satisfy `inferTestingMethodologyForSubTask`, which returns `undefined` unless the task's own title, description or role already contains a testing term. So a subtask that implemented a feature and never said the word "test" was told nothing — and those are the only turns that could have written the tests.
+
+  Three properties, each following from that failure. **The whole enabled set, never one match:** the per-methodology hint answers "which methodology owns *this* testing task" and is kept for exactly that, but choosing one of fourteen for a general obligation would silently drop thirteen. **An obligation, not a description:** the old hint closed with "report the checks you used", which a model satisfies with a sentence; work that changes behaviour and produces none of the evidence its policy names is now stated to be incomplete, and an agent that cannot produce it must say so and say why. **Empty when nothing is enabled:** a project that has declared no policy receives no block rather than generic advice about testing, which is how a prompt block becomes something agents learn to skim.
+
+  Practices — the seven methodologies `testingPolicyCoverage` marks `practiceOnly` — are named as context but never requested as artifacts, because asking for a file they cannot produce invites an invented one. `tests/core/testingObligation.test.ts` reads the scanner's own markers and pins the two lists together, so an agent can never be asked to produce evidence the dashboard will never look for.
+
+### Changed
+- **The orchestrator injects the obligation on task modality alone.** `processTaskWithAgent` sets `request.context['__testingObligation']` when the task profile is `code` or `mixed`, and `buildMessages` concatenates it beside the other conditional prompt blocks. Modality is the *only* gate on purpose: every narrower condition available here — classification, routing needs, agent assignment, task wording — is a variation on the gate that caused the original failure, and would reproduce it with different wording. A read-only turn is excluded because it cannot leave a change behind for a test to cover.
+
+  The per-methodology hint and the model override keep their existing, narrower conditions. They answer a different question, and both blocks can be present: the general obligation first, the specific one second.
+
 ## [0.220.0] - 2026-07-30
 
 ### Fixed

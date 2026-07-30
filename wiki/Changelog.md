@@ -16,6 +16,18 @@ Silent, and in the direction that costs money: every model-variant turn looked l
 
 ---
 
+## v0.221.0 — A testing policy that reaches the code
+
+The fix for the failure v0.220.0 made visible. This project enabled fourteen testing methodologies in June and eight of them still had no evidence of any kind seven weeks later — not because the declaration was wrong, but because it was never shown to a model that could act on it.
+
+Testing policy reached a prompt through one channel, and that channel required the task to be *already* classified as testing, or the subtask's own text to *already* contain a testing word. The turns implementing features — the only turns that could have written the tests — were precisely the ones told nothing.
+
+Every turn that could change behaviour now carries the whole enabled set, phrased as an obligation rather than a description: a change is not finished until it carries the evidence its policy names, and an agent unable to produce that evidence must say so and say why. A project with no declared policy is told nothing at all, because generic advice nobody asked for is how a prompt block becomes something agents skim. Practices such as V-Model and Exploratory are named as context but never requested as files.
+
+The gate is task modality and nothing else. Every narrower condition available — classification, routing needs, agent assignment, task wording — is a variation on the gate that caused the original failure.
+
+---
+
 ## v0.220.0 — The Testing dashboard gets something to read
 
 AtlasMind reads test pass/fail from a report your project wrote, and never runs your tests to find out. Nothing in this repository ever wrote one — not a script, not CI, not the pre-commit hook — so on its own project the Testing page had reported *"No test report"* since the day it shipped. Every `vitest run` now writes `test-results/junit.xml`, gitignored, and the pre-commit hook already runs the full suite, so the verdict on screen is never older than your last commit.

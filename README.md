@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.220.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.221.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,9 +68,13 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.220.0
+## What's new in 0.221.0
 
 Since the last Marketplace publication, **v0.219.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **A testing methodology you enable is now stated to the agent writing the code.** This is the fix for the failure that started all of this: a project could carry fourteen enabled methodologies, believe them in force, and have tests written for none of them. The policy was never wrong — it was never *shown* to anyone who could act on it. Testing policy reached a prompt through one channel, and that channel required the task to already be classified as testing, or the subtask's own text to already contain a testing word. So the turns implementing features — the only turns that could have written the tests — were exactly the ones told nothing.
+
+  Every turn that could change behaviour now carries the **whole** enabled set, phrased as an obligation rather than a description: a change is not finished until it carries the evidence its policy names, and an agent that cannot produce that evidence must say so and say why. A project that has declared no policy is told nothing at all, because generic advice nobody asked for is how a prompt block becomes something agents learn to skim. Practices such as V-Model and Exploratory are named as context but never requested as files — asking for an artifact they cannot produce invites an invented one.
 
 - **The Testing page can finally report a verdict, because a report now exists.** AtlasMind reads pass/fail from a report your project wrote and never runs your tests to find out — a deliberate boundary. But nothing in this repository ever wrote one, so on its own project the Testing page had shown *"No test report"* since the day it shipped. Every `vitest run` now writes `test-results/junit.xml`, and the pre-commit hook already runs the full suite, so the verdict on screen is never older than your last commit. It is gitignored: it is evidence of *your* run, not of whoever last pushed.
 

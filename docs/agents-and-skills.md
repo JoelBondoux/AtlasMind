@@ -116,6 +116,18 @@ AtlasMind ships a 23-methodology testing strategy registry, replacing the earlie
 | **Non-functional** | Performance, Security, Visual Regression |
 | **Exploratory** | Exploratory, Agile Testing |
 
+#### What an enabled methodology actually does
+
+Enabling a methodology has three effects, and until v0.221.0 only the first two existed — which is why a project could carry fourteen enabled methodologies and have tests for none of them.
+
+1. **It is stated to every agent that writes code.** On any turn whose task profile is `code` or `mixed`, the orchestrator injects `buildTestingObligationGuidance` — the *whole* enabled set, phrased as an obligation: a change that alters behaviour is not finished until it carries the evidence its policy names, and an agent that cannot produce that evidence must say so and say why. Previously, policy reached a prompt only when the task was **already** classified as testing or its text already contained a testing word, so the turns implementing features were precisely the ones told nothing.
+2. **It can select a model.** A methodology assigned to an agent, with a model override, prepends that model for a matching testing task.
+3. **It is expected to leave evidence.** The Testing page reports each enabled methodology as *Tested*, *No tests yet*, *Nothing found*, or *Practice*, and an unevidenced one becomes a tech-debt entry graded by the published rule table.
+
+Practices — V-Model, White-Box, Test Design Techniques, Black-Box, Gray-Box, Exploratory, Agile Testing — are ways of working that leave no artifact. They are named to the agent as context but never requested as files, and the Testing page never counts them as gaps.
+
+**Enabling a methodology you do not practise produces a permanent, visible gap.** That is the intended behaviour rather than a flaw: the alternative is a declaration that means nothing. Turn on what the project genuinely does, and add the rest deliberately.
+
 #### Configuration — Settings Panel → Testing
 
 Open **AtlasMind: Open Settings Panel** and navigate to the **Testing** tab. The methodology matrix shows all 23 rows grouped by category. Each row provides:

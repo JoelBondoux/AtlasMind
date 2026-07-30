@@ -46,7 +46,7 @@ import {
 } from '../constants.js';
 import { redactSecretsWithWarning } from '../utils/secretRedactor.js';
 import type { DataPrivacyManager } from './dataPrivacyManager.js';
-import { readProjectTestingConfig, inferTestingMethodologyForSubTask, resolveTestingModelOverride, buildMethodologySystemPromptHint } from './testingConfigLoader.js';
+import { readProjectTestingConfig, inferTestingMethodologyForSubTask, resolveTestingModelOverride, buildMethodologySystemPromptHint, buildTestingObligationGuidance } from './testingConfigLoader.js';
 
 const defaultConfig: OrchestratorConfig = {
   maxToolIterations: MAX_TOOL_ITERATIONS,
@@ -1385,6 +1385,27 @@ export class Orchestrator {
         );
 
     const initialModel = selectedInitialModel ?? agent.allowedModels?.find(modelId => this.router.getModelInfo(modelId));
+
+    // ── The project's declared testing policy, for any turn that could change
+    // behaviour ─────────────────────────────────────────────────────────────
+    //
+    // Set here rather than inside `buildMessages` because the task profile is
+    // only known at this point, and read there through `requestContext` like
+    // every other conditional prompt block.
+    //
+    // The gate is deliberately *only* modality. The reason the policy was never
+    // honoured is that it reached a prompt solely when the task already
+    // mentioned testing — so the agents implementing features, the ones that
+    // would have written the tests, were the only ones never told. Any narrower
+    // gate here would reproduce that failure with different wording. A read-only
+    // turn ('text' modality) is excluded because it cannot leave a change behind
+    // for a test to cover.
+    if (baseTaskProfile.modality === 'code' || baseTaskProfile.modality === 'mixed') {
+      const obligation = this.buildTestingObligation();
+      if (obligation) {
+        request.context['__testingObligation'] = obligation;
+      }
+    }
 
     const previewModel = initialModel ?? 'unavailable';
     (onModelSelected ?? this.onModelSelected)?.(previewModel);
@@ -3663,6 +3684,26 @@ export class Orchestrator {
     return agent;
   }
 
+  /**
+   * The workspace's enabled testing methodologies, stated as an obligation.
+   *
+   * Returns `''` when there is no workspace, no config file, or nothing enabled —
+   * a project that has declared no policy is told nothing, rather than given
+   * generic advice about testing that nobody asked for. An unreadable config
+   * must never take a turn down with it.
+   */
+  private buildTestingObligation(): string {
+    const workspaceRoot = this.skillContext.workspaceRootPath;
+    if (!workspaceRoot) {
+      return '';
+    }
+    try {
+      return buildTestingObligationGuidance(readProjectTestingConfig(workspaceRoot));
+    } catch {
+      return '';
+    }
+  }
+
   private buildMessages(
     agent: AgentDefinition,
     agentSkills: SkillDefinition[],
@@ -3805,6 +3846,14 @@ export class Orchestrator {
     const testingMethodologyHint = typeof requestContext['__testingMethodologyHint'] === 'string' && requestContext['__testingMethodologyHint'].trim().length > 0
       ? `\n\nTesting methodology guidance:\n${requestContext['__testingMethodologyHint'].trim()}`
       : '';
+    // The whole declared policy, for any turn that could change behaviour. This
+    // and the per-methodology hint above answer different questions — "what does
+    // this project require of any change" versus "which methodology owns this
+    // particular testing task" — so both can be present, and the narrower one
+    // deliberately comes second.
+    const testingObligationBlock = typeof requestContext['__testingObligation'] === 'string' && requestContext['__testingObligation'].trim().length > 0
+      ? `\n\n${requestContext['__testingObligation'].trim()}`
+      : '';
     const attachmentSummary = imageAttachments.length > 0
       ? `\n\nUser-attached images:\n${imageAttachments.map(image => `- ${image.source} (${image.mimeType})`).join('\n')}` +
         (hasCarryForwardImages
@@ -3862,6 +3911,7 @@ export class Orchestrator {
           `\n\nTool result policy:\n- Treat tool outputs as the authoritative record of what actually happened.\n- If a tool reports an error, denial, validation issue, missing resource, or no-op, do not claim success. State that the action did not complete and summarize the tool result succinctly.` +
           securityAnalysisHint +
           urlSafetyHint +
+          testingObligationBlock +
           testingMethodologyHint +
           (rawSpecialistRoutingHint ? `\n\nSpecialist routing guidance:\n${rawSpecialistRoutingHint}` : '') +
           executionBiasHint +
