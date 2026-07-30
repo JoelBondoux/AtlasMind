@@ -33,6 +33,7 @@ import {
   type WorkflowStageDefinition,
   type WorkflowStageId,
 } from '../core/workflowCurriculum.js';
+import { deriveRoadmapIssueDraft } from '../core/roadmapIssueDraft.js';
 import {
   describeMissingLinks,
   githubLinksForPage,
@@ -430,6 +431,7 @@ type ProjectDashboardMessage =
   | { type: 'createMilestone'; payload: { title: string } }
   | { type: 'closeMilestone'; payload: { number: number } }
   | { type: 'addressReviewComment'; payload: { number: number; index: number } }
+  | { type: 'draftIssueFromRoadmap'; payload: { itemId: string } }
   | { type: 'openGithubLink'; payload: { page: string; id: string } }
   | { type: 'markDeltaSeen' }
   | { type: 'setWorkflowGate'; payload: { key: string; enabled: boolean } }
@@ -493,7 +495,21 @@ type DashboardWebviewMessage =
   | { type: 'promotionDone'; payload: import('../types.js').PromotionRunResult }
   | { type: 'promotionError'; payload: string }
   | { type: 'rollbackResult'; payload: { ok: boolean; summary: string } }
-  | { type: 'healthTestResult'; payload: { ok: boolean; summary: string } };
+  | { type: 'healthTestResult'; payload: { ok: boolean; summary: string } }
+  /**
+   * Prefill the issue composer with a derived draft.
+   *
+   * Sent instead of filing directly. The user reads the text, edits it, and the
+   * existing create flow confirms before anything is posted — two steps rather
+   * than one, because the alternative is a button that publishes.
+   */
+  | { type: 'issueDraft'; payload: {
+      title: string;
+      body: string;
+      labels: string[];
+      /** Label intents with no matching label on the repository. */
+      droppedLabels?: string[];
+    } };
 
 type Tone = 'accent' | 'good' | 'warn' | 'critical' | 'neutral';
 
@@ -2304,6 +2320,9 @@ export class ProjectDashboardPanel {
       case 'addressReviewComment':
         await this.handleAddressReviewComment(message.payload);
         return;
+      case 'draftIssueFromRoadmap':
+        await this.handleDraftIssueFromRoadmap(message.payload);
+        return;
       case 'openGithubLink':
         await this.handleOpenGithubLink(message.payload);
         return;
@@ -2879,6 +2898,23 @@ export class ProjectDashboardPanel {
       for (const label of draft.labels) {
         args.push('--label', label);
       }
+      // A milestone could be declared in the taxonomy and attached to nothing:
+      // this call never passed `--milestone`. Checked against the loaded list
+      // rather than passed through, because `gh` fails on an unknown milestone
+      // and that failure reaches the user as a raw CLI error instead of an
+      // explanation.
+      const requested = (message.payload as { milestone?: unknown } | undefined)?.milestone;
+      if (typeof requested === 'string' && requested.trim() !== '') {
+        const known = this.taxonomyState?.milestones.find(entry => entry.title === requested.trim());
+        if (known === undefined) {
+          void vscode.window.showWarningMessage(
+            `\`${requested.trim().slice(0, 80)}\` is not a milestone on ${slug}. Nothing has been created — `
+            + 'open the Issues tab to load the milestone list, or create the milestone first.',
+          );
+          return;
+        }
+        args.push('--milestone', known.title);
+      }
       description = describeIssueAction('create', slug, { title: draft.title });
       successNote = `Created an issue on ${slug}.`;
     } else {
@@ -3449,6 +3485,68 @@ export class ProjectDashboardPanel {
    * behaviour — the same silent no-op as a dead button, arriving through the
    * settings system instead of the command allowlist.
    */
+  /**
+   * Raise a roadmap item as a GitHub issue.
+   *
+   * The gap this closes: the roadmap held the work in a structured, prioritised,
+   * gate-tagged list, and issues could only be created by hand-typing a title, a
+   * body and a comma-separated label list. Anybody planning here and tracking on
+   * GitHub retyped every item.
+   *
+   * **The draft is derived, not generated.** No model is in this path, so the same
+   * item produces the same issue every time — which is what makes it reviewable.
+   * A generated issue title is a claim nobody checked, posted publicly in your
+   * name.
+   *
+   * **It drafts; it does not file.** The text is put in front of the user, and
+   * posting goes through the same confirmation as every other issue write. Two
+   * steps rather than one, because the alternative is a button that publishes.
+   */
+  private async handleDraftIssueFromRoadmap(payload: { itemId: string }): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
+    const roadmap = await collectRoadmapSnapshot(workspaceRoot, ssotPath);
+    const item = roadmap.items.find(entry => entry.id === payload.itemId);
+    if (item === undefined) {
+      void vscode.window.showWarningMessage(
+        'That roadmap item could not be found. It may have been edited or removed since this page was drawn.',
+      );
+      return;
+    }
+
+    // The repository's real labels where they have been loaded. An empty list is
+    // a legitimate answer and produces a draft with no labels — never invented
+    // ones, because an invented label is created on the repository as a side
+    // effect of filing.
+    const declared = this.taxonomyState?.labels.map(label => label.name) ?? [];
+    const draft = deriveRoadmapIssueDraft(item, declared);
+
+    if (draft.alreadyComplete) {
+      const proceed = await vscode.window.showWarningMessage(
+        'That item is already ticked off.',
+        {
+          modal: true,
+          detail: 'Raising an issue for finished work is usually a mis-click. Nothing has been created yet.',
+        },
+        'Draft it anyway',
+      );
+      if (proceed !== 'Draft it anyway') {
+        return;
+      }
+    }
+
+    // Into the composer, not onto the tracker. The user reads it, edits it, and
+    // the existing create flow confirms before anything is posted.
+    this.pendingNavigationTarget = 'issues';
+    await this.postMessage({ type: 'issueDraft', payload: {
+      title: draft.title,
+      body: draft.body,
+      labels: draft.labels,
+      ...(draft.droppedLabels.length === 0 ? {} : { droppedLabels: [...draft.droppedLabels] }),
+    } });
+    await this.syncState();
+  }
+
   /**
    * Open the GitHub page a dashboard page is about.
    *
@@ -5277,6 +5375,13 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
   // copy table rather than a pattern: a surface that could name an arbitrary
   // `atlasmind.*` key could flip something that is not a workflow gate at all,
   // and the confirmation would describe the wrong thing.
+  if (candidate['type'] === 'draftIssueFromRoadmap') {
+    // The id is resolved against the roadmap the host holds, so an id that is
+    // not there produces nothing. The webview never supplies the issue text.
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null && typeof payload['itemId'] === 'string';
+  }
+
   if (candidate['type'] === 'openGithubLink') {
     // Shape only. The id is resolved against this page's own link list in the
     // handler, so an id that is not there produces nothing — which is why the

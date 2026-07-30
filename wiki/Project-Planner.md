@@ -52,6 +52,18 @@ The `Planner` sends the goal + workspace context to the LLM, which returns a `Pr
 
 AtlasMind now also treats `project_memory/roadmap/improvement-plan.md` as a weighted developer backlog during planning and “what next?” guidance. The manual order of items matters, but it is not absolute: critical, security, architectural, and delivery-risk signals can still override a lower-risk item that simply happens to be near the top.
 
+### A roadmap item can be raised as a GitHub issue
+
+Each open item on the Project Dashboard's **Roadmap** page carries **Raise as issue**. The roadmap held the work structured, prioritised and gate-tagged; issues could only be created by hand-typing a title, a body and a comma-separated label list. Anybody planning here and tracking on GitHub retyped every item.
+
+**The draft is derived, not generated.** No model is in this path, so the same item produces a byte-identical issue every time — which is what makes it reviewable: the rule that chose a label is visible, and the next item's output is predictable. A generated issue title would be a claim nobody checked, posted publicly in your name.
+
+**It drafts; it does not file.** The text lands in the issue composer for you to read and edit, and posting goes through the same modal confirmation as every other issue write. Completed items are not offered at all, and asking for one anyway confirms first.
+
+**Labels come only from the declared taxonomy**, because an invented label is *created* on the repository as a side effect of filing. The repository's own spelling wins, and a label intent that matches nothing is stated in the issue body rather than dropped quietly. A gate becomes a label only where the repository already uses that word.
+
+The body's provenance section names the roadmap file and the item id verbatim, and says plainly that closing the issue does not tick the item off and ticking it off does not close the issue — an issue that does not record where it came from becomes a duplicate the first time somebody reads the roadmap again.
+
 ### Roadmap replies ask before they plan
 
 When a roadmap-context prompt reaches chat, AtlasMind reads the SSOT roadmap files live and responds in one of two ways depending on intent:

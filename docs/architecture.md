@@ -485,6 +485,20 @@ The tag gate is what catches a double publish: an existing tag means the publish
 
 **Nothing here executes anything.** `buildReleasePlan` is pure over observed state, and tagging and publishing stay with the human at every automation rung.
 
+### RoadmapIssueDraft (`src/core/roadmapIssueDraft.ts`)
+
+A roadmap item, turned into an issue draft. `IssueDraft` existed with only a sanitizer, and issues could only be created by hand-typing a title, a body and a comma-separated label list into a form — while the roadmap held the same work structured, prioritised and gate-tagged. Somebody planning here and tracking on GitHub retyped every item.
+
+**No model is in this path.** The same item produces a byte-identical draft every time, which is what makes it reviewable: the rule that chose a label is visible, and the next item's output is predictable. A generated issue title is a claim nobody checked, posted publicly under the user's name.
+
+**A draft is not a filed issue.** Nothing here calls `gh`. The output is proposed text; the confirmation that posts it lives at the call site, behind the same gate as every other issue write.
+
+**Labels come only from the declared taxonomy**, because an invented label is created on the repository as a side effect of filing — a write nobody asked for, in a vocabulary the team agreed. `FOCUS_LABEL_CANDIDATES` lists several candidates per focus in preference order, since matching one of `architecture`/`refactor`/`tech-debt` beats inventing the first. The repository's own spelling is used rather than the candidate's: `Documentation` and `documentation` are one label to a human and two to `gh`, and filing with the wrong case creates a second. An intent that matches nothing is recorded in `droppedLabels` **and stated in the issue body**, so the omission is visible to whoever reads the issue rather than only to whoever filed it. A gate becomes a label only where the repository already uses that word.
+
+The title is clamped on a word boundary, because a title ending mid-word reads as a truncation bug and somebody scanning a list of issues cannot tell ours from theirs; the full text stays in the body, so the clamp loses nothing. The body's `Where this came from` section names the roadmap and the item id verbatim — an issue that came from a roadmap and does not say so becomes a duplicate the first time somebody reads the roadmap again — and states plainly that closing the issue does not tick the item off and vice versa.
+
+`draftableRoadmapItems` excludes completed items rather than sorting them last: raising an issue for finished work is never the intent, and offering it invites a mis-click that posts publicly.
+
 ### GithubDeepLinks (`src/core/githubDeepLinks.ts`)
 
 The GitHub page each dashboard page is about. The dashboard read GitHub, reasoned about it, and then left the user to navigate from the repository root — a small friction repeated many times a day.

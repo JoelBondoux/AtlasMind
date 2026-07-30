@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.207.0] - 2026-07-30
+
+### Added
+- **A roadmap item can be raised as a GitHub issue.** The roadmap held the work in a structured, prioritised, gate-tagged list. Issues could only be created by hand-typing a title, a body and a comma-separated label list. Nothing connected them, so anybody planning in AtlasMind and tracking on GitHub retyped every item.
+
+  **The draft is derived, not generated.** No model is in this path, so the same item produces a byte-identical issue every time — which is what makes it reviewable: you can see the rule that chose a label and predict what the next item will produce. A generated issue title is a claim nobody checked, posted publicly in your name.
+
+  **It drafts; it does not file.** The text lands in the issue composer for you to read and edit, and posting goes through the same confirmation as every other issue write. Two steps rather than one, because the alternative is a button that publishes.
+
+  **Labels come only from the declared taxonomy.** An invented label is *created* on the repository as a side effect of filing — a write nobody asked for, in a vocabulary the team agreed. Each focus has several candidate labels tried in order, the repository's own spelling wins (`Documentation` and `documentation` are one label to a human and two to `gh`), and an intent that matches nothing is **reported in the draft** rather than dropped silently. A gate becomes a label only where the repository already uses that word.
+
+  Completed items are excluded rather than sorted last: raising an issue for finished work is never the intent, and offering it invites a mis-click that posts publicly. Asking for one anyway confirms first.
+
+- **A milestone can be attached when an issue is created.** `gh issue create` was called with `--title`, `--body` and `--label` only — so a milestone could be declared in the taxonomy, managed on the Issues tab, and attached to nothing. The composer now offers the repository's open milestones, and a name that is not one of them is **refused with an explanation** rather than passed to `gh`, which would fail with a raw CLI error.
 ## [0.206.0] - 2026-07-30
 
 ### Added

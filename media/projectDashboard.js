@@ -197,6 +197,13 @@
     debtRuleFilter: 'all',
     issueSearch: '',
     issueDraftOpen: false,
+    /**
+     * A derived draft waiting in the composer, or undefined.
+     *
+     * Held in module state rather than written into the DOM on arrival, because
+     * `render()` rebuilds every section's innerHTML and would discard it.
+     */
+    issuePrefill: undefined,
     /** Issue number whose comment box is open, or 0. */
     issueCommentFor: 0,
     activeTestCategory: 'all',
@@ -298,6 +305,12 @@
       return;
     }
 
+    if (message.type === 'issueDraft') {
+      state.issuePrefill = message.payload;
+      state.issueDraftOpen = true;
+      render();
+      return;
+    }
     if (message.type === 'navigate') {
       state.activePage = normalizePageId(typeof message.payload === 'string' ? message.payload : DEFAULT_PAGE);
       render();
@@ -535,6 +548,12 @@
       persistRoadmapItems(roadmapItemsForSave().filter(item => item.id !== payload));
       return;
     }
+    if (action === 'roadmap-raise-issue') {
+      // The host derives the text from the roadmap it holds. This sends only the
+      // item id — the webview never composes the wording of a public issue.
+      vscode.postMessage({ type: 'draftIssueFromRoadmap', payload: { itemId: payload } });
+      return;
+    }
     if (action === 'roadmap-toggle') {
       persistRoadmapItems(roadmapItemsForSave().map(item => item.id === payload ? { ...item, completed: !item.completed } : item));
       return;
@@ -593,6 +612,7 @@
     }
     if (action === 'issues-new-cancel') {
       state.issueDraftOpen = false;
+      state.issuePrefill = undefined;
       render();
       return;
     }
@@ -604,13 +624,16 @@
       };
       const title = read('title');
       if (!title) { return; }
+      const milestone = read('milestone');
       state.issueDraftOpen = false;
+      state.issuePrefill = undefined;
       vscode.postMessage({
         type: 'createIssue',
         payload: {
           title: title,
           body: read('body'),
           labels: read('labels').split(',').map(label => label.trim()).filter(Boolean),
+          ...(milestone ? { milestone: milestone } : {}),
         },
       });
       render();
@@ -3169,15 +3192,29 @@
   }
 
   function renderIssueComposer() {
+    const prefill = state.issuePrefill || {};
+    // Only milestones already on the repository are offered. `gh` fails on an
+    // unknown one, and that failure reaches the user as a raw CLI error rather
+    // than an explanation — so the host refuses it too.
+    const taxonomy = (state.snapshot && state.snapshot.taxonomy) || {};
+    const milestones = (taxonomy.milestones || []).filter(m => m && m.state !== 'closed');
     return `
       <article class="panel-card stage-editor" id="issue-composer">
         <p class="section-kicker">New issue</p>
         <h3>Open an issue on this repository</h3>
         <div class="stage-edit-grid">
-          <label class="stage-edit-field" style="grid-column:1 / -1;"><span>Title *</span><input type="text" data-issue-field="title" placeholder="Short, specific summary" /></label>
-          <label class="stage-edit-field" style="grid-column:1 / -1;"><span>Labels (comma separated)</span><input type="text" data-issue-field="labels" placeholder="bug, docs" /></label>
+          <label class="stage-edit-field" style="grid-column:1 / -1;"><span>Title *</span><input type="text" data-issue-field="title" placeholder="Short, specific summary" value="${escapeAttr(prefill.title || '')}" /></label>
+          <label class="stage-edit-field" style="grid-column:1 / -1;"><span>Labels (comma separated)</span><input type="text" data-issue-field="labels" placeholder="bug, docs" value="${escapeAttr((prefill.labels || []).join(', '))}" /></label>
+          ${milestones.length > 0 ? `<label class="stage-edit-field" style="grid-column:1 / -1;"><span>Milestone</span>
+            <select data-issue-field="milestone">
+              <option value="">None</option>
+              ${milestones.map(m => `<option value="${escapeAttr(m.title)}">${escapeHtml(m.title)}</option>`).join('')}
+            </select></label>` : ''}
         </div>
-        <textarea class="roadmap-textarea" data-issue-field="body" rows="5" placeholder="What happened, what you expected, and how to reproduce it."></textarea>
+        <textarea class="roadmap-textarea" data-issue-field="body" rows="5" placeholder="What happened, what you expected, and how to reproduce it.">${escapeHtml(prefill.body || '')}</textarea>
+        ${(prefill.droppedLabels || []).length > 0
+          ? `<p class="stat-detail">Not labelled ${prefill.droppedLabels.map(label => `<code>${escapeHtml(label)}</code>`).join(', ')} — no matching label exists on this repository, and AtlasMind does not create one as a side effect of filing. Add it on GitHub first if you want it.</p>`
+          : ''}
         <div class="stat-detail">This posts to the repository's public tracker. AtlasMind shows you exactly what will be sent and asks you to confirm first.</div>
         <div class="stage-edit-actions">
           <button type="button" class="action-link primary" data-action="issues-create">Create issue</button>
@@ -4606,6 +4643,7 @@
         <div class="tag-row">
           <button type="button" class="action-link" data-action="roadmap-toggle" data-payload="${escapeAttr(item.id)}">${item.completed ? 'Mark active' : 'Mark done'}</button>
           <button type="button" class="action-link" data-action="roadmap-edit" data-payload="${escapeAttr(item.id)}">Edit</button>
+          ${item.completed ? '' : `<button type="button" class="action-link" data-action="roadmap-raise-issue" data-payload="${escapeAttr(item.id)}" title="Draft a GitHub issue from this item. Nothing is posted until you confirm.">Raise as issue</button>`}
           <button type="button" class="action-link" data-action="roadmap-delete" data-payload="${escapeAttr(item.id)}">Delete</button>
         </div>
       </div>

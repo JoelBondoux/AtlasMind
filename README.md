@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.206.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.207.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,9 +64,17 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.206.0
+## What's new in 0.207.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
+
+- **A roadmap item can be raised as a GitHub issue — and a milestone can be attached.** The roadmap held the work in a structured, prioritised, gate-tagged list; issues could only be created by hand-typing a title and a comma-separated label list. Anybody planning here and tracking on GitHub retyped every item.
+
+  **Derived, not generated.** No model is in this path, so the same item produces a byte-identical draft every time — which is what makes it reviewable. A generated issue title is a claim nobody checked, posted publicly in your name. And it *drafts*: the text lands in the composer for you to read and edit, and posting still confirms.
+
+  **Labels come only from the declared taxonomy**, because an invented label is created on the repository as a side effect of filing. The repository's own spelling wins, and an intent that matches nothing is reported in the draft rather than dropped quietly.
+
+  `gh issue create` had been called with `--title`, `--body` and `--label` only — so a milestone could be declared, managed, and attached to nothing. A name that is not a real milestone is now refused with an explanation rather than handed to `gh` to fail on.
 
 - **Every dashboard page links to the GitHub page it is about.** Issues → the tracker, unassigned issues, and labels. Pipeline → Actions. Release → releases and tags. Workflow → branch protection. SSOT → `project_memory/` as your team sees it committed.
 

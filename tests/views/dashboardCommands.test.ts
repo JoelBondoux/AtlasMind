@@ -260,3 +260,82 @@ describe('a GitHub deep link is resolved by the host, never named by the webview
     expect(WEBVIEW).toContain('+ githubLinkRow(id);');
   });
 });
+
+describe('a roadmap item can be raised as an issue', () => {
+  it('sends only an item id, never the issue text', () => {
+    // The webview never composes the wording of something posted publicly in the
+    // user's name. The host derives the text from the roadmap it holds.
+    expect(WEBVIEW).toContain("type: 'draftIssueFromRoadmap'");
+    expect(WEBVIEW).toContain("payload: { itemId: payload }");
+    const guard = PANEL.slice(
+      PANEL.indexOf("if (candidate['type'] === 'draftIssueFromRoadmap')"),
+      PANEL.indexOf("if (candidate['type'] === 'openGithubLink')"),
+    );
+    expect(guard).toContain("typeof payload['itemId'] === 'string'");
+    expect(guard).not.toMatch(/title|body|labels/);
+  });
+
+  it('drafts into the composer rather than filing', () => {
+    // Two steps, because the alternative is a button that publishes.
+    const handler = PANEL.slice(
+      PANEL.indexOf('private async handleDraftIssueFromRoadmap'),
+      PANEL.indexOf('   * Open the GitHub page a dashboard page is about.'),
+    );
+    expect(handler).toContain("type: 'issueDraft'");
+    expect(handler).not.toContain("'issue', 'create'");
+    expect(handler).not.toContain('runGh');
+  });
+
+  it('passes the repository real labels and invents none', () => {
+    const handler = PANEL.slice(
+      PANEL.indexOf('private async handleDraftIssueFromRoadmap'),
+      PANEL.indexOf('   * Open the GitHub page a dashboard page is about.'),
+    );
+    expect(handler).toContain('this.taxonomyState?.labels.map(label => label.name) ?? []');
+  });
+
+  it('confirms before drafting from an item already ticked off', () => {
+    const handler = PANEL.slice(
+      PANEL.indexOf('private async handleDraftIssueFromRoadmap'),
+      PANEL.indexOf('   * Open the GitHub page a dashboard page is about.'),
+    );
+    expect(handler).toContain('draft.alreadyComplete');
+    expect(handler).toContain('modal: true');
+  });
+
+  it('does not offer the button on a completed item', () => {
+    expect(WEBVIEW).toMatch(/item\.completed \? '' : `<button[^`]*roadmap-raise-issue/);
+  });
+});
+
+describe('a milestone can be attached on create', () => {
+  it('passes --milestone, which it never did', () => {
+    // A milestone could be declared in the taxonomy and attached to nothing.
+    expect(PANEL).toContain("args.push('--milestone', known.title);");
+  });
+
+  it('refuses a milestone the repository does not have', () => {
+    // `gh` fails on an unknown milestone and the failure arrives as a raw CLI
+    // error rather than an explanation.
+    expect(PANEL).toContain('this.taxonomyState?.milestones.find(entry => entry.title === requested.trim())');
+    expect(PANEL).toMatch(/is not a milestone on \$\{slug\}/);
+    expect(PANEL).toMatch(/Nothing has been created/);
+  });
+
+  it('offers only open milestones in the composer', () => {
+    expect(WEBVIEW).toContain("filter(m => m && m.state !== 'closed')");
+  });
+
+  it('keeps the prefill in module state, which render() cannot discard', () => {
+    // `render()` rebuilds every section's innerHTML, so a value written into the
+    // DOM on arrival would vanish on the next status push.
+    expect(WEBVIEW).toContain('issuePrefill: undefined,');
+    expect(WEBVIEW).toContain('state.issuePrefill = message.payload;');
+  });
+
+  it('clears the prefill on send and on cancel', () => {
+    // Otherwise reopening the composer shows a draft nobody asked for.
+    const composer = WEBVIEW.slice(WEBVIEW.indexOf("if (action === 'issues-new-cancel')"), WEBVIEW.indexOf("if (action === 'issues-comment')"));
+    expect((composer.match(/state\.issuePrefill = undefined;/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  });
+});

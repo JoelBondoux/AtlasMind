@@ -6,6 +6,17 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.207.0 — From roadmap to issue, and milestones that attach
+
+The roadmap held the work in a structured, prioritised, gate-tagged list. Issues could only be created by hand-typing a title, a body and a comma-separated label list. Nothing connected them, so anybody planning in AtlasMind and tracking on GitHub retyped every item.
+
+**The draft is derived, not generated.** No model is in this path, so the same item produces a byte-identical issue every time — which is what makes it reviewable: you can see the rule that chose a label and predict what the next item will produce. A generated issue title is a claim nobody checked, posted publicly in your name.
+
+**It drafts; it does not file.** The text lands in the composer for you to read and edit, and posting goes through the same confirmation as every other issue write.
+
+**Labels come only from the declared taxonomy.** An invented label is *created* on the repository as a side effect of filing — a write nobody asked for, in a vocabulary the team agreed. Several candidates per focus are tried in order; the repository's own spelling wins (`Documentation` and `documentation` are one label to a human and two to `gh`); an intent matching nothing is **reported in the draft** rather than dropped silently. A gate becomes a label only where the repository already uses that word.
+
+**Milestones now attach.** `gh issue create` was called with `--title`, `--body` and `--label` only, so a milestone could be declared in the taxonomy, managed on the Issues tab, and attached to nothing. The composer offers the repository's open milestones, and a name that is not one of them is refused with an explanation rather than passed to `gh` to fail on.
 ## v0.206.0 — Every page links to the GitHub page it is about
 
 The dashboard read GitHub, reasoned about it, and left you to navigate from the repository root yourself. Issues now links to the tracker, to unassigned issues and to the label list; Pipeline to Actions; Release to releases and tags; Workflow to branch protection; SSOT to `project_memory/` as your team sees it committed.
