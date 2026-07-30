@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.222.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.223.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,9 +68,15 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.222.0
+## What's new in 0.223.0
 
 Since the last Marketplace publication, **v0.219.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Testing is worth points, and an unevidenced policy costs them.** The project score had eight components and 127 points, and testing was not one of them — so a project with fourteen declared methodologies and evidence for none scored *better* than one that declared nothing, because neither carried a testing number and the first looked more organised everywhere else. There is now a **Testing evidence** component worth 15: ten for the share of enabled methodologies that have evidence, five for having a test report at all. A project with nothing declared scores zero and is told the points are unclaimed, not that it has failed — nobody has looked, which is different from looking and finding it broken.
+
+  The recommendation says *close or retire*. A declaration the project has outgrown is a legitimate thing to withdraw; it is not a failure you must fix by writing tests for it.
+
+- **A release now checks the standard the project set itself.** The release gates covered the changelog, the notes, the version, the tag, the tree, and CI — everything except whether the release meets the testing policy the project declared. A **Declared testing policy met** gate joins them: a failing test fails it, an enabled methodology with no evidence fails it, and coverage that was never gathered reports `unknown`. `unknown` is not a pass, because a published version can never be replaced and *"we did not check"* must stay distinguishable from *"we checked and it was fine"*.
 
 - **A methodology can now hold work back, and only if you say so.** AtlasMind's one real enforcement — the gate that refuses non-test writes until a failing test has been seen — never read the testing matrix at all. It fired on the task's role and wording, so a project that had switched TDD *off* still got the gate, and the thirteen methodologies it had switched *on* got no gate whatsoever. The config governs it now.
 

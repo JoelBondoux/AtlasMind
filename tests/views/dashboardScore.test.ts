@@ -75,6 +75,7 @@ const PERFECT: Partial<ScoreInput> = {
     compliancePacks: ['gdpr'],
     trustedModelIds: ['local/llama'],
   },
+  testing: { assessable: 6, evidenced: 6, hasReport: true, failing: 0 },
 };
 
 /** Mirrors how collectDashboardSnapshot derives the headline number. */
@@ -320,5 +321,73 @@ describe('buildContributorSeries', () => {
     const result = buildContributorSeries([], 7);
     expect(result.contributors).toEqual([]);
     expect(result.totalCommits).toBe(0);
+  });
+});
+
+describe('buildScoreBreakdown — testing component', () => {
+  const testingComponent = (input: Partial<ScoreInput>) =>
+    buildScoreBreakdown(makeInput(input)).components.find(component => component.id === 'testing');
+
+  it('is always present, so a project that declared nothing does not score the same as one that did', () => {
+    // Before this component existed a project with fourteen declared and zero
+    // evidenced scored *better* than one that declared none, because neither
+    // carried a testing number and the first looked more organised elsewhere.
+    const component = testingComponent({});
+    expect(component).toBeDefined();
+    expect(component!.maxScore).toBe(15);
+    expect(component!.score).toBe(0);
+    expect(component!.pageTarget).toBe('testing');
+  });
+
+  it('reads an unassessed project as unclaimed rather than failing', () => {
+    const component = testingComponent({});
+    // `warn`, not `critical`: nobody has looked, which is not the same as looking
+    // and finding it broken.
+    expect(component!.tone).toBe('warn');
+    expect(component!.detail).toContain('unclaimed');
+  });
+
+  it('scores evidence as a ratio and the report separately', () => {
+    const full = testingComponent({ testing: { assessable: 4, evidenced: 4, hasReport: true, failing: 0 } });
+    expect(full!.score).toBe(15);
+    expect(full!.tone).toBe('good');
+
+    const half = testingComponent({ testing: { assessable: 4, evidenced: 2, hasReport: true, failing: 0 } });
+    expect(half!.score).toBe(10);
+  });
+
+  it('withholds the report points when no report exists, and says pass/fail is unknown', () => {
+    const component = testingComponent({ testing: { assessable: 4, evidenced: 4, hasReport: false, failing: 0 } });
+
+    // The exact state that let this project's Testing page look settled for
+    // seven weeks: everything evidenced, nothing verified.
+    expect(component!.score).toBe(10);
+    expect(component!.detail).toContain('unknown rather than clean');
+  });
+
+  it('costs points for failing tests without erasing the evidence already there', () => {
+    const clean = testingComponent({ testing: { assessable: 4, evidenced: 4, hasReport: true, failing: 0 } });
+    const failing = testingComponent({ testing: { assessable: 4, evidenced: 4, hasReport: true, failing: 3 } });
+
+    expect(failing!.score).toBeLessThan(clean!.score);
+    expect(failing!.score).toBe(12);
+    expect(failing!.detail).toContain('3 failing');
+  });
+
+  it('recommends declaring a policy when none is enabled', () => {
+    const breakdown = buildScoreBreakdown(makeInput({}));
+    const recommendation = breakdown.recommendations.find(entry => entry.pageTarget === 'testing');
+    expect(recommendation?.impactLabel).toBe('+15 pts');
+  });
+
+  it('recommends closing or retiring unevidenced methodologies', () => {
+    const breakdown = buildScoreBreakdown(makeInput({
+      testing: { assessable: 10, evidenced: 2, hasReport: true, failing: 0 },
+    }));
+    const recommendation = breakdown.recommendations.find(entry => entry.pageTarget === 'testing');
+    // "Close or retire" — both are legitimate resolutions. A declaration the
+    // project has outgrown is not a failure to fix by writing tests for it.
+    expect(recommendation?.title).toContain('retire');
+    expect(recommendation?.title).toContain('8');
   });
 });

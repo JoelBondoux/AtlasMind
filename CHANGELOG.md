@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.223.0] - 2026-07-30
+
+### Added
+- **A `testing` component in the project score, worth 15 points.** `buildScoreBreakdown` had eight components and 127 points and testing was not among them, so a project with fourteen declared methodologies and evidence for none scored *better* than one that declared nothing — neither carried a testing number, and the first looked more organised everywhere else. That is the one comparison a health score most needs to make, and it was making it backwards.
+
+  Two halves, because they fail independently: ten points for the share of enabled artifact-backed methodologies that have evidence, five for a readable test report (two when the report has failures). Practices are excluded from the denominator, matching `testingPolicyCoverage`, which never counts them as gaps — scoring a project down for not producing a file Exploratory Testing cannot produce would contradict the page the component links to.
+
+  It follows the Risk precedent exactly: the component is always present, an unassessed project scores 0 rather than leaving the denominator, and the tone is `warn` rather than `critical` with a detail saying the points are *unclaimed*. Nobody has looked is not the same as looked and found broken. The recommendation says **close or retire** — a declaration the project has outgrown is a legitimate thing to withdraw, not a failure that must be fixed by writing tests for it.
+
+- **A `tests-evidenced` release gate.** The release gates covered the changelog, notes, version, tag, working tree and CI — everything except whether the release meets the testing standard the project declared for itself. A failing test fails the gate; an enabled methodology with no evidence fails it, because the project set the standard and is about to ship without meeting it.
+
+  Coverage that was never gathered is `unknown`, and so is a project with no methodology enabled at all — nothing to check against is not the same as checking and finding nothing wrong. `unknown` is never a pass here: a published version can never be replaced, so this is the last point at which *"we did not check"* can still be told apart from *"we checked and it was fine"*. The gate is fed from the same coverage the Testing page renders, so the release page and the page it would send you to cannot disagree about a number.
+
+### Changed
+- `tests/views/dashboardScore.test.ts`'s perfect fixture gained a testing input, which is what its "no component is unearned" invariant is for.
+
+### Not done
+- `projectStateTree`'s `deferred.uncoveredProtocols` node renders but is still never populated: `ProjectStateTreeProvider.gather()` is synchronous by design and recomputes on ten separate events, and knowing which protocols are unevidenced requires the workspace evidence scan. Adding a filesystem walk there is precisely what that module's own note warns against, so it is left unwired rather than made cheap and wrong.
+
 ## [0.222.0] - 2026-07-30
 
 ### Added

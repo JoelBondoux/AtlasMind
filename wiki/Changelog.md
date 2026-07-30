@@ -16,6 +16,16 @@ Silent, and in the direction that costs money: every model-variant turn looked l
 
 ---
 
+## v0.223.0 — Testing is worth points, and a release checks the policy
+
+The project score had eight components and 127 points, and testing was not one of them. So a project with fourteen declared methodologies and evidence for none scored *better* than one that declared nothing — neither carried a testing number, and the first looked more organised everywhere else. That is the one comparison a health score most needs to make, and it was making it backwards.
+
+**Testing evidence** is now worth 15 points: ten for the share of enabled methodologies that have evidence, five for having a readable test report. A project with nothing declared scores zero and is told the points are *unclaimed*, not that it has failed — nobody has looked is different from looking and finding it broken. The recommendation says *close or retire*, because a declaration the project has outgrown is a legitimate thing to withdraw.
+
+The release gates gained **Declared testing policy met**. A failing test fails it, an enabled methodology with no evidence fails it, and coverage that was never gathered reports `unknown` — which is not a pass, because a published version can never be replaced and *"we did not check"* must stay distinguishable from *"we checked and it was fine"*.
+
+---
+
 ## v0.222.0 — A methodology can hold work back, if you say so
 
 AtlasMind's one real enforcement — the gate that refuses non-test writes until a failing test has been seen — never read the testing matrix. It fired on the task's role and wording, so a project that had switched TDD *off* still got the gate, and the thirteen methodologies it had switched *on* got no gate whatsoever. The declaration and the enforcement had nothing to do with each other.

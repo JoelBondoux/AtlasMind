@@ -45,7 +45,8 @@ export type ReleaseGateId =
   | 'version-ahead'
   | 'tag-free'
   | 'clean-tree'
-  | 'ci-green';
+  | 'ci-green'
+  | 'tests-evidenced';
 
 export type ReleaseGateStatus = 'pass' | 'fail' | 'unknown';
 
@@ -87,6 +88,26 @@ export interface ReleasePlanInput {
   ciConclusion?: 'success' | 'failure' | 'pending' | 'none';
   /** Tag format, so a repo that does not prefix with `v` is not told it is wrong. */
   tagPrefix?: string;
+  /**
+   * What the declared testing methodologies have to show for themselves.
+   *
+   * Absent means the coverage was never gathered — which is reported as
+   * `unknown`, never as a pass. A release is the last point at which "we did not
+   * check" can still be distinguished from "we checked and it was fine", and
+   * after it the version can never be replaced.
+   */
+  testingEvidence?: {
+    /** Enabled methodologies that can leave an artifact. Practices excluded. */
+    assessable: number;
+    /** Of those, how many have one. */
+    evidenced: number;
+    /** Names of those that do not, for the gate's detail line. */
+    unevidenced: readonly string[];
+    /** True when the project wrote a test report AtlasMind could read. */
+    hasReport: boolean;
+    /** Failures counted from that report. */
+    failing: number;
+  };
 }
 
 export interface ReleasePlan {
@@ -360,6 +381,66 @@ export function evaluateReleaseGates(
             detail: ci === 'none' ? 'No CI runs were found for this branch.' : 'CI status was not read.',
             fixHint: 'Refresh the pipeline, or add a workflow so a release has something verifying it.',
           },
+  );
+
+  // The declared testing policy, checked at the last point where it still
+  // matters. This gate is deliberately late and deliberately not the main
+  // defence — by release time an unevidenced methodology has been unevidenced
+  // for weeks — but a published version can never be replaced, so it is the last
+  // chance to notice that the project is shipping against a standard it does not
+  // meet.
+  //
+  // A failing test **fails** the gate; an unevidenced methodology is a `fail`
+  // too, because the project declared the standard and is about to ship without
+  // it. Absent evidence data is `unknown`, never a pass: this stage exists to
+  // break the habit of shipping on an unknown.
+  const evidence = input.testingEvidence;
+  gates.push(!evidence
+    ? {
+      id: 'tests-evidenced',
+      label: 'Declared testing policy met',
+      status: 'unknown',
+      detail: 'Testing coverage was not gathered, so whether this release meets the policy is unknown.',
+      fixHint: 'Open the Testing page so the coverage is read, then re-check.',
+    }
+    : evidence.hasReport && evidence.failing > 0
+      ? {
+        id: 'tests-evidenced',
+        label: 'Declared testing policy met',
+        status: 'fail',
+        detail: `${evidence.failing} test${evidence.failing === 1 ? '' : 's'} failing in the last report.`,
+        fixHint: 'Fix the failures, re-run the suite so a fresh report is written, then re-check.',
+      }
+      : evidence.assessable === 0
+        ? {
+          id: 'tests-evidenced',
+          label: 'Declared testing policy met',
+          status: 'unknown',
+          detail: 'No testing methodology is enabled, so there is no declared standard to check this release against.',
+          fixHint: 'Enable the methodologies this project genuinely practises on the Testing page.',
+        }
+        : evidence.unevidenced.length > 0
+          ? {
+            id: 'tests-evidenced',
+            label: 'Declared testing policy met',
+            status: 'fail',
+            detail: `${evidence.unevidenced.length} of ${evidence.assessable} enabled methodolog${evidence.assessable === 1 ? 'y has' : 'ies have'} no evidence: ${evidence.unevidenced.slice(0, 5).join(', ')}${evidence.unevidenced.length > 5 ? '…' : ''}.`,
+            fixHint: 'Either add the evidence or stop declaring the methodology. Shipping against a standard the project does not meet makes every other declaration less believable.',
+          }
+          : !evidence.hasReport
+            ? {
+              id: 'tests-evidenced',
+              label: 'Declared testing policy met',
+              status: 'unknown',
+              detail: 'Every enabled methodology has evidence, but no test report exists — so pass/fail is unknown rather than clean.',
+              fixHint: 'Run the suite so it writes a report, then re-check.',
+            }
+            : {
+              id: 'tests-evidenced',
+              label: 'Declared testing policy met',
+              status: 'pass',
+              detail: `All ${evidence.assessable} enabled methodolog${evidence.assessable === 1 ? 'y has' : 'ies have'} evidence, and the last report was clean.`,
+            },
   );
 
   return gates;

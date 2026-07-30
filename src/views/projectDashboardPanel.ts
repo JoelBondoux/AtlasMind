@@ -10,6 +10,7 @@ import type { TaskImageAttachment } from '../types.js';
 import { buildAssistantResponseMetadata, buildQuickReplyPayload, buildWorkstationContext, reconcileAssistantResponse } from '../chat/participant.js';
 import { resolvePickedImageAttachments } from '../chat/imageAttachments.js';
 import { collectTestingDashboardSnapshot, writeProjectTestingConfig, type TestingDashboardSnapshot } from './settingsPanel.js';
+import type { TestingPolicyCoverage } from '../core/testingPolicyCoverage.js';
 import { getWebviewHtmlShell } from './webviewUtils.js';
 import {
   buildIssueWorkPrompt,
@@ -6250,6 +6251,13 @@ function buildReleaseSnapshot(input: {
   ciConclusion?: 'success' | 'failure' | 'pending' | 'none';
   releases?: readonly MetricReleaseInput[];
   pullRequests?: readonly PullRequestRecord[];
+  /**
+   * The testing coverage the Testing page already derived. Absent when it was
+   * never gathered, which the release gate reports as `unknown` rather than as
+   * a pass — a published version can never be replaced, so "we did not check"
+   * must stay distinguishable from "we checked and it was fine".
+   */
+  testingCoverage?: TestingPolicyCoverage;
   loadedAt?: string;
   loadFailure?: string;
   now: number;
@@ -6271,6 +6279,21 @@ function buildReleaseSnapshot(input: {
     commitSubjects: input.commitSubjects,
     workingTreeClean: input.workingTreeClean,
     ...(input.ciConclusion === undefined ? {} : { ciConclusion: input.ciConclusion }),
+    // Practices are excluded, matching `testingPolicyCoverage`, which never
+    // counts them as gaps: refusing a release because Exploratory Testing left
+    // no file would be a gate nobody could ever satisfy.
+    ...(input.testingCoverage === undefined ? {} : {
+      testingEvidence: (() => {
+        const assessable = input.testingCoverage.rows.filter(row => row.status !== 'not-file-evident');
+        return {
+          assessable: assessable.length,
+          evidenced: assessable.filter(row => row.status === 'covered').length,
+          unevidenced: assessable.filter(row => row.status !== 'covered').map(row => row.label),
+          hasReport: input.testingCoverage.report !== undefined,
+          failing: input.testingCoverage.totalFailed,
+        };
+      })(),
+    }),
   });
 
   return {
@@ -6592,6 +6615,21 @@ async function collectDashboardSnapshot(
     outcomeCompleteness,
     risk: riskSnapshot,
     privacy: privacySnapshot,
+    // Practices are excluded from the denominator, matching
+    // `testingPolicyCoverage`, which never counts them as gaps: scoring a project
+    // down for not producing a file that Exploratory Testing cannot produce would
+    // contradict the page the score links to.
+    ...(testingSnapshot.policyCoverage === undefined ? {} : {
+      testing: (() => {
+        const assessableRows = testingSnapshot.policyCoverage.rows.filter(row => row.status !== 'not-file-evident');
+        return {
+          assessable: assessableRows.length,
+          evidenced: assessableRows.filter(row => row.status === 'covered').length,
+          hasReport: testingSnapshot.policyCoverage.report !== undefined,
+          failing: testingSnapshot.policyCoverage.totalFailed,
+        };
+      })(),
+    }),
   });
   const repoLabel = workspaceRoot && gitSnapshot.currentBranch !== 'Not a git repository'
     ? `${workspaceRootLabel} • ${gitSnapshot.currentBranch}`
@@ -6843,6 +6881,9 @@ async function collectDashboardSnapshot(
       ...(releases && 'failure' in releases ? { loadFailure: releases.failure } : {}),
       ...(pullRequests === undefined ? {} : { pullRequests }),
       ...(reviewComments === undefined ? {} : { reviewComments }),
+      // Already derived for the Testing page on this same pass, so the release
+      // gate and the page it would send you to cannot disagree about a number.
+      ...(testingSnapshot.policyCoverage === undefined ? {} : { testingCoverage: testingSnapshot.policyCoverage }),
       now: Date.now(),
     }),
     githubLinks: buildGithubLinksSnapshot(gitSnapshot.remoteUrl ?? issues.repoSlug),
@@ -10312,6 +10353,21 @@ export function buildScoreBreakdown(input: {
   outcomeCompleteness: DashboardOutcomeCompleteness;
   risk: DashboardRiskSnapshot;
   privacy: DashboardPrivacySnapshot;
+  /**
+   * What the enabled testing methodologies have to show for themselves.
+   * Optional because a project may have no testing config at all, which is a
+   * different statement from having one with nothing evidenced.
+   */
+  testing?: {
+    /** Enabled methodologies that can leave an artifact (practices excluded). */
+    assessable: number;
+    /** Of those, how many have one. */
+    evidenced: number;
+    /** True when the project wrote a test report AtlasMind could read. */
+    hasReport: boolean;
+    /** Failures counted from that report. */
+    failing: number;
+  };
 }): DashboardScoreBreakdown {
   const components: DashboardScoreComponent[] = [
     {
@@ -10417,6 +10473,43 @@ export function buildScoreBreakdown(input: {
     pageTarget: 'risk',
   });
 
+  // Testing: what the declared methodologies actually have to show for
+  // themselves. Present for the same reason Risk is (see above) — a project that
+  // has declared fourteen methodologies and evidenced none of them must not score
+  // the same as one that declared none at all, and before this component existed
+  // it scored *better*, because neither carried a testing number and the first
+  // one looked more organised everywhere else.
+  //
+  // Two halves, because they fail independently. Evidence is the ratio of enabled
+  // artifact-backed methodologies that have any; practices are excluded, since
+  // `testingPolicyCoverage` refuses to count them as gaps and scoring them here
+  // would contradict it. The report half is worth points on its own: without one,
+  // pass/fail is unknown rather than clean, which is exactly the state that let
+  // this project's Testing page look settled for weeks.
+  const testingInput = input.testing;
+  const testingAssessed = testingInput !== undefined && testingInput.assessable > 0;
+  const evidenceRatio = testingAssessed ? testingInput.evidenced / testingInput.assessable : 0;
+  const testingEvidenceScore = testingAssessed ? Math.round(evidenceRatio * 10) : 0;
+  const testingReportScore = testingInput?.hasReport
+    ? (testingInput.failing > 0 ? 2 : 5)
+    : 0;
+  const testingScore = testingEvidenceScore + testingReportScore;
+  components.push({
+    id: 'testing',
+    label: 'Testing evidence',
+    score: testingScore,
+    maxScore: 15,
+    detail: !testingAssessed
+      ? 'No testing methodology is enabled — 15 points unclaimed. Enable the ones this project genuinely practises; an undeclared policy is unknown, not sound.'
+      : testingInput.hasReport
+        ? `${testingInput.evidenced}/${testingInput.assessable} enabled methodolog${testingInput.assessable === 1 ? 'y has' : 'ies have'} evidence · ${testingInput.failing > 0 ? `${testingInput.failing} failing in the last report` : 'last report was clean'}.`
+        : `${testingInput.evidenced}/${testingInput.assessable} enabled methodolog${testingInput.assessable === 1 ? 'y has' : 'ies have'} evidence · no test report, so pass/fail is unknown rather than clean.`,
+    tone: !testingAssessed
+      ? 'warn'
+      : testingScore >= 12 ? 'good' : testingScore >= 8 ? 'accent' : testingScore >= 4 ? 'warn' : 'critical',
+    pageTarget: 'testing',
+  });
+
   // Privacy: the data boundary between this workspace and an un-trusted model.
   // Scored on whether the gate is on, whether anything actually classifies, and
   // whether the model estate has been curated — not on how many matches fired,
@@ -10453,6 +10546,33 @@ export function buildScoreBreakdown(input: {
       detail: 'Ethics, legal and commercial exposure has never been reviewed on this project. The score counts that as unclaimed rather than clean, so 15 points are currently withheld.',
       impactLabel: '+15 pts',
       pageTarget: 'risk',
+    });
+  }
+  if (!testingAssessed) {
+    recommendations.push({
+      horizon: 'short',
+      title: 'Declare the testing methodologies this project practises',
+      detail: 'Nothing is enabled in the Testing matrix, so AtlasMind expects no evidence and asks agents for none. The score counts that as unclaimed rather than sound, so 15 points are currently withheld.',
+      impactLabel: '+15 pts',
+      pageTarget: 'testing',
+    });
+  } else if (testingInput.evidenced < testingInput.assessable) {
+    const gap = testingInput.assessable - testingInput.evidenced;
+    recommendations.push({
+      horizon: 'short',
+      title: `Close or retire ${gap} unevidenced testing ${gap === 1 ? 'methodology' : 'methodologies'}`,
+      detail: 'Each enabled methodology with nothing on disk is either work nobody has started or a declaration the project has outgrown. Both are worth resolving — a policy that is never honoured makes every other declaration less believable.',
+      impactLabel: `+${Math.max(1, Math.round((gap / testingInput.assessable) * 10))} pts`,
+      pageTarget: 'testing',
+    });
+  }
+  if (testingAssessed && !testingInput.hasReport) {
+    recommendations.push({
+      horizon: 'short',
+      title: 'Write a test report AtlasMind can read',
+      detail: 'AtlasMind never runs your tests — it reads a report your project wrote. Without one, failures are unknown rather than zero, and the Testing page cannot tell a clean suite from one nobody has run.',
+      impactLabel: '+5 pts',
+      pageTarget: 'testing',
     });
   }
   if (!privacyConfigured) {
