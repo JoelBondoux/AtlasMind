@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.207.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.207.1</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,9 +64,11 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.207.0
+## What's new in 0.207.1
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
+
+- **Fixed: re-running bootstrap destroyed your ideation board.** It wrote `ideas/atlas-ideation-board.json` unconditionally, so a second bootstrap replaced every card, connection and piece of evidence with defaults from the intake answers — and reported it as "Seeded ideation defaults". The board is a document you author, not a scaffold AtlasMind maintains: seeding now never overwrites, and the report says which of the two things happened.
 
 - **A roadmap item can be raised as a GitHub issue — and a milestone can be attached.** The roadmap held the work in a structured, prioritised, gate-tagged list; issues could only be created by hand-typing a title and a comma-separated label list. Anybody planning here and tracking on GitHub retyped every item.
 

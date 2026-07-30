@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.207.1] - 2026-07-30
+
+### Fixed
+- **Re-running bootstrap destroyed your ideation board.** `seedBootstrapIdeation` wrote `ideas/atlas-ideation-board.json` unconditionally, so a second bootstrap on an existing project replaced every card, connection and piece of evidence on the board with defaults derived from the intake answers — and returned `true` either way, so the report said "Seeded ideation defaults" for what was an erasure.
+
+  The board is a **document the user authors**, not a scaffold AtlasMind maintains. It now follows the same rule as `documentsManager` and `workflowConfig`: seeding never overwrites, and only an explicit save replaces content. The existence check happens before the directory is created, so a re-run touches nothing at all, and the report says which of the two things happened.
+
+  This repository's own board is sitting in `project_memory_old/ideas/`, which is what the bug looks like from the outside. A board that is silently discarded on re-run is a board nobody invests in.
 ## [0.207.0] - 2026-07-30
 
 ### Added

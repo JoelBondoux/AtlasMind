@@ -6,6 +6,13 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.207.1 — Bootstrap no longer eats your ideation board
+
+`seedBootstrapIdeation` wrote `ideas/atlas-ideation-board.json` unconditionally, so a second bootstrap on an existing project replaced every card, connection and piece of evidence with defaults derived from the intake answers — and returned `true` either way, so the report said "Seeded ideation defaults" for what was an erasure.
+
+The board is a **document the user authors**, not a scaffold AtlasMind maintains. Same rule as `documentsManager` and `workflowConfig` now: seeding never overwrites, only an explicit save replaces content. The existence check runs before the directory is created, so a re-run touches nothing, and the report distinguishes "seeded a board" from "left yours alone".
+
+A board that is silently discarded on re-run is a board nobody invests in — which is the honest explanation for why the Ideation surface felt abandoned.
 ## v0.207.0 — From roadmap to issue, and milestones that attach
 
 The roadmap held the work in a structured, prioritised, gate-tagged list. Issues could only be created by hand-typing a title, a body and a comma-separated label list. Nothing connected them, so anybody planning in AtlasMind and tracking on GitHub retyped every item.

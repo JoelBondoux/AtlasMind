@@ -1461,12 +1461,32 @@ async function writeBootstrapRoadmap(ssotRoot: vscode.Uri, intake: BootstrapProj
   );
 }
 
+/**
+ * Seed a starting ideation board — **only when there is not one already.**
+ *
+ * This used to write unconditionally, which meant running bootstrap a second
+ * time destroyed whatever was on the board: every card, every connection, every
+ * piece of evidence somebody had gathered, replaced by defaults derived from the
+ * intake answers. It returned `true` either way, so the report said "seeded" for
+ * what was actually an erasure.
+ *
+ * The board is a *document the user authors*, not a scaffold AtlasMind maintains.
+ * Same rule as `documentsManager` and `workflowConfig`: seeding never overwrites,
+ * and only an explicit save replaces content. A board that is silently discarded
+ * on re-run is a board nobody invests in.
+ */
 async function seedBootstrapIdeation(ssotRoot: vscode.Uri, intake: BootstrapProjectIntake): Promise<boolean> {
   const ideasDir = vscode.Uri.joinPath(ssotRoot, 'ideas');
-  await vscode.workspace.fs.createDirectory(ideasDir);
-
-  const board = buildBootstrapIdeationBoard(intake);
   const boardUri = vscode.Uri.joinPath(ideasDir, 'atlas-ideation-board.json');
+
+  // Checked before the directory is created, so a bootstrap re-run on an existing
+  // board touches nothing at all.
+  if (await pathExists(boardUri)) {
+    return false;
+  }
+
+  await vscode.workspace.fs.createDirectory(ideasDir);
+  const board = buildBootstrapIdeationBoard(intake);
   const summaryUri = vscode.Uri.joinPath(ideasDir, 'atlas-ideation-board.md');
 
   await vscode.workspace.fs.writeFile(boardUri, Buffer.from(JSON.stringify(board, null, 2), 'utf-8'));
@@ -1955,7 +1975,7 @@ function buildBootstrapCompletionSummary(ssotRelPath: string, intake: BootstrapP
       : '- Personality Profile defaults were left unchanged.',
     artifacts.ideationSeeded
       ? '- Seeded ideation defaults in `ideas/atlas-ideation-board.json` and `ideas/atlas-ideation-board.md`.'
-      : '- Ideation defaults were not seeded.',
+      : '- Left the existing ideation board in `ideas/atlas-ideation-board.json` untouched. Bootstrap never overwrites a board you have worked on.',
     artifacts.websiteWorkspaceSeeded
       ? '- Seeded Website Studio in `domain/website.json` and `domain/website.md`; open **AtlasMind: Open Website Studio** to continue from brief to delivery.'
       : '',
