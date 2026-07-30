@@ -16,6 +16,14 @@ Silent, and in the direction that costs money: every model-variant turn looked l
 
 ---
 
+## v0.220.0 — The Testing dashboard gets something to read
+
+AtlasMind reads test pass/fail from a report your project wrote, and never runs your tests to find out. Nothing in this repository ever wrote one — not a script, not CI, not the pre-commit hook — so on its own project the Testing page had reported *"No test report"* since the day it shipped. Every `vitest run` now writes `test-results/junit.xml`, gitignored, and the pre-commit hook already runs the full suite, so the verdict on screen is never older than your last commit.
+
+Three more things the page was getting wrong. The `continuous` policy had no file markers at all, so a project running its whole suite on every push capped at *"No tests yet"* permanently — for that one policy the pipeline definition **is** the artifact, though only the config file counts and never a matching script name. Five test files had never executed, sitting outside the runner's glob in `src/`, in a `test/` directory, and under a `.spec.ts` suffix; two of them failed once they ran, having been written against behaviour the code no longer has. And the Testing Strategy badge read *"13 / 14 active"* above a table of 23 rows, because the registry grew to 23 and four pieces of copy never followed — all four derive from the registry now, with a test refusing a literal.
+
+---
+
 ## v0.219.0 — The Claude Code CLI provider is removed
 
 It was a chat-only bridge that shelled out to `claude --print`: no streaming, a ~26,000-character prompt ceiling imposed by the OS argv limit, and no tool use. The ACP provider superseded it on every axis — the same subscription, with streaming, no prompt ceiling, images, and now real model *and* effort selection — so keeping it meant two routes to one Claude plan, one of them strictly worse and quietly lossy.

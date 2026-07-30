@@ -1437,7 +1437,7 @@ export class SettingsPanel {
         },
         {
           label: '$(list-unordered) Manual',
-          description: 'Choose from the full list of 14 methodologies',
+          description: `Choose from the full list of ${TESTING_METHODOLOGY_DEFINITIONS.length} methodologies`,
           value: 'manual' as const,
         },
         {

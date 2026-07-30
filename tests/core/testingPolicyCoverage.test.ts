@@ -253,3 +253,47 @@ describe('deriveTestingPolicyCoverage — status per enabled policy', () => {
     expect(coverage.summary).toContain('3 skipped');
   });
 });
+
+describe('continuous testing — configuration is the artifact', () => {
+  it('reads a pipeline definition as covered, not as tooling waiting for tests', () => {
+    const coverage = deriveTestingPolicyCoverage(baseInput({
+      enabledMethodologies: ['continuous'],
+      configFiles: ['.github/workflows/ci.yml'],
+    }));
+
+    // Before `configIsEvidence`, `continuous` had no `filePatterns` and so could
+    // never reach `covered`: a project running its whole suite on every push was
+    // reported as "No tests yet" permanently — a gap it had no way to close.
+    expect(coverage.rows[0]!.status).toBe('covered');
+    expect(coverage.rows[0]!.detail).toContain('.github/workflows/ci.yml');
+    expect(coverage.missingCount).toBe(0);
+    expect(coverage.toolingOnlyCount).toBe(0);
+  });
+
+  it('does not let a matching script name alone claim coverage', () => {
+    // `continuous`'s script patterns include /watch/i, so a bundler's watch task
+    // matches. Promoting on a script would report continuous testing for a
+    // project that has no pipeline at all.
+    const coverage = deriveTestingPolicyCoverage(baseInput({
+      enabledMethodologies: ['continuous'],
+      scripts: ['watch'],
+    }));
+
+    expect(coverage.rows[0]!.status).toBe('tooling-only');
+  });
+
+  it('reports nothing found when there is neither a pipeline nor a script', () => {
+    const coverage = deriveTestingPolicyCoverage(baseInput({ enabledMethodologies: ['continuous'] }));
+    expect(coverage.rows[0]!.status).toBe('missing');
+  });
+
+  it('does not promote any other policy on its config files', () => {
+    // `configIsEvidence` is deliberately scoped to one policy. A `playwright.config.ts`
+    // means the runner is installed, not that end-to-end tests exist.
+    const coverage = deriveTestingPolicyCoverage(baseInput({
+      enabledMethodologies: ['e2e'],
+      configFiles: ['playwright.config.ts'],
+    }));
+    expect(coverage.rows[0]!.status).toBe('tooling-only');
+  });
+});

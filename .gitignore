@@ -3,6 +3,10 @@ node_modules/
 *.vsix
 .vscode-test/
 coverage/
+# Written by every `vitest run` so the Testing dashboard has a verdict to read.
+# Local evidence of a local run — never committed, or the dashboard would report
+# whoever last pushed rather than the state of this working copy.
+test-results/
 .claude/
 # project_memory: track curated SSOT (the shared "project brain"), but keep
 # volatile / potentially-sensitive content out of this PUBLIC repo.

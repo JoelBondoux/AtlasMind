@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.220.0] - 2026-07-30
+
+### Fixed
+- **The Testing page had never had a verdict to report on this project.** `testingPolicyCoverage.ts` reads pass/fail only from a report the project itself wrote — it never runs a test command, which is a deliberate boundary and stays. But no path in this repository emitted one: not a script, not `ci.yml`, not the pre-commit hook. So the failure half of the page rendered *"No test report — this is not a clean result, it is no result"* from the day it shipped, on the very project that ships it. `vitest.config.ts` now declares `reporters: ['default', 'junit']` with `outputFile.junit`, so every `vitest run` writes `test-results/junit.xml`.
+
+  It is configured rather than put behind a `test:report` script on purpose: a separate script would reproduce the same failure one step further along, with the report existing only when somebody remembered to ask for it. The pre-commit hook already runs the full suite, so the report on disk is never older than the last commit. `test-results/` is gitignored — it is evidence of a local run, and committing it would make the dashboard report whoever last pushed. CI uploads it per-OS with `if: always()`, since a red run is exactly when the per-test breakdown is wanted.
+
+- **The `continuous` policy could never read "Tested".** It was the only enabled methodology with no `filePatterns` at all, so its best attainable status was `tooling-only` — rendered *"No tests yet"* — and a project running its entire suite on every push was reported as having a permanent gap it had no means of closing. Continuous testing leaves behind a pipeline definition and nothing else, so `PolicyMarkers.configIsEvidence` marks the one policy whose *configuration is the artifact*.
+
+  Only a matching config file promotes it, never a script name. `continuous`'s script patterns include `/watch/i`, so a bundler's watch task matches; letting a script promote would report continuous testing for a project with no pipeline. A false "covered" is the one outcome this panel must not produce, and the flag is scoped to a single policy so a `playwright.config.ts` still means the runner is installed rather than that end-to-end tests exist.
+
+- **Five test files had never executed.** `src/core/criticality.test.ts`, `src/providers/openai-compatible.test.ts` and `src/views/settingsPanel.test.ts` sat in `src/`; `test/nodeMemoryManager.test.ts` sat in a singular `test/` directory; and `tests/nodeMemoryManager-cache.spec.ts` used a `.spec.ts` suffix the `tests/**/*.test.ts` glob does not match. All five are now inside the suite, moved rather than accommodated by a wider glob — the files were the error, not the glob.
+
+  Two of them did not pass on arrival, which is the point. `openai-compatible` asserted `listModels()` returns `[]` when the API answers (it namespaces ids by provider) and `[]` when the API refuses (it throws, deliberately, so a dead credential cannot be mistaken for a provider offering nothing). `nodeMemoryManager` read the directory back immediately after `upsert`, which mirrors to markdown with `void this.persistEntry(...)` and returns without waiting — so the assertion passed for a create and failed for an update, where two unordered writes race and the earlier can land last. The tests now assert the in-memory contract against `upsert` and the on-disk contract against `persistEntry` awaited directly. Also removed: two git-tracked `.vitest-panelFlows*.json` reporter artifacts from April recording a stale 2 failures.
+
+- **The Testing page invented its own denominator.** The Testing Strategy badge read `${enabledCount} / 14 active` while the table below it rendered 23 rows, and the bootstrap and auto-assess pickers both offered *"the full list of 14 methodologies"* — the registry grew from 14 to 23 in v0.66.0 and four pieces of user-facing copy were never updated. Reading *"13 / 14 active"* you would conclude the project had nearly everything switched on when it had just over half, and the page's entire job is to report what is and is not in force. All four derive from `TESTING_METHODOLOGY_DEFINITIONS.length` now, and `tests/core/testingMethodologyCopy.test.ts` pins the rule rather than the number, so the next registry change needs nothing remembered.
+
+- **The README's published-version baseline had drifted two releases behind.** It named v0.214.0 as the last Marketplace publication while `v0.219.0` was tagged.
+
 ## [0.219.0] - 2026-07-30
 
 ### Removed

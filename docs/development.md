@@ -71,6 +71,10 @@ npm run lint
 **Webview scripts are guarded by a parser, not by the compiler.** `media/*.js` is a string handed to a browser: never type-checked, never imported by a test. A renamed function therefore leaves its old call site behind silently, and the failure arrives as a render-time `ReferenceError` that takes down the entire panel ("Dashboard refresh failed — …is not defined"). `tests/views/webviewIdentifierIntegrity.test.ts` parses each script with acorn and asserts every identifier it reads is bound — declared in the file, a parameter, or a real browser/host global. When it fails, the fix is either the rename you missed or, for a genuine new DOM global, an addition to its `HOST_GLOBALS` list.
 
 
+**Every run writes a JUnit report.** `vitest.config.ts` declares `reporters: ['default', 'junit']` with `outputFile.junit`, so `npm run test` emits `test-results/junit.xml` alongside its normal console output. This is not a convenience: AtlasMind's own Testing dashboard reads pass/fail only from a report the project wrote and never runs a test command to find out, so until the report existed the dashboard rendered *"No test report"* on the project that ships it. It is configured rather than hidden behind a separate script for the same reason — a script reproduces the failure one step along, with the report existing only when somebody remembers. `test-results/` is gitignored: it is evidence of *your* run, and committing it would make the dashboard report whoever last pushed. `test:providers:local-recommendations` passes `--reporter=dot` and therefore writes nothing, which is correct — a single-file run must not overwrite the whole-suite verdict.
+
+**Tests live under `tests/`, and nowhere else.** The runner's `include` is `tests/**/*.test.ts`. A test file placed in `src/`, in a singular `test/` directory, or given a `.spec.ts` suffix does not run and reports nothing — its presence then reads as coverage that does not exist. Five such files were found and moved in v0.220.0; two of them did not pass once they ran. If a test seems to be passing suspiciously easily, confirm the runner is picking it up before believing it.
+
 ```bash
 npm run test
 npm run test:coverage
@@ -260,7 +264,8 @@ Scaffolding is non-destructive and will not overwrite existing files.
 
 ## Testing
 
-- Test runner: Vitest 4.
+- Test runner: Vitest 4. Every run writes `test-results/junit.xml` (gitignored); see **Test** above for why that is config rather than a script.
+- Test files must live under `tests/` and end in `.test.ts` — anything else is silently not run.
 - Baseline unit tests currently cover core services (`ModelRouter`, `CostTracker`).
 - Coverage reports are generated via `npm run test:coverage`.
 - CI runs compile, lint, test, and coverage on push and pull requests to **`main` and `develop`**, and on manual `workflow_dispatch`.

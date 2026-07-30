@@ -2922,7 +2922,7 @@
             <p class="section-kicker">Methodology configuration</p>
             <h3>Testing Strategy</h3>
           </div>
-          <span class="tag tag-good">${escapeHtml(String(enabledCount))} / 14 active</span>
+          <span class="tag tag-good">${escapeHtml(String(enabledCount))} / ${escapeHtml(String(METHODOLOGY_DEFS.length))} active</span>
         </div>
         <div class="stat-detail" style="margin-bottom:12px">Toggle methodologies to enable or disable them. Changes are saved immediately to <code>project_memory/index/testing-config.json</code>. Use <strong>Open Testing Strategy</strong> for agent assignments, model overrides, and detailed notes.</div>
         <table class="methodology-dashboard-table">
