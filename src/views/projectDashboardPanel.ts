@@ -146,6 +146,10 @@ import {
   permits,
   permitsProtectedRefWrite,
   resolveRestrictiveFlag,
+  blockingFlagScopes,
+  describeSettingScope,
+  requirementsFor,
+  AUTOMATION_LEVELS,
   resolveRestrictiveLevel,
   type AutomationDecision,
   type AutomationLevel,
@@ -235,6 +239,57 @@ const IDEATION_SUMMARY_FILE = 'atlas-ideation-board.md';
 const IDEATION_WORKSPACE_REGISTRY_FILE = 'atlas-ideation-workspaces.json';
 const DEFAULT_IDEATION_WORKSPACE_ID = 'default';
 const IDEATION_RESPONSE_TAG = 'atlasmind-ideation';
+/**
+ * What each gate actually permits, in the words a confirmation needs.
+ *
+ * Kept beside the allowlist rather than in the webview because it is the text
+ * of a *decision dialog*: the webview asks to change a gate and never supplies
+ * the sentence describing what that means, or a compromised surface could
+ * describe a switch as something other than what it does.
+ */
+const WORKFLOW_GATE_COPY: Record<string, { label: string; permits: string }> = {
+  'atlasmind.workflow.enabled': {
+    label: 'the workflow master switch',
+    permits: 'This is the master switch. With it off, AtlasMind explains and measures the workflow and '
+      + 'never acts on it. On, the other three gates start to matter — and they all default closed, so '
+      + 'this alone still permits nothing.',
+  },
+  'atlasmind.workflow.allowIssueWrites': {
+    label: 'issue writes',
+    permits: 'Permits creating, commenting on, closing and reopening issues, and managing the label '
+      + 'taxonomy. Issues are public to anyone who can see the repository. AtlasMind never auto-closes '
+      + 'an issue — closing somebody\'s report is a social act, not a cleanup task.',
+  },
+  'atlasmind.workflow.allowPullRequestWrites': {
+    label: 'pull request writes',
+    permits: 'Permits opening, reviewing, commenting on and merging pull requests. A review recorded '
+      + 'this way is public and in your name. Merging changes the branch other people build on.',
+  },
+  'atlasmind.workflow.allowReleaseWrites': {
+    label: 'release writes',
+    permits: 'Permits release preparation. Tagging and publishing still stay with you at every level, '
+      + 'because a published version cannot be withdrawn.',
+  },
+  'atlasmind.workflow.allowProtectedRefWrites': {
+    label: 'writes to a protected branch',
+    permits: 'Permits targeting a protected branch. This is the widest of the gates: protected branches '
+      + 'are the ones your team agreed to guard. Force-pushing and tag deletion remain impossible at '
+      + 'every level, whatever this is set to.',
+  },
+};
+
+/** What each rung permits, for the ceiling picker's confirmation. */
+const AUTOMATION_LEVEL_COPY: Record<string, string> = {
+  off: 'Nothing. AtlasMind does not even report on the workflow.',
+  observe: 'Reports only. Nothing is prepared and nothing is written.',
+  draft: 'Prepares work and shows it to you. Still writes nothing outside the editor.',
+  propose: 'Writes after a confirmation that names the repository and the exact action. This is the '
+    + 'rung where AtlasMind starts changing things other people can see.',
+  auto: 'Writes unattended, without a confirmation. Only reachable when every other gate agrees, and '
+    + 'never for a force-push, a tag deletion, a CI re-run, a CI workflow edit, or a dependency merge '
+    + '— those are outside the ladder at every level.',
+};
+
 const ALLOWED_DASHBOARD_COMMANDS = new Set([
   'atlasmind.openChatView',
   'atlasmind.openChatPanel',
@@ -361,6 +416,8 @@ type ProjectDashboardMessage =
   | { type: 'createMilestone'; payload: { title: string } }
   | { type: 'closeMilestone'; payload: { number: number } }
   | { type: 'addressReviewComment'; payload: { number: number; index: number } }
+  | { type: 'setWorkflowGate'; payload: { key: string; enabled: boolean } }
+  | { type: 'setAutomationCeiling'; payload: { level: string } }
   | { type: 'createWorkflowConfig'; payload: { profile: string } }
   | { type: 'editWorkflowConfig'; payload: unknown }
   | { type: 'applyTeamRole'; payload: { roleId: string } }
@@ -953,7 +1010,23 @@ interface DashboardGuidedWorkflowSnapshot {
    * somebody learning why "full automation is possible, never default" is true
    * needs to see the four independent switches, not just be told they exist.
    */
+  /** `id` is the setting key — it already was, so there is no second copy. */
   capabilities: Array<{ id: string; label: string; enabled: boolean; detail: string }>;
+  /**
+   * What would have to change to reach the first writing rung, and which scope
+   * is holding each closed. The single most useful thing this surface can say:
+   * "not permitted" tells somebody they are blocked, this tells them which
+   * switches.
+   */
+  enablement: {
+    target: string;
+    requirements: Array<{ key: string; label: string; current: string; needed: string }>;
+    /** Scopes other than the workspace that would make a write here a no-op. */
+    blockedScopes: Record<string, string[]>;
+    masterKey: string;
+    ceilingKey: string;
+    levels: string[];
+  };
   issues?: IssueMetrics;
   /** Absent until pull requests have actually been fetched — absent ≠ zero. */
   pullRequests?: PullRequestMetrics;
@@ -2158,6 +2231,12 @@ export class ProjectDashboardPanel {
       case 'addressReviewComment':
         await this.handleAddressReviewComment(message.payload);
         return;
+      case 'setWorkflowGate':
+        await this.handleSetWorkflowGate(message.payload);
+        return;
+      case 'setAutomationCeiling':
+        await this.handleSetAutomationCeiling(message.payload);
+        return;
       case 'createWorkflowConfig':
         await this.handleCreateWorkflowConfig(message.payload);
         return;
@@ -3260,6 +3339,124 @@ export class ProjectDashboardPanel {
         `\`${entry.evidencePath}\` could not be opened. If the file has gone, a rescan will mark this entry obsolete.`,
       );
     }
+  }
+
+  /** Coerce a level from the webview, defaulting closed. */
+  private static normalizeLevel(value: string): AutomationLevel {
+    return (AUTOMATION_LEVELS as readonly string[]).includes(value)
+      ? value as AutomationLevel
+      : 'off';
+  }
+
+  /**
+   * Turn one automation gate on or off from the dashboard.
+   *
+   * The asymmetry is the point. **Turning a gate off is immediate** — more
+   * restrictive is always safe, and putting a dialog in front of somebody
+   * reaching for the brake is how you train them to ignore dialogs. **Turning
+   * one on asks first**, naming what it permits, because that is the direction
+   * where a mis-click has consequences outside the editor.
+   *
+   * Written to the **workspace** scope: whether this project may write to its own
+   * tracker is a per-project decision, and writing to the user scope would
+   * silently change every other repository.
+   *
+   * The refusal that matters: if a *different* scope is holding the gate closed,
+   * this writes nothing and says which one. Writing `true` to the workspace
+   * while the user scope says `false` would flip a switch and change no
+   * behaviour — the same silent no-op as a dead button, arriving through the
+   * settings system instead of the command allowlist.
+   */
+  private async handleSetWorkflowGate(payload: { key: string; enabled: boolean }): Promise<void> {
+    // Unsectioned on purpose: a gate key is written in full, so there is no
+    // section to prefix it with. Named to say so, because `configuration` in
+    // this file conventionally means the sectioned one — a convention the
+    // settings-integrity test relies on to catch double prefixing.
+    const rootConfig = vscode.workspace.getConfiguration();
+    const scopes = rootConfig.inspect<boolean>(payload.key) ?? {};
+
+    if (payload.enabled) {
+      // Only scopes *other than* the one being written can make this a no-op.
+      const blocking = blockingFlagScopes(scopes).filter(scope => scope !== 'workspace');
+      if (blocking.length > 0) {
+        void vscode.window.showWarningMessage(
+          `\`${payload.key}\` is turned off in ${blocking.map(describeSettingScope).join(' and ')}, `
+          + 'so enabling it here would change nothing. AtlasMind has not written anything — change it '
+          + 'there instead, or the switch would look on while the behaviour stayed off.',
+          { modal: true },
+        );
+        return;
+      }
+
+      const gate = WORKFLOW_GATE_COPY[payload.key];
+      const confirmation = await vscode.window.showWarningMessage(
+        `Allow ${gate?.label ?? payload.key}?`,
+        {
+          modal: true,
+          detail: `${gate?.permits ?? 'This permits AtlasMind to act on your behalf.'}\n\n`
+            + 'Every individual action still asks for confirmation and names the repository. This '
+            + 'raises one of four gates — the others still apply, and the lowest of them wins.',
+        },
+        'Yes, allow it',
+      );
+      if (confirmation !== 'Yes, allow it') {
+        return;
+      }
+    }
+
+    try {
+      await rootConfig.update(payload.key, payload.enabled, vscode.ConfigurationTarget.Workspace);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not write \`${payload.key}\`: ${detail.slice(0, 200)}`);
+    }
+    await this.syncState();
+  }
+
+  /**
+   * Set the personal automation ceiling.
+   *
+   * A level rather than a switch, so it gets a picker. **Lowering is immediate**
+   * and **raising asks**, for the same reason as the gates above. Also written to
+   * the workspace scope, and it cannot raise the effective level past whatever
+   * another scope allows — which the dialog says rather than leaving somebody to
+   * discover.
+   */
+  private async handleSetAutomationCeiling(payload: { level: string }): Promise<void> {
+    const level = ProjectDashboardPanel.normalizeLevel(payload.level);
+    const rootConfig = vscode.workspace.getConfiguration();
+    const current = resolveRestrictiveLevel(
+      rootConfig.inspect<string>('atlasmind.workflow.maxAutomationLevel') ?? {},
+    );
+
+    if (AUTOMATION_LEVELS.indexOf(level) > AUTOMATION_LEVELS.indexOf(current)) {
+      const confirmation = await vscode.window.showWarningMessage(
+        `Raise your automation ceiling to \`${level}\`?`,
+        {
+          modal: true,
+          detail: `${AUTOMATION_LEVEL_COPY[level]}\n\n`
+            + 'This is a ceiling, not an instruction: it permits up to that level and nothing happens '
+            + 'until a stage asks for it and the other gates agree. The lowest of the four still wins, '
+            + 'so if another scope or the workflow file is stricter, that is what applies.',
+        },
+        `Yes, allow up to ${level}`,
+      );
+      if (confirmation !== `Yes, allow up to ${level}`) {
+        return;
+      }
+    }
+
+    try {
+      await rootConfig.update(
+        'atlasmind.workflow.maxAutomationLevel',
+        level,
+        vscode.ConfigurationTarget.Workspace,
+      );
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not write the ceiling: ${detail.slice(0, 200)}`);
+    }
+    await this.syncState();
   }
 
   /**
@@ -4971,6 +5168,25 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return true;
   }
 
+  // A gate write changes a *safety* setting, so the key is checked against the
+  // copy table rather than a pattern: a surface that could name an arbitrary
+  // `atlasmind.*` key could flip something that is not a workflow gate at all,
+  // and the confirmation would describe the wrong thing.
+  if (candidate['type'] === 'setWorkflowGate') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null
+      && typeof payload['key'] === 'string'
+      && Object.prototype.hasOwnProperty.call(WORKFLOW_GATE_COPY, payload['key'])
+      && typeof payload['enabled'] === 'boolean';
+  }
+
+  if (candidate['type'] === 'setAutomationCeiling') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null
+      && typeof payload['level'] === 'string'
+      && (AUTOMATION_LEVELS as readonly string[]).includes(payload['level']);
+  }
+
   // Both workflow writes touch a file that gets committed, so the shape is
   // checked here and every value is sanitized again in the config module.
   if (candidate['type'] === 'createWorkflowConfig') {
@@ -5522,6 +5738,40 @@ function buildGuidedWorkflowSnapshot(input: {
         detail: 'A hard ceiling. With this off, unattended automation is unreachable for any stage whose base is protected.',
       },
     ],
+    enablement: {
+      // `propose` rather than `auto`: it is the rung where AtlasMind starts
+      // changing things other people can see, which is the threshold anybody
+      // asking "how do I turn this on?" actually means.
+      target: FIRST_WRITING_LEVEL,
+      requirements: requirementsFor(FIRST_WRITING_LEVEL, {
+        masterEnabled: enabled,
+        userCeiling: automationLevel as AutomationLevel,
+        // Issue writes stand in for the capability gate here: it is the first
+        // one most projects need, and the card lists all four separately anyway.
+        capabilityEnabled: resolveRestrictiveFlag(
+          input.configuration.inspect<boolean>('workflow.allowIssueWrites') ?? {},
+        ),
+        capabilityKey: 'atlasmind.workflow.allowIssueWrites',
+        capabilityLabel: 'Issue writes',
+        stageLevel: input.workflowConfig?.stages.find(stage => stage.id === 'planning')?.automationLevel
+          ?? 'observe',
+      }),
+      // Which scopes would make a workspace write a no-op. Surfaced so a control
+      // can say so *before* somebody clicks it rather than after.
+      blockedScopes: Object.fromEntries(
+        ['workflow.enabled', 'workflow.allowIssueWrites', 'workflow.allowPullRequestWrites',
+          'workflow.allowReleaseWrites', 'workflow.allowProtectedRefWrites']
+          .map(key => [
+            `atlasmind.${key}`,
+            blockingFlagScopes(input.configuration.inspect<boolean>(key) ?? {})
+              .filter(scope => scope !== 'workspace')
+              .map(describeSettingScope),
+          ]),
+      ),
+      masterKey: 'atlasmind.workflow.enabled',
+      ceilingKey: 'atlasmind.workflow.maxAutomationLevel',
+      levels: [...AUTOMATION_LEVELS],
+    },
     ...(issueMetrics === undefined ? {} : { issues: issueMetrics }),
     ...(prMetrics === undefined ? {} : { pullRequests: prMetrics }),
     ...(input.pullRequests === undefined ? {} : { pullRequestRecords: [...input.pullRequests] }),

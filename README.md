@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.202.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.203.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,9 +64,13 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.202.0
+## What's new in 0.203.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
+
+- **You can turn the workflow on from the dashboard.** The four gates were a read-out; they are now controls, and the card opens by telling you exactly what must change to reach `propose` — the rung where AtlasMind starts changing things other people can see.
+
+  Turning a gate off is immediate; turning one on asks first and names what it permits. Where another settings scope is holding a gate closed, the row says so and writes nothing — flipping a switch that changes no behaviour is the same silent no-op as a dead button.
 
 - **The sidebar reads like a sentence now.** Where you work, what needs you, what has happened, what the project knows, what does the work, what it runs on, what it can reach. **Project Director moved from last to third** — it carries an overdue badge and sat below three configuration views, and a badge nobody scrolls to does nothing.
 

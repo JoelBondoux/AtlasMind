@@ -12,6 +12,9 @@ import {
   permitsProtectedRefWrite,
   type AutomationInputs,
   type AutomationLevel,
+  requirementsFor,
+  blockingFlagScopes,
+  describeSettingScope,
 } from '../../src/core/workflowAutomation.ts';
 
 /** Everything open. Each test closes exactly one gate, so the cause is unambiguous. */
@@ -269,5 +272,88 @@ describe('the lattice is exhaustively closed', () => {
         }
       }
     }
+  });
+});
+
+/**
+ * "AtlasMind is not permitted to do that" tells somebody they are blocked.
+ * `requirementsFor` tells them which switches, so the answer to "how do I turn
+ * this on?" is a list rather than a hunt through four settings across two scopes.
+ */
+describe('requirementsFor', () => {
+  const closed = {
+    masterEnabled: false,
+    userCeiling: 'observe' as const,
+    capabilityEnabled: false,
+    capabilityKey: 'atlasmind.workflow.allowIssueWrites',
+    capabilityLabel: 'Issue writes',
+    stageLevel: 'observe' as const,
+  };
+
+  it('names every gate holding a fully closed setup shut', () => {
+    const needed = requirementsFor('propose', closed);
+    expect(needed.map(entry => entry.label)).toEqual([
+      'Master switch',
+      'Your ceiling',
+      'Issue writes',
+      "The stage's own declared level",
+    ]);
+  });
+
+  it('returns nothing when the target is already reachable', () => {
+    // An empty list is a real answer, not an absence — the caller says so.
+    expect(requirementsFor('observe', {
+      ...closed, masterEnabled: true, userCeiling: 'observe', stageLevel: 'observe',
+    })).toEqual([]);
+  });
+
+  it('names the master switch first, because it explains every other refusal', () => {
+    expect(requirementsFor('auto', closed)[0].label).toBe('Master switch');
+  });
+
+  it('does not send somebody to a capability switch that would not help', () => {
+    // A disabled capability caps at `draft`, so for a `draft` target it changes
+    // nothing. Listing it would be a switch that does not move the answer.
+    const forDraft = requirementsFor('draft', { ...closed, masterEnabled: true, userCeiling: 'draft', stageLevel: 'draft' });
+    expect(forDraft).toEqual([]);
+    const forPropose = requirementsFor('propose', { ...closed, masterEnabled: true, userCeiling: 'propose', stageLevel: 'propose' });
+    expect(forPropose.map(entry => entry.label)).toEqual(['Issue writes']);
+  });
+
+  it('says what each setting is now and what it must become', () => {
+    const [master] = requirementsFor('propose', closed);
+    expect(master.current).toBe('off');
+    expect(master.needed).toBe('on');
+    expect(master.key).toBe('atlasmind.workflow.enabled');
+  });
+
+  it('points the stage level at the file rather than a setting', () => {
+    // It is not a setting — it lives in the committed workflow, which is the
+    // point of that file. Naming a setting key here would send somebody looking
+    // for something that does not exist.
+    const stage = requirementsFor('auto', { ...closed, masterEnabled: true, userCeiling: 'auto', capabilityEnabled: true });
+    expect(stage[0].key).toContain('workflow.json');
+  });
+});
+
+describe('blockingFlagScopes', () => {
+  it('names every scope holding a gate closed', () => {
+    // Writing to the workspace while the user scope says `false` would flip the
+    // switch and change nothing — the same silent no-op as a dead button,
+    // arriving through the settings system.
+    expect(blockingFlagScopes({ globalValue: false, workspaceValue: true }))
+      .toEqual(['user']);
+    expect(blockingFlagScopes({ globalValue: false, workspaceValue: false }))
+      .toEqual(['user', 'workspace']);
+  });
+
+  it('names nothing when no scope is holding it closed', () => {
+    expect(blockingFlagScopes({})).toEqual([]);
+    expect(blockingFlagScopes({ workspaceValue: true })).toEqual([]);
+  });
+
+  it('describes a scope in words somebody can act on', () => {
+    expect(describeSettingScope('user')).toBe('your user settings');
+    expect(describeSettingScope('workspace')).toBe('this workspace');
   });
 });

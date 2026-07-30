@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.203.0] - 2026-07-30
+
+### Added
+- **You can turn the workflow on from the dashboard, and see what is stopping you.** The four gates were a read-out with one link to a settings page; they are now controls, and the card opens by saying exactly what would have to change to reach `propose` — the rung where AtlasMind starts changing things other people can see. "Not permitted" tells you that you are blocked; a numbered list of switches tells you what to do about it.
+
+  **Turning a gate off is immediate. Turning one on asks first**, naming what it permits. A dialog in front of somebody reaching for the brake teaches them to dismiss dialogs, so restricting never asks; allowing always does. The ceiling gets a picker rather than a switch, because it is a level.
+
+  Everything is written to the **workspace** scope — whether this project may write to its own tracker is a per-project decision, and writing to your user settings would silently change every other repository.
+
+- **A gate another scope is holding closed shows that instead of a switch.** Writing `true` to the workspace while your user settings say `false` would flip a control and change no behaviour — the same silent no-op as a dead button, arriving through the settings system rather than the command allowlist. The row names the scope and writes nothing.
+
+### Fixed
+- **A test that had been passing by distance rather than structure.** `pullRequestWrites` extracted its handler by scanning 900 lines to a comment, so it swept up every method added in between — and finally failed on an unrelated one for containing a string the handler is asserted not to contain. It now bounds by the next method, the same fix applied to the Project State link test.
 ## [0.202.0] - 2026-07-29
 
 ### Changed

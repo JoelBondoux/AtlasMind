@@ -839,6 +839,22 @@
       }
       return;
     }
+    if (action === 'workflow-gate') {
+      // `key:on|off` — a setting key cannot contain a colon, so the last
+      // segment is unambiguous.
+      const cut = payload.lastIndexOf(':');
+      if (cut > 0) {
+        vscode.postMessage({
+          type: 'setWorkflowGate',
+          payload: { key: payload.slice(0, cut), enabled: payload.slice(cut + 1) === 'on' },
+        });
+      }
+      return;
+    }
+    if (action === 'automation-ceiling') {
+      vscode.postMessage({ type: 'setAutomationCeiling', payload: { level: payload } });
+      return;
+    }
     if (action === 'create-workflow-config') {
       vscode.postMessage({ type: 'createWorkflowConfig', payload: { profile: payload } });
       return;
@@ -4064,26 +4080,54 @@
     // The four gates, shown rather than merely honoured. Somebody learning why
     // "full automation is possible, never default" holds needs to see that the
     // switches are independent and all default closed.
+    // The gates, as controls rather than a read-out. Turning one *off* is
+    // immediate — more restrictive is always safe, and a dialog in front of
+    // somebody reaching for the brake teaches them to dismiss dialogs. Turning
+    // one *on* asks first, in the host, naming what it permits.
+    const enablement = wf.enablement || { requirements: [], blockedScopes: {}, levels: [] };
+    const blockedFor = key => (enablement.blockedScopes || {})[key] || [];
+
+    const gateRow = (label, detail, key, on, onWord, offWord) => `
+      <div class="row-head" title="${escapeAttr(detail || '')}">
+        <span>${escapeHtml(label)}</span>
+        <span>
+          <span class="tag ${on ? 'tag-warn' : 'tag-good'}">${on ? onWord : offWord}</span>
+          ${blockedFor(key).length && !on
+            ? `<span class="tag" title="${escapeAttr('Turned off in ' + blockedFor(key).join(' and ') + ', so changing it here would do nothing.')}">held by ${escapeHtml(blockedFor(key).join(' and '))}</span>`
+            : `<button type="button" class="action-link" data-action="workflow-gate" data-payload="${escapeAttr(key + ':' + (on ? 'off' : 'on'))}">${on ? 'Turn off' : 'Allow…'}</button>`}
+          <button type="button" class="action-link" data-action="setting" data-payload="${escapeAttr(key)}" title="Open this setting">⚙</button>
+        </span>
+      </div>`;
+
     const ladderCard = `
       <article class="panel-card">
         <p class="card-kicker">What AtlasMind may do</p>
-        <p class="stat-detail">The effective level for any stage is the <em>lowest</em> of four independent gates. All four default closed, which is what keeps unattended action off until you deliberately allow it.</p>
+        <p class="stat-detail">The effective level for any stage is the <em>lowest</em> of four independent gates. All four default closed, which is what keeps unattended action off until you deliberately allow it. Turning one off takes effect at once; allowing one asks you to confirm what it permits.</p>
+        ${(enablement.requirements || []).length
+          ? `<div class="dashboard-empty"><div>
+              <strong>To reach <code>${escapeHtml(enablement.target || 'propose')}</code>, ${enablement.requirements.length} thing${enablement.requirements.length === 1 ? '' : 's'} must change</strong>
+              <ol class="section-copy">${enablement.requirements.map(entry =>
+                `<li>${escapeHtml(entry.label)}: <code>${escapeHtml(entry.current)}</code> → <code>${escapeHtml(entry.needed)}</code></li>`).join('')}</ol>
+              <p class="section-copy"><code>${escapeHtml(enablement.target || 'propose')}</code> is the rung where AtlasMind starts changing things other people can see. Everything below it explains and prepares only.</p>
+            </div></div>`
+          : `<p class="stat-detail">Nothing is holding <code>${escapeHtml(enablement.target || 'propose')}</code> back — every gate permits it. Individual actions still confirm first.</p>`}
         <div class="stack-list">
-          <div class="row-head">
-            <span>Master switch</span>
-            <span class="tag ${wf.enabled ? 'tag-warn' : 'tag-good'}">${wf.enabled ? 'on' : 'off'}</span>
-          </div>
+          ${gateRow('Master switch', 'With this off, AtlasMind explains and measures the workflow and never acts on it.',
+            enablement.masterKey || 'atlasmind.workflow.enabled', wf.enabled, 'on', 'off')}
           <div class="row-head">
             <span>Your ceiling</span>
-            <span class="tag">${escapeHtml(wf.automationLevel || 'observe')}</span>
+            <span>
+              <span class="segmented" role="group" aria-label="Automation ceiling">${(enablement.levels || []).map(level =>
+                `<button type="button" data-action="automation-ceiling" data-payload="${escapeAttr(level)}"
+                  class="${(wf.automationLevel || 'observe') === level ? 'active' : ''}"
+                  aria-pressed="${(wf.automationLevel || 'observe') === level ? 'true' : 'false'}">${escapeHtml(level)}</button>`).join('')}</span>
+              <button type="button" class="action-link" data-action="setting" data-payload="${escapeAttr(enablement.ceilingKey || 'atlasmind.workflow.maxAutomationLevel')}" title="Open this setting">⚙</button>
+            </span>
           </div>
-          ${(wf.capabilities || []).map(capability => `
-            <div class="row-head" title="${escapeAttr(capability.detail)}">
-              <span>${escapeHtml(capability.label)}</span>
-              <span class="tag ${capability.enabled ? 'tag-warn' : 'tag-good'}">${capability.enabled ? 'allowed' : 'off'}</span>
-            </div>`).join('')}
+          ${(wf.capabilities || []).map(capability =>
+            gateRow(capability.label, capability.detail, capability.id, capability.enabled, 'allowed', 'off')).join('')}
         </div>
-        <button type="button" class="action-link" data-action="setting" data-payload="atlasmind.workflow">Open the workflow settings</button>
+        <p class="stat-detail">Written to this workspace, so it is a per-project decision. Where another settings scope is stricter, the row says so instead of offering a switch that would change nothing.</p>
       </article>`;
 
     // The audit record. Every other part of this workflow makes a determinism

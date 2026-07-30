@@ -136,3 +136,35 @@ describe('every data-action has a handler', () => {
     expect(handled().size).toBeGreaterThan(20);
   });
 });
+
+describe('gate writes are checked against a known set, not a pattern', () => {
+  it('validates the setting key against the copy table', () => {
+    // A surface that could name any `atlasmind.*` key could flip something that
+    // is not a workflow gate at all — and the confirmation dialog would then
+    // describe the wrong thing, which is worse than no dialog.
+    expect(PANEL).toContain("Object.prototype.hasOwnProperty.call(WORKFLOW_GATE_COPY, payload['key'])");
+  });
+
+  it('keeps the dialog copy host-side', () => {
+    // The webview asks to change a gate and never supplies the sentence saying
+    // what that means.
+    expect(PANEL).toContain('const WORKFLOW_GATE_COPY');
+    expect(WEBVIEW).not.toContain('WORKFLOW_GATE_COPY');
+  });
+
+  it('describes every gate it will write', () => {
+    const table = PANEL.slice(
+      PANEL.indexOf('const WORKFLOW_GATE_COPY'),
+      PANEL.indexOf('const AUTOMATION_LEVEL_COPY'),
+    );
+    for (const key of [
+      'atlasmind.workflow.enabled',
+      'atlasmind.workflow.allowIssueWrites',
+      'atlasmind.workflow.allowPullRequestWrites',
+      'atlasmind.workflow.allowReleaseWrites',
+      'atlasmind.workflow.allowProtectedRefWrites',
+    ]) {
+      expect(table, key).toContain(key);
+    }
+  });
+});

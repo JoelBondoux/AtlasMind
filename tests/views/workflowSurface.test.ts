@@ -632,3 +632,48 @@ describe('the label and milestone taxonomy', () => {
     expect(rendered()).not.toMatch(/invalid|error/i);
   });
 });
+
+describe('the automation gates are controls, not a read-out', () => {
+  const rendered = (): string => workflowRenderedStrings();
+
+  it('says what must change to reach the first writing rung', () => {
+    // "Not permitted" tells somebody they are blocked. This tells them which
+    // switches — the difference between a dead end and a next step.
+    expect(rendered()).toContain('enablement.requirements');
+    expect(rendered()).toMatch(/must change/);
+    expect(rendered()).toMatch(/rung where AtlasMind starts changing things other people can see/);
+  });
+
+  it('says so plainly when nothing is holding it back', () => {
+    expect(rendered()).toMatch(/Nothing is holding/);
+  });
+
+  it('offers a switch and a link to the setting behind it', () => {
+    expect(rendered()).toContain('data-action="workflow-gate"');
+    expect(rendered()).toContain('data-action="setting"');
+  });
+
+  it('does not offer a switch that another scope would make a no-op', () => {
+    // Writing `true` to the workspace while the user scope says `false` flips a
+    // switch and changes nothing — the same silent no-op as a dead button,
+    // arriving through the settings system.
+    expect(rendered()).toContain('blockedFor(key).length && !on');
+    expect(rendered()).toMatch(/held by/);
+  });
+
+  it('asks before allowing and not before restricting', () => {
+    // A dialog in front of somebody reaching for the brake teaches them to
+    // dismiss dialogs. The asymmetry lives host-side; the label carries it.
+    expect(rendered()).toMatch(/'Turn off' : 'Allow/);
+    expect(rendered()).toMatch(/Turning one off takes effect at once/);
+  });
+
+  it('says which scope it writes to', () => {
+    expect(rendered()).toMatch(/Written to this workspace/);
+  });
+
+  it('gives the ceiling a picker rather than a switch, because it is a level', () => {
+    expect(rendered()).toContain('data-action="automation-ceiling"');
+    expect(rendered()).toContain('class="segmented"');
+  });
+});

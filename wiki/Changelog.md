@@ -6,6 +6,13 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.203.0 — Turning the workflow on, from the dashboard
+
+The four automation gates were a read-out with one link to a settings page. They are now controls, and the card opens by saying exactly what would have to change to reach `propose` — the rung where AtlasMind starts changing things other people can see.
+
+**Turning a gate off is immediate; turning one on asks first** and names what it permits. A dialog in front of somebody reaching for the brake teaches them to dismiss dialogs. The ceiling gets a picker, because it is a level rather than a switch.
+
+Written to the **workspace** scope — a per-project decision. And where another scope is holding a gate closed, the row **says so and writes nothing**: flipping a control that changes no behaviour is the same silent no-op as a dead button, arriving through the settings system instead of the command allowlist.
 ## v0.202.0 — The sidebar, reordered and relinked
 
 **The order reads as a sentence:** where you work (Chat), what needs you (Project State, Project Director), what has happened (Runs, Sessions), what the project knows (Memory), what does the work (Agents, Skills), what it runs on (Models), what it can reach (MCP Servers, Resource Discovery).

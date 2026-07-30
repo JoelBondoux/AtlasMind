@@ -151,6 +151,122 @@ export function resolveRestrictiveFlag(
 }
 
 /**
+ * Which settings scope is holding a boolean gate closed.
+ *
+ * `resolveRestrictiveFlag` answers *what* the value is; this answers *where it
+ * came from*, and the difference is the whole reason this exists. A dashboard
+ * control that writes to the workspace scope while the user scope says `false`
+ * would appear to do nothing — the switch flips, the value does not change, and
+ * the user is left believing the feature is broken.
+ *
+ * That is the same silent-no-op class as the dead buttons, arriving through the
+ * settings system instead of the command allowlist. Better to refuse and name
+ * the scope.
+ */
+export type SettingScopeName = 'user' | 'workspace' | 'folder';
+
+export function blockingFlagScopes(
+  scopes: SettingScopes<boolean>,
+): SettingScopeName[] {
+  const entries: Array<[SettingScopeName, boolean | undefined]> = [
+    ['user', scopes.globalValue],
+    ['workspace', scopes.workspaceValue],
+    ['folder', scopes.workspaceFolderValue],
+  ];
+  return entries
+    .filter(([, value]) => value === false)
+    .map(([name]) => name);
+}
+
+/** How a scope reads in a sentence a user can act on. */
+export function describeSettingScope(scope: SettingScopeName): string {
+  switch (scope) {
+    case 'user':
+      return 'your user settings';
+    case 'workspace':
+      return 'this workspace';
+    case 'folder':
+      return 'this folder';
+  }
+}
+
+export interface GateRequirement {
+  /** The setting to change. */
+  key: string;
+  label: string;
+  /** What it is now, as a sentence. */
+  current: string;
+  /** What it needs to become. */
+  needed: string;
+}
+
+/**
+ * What would have to change for a stage to reach a target level.
+ *
+ * The single most useful thing this surface can say. "AtlasMind is not permitted
+ * to do that" tells somebody they are blocked; this tells them which switches,
+ * in what order, and stops at the first one that is a *hard* ceiling rather than
+ * listing changes that would not help.
+ *
+ * Returns an empty list when the target is already reachable — which is a real
+ * answer and not an absence, so the caller can say so.
+ */
+export function requirementsFor(
+  target: AutomationLevel,
+  state: {
+    masterEnabled: boolean;
+    userCeiling: AutomationLevel;
+    capabilityEnabled: boolean;
+    capabilityKey: string;
+    capabilityLabel: string;
+    stageLevel: AutomationLevel;
+  },
+): GateRequirement[] {
+  const out: GateRequirement[] = [];
+
+  if (!state.masterEnabled) {
+    out.push({
+      key: 'atlasmind.workflow.enabled',
+      label: 'Master switch',
+      current: 'off',
+      needed: 'on',
+    });
+  }
+
+  if (rank(state.userCeiling) < rank(target)) {
+    out.push({
+      key: 'atlasmind.workflow.maxAutomationLevel',
+      label: 'Your ceiling',
+      current: state.userCeiling,
+      needed: target,
+    });
+  }
+
+  // A capability caps at `draft`, so it only matters for a target above that.
+  // Listing it for a `draft` target would send somebody to a switch that would
+  // change nothing.
+  if (!state.capabilityEnabled && rank(target) >= rank(FIRST_WRITING_LEVEL)) {
+    out.push({
+      key: state.capabilityKey,
+      label: state.capabilityLabel,
+      current: 'off',
+      needed: 'allowed',
+    });
+  }
+
+  if (rank(state.stageLevel) < rank(target)) {
+    out.push({
+      key: 'project_memory/operations/workflow.json',
+      label: 'The stage\'s own declared level',
+      current: state.stageLevel,
+      needed: target,
+    });
+  }
+
+  return out;
+}
+
+/**
  * The effective level, and the gate that decided it.
  *
  * Gates are examined in the order a user would want to hear about them: the

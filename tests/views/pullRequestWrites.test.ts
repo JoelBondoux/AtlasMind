@@ -24,11 +24,19 @@ const PANEL = readFileSync(
 );
 
 /** The body of `handlePullRequestWrite`. */
+/**
+ * The body of `handlePullRequestWrite`, bounded by the next method.
+ *
+ * It used to run to a comment 900 lines away, which meant it swept up every
+ * method added in between — and eventually failed on one of them for containing
+ * a string this handler is asserted not to contain. It had been passing by
+ * distance rather than by structure.
+ */
 function writeHandlerSource(): string {
   const start = PANEL.indexOf('private async handlePullRequestWrite(');
   expect(start, 'handlePullRequestWrite is missing').toBeGreaterThan(-1);
-  const end = PANEL.indexOf('/** Hand an issue to chat as *reported content*', start);
-  return PANEL.slice(start, end === -1 ? start + 12000 : end);
+  const end = PANEL.indexOf('\n  private ', start + 10);
+  return PANEL.slice(start, end === -1 ? undefined : end);
 }
 
 describe('the boundary accepts data, never commands', () => {
