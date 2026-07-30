@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.209.2] - 2026-07-30
+
+### Fixed
+- **The README's "What's new" section was measuring from the wrong release.** It claimed *"Since the last Marketplace publication, **v0.145.3**"* while the Marketplace has had **v0.208.0** since this morning — sixty-three releases stale. So the section listed **81 bullets** of work, almost all of which is already in the published extension. Anyone reading it to decide whether a source build was worth installing was being told the delta was two hundred lines when it is four.
+
+  Trimmed to what a v0.208.0 user is genuinely missing: the ACP connection fixes, the three new subscription agents, the chat panel's slash commands, and one line on the release pipeline moving to Entra ID. The full history is unchanged in this file and in `wiki/Changelog.md`, which is where it belongs — the README's job here is the upgrade decision, not the record.
+
+- **Nothing local could have contradicted the claim, so it rotted quietly.** Every other version check in `docsIntegrity` compares two files in this repository; this one asserts something about the outside world. `tests/docsIntegrity.test.ts` now pins the stated baseline against the **newest git tag**, which is the offline stand-in for "what is published" because `npm run tag:release` is what triggers the Marketplace publish — the tag and the publish are one event. It also refuses a baseline *ahead* of the source version, which would make "what's new" describe a rollback as a feature.
+
+  The guard is **skipped where tags are absent**, and deliberately: `ci.yml` checks out shallow with no tags, but the pre-commit hook runs the full suite locally, which is exactly where the README gets edited and where a stale baseline is introduced. A guard that fires at the moment of the mistake beats one that fires nowhere, and it is not worth `fetch-depth: 0` on every CI run to relocate it.
+
+### Changed
+- **The README's evergreen sections now describe what AtlasMind actually does.** Trimming "What's new" exposed a second problem it had been hiding: fifteen shipped capabilities appeared *only* in that accumulated list, so the pitch a Marketplace visitor reads had never been updated to include them. Cutting the list would have deleted them from the README entirely.
+
+  Added to **What is included**: the guided GitHub workflow and its automation ladder, ideation reaching the backlog, roadmap items becoming issue drafts, the tech-debt register and its published rule table, the four delivery keys, agent handoff, schema migration, GitHub deep links, the keep-awake lock, and locale-aware cost display. Added as a new pillar: *"Work the way your repository already works."* Subscription-backed capacity is now named where models are discussed rather than left implicit.
+
+  Every claim was checked against the code that implements it rather than against the changelog prose describing it — which caught one overstatement on the way in: the dashboard does **not** link every page to GitHub, because four pages are about this machine rather than the repository, so "each page" replaced "every page".
+
+- **Two statements were stale rather than missing.** The slash-command table still said to use `@atlas /<command>`, written before the panel accepted them at all — it now names both surfaces. And the eight-stage workflow was still listed without ideation, which became stage 0 in v0.208.0.
+
+### Notes
+- The heading format `## What's new in <version>` is asserted by `tests/packageManifest.test.ts` and was kept. A first attempt renamed it to "since the published build", which read better in isolation but broke a deliberate tie between the README and `package.json`; correcting the baseline sentence achieves the same thing without loosening that check.
+
 ## [0.209.1] - 2026-07-30
 
 ### Fixed

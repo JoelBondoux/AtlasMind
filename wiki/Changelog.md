@@ -6,6 +6,18 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.209.2 — The README was measuring "what's new" from the wrong release
+
+It claimed *"Since the last Marketplace publication, **v0.145.3**"* while the Marketplace has had **v0.208.0** since that morning — sixty-three releases stale. The section therefore listed **81 bullets** of work that is already in the published extension, so anyone using it to decide whether a source build was worth installing saw a two-hundred-line delta where the real one is four.
+
+Trimmed to what a v0.208.0 user is actually missing. The full history stays in `CHANGELOG.md` and on this page — the README's job there is the upgrade decision, not the record.
+
+**Nothing local could contradict the claim, which is why it rotted.** Every other version check compares two files in this repository; this one asserts something about the outside world. It is now pinned against the newest git tag, which stands in for "what is published" because `npm run tag:release` is what triggers the publish — the tag and the publish are one event. A baseline *ahead* of the source version is refused too, since that would describe a rollback as a feature. The guard is skipped where tags are absent (CI checks out shallow) and runs in the pre-commit hook, which is exactly where the README gets edited.
+
+**Trimming the list exposed what it had been hiding.** Fifteen shipped capabilities appeared *only* in that accumulated "What's new" — so the pitch a Marketplace visitor actually reads had never been updated to include them, and cutting the list would have removed them from the README altogether. The guided GitHub workflow and its automation ladder, ideation reaching the backlog, roadmap items becoming issue drafts, the tech-debt register, the four delivery keys, agent handoff, schema migration, GitHub deep links, the keep-awake lock and locale-aware cost display are now in **What is included**, with a new pillar for working the way your repository already works.
+
+Each claim was verified against the code implementing it rather than the changelog prose describing it, which caught one overstatement going in: the dashboard does *not* link every page to GitHub, since four pages are about the local machine rather than the repository.
+
 ## v0.209.1 — Slash commands work in the chat panel
 
 They never had. `runPrompt` never looked for a leading `/`, so all nineteen commands the manifest declares reached the orchestrator as ordinary prose — and on a machine with no provider configured, `/acp` was answered by the built-in echo adapter with *"Answered from context."* Declared, documented, autocompleted by the composer, and inert.

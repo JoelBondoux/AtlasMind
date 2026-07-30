@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 
@@ -331,6 +332,70 @@ describe('a documented count matches the code', () => {
       }
     }
     expect(wrong, 'these documents state a built-in skill count the code contradicts').toEqual([]);
+  });
+});
+
+/**
+ * The README's "since the last Marketplace publication" baseline.
+ *
+ * It said **v0.145.3** while the Marketplace had **v0.208.0** — sixty-three
+ * releases stale — so the "What's new" section listed eighty-one bullets of work
+ * that was already in the published build. Every other version check here
+ * compares two files that both live in this repository; this claim is about the
+ * outside world, so nothing local contradicted it and it rotted quietly for
+ * months.
+ *
+ * The newest tag is the offline stand-in for "what is published", because the
+ * release routine's last step (`npm run tag:release`) is what triggers the
+ * Marketplace publish — a tag and a publish are the same event.
+ *
+ * **Skipped where tags are absent, deliberately.** `ci.yml` checks out shallow
+ * with no tags, so this cannot run there. It does run in the pre-commit hook on
+ * a developer machine, which is precisely where the README gets edited and where
+ * a stale baseline is introduced. A guard that fires at the moment of the mistake
+ * is worth more than one that fires nowhere; do not "fix" the skip by demanding
+ * `fetch-depth: 0` on every CI run for a documentation assertion.
+ */
+describe('the README\'s published-version baseline is not stale', () => {
+  function newestTag(): string | undefined {
+    try {
+      const tags = execFileSync('git', ['tag', '--sort=-v:refname'], { encoding: 'utf8' })
+        .split(/\r?\n/)
+        .map(line => line.trim())
+        .filter(line => /^v\d+\.\d+\.\d+$/.test(line));
+      return tags[0]?.slice(1);
+    } catch {
+      return undefined;
+    }
+  }
+
+  const stated = /last Marketplace publication, \*\*v([0-9]+\.[0-9]+\.[0-9]+)\*\*/
+    .exec(read('README.md'))?.[1];
+
+  it('states a baseline at all', () => {
+    expect(stated, 'README no longer names the last published version').toBeTruthy();
+  });
+
+  it('names the most recently tagged release', () => {
+    const tag = newestTag();
+    if (!tag) {
+      // Shallow checkout: nothing to compare against. See the note above.
+      return;
+    }
+    expect(stated, `README says v${stated}; the newest tag is v${tag}`).toBe(tag);
+  });
+
+  it('never claims a baseline newer than the source version', () => {
+    const manifest = JSON.parse(read('package.json')) as { version: string };
+    const asNumbers = (value: string) => value.split('.').map(Number);
+    const [statedMajor, statedMinor, statedPatch] = asNumbers(stated ?? '0.0.0');
+    const [major, minor, patch] = asNumbers(manifest.version);
+    const statedRank = statedMajor! * 1e6 + statedMinor! * 1e3 + statedPatch!;
+    const sourceRank = major! * 1e6 + minor! * 1e3 + patch!;
+    // A baseline ahead of the source would make "what's new" describe nothing,
+    // or describe a rollback as a feature.
+    expect(statedRank, `baseline v${stated} is ahead of source v${manifest.version}`)
+      .toBeLessThanOrEqual(sourceRank);
   });
 });
 
