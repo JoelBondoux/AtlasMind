@@ -7,6 +7,9 @@ import { buildAssistantResponseMetadata, buildQuickReplyPayload, buildWorkstatio
 import { resolvePickedImageAttachments } from '../chat/imageAttachments.js';
 import { getWebviewHtmlShell, QUICK_REPLY_CSS } from './webviewUtils.js';
 import { addRoadmapItemFromExternalSurface } from './projectDashboardPanel.js';
+import { assessIdeationReadiness, type IdeationReadiness } from '../core/ideationReadiness.js';
+import { findBoardTemplate, suggestBoardTemplates } from '../core/ideationBoardTemplates.js';
+import { detectProjectArchetype } from '../core/projectArchetype.js';
 import {
   collectCardConnectionSources,
   deriveCardRoadmapText,
@@ -294,6 +297,7 @@ type ProjectIdeationMessage =
   | { type: 'syncCardToSsot'; payload: { cardId: string } }
   | { type: 'raiseCardAsWork'; payload: { cardId: string } }
   | { type: 'archiveCard'; payload: { cardId: string; archive: boolean } }
+  | { type: 'seedBoardTemplate'; payload: string }
   | { type: 'runDeepBoardAnalysis' }
   | { type: 'generateReviewCheckpoint'; payload: { cardId: string } };
 
@@ -333,6 +337,16 @@ interface IdeationSnapshot {
   lastAtlasResponse: string;
   promptAttachments: Array<{ id: string; label: string; kind: PromptAttachmentKind; source: string }>;
   staleCardIds: string[];
+  /** What the board can and cannot defend. A reading, never a gate. */
+  readiness: IdeationReadiness;
+  /**
+   * Starter frames, offered only while the board is empty.
+   *
+   * Not sent for a board with cards on it: a picker that could replace work in
+   * progress is a picker somebody eventually clicks by accident, and the frames
+   * are additive by design rather than destructive.
+   */
+  templates: Array<{ id: string; label: string; whenToUse: string; cardCount: number; suggestedBecause?: string }>;
   updatedAt: string;
   updatedRelative: string;
 }
@@ -471,6 +485,9 @@ export class ProjectIdeationPanel {
         return;
       case 'raiseCardAsWork':
         await this.raiseCardAsWork(message.payload.cardId);
+        return;
+      case 'seedBoardTemplate':
+        await this.seedBoardTemplate(message.payload);
         return;
       case 'archiveCard':
         await this.archiveCard(message.payload.cardId, message.payload.archive);
@@ -663,9 +680,102 @@ export class ProjectIdeationPanel {
       lastAtlasResponse: board.lastAtlasResponse,
       promptAttachments: this.promptAttachments.map(item => ({ id: item.id, label: item.label, kind: item.kind, source: item.source })),
       staleCardIds: findStaleCardIds(board.cards),
+      readiness: assessIdeationReadiness({
+        cards: board.cards.map(card => ({
+          id: card.id,
+          kind: card.kind,
+          title: card.title,
+          ...(card.archivedAt ? { archived: true } : {}),
+          ...(card.derived ? { derived: card.derived } : {}),
+        })),
+        connections: board.connections.map(connection => ({
+          fromCardId: connection.fromCardId,
+          toCardId: connection.toCardId,
+          relation: connection.relation,
+        })),
+        roadmapItems: await this.readRoadmapItems(workspaceRoot, ssotPath),
+      }),
+      templates: board.cards.some(card => !card.archivedAt)
+        ? []
+        : (await this.suggestTemplates(workspaceRoot)).map(template => ({
+          id: template.id,
+          label: template.label,
+          whenToUse: template.whenToUse,
+          cardCount: template.cards.length,
+          ...(template.suggestedBecause ? { suggestedBecause: template.suggestedBecause } : {}),
+        })),
       updatedAt: board.updatedAt,
       updatedRelative: formatRelativeDate(board.updatedAt),
     };
+  }
+
+  /**
+   * The roadmap's checklist lines, for the readiness reading.
+   *
+   * Read here rather than threaded in from the dashboard, because a card's link
+   * to the item it produced is keyed on *normalized text* — roadmap ids are
+   * positional and renumber on insert — so the reading needs the items
+   * themselves, not a count. An unreadable roadmap yields an empty list, which
+   * makes every derived card read as unrealized: the honest answer when the file
+   * that would prove otherwise could not be read.
+   */
+  private async readRoadmapItems(
+    workspaceRoot: string | undefined,
+    ssotPath: string,
+  ): Promise<Array<{ id: string; text: string; completed: boolean }>> {
+    if (!workspaceRoot) {
+      return [];
+    }
+    try {
+      const raw = await fs.readFile(path.join(workspaceRoot, ssotPath, 'roadmap', 'improvement-plan.md'), 'utf8');
+      const items: Array<{ id: string; text: string; completed: boolean }> = [];
+      for (const match of raw.matchAll(/^-\s*\[([ xX])\]\s*(.+)$/gm)) {
+        const text = (match[2] ?? '').replace(/[*_`]/g, '').trim();
+        if (text !== '') {
+          items.push({ id: `roadmap-${items.length + 1}`, text, completed: (match[1] ?? ' ').toLowerCase() === 'x' });
+        }
+      }
+      return items;
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Starter frames for this project, most specific first.
+   *
+   * Derived from the detected archetype rather than generated: a hallucinated
+   * starting frame is worse than a blank board, because it sets the agenda for
+   * the thinking that follows. Detection failing is not an error — the general
+   * frames are always offered underneath.
+   */
+  private async suggestTemplates(workspaceRoot: string | undefined) {
+    if (!workspaceRoot) {
+      return suggestBoardTemplates({ archetype: 'generic', traits: [] });
+    }
+    try {
+      // The same two signals the dashboard's detection reads: the manifest text
+      // and the workspace root's file names. Deliberately shallow — this decides
+      // which starter frame is offered first, and a deep scan on opening a panel
+      // would cost more than the suggestion is worth.
+      const entries = await fs.readdir(workspaceRoot, { withFileTypes: true });
+      const files = entries.map(entry => entry.name.toLowerCase());
+      let corpus = '';
+      for (const manifest of ['package.json', 'cargo.toml', 'pyproject.toml', 'go.mod', 'composer.json']) {
+        if (!files.includes(manifest)) {
+          continue;
+        }
+        try {
+          corpus += `\n${await fs.readFile(path.join(workspaceRoot, manifest), 'utf8')}`;
+        } catch {
+          // Unreadable manifest: the file list alone still detects plenty.
+        }
+      }
+      const detection = detectProjectArchetype({ corpus: corpus.toLowerCase(), files });
+      return suggestBoardTemplates({ archetype: detection.archetype, traits: detection.traits });
+    } catch {
+      return suggestBoardTemplates({ archetype: 'generic', traits: [] });
+    }
   }
 
   private async saveIdeationBoard(payload: IdeationBoardPayload): Promise<void> {
@@ -1179,6 +1289,94 @@ export class ProjectIdeationPanel {
    * **The board records what the card became**, so the next read does not raise
    * it again as a duplicate.
    */
+  /**
+   * Put a starter frame on the board.
+   *
+   * **Additive, never destructive.** The cards are appended and the existing
+   * board is untouched — and the frames are only offered while the board is
+   * empty anyway, so there are two independent reasons this cannot overwrite
+   * anybody's work. A picker that could replace a board is a picker somebody
+   * eventually clicks by accident, and this one is reachable from an empty
+   * canvas where the accident costs nothing.
+   *
+   * Positions come from `findAvailableIdeationPosition`, not from the template:
+   * layout belongs to the board, and a second placement algorithm here would be
+   * the wrong one because it cannot see what is already there.
+   */
+  private async seedBoardTemplate(templateId: string): Promise<void> {
+    const template = findBoardTemplate(templateId);
+    if (!template) {
+      await this.postMessage({ type: 'ideationStatus', payload: 'That starter frame is no longer available.' });
+      return;
+    }
+    const { workspaceRoot, ssotPath, registry, workspace, board } = await this.loadCurrentIdeationContext();
+    const timestamp = new Date().toISOString();
+    const cards = [...board.cards];
+    const keyToId = new Map<string, string>();
+
+    for (const [index, templateCard] of template.cards.entries()) {
+      if (cards.length >= MAX_IDEATION_CARDS) {
+        break;
+      }
+      const id = createIdeationId('card');
+      keyToId.set(templateCard.key, id);
+      const offset = ideationOffsetForAnchor(index % 2 === 0 ? 'east' : 'west', index);
+      const position = findAvailableIdeationPosition(cards, offset.x, offset.y);
+      cards.push({
+        id,
+        title: templateCard.title,
+        body: templateCard.body,
+        kind: templateCard.kind,
+        author: 'atlas',
+        x: position.x,
+        y: position.y,
+        color: ideationColorForKind(templateCard.kind),
+        imageSources: [],
+        media: [],
+        tags: ['starter-frame'],
+        syncTargets: [],
+        confidence: defaultConfidenceForKind(templateCard.kind),
+        evidenceStrength: defaultEvidenceStrengthForKind(templateCard.kind),
+        riskScore: defaultRiskScoreForKind(templateCard.kind),
+        costToValidate: defaultCostToValidateForKind(templateCard.kind),
+        revision: 1,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      });
+    }
+
+    const connections = [...board.connections];
+    for (const edge of template.edges) {
+      const fromCardId = keyToId.get(edge.from);
+      const toCardId = keyToId.get(edge.to);
+      if (!fromCardId || !toCardId || connections.length >= MAX_IDEATION_CONNECTIONS) {
+        continue;
+      }
+      connections.push({
+        id: createIdeationId('link'),
+        fromCardId,
+        toCardId,
+        label: ideationRelationLabel(edge.relation),
+        relation: edge.relation,
+        style: ideationRelationStyle(edge.relation),
+        direction: ideationRelationDirection(edge.relation),
+      });
+    }
+
+    await this.persistWorkspaceBoard(
+      workspaceRoot,
+      ssotPath,
+      registry,
+      workspace,
+      sanitizeIdeationBoard({ ...board, cards, connections, updatedAt: timestamp }),
+    );
+    await this.syncState();
+    await this.postMessage({
+      type: 'ideationStatus',
+      payload: `Added the “${template.label}” frame. Every card is a question — answer them in place, or delete the ones that do not apply.`,
+    });
+  }
+
   private async raiseCardAsWork(cardId: string): Promise<void> {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!workspaceRoot) {
@@ -1384,6 +1582,9 @@ export function isProjectIdeationMessage(message: unknown): message is ProjectId
       && candidate['payload'] !== null
       && typeof (candidate['payload'] as Record<string, unknown>)['cardId'] === 'string'
       && ((candidate['payload'] as Record<string, unknown>)['cardId'] as string).trim().length > 0;
+  }
+  if (candidate['type'] === 'seedBoardTemplate') {
+    return typeof candidate['payload'] === 'string';
   }
   if (candidate['type'] === 'archiveCard') {
     return typeof candidate['payload'] === 'object'
@@ -4447,16 +4648,12 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     font-size: 14px;
   }
 
-  .ideation-process-section {
-    margin-top: -2px;
-  }
   .ideation-workspace {
     display: flex;
     flex-direction: column;
     gap: 18px;
   }
-  .ideation-main-grid,
-  .ideation-lower-grid {
+  .ideation-main-grid {
     display: grid;
     gap: 18px;
   }
@@ -4468,29 +4665,118 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
     gap: 12px;
   }
-  /* The staged-workflow guide is reference material once the board exists. */
-  .ideation-process-details > summary {
+  /* The stage bar. This *is* the old four-card process guide: it used to
+     describe an order the layout did not impose, and was moved twice on the
+     theory that placement was the problem. Every card is a control now, and
+     only the stage you pick is rendered below it. */
+  .ideation-mode-bar {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 8px;
+  }
+  .ideation-mode-button {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 12px;
+    text-align: left;
     cursor: pointer;
-    font-size: 12px;
-    font-weight: 600;
+    font: inherit;
     color: var(--vscode-descriptionForeground);
-    padding: 6px 2px;
+    background: var(--vscode-editorWidget-background);
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 8px;
+    transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+  }
+  .ideation-mode-button:hover {
+    color: var(--vscode-foreground);
+    border-color: var(--vscode-focusBorder);
+  }
+  /* A left border rather than a filled background: four saturated buttons read
+     as an alarm state even when three of them just say "later". */
+  .ideation-mode-button.is-active {
+    color: var(--vscode-foreground);
+    border-left: 3px solid var(--vscode-focusBorder);
+    background: var(--vscode-list-activeSelectionBackground);
+  }
+  .ideation-mode-button:focus-visible {
+    outline: 1px solid var(--vscode-focusBorder);
+    outline-offset: 2px;
+  }
+  .ideation-mode-label { font-weight: 600; }
+  .ideation-mode-blurb {
+    margin: 8px 2px 0;
+    font-size: 12px;
+  }
+  .ideation-stage-section {
+    display: grid;
+    gap: 18px;
+  }
+  /* Starter frames, offered on an empty board only. */
+  .ideation-template-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 10px;
+    margin-top: 12px;
+  }
+  .ideation-template-card {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px;
+    text-align: left;
+    cursor: pointer;
+    font: inherit;
+    color: var(--vscode-foreground);
+    background: var(--vscode-editorWidget-background);
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 8px;
+  }
+  .ideation-template-card:hover { border-color: var(--vscode-focusBorder); }
+  .ideation-template-card:focus-visible {
+    outline: 1px solid var(--vscode-focusBorder);
+    outline-offset: 2px;
+  }
+  .ideation-template-card .section-copy { margin: 0; font-size: 12px; }
+  .ideation-template-meta {
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground);
+  }
+  /* The readiness reading. Urgency is a left border for the same reason the
+     stage bar avoids filled backgrounds. */
+  .ideation-readiness-list {
     list-style: none;
+    margin: 12px 0 0;
+    padding: 0;
+    display: grid;
+    gap: 10px;
   }
-  .ideation-process-details > summary::-webkit-details-marker { display: none; }
-  .ideation-process-details > summary::before {
-    content: "\\25B8";
-    display: inline-block;
-    margin-right: 8px;
-    transition: transform 140ms ease;
+  .ideation-readiness-item {
+    padding: 10px 12px;
+    border: 1px solid var(--vscode-panel-border);
+    border-left: 3px solid var(--vscode-panel-border);
+    border-radius: 6px;
   }
-  .ideation-process-details[open] > summary::before { transform: rotate(90deg); }
-  .ideation-process-details > summary:hover { color: var(--vscode-foreground); }
+  .ideation-readiness-blocking { border-left-color: var(--vscode-editorError-foreground); }
+  .ideation-readiness-weak { border-left-color: var(--vscode-editorWarning-foreground); }
+  .ideation-readiness-good { border-left-color: var(--vscode-testing-iconPassed, var(--vscode-charts-green)); }
+  .ideation-readiness-item .section-copy { margin: 6px 0 0; font-size: 12px; }
+  /* The rule that produced the verdict, published so it can be argued with. */
+  .ideation-readiness-rule {
+    margin: 6px 0 0;
+    font-size: 11px;
+    font-style: italic;
+    color: var(--vscode-descriptionForeground);
+  }
+  /* What a card kind commits to downstream, shown where the kind is chosen. */
+  .ideation-kind-consequence {
+    margin: 4px 0 0;
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground);
+  }
   .ideation-main-grid {
     grid-template-columns: minmax(0, 1fr);
-  }
-  .ideation-lower-grid {
-    grid-template-columns: 0.85fr 1.15fr;
   }
   .ideation-composer-panel,
   .ideation-canvas-panel {
@@ -4538,37 +4824,6 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     opacity: 1;
     visibility: visible;
     transform: translateY(0);
-  }
-  .ideation-process-panel {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-  }
-  .ideation-process-grid {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 12px;
-  }
-  .ideation-process-card {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    min-height: 122px;
-    padding: 14px;
-    border-radius: 18px;
-    border: 1px solid var(--vscode-widget-border, #444);
-    background: color-mix(in srgb, var(--vscode-editor-background) 88%, transparent);
-  }
-  .ideation-process-active {
-    border-color: color-mix(in srgb, #d29a2a 48%, var(--vscode-widget-border, #444));
-    background: color-mix(in srgb, #d29a2a 8%, var(--vscode-editor-background) 92%);
-  }
-  .ideation-process-done {
-    border-color: color-mix(in srgb, #3a9a5b 42%, var(--vscode-widget-border, #444));
-    background: color-mix(in srgb, #3a9a5b 7%, var(--vscode-editor-background) 93%);
-  }
-  .ideation-process-pending {
-    opacity: 0.92;
   }
   .ideation-stat strong {
     display: block;
@@ -5271,10 +5526,8 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
   body.canvas-focus-mode .ideation-topbar,
   body.canvas-focus-mode .ideation-stat-strip,
   body.canvas-focus-mode .ideation-composer-panel,
-  body.canvas-focus-mode .ideation-composer-section,
-  body.canvas-focus-mode .ideation-process-section,
-  body.canvas-focus-mode .ideation-lower-grid,
-  body.canvas-focus-mode .ideation-analytics-section {
+  body.canvas-focus-mode .ideation-mode-section,
+  body.canvas-focus-mode .ideation-stage-section {
     display: none;
   }
   body.canvas-focus-mode .ideation-shell-page {
@@ -5310,9 +5563,8 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
     height: 100%;
   }
   @media (max-width: 1180px) {
-    .ideation-process-grid,
     .ideation-main-grid,
-    .ideation-lower-grid,
+    .ideation-mode-bar,
     .ideation-workspace-switcher,
     .ideation-constraint-grid,
     .ideation-score-grid,
@@ -5320,10 +5572,7 @@ const IDEATION_CSS = `${QUICK_REPLY_CSS}
       grid-template-columns: 1fr;
     }
   }
-  .ideation-analytics-section {
-    margin-top: 0;
-  }
-  .ideation-analytics-panel {
+    .ideation-analytics-panel {
     display: flex;
     flex-direction: column;
     gap: 14px;

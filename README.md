@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.226.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.227.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,9 +68,11 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.226.0
+## What's new in 0.227.0
 
 Since the last Marketplace publication, **v0.219.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **The ideation board is a staged workspace now, not one long page.** Frame → Scaffold → Shape → Decide is a control: pick a stage and only that stage renders. The board still leads, and each stage reports where your board actually is rather than which tab you are reading. An empty board offers starter frames derived from what your project looks like — a game and a command-line tool no longer open the same blank canvas — and every seeded card is a question rather than an answer. The card-kind picker finally says what a kind commits to: choosing **problem** puts "Fix: …" on the roadmap and **risk** puts "Mitigate: …", which was true from the day the board shipped and written down only in the source.
 
 - **Ideation can learn something you did not already type into it.** Seven research scans — competition, customers, technology, feature gaps, market, funding, regulation — ask questions about the world outside your repository and record what they find as evidence the board can use. Gap, security, risk, debt and testing are deliberately *not* among them: AtlasMind already answers those, and a second answer would eventually contradict the first.
 

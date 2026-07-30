@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.227.0] - 2026-07-30
+
+### Changed
+- **The ideation panel renders one stage at a time, and the staged guide became the navigation.** Five sections used to be on screen together — composer, inspector, facilitation feedback, analytics, and a four-card guide explaining the order they were meant to be used in. That guide had been relocated twice (to the bottom in v0.119.0, back above the canvas in v0.212.1) on the theory that placement was the problem. It was not: **a guide that has to explain the layout is a symptom of the layout**.
+
+  Frame / Scaffold / Shape / Decide is a control now. Each stage renders only what that stage needs, the board still leads the page, and the status dot on each button reports where the *board* actually is rather than which tab you happen to be reading — so the bar stays an honest description while you look ahead. The opening stage is derived rather than stored (empty board opens on Frame, populated on Shape), because storing it would freeze a first-time user on Frame the moment their board stopped being empty.
+
+- **An empty board offers starter frames.** Eleven of them, derived from the project's detected archetype and traits, so a game and a command-line tool no longer open the same blank canvas. Every seeded card is a **question**; a frame arriving with confident-sounding conclusions would be thinking nobody did, presented as thinking somebody did. Seeding is additive and never replaces a card, and the frames are only offered while the board is empty — two independent reasons the picker cannot overwrite anybody's work.
+
+- **The card-kind picker publishes what the kind commits to.** `KIND_PREFIX` has decided since it was written that a `problem` becomes "Fix: …" on the roadmap and a `risk` becomes "Mitigate: …", with a careful argument in the module header for why — and none of it ever reached the person choosing the kind. A rule you cannot see is a rule you cannot argue with. A test reads `ideationDerivation.ts` and asserts the panel publishes exactly the kinds that actually get a prefix; the wording may differ, the set may not.
+
+- **The Decide stage opens with what the board cannot defend.** The readiness reading rendered from `ideationReadiness.ts`, with each line carrying the declared rule that produced it and an unresolved contradiction ranked above everything else. It blocks nothing — a release gate exists because a release cannot be undone, and a board can always be edited.
+
+### Removed
+- `renderProcessGuide` and the `<details>` panel it lived in, along with the CSS for the four-card grid. Superseded rather than relocated this time.
+
+
 ## [0.226.0] - 2026-07-30
 
 ### Added

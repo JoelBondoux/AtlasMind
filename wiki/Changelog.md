@@ -16,6 +16,20 @@ Silent, and in the direction that costs money: every model-variant turn looked l
 
 ---
 
+## v0.227.0 — The ideation guide stops describing the layout and becomes it
+
+Five sections used to be on the ideation page at once, with a four-card guide above them explaining the order they were meant to be used in. That guide had been moved twice already on the theory that placement was the problem. It was not — a guide that has to explain a layout is a symptom of the layout.
+
+**Frame → Scaffold → Shape → Decide is now a control.** Pick a stage and only that stage renders. The board still leads the page, and each button's status reports where your *board* is rather than which tab you are reading, so the bar stays honest while you look ahead.
+
+**An empty board offers a starting point.** Eleven starter frames derived from what your project actually looks like — a game and a command-line tool no longer open the same blank canvas — and every seeded card is a **question**, never an answer. They append; they never replace anything.
+
+**The kind picker finally says what a kind means.** Choosing `problem` has always put "Fix: …" on the roadmap and `risk` has always put "Mitigate: …", and until now that was written down only in the source. A rule you cannot see is a rule you cannot argue with.
+
+**Decide opens with what the board cannot defend** — unresolved contradictions first, then problems with nothing behind them, wish lists, and cards that never reached the backlog. Each line names the rule that produced it, and none of it blocks anything.
+
+---
+
 ## v0.226.0 — The research engine gets a button
 
 v0.225.0 shipped the modules. This makes them run.

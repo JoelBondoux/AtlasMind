@@ -148,26 +148,41 @@ describe('a webview shortcut is not silently swallowed by its own allowlist', ()
   });
 });
 
-describe('the ideation workspace guide sits above the canvas it describes', () => {
+describe('the ideation stage bar is the guide, not a description of one', () => {
   /**
-   * It used to render last — below the composer, inspector, feedback and
-   * analytics — so the explanation of the staged workflow was the final thing
-   * reached by somebody who had already had to work the board out unaided.
+   * The guide has been relocated twice — to the bottom in v0.119.0, back above
+   * the canvas in v0.212.1 — on the theory that placement was the problem. It
+   * was not. A guide that has to explain the layout is a symptom of the layout,
+   * and four cards describing an order the interface did not impose were only
+   * ever going to be read once.
    */
-  it('renders the process guide immediately before the board', () => {
+  it('renders the stage bar between the board and the stage it selects', () => {
     const source = read('media/projectIdeation.js');
     const order = [...source.matchAll(/'<section class="(ideation-[a-z-]+)"/g)].map(match => match[1]!);
-    const guide = order.indexOf('ideation-process-section');
     const board = order.indexOf('ideation-main-grid');
-    expect(guide, 'process section not rendered').toBeGreaterThan(-1);
+    const bar = order.indexOf('ideation-mode-section');
+    const stage = order.indexOf('ideation-stage-section');
     expect(board, 'board section not rendered').toBeGreaterThan(-1);
-    expect(guide, 'the guide must come before the canvas').toBeLessThan(board);
-    expect(board - guide, 'the guide must sit immediately above the canvas').toBe(1);
+    expect(bar, 'stage bar not rendered').toBeGreaterThan(-1);
+    expect(stage, 'stage section not rendered').toBeGreaterThan(-1);
+    // The board still leads; the bar sits directly above the thing it switches.
+    expect(board).toBeLessThan(bar);
+    expect(stage - bar, 'the bar must sit immediately above the stage it selects').toBe(1);
   });
 
-  it('still opens itself only on an empty board', () => {
-    // Auto-opening on a populated board would push the canvas down the page
-    // every time; on an empty one, reading it first is the useful order.
-    expect(read('media/projectIdeation.js')).toContain("(boardIsEmpty ? ' open' : '')");
+  it('has no collapsible guide panel left to relocate', () => {
+    const source = read('media/projectIdeation.js');
+    expect(source).not.toContain('ideation-process-details');
+    expect(source).not.toContain("(boardIsEmpty ? ' open' : '')");
+  });
+
+  it('makes every stage a control, and reports where the board actually is', () => {
+    const source = read('media/projectIdeation.js');
+    for (const mode of ['frame', 'scaffold', 'shape', 'decide']) {
+      expect(source, `${mode} is not a stage`).toContain(`id: '${mode}'`);
+    }
+    // The status dot describes the board, not the tab you happen to be reading,
+    // so the bar stays honest while you look ahead.
+    expect(source).toContain('function deriveModeStatus(');
   });
 });

@@ -15,6 +15,38 @@ Research scans are the missing way in.
 
 ## The board
 
+### One stage at a time
+
+The workspace runs in four stages, and the bar above them is the guide — not a description of one.
+
+| Stage | What you do |
+|---|---|
+| **1. Frame** | Describe the problem, set constraints, attach what you already have. Starter frames appear here while the board is empty. |
+| **2. Scaffold** | Let Atlas turn the frame into cards and relationships, then read what it proposed. |
+| **3. Shape** | Edit cards, connect them, and challenge what the board is claiming. |
+| **4. Decide** | Read what the board can and cannot defend, then raise the work. |
+
+Only the stage you pick renders. The board itself stays above all four, because three versions of
+this layout have been spent learning that the whiteboard is the point of the panel.
+
+The status on each button describes **where the board is**, not which stage you happen to be
+reading — so the bar stays an honest summary while you look ahead. And which stage opens is derived
+rather than remembered: an empty board opens on Frame, a populated one on Shape.
+
+### What a card kind commits to
+
+The kind you choose decides how the card reads once it reaches the roadmap, and the picker now says
+so:
+
+| Kind | On the roadmap |
+|---|---|
+| `problem` | **Fix: …** — the work is the fix, not the problem |
+| `risk` | **Mitigate: …** — the work is the mitigation |
+| `experiment` | **Trial: …** — a question to answer, not a decision already taken |
+| `idea`, `requirement` | The title, unchanged. Putting an idea on the roadmap *is* the commitment |
+| `evidence`, `user-insight` | Can be raised, but earn more as support: link them and they travel with the card into the issue |
+| `atlas-response`, `attachment` | Not work. Make a card for what you want done and link this one to it |
+
 ### Starter frames
 
 An empty board is the hardest screen in AtlasMind: everything else opens onto something — a

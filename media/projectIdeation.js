@@ -33,6 +33,15 @@
     /** Pills for a facilitation pass that ended in a question; null when none. */
     quickReplies: null,
     expandedAnalyticsIssueId: '',
+    /**
+     * Which stage of the workspace is on screen.
+     *
+     * Empty means "not chosen yet", and the renderer picks from the board's
+     * own state — an empty board opens on Frame, a populated one on Shape.
+     * Storing the resolved value instead would freeze a first-time user on
+     * Frame forever after their first card.
+     */
+    mode: '',
     boardLens: 'default',
     relationFilter: 'all',
     linkPathMode: 'angular',
@@ -115,6 +124,15 @@
     }
     if (action === 'file') {
       vscode.postMessage({ type: 'openFile', payload });
+      return;
+    }
+    if (action === 'ideation-mode') {
+      state.mode = payload;
+      render();
+      return;
+    }
+    if (action === 'ideation-seed-template') {
+      vscode.postMessage({ type: 'seedBoardTemplate', payload });
       return;
     }
     if (action === 'ideation-create-workspace') {
@@ -628,7 +646,15 @@
       // guide moved to the end, collapsed unless the board is still empty.
       const activeCardCount = snapshot.cards.filter(card => !card.archivedAt).length;
       const boardIsEmpty = activeCardCount === 0;
+      const mode = resolveMode(snapshot, boardIsEmpty);
 
+      // The board still leads — it is the point of this panel, and three
+      // versions of this layout have been spent learning that. What changed is
+      // everything *below* it: five sections used to be on screen at once while
+      // a four-card guide explained the order they were meant to be used in.
+      // A guide that has to explain the layout is the definition of an
+      // unintuitive layout, so the guide became the navigation and only the
+      // stage you picked is rendered.
       root.innerHTML = '' +
         '<div class="ideation-workspace ' + (state.canvasFullscreen ? 'ideation-workspace-canvas-focus' : '') + '">' +
           '<section class="ideation-stat-strip"' + tooltipAttrs('Ideation is a staged workflow: frame the problem, let Atlas scaffold the board, shape the board with cards and links, then decide what to validate or send into execution.') + '>' +
@@ -636,30 +662,14 @@
             renderStat('Runs', String(snapshot.runs.length), 'Auditable ideation evolutions captured so far.', 'accent') +
             renderStat('Queued media', String(snapshot.promptAttachments.length), 'Files, images, and links waiting for the next Atlas pass.', snapshot.promptAttachments.length > 0 ? 'good' : 'accent') +
           '</section>' +
-          // Directly above the Canvas it describes. It used to sit at the very
-          // bottom, below the composer, inspector, feedback and analytics — so
-          // the explanation of the staged workflow was the last thing reached by
-          // somebody who had already had to work the board out for themselves.
-          // It still auto-opens only on an empty board, which is exactly when
-          // reading it first is the useful order.
-          '<section class="ideation-process-section">' +
-            '<details class="ideation-process-details"' + (boardIsEmpty ? ' open' : '') + '>' +
-              '<summary>How this workspace works' + (boardIsEmpty ? '' : ' — staged workflow') + '</summary>' +
-              renderProcessGuide(snapshot) +
-            '</details>' +
-          '</section>' +
           '<section class="ideation-main-grid">' +
             renderBoard(snapshot) +
           '</section>' +
-          '<section class="ideation-composer-section">' +
-            renderComposer(snapshot) +
+          '<section class="ideation-mode-section">' +
+            renderModeBar(snapshot, mode, boardIsEmpty) +
           '</section>' +
-          '<section class="ideation-lower-grid">' +
-            renderInspector(snapshot, selectedCard, selectedLink) +
-            renderFeedback(snapshot) +
-          '</section>' +
-          '<section class="ideation-analytics-section">' +
-            renderAnalytics(snapshot) +
+          '<section class="ideation-stage-section">' +
+            renderStage(snapshot, mode, boardIsEmpty, selectedCard, selectedLink) +
           '</section>' +
         '</div>';
       wireDropzones();
@@ -670,6 +680,185 @@
     } catch (error) {
       renderError(error instanceof Error ? error.message : String(error));
     }
+  }
+
+  /** The four stages, in the order the work actually happens. */
+  const IDEATION_MODES = [
+    {
+      id: 'frame',
+      label: '1. Frame',
+      blurb: 'Describe the problem, set constraints, attach what you already have.',
+    },
+    {
+      id: 'scaffold',
+      label: '2. Scaffold',
+      blurb: 'Let Atlas turn the frame into cards and relationships, then read what it proposed.',
+    },
+    {
+      id: 'shape',
+      label: '3. Shape',
+      blurb: 'Edit cards, connect them, and challenge what the board is claiming.',
+    },
+    {
+      id: 'decide',
+      label: '4. Decide',
+      blurb: 'Read what the board can and cannot defend, then raise the work.',
+    },
+  ];
+
+  /**
+   * Which stage to show.
+   *
+   * Derived when the user has not picked one, because the useful default differs:
+   * an empty board opens on Frame, where the only thing to do is describe the
+   * problem, and a populated one opens on Shape, where the cards are. Storing
+   * the resolved value in `state.mode` would freeze a first-time user on Frame
+   * the moment their board stopped being empty.
+   */
+  function resolveMode(snapshot, boardIsEmpty) {
+    if (IDEATION_MODES.some(entry => entry.id === state.mode)) {
+      return state.mode;
+    }
+    return boardIsEmpty ? 'frame' : 'shape';
+  }
+
+  /**
+   * The stage bar — which is the old four-card process guide, made load-bearing.
+   *
+   * It used to describe an order the interface did not impose, and it had been
+   * moved twice on the theory that placement was the problem. It was not: a
+   * guide explaining a layout is a symptom of the layout. Every card is now a
+   * button that changes what is on screen, and the status dot still reports
+   * where the board actually is rather than where you happen to be looking.
+   */
+  function renderModeBar(snapshot, mode, boardIsEmpty) {
+    const status = deriveModeStatus(snapshot, boardIsEmpty);
+    return '' +
+      '<nav class="ideation-mode-bar" aria-label="Ideation stage">' +
+        IDEATION_MODES.map(entry => {
+          const state_ = status[entry.id];
+          return '<button type="button" class="ideation-mode-button ideation-mode-' + state_.tone +
+            (entry.id === mode ? ' is-active' : '') + '" data-action="ideation-mode" data-payload="' + escapeAttr(entry.id) + '"' +
+            ' aria-current="' + (entry.id === mode ? 'step' : 'false') + '"' + tooltipAttrs(entry.blurb) + '>' +
+              '<span class="ideation-mode-label">' + escapeHtml(entry.label) + '</span>' +
+              '<span class="tag ' + state_.tag + '">' + escapeHtml(state_.label) + '</span>' +
+            '</button>';
+        }).join('') +
+      '</nav>' +
+      '<p class="section-copy ideation-mode-blurb">' +
+        escapeHtml((IDEATION_MODES.find(entry => entry.id === mode) || IDEATION_MODES[0]).blurb) +
+      '</p>';
+  }
+
+  /**
+   * Where the *board* is, which is not the same as which tab is open.
+   *
+   * Reported from what exists rather than from what has been clicked, so the bar
+   * stays an honest description of the board even while you are reading a stage
+   * you have not reached yet.
+   */
+  function deriveModeStatus(snapshot, boardIsEmpty) {
+    const hasRuns = snapshot.runs.length > 0;
+    const hasLinks = snapshot.connections.length > 0;
+    const readiness = snapshot.readiness;
+    const canDecide = Boolean(readiness) && readiness.state !== 'unexamined';
+    return {
+      frame: getProcessStageStatus(boardIsEmpty && !hasRuns ? 'active' : 'done'),
+      scaffold: getProcessStageStatus(hasRuns ? 'done' : (boardIsEmpty ? 'pending' : 'active')),
+      shape: getProcessStageStatus(hasLinks ? 'done' : (boardIsEmpty ? 'pending' : 'active')),
+      decide: getProcessStageStatus(canDecide ? 'active' : 'pending'),
+    };
+  }
+
+  /** Only the stage that was asked for. That is the whole change. */
+  function renderStage(snapshot, mode, boardIsEmpty, selectedCard, selectedLink) {
+    if (mode === 'frame') {
+      return (boardIsEmpty ? renderStarterFrames(snapshot) : '') + renderComposer(snapshot);
+    }
+    if (mode === 'scaffold') {
+      return renderComposer(snapshot) + renderFeedback(snapshot);
+    }
+    if (mode === 'decide') {
+      return renderReadiness(snapshot) + renderInspector(snapshot, selectedCard, selectedLink) + renderAnalytics(snapshot);
+    }
+    return renderInspector(snapshot, selectedCard, selectedLink) + renderAnalytics(snapshot);
+  }
+
+  /**
+   * Starter frames, on an empty board only.
+   *
+   * The frames are additive — they append cards and never replace any — but they
+   * are still only offered here, because a picker that could touch a board with
+   * work on it is a picker somebody eventually clicks by accident.
+   */
+  function renderStarterFrames(snapshot) {
+    const templates = snapshot.templates || [];
+    if (templates.length === 0) {
+      return '';
+    }
+    return '' +
+      '<article class="ideation-panel ideation-templates-panel">' +
+        '<div class="row-head">' +
+          '<div>' +
+            '<p class="section-kicker">Empty board</p>' +
+            '<h3>Start from a frame</h3>' +
+          '</div>' +
+          '<span class="tag"' + tooltipAttrs('Derived from what this project looks like, not generated by a model. Every seeded card is a question to answer, never an answer.') + '>Suggested for this project</span>' +
+        '</div>' +
+        '<p class="section-copy">Each frame drops in a handful of cards, already linked. They are <strong>questions</strong>, not answers — replace the ones that apply, delete the ones that do not.</p>' +
+        '<div class="ideation-template-grid">' +
+          templates.map(template =>
+            '<button type="button" class="ideation-template-card" data-action="ideation-seed-template" data-payload="' + escapeAttr(template.id) + '">' +
+              '<strong>' + escapeHtml(template.label) + '</strong>' +
+              '<span class="section-copy">' + escapeHtml(template.whenToUse) + '</span>' +
+              '<span class="ideation-template-meta">' + template.cardCount + ' cards' +
+                (template.suggestedBecause ? ' · ' + escapeHtml(template.suggestedBecause) : '') +
+              '</span>' +
+            '</button>').join('') +
+        '</div>' +
+      '</article>';
+  }
+
+  /**
+   * What the board can and cannot defend.
+   *
+   * A reading, never a gate. Nothing here stops you raising work — a release
+   * gate exists because a release cannot be undone, and a board can always be
+   * edited, so a gate would be theatre with a cost. Every line carries the
+   * declared rule that produced it, so a verdict can be argued with rather than
+   * only trusted or ignored.
+   */
+  function renderReadiness(snapshot) {
+    const readiness = snapshot.readiness;
+    if (!readiness) {
+      return '';
+    }
+    const toneTag = { blocking: 'tag-bad', weak: 'tag-warn', good: 'tag-good', unassessed: '' };
+    return '' +
+      '<article class="ideation-panel ideation-readiness-panel">' +
+        '<div class="row-head">' +
+          '<div>' +
+            '<p class="section-kicker">Before you raise it</p>' +
+            '<h3>What this board can defend</h3>' +
+          '</div>' +
+          '<span class="tag ' + (readiness.state === 'argued' ? 'tag-good' : readiness.state === 'unexamined' ? '' : 'tag-warn') + '"' +
+            tooltipAttrs('A reading, not a gate. Nothing here blocks raising work — a board can always be edited, so a gate would cost more than it protects.') + '>' +
+            escapeHtml(readiness.summary) + '</span>' +
+        '</div>' +
+        (readiness.observations.length === 0
+          ? '<p class="section-copy">Nothing to report.</p>'
+          : '<ul class="ideation-readiness-list">' +
+            readiness.observations.map(observation =>
+              '<li class="ideation-readiness-item ideation-readiness-' + escapeAttr(observation.tone) + '">' +
+                '<div class="row-head">' +
+                  '<strong>' + escapeHtml(observation.label) + '</strong>' +
+                  '<span class="tag ' + (toneTag[observation.tone] || '') + '">' + escapeHtml(observation.tone) + '</span>' +
+                '</div>' +
+                '<p class="section-copy">' + escapeHtml(observation.detail) + '</p>' +
+                '<p class="ideation-readiness-rule">Rule: ' + escapeHtml(observation.rule) + '</p>' +
+              '</li>').join('') +
+            '</ul>') +
+      '</article>';
   }
 
   function renderComposer(snapshot) {
@@ -870,6 +1059,41 @@
       '</div>';
   }
 
+  /**
+   * What choosing this kind commits the card to downstream.
+   *
+   * `KIND_PREFIX` in `ideationDerivation.ts` has always decided that a `problem`
+   * becomes "Fix: …" on the roadmap and a `risk` becomes "Mitigate: …", with a
+   * careful argument in the module header for why — and none of it ever reached
+   * the person choosing the kind. A rule you cannot see is a rule you cannot
+   * argue with, which is the same reason the debt register publishes its table.
+   *
+   * Kept in step with that module by hand and by test: the strings differ, but
+   * the *set* of kinds that gain a prefix must not.
+   */
+  function describeKindConsequence(kind) {
+    switch (kind) {
+      case 'problem':
+        return 'Raised as work, this becomes “Fix: …” on the roadmap — the work is the fix, not the problem.';
+      case 'risk':
+        return 'Raised as work, this becomes “Mitigate: …” — the work is the mitigation.';
+      case 'experiment':
+        return 'Raised as work, this becomes “Trial: …” — a question to answer, not a decision already taken.';
+      case 'idea':
+        return 'Raised as work, the title goes on the roadmap unchanged. Putting an idea there *is* the commitment.';
+      case 'requirement':
+        return 'Raised as work, the title goes on the roadmap unchanged.';
+      case 'user-insight':
+      case 'evidence':
+        return 'Can be raised as work, but earns more as support: link it to a problem or an idea and it travels with them into the issue.';
+      case 'atlas-response':
+      case 'attachment':
+        return 'Not work in itself. Make a card for what you want done and link this one to it.';
+      default:
+        return '';
+    }
+  }
+
   function renderInspector(snapshot, selectedCard, selectedLink) {
     if (selectedLink) {
       const fromCard = snapshot.cards.find(card => card.id === selectedLink.fromCardId);
@@ -945,6 +1169,7 @@
               ['idea', 'problem', 'experiment', 'user-insight', 'risk', 'requirement', 'evidence', 'atlas-response', 'attachment']
                 .map(kind => '<option value="' + kind + '" ' + (selectedCard.kind === kind ? 'selected' : '') + '>' + escapeHtml(kind) + '</option>').join('') +
             '</select>' +
+            '<p class="ideation-kind-consequence">' + escapeHtml(describeKindConsequence(selectedCard.kind)) + '</p>' +
             '<div class="ideation-validation-block">' + renderCardTemplate(selectedCard) + renderValidationWarnings(selectedCard) + '</div>' +
             '<label class="section-kicker" for="ideationColorInput">Color</label>' +
             '<select id="ideationColorInput">' +
@@ -1492,59 +1717,6 @@
         ? '<div class="ideation-chip-row">' + inference.items.map(item => '<span class="tag"' + tooltipAttrs('Atlas is likely to scaffold this board facet from the current prompt before it adds deeper facilitation output.') + '>' + escapeHtml(item) + '</span>').join('') + '</div>'
         : '<div class="stat-detail">Type a sharper prompt and Atlas will preview which board facets it is likely to scaffold, update, or reconnect.</div>') +
       (inference.detail ? '<div class="stat-detail" style="margin-top:8px">' + escapeHtml(inference.detail) + '</div>' : '');
-  }
-
-  function renderProcessGuide(snapshot) {
-    const activeCards = snapshot.cards.filter(card => !card.archivedAt).length;
-    const hasRuns = snapshot.runs.length > 0;
-    const hasLinks = snapshot.connections.length > 0;
-    const readyForRun = snapshot.cards.some(card => !card.archivedAt && (card.kind === 'experiment' || card.kind === 'requirement' || card.kind === 'risk'));
-    const stages = [
-      {
-        title: '1. Frame the problem',
-        status: getProcessStageStatus(activeCards === 0 && !hasRuns ? 'active' : 'done'),
-        summary: activeCards === 0 ? 'Start with a prompt, constraints, and any evidence you already have.' : 'A problem frame exists and can be refined further.',
-        tooltip: 'Begin by describing the idea, comparison, or problem in the composer. Add constraints and attachments so Atlas starts from a real frame instead of a blank abstraction.',
-      },
-      {
-        title: '2. Let Atlas scaffold',
-        status: getProcessStageStatus(activeCards > 0 && !hasRuns ? 'active' : (hasRuns ? 'done' : 'pending')),
-        summary: hasRuns ? 'Atlas has already scaffolded or evolved this board.' : 'Run the composer to let Atlas create or reshape the board structure.',
-        tooltip: 'Atlas turns the prompt into initial cards, relationships, and follow-up prompts. This is the first pass where raw text becomes board structure.',
-      },
-      {
-        title: '3. Shape and challenge the board',
-        status: getProcessStageStatus(hasLinks || snapshot.nextCards.length > 0 ? 'active' : (hasRuns ? 'pending' : 'pending')),
-        summary: hasLinks ? 'Cards are being connected and challenged.' : 'Use links, Next Cards, and Deep Analysis to fill gaps and clarify the idea.',
-        tooltip: 'This is where you edit cards, add relationships, use Next Cards, and run deep analysis so the board stops being a loose brainstorm and becomes an intentional map.',
-      },
-      {
-        title: '4. Decide what to validate or run',
-        status: getProcessStageStatus(readyForRun ? 'active' : 'pending'),
-        summary: readyForRun ? 'The board has enough structure to validate or send focused cards into Project Run Center.' : 'Add experiments, risks, or requirements before handing the idea off to execution.',
-        tooltip: 'When the board has a clear experiment path, explicit constraints, and known risks, you can promote a card into Project Run Center or keep iterating.',
-      },
-    ];
-
-    return '' +
-      '<article class="ideation-panel ideation-process-panel">' +
-        '<div class="row-head">' +
-          '<div>' +
-            '<p class="section-kicker">Guided flow</p>' +
-            '<h3>How this ideation phase works</h3>' +
-          '</div>' +
-          '<span class="tag"' + tooltipAttrs('This guide explains the intended order of operations so first-time users understand what the ideation phase is trying to achieve.') + '>Staged workflow</span>' +
-        '</div>' +
-        '<div class="ideation-process-grid">' + stages.map(stage =>
-          '<div class="ideation-process-card ideation-process-' + stage.status.tone + '"' + tooltipAttrs(stage.tooltip, true) + '>' +
-            '<div class="row-head">' +
-              '<strong>' + escapeHtml(stage.title) + '</strong>' +
-              '<span class="tag ' + stage.status.tag + '">' + escapeHtml(stage.status.label) + '</span>' +
-            '</div>' +
-            '<p class="section-copy">' + escapeHtml(stage.summary) + '</p>' +
-          '</div>'
-        ).join('') + '</div>' +
-      '</article>';
   }
 
   function getProcessStageStatus(kind) {
