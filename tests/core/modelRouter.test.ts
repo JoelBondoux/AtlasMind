@@ -1280,6 +1280,88 @@ describe('model-scoped subscription quotas — one provider, several plans', () 
     expect(router.subscriptionQuotaForModel('acp/codex')?.remainingRequests).toBe(150);
   });
 
+  it('bills every variant of a model against the same plan', () => {
+    // Both separators name a choice *inside* one subscription: `#high` is an
+    // effort, `@opus` is a model on the same plan. Stripping only `#` was enough
+    // until model variants existed, and the failure afterwards is silent in the
+    // direction that costs money — ACP quotas are model-scoped, so an unstripped
+    // `@opus` finds no plan, falls through to a provider-level quota ACP
+    // deliberately does not have, and the turn looks unmetered.
+    const router = acpRouter();
+    router.setModelSubscriptionQuota('acp/claude', claudeMax);
+
+    for (const id of ['acp/claude', 'acp/claude#high', 'acp/claude@opus', 'acp/claude@opus#high']) {
+      expect(router.subscriptionQuotaForModel(id)?.totalRequests, id).toBe(900);
+    }
+  });
+
+  it('decrements the plan a model-variant turn was actually billed to', () => {
+    const router = acpRouter();
+    router.setModelSubscriptionQuota('acp/claude', claudeMax);
+    router.setModelSubscriptionQuota('acp/codex', chatgptPlus);
+
+    const spent = router.consumeSubscriptionUnits('acp/claude@opus#high', 1);
+
+    // Spent under the base id — the plan's own key — not under the variant.
+    expect(spent).toEqual({ scope: 'acp/claude', remainingRequests: 899, totalRequests: 900 });
+    expect(router.subscriptionQuotaForModel('acp/claude@opus')?.remainingRequests).toBe(899);
+    expect(router.subscriptionQuotaForModel('acp/codex')?.remainingRequests).toBe(150);
+  });
+
+  it('stops treating a variant as free once its plan is spent', () => {
+    // The consequence that made this worth finding: an exhausted plan kept
+    // earning the "already paid for" preference on every model variant.
+    const router = acpRouter();
+    router.setModelSubscriptionQuota('acp/claude', { ...claudeMax, remainingRequests: 0 });
+
+    expect(router.subscriptionQuotaForModel('acp/claude@opus#high')?.remainingRequests).toBe(0);
+  });
+
+  it('leaves an id with neither separator alone', () => {
+    const router = acpRouter();
+    router.setModelSubscriptionQuota('acp/codex', chatgptPlus);
+    expect(router.subscriptionQuotaForModel('acp/codex')?.totalRequests).toBe(150);
+    expect(router.subscriptionQuotaForModel('acp/unknown')).toBeUndefined();
+  });
+
+  it('advances subscription capacity over pay-per-token, ACP included', () => {
+    // The question this answers: is an ACP plan weighed the way Copilot and
+    // Claude CLI are? Both preference paths key on `pricingModel`, never on a
+    // provider id — so the equivalence holds by construction, and this pins it
+    // against someone later reaching for a provider allowlist.
+    const router = new ModelRouter();
+    router.registerProvider({
+      id: 'openai', displayName: 'OpenAI', enabled: true, pricingModel: 'pay-per-token',
+      models: [{ id: 'openai/gpt', provider: 'openai', name: 'GPT', contextWindow: 200000, inputPricePer1k: 0.005, outputPricePer1k: 0.015, capabilities: ['chat'], enabled: true }],
+    });
+    for (const id of ['acp', 'copilot']) {
+      router.registerProvider({
+        id, displayName: id, enabled: true, pricingModel: 'subscription',
+        models: [{ id: `${id}/agent`, provider: id, name: id, contextWindow: 200000, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat'], enabled: true }],
+      });
+    }
+
+    // On a maintenance turn the gap is widest: subscription earns a bonus while
+    // pay-per-token takes a penalty, so background housekeeping never burns
+    // metered tokens.
+    const maintenance: TaskProfile = {
+      phase: 'maintenance', modality: 'text', reasoning: 'low', requiresTools: false,
+      requiredCapabilities: [], preferredCapabilities: [],
+    };
+    expect(router.selectModel({ budget: 'balanced', speed: 'balanced' }, undefined, maintenance))
+      .not.toBe('openai/gpt');
+
+    // And an ACP plan is not second-class behind Copilot: with the same shape,
+    // neither loses to the metered model, and swapping which one is offered
+    // changes nothing.
+    for (const subscription of ['acp/agent', 'copilot/agent']) {
+      expect(
+        router.selectModel({ budget: 'balanced', speed: 'balanced' }, [subscription, 'openai/gpt'], maintenance),
+        subscription,
+      ).toBe(subscription);
+    }
+  });
+
   it('falls back to the provider plan for providers that front exactly one', () => {
     // Copilot must keep the behaviour it has: no scoped quota, so the provider's
     // is the answer, and consuming spends it under the provider id.

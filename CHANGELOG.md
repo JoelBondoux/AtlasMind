@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.218.1] - 2026-07-30
+
+### Fixed
+- **An ACP model variant was billed against no plan at all.** ACP subscription quotas are *model-scoped* — one `acp` provider fronts several unrelated plans, so a Claude Max entry sits on `acp/claude` — and `baseModelIdOf` stripped only the `#effort` suffix. The `@model` segment added in v0.218.0 therefore left `acp/claude@opus#high` resolving to `acp/claude@opus`, which no plan is keyed on, so the lookup fell through to a provider-level quota ACP deliberately does not have.
+
+  The failure was silent in the direction that costs money: every model-variant turn looked like an *unmetered* plan. The "already paid for" preference kept applying after the quota was spent, and nothing decremented the plan those turns were actually billed to — so a Claude Max allowance could be consumed without the remaining count ever moving. Both variant separators now strip, since each names a choice *inside* one subscription rather than a different subscription.
+
+### Notes
+- Confirmed and pinned: **ACP subscription capacity is weighed exactly as Copilot and Claude CLI are.** Both preference paths — the general `ACTIVE_SUBSCRIPTION_BONUS` and the larger maintenance-phase bonus, which pairs with a penalty for pay-per-token — key on the provider's `pricingModel`, never on a provider id list, so the equivalence holds by construction rather than by enumeration. A test now asserts it against someone later reaching for an allowlist. The prompt-caching provider lists are not a gap: they discount *metered* input pricing, which a zero-priced subscription does not have.
+
 ## [0.218.0] - 2026-07-30
 
 ### Added

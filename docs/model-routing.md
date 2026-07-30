@@ -327,6 +327,19 @@ Two different things are reported, and conflating them made every ACP completion
 
 Because ACP models are subscription-backed, they are priced at zero per token; the router's subscription handling, not the adapter, is what stops that from winning budget mode by default. Which subscription is a per-model question — see [Scope: one provider can front several plans](#scope-one-provider-can-front-several-plans).
 
+### Subscription capacity is advanced over metered tokens
+
+Subscription providers — Copilot, Claude CLI and ACP alike — are preferred over pay-per-token for ordinary work, because the capacity is already bought. Two scores do it, and **both key on the provider's `pricingModel`, never on a list of provider ids**, so a new subscription provider inherits the behaviour without being enumerated anywhere:
+
+- `ACTIVE_SUBSCRIPTION_BONUS` (+0.3) on every turn where the plan has quota left. Modest by design: it breaks ties toward the subscription without overriding a capability need, and it vanishes once the quota is spent, at which point the provider is effectively pay-per-token.
+- On **maintenance** turns the gap widens — a subscription bonus paired with a penalty for pay-per-token — so background housekeeping never burns metered tokens.
+
+Prompt-caching discounts are keyed per provider and ACP is absent from those lists, which is correct rather than an omission: they reduce *metered* input pricing, and a subscription model is priced at zero per token.
+
+**Quota scope is where this gets subtle.** Every other subscription provider is one provider in front of one plan, so a provider-level quota is right. ACP is not: `acp` fronts several unrelated subscriptions, so its quotas are **model-scoped** — the Claude Max entry sits on `acp/claude`, the ChatGPT one on `acp/codex`. `subscriptionQuotaForModel` resolves scoped first, then the base id, then the provider.
+
+That base-id step is load-bearing. Both variant separators name a choice *inside* one subscription — `#high` is an effort, `@opus` is a model on the same plan — so `acp/claude@opus#high` must resolve to the `acp/claude` plan. When it did not (v0.218.0, fixed in v0.218.1), the failure was silent and expensive: the lookup fell through to a provider-level quota ACP does not have, so every variant turn looked unmetered — the preference bonus kept applying past exhaustion and nothing decremented the plan being billed.
+
 ### Which model, not just how hard it thinks
 
 The same `configOptions` array carries a `model` category, and it was being parsed and discarded. `codex-acp` offers `gpt-5.6-luna` / `gpt-5.6-terra` / `gpt-5.6-sol`; `claude-agent-acp` offers `opus[1m]` / `sonnet` / `haiku` / … . So a plan presented to the router as one model at N effort levels when it is really M models at N effort levels, and the orchestrator could never send a throwaway rename to the light model and a refactor to the deep one.

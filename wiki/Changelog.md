@@ -6,6 +6,16 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.218.1 — Every variant bills the plan it actually used
+
+ACP subscription quotas are *model-scoped*: one `acp` provider fronts several unrelated plans, so your Claude Max entry sits on `acp/claude`. The plan lookup stripped only the `#effort` suffix, so the `@model` segment introduced in v0.218.0 left `acp/claude@opus#high` resolving to a key no plan is stored under — and it fell through to a provider-level quota ACP deliberately does not have.
+
+Silent, and in the direction that costs money: every model-variant turn looked like an *unmetered* plan. The "already paid for" preference kept applying after the quota was spent, and nothing decremented the plan those turns were billed to. Both separators now strip, because each names a choice *inside* one subscription rather than a different one.
+
+**Also confirmed:** an ACP plan is weighed exactly as Copilot and Claude CLI are. Subscription capacity is advanced over pay-per-token by a general preference, and by a larger one on maintenance turns that pairs with a penalty for metered models — both keyed on the provider's pricing model rather than a list of provider names, so the equivalence holds by construction. A test now pins it.
+
+---
+
 ## v0.218.0 — The models inside a subscription
 
 The same session response that advertises effort also advertises the plan's *models* — Opus, Sonnet, Haiku on Claude; Luna, Terra, Sol on ChatGPT — and AtlasMind was discarding that half. Each is now a routed model, and the two knobs compose: `acp/claude@opus#high`. The orchestrator can send a throwaway rename to the light model and a refactor to the deep one, inside the plan you already pay for.

@@ -1409,7 +1409,27 @@ function getReasoningDepth(model: ModelInfo): number {
  * variant. The separator is declared in `acpEffort.ts`; it is inlined here
  * rather than imported because the router must not depend on a provider module.
  */
+/**
+ * The model id a variant is billed against.
+ *
+ * AtlasMind has two variant separators, and **both name a choice inside one
+ * subscription rather than a different subscription**: `#high` is an effort
+ * (`acpEffort.ts`, `ACP_VARIANT_SEPARATOR`) and `@opus` is a model within the
+ * same plan (`acpModels.ts`, `ACP_MODEL_SEPARATOR`). `acp/claude@opus#high` is
+ * therefore billed against the same Claude plan as `acp/claude`.
+ *
+ * Stripping only `#` was enough until model variants existed, and the failure it
+ * caused afterwards is silent in the direction that costs money: ACP quotas are
+ * *model-scoped* (the user's Claude Max entry sits on `acp/claude`, because one
+ * `acp` provider fronts several unrelated plans), so an unstripped `@opus` found
+ * no quota, fell through to a provider-level quota ACP deliberately does not
+ * have, and every model-variant turn then looked like an unmetered plan — the
+ * preference bonus kept applying after the quota was spent, and nothing
+ * decremented the plan those turns were actually billed to.
+ *
+ * The earliest separator wins, so order between them never matters.
+ */
 function baseModelIdOf(modelId: string): string {
-  const index = modelId.indexOf('#');
-  return index < 0 ? modelId : modelId.slice(0, index);
+  const cuts = [modelId.indexOf('@'), modelId.indexOf('#')].filter(index => index >= 0);
+  return cuts.length === 0 ? modelId : modelId.slice(0, Math.min(...cuts));
 }

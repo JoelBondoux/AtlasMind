@@ -126,6 +126,12 @@ AtlasMind opens a real session instead. The reserved ACP error `-32000` means a 
 
 ACP models are priced at zero per token because the subscription already paid. The router's subscription handling, not the adapter, is what keeps that from automatically winning budget mode.
 
+### Subscription capacity comes first
+
+Capacity you have already paid for is preferred over metered tokens — Copilot, Claude CLI and ACP are treated identically, because the preference keys on *how a provider is priced*, not on its name. There is a general nudge on every turn while quota remains, and a bigger one on background maintenance work (paired with a penalty for pay-per-token), so housekeeping never spends metered tokens. Once a plan's quota is exhausted the nudge disappears and the provider is treated as pay-per-token, which is what it has become.
+
+One thing worth knowing if you run more than one plan through ACP: your quotas are stored **per model**, not per provider, because `acp` fronts several unrelated subscriptions — your Claude plan on `acp/claude`, your ChatGPT one on `acp/codex`. Effort and model variants (`acp/claude@opus#high`) bill against the base plan, so the remaining count moves however you routed.
+
 ### The models inside the subscription
 
 Your plan is not one model. `claude-agent-acp` offers Opus, Sonnet, Haiku and whatever else your plan carries; `codex-acp` offers Luna, Terra and Sol. AtlasMind reads that list from the agent itself and turns each into a routed model, so the orchestrator can send a throwaway rename to the light one and a refactor to the deep one.
