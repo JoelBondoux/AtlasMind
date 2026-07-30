@@ -78,9 +78,21 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
+          # A *merge commit*, not a squash.
+          #
+          # Squashing rewrites develop's commits into one new commit on main, so
+          # main immediately holds a commit that is not an ancestor of develop.
+          # The next promotion then has a merge base from two releases back, and
+          # every file both branches touched since — CHANGELOG.md, package.json,
+          # README.md, wiki/Changelog.md, i.e. exactly the four every release
+          # touches — conflicts. It works once and conflicts forever after, which
+          # is what happened between 0.208.0 and 0.208.1.
+          #
+          # A merge commit keeps main an ancestor of develop, so the next
+          # promotion is a fast-forward-shaped merge with nothing to resolve.
           gh pr merge ${{ steps.pr.outputs.number }} \
             --auto \
-            --squash
+            --merge
 
       - name: Write job summary
         if: always()

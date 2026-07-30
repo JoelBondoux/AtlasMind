@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.208.2] - 2026-07-30
+
+### Fixed
+- **The release promotion conflicted with itself on every release after the first.** `release.yml` merged the `develop` → `main` pull request with `--squash`. Squashing rewrites develop's commits into one *new* commit on `main`, so `main` immediately holds a commit that is not an ancestor of `develop`. The next promotion therefore has a merge base two releases back, and every file both branches touched in between conflicts — which is precisely `CHANGELOG.md`, `package.json`, `README.md` and `wiki/Changelog.md`, the four that every single release touches.
+
+  It works once and conflicts forever afterwards. Promoting 0.208.1 hit it: nine conflicting hunks, `main` one commit ahead, `develop` fifty-nine, merge base at PR #145.
+
+  Promotion now uses `--merge`, which keeps `main` an ancestor of `develop` so the next promotion has nothing to resolve. This release also carries the back-merge that unpicks the divergence squashing already created.
+
+### Notes
+- A `workflow_dispatch` workflow must exist on the **default branch** before it can be dispatched. Since `main` here only moves by release promotion, a newly added manual workflow needs a promotion before it can be run — which is why 0.208.1 was promoted without a tag.
 ## [0.208.1] - 2026-07-30
 
 ### Added

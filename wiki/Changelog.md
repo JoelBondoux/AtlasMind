@@ -6,6 +6,11 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.208.2 — The release promotion no longer conflicts with itself
+
+`release.yml` merged the `develop` → `main` pull request with `--squash`. Squashing rewrites develop's commits into one new commit on `main`, so `main` immediately holds a commit that is not an ancestor of `develop`. Every promotion after the first then has a merge base two releases back, and every file both branches touched conflicts — which is exactly `CHANGELOG.md`, `package.json`, `README.md` and `wiki/Changelog.md`, the four that every release touches.
+
+It works once and conflicts forever after. Promotion now uses `--merge`, keeping `main` an ancestor of `develop`.
 ## v0.208.1 — Proving the publishing identity without publishing
 
 PAT authentication for the Marketplace is retired on **1 December 2026**, so AtlasMind's release path is moving to Microsoft Entra ID with workload identity federation — no secret in the repository, nothing to rotate, nothing to expire.
