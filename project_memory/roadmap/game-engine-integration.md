@@ -2,10 +2,10 @@
 
 > **Status:** Not started. **Owner:** AtlasMind core. **Created:** 2026-07-30. **Baseline:** v0.213.0.
 > This is the SSOT implementation plan. Its normative specifications are
-> [`docs/project-composition.md`](../../docs/project-composition.md) — **written, v0.213.1** — and
-> `docs/game-engine-integration.md`, which does not exist yet and is the remainder of deliverable
-> **C0.1** below. Where a specification and this file disagree, the specification wins and this file
-> is wrong.
+> [`docs/project-composition.md`](../../docs/project-composition.md) (v0.213.1) and
+> [`docs/game-engine-integration.md`](../../docs/game-engine-integration.md) (v0.213.2), both written
+> — **C0.1 is complete**. Where a specification and this file disagree, the specification wins and
+> this file is wrong.
 >
 > Nothing here overrides AtlasMind's safety-first defaults: deny-by-default, sanitize-at-boundary,
 > confirm-before-destructive-action. Build incrementally, respecting the entry criteria between phases.
@@ -250,9 +250,9 @@ unmade decision.
 
 - **C0.1a** — ✅ `docs/project-composition.md` (v0.213.1). Composition and topology rules, the
   version-control boundary, honesty rules, `WorkspaceScope` resolution, and a conformance checklist.
-- **C0.1b** — `docs/game-engine-integration.md`: engine identity rules, the persisted `game.json`
-  schema, the bridge protocol, the security boundary, and the degradation behaviour for every
-  "we cannot tell".
+- **C0.1b** — ✅ `docs/game-engine-integration.md` (v0.213.2). Engine identity and version rules, the
+  `game.json` schema, asset and log reading, the bridge protocol, the security boundary, a
+  degradation table covering every "we cannot tell", and a conformance checklist.
 - **C0.2** — Both schemas registered with `SchemaMigration` at v1 *before* anything writes a file.
   The registry is empty today; a domain document shipping without a migration entry is the exact
   scenario `interpretVersionedDocument` exists for.

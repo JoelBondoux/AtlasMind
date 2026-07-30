@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.213.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.213.2</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,15 +68,17 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.213.1
+## What's new in 0.213.2
 
 Since the last Marketplace publication, **v0.208.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
 
 - **Specified: a project can be more than one thing, in more than one place.** [project-composition.md](docs/project-composition.md) is a *specification, not a shipped feature* — nothing in this release behaves differently. It defines how AtlasMind will model a project made of several components (an engine fork, gameplay systems, shared libraries, backend services, tools, content), each with its own role, archetype and version control system, so a single-repo project becomes the simplest case rather than the assumed one.
 
-  Games force the issue, but the model is deliberately general: it serves a Shopify build (theme + app + extensions), an ML project (training, serving, data, weights), embedded work, and any product built on a forked upstream. The phased plan for Unreal, Unity and Godot on top of it is in [`project_memory/roadmap/game-engine-integration.md`](project_memory/roadmap/game-engine-integration.md).
+  Games force the issue, but the model is deliberately general: it serves a Shopify build (theme + app + extensions), an ML project (training, serving, data, weights), embedded work, and any product built on a forked upstream.
 
   The rules that matter are honesty rules. A component whose version control AtlasMind cannot read will report *not visible*, never zero — telling a Perforce studio it has "0 pending changes" is worse than telling it nothing. And non-git version control stays read-only permanently: an agent able to revert an artist's unsubmitted work is not a tool anybody will install.
+
+  [game-engine-integration.md](docs/game-engine-integration.md) specifies the engine half — Unreal, Unity and Godot identity, the bridge, and the security boundary — with a **degradation table naming what gets reported for every case where AtlasMind cannot tell**: no build log reports *no verdict* and the command to produce one, never "0 errors"; no performance capture reports *no verdict*, never a passing budget. Every companion plugin is Python, C# or GDScript, so **no compiled artifact ever ships into your engine**. The phased plan is in [`project_memory/roadmap/game-engine-integration.md`](project_memory/roadmap/game-engine-integration.md).
 
 - **The sidebar tells you what is ready to ship.** A new **Ready to ship?** section in Project State lists every promotion path — Local → Integration, Integration → Production — with whether anything declared is standing in its way. A blocked path is red and opens the section on sight; a gated one says how many gates it has; a clear one says so.
 

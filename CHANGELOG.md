@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.213.2] - 2026-07-30
+
+### Added
+- **`docs/game-engine-integration.md`** — the normative specification for the engine half, completing deliverable C0.1 alongside `project-composition.md`. Unreal, Unity and Godot identity; the `game.json` schema; asset, LFS and build-log reading; the bridge protocol; the security boundary; and a conformance checklist.
+
+  **Detection is by decisive file, and version is read rather than inferred.** Engines identify themselves by project file, not dependency manifest — `*.uproject`, `ProjectSettings/ProjectVersion.txt`, `project.godot` — and everything downstream (CLI flags, plugin APIs, report formats) is version-specific. An engine whose version cannot be read reports `unknown` and every version-dependent affordance is withheld rather than attempted with a guess. Verified at v0.213.0: neither `.uproject` nor `ProjectVersion.txt` appears anywhere in `src/`, so Unreal and Unity projects are currently detected as `generic`.
+
+  **Every engine CLI fact must sit behind a `*_VERIFIED_AT` constant**, following `ACP_SPEC_VERIFIED_AT`. An engine version outside the verified range reports "not verified against this version" and degrades — it never extrapolates. This is the only mechanism preventing the feature rotting silently as engines ship.
+
+  **The bridge is read-only by construction.** The wire format defines no command frame — not a disabled one, not a gated one; the capability is absent and a test asserts it, the way `buzzClient` asserts it never sends `EVENT`. AtlasMind hosts and the companion connects, loopback only, with an authenticated first frame or a closed connection.
+
+  **AtlasMind proposes; the engine writes.** No code path may write a `.uasset`, `.umap` or any binary engine content, at any phase, under any approval — binary content has no reviewable diff, so a confirmation dialog cannot describe what is about to change, which makes informed consent impossible rather than merely inconvenient. And no compiled artifact ships into a user's engine: the companions are Python, C# and GDScript, which is a security property and the only way the per-engine-version maintenance commitment stays keepable.
+
+  **§8 is a degradation table** naming what gets reported for every case where AtlasMind cannot tell — no build log yields "no verdict" plus the command to produce one rather than "0 errors"; a Perforce content component yields `not-visible` rather than "0 assets"; a stale companion is refused with both versions named rather than parsed best-effort. Every row is required to be covered by a test.
+
+### Notes
+- The specification withholds affordances rather than guessing in nine distinct situations. That behaviour, not the engine support itself, is what separates this from a plugin that confidently reports wrong numbers.
+
 ## [0.213.1] - 2026-07-30
 
 ### Added

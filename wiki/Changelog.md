@@ -6,6 +6,16 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.213.2 — What AtlasMind will say when it cannot tell
+
+`docs/game-engine-integration.md` specifies the engine half — Unreal, Unity and Godot identity, the `game.json` schema, asset and build-log reading, the bridge protocol and the security boundary — completing the specification work begun in v0.213.1.
+
+**Detection is by decisive file; version is read, never inferred.** Engines identify themselves by project file rather than dependency manifest, and everything downstream is version-specific, so an unreadable version reports `unknown` and withholds every version-dependent affordance instead of guessing. Every engine CLI fact must sit behind a `*_VERIFIED_AT` constant, and a version outside the verified range degrades rather than extrapolating — the only mechanism preventing this rotting silently as engines ship.
+
+**The bridge is read-only by construction.** The wire format defines no command frame at all — not a disabled one — and a test asserts it. **AtlasMind proposes; the engine writes:** no code path may write binary engine content under any approval, because binary content has no reviewable diff, so a confirmation dialog cannot describe what is about to change. No compiled artifact ships into your engine; the companions are Python, C# and GDScript.
+
+The distinguishing section is §8, a **degradation table** naming what gets reported in every case where AtlasMind cannot tell. No build log yields *no verdict* plus the command to produce one, never "0 errors". No performance capture yields *no verdict*, never a passing budget. A Perforce content component yields *not visible*, never "0 assets". Every row must be covered by a test — that behaviour, rather than the engine support itself, is what separates this from a plugin that confidently reports wrong numbers.
+
 ## v0.213.1 — A project can be more than one thing, in more than one place
 
 `docs/project-composition.md` specifies how AtlasMind models a project made of several components — an engine fork, gameplay systems, shared libraries, backend services, tools, content — each with its own role, archetype and version control system. A single-repo project becomes the *simplest* case rather than the assumed one.
