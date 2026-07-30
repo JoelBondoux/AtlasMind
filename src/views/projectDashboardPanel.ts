@@ -60,6 +60,7 @@ import {
   type AttentionFeed,
   type AttentionInput,
 } from '../core/attentionFeed.js';
+import { buildVersionStrip, type VersionStrip } from '../core/versionStrip.js';
 import {
   deriveBranchMetrics,
   deriveCiMetrics,
@@ -1495,6 +1496,16 @@ interface DashboardSnapshot {
   repositoryLabel: string;
   currentBranch: string;
   versions: DashboardVersionSnapshot;
+  /**
+   * The header's version pills, derived from the delivery pipeline.
+   *
+   * `versions` above is the older git-derived pair and still feeds the fallback
+   * for a project with no pipeline configured. Kept separate rather than
+   * replaced, because several surfaces read `versions.current.version` for the
+   * working-copy version and folding them together would make an unrelated
+   * change to all of them.
+   */
+  versionStrip: VersionStrip;
   healthScore: number;
   healthSummary: string;
   stats: DashboardStat[];
@@ -6696,6 +6707,21 @@ async function collectDashboardSnapshot(
     repositoryLabel: repoLabel,
     currentBranch: gitSnapshot.currentBranch,
     versions: versionSnapshot,
+    // Derived from the same stage views the Delivery page renders, so a stage
+    // added there appears in the header without a second definition of what a
+    // stage is — and the two surfaces cannot report different versions.
+    versionStrip: buildVersionStrip({
+      stages: stagePipeline.stages,
+      workingVersion: packageSnapshot.version,
+      workingTreeDirty: gitSnapshot.dirty,
+      currentBranch: gitSnapshot.currentBranch,
+      ...(versionSnapshot.production === undefined ? {} : {
+        production: {
+          branch: versionSnapshot.production.branch,
+          version: versionSnapshot.production.version,
+        },
+      }),
+    }),
     healthScore,
     healthSummary: buildHealthSummary({ healthScore, blockedEntries, autopilot, dirty: gitSnapshot.dirty, workflowCount: workflowSnapshot.length, outcomeScore: outcomeCompleteness.score }),
     stats,
@@ -11702,6 +11728,37 @@ const DASHBOARD_CSS = `
 
   .dashboard-version-pill-muted {
     color: var(--dash-muted);
+  }
+
+  /* The stage you are standing in. An outline rather than a fill: the strip is
+     read left-to-right as a pipeline, and a filled pill mid-row breaks it. */
+  .dashboard-version-pill-current {
+    border-color: color-mix(in srgb, var(--dash-accent-strong) 70%, var(--dash-border));
+  }
+
+  /* The working tree is the only reading taken from disk rather than from git,
+     so it is set apart from the branch pills beside it. */
+  .dashboard-version-pill-local {
+    border-style: dashed;
+  }
+
+  /* Uncommitted changes — the one condition under which the local pill can be
+     ahead of every branch in the strip. */
+  .dashboard-version-pill-dirty {
+    color: var(--dash-warn);
+    font-size: 15px;
+    line-height: 1;
+  }
+
+  .dashboard-version-pill-more {
+    cursor: pointer;
+    color: var(--dash-muted);
+    font-family: inherit;
+  }
+
+  .dashboard-version-pill-more:hover {
+    border-color: var(--dash-accent-strong);
+    color: var(--vscode-foreground);
   }
 
   .dashboard-button {

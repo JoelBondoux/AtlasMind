@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.215.0] - 2026-07-30
+
+### Changed
+- **The dashboard header shows what version is where, one pill per delivery stage.** It previously carried two: a *guessed* production branch (`detectProductionBranchRef` walks a candidate list) and whatever branch was checked out. That answers "which branch am I on?", while the project already models the real answer on the Delivery page as an ordered pipeline of stages, each naming the branch whose committed version represents it. The header ignored it — so adding a Staging stage changed nothing there, and a project with four environments still showed two pills, one of them a branch name.
+
+  The strip is now derived from the same stage views the Delivery page renders, in pipeline order, so a stage added there appears in the header without a second definition of what a stage is and the two surfaces cannot report different versions. AtlasMind's own pipeline renders as **Local · Staging `develop` · Production `main`**.
+
+  **The working tree gets a pill of its own.** It is the one reading taken from `package.json` on disk rather than from git, and therefore the only one that can be ahead of every branch — so it says `working tree` rather than borrowing a branch name, and carries a marker when the tree is dirty, which is precisely the condition under which it differs from everything else in the strip.
+
+  **A version is never invented.** A stage whose branch does not exist yet reports that instead of borrowing a plausible number — a version shown against an environment nobody has deployed to claims a deployment that never happened. The pipeline's `—` placeholder is treated as unknown rather than as a value. Pills are capped with the remainder stated and routed to the Delivery page, and a project with no pipeline configured still gets the original git-derived pair, labelled so a guessed production branch is not presented with the authority of a declared stage.
+
+- **`src/core/versionStrip.ts`** — the pure, `vscode`-free derivation, with the ordering, unknown-version and fallback rules unit-tested.
+
+### Fixed
+- The README's "since the last Marketplace publication" baseline now reads **v0.214.0**, and the list beneath it describes only what source adds over that published build. `docsIntegrity` caught the staleness the moment v0.214.0 was tagged.
+
 ## [0.214.0] - 2026-07-30
 
 ### Added

@@ -545,6 +545,22 @@ The reported list is capped, with the remainder stated. Above the cap it stops b
 
 **Storage is the caller's, and it must be per-developer.** `OBSERVED_SNAPSHOT_NOTE` states this in the module so it cannot be got wrong quietly: `project_memory/` is git-tracked on purpose, so a baseline kept there would mean "when did *anybody* last look", would appear as an uncommitted change every time the dashboard opened, and would conflict between two people looking on the same day. The dashboard keeps it in `workspaceState` beside the delivery review's `reviewedAt`, and holds the computed delta for the session — advancing the baseline on every render would empty the delta from the second render onwards, so the surface would work exactly once and then quietly report nothing forever.
 
+### VersionStrip (`src/core/versionStrip.ts`)
+
+The version pills in the Project Dashboard header. They were two, derived from git alone: a production branch found by walking a candidate list, and whatever branch happened to be checked out. That answers *which branch am I on?* — but the header is asked *what version is where*, and the project already models that on the Delivery page as an ordered pipeline of stages, each carrying a `branchRef` naming the branch whose committed version represents it. The header ignored it entirely, so adding a Staging stage changed nothing, and a project with four environments still showed two pills, one of which was a branch name.
+
+Deriving the strip from that pipeline — from the same `DashboardStageView`s the Delivery page renders, not a second collection pass — means the two surfaces cannot report different versions, and a stage declared once appears in both.
+
+Four rules, all of them about not claiming to know a version.
+
+**A stage whose branch does not exist has no version.** Not the working copy's, not `—` presented as a value: it reports that the branch has not been created. A plausible version shown against an environment nobody has deployed to claims a deployment that never happened.
+
+**The working tree is a different claim from a branch.** The local stage carries no `branchRef` by design, and its version comes from `package.json` on disk — making it the only pill that can be ahead of what is committed. It reads `working tree` rather than borrowing a branch name, and carries whether the tree is dirty, because a clean local pill that merely repeats the staging version is the one case where it adds nothing to the header.
+
+**Ordered by rank, capped, with the remainder stated.** Rank is the pipeline's own order; ties break on name so two stages at the same rank cannot swap places between renders. The overflow routes to the Delivery page rather than being dropped, since a header that silently lost the last stage would read as a project that does not have one.
+
+**Never empty, and a guess is not presented as a declaration.** A project with no pipeline configured falls back to the original git-derived pair so the header keeps working before anyone opens the Delivery page — but the strip reports `source: 'branches'` for that case, because the production branch there is found by heuristic and should not wear the same shape as a stage somebody declared.
+
 ### AttentionFeed (`src/core/attentionFeed.ts`)
 
 What needs a person, gathered from every dashboard page onto the Overview. `ObservedDelta` answers *what changed?*; this answers *what is wrong or due right now*, which the Overview previously did not answer at all — it opened with nine permanently-populated stat cards ("43% coverage", "8 workflows"), and nothing on the page distinguished a project with three failing tests and a blocked release gate from one with neither.

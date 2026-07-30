@@ -6,6 +6,18 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.215.0 — The header says what version is where
+
+The Project Dashboard header carried two pills: a *guessed* production branch and whatever branch was checked out. That answers "which branch am I on?" — while the project already models the real answer on the Delivery page, as an ordered pipeline of stages each naming the branch whose committed version represents it. The header ignored it, so adding a Staging stage changed nothing there.
+
+The strip is now **one pill per stage, in pipeline order**, derived from the same stage views the Delivery page renders — so a stage added there appears in the header without a second definition of what a stage is, and the two surfaces cannot report different versions. AtlasMind's own pipeline reads **Local · Staging `develop` · Production `main`**.
+
+**The working tree gets a pill of its own.** It is the only reading taken from `package.json` on disk rather than from git, and therefore the only one that can be ahead of every branch — so it says `working tree` rather than borrowing a branch name, and is marked when the tree is dirty, which is exactly when it differs from the rest of the strip.
+
+**A version is never invented.** A stage whose branch does not exist yet says so rather than borrowing a plausible number, because a version shown against an environment nobody deployed to claims a deployment that never happened. Pills are capped with the remainder stated, and a project with no pipeline configured still gets the original git-derived pair — labelled so a guessed production branch is not given the authority of a declared stage.
+
+---
+
 ## v0.214.0 — The Overview says what needs a person
 
 A *Needs you* band sits above the stat grid and gathers, from the pages that already know, what is failing, shut or past due: failing tests, a red pipeline, blocked memory writes, overdue follow-ups, release gates not passing, blocked promotion paths, high-severity debt, open risk findings, documents due review, stale issues. Every card routes to the page that owns the fact.
