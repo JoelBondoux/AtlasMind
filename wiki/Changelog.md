@@ -6,6 +6,181 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.214.0 — The Overview says what needs a person
+
+A *Needs you* band sits above the stat grid and gathers, from the pages that already know, what is failing, shut or past due: failing tests, a red pipeline, blocked memory writes, overdue follow-ups, release gates not passing, blocked promotion paths, high-severity debt, open risk findings, documents due review, stale issues. Every card routes to the page that owns the fact.
+
+**It is empty when nothing needs you.** The Overview once closed with a grid of twelve equally-weighted shortcut cards, removed for being a second navigation system pretending to be a summary. A navigation grid can never be empty; this band renders one muted line and no card frame when every check comes back clear.
+
+**Unassessed is never reported as clear.** A project with no test report, no readable issue tracker, an unscanned debt register or an unassessed risk register says exactly that, in its own category — ranked below real findings, never omitted. Silence earned by not looking is the one failure mode that would make the band worse than nothing, and the empty state distinguishes *checked and clear* from *too little was assessed to say*.
+
+**Ranked by consequence, not magnitude.** A red pipeline outranks forty stale issues; ties break on declaration order so the list cannot shuffle; the six-card cap always states its remainder; and every card publishes the declared rule that graded it, so a grade can be argued with rather than trusted. *What moved* appears as a compact strip whose chips all route to the Workflow page, which owns the only *Mark as seen* control.
+
+---
+
+## v0.213.2 — What AtlasMind will say when it cannot tell
+
+`docs/game-engine-integration.md` specifies the engine half — Unreal, Unity and Godot identity, the `game.json` schema, asset and build-log reading, the bridge protocol and the security boundary — completing the specification work begun in v0.213.1.
+
+**Detection is by decisive file; version is read, never inferred.** Engines identify themselves by project file rather than dependency manifest, and everything downstream is version-specific, so an unreadable version reports `unknown` and withholds every version-dependent affordance instead of guessing. Every engine CLI fact must sit behind a `*_VERIFIED_AT` constant, and a version outside the verified range degrades rather than extrapolating — the only mechanism preventing this rotting silently as engines ship.
+
+**The bridge is read-only by construction.** The wire format defines no command frame at all — not a disabled one — and a test asserts it. **AtlasMind proposes; the engine writes:** no code path may write binary engine content under any approval, because binary content has no reviewable diff, so a confirmation dialog cannot describe what is about to change. No compiled artifact ships into your engine; the companions are Python, C# and GDScript.
+
+The distinguishing section is §8, a **degradation table** naming what gets reported in every case where AtlasMind cannot tell. No build log yields *no verdict* plus the command to produce one, never "0 errors". No performance capture yields *no verdict*, never a passing budget. A Perforce content component yields *not visible*, never "0 assets". Every row must be covered by a test — that behaviour, rather than the engine support itself, is what separates this from a plugin that confidently reports wrong numbers.
+
+## v0.213.1 — A project can be more than one thing, in more than one place
+
+`docs/project-composition.md` specifies how AtlasMind models a project made of several components — an engine fork, gameplay systems, shared libraries, backend services, tools, content — each with its own role, archetype and version control system. A single-repo project becomes the *simplest* case rather than the assumed one.
+
+**It is general capability, not a game feature.** Games force the issue, but the same model serves a Shopify build (theme + app + extensions), an ML project (training, serving, data, weights), embedded work (firmware + app + cloud) and any product built on a forked upstream.
+
+Three facts made the gap concrete at v0.213.0: the archetype is single-valued per project, so a game with a matchmaking service can never get correct advice for both halves; **123 of 130 `workspaceFolders` reads take `[0]`**, so AtlasMind is single-root by construction; and the bootstrap picker already offers *Shopify Store / Theme* and *Shopify App* as mutually exclusive choices while the vocabulary underneath maps them to two different archetypes.
+
+The load-bearing rules are honesty rules. **Unknown is not zero** — a component whose version control cannot be read reports *not visible*, never a count, because telling a Perforce studio it has "0 pending changes" is worse than telling it nothing. **Topology is derived, never stored**, so it cannot disagree with the components it describes. **One SSOT, in a declared home component.** And **non-git version control is read-only forever** — an agent that can revert an artist's unsubmitted work is not a tool anybody will install, and no dialog makes it safe when the loss is silent and belongs to somebody who never saw the prompt.
+
+Alongside it, `project_memory/roadmap/game-engine-integration.md` plans Unreal, Unity and Godot integration on top of that model: read the project first, then a read-only in-engine bridge, then breadth. The companion plugins are Python, C# and GDScript — **no compiled artifact ever ships into a user's engine**.
+
+## v0.213.0 — The sidebar tells you what is ready to ship
+
+A **Ready to ship?** section in Project State lists every promotion path with whether anything *declared* is standing in its way: `blocked` (red, and the only verdict that counts as needing a person), `gated` with a count of the gates the plan will evaluate, or `clear`. It expands itself only when something is blocked.
+
+**The row opens the plan; it never promotes.** Promotion runs behind a built plan, per-gate attestations and a type-to-confirm on a protected target — a one-click row in a tree would route around all three. A test asserts no row can ever be wired to a promotion command.
+
+**What it may honestly claim is limited by how it is built.** The Project State tree computes synchronously — it reads in-memory state and shells out to nothing, because it recomputes on ten different events. So nothing here has seen the working tree, the version delta or live CI. The vocabulary avoids "safe" and "ready" for exactly that reason, and every tooltip ends by naming what was *not* checked. A green row that had silently skipped those would be a shipping light that never read the code.
+
+The blocker rules are shared with the Delivery dashboard rather than reimplemented — two definitions of "blocked" would drift, and the sidebar would hold the untested one.
+
+## v0.212.2 — A failing dashboard action no longer vanishes
+
+Reported as "the Delivery Promote buttons appear to not do anything". The whole chain behind them turned out to be correct — the button, the click delegate, the payload validator, the handler, all four replies, the modal and its CSS. Every link verified, including running the validator against this repository's real promotion path ids.
+
+**What was missing was the failure path.** `onDidReceiveMessage` discarded the handler's promise with `void`, so a rejection anywhere below produced no error, no log and no reply: the webview posted its message and waited for ever. Every failure looked exactly like a button that had never been wired.
+
+The dispatcher now catches, names the message type, and reports the reason. Both promotion handlers additionally report their own failures into the modal the user is already looking at, carrying the underlying message rather than a generic shrug. In the run handler the guard sits deliberately *before* the delivery lock is acquired, so a throw on the way to the lock cannot leave the single-flight lock held.
+
+Worth knowing: `void this.handleMessage(message)` without a catch appears in six panels. Only the Project Dashboard is fixed here, because that is where the report came from — the same silence is available in chat, MCP, model comparison, model providers and personality profile.
+
+## v0.212.1 — The ideation guide moves above the canvas, and the shortcuts get audited
+
+**"How this workspace works" now sits directly above the Canvas it describes.** It rendered last — below the composer, inspector, feedback and analytics — so the explanation of the staged workflow was the final thing reached by somebody who had already worked the board out unaided.
+
+That reverses a deliberate decision, and the reversal is only safe because of what changed in between. The guide was demoted because the canvas was below the fold: "a hero panel, a four-card process guide and a very tall composer came first". Two of the three are gone — the hero is a compact stat strip, and the guide is a `<details>` collapsed unless the board is empty. Collapsed it costs one line rather than four cards; expanded, only on an empty board where there is nothing to push down.
+
+**Every dashboard's top-right shortcuts were audited, and nothing was broken.** Across Project Dashboard, Ideation, Run Center, Cost Dashboard, Mission Control and Personality Profile: every header button has a listener, every command target exists, every webview-offered command is allowlisted, and Cost's "Budget Settings" lands on the page that actually hosts the budget.
+
+Two false positives from the manual pass are recorded in the test, because the naive checks reproduce them: `workbench.view.scm` is a built-in VS Code command rather than a missing AtlasMind one, and Mission Control wires its button through a `$('id')` helper rather than a literal `getElementById` — so a substring check calls a working button dead.
+
+The checks are kept because each fails silently, and the subtlest is the allowlist one: a command offered in the UI but missing from its panel's allowlist is ignored by the host by design. Correct security behaviour, invisible bug.
+
+## v0.212.0 — The settings gear comes back, and a command stops hiding
+
+**The settings route was invisible on every sidebar view, for two compounding reasons.** v0.202.0 capped each titlebar at five slots — correctly, since VS Code collapses the rest behind `…` — and the settings link was demoted to make room, into a `4_config` group that VS Code renders *only* inside the overflow menu. Separately, four of the five settings commands had **no icon declared at all**, so promoting the group alone would still have drawn nothing. Both fixed: the four gain a gear, and the route is promoted on the ten views with a free slot. Chat keeps its in the overflow, because its five slots are genuinely full.
+
+**The Models title bar gains a refresh**, which existed only as a per-row action and already refreshed every provider regardless of the row it was invoked from.
+
+**"$ Configure plan" never said whose plan.** Three subscription providers can be on screen at once and every button read the same five words — while the dialog it opened had always named the provider. The button was the only step that did not say what it acted on.
+
+**The plan action is now reachable at all.** `atlasmind.models.configureSubscription` had been registered in code since subscription tracking shipped, declared in no manifest entry and attached to no menu: working and unreachable. It sits on the **provider** row, not the per-vendor ACP rows beneath it — a plan is keyed per provider, so a per-row action there would have implied a per-agent plan that does not exist.
+
+**The ACP card's instruction is a link.** It said to turn on "Let subscription agents act" under Settings → Safety and left you to find it. Provider copy now routes any settings page it names, with the link substituted onto the *escaped* string so the copy stays injection-safe, and the webview sending a page id the host resolves through a fixed map rather than a command name it could choose.
+
+## v0.211.0 — Atlas tells you the workflow exists, when it applies
+
+The chat path never read the declared workflow. Only the Workflow dashboard page and (from 0.210.0) *other* tools' instruction files did — `src/chat/`, the orchestrator, the planner and the mission runner had no reference to it. So typing *"commit this and push it"* into Atlas got zero workflow awareness: the rules lived on a page you may never have opened and in a file written for a different tool.
+
+Now, when a prompt implies a commit, push, branch, pull request or release, AtlasMind states what the workflow expects — naming your integration branch, and leading with a protected-branch warning where that is where you are — then offers to follow the workflow or carry on as asked.
+
+**The default informs and continues.** The user this is for is a novice, and a novice's failure mode is not breaking a rule but not knowing one existed while it still mattered. Informing teaches at the one relevant moment and costs an expert a line. `atlasmind.workflow.chatGuidance` raises it to `gate` or drops it to `off`; gating is opt-in because a prompt on every commit becomes one people learn to click through, at which point it protects nobody and is still in the way.
+
+**Detection is a published keyword table, not a model** — no model in front of every chat turn, and the same prompt always gives the same notice, so the advice is learnable. The cost is stated: wording-based matching will miss an unanticipated phrasing, which is survivable precisely because the default only adds a sentence. That asymmetry is the deeper reason `gate` is not the default.
+
+Silence is a valid answer where anything else would be untrue: no workflow declared, nothing governed in the prompt, or the owning stage disabled. A stage nobody enabled has no expectations to assert.
+
+**The sidebar now ships in the order reached by using it**, and Project State stays expanded — collapsing it would have reversed v0.187.1's "a collapsed summary shows nothing" and worked against the very newcomer this release is aimed at.
+
+Two robustness notes: the guard's first version awaited imports and a git call in front of every prompt, delaying the busy indicator — the same mistake the slash router made one release earlier, caught by the same microtask-counting test. And the branch read is now bounded at 750 ms, so a slow Git extension costs the notice its detail rather than costing you your request.
+
+## v0.210.0 — The workflow rules reach the agents that are not AtlasMind
+
+AtlasMind's workflow gates are **self-restraints**. The effective level of a stage is `min(master, ceiling, capability, stage)`, and that arithmetic governs what *AtlasMind* may do — it cannot bind the human, and it cannot bind Claude Code, Copilot or Cursor, none of which can read a VS Code setting or a file in `project_memory/`.
+
+So the rules were enforced against the one participant that had already agreed to them, and invisible to every other. **An external agent committing straight to the integration branch was not violating the workflow; it had no way to know one existed.** There is no stronger gate to be had over a process AtlasMind does not run, so the fix is the mechanism that does work: put the rules in the file the agent already reads.
+
+The committed `workflow.json` is now rendered as instructions into `CLAUDE.md`, `.github/copilot-instructions.md`, `AGENTS.md`, Cursor, Cline, Gemini, Windsurf and Aider — a **third** managed block beside testing protocols and debt markers. Branch rules and which branches are never pushed to, how far the reader may go at each stage, the evidence each stage wants, the label taxonomy.
+
+Four things it does deliberately: every line is **derived** from the file rather than model-generated (a hallucinated rule an agent then follows is worse than no block); it prints the level your **ceiling** permits rather than the level a stage asked for (printing `auto` under an `observe` ceiling would invite an agent to act on authority nobody granted); levels render as instructions rather than labels, since `propose` means nothing to a reader who has not seen the ladder; and where no stage is enabled — the default — it **says so** instead of omitting the section, because a missing table reads as "no rules apply".
+
+**A pre-commit check keeps the blocks honest, and never writes.** `atlasmind.instructions.verifyOnCommit` (on by default) refuses a commit when a block no longer matches its source, naming the command that fixes it — how this project already treats a missing version bump.
+
+Verify-only was chosen over auto-sync on purpose. The existing hook only ever reads and refuses; making it mutate would mean the commit you staged is not the commit that lands. And a *bi-directional* sync at commit time would pull other agents' edits in and broadcast them to all eight instruction files unreviewed — one tool's change silently becoming every tool's instruction, on exactly the files other agents write to.
+
+Detecting staleness from a shell is the interesting part: re-rendering is impossible without a VS Code host, and a second copy of the rendering would drift and cry wolf until somebody switched the check off. So the sync records a **digest of the source document inside the block**, and staleness is a digest comparison. What that detects is stated rather than overclaimed — the source changed since the block was written, not a hand-edit that leaves the digest alone. The debt-marker block is deliberately unchecked, because it comes from a setting a hook cannot read.
+
+## v0.209.3 — The dashboard tabs get their styling back
+
+Every unselected tab on the Project Dashboard nav rendered as a light grey pill with grey text on a dark panel — the browser's default button look, with no theme colour in it.
+
+**A selector changed which rule block it belonged to.** `.page-nav button` was the first entry of the pill rule it shared with `.action-link`. The commit that added the GitHub link row (v0.206.0) inserted its rule directly beneath that line, so the nav buttons became part of a *container layout* — `display: flex`, `flex-wrap: wrap`, a 14px bottom margin — and were orphaned from background, border, colour, padding and radius. Nothing was deleted or renamed; in a diff it reads as one added rule.
+
+**It survived review because the selected tab still looked right.** `[aria-selected="true"]` declares its own colours, so exactly one tab was correct and the row read as a deliberate style rather than a fault.
+
+A test now asserts the tabs own their appearance from theme variables (never a literal colour), that the selected-tab rule still exists, that the GitHub link row is still a row, and that the pill stays one shared block rather than two that can drift. Reverting the fix fails 8 of its 11 assertions.
+
+## v0.209.2 — The README was measuring "what's new" from the wrong release
+
+It claimed *"Since the last Marketplace publication, **v0.145.3**"* while the Marketplace has had **v0.208.0** since that morning — sixty-three releases stale. The section therefore listed **81 bullets** of work that is already in the published extension, so anyone using it to decide whether a source build was worth installing saw a two-hundred-line delta where the real one is four.
+
+Trimmed to what a v0.208.0 user is actually missing. The full history stays in `CHANGELOG.md` and on this page — the README's job there is the upgrade decision, not the record.
+
+**Nothing local could contradict the claim, which is why it rotted.** Every other version check compares two files in this repository; this one asserts something about the outside world. It is now pinned against the newest git tag, which stands in for "what is published" because `npm run tag:release` is what triggers the publish — the tag and the publish are one event. A baseline *ahead* of the source version is refused too, since that would describe a rollback as a feature. The guard is skipped where tags are absent (CI checks out shallow) and runs in the pre-commit hook, which is exactly where the README gets edited.
+
+**Trimming the list exposed what it had been hiding.** Fifteen shipped capabilities appeared *only* in that accumulated "What's new" — so the pitch a Marketplace visitor actually reads had never been updated to include them, and cutting the list would have removed them from the README altogether. The guided GitHub workflow and its automation ladder, ideation reaching the backlog, roadmap items becoming issue drafts, the tech-debt register, the four delivery keys, agent handoff, schema migration, GitHub deep links, the keep-awake lock and locale-aware cost display are now in **What is included**, with a new pillar for working the way your repository already works.
+
+Each claim was verified against the code implementing it rather than the changelog prose describing it, which caught one overstatement going in: the dashboard does *not* link every page to GitHub, since four pages are about the local machine rather than the repository.
+
+## v0.209.1 — Slash commands work in the chat panel
+
+They never had. `runPrompt` never looked for a leading `/`, so all nineteen commands the manifest declares reached the orchestrator as ordinary prose — and on a machine with no provider configured, `/acp` was answered by the built-in echo adapter with *"Answered from context."* Declared, documented, autocompleted by the composer, and inert.
+
+**Silence was the harm.** A command that visibly fails gets reported; one that returns a plausible model answer teaches the user the feature works and they are holding it wrong. And the specific fall-through was worse than generic: `/acp` and `/buzz` are *setup* commands, run precisely because nothing is set up yet, and they were being handed to an agent holding every connected tool. `participant.ts` closed exactly this hole for the VS Code chat surface in v0.164.0 and documents why; nothing tied the panel to that lesson.
+
+**One dispatch, two surfaces.** `runDeterministicSlashCommand` is factored out of `handleChatRequest`, and the panel replays those same handlers through a `ChatResponseStream` that writes into memory. Seventeen commands, one implementation. The rejected alternative was a table pairing each command with an equivalent VS Code command — nineteen chances for the panel to answer `/agents` differently from `@atlas`, kept correct by hand forever. Handler buttons become the panel's existing guide chips, so only ids cross into the webview. A stream feature the panel cannot draw degrades to a note naming it rather than throwing: losing an anchor beats losing the command.
+
+**A path is not a command.** `/usr/local/bin/claude-agent-acp is missing`, `/etc/hosts` and `/README.md` stay prose, because asking about a file by absolute path is constant in a coding assistant. Only a single lowercase, optionally-hyphenated word qualifies. A near-miss like `/agent` is corrected rather than forwarded — the same bug in miniature.
+
+**`/project` forces its goal but not its approval.** A goal typed after `/project` often will not match the prose intent router's patterns, so the command would otherwise become an ordinary chat turn. Forcing it is the fix; pre-approving it would have removed the file-count proposal gate as a side effect of routing, and that gate is the only thing between `/project` and an unattended run. `/project` with no goal is refused rather than run against the empty string.
+
+Two things the work turned up about its own tests: the first version awaited two dynamic imports before concluding a prompt was prose, delaying the busy indicator on **every** message — an existing test counting microtasks caught it, and the router is now synchronous and statically imported. And `slashCommandRouting.test.ts` sliced source between `handleChatRequest` and `case 'voice':`; moving that label above the function left the slice empty and the assertion passing vacuously. It is anchored on function boundaries now.
+
+## v0.209.0 — The ACP connection actually works
+
+ACP has shipped since v0.170.0 as "use the subscription you already pay for". On Windows nobody could have used it. **Four faults, each fatal on its own**, all found by running the thing against live agents rather than reasoning about it.
+
+**AtlasMind told you to install the wrong package.** The adapter spawned `claude-agent-acp`; the install command it displayed was `npm install -g @zed-industries/claude-code-acp`, whose `bin` is `claude-code-acp`. Following AtlasMind's own instructions produced a binary AtlasMind then failed to find. That package has since been renamed to `@agentclientprotocol/claude-agent-acp`, which does provide the right command. The adapter, the installer and the `/acp` guide each carried a separate copy of the pairing, so nothing in the code could notice they disagreed — there is one list now, every install command is derived from it, and a test checks each against the package that really provides it.
+
+**`cargo install codex-acp` installed nothing, because no such crate exists.** The Codex path asked you to install Rust in order to install a package that was never published there. It ships on npm like every other adapter, so the Rust prerequisite and the rustup dead end are gone.
+
+**Windows could not spawn an ACP agent at all.** Every published adapter is an npm `bin`, and npm writes a `bin` on Windows as three shims — extensionless shell script, `.cmd`, `.ps1` — none of them an executable image. `spawn(…, { shell: false })` therefore failed with `ENOENT` for a perfectly correct global install, and `ENOENT` reads as "you have not installed it" to somebody who has. The `.cmd` is no help either: Node has refused those without a shell since CVE-2024-27980, and a shell is exactly what `shell: false` exists to avoid. New `acpLaunch.ts` reads the JavaScript entry point the owning package *declares* in its `package.json` `bin` field and spawns Node against it — a contract the author wrote, rather than npm's generated scripts parsed — which also handles `gemini` living inside `@google/gemini-cli`. Real executables still spawn directly; POSIX is untouched.
+
+**An agent that listed its logins was declared signed out, and refused.** `authMethods` advertises which logins *exist*; it says nothing about whether you owe one. `codex-acp` lists `api-key` and `chat-gpt` unconditionally, then works perfectly for somebody already signed in — so reading that list as "not authenticated" refused every working ChatGPT subscription with a message you could not clear. The spec's actual signal is the reserved error `-32000`, and the probe now opens a real session to find out, so it reports that the agent *can be used* rather than that it started.
+
+**Every ACP completion was recorded as free.** Token counts were read from `inputTokens`/`outputTokens` on the `usage_update` notification, which no agent sends: that notification carries `{ used, size, cost? }` — cumulative *context occupancy* — and the per-turn counts arrive on the prompt result. Both are read for what they are, and context is deliberately never billed as input tokens, which would re-charge the whole conversation on every message.
+
+**Three more subscriptions became capacity: Gemini CLI, GitHub Copilot CLI, and Qwen Code.** Gemini was previously excluded on the correct grounds that its invocation was unpublished; the ACP registry declares it now. All three are interactive CLIs with an ACP mode, so `args` is part of the launch command and is carried everywhere an agent is registered. goose, OpenCode, Cursor and Kimi are named with their commands but have no install button, because AtlasMind will not download and unpack an archive.
+
+**Verified against live agents:** `claude-agent-acp` 0.63.0 streamed a reply with `inputTokens: 2, outputTokens: 5`; `codex-acp` 1.1.7 streamed one with `inputTokens: 28693, outputTokens: 6` **while advertising two auth methods**, which the previous build would have refused; `gemini --acp` resolved through the shim bypass with its flag intact and was correctly reported as not signed in via a real `-32000`. The same build accepting Codex refuses Gemini — the distinction the old code could not draw.
+
+**The comparison matrix is out of the wiki.** `Home.md` rated six competitors across nineteen capabilities and was already contradicting itself on the same page — "31 built-in skills" in the matrix, 43 in the table above it. That is the predictable end state of a document asserting facts about software we neither ship nor watch, and a stale claim about a competitor is worse than no claim. v0.147.0 removed the standalone comparison page for the same reason; this table survived that cleanup.
+
+## v0.208.3 — Publishing without a secret
+
+The Marketplace publish now authenticates through **Microsoft Entra ID** with GitHub OIDC workload identity federation, as the user-assigned managed identity `vscode-marketplace-publisher`. There is no Marketplace credential in the repository to expire, rotate or leak. PAT authentication for the Marketplace is retired on **1 December 2026**.
+
+**The publish job checks its rights before it packages.** The 0.208.0 release discovered its credential was dead *during* the upload, after building the extension. `vsce verify-pat --azure-credential` asks first and consumes no version number — which matters because a published version can never be replaced.
+
+**Two publish scripts, on purpose.** `publish:release` uses the credential `vsce login` stored in the OS keychain and stays the emergency path from a developer machine. `publish:release:ci` uses the Entra identity. Adding `--azure-credential` to the first would have broken local publishing.
+
+The security rests on the federated credential's subject — `repo:JoelBondoux/AtlasMind:environment:marketplace` — not on secrecy, which is why the Azure identity values are stored as repository *variables* and why both jobs must declare that environment.
 ## v0.208.2 — The release promotion no longer conflicts with itself
 
 `release.yml` merged the `develop` → `main` pull request with `--squash`. Squashing rewrites develop's commits into one new commit on `main`, so `main` immediately holds a commit that is not an ancestor of `develop`. Every promotion after the first then has a merge base two releases back, and every file both branches touched conflicts — which is exactly `CHANGELOG.md`, `package.json`, `README.md` and `wiki/Changelog.md`, the four that every release touches.

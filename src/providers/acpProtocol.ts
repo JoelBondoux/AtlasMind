@@ -19,8 +19,10 @@
  *   - https://agentclientprotocol.com/protocol/v1/session-setup
  *   - https://agentclientprotocol.com/protocol/v1/prompt-turn
  *   - https://agentclientprotocol.com/protocol/v1/content
+ *   - https://agentclientprotocol.com/protocol/v1/authentication
+ *   - https://agentclientprotocol.com/protocol/v1/schema
  *
- * fetched 2026-07-28. ACP-defined property keys are `camelCase`; values carried
+ * fetched 2026-07-30. ACP-defined property keys are `camelCase`; values carried
  * by discriminator fields are `snake_case` — a convention the spec states
  * explicitly and which this module follows rather than guesses at.
  *
@@ -35,7 +37,7 @@ export const ACP_PROTOCOL_VERSION = 1;
 
 /** Where the contract above was read from, for the record. */
 export const ACP_SPEC_SOURCE = 'https://agentclientprotocol.com/protocol/v1';
-export const ACP_SPEC_VERIFIED_AT = '2026-07-28';
+export const ACP_SPEC_VERIFIED_AT = '2026-07-30';
 
 /**
  * The typed schema the enum values below were read from.
@@ -54,6 +56,37 @@ export const ACP_SPEC_VERIFIED_AT = '2026-07-28';
  */
 export const ACP_SCHEMA_SOURCE =
   'https://github.com/zed-industries/agent-client-protocol/tree/main/agent-client-protocol-schema/src/v1';
+
+/**
+ * The curated registry of ACP agents, and where the launch commands in
+ * {@link ../providers/acp.ts} come from.
+ *
+ * Each entry is an `agent.json` declaring the package and the arguments that put
+ * the agent into ACP mode — `@google/gemini-cli` with `--acp`, `@github/copilot`
+ * with `--acp`, and so on. It is read **by a human, at the version pinned
+ * below**, and the results are transcribed into source as constants. It is
+ * deliberately not fetched at runtime: a launch command that arrives over the
+ * network and is then spawned is remote code execution with extra steps, which
+ * is the same line `acpInstaller.ts` and `buzzDocsSource.ts` both hold.
+ */
+export const ACP_REGISTRY_SOURCE = 'https://github.com/agentclientprotocol/registry';
+
+/**
+ * **Authentication required** — reserved by ACP at `-32000`.
+ *
+ * This is the *only* reliable signal that an agent needs a login, and getting
+ * that wrong is what stopped the Codex path working at all. `authMethods` in the
+ * `initialize` result is an **advertisement of what is available**, not a
+ * statement about the current session: `codex-acp` lists `api-key` and
+ * `chat-gpt` unconditionally, then creates sessions and completes turns
+ * perfectly for a user who is already signed in. Treating that non-empty list as
+ * "not authenticated" refused every working ChatGPT subscription.
+ *
+ * The spec's own wording is that after authenticating a client can create
+ * sessions "without receiving an `auth_required` error" — so the error is the
+ * signal, and the advertisement is only how you then choose a method.
+ */
+export const ACP_ERROR_AUTH_REQUIRED = -32000;
 
 const MAX_FRAME_BYTES = 8_000_000;
 const MAX_TEXT = 2_000_000;
@@ -290,7 +323,13 @@ export interface AcpInitializeResult {
   compatible: boolean;
   agentName?: string;
   agentVersion?: string;
-  /** Auth method ids the agent offers. A non-empty list means "not logged in". */
+  /**
+   * Auth method ids the agent offers.
+   *
+   * An **advertisement**, not a verdict — see {@link ACP_ERROR_AUTH_REQUIRED}.
+   * The list says which logins exist, so it is what a "sign in with…" message
+   * names; it says nothing about whether this user needs one.
+   */
   authMethods: string[];
   supportsImages: boolean;
   /**
@@ -401,8 +440,27 @@ export interface AcpToolCall {
 export type AcpSessionUpdate =
   /** A streamed slice of the assistant's reply. */
   | { kind: 'text'; sessionId: string; text: string; messageId?: string }
-  /** The agent reported token usage for the turn. */
-  | { kind: 'usage'; sessionId: string; inputTokens?: number; outputTokens?: number }
+  /**
+   * The agent reported how full the session's context is.
+   *
+   * This is **not** the turn's token usage, and the difference was a real bug:
+   * the first version of this parser read `inputTokens`/`outputTokens` out of a
+   * `usage_update`, which no agent has ever sent, so every ACP completion was
+   * recorded as costing zero tokens. The spec's shape is `{ used, size, cost? }`
+   * where `used` is the *cumulative* context token count and `size` is the
+   * context-window size — a progress bar, not a bill. Per-turn counts arrive on
+   * the `session/prompt` result instead; see {@link parsePromptUsage}.
+   */
+  | {
+    kind: 'context';
+    sessionId: string;
+    /** Tokens currently held in the session's context. */
+    usedTokens?: number;
+    /** The context window's size, when reported. */
+    windowTokens?: number;
+    /** Cumulative session cost, when the agent reports one. */
+    cost?: { amount: number; currency: string };
+  }
   /**
    * The agent announced or updated a tool call.
    *
@@ -450,18 +508,50 @@ export function parseSessionUpdate(params: Record<string, unknown>): AcpSessionU
   }
 
   if (discriminator === 'usage_update') {
-    const usage = asRecord(update['usage']);
-    const input = readCount(usage['inputTokens'] ?? update['inputTokens']);
-    const output = readCount(usage['outputTokens'] ?? update['outputTokens']);
+    const used = readCount(update['used']);
+    const size = readCount(update['size']);
+    const cost = asRecord(update['cost']);
+    const amount = typeof cost['amount'] === 'number' && Number.isFinite(cost['amount']) ? cost['amount'] : undefined;
+    const currency = clampText(cost['currency'], 8);
     return {
-      kind: 'usage',
+      kind: 'context',
       sessionId,
-      ...(input === undefined ? {} : { inputTokens: input }),
-      ...(output === undefined ? {} : { outputTokens: output }),
+      ...(used === undefined ? {} : { usedTokens: used }),
+      ...(size === undefined ? {} : { windowTokens: size }),
+      // Both halves or neither: a cost amount with no currency is not a cost,
+      // and defaulting the currency would invent one.
+      ...(amount === undefined || !currency ? {} : { cost: { amount, currency } }),
     };
   }
 
   return { kind: 'other', sessionId, sessionUpdate: discriminator };
+}
+
+/**
+ * Read the token counts an agent attaches to its `session/prompt` result.
+ *
+ * **This field is not in the published `PromptResponse` schema**, which defines
+ * only `stopReason` and `_meta`. It is read anyway, because it is the only place
+ * a real per-turn count is ever reported and every current agent sends it in the
+ * same shape — verified against live runs of `claude-agent-acp` 0.63.0
+ * (`{ inputTokens: 2, outputTokens: 5, cachedReadTokens, cachedWriteTokens,
+ * totalTokens }`) and `codex-acp` 1.1.7 (`{ inputTokens, outputTokens,
+ * cachedReadTokens, thoughtTokens, totalTokens }`).
+ *
+ * Reading an off-spec field is a compromise, so it is confined to the safe
+ * direction: absent or unusable counts come back `undefined` and the caller
+ * reports **zero**, exactly as before. Nothing is inferred from `totalTokens`
+ * either — splitting a total into input and output would be arithmetic nobody
+ * measured, fed into the cost tracker as though it had been.
+ */
+export function parsePromptUsage(result: Record<string, unknown>): { inputTokens?: number; outputTokens?: number } {
+  const usage = asRecord(result['usage']);
+  const input = readCount(usage['inputTokens']);
+  const output = readCount(usage['outputTokens']);
+  return {
+    ...(input === undefined ? {} : { inputTokens: input }),
+    ...(output === undefined ? {} : { outputTokens: output }),
+  };
 }
 
 // ── session/request_permission ───────────────────────────────────

@@ -296,23 +296,29 @@ describe('package manifest', () => {
   it('ships the AtlasMind sidebar tree views in the default operational order and collapsed by default', () => {
     const views = (manifest.contributes?.views?.['atlasmind-sidebar'] ?? []) as Array<{ id: string; visibility?: string }>;
 
-    // The order reads top to bottom as a sentence: where you work, what needs
-    // you, what has happened, what the project knows, what does the work, what
-    // it runs on, what it can reach.
+    // The order reads top to bottom as a sentence: where you work, who needs
+    // you, where you stand, what has happened, what the project knows, what
+    // does the work, what it runs on, what it can reach.
+    //
+    // Set to the arrangement the maintainer reached by actually using it, which
+    // beats a reasoned guess about a layout nobody had lived with yet. The two
+    // properties the previous reasoning was protecting are both still true:
+    // Project State is near the top rather than below ten inventory rows, and
+    // the Director's overdue badge is somewhere you do not have to scroll to.
     expect(views.map(entry => entry.id)).toEqual([
       'atlasmind.chatView',
-      // Directly under Chat: it is the view you glance at, so it must not sit
-      // below ten inventory rows.
-      'atlasmind.projectStateView',
-      // Was last, below three configuration views — while carrying an overdue
-      // badge. A badge nobody scrolls to is a badge that does nothing.
+      // First of the trees, because it is the one that asks something of you —
+      // and it carries the overdue badge.
       'atlasmind.projectDirectorView',
-      'atlasmind.projectRunsView',
+      // Still near the top: the view you glance at, kept above the inventory.
+      'atlasmind.projectStateView',
       'atlasmind.sessionsView',
+      'atlasmind.projectRunsView',
       'atlasmind.memoryView',
+      // Models before the things that consume them.
+      'atlasmind.modelsView',
       'atlasmind.agentsView',
       'atlasmind.skillsView',
-      'atlasmind.modelsView',
       'atlasmind.mcpServersView',
       // Rarest thing in the sidebar, so it sits last.
       'atlasmind.discoveryView',
@@ -460,9 +466,14 @@ describe('package manifest', () => {
       .filter(entry => (entry.group ?? '').startsWith('navigation'))
       .map(entry => entry.command);
 
-    // Sessions is about sessions: start one, file them. Nothing else.
+    // Sessions is about sessions: start one, file them, and reach its own
+    // settings page. The settings route was always part of this rule — "its own
+    // two or three plus one route to the surface that manages it in depth and
+    // its own settings page" — but it sat in a non-`navigation` group, which VS
+    // Code only ever draws inside the `...` overflow. Contributed and invisible.
     expect(forView('atlasmind.sessionsView').sort()).toEqual([
       'atlasmind.openChatView',
+      'atlasmind.openSettingsChat',
       'atlasmind.sessions.createFolder',
     ]);
 
@@ -474,6 +485,7 @@ describe('package manifest', () => {
     expect(forView('atlasmind.projectStateView')).toEqual([
       'atlasmind.openProjectDashboard',
       'atlasmind.refreshProjectState',
+      'atlasmind.openSettingsSafety',
     ]);
 
     // Agents had no way to add one while Skills had "add skill" — an asymmetry

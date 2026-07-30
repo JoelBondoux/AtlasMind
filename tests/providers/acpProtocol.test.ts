@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ACP_ERROR_AUTH_REQUIRED,
   ACP_PROTOCOL_VERSION,
   ACP_STOP_REASONS,
+  parsePromptUsage,
   buildInitializeRequest,
   buildSessionCancelNotification,
   buildSessionNewRequest,
@@ -190,16 +192,44 @@ describe('parseSessionUpdate', () => {
     expect(update).toMatchObject({ kind: 'other', sessionUpdate: 'agent_message_chunk:image' });
   });
 
-  it('reads usage updates from either nesting the spec allows', () => {
-    expect(parseSessionUpdate({ sessionId: 's', update: { sessionUpdate: 'usage_update', usage: { inputTokens: 10, outputTokens: 4 } } }))
-      .toMatchObject({ kind: 'usage', inputTokens: 10, outputTokens: 4 });
-    expect(parseSessionUpdate({ sessionId: 's', update: { sessionUpdate: 'usage_update', inputTokens: 7 } }))
-      .toMatchObject({ kind: 'usage', inputTokens: 7 });
+  /**
+   * The shape here is `{ used, size, cost }`, taken from the spec's own example.
+   * The version this replaces looked for `inputTokens`/`outputTokens`, which no
+   * agent has ever sent in a `usage_update` — so it matched nothing and every ACP
+   * turn was recorded as free. Verified against live `claude-agent-acp` 0.63.0
+   * and `codex-acp` 1.1.7, both of which send exactly `{ used, size }`.
+   */
+  it('reads a usage_update as context occupancy, in the shape the spec defines', () => {
+    expect(parseSessionUpdate({ sessionId: 's', update: { sessionUpdate: 'usage_update', used: 53_000, size: 200_000 } }))
+      .toEqual({ kind: 'context', sessionId: 's', usedTokens: 53_000, windowTokens: 200_000 });
   });
 
-  it('rejects a negative or non-numeric token count rather than recording it', () => {
-    const update = parseSessionUpdate({ sessionId: 's', update: { sessionUpdate: 'usage_update', usage: { inputTokens: -5, outputTokens: 'lots' } } });
-    expect(update).toEqual({ kind: 'usage', sessionId: 's' });
+  it('keeps a cost only when both halves are present', () => {
+    expect(parseSessionUpdate({
+      sessionId: 's',
+      update: { sessionUpdate: 'usage_update', used: 10, size: 20, cost: { amount: 0.045, currency: 'USD' } },
+    })).toMatchObject({ cost: { amount: 0.045, currency: 'USD' } });
+    // An amount with no currency is not a cost, and defaulting one would invent it.
+    expect(parseSessionUpdate({
+      sessionId: 's',
+      update: { sessionUpdate: 'usage_update', used: 10, size: 20, cost: { amount: 0.045 } },
+    })).not.toHaveProperty('cost');
+  });
+
+  it('does not read per-turn token counts out of a usage_update at all', () => {
+    // `used` is a *cumulative* context total. Billing it as this turn's input
+    // would re-charge the whole conversation on every message.
+    const update = parseSessionUpdate({
+      sessionId: 's',
+      update: { sessionUpdate: 'usage_update', used: 60_750, size: 1_000_000, inputTokens: 999, outputTokens: 999 },
+    });
+    expect(update).not.toHaveProperty('inputTokens');
+    expect(update).not.toHaveProperty('outputTokens');
+  });
+
+  it('rejects a negative or non-numeric context count rather than recording it', () => {
+    const update = parseSessionUpdate({ sessionId: 's', update: { sessionUpdate: 'usage_update', used: -5, size: 'lots' } });
+    expect(update).toEqual({ kind: 'context', sessionId: 's' });
   });
 
   it('passes other spec discriminators through as themselves', () => {
@@ -272,6 +302,75 @@ describe('parseSessionUpdate', () => {
   it('never throws on a malformed update', () => {
     expect(parseSessionUpdate({}).kind).toBe('unusable');
     expect(parseSessionUpdate({ update: 'nope' }).kind).toBe('unusable');
+  });
+});
+
+/**
+ * The per-turn token counts, which live on the `session/prompt` **result**.
+ *
+ * This field is not in the published `PromptResponse` schema, so the payloads
+ * below are the ones real agents actually sent during a verified live run — that
+ * is the whole justification for reading it, and a test written against invented
+ * data would remove it.
+ */
+describe('parsePromptUsage — the only place a real token count appears', () => {
+  it('reads what claude-agent-acp 0.63.0 sends', () => {
+    expect(parsePromptUsage({
+      stopReason: 'end_turn',
+      usage: { inputTokens: 2, outputTokens: 5, cachedReadTokens: 24_004, cachedWriteTokens: 36_739, totalTokens: 60_750 },
+    })).toEqual({ inputTokens: 2, outputTokens: 5 });
+  });
+
+  it('reads what codex-acp 1.1.7 sends', () => {
+    expect(parsePromptUsage({
+      stopReason: 'end_turn',
+      usage: { totalTokens: 28_879, inputTokens: 28_873, cachedReadTokens: 0, outputTokens: 6, thoughtTokens: 0 },
+    })).toEqual({ inputTokens: 28_873, outputTokens: 6 });
+  });
+
+  it('reports nothing rather than deriving counts from a total', () => {
+    // Splitting `totalTokens` into input and output would be arithmetic nobody
+    // measured, handed to the cost tracker as though somebody had.
+    expect(parsePromptUsage({ stopReason: 'end_turn', usage: { totalTokens: 900 } })).toEqual({});
+  });
+
+  it('is total against a result that carries no usage at all', () => {
+    expect(parsePromptUsage({ stopReason: 'end_turn' })).toEqual({});
+    expect(parsePromptUsage({ usage: 'nope' })).toEqual({});
+    expect(parsePromptUsage({ usage: { inputTokens: -1, outputTokens: 'many' } })).toEqual({});
+  });
+});
+
+describe('ACP_ERROR_AUTH_REQUIRED', () => {
+  it('is the reserved code the spec assigns, not a guess', () => {
+    expect(ACP_ERROR_AUTH_REQUIRED).toBe(-32000);
+  });
+
+  it('survives a round trip through the frame parser', () => {
+    expect(parseAcpFrame('{"jsonrpc":"2.0","id":2,"error":{"code":-32000,"message":"login first"}}'))
+      .toEqual({ kind: 'error', id: 2, code: ACP_ERROR_AUTH_REQUIRED, message: 'login first' });
+  });
+});
+
+describe('parseInitializeResult — authMethods is an advertisement, not a verdict', () => {
+  /**
+   * The exact `initialize` result `codex-acp` 1.1.7 returns for a **signed-in**
+   * user. Reading this list as "not authenticated" is what refused every working
+   * ChatGPT subscription, so the fact that it is non-empty here is the point.
+   */
+  it('reports the methods codex-acp advertises while already signed in', () => {
+    const result = parseInitializeResult({
+      protocolVersion: 1,
+      agentInfo: { name: '@agentclientprotocol/codex-acp', version: '1.1.7' },
+      agentCapabilities: { promptCapabilities: { image: true, embeddedContext: true }, loadSession: true },
+      authMethods: [
+        { id: 'api-key', name: 'API Key', description: 'Use an API key to authenticate' },
+        { id: 'chat-gpt', name: 'ChatGPT', description: 'Use ChatGPT to authenticate' },
+      ],
+    });
+    expect(result.authMethods).toEqual(['api-key', 'chat-gpt']);
+    expect(result.compatible).toBe(true);
+    expect(result.supportsImages).toBe(true);
   });
 });
 

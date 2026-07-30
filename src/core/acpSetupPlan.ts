@@ -45,27 +45,50 @@ export interface AcpSetupState {
   providerEnabled: boolean;
   /** Has an ACP model actually returned a completion in this workspace? */
   hasCompletedATurn: boolean;
+  /**
+   * Agents the guide may suggest, injected from `VERIFIED_ACP_AGENTS`.
+   *
+   * Injected rather than imported so this module keeps no second copy of the
+   * install commands — the drift between two copies is what made the guide
+   * recommend a package that installs a differently-named binary.
+   */
+  suggestions: readonly AcpAgentSuggestion[];
 }
 
 export const ACP_DOCS_URL = 'https://agentclientprotocol.com/get-started/introduction';
 export const ACP_AGENTS_URL = 'https://agentclientprotocol.com/get-started/agents';
 
 /**
- * Install commands for the two agents whose ACP launch command is published.
+ * Install commands for the agents whose ACP launch command is published.
  *
- * Quoted as suggestions the user runs, never executed, and deliberately short of
- * a third entry: Gemini CLI implements ACP but publishes no invocation, so there
- * is nothing here to tell someone to type.
+ * Quoted as suggestions the user runs, never executed. **Derived from
+ * `VERIFIED_ACP_AGENTS`** rather than typed out here, because a hand-copied
+ * install string is how the guide came to tell people to install
+ * `@zed-industries/claude-code-acp` — a package whose binary is *not* the
+ * `claude-agent-acp` the same guide told them to configure. One list, one answer.
+ *
+ * The setup plan cannot import the adapter directly without dragging
+ * `node:child_process` into a pure module, so the caller injects the list and
+ * this is the shape it must have.
  */
-export const ACP_AGENT_SUGGESTIONS: ReadonlyArray<{ id: string; label: string; command: string; install: string }> = [
-  { id: 'claude', label: 'Claude Agent', command: 'claude-agent-acp', install: 'npm install -g @zed-industries/claude-code-acp' },
-  { id: 'codex', label: 'Codex CLI', command: 'codex-acp', install: 'cargo install codex-acp' },
-];
+export interface AcpAgentSuggestion {
+  id: string;
+  label: string;
+  command: string;
+  /** Arguments that put the CLI into ACP mode, if any. */
+  args: string[];
+  install: string;
+}
+
+/** Rendered `command` plus `args`, which is what a user actually has to type. */
+export function acpLaunchLine(agent: Pick<AcpAgentSuggestion, 'command' | 'args'>): string {
+  return [agent.command, ...agent.args].join(' ');
+}
 
 export const ACP_SETUP_GUIDE: SetupGuideSummary = {
   id: 'acp',
   label: 'ACP agents',
-  blurb: 'Use a Claude or ChatGPT subscription as routable capacity, over the Agent Client Protocol.',
+  blurb: 'Use a Claude, ChatGPT or Gemini subscription as routable capacity, over the Agent Client Protocol.',
   command: '/acp',
   stepIds: ['agent', 'installed', 'authenticated', 'provider', 'firstTurn'],
 };
@@ -88,10 +111,10 @@ export function buildAcpSetupPlan(state: AcpSetupState): SetupStep[] {
       : 'AtlasMind does not know which agent to run. Nothing is installed for you — you name a command, and it spawns only that.',
     guidance: hasAgent ? undefined : [
       {
-        text: 'Pick an agent you already have a subscription for. These two publish their ACP launch command:',
+        text: 'Pick an agent you already have a subscription for. These publish their ACP launch command:',
       },
-      ...ACP_AGENT_SUGGESTIONS.map(agent => ({
-        text: `${agent.label} — command \`${agent.command}\`, installed with:`,
+      ...state.suggestions.map(agent => ({
+        text: `${agent.label} — runs as \`${acpLaunchLine(agent)}\`, installed with:`,
         command: agent.install,
         // Somebody else's install command: quoted, attributed, never a button.
         authored: false,
@@ -122,7 +145,7 @@ export function buildAcpSetupPlan(state: AcpSetupState): SetupStep[] {
       {
         text: `Install the agent that provides \`${first!.command}\`, then reopen this guide.`,
       },
-      ...ACP_AGENT_SUGGESTIONS
+      ...state.suggestions
         .filter(agent => agent.command === first!.command)
         .map(agent => ({ text: `${agent.label} installs with:`, command: agent.install, authored: false })),
       { text: 'A globally installed binary must be on the PATH that VS Code itself sees — restarting VS Code after installing is often what fixes "not found".' },
@@ -149,7 +172,8 @@ export function buildAcpSetupPlan(state: AcpSetupState): SetupStep[] {
       {
         text: 'Sign in with the agent\'s own login — AtlasMind never handles that credential, and never stores it. Run the agent once in a terminal and follow its prompts.',
       },
-      { text: 'For the Claude agent this is the Claude Code login; for Codex it is your ChatGPT account.' },
+      { text: 'For the Claude agent this is the Claude Code login; for Codex it is your ChatGPT account; for Gemini CLI it is your Google account.' },
+      { text: 'An agent that lists sign-in methods has not necessarily asked you for one — AtlasMind decides by trying to open a session, not by reading that list.' },
     ],
   });
 

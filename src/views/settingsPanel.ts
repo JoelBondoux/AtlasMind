@@ -10,7 +10,7 @@ import { getCachedLocalModelCatalog } from '../providers/localModelCatalogSync.j
 import { RECOMMENDED_MCP_SERVERS, getRecommendedMcpStarterDetails } from '../constants.js';
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
 import { scanAiInstructionFiles, syncAiInstructionFiles } from '../utils/aiInstructionSync.js';
-import { syncTestingProtocols } from '../utils/testingProtocolSync.js';
+import { syncTestingProtocols, readWorkflowGuidanceInput } from '../utils/testingProtocolSync.js';
 import { scaffoldTestingFramework } from '../core/testingScaffolder.js';
 import { IMMUTABLE_GUARDRAILS } from '../core/orchestrator.js';
 import type { ArdDiscoveredResource, ArdDiscoveryEndpoint } from '../types.js';
@@ -67,6 +67,7 @@ const SETTINGS_HELP = {
   autoVerifyAfterWrite: 'Runs configured verification scripts after successful workspace writes. Enable it for immediate lint or test feedback, or disable it when validation happens elsewhere.',
   autoVerifyScripts: 'Comma-separated package script names AtlasMind runs after writes. Examples: test, lint, compile or test:unit, test:manifest, typecheck.',
   autoVerifyTimeoutMs: 'Maximum time per verification script in milliseconds. Examples: 30000 for fast local checks, 120000 for mixed lint or test workflows, or 300000 for slower pipelines.',
+  instructionsVerifyOnCommit: 'Refuses a commit when an AtlasMind-managed block in an AI instruction file no longer matches the document it was generated from. Verify only — it never edits a file, so the commit you staged is the commit that lands. Covers the blocks generated from files (the testing matrix and the workflow); the debt-marker block comes from a setting a git hook cannot read, so it is left unchecked rather than guessed at. Saved to workspace settings, because a hook cannot see a User-scoped value.',
   voiceTtsEnabled: 'Automatically speak AtlasMind freeform responses aloud through the configured voice backend. Keep it off for silent text-only work or enable it for hands-free review and accessibility workflows.',
   voiceRate: 'Speech playback rate for text-to-speech output. Use lower values for careful listening and higher values when reviewing long responses quickly.',
   voicePitch: 'Speech playback pitch for text-to-speech output. Adjust this for comfort and intelligibility rather than correctness.',
@@ -261,6 +262,7 @@ type SettingsMessage =
   | { type: 'disconnectMcpServer'; payload: string }
   | { type: 'openMcpManager' }
   | { type: 'setVoiceTtsEnabled'; payload: boolean }
+  | { type: 'setInstructionsVerifyOnCommit'; payload: boolean }
   | { type: 'setVoiceRate'; payload: number }
   | { type: 'setVoicePitch'; payload: number }
   | { type: 'setVoiceVolume'; payload: number }
@@ -812,6 +814,13 @@ export class SettingsPanel {
         await configuration.update('voice.ttsEnabled', message.payload, vscode.ConfigurationTarget.Workspace);
         return;
 
+      case 'setInstructionsVerifyOnCommit':
+        // Workspace scope is required, not merely conventional: the pre-commit
+        // hook reads `.vscode/settings.json` because it has no VS Code host, so
+        // a User-scoped value would be a control that silently does nothing.
+        await configuration.update('instructions.verifyOnCommit', message.payload, vscode.ConfigurationTarget.Workspace);
+        return;
+
       case 'setVoiceRate':
         await configuration.update('voice.rate', message.payload, vscode.ConfigurationTarget.Workspace);
         return;
@@ -1316,6 +1325,7 @@ export class SettingsPanel {
         parseCustomDebtMarkers(
           vscode.workspace.getConfiguration('atlasmind').get<string[]>('debt.markers', []),
         ),
+        readWorkflowGuidanceInput(workspaceRoot),
       );
         if (result.success) {
           void vscode.window.showInformationMessage(`Testing strategy saved. ${result.summary}`);
@@ -1350,6 +1360,7 @@ export class SettingsPanel {
         parseCustomDebtMarkers(
           vscode.workspace.getConfiguration('atlasmind').get<string[]>('debt.markers', []),
         ),
+        readWorkflowGuidanceInput(workspaceRoot),
       );
       if (result.success) {
         void vscode.window.showInformationMessage(result.summary);
@@ -1851,6 +1862,7 @@ export class SettingsPanel {
     const autoVerifyScripts = escapeHtml((configuration.get<string[]>('autoVerifyScripts', ['test']) ?? ['test']).join(', '));
     const autoVerifyTimeoutMs = getPositiveInteger(configuration.get<number>('autoVerifyTimeoutMs'), 120000);
     const voiceTtsEnabled = configuration.get<boolean>('voice.ttsEnabled', false);
+    const instructionsVerifyOnCommit = configuration.get<boolean>('instructions.verifyOnCommit', true);
     const voiceRate = getRangedNumber(configuration.get<number>('voice.rate'), 1, 0.5, 2, 2);
     const voicePitch = getRangedNumber(configuration.get<number>('voice.pitch'), 1, 0, 2, 2);
     const voiceVolume = getRangedNumber(configuration.get<number>('voice.volume'), 1, 0, 1, 2);
@@ -2811,6 +2823,22 @@ export class SettingsPanel {
                   <button id="scanAiInstructions">Scan Workspace</button>
                 </div>
                 <p id="aiInstructionScanStatus" class="info-note" aria-live="polite" style="min-height:1.4em;"></p>
+              </article>
+
+              <article class="settings-card" id="aiInstructionsVerifyCard">
+                <div class="card-header">
+                  <p class="card-kicker">Before each commit</p>
+                  <h3>${renderHeadingWithHelp('Keep the managed blocks current', 'instructionsVerifyOnCommit')}</h3>
+                </div>
+                <label class="checkbox-card">
+                  <input id="instructionsVerifyOnCommit" type="checkbox" ${instructionsVerifyOnCommit ? 'checked' : ''}>
+                  <span>
+                    <strong>Verify AI instruction sets before each commit</strong>
+                    <span class="muted-line">Refuse the commit when a managed block no longer matches the file it was generated from.</span>
+                  </span>
+                </label>
+                <p class="card-copy top-gap"><strong>Verify only — this never edits a file.</strong> It refuses and names the command that fixes it, the same way this project already treats a missing version bump. A hook that rewrote files would mean the commit you staged is not the commit that lands; a <em>two-way</em> sync at commit time would pull another agent's edits in and broadcast them to every other tool's file unreviewed.</p>
+                <p class="info-note">Covers the blocks generated from files (the testing matrix and the workflow). The debt-marker block comes from a setting, which a git hook cannot read, so it is not checked rather than guessed at. Skip one commit with <code>ATLASMIND_SKIP_INSTRUCTION_CHECK=1</code>. Saved to <strong>workspace</strong> settings, because a git hook cannot see a User-scoped value.</p>
               </article>
             </div>
 
@@ -4677,6 +4705,13 @@ export class SettingsPanel {
           bindCheckboxSetting('loopEnabled', 'setLoopEnabled');
           bindCheckboxSetting('loopRequireApprovalBeforeWriteBatches', 'setLoopRequireApprovalBeforeWriteBatches');
           bindCheckboxSetting('loopAllowDiscovery', 'setLoopAllowDiscovery');
+
+          const instructionsVerify = document.getElementById('instructionsVerifyOnCommit');
+          if (instructionsVerify instanceof HTMLInputElement) {
+            instructionsVerify.addEventListener('change', () => {
+              vscode.postMessage({ type: 'setInstructionsVerifyOnCommit', payload: instructionsVerify.checked });
+            });
+          }
 
           const voiceTtsEnabled = document.getElementById('voiceTtsEnabled');
           if (voiceTtsEnabled instanceof HTMLInputElement) {

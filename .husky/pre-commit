@@ -22,6 +22,18 @@ fi
 echo "[pre-commit] Compiling TypeScript..."
 npm run compile --silent
 
+# ── 3. AI instruction sets are current ───────────────────────────────────────
+#
+# Verify only: this never edits a file, so the commit you staged is the commit
+# that lands. It runs after the compile because it reads the built checker, and
+# it exits 0 when it cannot run rather than blocking a fresh clone.
+#
+# Skip one commit with ATLASMIND_SKIP_INSTRUCTION_CHECK=1, or untick
+# "Verify AI instruction sets before each commit" on Settings -> AI Instructions.
+
+echo "[pre-commit] Checking AI instruction sets..."
+node scripts/check-instruction-sync.mjs
+
 echo "[pre-commit] Linting..."
 npm run lint --silent
 

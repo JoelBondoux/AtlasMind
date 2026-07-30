@@ -5,6 +5,7 @@ import {
   parseAcpAgentSettings,
   resetAcpProbeCache,
   VERIFIED_ACP_AGENTS,
+  SELF_INSTALLED_ACP_AGENTS,
   ACP_PROVIDER_BRIDGES,
   findAcpBridge,
   type AcpAgentConfig,
@@ -59,7 +60,15 @@ function scriptedAgent(options?: {
   initialize?: Record<string, unknown>;
   chunks?: string[];
   stopReason?: string;
+  /**
+   * Token counts, sent where real agents send them: on the `session/prompt`
+   * **result**, not in a `usage_update` notification.
+   */
   usage?: { inputTokens?: number; outputTokens?: number };
+  /** Context occupancy, in the shape the spec's `usage_update` defines. */
+  context?: { used: number; size: number };
+  /** Refuse `session/new` with ACP's reserved auth-required code. */
+  authRequired?: boolean;
 }): { factory: AcpProcessFactory; agents: FakeAgent[] } {
   const agents: FakeAgent[] = [];
   const factory: AcpProcessFactory = () => {
@@ -70,6 +79,10 @@ function scriptedAgent(options?: {
           self.emitFrame({ jsonrpc: '2.0', id, result: options?.initialize ?? INITIALIZE_OK });
           return;
         case 'session/new':
+          if (options?.authRequired) {
+            self.emitFrame({ jsonrpc: '2.0', id, error: { code: -32000, message: 'Authentication required' } });
+            return;
+          }
           self.emitFrame({ jsonrpc: '2.0', id, result: { sessionId: 'sess_1' } });
           return;
         case 'session/prompt': {
@@ -80,14 +93,21 @@ function scriptedAgent(options?: {
               params: { sessionId: 'sess_1', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: chunk } } },
             });
           }
-          if (options?.usage) {
+          if (options?.context) {
             self.emitFrame({
               jsonrpc: '2.0',
               method: 'session/update',
-              params: { sessionId: 'sess_1', update: { sessionUpdate: 'usage_update', usage: options.usage } },
+              params: { sessionId: 'sess_1', update: { sessionUpdate: 'usage_update', ...options.context } },
             });
           }
-          self.emitFrame({ jsonrpc: '2.0', id, result: { stopReason: options?.stopReason ?? 'end_turn' } });
+          self.emitFrame({
+            jsonrpc: '2.0',
+            id,
+            result: {
+              stopReason: options?.stopReason ?? 'end_turn',
+              ...(options?.usage ? { usage: options.usage } : {}),
+            },
+          });
           return;
         }
         default:
@@ -135,7 +155,7 @@ describe('AcpAdapter — a full turn', () => {
     expect(response.content).toBe('one two three');
   });
 
-  it('reports token usage when the agent sends it, and zero when it does not', async () => {
+  it('reports token usage from the prompt result, and zero when it does not', async () => {
     const withUsage = new AcpAdapter({ agents: [AGENT], spawnProcess: scriptedAgent({ usage: { inputTokens: 120, outputTokens: 8 } }).factory });
     const counted = await withUsage.complete(request());
     expect(counted).toMatchObject({ inputTokens: 120, outputTokens: 8 });
@@ -144,6 +164,22 @@ describe('AcpAdapter — a full turn', () => {
     // count would feed the cost tracker a number nobody measured.
     const withoutUsage = new AcpAdapter({ agents: [AGENT], spawnProcess: scriptedAgent().factory });
     expect(await withoutUsage.complete(request())).toMatchObject({ inputTokens: 0, outputTokens: 0 });
+  });
+
+  /**
+   * The regression that made every ACP completion look free.
+   *
+   * `usage_update` reports how full the context is, cumulatively. Charging its
+   * `used` figure as this turn's input tokens would re-bill the entire
+   * conversation on every message — so a turn that sends context but no result
+   * usage must still report zero, not 60,750.
+   */
+  it('never bills context occupancy as the turn\'s tokens', async () => {
+    const adapter = new AcpAdapter({
+      agents: [AGENT],
+      spawnProcess: scriptedAgent({ context: { used: 60_750, size: 1_000_000 } }).factory,
+    });
+    expect(await adapter.complete(request())).toMatchObject({ inputTokens: 0, outputTokens: 0 });
   });
 
   it('carries a prompt far larger than the claude-cli argv ceiling, intact', async () => {
@@ -235,10 +271,54 @@ describe('AcpAdapter — restricted mode is the security boundary', () => {
     }))).rejects.toThrow(/cannot run AtlasMind's own tool definitions/i);
   });
 
-  it('refuses to run when the agent is not authenticated', async () => {
-    const { factory } = scriptedAgent({ initialize: { ...INITIALIZE_OK, authMethods: ['oauth'] } });
+  /**
+   * The bug that stopped the ChatGPT subscription path working at all.
+   *
+   * `codex-acp` advertises `api-key` and `chat-gpt` on **every** handshake,
+   * signed in or not. The previous version read that non-empty list as "not
+   * authenticated" and threw before ever asking the agent to do anything — so a
+   * user who was correctly signed in was told they were not, with no way to make
+   * the message go away.
+   */
+  it('runs normally for an agent that advertises logins the user does not owe', async () => {
+    const { factory } = scriptedAgent({
+      initialize: { ...INITIALIZE_OK, authMethods: [{ id: 'api-key' }, { id: 'chat-gpt' }] },
+    });
     const adapter = new AcpAdapter({ agents: [AGENT], spawnProcess: factory });
-    await expect(adapter.complete(request())).rejects.toThrow(/not authenticated/i);
+
+    const response = await adapter.complete(request());
+
+    expect(response.content).toBe('Hello world');
+    expect(response.finishReason).toBe('stop');
+  });
+
+  it('refuses with a sign-in message only when session/new says authentication is required', async () => {
+    const { factory } = scriptedAgent({
+      initialize: { ...INITIALIZE_OK, authMethods: [{ id: 'chat-gpt' }] },
+      authRequired: true,
+    });
+    const adapter = new AcpAdapter({ agents: [AGENT], spawnProcess: factory });
+
+    // Names the login to run, and says AtlasMind never handles the credential.
+    await expect(adapter.complete(request())).rejects.toThrow(/needs you to sign in.*chat-gpt/is);
+  });
+
+  it('does not dress an ordinary session failure up as an authentication problem', async () => {
+    // A crashed agent reported as "sign in" sends the user to a login that
+    // cannot help. -32603 is not -32000.
+    const factory: AcpProcessFactory = () => new FakeAgent((self, frame) => {
+      if (frame['method'] === 'initialize') {
+        self.emitFrame({ jsonrpc: '2.0', id: frame['id'], result: INITIALIZE_OK });
+        return;
+      }
+      if (frame['method'] === 'session/new') {
+        self.emitFrame({ jsonrpc: '2.0', id: frame['id'], error: { code: -32603, message: 'disk on fire' } });
+      }
+    });
+    const adapter = new AcpAdapter({ agents: [AGENT], spawnProcess: factory });
+
+    await expect(adapter.complete(request())).rejects.toThrow(/disk on fire/);
+    await expect(adapter.complete(request())).rejects.not.toThrow(/sign in/i);
   });
 
   it('refuses to run against an incompatible protocol version', async () => {
@@ -459,7 +539,7 @@ describe('AcpAdapter — discovery and probing', () => {
     expect(probe).toMatchObject({ installed: true, authenticated: true, protocolVersion: 1, agentName: 'fake-agent' });
   });
 
-  it('probe distinguishes "not installed" from "not authenticated"', async () => {
+  it('probe distinguishes "not installed" from "not signed in"', async () => {
     const missing = new AcpAdapter({
       agents: [AGENT],
       spawnProcess: () => { throw new Error('spawn fake-agent-acp ENOENT'); },
@@ -468,13 +548,51 @@ describe('AcpAdapter — discovery and probing', () => {
     expect(notInstalled.installed).toBe(false);
     expect(notInstalled.message).toMatch(/not found on PATH/);
 
+    // Not signed in means the agent refused to open a session — not that it
+    // listed some logins on its way past.
     const unauthenticated = new AcpAdapter({
       agents: [AGENT],
-      spawnProcess: scriptedAgent({ initialize: { ...INITIALIZE_OK, authMethods: ['oauth'] } }).factory,
+      spawnProcess: scriptedAgent({
+        initialize: { ...INITIALIZE_OK, authMethods: [{ id: 'chat-gpt' }] },
+        authRequired: true,
+      }).factory,
     });
     const probe = await unauthenticated.probe();
     expect(probe).toMatchObject({ installed: true, authenticated: false });
-    expect(probe.message).toMatch(/not authenticated/);
+    expect(probe.message).toMatch(/not signed in/);
+    expect(probe.message).toMatch(/chat-gpt/);
+  });
+
+  it('probe proves the agent can open a session, not merely that it started', async () => {
+    // An advertised login list is not a fault. This agent is signed in.
+    const adapter = new AcpAdapter({
+      agents: [AGENT],
+      spawnProcess: scriptedAgent({
+        initialize: { ...INITIALIZE_OK, authMethods: [{ id: 'api-key' }, { id: 'chat-gpt' }] },
+      }).factory,
+    });
+
+    const probe = await adapter.probe();
+
+    expect(probe).toMatchObject({ installed: true, authenticated: true });
+    expect(probe.message).toBeUndefined();
+  });
+
+  it('probe reports a broken agent as broken rather than as signed out', async () => {
+    const factory: AcpProcessFactory = () => new FakeAgent((self, frame) => {
+      if (frame['method'] === 'initialize') {
+        self.emitFrame({ jsonrpc: '2.0', id: frame['id'], result: INITIALIZE_OK });
+        return;
+      }
+      if (frame['method'] === 'session/new') {
+        self.emitFrame({ jsonrpc: '2.0', id: frame['id'], error: { code: -32603, message: 'workspace unreadable' } });
+      }
+    });
+    const probe = await new AcpAdapter({ agents: [AGENT], spawnProcess: factory }).probe();
+
+    expect(probe).toMatchObject({ installed: true, authenticated: false });
+    expect(probe.message).toMatch(/could not open a session/);
+    expect(probe.message).not.toMatch(/sign in/i);
   });
 
   it('says what to do when nothing is configured at all', async () => {
@@ -562,11 +680,70 @@ describe('parseAcpAgentSettings — untrusted settings boundary', () => {
 });
 
 describe('VERIFIED_ACP_AGENTS', () => {
-  it('lists only agents whose launch command is published', () => {
-    expect(VERIFIED_ACP_AGENTS.map(agent => agent.command)).toEqual(['claude-agent-acp', 'codex-acp']);
-    // Gemini CLI implements ACP but publishes no invocation, so guessing one
-    // would produce a spawn failure the user cannot diagnose.
-    expect(VERIFIED_ACP_AGENTS.some(agent => /gemini/i.test(agent.id))).toBe(false);
+  it('lists the agents whose launch command the ACP registry declares', () => {
+    expect(VERIFIED_ACP_AGENTS.map(agent => agent.command))
+      .toEqual(['claude-agent-acp', 'codex-acp', 'gemini', 'copilot', 'qwen']);
+  });
+
+  /**
+   * The bug this list shipped with for thirty-odd versions.
+   *
+   * `command` said `claude-agent-acp`; the install command said
+   * `@zed-industries/claude-code-acp`, whose `bin` is `claude-code-acp`. So
+   * following AtlasMind's own instructions installed a binary AtlasMind would
+   * then fail to find, and the Claude path could not work for anybody. The two
+   * facts lived in different files, so nothing could notice they disagreed.
+   *
+   * The package/bin pairs below were each read from the npm registry's own `bin`
+   * field on 2026-07-30. A future rename shows up here rather than as an
+   * unexplained ENOENT.
+   */
+  it('pairs every command with the npm package that actually provides it', () => {
+    const declared: Record<string, string> = {
+      '@agentclientprotocol/claude-agent-acp': 'claude-agent-acp',
+      '@agentclientprotocol/codex-acp': 'codex-acp',
+      '@google/gemini-cli': 'gemini',
+      '@github/copilot': 'copilot',
+      '@qwen-code/qwen-code': 'qwen',
+    };
+    for (const agent of VERIFIED_ACP_AGENTS) {
+      expect(declared[agent.npmPackage], `${agent.id} → ${agent.npmPackage}`).toBe(agent.command);
+    }
+  });
+
+  it('carries the ACP-mode flag for every CLI that is not an ACP-only adapter', () => {
+    // `gemini`, `copilot` and `qwen` are interactive CLIs until told otherwise;
+    // registering one without its flag launches a REPL that never speaks JSON-RPC.
+    const byId = new Map(VERIFIED_ACP_AGENTS.map(agent => [agent.id, agent.args]));
+    expect(byId.get('claude')).toEqual([]);
+    expect(byId.get('codex')).toEqual([]);
+    expect(byId.get('gemini')).toEqual(['--acp']);
+    expect(byId.get('copilot')).toEqual(['--acp']);
+    expect(byId.get('qwen')).toEqual(['--acp']);
+  });
+
+  it('gives every id a distinct model id', () => {
+    const ids = VERIFIED_ACP_AGENTS.map(agent => agent.modelId);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const agent of VERIFIED_ACP_AGENTS) {
+      expect(agent.modelId).toBe(`acp/${agent.id}`);
+    }
+  });
+});
+
+describe('SELF_INSTALLED_ACP_AGENTS', () => {
+  it('names agents distributed as archives, which AtlasMind will not download', () => {
+    // Listed so the guide can name the command; deliberately not installable,
+    // because unpacking a downloaded archive is not something AtlasMind does.
+    expect(SELF_INSTALLED_ACP_AGENTS.map(agent => `${agent.command} ${agent.args.join(' ')}`.trim()))
+      .toEqual(['goose acp', 'opencode acp', 'cursor-agent acp', 'kimi acp']);
+  });
+
+  it('never collides with an agent AtlasMind can install', () => {
+    const installable = new Set(VERIFIED_ACP_AGENTS.map(agent => agent.id));
+    for (const agent of SELF_INSTALLED_ACP_AGENTS) {
+      expect(installable.has(agent.id), agent.id).toBe(false);
+    }
   });
 });
 
@@ -585,12 +762,41 @@ describe('ACP_PROVIDER_BRIDGES — the subscription offer on a pay-per-token car
     });
   });
 
-  it('offers nothing for a vendor whose launch command is unpublished', () => {
-    // Gemini CLI implements ACP but publishes no invocation, so a button on the
-    // Google card would be one that cannot work.
-    expect(findAcpBridge('google')).toBeUndefined();
+  it('offers Gemini on the Google card, now that its invocation is published', () => {
+    // Absent until the ACP registry declared `gemini --acp`; a guessed flag
+    // would have been a button that cannot work.
+    expect(findAcpBridge('google')).toMatchObject({
+      agentId: 'gemini',
+      command: 'gemini',
+      args: ['--acp'],
+      offerLabel: 'Use my Gemini subscription',
+    });
+  });
+
+  it('offers nothing for a vendor with no published ACP agent', () => {
     expect(findAcpBridge('mistral')).toBeUndefined();
     expect(findAcpBridge('local')).toBeUndefined();
+  });
+
+  /**
+   * The install string is *derived* from the verified list rather than written
+   * out on the bridge, so the two cannot disagree the way they used to.
+   */
+  it('derives each install command from the agent that owns it', () => {
+    for (const bridge of ACP_PROVIDER_BRIDGES) {
+      const agent = VERIFIED_ACP_AGENTS.find(entry => entry.id === bridge.agentId);
+      expect(agent, bridge.providerId).toBeDefined();
+      expect(bridge.install).toBe(`npm install -g ${agent!.npmPackage}`);
+      expect(bridge.args).toEqual(agent!.args);
+    }
+  });
+
+  it('never proposes the renamed package or the crate that never existed', () => {
+    const installs = ACP_PROVIDER_BRIDGES.map(bridge => bridge.install).join('\n');
+    // Deprecated and renamed; its bin is `claude-code-acp`, not `claude-agent-acp`.
+    expect(installs).not.toContain('@zed-industries/claude-code-acp');
+    // There is no `codex-acp` crate. This advised installing Rust to no purpose.
+    expect(installs).not.toContain('cargo install');
   });
 
   it('names a command that is also a verified agent', () => {

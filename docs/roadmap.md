@@ -24,7 +24,7 @@ AtlasMind will deliver fast-start, opinionated project templates for:
     - **SaaS/Web Apps:** Next.js, Remix, Laravel, Django, Static, Blog/CMS
     - **Frontend:** Next.js, SvelteKit, Nuxt, React, Vue
     - **Mobile:** React Native, Expo, Flutter
-    - **Game Dev:** Unity, Unreal, Godot, Web-based
+    - **Game Dev:** Unity, Unreal, Godot, Web-based — specified in [project-composition.md](project-composition.md); phased plan in [`project_memory/roadmap/game-engine-integration.md`](../project_memory/roadmap/game-engine-integration.md).
     - **AI/Automation:** AI SaaS, RAG, Agentic, Local Model, Orchestrator
     - **DevOps:** Docker, Kubernetes, Serverless, Terraform
     - **Testing:** Full, Playwright, API
@@ -50,7 +50,7 @@ These initiatives close the gap between AtlasMind and best-in-class AI dev tools
 **Professional developers**
 - **The guided GitHub workflow** — one canonical, deterministic, eight-stage workflow (issue intake → branch → develop → PR → CI → release → maintenance → automation), surfaced as a teaching-and-instrumentation page on the Project Dashboard and adapting to the project's enabled testing protocols. Tier 1 landed in 0.181.0; PR-native review (real `gh`-backed PR creation, inline review comments from the Security/Code Reviewer agents, CI-check review and conflict triage) is Tier 2, and CI failure classification plus release automation are Tier 3. Specified in [guided-github-workflow.md](guided-github-workflow.md); phased plan in [`project_memory/roadmap/guided-github-workflow.md`](../project_memory/roadmap/guided-github-workflow.md).
 - Eval / regression harness for agents: pin "golden" tasks and detect when an agent definition or model swap regresses quality (mitigates the risk of the auto-update cadence).
-- Monorepo / multi-root workspace awareness: per-package SSOT scoping and routing.
+- Monorepo / multi-root workspace awareness: per-package SSOT scoping and routing. Specified in [project-composition.md](project-composition.md) — AtlasMind is single-root by construction today (123 of 130 `workspaceFolders` reads take `[0]`), and Phase 1 of the [game engine plan](../project_memory/roadmap/game-engine-integration.md) delivers this as general capability rather than a game feature.
 - Context window / token budget visualizer: show what's in context and let users prune it.
 - SAST / dependency-CVE integration wired into the Security and Dependency Manager agents via an advisory feed.
 

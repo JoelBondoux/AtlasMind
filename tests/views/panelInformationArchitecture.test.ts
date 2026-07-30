@@ -287,10 +287,25 @@ describe('ideation workspace order', () => {
     expect(at('ideation-stat-strip')).toBeLessThan(at('renderBoard(snapshot)'));
   });
 
-  it('demotes the staged-workflow guide to the end, collapsed', () => {
-    expect(at('ideation-process-section')).toBeGreaterThan(at('ideation-analytics-section'));
+  it('puts the staged-workflow guide directly above the canvas it describes', () => {
+    // This reverses the demotion the test above it was written alongside, and
+    // the reversal is only safe because of what changed in between.
+    //
+    // The guide was sent to the end because the canvas was below the fold —
+    // "a hero panel, a four-card process guide and a very tall composer came
+    // first". Two of those three are gone: the hero is a compact stat strip,
+    // and the guide is a `<details>` that is collapsed unless the board is
+    // empty. Collapsed it costs one summary line, not four cards; expanded, it
+    // only happens when there is no board content to push down anyway.
+    //
+    // So the fold argument no longer applies to it, and being above the thing
+    // it explains beats being the last section reached by somebody who has
+    // already had to work the board out unaided.
+    expect(at('ideation-process-section')).toBeGreaterThan(at('ideation-stat-strip'));
+    expect(at('ideation-process-section')).toBeLessThan(at('renderBoard(snapshot)'));
     expect(script).toContain('ideation-process-details');
-    // Open only while the board is still empty, when it is actually guidance.
+    // Still open only while the board is empty — the property that makes the
+    // position above the canvas affordable.
     expect(script).toContain("boardIsEmpty ? ' open' : ''");
   });
 

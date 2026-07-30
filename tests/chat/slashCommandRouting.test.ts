@@ -45,10 +45,17 @@ describe('slash command routing', () => {
   it('uses the recovered prompt, not the raw one, for commands that take arguments', () => {
     // Otherwise `/buzz send hello` recovered from text would pass the whole
     // string — including the command itself — through as the message body.
-    const dispatch = participantSource.slice(
-      participantSource.indexOf('async function handleChatRequest('),
-      participantSource.indexOf("case 'voice':"),
-    );
+    //
+    // Anchored on the function's own boundaries rather than on a `case` label.
+    // It used to end at `case 'voice':`, which moved *above* `handleChatRequest`
+    // when the deterministic commands were factored into
+    // `runDeterministicSlashCommand` — leaving the slice empty and the assertion
+    // passing vacuously in the direction that matters least.
+    const start = participantSource.indexOf('async function handleChatRequest(');
+    const end = participantSource.indexOf('export async function prepareProjectRunContext(');
+    expect(start, 'handleChatRequest not found').toBeGreaterThan(-1);
+    expect(end, 'prepareProjectRunContext not found').toBeGreaterThan(start);
+    const dispatch = participantSource.slice(start, end);
     expect(dispatch).toContain('let prompt = request.prompt;');
     // The declaration is the one legitimate mention; every other use inside the
     // dispatch must read the local, possibly-rewritten value.

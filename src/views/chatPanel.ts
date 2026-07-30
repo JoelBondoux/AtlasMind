@@ -56,6 +56,8 @@ import { formatCost } from '../core/currencyFormatter.js';
 
 // Re-exported for existing importers/tests that resolve these from chatPanel.
 export { getStatusDrivenComposerMode, isOneShotComposerMode, isChatPanelMessage };
+import { routePanelPrompt, type PanelSlashRoute } from './chatSlashRouting.js';
+import { detectGovernedAction } from '../core/workflowChatGuard.js';
 export type { ComposerSendMode, ChatPanelMessage } from './chatProtocol.js';
 
 const FONT_SCALE_STORAGE_KEY = 'atlasmind.chatFontScale';
@@ -931,17 +933,85 @@ export class ChatPanel {
       return;
     }
 
+    // A slash command is answered by AtlasMind, never by a model.
+    //
+    // Until this existed the panel had no slash dispatch at all, so every
+    // declared command reached the orchestrator as prose — and on a machine with
+    // no provider configured, `/acp` was answered by the built-in echo adapter
+    // with "Answered from context." The command was declared, documented,
+    // autocompleted, and inert. Worse, a *setup* question asked because nothing
+    // is set up yet was handed to an agent holding every connected tool.
+    //
+    // Steering is exempt: mid-run, the composer's text redirects the request in
+    // flight rather than starting anything, and a `/`-prefixed steer is prose.
+    //
+    // The two long-running commands *rewrite this request* rather than starting a
+    // second one — recursing into `runPrompt` would re-enter this very block.
+    //
+    // `routePanelPrompt` is synchronous and imported statically, so an ordinary
+    // prose prompt pays **nothing** here — not even a microtask. That matters
+    // more than it looks: an `await` in front of this block delays the busy
+    // indicator for every message, and a test counting microtasks caught it
+    // immediately when the first version awaited two dynamic imports before
+    // deciding the prompt was prose after all.
+    let effectivePrompt = prompt;
+    let effectiveMode = mode;
+    let forcedProjectGoal: string | undefined;
+    const route = mode === 'steer' ? { kind: 'prose' as const } : routePanelPrompt(prompt);
+    if (route.kind !== 'prose') {
+      const decision = await this.runSlashCommand(route);
+      if (decision.kind === 'handled') {
+        return;
+      }
+      if (decision.kind === 'loop') {
+        effectiveMode = 'new-loop';
+        effectivePrompt = decision.goal;
+      } else if (decision.kind === 'project') {
+        // The goal is forced, but **not** pre-approved: `/project` is a request
+        // to plan, and the file-count proposal gate still applies. Wrapping it
+        // in the approval token would have removed a safety gate in passing.
+        forcedProjectGoal = decision.goal;
+      }
+    }
+
+    // The declared workflow, said out loud at the moment it applies.
+    //
+    // Nothing in the chat path had ever read the workflow: it lived on a
+    // dashboard page and in *other* tools' instruction files, so asking Atlas to
+    // "commit and push this" got no workflow awareness at all. A novice's
+    // failure mode is not breaking a rule, it is not knowing one existed — so at
+    // the default level this adds a sentence and proceeds. `gate` stops instead,
+    // and is opt-in because a prompt on every commit becomes one people learn to
+    // click through.
+    //
+    // Steering is exempt for the same reason it is exempt from slash routing:
+    // mid-run text redirects a request already in flight.
+    //
+    // `detectGovernedAction` is synchronous and statically imported, and it gates
+    // everything else here. That ordering is the point: the first version awaited
+    // two dynamic imports and a git call in front of **every** prompt, which
+    // delayed the busy indicator on every message — the identical mistake the
+    // slash router made, caught by the identical microtask-counting test. An
+    // ordinary prompt now pays one regex pass and no microtask.
+    if (mode !== 'steer' && detectGovernedAction(prompt)) {
+      const stop = await this.announceWorkflowExpectation(prompt);
+      if (stop) {
+        return;
+      }
+    }
+
     const configuration = vscode.workspace.getConfiguration('atlasmind');
     // If another panel is actively executing on this same session, spawn a separate session
     // so their transcripts stay isolated and neither sees the other's streaming responses.
-    const sessionConflict = mode === 'send' && ChatPanel.collectActiveExecutions()
+    const sessionConflict = effectiveMode === 'send' && ChatPanel.collectActiveExecutions()
       .some(exec => exec.sessionId === this.selectedSessionId);
     // "New Loop" also starts in its own fresh session (like "New Session") so the
     // autonomous run's transcript stays isolated from the current conversation.
-    const activeSessionId = (mode === 'new-session' || mode === 'new-loop' || sessionConflict)
+    // `/loop` reaches here as `new-loop`, so it gets that isolation too.
+    const activeSessionId = (effectiveMode === 'new-session' || effectiveMode === 'new-loop' || sessionConflict)
       ? this.atlas.sessionConversation.spawnSession()
       : this.selectedSessionId;
-    if (mode === 'new-chat') {
+    if (effectiveMode === 'new-chat') {
       this.atlas.sessionConversation.clearSession(activeSessionId);
     }
     // Load structured session context; fall back to legacy string if not yet available.
@@ -968,12 +1038,13 @@ export class ChatPanel {
     );
     this.composerAttachments = [];
     const preparedRequest = await this.preparePromptRequest(
-      prompt,
+      effectivePrompt,
       submittedAttachments,
-      mode,
+      effectiveMode,
       sessionContext,
       activeSessionId,
       sessionContextBundle ?? undefined,
+      forcedProjectGoal,
     );
     const assistantMessageId = this.atlas.sessionConversation.appendMessage(
       'assistant',
@@ -2144,6 +2215,183 @@ export class ChatPanel {
     }
   }
 
+  /**
+   * Decide what a submitted prompt starting with `/` means.
+   *
+   * `handled` means AtlasMind has already answered and the caller must stop
+   * before reaching a model — the whole point of this path. `project` and `loop`
+   * hand a goal back for the caller to run on the panel's own long-running
+   * paths, which already own run proposals, loop checkpoints and the run-center
+   * wiring. `prose` means it was never a command.
+   *
+   * The deterministic commands run the **participant's own handlers** through
+   * {@link ChatStreamCollector}, so the panel and `@atlas` cannot answer
+   * `/agents` differently. The alternative was nineteen near-copies kept correct
+   * by hand.
+   */
+  private async runSlashCommand(route: Exclude<PanelSlashRoute, { kind: 'prose' }>): Promise<
+    | { kind: 'handled' }
+    | { kind: 'project'; goal: string }
+    | { kind: 'loop'; goal: string }
+  > {
+    if (route.kind === 'loop') {
+      return { kind: 'loop', goal: route.goal };
+    }
+    if (route.kind === 'project') {
+      return { kind: 'project', goal: route.goal };
+    }
+
+    if (route.kind === 'unknown' || route.kind === 'needs-argument') {
+      // Recorded in the transcript rather than flashed as a status line: the user
+      // typed something and is owed a reply where replies appear.
+      await this.postAssistantNotice(route.raw, route.message);
+      return { kind: 'handled' };
+    }
+
+    // Imported only now: a replay is the one branch that needs it, and putting
+    // this import in front of every prompt is what delayed the busy indicator.
+    const { ChatStreamCollector, renderCollectedResponse } = await import('./chatStreamCollector.js');
+
+    const sessionId = this.selectedSessionId;
+    this.atlas.sessionConversation.appendMessage('user', route.raw, sessionId);
+    const assistantMessageId = this.atlas.sessionConversation.appendMessage(
+      'assistant',
+      `Running \`/${route.command}\`…`,
+      sessionId,
+    );
+    await this.syncState();
+
+    const collector = new ChatStreamCollector();
+    const cancellation = new vscode.CancellationTokenSource();
+    try {
+      const { runDeterministicSlashCommand } = await import('../chat/participant.js');
+      const handled = await runDeterministicSlashCommand(
+        route.command,
+        route.argument,
+        collector.asStream(),
+        cancellation.token,
+        this.atlas,
+        sessionId,
+      );
+      if (!handled) {
+        // The router classified it and the dispatch disowned it. That is a
+        // disagreement between two lists, so it is reported as our bug rather
+        // than dressed up as the command doing nothing.
+        this.atlas.sessionConversation.updateMessage(
+          assistantMessageId,
+          `\`/${route.command}\` is recognised but has no handler. This is an AtlasMind bug — please report it.`,
+          sessionId,
+        );
+        await this.syncState();
+        return { kind: 'handled' };
+      }
+
+      const collected = collector.collect();
+      this.atlas.sessionConversation.updateMessage(
+        assistantMessageId,
+        renderCollectedResponse(collected),
+        sessionId,
+      );
+      await this.syncState();
+
+      // Buttons become the panel's chips. Only ids cross to the webview; the
+      // commands they map to stay here, exactly as the Buzz guide does it.
+      if (collected.buttons.length > 0) {
+        const actions = new Map<string, { command: string; args?: unknown[] }>();
+        for (const button of collected.buttons) {
+          actions.set(button.id, { command: button.command, ...(button.args.length > 0 ? { args: button.args } : {}) });
+        }
+        await this.setGuideChoice(
+          {
+            id: 'buzz-guide',
+            title: `\`/${route.command}\``,
+            options: collected.buttons.map(button => ({ id: button.id, label: button.title })),
+          },
+          actions,
+        );
+      }
+      return { kind: 'handled' };
+    } catch (error) {
+      this.atlas.sessionConversation.updateMessage(
+        assistantMessageId,
+        `\`/${route.command}\` did not complete: ${error instanceof Error ? error.message : String(error)}`,
+        sessionId,
+      );
+      await this.syncState();
+      return { kind: 'handled' };
+    } finally {
+      cancellation.dispose();
+    }
+  }
+
+  /**
+   * Say what the declared workflow expects, before doing what was asked.
+   *
+   * Returns `true` only when the caller must **stop** — which happens solely at
+   * `gate`. At `inform` the notice is appended to the transcript and the turn
+   * continues, because informing that costs the user their request would be
+   * gating with extra steps.
+   *
+   * Reads its own settings rather than taking them as arguments: this is the
+   * `vscode`-aware half, and `workflowChatGuard.ts` is the pure half that decides
+   * what to say.
+   */
+  private async announceWorkflowExpectation(prompt: string): Promise<boolean> {
+    let notice: import('../core/workflowChatGuard.js').WorkflowChatNotice | undefined;
+    try {
+      const [{ buildWorkflowChatNotice, parseWorkflowChatGuidanceMode }, { readWorkflowConfig }] = await Promise.all([
+        import('../core/workflowChatGuard.js'),
+        import('../core/workflowConfig.js'),
+      ]);
+      const settings = vscode.workspace.getConfiguration('atlasmind');
+      const mode = parseWorkflowChatGuidanceMode(settings.get<string>('workflow.chatGuidance', 'inform'));
+      if (mode === 'off') {
+        return false;
+      }
+      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!workspaceRoot) {
+        return false;
+      }
+      const branch = await readCurrentBranch(workspaceRoot);
+      notice = buildWorkflowChatNotice({
+        prompt,
+        mode,
+        config: readWorkflowConfig(workspaceRoot),
+        ...(branch ? { currentBranch: branch } : {}),
+      });
+    } catch {
+      // Advisory by nature. A guard that took a turn down would be worse than
+      // the silence it was meant to replace.
+      return false;
+    }
+
+    if (!notice) {
+      return false;
+    }
+
+    const sessionId = this.selectedSessionId;
+    if (notice.blocking) {
+      // A gate records the request too, so the transcript shows what was asked
+      // and what stopped it rather than only the refusal.
+      this.atlas.sessionConversation.appendMessage('user', prompt, sessionId);
+      this.atlas.sessionConversation.appendMessage('assistant', notice.markdown, sessionId);
+      await this.syncState();
+      return true;
+    }
+
+    this.atlas.sessionConversation.appendMessage('assistant', notice.markdown, sessionId);
+    await this.syncState();
+    return false;
+  }
+
+  /** Put a short AtlasMind-authored reply in the transcript, with no model involved. */
+  private async postAssistantNotice(userPrompt: string, notice: string): Promise<void> {
+    const sessionId = this.selectedSessionId;
+    this.atlas.sessionConversation.appendMessage('user', userPrompt, sessionId);
+    this.atlas.sessionConversation.appendMessage('assistant', notice, sessionId);
+    await this.syncState();
+  }
+
   private async preparePromptRequest(
     prompt: string,
     attachments: ChatComposerAttachment[],
@@ -2151,6 +2399,18 @@ export class ChatPanel {
     sessionContext: string,
     activeSessionId: string,
     sessionContextBundle?: import('../types.js').SessionContextBundle,
+    /**
+     * A project goal named outright by `/project <goal>`, bypassing the prose
+     * intent router but **not** the approval gate.
+     *
+     * Needed because project detection is otherwise inferred from the wording of
+     * a prose prompt, and a goal typed after `/project` will often not match
+     * those patterns — so the command would silently become an ordinary chat
+     * turn. Forcing the goal is the fix; pre-approving it would have been a
+     * different change wearing the same clothes, since the file-count proposal
+     * gate is the only thing standing between `/project` and an unattended run.
+     */
+    forcedProjectGoal?: string,
   ): Promise<PreparedPromptRequest> {
     const forceSteer = mode === 'steer';
     // "New Loop" treats the whole prompt as a mission goal: skip steer, terminal
@@ -2175,7 +2435,7 @@ export class ChatPanel {
     const routedIntent = forceSteer || isNewLoop
       ? undefined
       : resolveAtlasChatIntent(prompt, this.atlas.sessionConversation.getTranscript(activeSessionId));
-    const projectGoal = routedIntent?.kind === 'project' ? routedIntent.goal : undefined;
+    const projectGoal = forcedProjectGoal ?? (routedIntent?.kind === 'project' ? routedIntent.goal : undefined);
     const commandIntent = routedIntent?.kind === 'command'
       ? {
           commandId: routedIntent.commandId,
@@ -2664,6 +2924,15 @@ interface GitRepositoryLike {
   rootUri: vscode.Uri;
   state: {
     remotes: readonly GitRemoteLike[];
+    /**
+     * The checked-out ref, when there is one.
+     *
+     * Optional because a detached HEAD and a freshly-initialised repository both
+     * legitimately have no branch name — and because the workflow notice that
+     * reads this must degrade to a general message rather than claim you are on
+     * a branch it could not identify.
+     */
+    HEAD?: { name?: string };
     onDidChange: vscode.Event<void>;
   };
 }
@@ -2674,6 +2943,39 @@ interface GitApiLike {
 interface GitExtensionLike {
   getAPI(version: number): GitApiLike;
 }
+
+/**
+ * The branch the workspace is on, or `undefined`.
+ *
+ * Used to make the workflow notice specific — "you are on `main`, which this
+ * project marks protected" is worth saying, where the general form is not.
+ * Undefined on a detached HEAD, in a repository with no commits, and anywhere
+ * the Git extension is absent; every one of those degrades to the general
+ * message rather than guessing.
+ */
+async function readCurrentBranch(workspaceRoot: string | undefined): Promise<string | undefined> {
+  if (!workspaceRoot) {
+    return undefined;
+  }
+  try {
+    // Bounded, because `getGitApi` awaits the Git extension's activation and this
+    // sits in front of a chat turn. An extension that is slow to activate must
+    // cost the notice its specificity, never cost the user their request.
+    const api = await Promise.race([
+      getGitApi(),
+      new Promise<undefined>(resolve => setTimeout(() => resolve(undefined), GIT_BRANCH_READ_TIMEOUT_MS)),
+    ]);
+    const repo = api?.repositories.find(candidate => workspaceRoot.startsWith(candidate.rootUri.fsPath))
+      ?? api?.repositories[0];
+    const name = repo?.state.HEAD?.name;
+    return typeof name === 'string' && name.length > 0 ? name : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Long enough for a warm Git extension, short enough not to be felt. */
+const GIT_BRANCH_READ_TIMEOUT_MS = 750;
 
 /**
  * Returns the built-in `vscode.git` extension API, activating the extension if

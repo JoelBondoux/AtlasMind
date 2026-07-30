@@ -68,6 +68,9 @@ type ModelProviderMessage =
   | { type: 'useSubscriptionForProvider'; payload: ProviderId }
   | { type: 'refreshModels' }
   | { type: 'openSpecialistIntegrations' }
+  /** A settings page named in provider copy. The webview sends the page id,
+   *  never a command — the host decides what a page id means. */
+  | { type: 'openSettingsPage'; payload: string }
   | { type: 'openSettings' };
 
 /**
@@ -174,6 +177,16 @@ export class ModelProviderPanel {
       case 'openSpecialistIntegrations':
         await vscode.commands.executeCommand('atlasmind.openSpecialistIntegrations');
         return;
+      case 'openSettingsPage': {
+        // Looked up, never constructed. Building a command id from a webview
+        // string would let the webview choose the command that runs.
+        const command = SETTINGS_PAGE_COMMANDS[message.payload];
+        if (command) {
+          await vscode.commands.executeCommand(command);
+        }
+        return;
+      }
+
       case 'openSettings':
         await vscode.commands.executeCommand('atlasmind.openSettings', { page: 'models', query: 'providers' });
         return;
@@ -407,6 +420,22 @@ export class ModelProviderPanel {
           border-color: color-mix(in srgb, var(--atlas-accent) 48%, var(--atlas-border));
           color: var(--vscode-foreground);
         }
+        /* A route inside a sentence, so it has to read as part of the sentence.
+           A button element for the message boundary, styled as the link it is:
+           anything button-shaped mid-paragraph reads as a separate action. */
+        .inline-settings-link {
+          background: none;
+          border: none;
+          padding: 0;
+          font: inherit;
+          color: var(--vscode-textLink-foreground, var(--atlas-accent));
+          text-decoration: underline;
+          cursor: pointer;
+        }
+        .inline-settings-link:hover,
+        .inline-settings-link:focus-visible {
+          color: var(--vscode-textLink-activeForeground, var(--atlas-accent));
+        }
         .action-title { font-weight: 700; }
         .action-copy, .summary-card p:last-child { color: var(--atlas-muted); }
         .summary-card h3 { margin: 0; font-size: 1.8rem; }
@@ -582,6 +611,14 @@ export class ModelProviderPanel {
           });
         });
 
+        document.querySelectorAll('button[data-open-settings-page]').forEach(button => {
+          button.addEventListener('click', () => {
+            const page = button.getAttribute('data-open-settings-page');
+            if (!page) { return; }
+            vscode.postMessage({ type: 'openSettingsPage', payload: page });
+          });
+        });
+
         const refreshButton = document.getElementById('refresh-models');
         if (refreshButton) {
           refreshButton.addEventListener('click', () => {
@@ -721,11 +758,17 @@ function renderProviderCard(options: {
             <span class="meta-badge">${escapeHtml(options.providerId)}</span>
           </div>
         </div>
-        <p class="provider-copy">${escapeHtml(notes)}</p>
+        <p class="provider-copy">${renderProviderCopy(notes)}</p>
         ${options.detailsHtml ?? ''}
         <div class="provider-actions">
           <button type="button" data-provider="${options.providerId}">${escapeHtml(options.actionLabel)}</button>
-          ${isSubscriptionProvider(options.providerId) ? `<button type="button" class="action-secondary" data-subscription-provider="${options.providerId}">$ Configure plan</button>` : ''}
+          ${isSubscriptionProvider(options.providerId)
+            // Named, because three subscription providers can be on screen at
+            // once and every one of these buttons read "$ Configure plan". The
+            // quick pick it opens has always titled itself with the provider —
+            // so the button was the only step that did not say what it acted on.
+            ? `<button type="button" class="action-secondary" data-subscription-provider="${options.providerId}" title="${escapeHtml(`Set your ${options.displayName} plan tier and monthly allowance.`)}">$ Configure ${escapeHtml(options.displayName)} plan</button>`
+            : ''}
           ${renderSubscriptionOffer(options.providerId)}
         </div>
       </article>`,
@@ -759,6 +802,51 @@ function getProviderFailureCount(atlas: AtlasMindContext, providerId: ProviderId
 function isPlatformProvider(providerId: ProviderId): boolean {
   return providerId === 'copilot' || providerId === 'local' || providerId === 'azure' || providerId === 'bedrock';
 }
+
+/**
+ * Provider copy, with a route to any settings page it names.
+ *
+ * The ACP card told you to "turn on \"Let subscription agents act\" under
+ * Settings → Safety" and then left you to find it — an instruction with no way to
+ * follow it. The text is still escaped first and the link substituted onto the
+ * *escaped* string, so the copy remains untrusted-safe: nothing here can inject
+ * markup, because the only thing inserted is this function's own element.
+ *
+ * A button rather than an anchor, and a page id rather than a command: the
+ * webview says which page it wants and the host decides what that means, which
+ * is the same boundary every other control in this panel observes.
+ */
+function renderProviderCopy(notes: string): string {
+  const escaped = escapeHtml(notes);
+  let out = escaped;
+  for (const [label, page] of SETTINGS_PAGE_LINKS) {
+    out = out.split(label).join(
+      `<button type="button" class="inline-settings-link" data-open-settings-page="${page}">${label}</button>`,
+    );
+  }
+  return out;
+}
+
+/**
+ * Phrases in provider copy that name a settings page, and the page each means.
+ *
+ * A short explicit list rather than a pattern over "Settings → …": a phrase that
+ * matched but had no page behind it would render a button that goes nowhere,
+ * which is worse than the plain text it replaced.
+ */
+const SETTINGS_PAGE_COMMANDS: Readonly<Record<string, string>> = {
+  safety: 'atlasmind.openSettingsSafety',
+  models: 'atlasmind.openSettingsModels',
+  chat: 'atlasmind.openSettingsChat',
+  project: 'atlasmind.openSettingsProject',
+};
+
+const SETTINGS_PAGE_LINKS: ReadonlyArray<readonly [string, string]> = [
+  ['Settings → Safety', 'safety'],
+  ['Settings → Models', 'models'],
+  ['Settings → Chat', 'chat'],
+  ['Settings → Project', 'project'],
+];
 
 function isSubscriptionProvider(providerId: ProviderId): boolean {
   return providerId === 'copilot' || providerId === 'claude-cli' || providerId === 'acp';
@@ -1156,7 +1244,11 @@ export async function useSubscriptionForProvider(atlas: AtlasMindContext, provid
   const configuration = vscode.workspace.getConfiguration('atlasmind');
   const configured = parseAcpAgentSettings(configuration.get<unknown>('acp.agents'));
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  const candidate = { id: bridge.agentId, command: bridge.command };
+  const candidate = {
+    id: bridge.agentId,
+    command: bridge.command,
+    ...(bridge.args.length > 0 ? { args: [...bridge.args] } : {}),
+  };
   const probe = await new AcpAdapter({
     agents: [candidate],
     ...(workspaceRoot ? { cwd: workspaceRoot } : {}),
@@ -1348,8 +1440,8 @@ async function configureAcpProvider(atlas: AtlasMindContext): Promise<void> {
     [
       ...VERIFIED_ACP_AGENTS.map(agent => ({
         label: agent.label,
-        description: agent.command,
-        detail: 'Launch command published in the official ACP agent list.',
+        description: [agent.command, ...agent.args].join(' '),
+        detail: `Launch command declared in the ACP registry. Installs with npm as ${agent.npmPackage}.`,
         agent,
       })),
       {
@@ -1367,23 +1459,36 @@ async function configureAcpProvider(atlas: AtlasMindContext): Promise<void> {
 
   let id = picked.agent?.id ?? '';
   let command = picked.agent?.command ?? '';
+  // The ACP-mode arguments matter as much as the command: `gemini`, `copilot` and
+  // `qwen` are ordinary interactive CLIs until `--acp` is passed, so persisting
+  // the command alone would launch a REPL that never speaks a word of JSON-RPC
+  // and time the handshake out with nothing to explain why.
+  let args: string[] = [...(picked.agent?.args ?? [])];
   if (!picked.agent) {
     const entered = await vscode.window.showInputBox({
       title: 'ACP agent command',
-      prompt: 'The executable that starts the agent in ACP mode, e.g. my-agent-acp.',
+      prompt: 'The command that starts the agent in ACP mode, e.g. my-agent-acp, or my-cli --acp.',
       ignoreFocusOut: true,
       validateInput: value => (value ?? '').trim().length === 0 ? 'Enter the command that starts the agent.' : undefined,
     });
     if (!entered) {
       return;
     }
-    command = entered.trim();
+    // Split on whitespace so "my-cli --acp" works as typed. Nothing is passed to
+    // a shell, so there is no quoting to honour and none is pretended: an
+    // argument containing a space has to be configured in the settings file.
+    const words = entered.trim().split(/\s+/);
+    command = words[0] ?? '';
+    args = words.slice(1);
     id = command.replace(/[^a-zA-Z0-9-]/g, '').toLowerCase().slice(0, 32) || 'agent';
   }
 
   const configuration = vscode.workspace.getConfiguration('atlasmind');
   const existing = parseAcpAgentSettings(configuration.get<unknown>('acp.agents'));
-  const next = [...existing.filter(agent => agent.id !== id), { id, command }];
+  const next = [
+    ...existing.filter(agent => agent.id !== id),
+    { id, command, ...(args.length > 0 ? { args } : {}) },
+  ];
   await configuration.update('acp.agents', next, vscode.ConfigurationTarget.Workspace);
 
   // Report what is actually true rather than declaring success on a write.

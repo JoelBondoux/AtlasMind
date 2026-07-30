@@ -3,8 +3,8 @@
 > Generated from `tech-debt.json` by AtlasMind. Entries **transition** —
 > they are never deleted. Hand edits to this file are lost.
 
-- **Open:** 0 · **closed:** 0
-- **Last scan:** 2026-07-29T14:59:50.901Z
+- **Open:** 8 · **closed:** 0
+- **Last scan:** 2026-07-30T04:39:18.633Z
 
 Severity comes from a **declared rule**, never from a judgement call. The rule
 is named on every entry so the grade can be argued with, and it does **not**
@@ -13,7 +13,16 @@ changed could not be compared with last month's.
 
 ## Open
 
-_Nothing open._ An empty register means nothing was found or nothing was scanned — not that no debt exists.
+| Severity | Domain | What | Where | Since | Rule |
+|---|---|---|---|---|---|
+| medium | test | ATDD is enabled with no evidence it runs | `project_memory/index/testing-config.json` | 2026-07-30 | `uncovered-methodology` |
+| medium | test | BDD is enabled with no evidence it runs | `project_memory/index/testing-config.json` | 2026-07-30 | `uncovered-methodology` |
+| medium | test | Contract is enabled with no evidence it runs | `project_memory/index/testing-config.json` | 2026-07-30 | `uncovered-methodology` |
+| medium | test | End-to-End is enabled with no evidence it runs | `project_memory/index/testing-config.json` | 2026-07-30 | `uncovered-methodology` |
+| medium | test | Model-Based (MBT) is enabled with no evidence it runs | `project_memory/index/testing-config.json` | 2026-07-30 | `uncovered-methodology` |
+| medium | test | Mutation Testing is enabled with no evidence it runs | `project_memory/index/testing-config.json` | 2026-07-30 | `uncovered-methodology` |
+| medium | test | Performance is enabled with no evidence it runs | `project_memory/index/testing-config.json` | 2026-07-30 | `uncovered-methodology` |
+| medium | test | Property-Based is enabled with no evidence it runs | `project_memory/index/testing-config.json` | 2026-07-30 | `uncovered-methodology` |
 
 ## The rules
 
