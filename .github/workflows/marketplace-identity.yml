@@ -1,0 +1,139 @@
+name: Marketplace — verify publishing identity
+
+# Proves the Entra publishing path works, without publishing anything.
+#
+# Two jobs' worth of work in one place, because they answer the same question at
+# different stages of setup:
+#
+#   1. What is this identity's Azure DevOps profile id? That value is what the
+#      Marketplace publisher's Members list calls a "User Id", and it does not
+#      exist anywhere until the identity has authenticated at least once. So the
+#      first run of this workflow is how you obtain it.
+#   2. Does the identity actually have publish rights? Once the profile id has
+#      been added as a publisher member, `verify-pat` answers yes or no — and it
+#      does so without consuming a version number, which matters because a
+#      published version can never be replaced.
+#
+# Deliberately `workflow_dispatch` only. It authenticates as the release identity,
+# so it should run when somebody asks, not on a push.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # Required for the runner to mint an OIDC token for the federated credential.
+  id-token: write
+
+jobs:
+  verify:
+    name: Verify Entra publishing identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Load-bearing. The managed identity's federated credential is scoped to the
+    # subject `repo:JoelBondoux/AtlasMind:environment:marketplace`, so the OIDC
+    # token only matches while the job runs in that environment. Without this
+    # line the subject is a branch or tag instead and Entra refuses the exchange
+    # — which surfaces as an authentication error that reads like a wrong client
+    # id rather than a missing environment.
+    environment: marketplace
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Sign in to Azure with workload identity federation
+        uses: azure/login@v2
+        with:
+          # Not secrets: a client id, tenant id and subscription id are all
+          # discoverable. What stops anyone else using this identity is the
+          # federated credential's subject, which names this repository and this
+          # environment.
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Read this identity's Azure DevOps profile id
+        id: profile
+        run: |
+          # 499b84ac-1321-427f-aa17-267ca6975798 is the Azure DevOps resource.
+          # The profile endpoint answers "who am I" for the identity currently
+          # authenticated, so this is the only way to learn the id — it is not a
+          # property of the managed identity and does not appear in the portal.
+          set -o pipefail
+          if ! RESPONSE=$(az rest \
+                --url 'https://app.vssps.visualstudio.com/_apis/profile/profiles/me' \
+                --resource 499b84ac-1321-427f-aa17-267ca6975798 2>&1); then
+            echo "::error::Could not read the Azure DevOps profile for this identity."
+            echo "$RESPONSE"
+            exit 1
+          fi
+
+          PROFILE_ID=$(echo "$RESPONSE" | jq -r '.id // empty')
+          if [ -z "$PROFILE_ID" ]; then
+            echo "::error::The profile endpoint answered without an id."
+            echo "$RESPONSE"
+            exit 1
+          fi
+
+          echo "id=${PROFILE_ID}" >> "$GITHUB_OUTPUT"
+          echo "Azure DevOps profile id: ${PROFILE_ID}"
+
+      - name: Check whether the identity can publish
+        id: rights
+        # Runs even when it fails, because "no rights yet" is the expected answer
+        # before the publisher membership exists — and the summary below needs to
+        # be able to say which of the two situations this is.
+        continue-on-error: true
+        run: npx @vscode/vsce verify-pat JoelBondoux --azure-credential
+
+      - name: Write job summary
+        if: always()
+        env:
+          PROFILE_ID: ${{ steps.profile.outputs.id }}
+          RIGHTS: ${{ steps.rights.outcome }}
+        run: |
+          {
+            echo "## Marketplace publishing identity"
+            echo ""
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| Identity | \`vscode-marketplace-publisher\` |"
+            echo "| Azure DevOps profile id | \`${PROFILE_ID:-not resolved}\` |"
+            echo "| Publish rights | ${RIGHTS} |"
+            echo ""
+
+            if [ "$RIGHTS" = "success" ]; then
+              echo "### Ready"
+              echo ""
+              echo "This identity can publish as \`JoelBondoux\`. No PAT is involved."
+            else
+              echo "### Next step — add this identity to the publisher"
+              echo ""
+              echo "1. Open <https://marketplace.visualstudio.com/manage/publishers/JoelBondoux>"
+              echo "2. **Members** → **Add**"
+              echo "3. Paste the profile id above as the User Id"
+              echo "4. Role: **Contributor**"
+              echo ""
+              echo "Then run this workflow again. \`Publish rights\` should read \`success\`."
+              echo ""
+              echo "A failure here before that step is expected: the identity authenticates"
+              echo "correctly but has no rights on the publisher yet."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail if the identity could not authenticate
+        # Distinct from the rights check on purpose. Authentication failing means
+        # the federation is misconfigured — a real problem. Rights failing before
+        # membership exists is just where you are in the setup.
+        if: steps.profile.outcome == 'failure'
+        run: exit 1

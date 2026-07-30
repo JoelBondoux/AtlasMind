@@ -6,6 +6,15 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.208.1 — Proving the publishing identity without publishing
+
+PAT authentication for the Marketplace is retired on **1 December 2026**, so AtlasMind's release path is moving to Microsoft Entra ID with workload identity federation — no secret in the repository, nothing to rotate, nothing to expire.
+
+This release adds the step that makes that migration testable. `Marketplace — verify publishing identity` authenticates as the managed identity and reports its Azure DevOps profile id plus whether it has publish rights. The profile id is what the publisher's Members list calls a "User Id", and it **does not exist until the identity authenticates once** — so the workflow is the only way to obtain it.
+
+The rights check is `vsce verify-pat --azure-credential`, which consumes no version number. That is the whole point: a published version can never be replaced, so a publishing credential has to be testable without publishing.
+
+Azure identity values are stored as repo **variables** rather than secrets — a client id and tenant id are discoverable, and treating them as secrets would misrepresent where the security lives. It lives in the federated credential's subject, which names one repository and one environment.
 ## v0.208.0 — Ideation becomes stage 0 of the workflow
 
 The board had nine card kinds — including `problem`, `requirement`, `risk` and `evidence` — and exactly two outbound paths: launch an autonomous run, or append prose to a memory file. Neither reached the backlog, so the eight-stage workflow started at *Planning & Issue Intake* with nothing feeding it, and a card called `requirement` could not become a requirement.
