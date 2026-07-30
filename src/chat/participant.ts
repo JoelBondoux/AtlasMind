@@ -859,6 +859,7 @@ export async function runDeterministicSlashCommand(
     case 'acp': await handleAcpCommand(argument, stream, atlas); return true;
     case 'setup': await handleSetupCommand(argument, stream, atlas, token); return true;
     case 'followups': await handleFollowUpsCommand(stream, atlas); return true;
+    case 'research': await handleResearchCommand(argument, stream, atlas); return true;
     case 'ship': await handleShipCommand(argument, stream, atlas); return true;
     case 'sync-instructions': await handleSyncInstructionsCommand(argument, stream, atlas); return true;
     case 'voice': await handleVoiceCommand(stream); return true;
@@ -2458,6 +2459,157 @@ async function handleFollowUpsCommand(
   }
   stream.markdown(out.join('\n'));
   stream.button({ command: 'atlasmind.openProjectDirector', title: 'Open Project Director' });
+}
+
+/**
+ * `/research` — what the world outside this repository has told us, and what it
+ * has not been asked.
+ *
+ * Reads only. Running a scan spends money and reaches the network, so it stays
+ * behind the command's own modal confirmation; this surface offers the button and
+ * never presses it.
+ *
+ * The section that must never be dropped is the last one. A list of findings
+ * reads as a complete picture, and the questions nobody has asked are exactly
+ * what a research surface is for — so scans that have never produced an answer
+ * are reported here even when everything else is quiet.
+ */
+async function handleResearchCommand(
+  argument: string,
+  stream: vscode.ChatResponseStream,
+  atlas: AtlasMindContext,
+): Promise<void> {
+  const [
+    { RESEARCH_SCANS, researchScan },
+    { openResearchFindings, researchQuestions, seedResearchRegister },
+    { buildResearchSchedule },
+    { readResearchSettings },
+    { detectResearchSources },
+  ] = await Promise.all([
+    import('../core/researchScanCatalog.js'),
+    import('../core/researchRegister.js'),
+    import('../core/researchSchedule.js'),
+    import('../core/researchSettings.js'),
+    import('../core/researchSources.js'),
+  ]);
+
+  const settings = readResearchSettings(vscode.workspace.getConfiguration('atlasmind'));
+  if (!settings.enabled) {
+    stream.markdown([
+      '### Research',
+      '',
+      'Research scans are switched off. They ask questions about the world *outside* this repository —',
+      'competition, customers, technology, feature gaps, market, funding, regulation — and they reach the',
+      'network and spend on a model, so they are off by default.',
+      '',
+      'Findings are only ever recorded with a retrievable source. A claim with no source is kept as a',
+      '*question to research*, never as evidence.',
+    ].join('\n'));
+    stream.button({ command: 'workbench.action.openSettings', title: 'Open research settings', arguments: ['atlasmind.research.enabled'] });
+    return;
+  }
+
+  const register = atlas.researchRegisterManager?.getRegister() ?? seedResearchRegister();
+  const sources = detectResearchSources({
+    exaKeyPresent: settings.searchSource !== 'none',
+    mcpToolIds: atlas.skillsRegistry.listSkills().map(skill => skill.id).filter(id => id.startsWith('mcp:')),
+    webFetchEnabled: atlas.skillsRegistry.get('web-fetch') !== undefined,
+    preference: settings.searchSource,
+  });
+  const schedule = buildResearchSchedule({
+    enabled: settings.enabled,
+    masterLevel: settings.automationLevel,
+    scans: settings.scans,
+    register,
+    sourceAvailable: sources.selected !== undefined,
+    monthlySpendCapUsd: settings.monthlySpendCapUsd,
+    spentThisMonthUsd: 0,
+    now: new Date(),
+  });
+
+  const showAll = /^all$/i.test(argument.trim());
+  const open = openResearchFindings(register);
+  const questions = researchQuestions(register);
+  const out: string[] = ['### Research', '', `**${schedule.summary}**`, ''];
+
+  if (open.length > 0) {
+    out.push('**Open findings**', '');
+    for (const finding of [...open]
+      .sort((a, b) => ({ high: 0, medium: 1, low: 2 })[a.severity] - ({ high: 0, medium: 1, low: 2 })[b.severity])
+      .slice(0, 8)) {
+      const host = finding.citations[0]?.host ?? 'no source';
+      out.push(`- \`${finding.severity}\` ${escapeMd(finding.title)} — ${escapeMd(researchScan(finding.scanId).label)}, via ${escapeMd(host)}`);
+    }
+    if (open.length > 8) {
+      out.push(`- …and ${open.length - 8} more in the register.`);
+    }
+    out.push('');
+  }
+
+  const due = schedule.dueNow;
+  if (due.length > 0) {
+    out.push('**Due now**', '');
+    for (const scan of due) {
+      out.push(`- ${escapeMd(scan.label)} — last answered ${scan.daysSinceRun ?? '?'} days ago, cadence ${scan.cadenceDays} days`);
+    }
+    out.push('');
+  }
+
+  const blocked = schedule.scans.filter(scan => scan.state === 'blocked');
+  if (blocked.length > 0) {
+    out.push('**Blocked**', '');
+    for (const scan of blocked) {
+      out.push(`- ${escapeMd(scan.label)} — ${escapeMd(scan.blocker ?? 'blocked')}`);
+    }
+    out.push('');
+  }
+
+  // Never omitted. A findings list on its own reads as a complete picture, and
+  // the whole point of this surface is the questions nobody has asked yet.
+  const never = schedule.neverScanned;
+  out.push('**Never assessed**', '');
+  if (never.length === 0) {
+    out.push('- Every switched-on scan has produced an answer.', '');
+  } else {
+    for (const scan of never) {
+      out.push(`- ${escapeMd(scan.label)} — ${escapeMd(researchScan(scan.scanId as never).question)}`);
+    }
+    out.push('');
+  }
+
+  const off = schedule.scans.filter(scan => scan.state === 'disabled');
+  if (off.length > 0) {
+    out.push(
+      `_${off.length} of ${RESEARCH_SCANS.length} scans are switched off: `
+      + off.map(scan => escapeMd(scan.label)).join(', ') + '._',
+      '',
+    );
+  }
+
+  if (questions.length > 0) {
+    out.push(
+      `_${questions.length} claim${questions.length === 1 ? '' : 's'} recorded without a source, held as `
+      + 'questions to research rather than as evidence._',
+      '',
+    );
+  }
+
+  if (showAll) {
+    out.push('**Every scan**', '');
+    for (const scan of schedule.scans) {
+      out.push(
+        `- ${escapeMd(scan.label)} — \`${scan.state}\`, \`${scan.effectiveLevel}\`, every ${scan.cadenceDays} days`
+        + (scan.levelReason ? ` (${escapeMd(scan.levelReason)})` : ''),
+      );
+    }
+    out.push('');
+  }
+
+  out.push(`_Source: ${escapeMd(sources.selected ?? sources.noSourceReason ?? 'none')}_`);
+  stream.markdown(out.join('\n'));
+  stream.button({ command: 'atlasmind.research.runScan', title: 'Run a scan' });
+  stream.button({ command: 'atlasmind.research.openDigest', title: 'Open the digest' });
+  stream.button({ command: 'atlasmind.research.openRegister', title: 'Open the register' });
 }
 
 async function handleAgentsCommand(
@@ -4463,6 +4615,12 @@ export function buildFollowups(
     case 'followups':
       return [
         { prompt: '/director', label: 'Open Project Director' },
+      ];
+
+    case 'research':
+      return [
+        { prompt: '/research due', label: 'What is due' },
+        { prompt: '/research all', label: 'Every scan' },
       ];
 
     case 'ship':

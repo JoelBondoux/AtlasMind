@@ -16,6 +16,20 @@ Silent, and in the direction that costs money: every model-variant turn looked l
 
 ---
 
+## v0.226.0 — The research engine gets a button
+
+v0.225.0 shipped the modules. This makes them run.
+
+`AtlasMind: Run a Research Scan` asks one question about the world outside your repository and records what it found. It confirms first — naming the scan, the source it will use, and the fact that it reaches the network and spends model budget — and **a scan that cannot look never reaches the model at all**. It records that it could not look, which is a different thing from finding nothing, and the only version of this feature worth having.
+
+`/research` in chat reads the same state and presses nothing: open findings with their sources, what is due, what is blocked, and — always, even when everything else is quiet — what has never been assessed.
+
+**Nothing runs on its own until you say what it may cost.** The monthly spend cap defaults to zero, whatever automation level a scan is set to. Switching research on and letting it run unattended are two decisions, and one switch for both would make the first one carry a cost you never agreed to.
+
+**The register is not created until there is something to put in it.** It gets committed, and writing a file into your repository because you opened a tab is not AtlasMind's call to make.
+
+---
+
 ## v0.225.0 — Ideation learns something nobody typed into it
 
 Stage 0 of the workflow had exactly two inbound paths: you, and Atlas re-reading the board you had already filled in. So ideation could structure a decision but never inform one, and a board full of confident cards about an unexamined market looked identical to a board full of researched ones.

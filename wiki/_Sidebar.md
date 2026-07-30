@@ -17,6 +17,7 @@
 
 ### Usage
 - [[Chat Commands]]
+- [[Ideation]]
 - [[GitHub Workflow]]
 - [[Delivery]]
 - [[Agents]]

@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.225.0",
+  "version": "0.226.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -120,6 +120,10 @@
           {
             "name": "followups",
             "description": "List open follow-ups grouped by overdue / due soon / upcoming"
+          },
+          {
+            "name": "research",
+            "description": "What research scans have found about the world outside this repository, what is due, and what has never been asked"
           },
           {
             "name": "ship",
@@ -280,6 +284,21 @@
         "command": "atlasmind.buzz.fetchChannels",
         "title": "AtlasMind: Fetch My Buzz Channels",
         "icon": "$(list-selection)"
+      },
+      {
+        "command": "atlasmind.research.runScan",
+        "title": "AtlasMind: Run a Research Scan",
+        "icon": "$(telescope)"
+      },
+      {
+        "command": "atlasmind.research.openRegister",
+        "title": "AtlasMind: Open the Research Register",
+        "icon": "$(book)"
+      },
+      {
+        "command": "atlasmind.research.openDigest",
+        "title": "AtlasMind: Open the Research Digest",
+        "icon": "$(graph)"
       },
       {
         "command": "atlasmind.skills.addSkill",
@@ -2100,6 +2119,77 @@
           },
           "default": [],
           "description": "Absolute paths to other AtlasMind projects whose ideation boards may be read for cross-project context. At most three are consulted, and nothing is ever written to another project."
+        },
+        "atlasmind.research.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Master switch for research scans, which ask questions about the world outside this repository (competition, customers, technology, feature gaps, market, funding, regulation). Off by default: a scan reaches the network and spends on a model. Findings are recorded in project_memory/analysis/research.json, and a claim with no retrievable source is stored as a question rather than as evidence."
+        },
+        "atlasmind.research.automationLevel": {
+          "type": "string",
+          "enum": [
+            "observe",
+            "propose",
+            "auto"
+          ],
+          "default": "observe",
+          "enumDescriptions": [
+            "Tell you when a scan is due. Nothing runs.",
+            "Draft the scan brief when one is due. Running it is still a click.",
+            "Run a due scan on window activation, inside the declared spend cap. Findings still land as open and need triage."
+          ],
+          "description": "The ceiling every individual scan's automation level is capped by. A scan may request more and will be reduced to this, with the reduction stated. AtlasMind never files a decision on your behalf at any level."
+        },
+        "atlasmind.research.scans": {
+          "type": "object",
+          "default": {},
+          "description": "Per-scan overrides, keyed by scan id (competition, customer, technology, feature, market, funding, regulatory). Each value may set `enabled` (boolean), `cadenceDays` (number) and `automationLevel` (observe/propose/auto). A scan is off until switched on here. Unknown ids are ignored.",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "default": false
+              },
+              "cadenceDays": {
+                "type": "number"
+              },
+              "automationLevel": {
+                "type": "string",
+                "enum": [
+                  "observe",
+                  "propose",
+                  "auto"
+                ]
+              }
+            }
+          }
+        },
+        "atlasmind.research.searchSource": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "exa",
+            "mcp",
+            "web-fetch",
+            "none"
+          ],
+          "default": "auto",
+          "enumDescriptions": [
+            "Use the best source available: EXA, then a connected MCP search tool, then the built-in fetch.",
+            "EXA web search. Requires an EXA API key in the Specialist Integrations panel.",
+            "A connected MCP server exposing a search or fetch tool.",
+            "The built-in Fetch URL skill. It can read a page you name but cannot find one, so scans that need discovery will report what they could not assess.",
+            "No source. External scans will refuse to run rather than answering from the model's own recollection."
+          ],
+          "description": "Where research scans look. With no usable source AtlasMind reports that it could not look — it never falls back to what a model already believed."
+        },
+        "atlasmind.research.monthlySpendCapUsd": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 1000,
+          "description": "The most automatic research runs may spend per month. 0 (the default) means no scan may run on its own, whatever its automation level — turning research on and letting it run unattended are deliberately two separate decisions. Scans you start yourself are not capped here."
         },
         "atlasmind.instructions.verifyOnCommit": {
           "type": "boolean",

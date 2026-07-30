@@ -880,3 +880,75 @@ export function renderResearchMarkdown(register: ResearchRegister): string {
 export function researchScanBrief(scanId: ResearchScanId): string {
   return researchScan(scanId).brief;
 }
+
+/**
+ * The register's lifetime, held for the extension host.
+ *
+ * Mirrors `RiskOversightManager` exactly, including the `preserveExisting`
+ * distinction that matters more than it looks: a file written by a *newer*
+ * AtlasMind is intact and readable by that build, and seeding a default over it
+ * would destroy real work. "No file" and "a file I must not touch" are different
+ * answers that both look like `undefined` to a plain reader.
+ */
+export class ResearchRegisterManager {
+  private register: ResearchRegister | undefined;
+  private preserveExisting = false;
+  private notice: string | undefined;
+
+  constructor(private readonly workspaceRoot: string | undefined) {
+    this.applyRead();
+  }
+
+  private applyRead(): void {
+    if (!this.workspaceRoot) {
+      this.register = undefined;
+      this.preserveExisting = false;
+      this.notice = undefined;
+      return;
+    }
+    const read = readResearchRegisterFile(this.workspaceRoot);
+    this.register = read.config;
+    this.preserveExisting = read.preserveExisting;
+    this.notice = read.notice;
+  }
+
+  getNotice(): string | undefined {
+    return this.notice;
+  }
+
+  getRegister(): ResearchRegister | undefined {
+    return this.register;
+  }
+
+  hasRegister(): boolean {
+    return this.register !== undefined;
+  }
+
+  reload(): ResearchRegister | undefined {
+    this.applyRead();
+    return this.register;
+  }
+
+  /**
+   * An in-memory empty register, **not written to disk**.
+   *
+   * Deliberately different from the risk manager's `ensureSeeded`. This file
+   * gets committed, and creating `project_memory/analysis/research.json` because
+   * somebody opened a tab would put a file in their repository they never asked
+   * for — the same reason `workflowConfig` is never seeded on render. It is
+   * written the first time a scan actually records something.
+   */
+  ensureLoaded(now: Date = new Date()): ResearchRegister {
+    if (!this.register) {
+      this.register = seedResearchRegister(now);
+    }
+    return this.register;
+  }
+
+  async save(register: ResearchRegister): Promise<void> {
+    this.register = register;
+    if (this.workspaceRoot && !this.preserveExisting) {
+      await writeResearchRegister(this.workspaceRoot, register);
+    }
+  }
+}

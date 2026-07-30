@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.225.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.226.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,7 +68,7 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.225.0
+## What's new in 0.226.0
 
 Since the last Marketplace publication, **v0.219.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
 
@@ -227,6 +227,7 @@ Type these in the AtlasMind chat panel as `/<command>`, or in the VS Code chat v
 | `/setup` | List every setup guide and how far along each one is |
 | `/acp` | Walk through ACP agent setup: name it, install it, sign in, enable it, prove it answers |
 | `/followups` | Group open follow-ups by urgency |
+| `/research` | What research scans found outside this repository, what is due, and what has never been asked |
 | `/ship [routine]` | Run the default or named project routine from project memory |
 | `/sync-instructions` | Reconcile and mirror supported AI instruction files |
 | `/voice` | Open the Voice Panel |
@@ -272,6 +273,9 @@ Open the Command Palette with `Ctrl+Shift+P`.
 | `AtlasMind: Toggle Keep Computer Awake` | Opt into an AC-aware wake lock for long-running activity |
 | `AtlasMind: Set Buzz Agent Key` | Store or remove the Buzz agent key in the OS secret store (empty value removes it) |
 | `AtlasMind: Fetch My Buzz Channels` | Ask the Buzz CLI which channels your key can see, and tick the ones to watch. Writes nothing unless you confirm |
+| `AtlasMind: Run a Research Scan` | Ask one research question about the world outside this repository. Confirms first, naming the scan, the source and the cost |
+| `AtlasMind: Open the Research Register` | The findings, their sources, and the rule that graded each |
+| `AtlasMind: Open the Research Digest` | What changed outside, what it means, and what is still unassessed |
 
 Settings-specific, sidebar, remote-control, and resource-action commands are listed in [Chat Commands](wiki/Chat-Commands.md) and [Remote Control](docs/remote-control.md).
 

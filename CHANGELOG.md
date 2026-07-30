@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.226.0] - 2026-07-30
+
+### Added
+- **The research engine is wired to something you can press.** v0.225.0 shipped the modules; this makes them run. `researchRunner.ts` executes one scan end to end — feasibility, prompt, advisor, parse, sanitize, reconcile, record — with every dependency injected, so the property that matters is a test rather than a comment: **a scan that cannot look never reaches the model**. Not "try anyway and see", because what comes back would be fluent, specific, and carry no signal that nobody looked anything up.
+
+  Three commands: `AtlasMind: Run a Research Scan` (modal confirmation naming the scan, the source, and that it spends), `Open the Research Register`, and `Open the Research Digest`. A `/research` chat command reads the same state and presses nothing.
+
+- **`atlasmind.research.*` settings, declared in the commit that reads them.** Master gate off; automation level as a ceiling every scan is capped by; per-scan `enabled`/`cadenceDays`/`automationLevel`; a source preference; and a monthly spend cap defaulting to **0**, which means nothing may run on its own whatever its automation level. Switching research on and letting it run unattended are deliberately two decisions, and one switch for both would make the first carry a cost nobody agreed to.
+
+- **`ResearchRegisterManager`**, mirroring `RiskOversightManager` including its `preserveExisting` distinction — with one difference: it **never seeds a file on read**. The register is committed, and writing `project_memory/analysis/research.json` because somebody opened a tab would put a file in the repository they never asked for. It appears the first time a scan records something.
+
+- **The dashboard reads research, and the Overview says so.** `collectResearchSnapshot` derives due/never-assessed/blocked counts and per-scan state, and `researchAttentionInput` owns the decision to return `undefined` when research is off — so a disabled feature can never become a permanent nag on the "Needs you" band. The Ideation snapshot also now carries the board's readiness reading.
+
+### Changed
+- **A failed run and an unassessed question stay two different facts.** `hasBeenScanned` counts only an `ok` run, so a scan that has failed three times still reads as never answered while the attempts remain visible. The scheduler measures due-ness from the last run that *answered*, so a failure yesterday cannot reset a clock that last ticked in May.
+
+- The roadmap comparison feeding the "a competitor covers something we also claim" severity rule is read from `improvement-plan.md` **by the caller**, never asserted by a model — it is a fact about this repository, and a model has no business claiming one.
+
+
 ## [0.225.0] - 2026-07-30
 
 ### Added

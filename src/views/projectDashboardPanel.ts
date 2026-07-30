@@ -68,6 +68,12 @@ import {
   type AttentionFeed,
   type AttentionInput,
 } from '../core/attentionFeed.js';
+import { assessIdeationReadiness, type IdeationReadiness } from '../core/ideationReadiness.js';
+import { RESEARCH_SCANS, researchScan } from '../core/researchScanCatalog.js';
+import { openResearchFindings, researchQuestions, seedResearchRegister } from '../core/researchRegister.js';
+import { buildResearchSchedule } from '../core/researchSchedule.js';
+import { readResearchSettings, researchAttentionInput } from '../core/researchSettings.js';
+import { detectResearchSources } from '../core/researchSources.js';
 import { buildVersionStrip, type VersionStrip } from '../core/versionStrip.js';
 import {
   deriveBranchMetrics,
@@ -725,6 +731,43 @@ interface DashboardIdeationSnapshot {
   imageAttachments: DashboardIdeationAttachment[];
   updatedAt: string;
   updatedRelative: string;
+  /** What the board can and cannot defend. A reading, never a gate. */
+  readiness: IdeationReadiness;
+  /**
+   * Research scan state, and `undefined` when research is switched off.
+   *
+   * The distinction matters downstream: research is the one attention-feed group
+   * whose absence means "deliberately off" rather than "not assessed", so an
+   * object full of zeroes would make a disabled feature raise items forever.
+   */
+  research?: DashboardResearchSnapshot;
+}
+
+interface DashboardResearchSnapshot {
+  /** One line, already phrased — no renderer restates these counts. */
+  summary: string;
+  due: number;
+  neverScanned: number;
+  blocked: number;
+  openFindings: number;
+  /** Uncited claims, held as questions. Never counted as evidence. */
+  questions: number;
+  /** The source a scan would use, or the reason there is none. */
+  sourceLabel: string;
+  scans: DashboardResearchScanView[];
+}
+
+interface DashboardResearchScanView {
+  id: string;
+  label: string;
+  question: string;
+  state: string;
+  automationLevel: string;
+  levelReason?: string;
+  cadenceDays: number;
+  daysSinceRun?: number;
+  blocker?: string;
+  openFindings: number;
 }
 
 interface DashboardSeriesPoint {
@@ -1909,6 +1952,79 @@ function buildHeuristicGapAnalysisItems(input: {
   }
 
   return mergeGapAnalysisItems(items, []);
+}
+
+/**
+ * Research scan state for the dashboard, or `undefined`.
+ *
+ * `undefined` when research is switched off, and that is deliberate: research is
+ * the one attention-feed group whose absence means "decided against" rather than
+ * "not assessed", so returning zeroes would turn a disabled feature into a
+ * permanent nag.
+ *
+ * Two facts about the running editor are read here and nowhere else — whether a
+ * source is configured, and whether anything has ever answered — because both
+ * decide whether a scan is *blocked* or merely *due*, and a surface that showed
+ * "due" for a scan that cannot run would be describing work nobody can do.
+ * Deliberately synchronous: this is on the render path, and reading a secret to
+ * find out whether an EXA key exists would put an await on every refresh. The
+ * key check therefore lives in the command, and the dashboard reports the
+ * source as unknown-until-you-run rather than claiming one it has not verified.
+ */
+function collectResearchSnapshot(atlas: AtlasMindContext): DashboardResearchSnapshot | undefined {
+  const settings = readResearchSettings(vscode.workspace.getConfiguration('atlasmind'));
+  if (!settings.enabled) {
+    return undefined;
+  }
+  const register = atlas.researchRegisterManager?.getRegister() ?? seedResearchRegister();
+  // `none` is the only preference this can resolve without touching a secret;
+  // anything else is treated as available here and re-checked for real before a
+  // scan runs, where refusing is free and a wrong "blocked" would be misleading.
+  const sources = detectResearchSources({
+    exaKeyPresent: settings.searchSource !== 'none',
+    mcpToolIds: atlas.skillsRegistry.listSkills().map(skill => skill.id).filter(id => id.startsWith('mcp:')),
+    webFetchEnabled: atlas.skillsRegistry.get('web-fetch') !== undefined,
+    preference: settings.searchSource,
+  });
+  const schedule = buildResearchSchedule({
+    enabled: settings.enabled,
+    masterLevel: settings.automationLevel,
+    scans: settings.scans,
+    register,
+    sourceAvailable: sources.selected !== undefined,
+    monthlySpendCapUsd: settings.monthlySpendCapUsd,
+    spentThisMonthUsd: 0,
+    now: new Date(),
+  });
+  const attention = researchAttentionInput(settings, schedule);
+  const open = openResearchFindings(register);
+
+  return {
+    summary: schedule.summary,
+    due: attention?.due ?? 0,
+    neverScanned: attention?.neverScanned ?? 0,
+    blocked: attention?.blocked ?? 0,
+    openFindings: open.length,
+    questions: researchQuestions(register).length,
+    sourceLabel: sources.selected
+      ? `${sources.selected}${sources.canDiscover ? '' : ' (can read a named page, cannot search)'}`
+      : sources.noSourceReason ?? 'No research source configured.',
+    scans: RESEARCH_SCANS.map(scan => {
+      const status = schedule.scans.find(entry => entry.scanId === scan.id);
+      return {
+        id: scan.id,
+        label: scan.label,
+        question: researchScan(scan.id).question,
+        state: status?.state ?? 'disabled',
+        automationLevel: status?.effectiveLevel ?? 'observe',
+        ...(status?.levelReason ? { levelReason: status.levelReason } : {}),
+        cadenceDays: status?.cadenceDays ?? scan.cadenceDays,
+        ...(status?.daysSinceRun === undefined ? {} : { daysSinceRun: status.daysSinceRun }),
+        ...(status?.blocker ? { blocker: status.blocker } : {}),
+        openFindings: open.filter(finding => finding.scanId === scan.id).length,
+      };
+    }),
+  };
 }
 
 async function collectGapAnalysisSnapshot(workspaceRoot: string | undefined, ssotPath: string, fallbackItems: DashboardGapAnalysisItem[] = []): Promise<DashboardGapAnalysisSnapshot> {
@@ -6826,6 +6942,7 @@ async function collectDashboardSnapshot(
     outcomeScore: outcomeCompleteness.score,
     runtimeTdd,
   });
+  const researchSnapshot = collectResearchSnapshot(atlas);
   const gapAnalysis = await collectGapAnalysisSnapshot(workspaceRoot, ssotPath, heuristicGapItems);
 
   // Named rather than returned directly so the attention feed can be derived
@@ -7059,6 +7176,21 @@ async function collectDashboardSnapshot(
       imageAttachments: ideationAttachments.map(attachment => ({ source: attachment.source, mimeType: attachment.mimeType })),
       updatedAt: ideationBoard.updatedAt,
       updatedRelative: formatRelativeDate(ideationBoard.updatedAt),
+      readiness: assessIdeationReadiness({
+        cards: ideationBoard.cards.map(card => ({
+          id: card.id,
+          kind: card.kind,
+          title: card.title,
+          ...(card.derived ? { derived: card.derived } : {}),
+        })),
+        connections: ideationBoard.connections.map(connection => ({
+          fromCardId: connection.fromCardId,
+          toCardId: connection.toCardId,
+          relation: connection.relation,
+        })),
+        roadmapItems: roadmapSnapshot.items.map(item => ({ id: item.id, text: item.text, completed: item.completed })),
+      }),
+      ...(researchSnapshot ? { research: researchSnapshot } : {}),
     },
     gapAnalysis,
     privacy: privacySnapshot,
@@ -7102,6 +7234,18 @@ function buildAttentionInput(
       loaded: latestCiConclusion !== undefined,
       latestFailed: latestCiConclusion === 'failure',
     },
+    // Research is supplied only when it is switched on. `researchAttentionInput`
+    // owns that decision so no caller can accidentally pass a zeroed group and
+    // turn a disabled feature into a permanent nag.
+    ...(snapshot.ideation.research
+      ? {
+        research: {
+          due: snapshot.ideation.research.due,
+          neverScanned: snapshot.ideation.research.neverScanned,
+          blocked: snapshot.ideation.research.blocked,
+        },
+      }
+      : {}),
     // A `ready` status without a summary has still told us nothing countable,
     // so it is reported as unreadable rather than as zero of everything.
     issues: snapshot.issues.status === 'ready' && snapshot.issues.summary

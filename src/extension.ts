@@ -39,6 +39,7 @@ import type { DeliveryManager } from './core/deliveryManager.js';
 import type { ProjectDirectorManager } from './core/projectDirectorManager.js';
 import type { DocumentsManager } from './core/documentsManager.js';
 import type { RiskOversightManager } from './core/riskOversightManager.js';
+import type { ResearchRegisterManager } from './core/researchRegister.js';
 import type { MissionRegistry } from './core/missionRegistry.js';
 import { ACP_PROBE_TIMEOUT_MS, getConfiguredLocalEndpoints, type ProviderRegistry } from './providers/index.js';
 import { getModelInfoUrl, getProviderInfoUrl, lookupCatalog } from './providers/modelCatalog.js';
@@ -234,6 +235,10 @@ export interface AtlasMindContext {
   riskOversightManager: RiskOversightManager;
   /** Fires when risk-oversight.json changes on disk, so the dashboard can re-sync. */
   riskOversightRefresh: vscode.EventEmitter<void>;
+  /** Findings from research scans about the world outside this repository. */
+  researchRegisterManager: ResearchRegisterManager;
+  /** Fires when research.json changes on disk, so the dashboard can re-sync. */
+  researchRefresh: vscode.EventEmitter<void>;
   /** Audit trail + persistence for autonomous Mission Loop runs. */
   missionRegistry: MissionRegistry;
   rollbackLastCheckpoint(): Promise<{ ok: boolean; summary: string; restoredPaths: string[] }>;
@@ -1640,6 +1645,7 @@ async function bootstrapAtlasMind(
       projectDirectorManagerModule,
       documentsManagerModule,
       riskOversightManagerModule,
+      researchRegisterModule,
       followUpSchedulerModule,
       missionRegistryModule,
       dataPrivacyModule,
@@ -1676,6 +1682,7 @@ async function bootstrapAtlasMind(
       import('./core/projectDirectorManager.js'),
       import('./core/documentsManager.js'),
       import('./core/riskOversightManager.js'),
+      import('./core/researchRegister.js'),
       import('./core/followUpScheduler.js'),
       import('./core/missionRegistry.js'),
       import('./core/dataPrivacyManager.js'),
@@ -1734,6 +1741,7 @@ async function bootstrapAtlasMind(
       ProjectDirectorManager: projectDirectorManagerModule.ProjectDirectorManager,
       DocumentsManager: documentsManagerModule.DocumentsManager,
       RiskOversightManager: riskOversightManagerModule.RiskOversightManager,
+      ResearchRegisterManager: researchRegisterModule.ResearchRegisterManager,
       FollowUpScheduler: followUpSchedulerModule.FollowUpScheduler,
       MissionRegistry: missionRegistryModule.MissionRegistry,
       DataPrivacyManager: dataPrivacyModule.DataPrivacyManager,
@@ -1762,6 +1770,7 @@ async function bootstrapAtlasMind(
     const projectDirectorRefresh = new vscode.EventEmitter<void>();
     const documentsRefresh = new vscode.EventEmitter<void>();
     const riskOversightRefresh = new vscode.EventEmitter<void>();
+    const researchRefresh = new vscode.EventEmitter<void>();
     const scannerRulesManager = new startupModules.ScannerRulesManager(context.globalState);
     const toolWebhookDispatcher = new startupModules.ToolWebhookDispatcher(context, outputChannel);
     const voiceManager = new startupModules.VoiceManager(context.secrets, undefined, {
@@ -1831,6 +1840,19 @@ async function bootstrapAtlasMind(
       riskWatcher.onDidCreate(reloadRisk);
       riskWatcher.onDidDelete(reloadRisk);
       context.subscriptions.push(riskWatcher);
+    }
+    const researchRegisterManager = new startupModules.ResearchRegisterManager(workspaceRootPath);
+    if (workspaceRootPath) {
+      // The register is committed, so a teammate's `git pull` is a normal way for
+      // it to change under a running editor.
+      const researchWatcher = vscode.workspace.createFileSystemWatcher(
+        new vscode.RelativePattern(workspaceRootPath, 'project_memory/analysis/research.json'),
+      );
+      const reloadResearch = () => { researchRegisterManager.reload(); researchRefresh.fire(); };
+      researchWatcher.onDidChange(reloadResearch);
+      researchWatcher.onDidCreate(reloadResearch);
+      researchWatcher.onDidDelete(reloadResearch);
+      context.subscriptions.push(researchWatcher);
     }
     // Follow-up reminders (notification-only, deny-by-default). Nudges once per
     // day when follow-ups are due/overdue, opening the Director tab on click. The
@@ -2619,6 +2641,8 @@ async function bootstrapAtlasMind(
       documentsRefresh,
       riskOversightManager,
       riskOversightRefresh,
+      researchRegisterManager,
+      researchRefresh,
       missionRegistry,
       rollbackLastCheckpoint: async () => {
         if (!checkpointManager) {
@@ -2937,6 +2961,54 @@ async function bootstrapAtlasMind(
       }
     }),
   );
+  /**
+   * Resolve what a research scan could look with, right now.
+   *
+   * Assembled here rather than inside the pure detector because every input is
+   * a fact about this running editor: whether an EXA key is in SecretStorage,
+   * which MCP tools are connected, whether the fetch skill is registered.
+   */
+  const resolveResearchSources = async (): Promise<import('./core/researchSources.js').ResearchSourceResolution> => {
+    const { detectResearchSources } = await import('./core/researchSources.js');
+    const { readResearchSettings } = await import('./core/researchSettings.js');
+    const settings = readResearchSettings(vscode.workspace.getConfiguration('atlasmind'));
+    // The key itself never leaves this line: only *whether one exists* reaches
+    // the detector, because a source check has no business holding a credential.
+    const exaKey = await context.secrets.get('atlasmind.integration.exa.apiKey');
+    const mcpToolIds = (atlasContext?.skillsRegistry.listSkills() ?? [])
+      .map(skill => skill.id)
+      .filter(id => id.startsWith('mcp:'));
+    return detectResearchSources({
+      exaKeyPresent: Boolean(exaKey),
+      mcpToolIds,
+      webFetchEnabled: (atlasContext?.skillsRegistry.get('web-fetch')) !== undefined,
+      preference: settings.searchSource,
+    });
+  };
+
+  /** Roadmap item text, normalized, for the severity rule that asks about overlap. */
+  const readRoadmapTitles = async (): Promise<Set<string>> => {
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!root) { return new Set(); }
+    try {
+      const { normalizeForRoadmapMatch } = await import('./core/ideationDerivation.js');
+      const nodePath = await import('node:path');
+      const fsp = await import('node:fs/promises');
+      const ssotPath = vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath') ?? 'project_memory';
+      const raw = await fsp.readFile(nodePath.join(root, ssotPath, 'roadmap', 'improvement-plan.md'), 'utf8');
+      const titles = new Set<string>();
+      for (const match of raw.matchAll(/^-\s*\[[ xX]\]\s*(.+)$/gm)) {
+        const text = (match[1] ?? '').replace(/[*_`]/g, '').trim();
+        if (text) { titles.add(normalizeForRoadmapMatch(text)); }
+      }
+      return titles;
+    } catch {
+      // No roadmap is a real state, not an error. The overlap rule simply
+      // never fires, which is the safe direction: it can only raise severity.
+      return new Set();
+    }
+  };
+
   context.subscriptions.push(
     presenceStatusBar,
     presenceManager,
@@ -3195,6 +3267,191 @@ async function bootstrapAtlasMind(
      * is stored if they dismiss the picker. It touches only the channel list —
      * never a gate, never a key.
      */
+    vscode.commands.registerCommand('atlasmind.research.runScan', async (requestedScanId?: string) => {
+      const atlas = atlasContext;
+      const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!atlas || !root) {
+        void vscode.window.showWarningMessage('Open a workspace folder before running a research scan.');
+        return;
+      }
+      const cfg = vscode.workspace.getConfiguration('atlasmind');
+      if (cfg.get<boolean>('research.enabled', false) !== true) {
+        const choice = await vscode.window.showWarningMessage(
+          'Research scans are switched off. They reach the network and spend on a model, so they are off by default.',
+          'Open settings',
+        );
+        if (choice) {
+          void vscode.commands.executeCommand('workbench.action.openSettings', 'atlasmind.research.enabled');
+        }
+        return;
+      }
+
+      const [
+        { RESEARCH_SCANS, isResearchScanId, researchScan },
+        { runResearchScan },
+        { appendResearchHistory },
+      ] = await Promise.all([
+        import('./core/researchScanCatalog.js'),
+        import('./core/researchRunner.js'),
+        import('./core/researchRegister.js'),
+      ]);
+
+      const sources = await resolveResearchSources();
+
+      let scanId = isResearchScanId(requestedScanId) ? requestedScanId : undefined;
+      if (!scanId) {
+        const picked = await vscode.window.showQuickPick(
+          RESEARCH_SCANS.map(scan => ({
+            label: scan.label,
+            detail: scan.question,
+            description: scan.evidenceClass === 'hybrid' ? 'reads this repository too' : undefined,
+            id: scan.id,
+          })),
+          { title: 'Run a research scan', placeHolder: sources.selected ? `Using ${sources.selected}` : 'No research source is configured' },
+        );
+        if (!picked) { return; }
+        scanId = picked.id;
+      }
+      const scan = researchScan(scanId);
+
+      // Outward-facing and it spends money, so it is confirmed the same way every
+      // other outward action in AtlasMind is: modally, naming exactly what will
+      // happen and with what.
+      const confirmed = await vscode.window.showWarningMessage(
+        `Run the ${scan.label} research scan?`,
+        {
+          modal: true,
+          detail: [
+            scan.question,
+            '',
+            sources.selected
+              ? `Source: ${sources.selected}${sources.canDiscover ? '' : ' (can read a page you name, but cannot search)'}`
+              : 'No research source is available — AtlasMind will record that it could not look rather than guessing.',
+            `Agent: ${scan.agentId}. This reaches the network and uses your model budget.`,
+            'Findings are recorded as open and need your triage. Nothing is written to the roadmap.',
+          ].join('\n'),
+        },
+        'Run scan',
+      );
+      if (confirmed !== 'Run scan') { return; }
+
+      const result = await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: `AtlasMind: ${scan.label} research scan…`, cancellable: false },
+        async () => runResearchScan(scanId!, {
+          runAgent: async (agentId, prompt) => {
+            const agent = atlas.agentRegistry.get(agentId);
+            if (!agent) {
+              return { ok: false as const, error: `The ${agentId} advisor is not available.` };
+            }
+            let streamed = '';
+            try {
+              const response = await atlas.orchestrator.processTaskWithAgent(
+                {
+                  id: `research-${scanId}-${Date.now()}`,
+                  userMessage: prompt,
+                  context: { researchScanMode: 'json' },
+                  constraints: {
+                    budget: (cfg.get<string>('budgetMode') ?? 'balanced') as never,
+                    speed: (cfg.get<string>('speedMode') ?? 'balanced') as never,
+                  },
+                  timestamp: new Date().toISOString(),
+                },
+                agent,
+                chunk => { streamed += chunk ?? ''; },
+              );
+              const text = `${streamed}\n${response.response ?? ''}`;
+              return { ok: true as const, text, ...(typeof response.costUsd === 'number' ? { costUsd: response.costUsd } : {}) };
+            } catch (error) {
+              return { ok: false as const, error: error instanceof Error ? error.message : String(error) };
+            }
+          },
+          getRegister: () => atlas.researchRegisterManager.ensureLoaded(),
+          saveRegister: async register => {
+            await atlas.researchRegisterManager.save(register);
+            atlas.researchRefresh.fire();
+          },
+          appendHistory: entry => appendResearchHistory(root, entry),
+          sources,
+          projectSummary: vscode.workspace.name ?? 'this project',
+          roadmapTitles: await readRoadmapTitles(),
+          now: new Date(),
+        }),
+      );
+
+      const actions = result.outcome === 'no-source' && result.setupStep ? ['Open the register', 'How to fix'] : ['Open the register'];
+      const choice = await vscode.window.showInformationMessage(result.message, ...actions);
+      if (choice === 'Open the register') {
+        void vscode.commands.executeCommand('atlasmind.research.openRegister');
+      } else if (choice === 'How to fix' && result.setupStep) {
+        void vscode.window.showInformationMessage(result.setupStep);
+      }
+    }),
+
+    vscode.commands.registerCommand('atlasmind.research.openRegister', async () => {
+      const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!root) { return; }
+      const { RESEARCH_SUMMARY_SSOT_PATH } = await import('./core/researchRegister.js');
+      const nodePath = await import('node:path');
+      try {
+        const document = await vscode.workspace.openTextDocument(
+          vscode.Uri.file(nodePath.join(root, RESEARCH_SUMMARY_SSOT_PATH)),
+        );
+        await vscode.window.showTextDocument(document, { preview: false });
+      } catch {
+        void vscode.window.showInformationMessage(
+          'No research register yet. Run a scan and one is written the first time something is recorded.',
+        );
+      }
+    }),
+
+    vscode.commands.registerCommand('atlasmind.research.openDigest', async () => {
+      const atlas = atlasContext;
+      const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!atlas || !root) { return; }
+      const [
+        { buildResearchDigest, renderResearchDigestMarkdown },
+        { buildResearchSchedule },
+        { readResearchSettings },
+      ] = await Promise.all([
+        import('./core/researchDigest.js'),
+        import('./core/researchSchedule.js'),
+        import('./core/researchSettings.js'),
+      ]);
+      const nodePath = await import('node:path');
+      const fsp = await import('node:fs/promises');
+
+      const settings = readResearchSettings(vscode.workspace.getConfiguration('atlasmind'));
+      const sources = await resolveResearchSources();
+      const now = new Date();
+      const register = atlas.researchRegisterManager.ensureLoaded(now);
+      const schedule = buildResearchSchedule({
+        enabled: settings.enabled,
+        masterLevel: settings.automationLevel,
+        scans: settings.scans,
+        register,
+        sourceAvailable: sources.selected !== undefined,
+        monthlySpendCapUsd: settings.monthlySpendCapUsd,
+        spentThisMonthUsd: 0,
+        now,
+      });
+      // The baseline is per-developer, never the git-tracked SSOT: a shared one
+      // would mean "when did *anybody* last read this", and would conflict
+      // between two people on the same day. Same reason `observedDelta` says so
+      // in its own module note.
+      const baselineKey = 'atlasmind.research.digestBaseline';
+      const stored = context.workspaceState.get<import('./core/researchDigest.js').ResearchDigestBaseline>(baselineKey);
+      const scope = vscode.workspace.name ?? root;
+      const digest = buildResearchDigest({ register, schedule, ...(stored ? { baseline: stored } : {}), scope, now });
+
+      const target = nodePath.join(root, 'project_memory', 'analysis', 'research-digest.md');
+      await fsp.mkdir(nodePath.dirname(target), { recursive: true });
+      await fsp.writeFile(target, renderResearchDigestMarkdown(digest, now), 'utf-8');
+      await context.workspaceState.update(baselineKey, digest.nextBaseline);
+
+      const document = await vscode.workspace.openTextDocument(vscode.Uri.file(target));
+      await vscode.window.showTextDocument(document, { preview: false });
+    }),
+
     vscode.commands.registerCommand('atlasmind.buzz.fetchChannels', async () => {
       const cfg = vscode.workspace.getConfiguration('atlasmind');
       if (!cfg.get<boolean>('buzz.enabled', false)) {
