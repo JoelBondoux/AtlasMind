@@ -55,7 +55,6 @@ Example `settings.json` presets:
 | `atlasmind.planningModelId` | string | `""` | Optional model ID pinned for the planning phase (the planner "brain"). When set to a known model the planner uses it directly while execution routes normally; empty routes planning normally. |
 | `atlasmind.synthesisModelId` | string | `""` | Optional model ID pinned for the synthesis phase (summarizing results/sessions). Symmetric to `planningModelId`; empty routes synthesis normally. |
 | `atlasmind.draftModelId` | string | `""` | Optional model ID pinned to draft mechanical/low-stakes tasks (e.g. a fast local model); struggle-gated escalation upgrades if needed. Empty routes normally. |
-| `atlasmind.specialistRoutingOverrides` | object | `{}` | Per-domain overrides for specialist routing automation. Supported domain keys today are `media-generation`, `visual-analysis`, `voice`, `research`, `robotics`, and `simulation`. |
 | `atlasmind.localOpenAiEndpoints` | object[] | `[]` | Labeled local OpenAI-compatible endpoints AtlasMind should aggregate under the Local provider |
 | `atlasmind.localOpenAiBaseUrl` | string | `""` | Legacy single local OpenAI-compatible endpoint fallback |
 | `atlasmind.azureOpenAiEndpoint` | string | `""` | Azure OpenAI resource endpoint used for deployment-backed routing |
@@ -65,7 +64,7 @@ Example `settings.json` presets:
 
 See [[Model Routing]] for details on how these settings affect model selection.
 
-`atlasmind.specialistRoutingOverrides` sits on top of AtlasMind's live specialist-routing registry. Atlas first recomputes specialist-provider preferences from the refreshed model catalog and any discovered domain tags, then applies any matching override for the domain. Use it when you need to pin a preferred provider, disable a domain route, tighten required capabilities, or swap the fallback command Atlas opens for that specialist workflow.
+Specialist-provider preferences are derived from refreshed model metadata, including domain tags such as research or visual analysis. **There is no override setting.** `atlasmind.specialistRoutingOverrides` shipped once and was removed from both the manifest and the code in April 2026; this page went on describing it for three months afterwards. Pin a provider through the Model Providers panel instead.
 
 `atlasmind.localOpenAiEndpoints` is now the preferred local-model setting. Each entry includes a stable `id`, a human-facing `label`, and a `baseUrl`, which lets AtlasMind keep multiple local engines online together and still show which endpoint owns each routed local model back in the provider surfaces. When AtlasMind Settings opens and only the legacy `atlasmind.localOpenAiBaseUrl` is explicitly configured, AtlasMind now auto-migrates that value into the structured endpoint list once.
 
@@ -329,3 +328,12 @@ Routed provider credentials live in VS Code SecretStorage and are configured fro
 - Azure OpenAI uses `atlasmind.provider.azure.apiKey` plus the endpoint/deployment settings above.
 - Amazon Bedrock uses `atlasmind.provider.bedrock.accessKeyId`, `atlasmind.provider.bedrock.secretAccessKey`, and optional `atlasmind.provider.bedrock.sessionToken`.
 - Specialist integrations such as EXA, ElevenLabs, Stability AI, and Runway use `atlasmind.integration.<provider>.apiKey` from **AtlasMind: Specialist Integrations**.
+
+## Settings that were live but undeclared
+
+Both have been read by real code for months while being absent from the manifest — so they worked if you hand-edited `settings.json` and were invisible in the Settings UI. Declared in 0.205.0.
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `atlasmind.testingPolicyOverride` | string | `""` | Testing methodology the Settings dashboard reports as this project's policy. Empty means Red-Green TDD, the default. **Read since 0.46 and never declared**, so it could not be found in Settings until 0.205.0. |
+| `atlasmind.ideation.crossProjectPaths` | array | `[]` | Absolute paths to other AtlasMind projects whose ideation boards may be read for cross-project context. At most three are consulted, and nothing is ever written to another project. **Read since 0.86 and never declared**, so it could not be found in Settings until 0.205.0. |

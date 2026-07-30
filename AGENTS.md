@@ -153,11 +153,10 @@ The release is **Actions-driven**. When asked to publish or ship a release, foll
 | Cost Dashboard panel | `src/views/costDashboardPanel.ts` | Per-session and per-model cost breakdown |
 | Model Comparison panel | `src/views/modelComparisonPanel.ts` | Run a prompt across models; ranked quality/cost/latency comparison |
 | Project Run Center panel | `src/views/projectRunCenterPanel.ts` | Task run history and checkpoint browser |
-| Agent Editor panel | `src/views/agentEditorPanel.ts` | Create/edit agent definitions |
-| Skill Editor panel | `src/views/skillEditorPanel.ts` | Create/edit skill definitions |
-| Memory Browser panel | `src/views/memoryBrowserPanel.ts` | Browse and edit SSOT memory entries |
+| Agent Manager panel | `src/views/agentManagerPanel.ts` | Create/edit agent definitions — and skill definitions, which share this panel rather than having one of their own |
+| Memory browsing | `src/views/treeViews.ts` + `atlasmind.memory.openEntry` | The Memory tree is the browser; editing opens the file in the editor rather than a webview, so an SSOT entry is edited as the markdown it actually is |
 | Personality Profile panel | `src/views/personalityProfilePanel.ts` | Agent personality configuration |
-| Project Planner panel | `src/views/projectPlannerPanel.ts` | Multi-step project planning UI |
+| Mission Control panel | `src/views/missionControlPanel.ts` | Define, launch, watch, checkpoint and audit autonomous Mission Loop runs — the Planner's surface. Multi-step planning lives here and on the Project Dashboard; there is no separate planner panel |
 | Issues tab | `src/views/projectDashboardPanel.ts` (`issues` page) | The repository's issue tracker: open/unassigned/stale counts, label + assignee charts, search and filter, create / comment / close / reopen behind a modal confirmation, and "Work on it with Atlas" — a tab inside the Project Dashboard |
 | Tech Debt tab | `src/views/projectDashboardPanel.ts` (`debt` page) | Stage 7: open entries with the file, line and **rule that graded them**, severity and age distributions, and transitions (accept / schedule / resolve) — a tab inside the Project Dashboard, under *The code* because deferred work is a property of the codebase rather than an item on the backlog. The scan is a filesystem walk, so it runs on explicit request behind a confirmation, bounded three ways with the truncation **stated**; there is no delete affordance anywhere, by design |
 | Labels & milestones | `src/views/projectDashboardPanel.ts` (`issues` page) | The taxonomy stage 1 draws from: labels with their issue counts and colours, milestones with their due dates, create / delete / close behind a modal that **names the issues a deletion would strip the label from**, and taxonomy drift in both directions — a card on the Issues tab. Read on the same refresh as the issues, because a label's count comes from that list |

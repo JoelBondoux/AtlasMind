@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.204.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.205.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,9 +64,13 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.204.0
+## What's new in 0.205.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
+
+- **Two guards for the two bug classes that kept coming back — and both found things.** Documentation drift was the most-repeated defect here and the only one with no test; tree row commands were attached in twelve places with none either.
+
+  What they turned up: a setting (`atlasmind.specialistRoutingOverrides`) **removed in April and documented as current ever since**, in four files, one with a worked JSON example — so following the docs meant writing that JSON and getting silence. Four rows in this project's own agent instruction file naming **source files that do not exist**. A root-level link written as a sibling link. And two settings that were **live but undeclared**, so they worked only if you hand-edited `settings.json` and were invisible in the Settings UI.
 
 - **What moved since you last opened the project.** Every other band on the Workflow page answers *what is the state?*. This one answers *what changed?* — which, when the state is nearly the same every day, is the question actually worth reading. It is the first card on the page.
 

@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.204.0",
+  "version": "0.205.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -2050,6 +2050,19 @@
           },
           "default": [],
           "markdownDescription": "Extra comment markers the tech-debt scan looks for, on top of the built-in `TODO`, `FIXME`, `HACK` and `XXX`.\n\nWrite each as `NAME` or `NAME:severity`, for example `[\"DEBT\", \"REVISIT:high\", \"NOTE:low\"]`. An unqualified marker is graded **medium** \u2014 somebody who bothered to declare a marker is asserting that something is wrong, which is the same reason `FIXME` outranks `TODO`.\n\nEach marker becomes a *declared rule*, named on every entry it grades and published in the rule table of `tech-debt.md`. That is what keeps the register comparable: a grade you can look up is a grade you can argue with.\n\nThe built-in four cannot be redefined. Letting a project grade its own `TODO` as high would make two projects' registers incomparable, which is the one thing the rule table exists to prevent. A marker mentioning a credential is still graded high whatever you called it.\n\nMarkers are letters, digits, underscore and hyphen only, and at most 20 are read."
+        },
+        "atlasmind.testingPolicyOverride": {
+          "type": "string",
+          "default": "",
+          "description": "Testing methodology the Settings dashboard reports as this project's policy. Empty means Red-Green TDD, the default. Read by the Testing page since 0.46 but never declared, so it could not be found in Settings."
+        },
+        "atlasmind.ideation.crossProjectPaths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Absolute paths to other AtlasMind projects whose ideation boards may be read for cross-project context. At most three are consulted, and nothing is ever written to another project."
         }
       }
     }

@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.205.0] - 2026-07-30
+
+### Added
+- **Two tests for the two bug classes that kept recurring, and both found things.** Doc drift was the most-repeated defect in this project's history and the only one with no guard; tree commands were attached in twelve places with no guard at all.
+
+  `tests/docsIntegrity.test.ts` resolves what the documentation points at rather than judging what it says — wikilinks, relative links, cited source files, cited CI workflows, cited settings, the version in four places, and the `CLAUDE.md`/`AGENTS.md` byte-identity. `tests/views/treeCommandIntegrity.test.ts` checks every command a tree row or titlebar button names against what is actually registered, and every dashboard page a row opens against the page list.
+
+- **Two settings that were live and undeclared.** `atlasmind.testingPolicyOverride` has been read by the Testing page since 0.46; `atlasmind.ideation.crossProjectPaths` by the ideation panel since 0.86. Neither was in the manifest, so both worked if you hand-edited `settings.json` and were invisible in the Settings UI. Documented, functioning and undiscoverable is the worst of the three states.
+
+### Fixed
+- **A setting removed in April, documented as current ever since.** `atlasmind.specialistRoutingOverrides` shipped in one commit and was taken out of both `package.json` and `src/` on 18 April 2026. Four documents kept describing it, one with a worked JSON example — so anyone following the docs would write that JSON and get silence, which is worse than the feature being absent and worse than being told it is gone. All four now say so, and name the Model Providers panel instead.
+
+- **Four rows in `CLAUDE.md`'s own UI table named files that do not exist.** `agentEditorPanel.ts`, `skillEditorPanel.ts`, `memoryBrowserPanel.ts` and `projectPlannerPanel.ts` — the instruction file every agent reads before touching this codebase was describing four surfaces by the wrong path. Agents and skills share `agentManagerPanel.ts`; memory is the tree plus a file open, not a webview; planning is Mission Control and the Project Dashboard.
+
+- **A root link written as a sibling link.** `docs/development.md` pointed at `SECURITY.md` from inside `docs/`, which resolves to `docs/SECURITY.md`. The file is at the repository root.
 ## [0.204.0] - 2026-07-30
 
 ### Added

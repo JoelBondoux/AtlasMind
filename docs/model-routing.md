@@ -95,7 +95,7 @@ This specialist layer is intentionally separate from the provider adapter table:
 
 The provider preference for those specialist in-chat routes is no longer hardcoded to one fixed provider list. AtlasMind now carries optional `ModelInfo.specialistDomains` metadata through discovery and catalog refresh, derives fallback domain tags from refreshed model IDs and capabilities when providers do not expose them explicitly, and scores the live enabled model pool per specialist domain before choosing a preferred provider.
 
-When a workspace needs explicit control, `atlasmind.specialistRoutingOverrides` can pin or suppress any supported domain route without disabling the broader live catalog refresh. That keeps the default behavior adaptive as provider catalogs change over time while still giving teams a deterministic escape hatch.
+Specialist routing has **no override setting**. `atlasmind.specialistRoutingOverrides` shipped once and was removed in April 2026 along with the code that read it — pin a provider through the Model Providers panel instead. The default behaviour stays adaptive as provider catalogs change.
 
 ## Budget Modes
 

@@ -6,6 +6,18 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.205.0 — Two guards, and what they found
+
+Documentation drift was the most-repeated defect in this project's history and the only one with no test. Tree row commands were attached in twelve places with no guard at all. Both now have one, and both found real things on the first run.
+
+`docsIntegrity` resolves what the documentation *points at* rather than judging what it says: wikilinks, relative links, cited source files, cited CI workflows, cited settings, the version in four places, and the `CLAUDE.md`/`AGENTS.md` byte-identity. `treeCommandIntegrity` checks every command a tree row or titlebar button names against what is registered, and every dashboard page a row opens against the panel's page list.
+
+**What they found:**
+
+- `atlasmind.specialistRoutingOverrides` shipped once and was removed from the manifest and the code on 18 April 2026 — and **four documents kept describing it as current**, one with a worked JSON example. Following the docs meant writing that JSON and getting silence: worse than the feature being absent, worse than being told it is gone.
+- **Four rows in `CLAUDE.md`'s UI table named files that do not exist.** The instruction file every agent reads before touching this codebase had four surfaces at the wrong path.
+- `docs/development.md` linked to `SECURITY.md` from inside `docs/`, which resolves to `docs/SECURITY.md`.
+- Two settings — `atlasmind.testingPolicyOverride` and `atlasmind.ideation.crossProjectPaths` — were **read by real code and absent from the manifest**, so they worked only if you hand-edited `settings.json`. Now declared.
 ## v0.204.0 — What moved since you last looked
 
 Every band on the Workflow page answered *what is the state?* — the score, the gates, the counts, the gaps. None answered *what changed?*, and when the state is nearly the same every day, a surface that only reports state is one you learn to skim.

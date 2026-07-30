@@ -263,7 +263,7 @@ Scaffolding is non-destructive and will not overwrite existing files.
 
 ## Security Reporting
 
-- Security disclosures should follow [SECURITY.md](SECURITY.md).
+- Security disclosures should follow [SECURITY.md](../SECURITY.md).
 - Do not report vulnerabilities through public GitHub issues.
 
 ## GitHub Governance
