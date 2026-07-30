@@ -839,6 +839,10 @@
       }
       return;
     }
+    if (action === 'delta-seen') {
+      vscode.postMessage({ type: 'markDeltaSeen' });
+      return;
+    }
     if (action === 'workflow-gate') {
       // `key:on|off` — a setting key cannot contain a colon, so the last
       // segment is unambiguous.
@@ -4080,6 +4084,48 @@
     // The four gates, shown rather than merely honoured. Somebody learning why
     // "full automation is possible, never default" holds needs to see that the
     // switches are independent and all default closed.
+    // What moved since this project was last opened.
+    //
+    // Placed above the ladder deliberately: the ladder is a setting you change
+    // once, and this is the part that is different every day. A page whose first
+    // card never changes is a page people stop reading.
+    const delta = wf.delta || { status: 'first-look', headline: '', window: '', changes: [], droppedByCap: 0 };
+    const DELTA_TAG = {
+      improved: 'tag-good',
+      worsened: 'tag-warn',
+      moved: '',
+      'now-known': '',
+      'no-longer-readable': 'tag-warn',
+    };
+    const DELTA_WORD = {
+      improved: 'better',
+      worsened: 'worse',
+      moved: 'changed',
+      'now-known': 'now readable',
+      'no-longer-readable': 'went quiet',
+    };
+    const deltaCard = `
+      <article class="panel-card">
+        <p class="card-kicker">What moved</p>
+        <p class="stat-detail">${escapeHtml(delta.headline)}</p>
+        ${delta.status === 'changed'
+          ? `<div class="stack-list">${delta.changes.map(change => `
+              <div class="row-head">
+                <span>
+                  <strong>${escapeHtml(change.label)}</strong>
+                  <span class="section-copy">${escapeHtml(change.summary)}</span>
+                </span>
+                <span class="tag ${DELTA_TAG[change.kind] || ''}">${escapeHtml(DELTA_WORD[change.kind] || change.kind)}</span>
+              </div>`).join('')}</div>
+            ${delta.droppedByCap > 0
+              ? `<p class="stat-detail">${delta.droppedByCap} more moved than are listed here. Enough changed at once that it is usually one cause rather than ${delta.droppedByCap + delta.changes.length} events — a tool coming back online, or a branch switch.</p>`
+              : ''}
+            <button type="button" class="action-link" data-action="delta-seen">Mark as seen</button>`
+          : delta.status === 'first-look'
+            ? '<p class="stat-detail">Nothing is missing and nothing is wrong — there is simply no earlier reading to compare this one against yet.</p>'
+            : `<p class="stat-detail">The comparison covers open issues, stale issues, CI, the version, protected branches, dependency updates, test evidence and eleven other readings. Your own branch and whether your tree is dirty are deliberately excluded — you already know what you just did.</p>`}
+      </article>`;
+
     // The gates, as controls rather than a read-out. Turning one *off* is
     // immediate — more restrictive is always safe, and a dialog in front of
     // somebody reaching for the brake teaches them to dismiss dialogs. Turning
@@ -4343,6 +4389,7 @@
       ${intro}
       ${strip}
       <div class="panel-grid">
+        ${deltaCard}
         ${healthCard}
         ${configCard}
         ${auditCard}

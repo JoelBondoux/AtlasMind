@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.203.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.204.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,9 +64,15 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.203.0
+## What's new in 0.204.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
+
+- **What moved since you last opened the project.** Every other band on the Workflow page answers *what is the state?*. This one answers *what changed?* — which, when the state is nearly the same every day, is the question actually worth reading. It is the first card on the page.
+
+  Five things it refuses to do, because each is a way a delta can lie: report a first look as eighteen changes; read "unknown last time" as zero (that invents a spike that never happened); drop a count that *stopped* being readable, which is the news that explains the silence; compare two different repositories; or report your own branch and dirty tree back to you — you already know what you just did.
+
+  Which direction is *good* belongs to the field, not the number, and ranking is by consequence: a red pipeline outranks forty new issues. The baseline is per-developer editor state, never `project_memory/`.
 
 - **You can turn the workflow on from the dashboard.** The four gates were a read-out; they are now controls, and the card opens by telling you exactly what must change to reach `propose` — the rung where AtlasMind starts changing things other people can see.
 

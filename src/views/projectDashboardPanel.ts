@@ -34,6 +34,14 @@ import {
   type WorkflowStageId,
 } from '../core/workflowCurriculum.js';
 import {
+  compareObservedState,
+  describeSince,
+  summarizeObservedDelta,
+  takeObservedSnapshot,
+  type ObservedDelta,
+  type ObservedSnapshot,
+} from '../core/observedDelta.js';
+import {
   deriveBranchMetrics,
   deriveCiMetrics,
   deriveDoraMetrics,
@@ -416,6 +424,7 @@ type ProjectDashboardMessage =
   | { type: 'createMilestone'; payload: { title: string } }
   | { type: 'closeMilestone'; payload: { number: number } }
   | { type: 'addressReviewComment'; payload: { number: number; index: number } }
+  | { type: 'markDeltaSeen' }
   | { type: 'setWorkflowGate'; payload: { key: string; enabled: boolean } }
   | { type: 'setAutomationCeiling'; payload: { level: string } }
   | { type: 'createWorkflowConfig'; payload: { profile: string } }
@@ -995,6 +1004,26 @@ interface DashboardWorkflowConfigSnapshot {
 interface DashboardGuidedWorkflowSnapshot {
   stages: WorkflowStageDefinition[];
   progress: WorkflowProgress;
+  /**
+   * The raw reading behind every step's status, carried so the caller can
+   * compare it against the last one. Not rendered.
+   */
+  observed: WorkflowObservedState;
+  /**
+   * What moved since the project was last opened.
+   *
+   * Every other band on this page answers *what is the state?*. This is the only
+   * one that answers *what changed?*, which for a small team is the more useful
+   * question — the state is nearly the same every day, so a surface that only
+   * reports state is one you learn to skim.
+   */
+  delta: {
+    status: ObservedDelta['status'];
+    headline: string;
+    window: string;
+    changes: Array<{ label: string; kind: string; summary: string; before?: string; after?: string }>;
+    droppedByCap: number;
+  };
   /** The next actionable step, or absent when the workflow is complete. */
   next?: { stageId: WorkflowStageId; stepId: string; stageName: string; stepTitle: string };
   /** Only the glossary entries this curriculum actually references. */
@@ -2230,6 +2259,12 @@ export class ProjectDashboardPanel {
         return;
       case 'addressReviewComment':
         await this.handleAddressReviewComment(message.payload);
+        return;
+      case 'markDeltaSeen':
+        // No payload and nothing to validate: it clears a held computation and
+        // touches neither settings, secrets, nor the repository.
+        clearHeldObservedDelta();
+        await this.syncState();
         return;
       case 'setWorkflowGate':
         await this.handleSetWorkflowGate(message.payload);
@@ -5172,6 +5207,10 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
   // copy table rather than a pattern: a surface that could name an arbitrary
   // `atlasmind.*` key could flip something that is not a workflow gate at all,
   // and the confirmation would describe the wrong thing.
+  if (candidate['type'] === 'markDeltaSeen') {
+    return true;
+  }
+
   if (candidate['type'] === 'setWorkflowGate') {
     const payload = candidate['payload'] as Record<string, unknown> | undefined;
     return typeof payload === 'object' && payload !== null
@@ -5508,7 +5547,9 @@ function buildGuidedWorkflowSnapshot(input: {
   codeownersPresent: boolean;
   issueTemplateCount: number;
   commitSeries: DashboardSeriesPoint[];
-}): DashboardGuidedWorkflowSnapshot {
+  // The delta is not built here: it needs per-developer editor storage, and
+  // this function is pure over its input. `withObservedDelta` attaches it.
+}): Omit<DashboardGuidedWorkflowSnapshot, 'delta'> {
   const now = Date.now();
   // Deliberately a normal `get()`, unlike the safety settings below it.
   // `profile` and `archetype` are *declarations* about the project, not
@@ -5697,6 +5738,10 @@ function buildGuidedWorkflowSnapshot(input: {
   return {
     stages,
     progress,
+    // Returned so the caller can compare it against the last reading. The
+    // comparison itself is not done here: it needs per-developer storage, and
+    // this function is pure over its input.
+    observed,
     ...(next === undefined ? {} : {
       next: {
         stageId: next.stage.id,
@@ -6422,7 +6467,7 @@ async function collectDashboardSnapshot(
       ...(reviewComments === undefined ? {} : { reviewComments }),
       now: Date.now(),
     }),
-    guidedWorkflow: buildGuidedWorkflowSnapshot({
+    guidedWorkflow: withObservedDelta(atlas, workspaceRoot, buildGuidedWorkflowSnapshot({
       configuration,
       gitSnapshot,
       // Detection reads dependency names the package snapshot already loaded, so
@@ -6458,7 +6503,7 @@ async function collectDashboardSnapshot(
       codeownersPresent,
       issueTemplateCount,
       commitSeries: buildDailySeries(gitSnapshot.commitDates, SERIES_DAY_RANGE),
-    }),
+    })),
     issues,
     security: {
       toolApprovalMode,
@@ -7767,6 +7812,112 @@ async function collectDeliveryStagePipeline(
 }
 
 const DELIVERY_REVIEW_STATE_KEY = 'atlasmind.deliveryReview';
+
+/**
+ * The last reading of the project's observed state, for "what moved since you
+ * last looked".
+ *
+ * `workspaceState`, deliberately — `project_memory/` is git-tracked, so a
+ * baseline kept there would mean "when did *anybody* last look", would show up
+ * as an uncommitted change every time the dashboard opened, and would conflict
+ * between two people looking on the same day. Same reasoning as the delivery
+ * review's `reviewedAt` above.
+ */
+const OBSERVED_BASELINE_STATE_KEY = 'atlasmind.workflow.observedBaseline';
+
+/**
+ * The delta, computed once and then held.
+ *
+ * The window is *since you last opened this project*, which is both the most
+ * useful span for somebody working alone and the only one that can be stated in
+ * a sentence. Advancing the baseline on every render would make the delta empty
+ * from the second render onwards — the surface would work exactly once and then
+ * quietly report nothing forever, which is the failure mode this codebase keeps
+ * finding. Keyed by workspace root so opening a second project computes its own.
+ */
+let heldObservedDelta: { root: string; delta: ObservedDelta } | undefined;
+
+/**
+ * Compare the current reading against the stored one, then store the current one.
+ *
+ * Storage failures degrade to a first look rather than throwing: a watermark is
+ * a convenience, and a dashboard that will not open because it could not write
+ * one has traded something useful for something trivial.
+ */
+function resolveObservedDelta(
+  atlas: AtlasMindContext,
+  workspaceRoot: string | undefined,
+  observed: WorkflowObservedState,
+): ObservedDelta {
+  const root = workspaceRoot ?? '';
+  if (heldObservedDelta?.root === root) {
+    return heldObservedDelta.delta;
+  }
+  const state = atlas.extensionContext?.workspaceState;
+  let previous: ObservedSnapshot | undefined;
+  try {
+    previous = state?.get<ObservedSnapshot>(OBSERVED_BASELINE_STATE_KEY) ?? undefined;
+  } catch {
+    previous = undefined;
+  }
+  const delta = compareObservedState(previous, observed);
+  heldObservedDelta = { root, delta };
+  // Stored even on a first look — especially on a first look, because that is
+  // what makes the next one a comparison.
+  void (async () => {
+    try {
+      await state?.update(OBSERVED_BASELINE_STATE_KEY, takeObservedSnapshot(observed, new Date().toISOString()));
+    } catch {
+      // A baseline that could not be written means the next look is another
+      // first look, which reports itself honestly. Nothing to recover.
+    }
+  })();
+  return delta;
+}
+
+/**
+ * Forget the held delta so the next render recomputes against the stored
+ * baseline — which `resolveObservedDelta` has already advanced to now. Used by
+ * the explicit "mark as seen" action, the only way to clear a delta you have
+ * read: the alternative is a list that keeps reporting news you have acted on.
+ */
+/**
+ * Attach the delta to a freshly built guided-workflow snapshot.
+ *
+ * A wrapper rather than a step inside `buildGuidedWorkflowSnapshot` because that
+ * function is pure over its input and this needs editor storage. Rendering-ready
+ * strings are produced here, host-side, for the same reason every other sentence
+ * on this page is: the webview receives data and never composes the wording of a
+ * claim about the project.
+ */
+function withObservedDelta(
+  atlas: AtlasMindContext,
+  workspaceRoot: string | undefined,
+  snapshot: Omit<DashboardGuidedWorkflowSnapshot, 'delta'>,
+): DashboardGuidedWorkflowSnapshot {
+  const now = new Date().toISOString();
+  const delta = resolveObservedDelta(atlas, workspaceRoot, snapshot.observed);
+  return {
+    ...snapshot,
+    delta: {
+      status: delta.status,
+      headline: summarizeObservedDelta(delta, now),
+      window: describeSince(delta.since, now),
+      changes: delta.changes.map(change => ({
+        label: change.label,
+        kind: change.kind,
+        summary: change.summary,
+        ...(change.before === undefined ? {} : { before: change.before }),
+        ...(change.after === undefined ? {} : { after: change.after }),
+      })),
+      droppedByCap: delta.droppedByCap,
+    },
+  };
+}
+
+function clearHeldObservedDelta(): void {
+  heldObservedDelta = undefined;
+}
 
 /** Workspace-scoped flag: the user has acknowledged the one-time PII/GDPR storage notice. */
 const PROJECT_DIRECTOR_PII_ACK_KEY = 'atlasmind.projectDirector.piiStorageAcknowledged';

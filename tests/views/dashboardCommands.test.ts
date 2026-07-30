@@ -168,3 +168,43 @@ describe('gate writes are checked against a known set, not a pattern', () => {
     }
   });
 });
+
+describe('the delta baseline is per-developer', () => {
+  it('stores it in workspaceState, never in the SSOT', () => {
+    // project_memory/ is git-tracked, so a baseline there would mean "when did
+    // *anybody* last look", would show as an uncommitted change every time the
+    // dashboard opened, and would conflict between two people on the same day.
+    const store = PANEL.slice(
+      PANEL.indexOf('const OBSERVED_BASELINE_STATE_KEY'),
+      PANEL.indexOf('function clearHeldObservedDelta'),
+    );
+    expect(store).toContain('workspaceState');
+    expect(store).not.toMatch(/project_memory|writeFile|ssotPath/);
+  });
+
+  it('holds the computed delta instead of recomputing per render', () => {
+    // Advancing the baseline on every render would empty the delta from the
+    // second render onwards — the surface would work once and then quietly
+    // report nothing forever.
+    expect(PANEL).toContain('let heldObservedDelta');
+    expect(PANEL).toMatch(/heldObservedDelta\?\.root === root/);
+  });
+
+  it('stores a baseline even on a first look', () => {
+    expect(PANEL).toMatch(/Stored even on a first look/);
+  });
+
+  it('degrades to a first look when storage fails rather than throwing', () => {
+    const store = PANEL.slice(
+      PANEL.indexOf('function resolveObservedDelta'),
+      PANEL.indexOf('function withObservedDelta'),
+    );
+    expect((store.match(/catch/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('keeps the delta out of the pure builder', () => {
+    // `buildGuidedWorkflowSnapshot` is pure over its input; editor storage is
+    // not an input.
+    expect(PANEL).toContain("}): Omit<DashboardGuidedWorkflowSnapshot, 'delta'> {");
+  });
+});

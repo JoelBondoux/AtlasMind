@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.204.0] - 2026-07-30
+
+### Added
+- **What moved since you last opened the project.** Every band on the Workflow page answered *what is the state?* — the score, the gates, the counts, the gaps. None answered *what changed?*, and for somebody working alone or in a small team that is the more useful question by a wide margin: the state is nearly the same every day, so a surface that only reports state is one you learn to skim.
+
+  It is the **first card on the page**, because the ladder is a setting you change once and this is the part that differs daily. The window is *since you last opened this project* — the only span that can be stated in a sentence — and the card names it ("in the last 3 hours", "since 2026-04-12" once a duration would mislead).
+
+  Five ways a delta can lie are closed in the module rather than left to the caller:
+
+  - **No baseline is a first look, not eighteen changes.** With nothing to compare, every field differs from nothing; rendering that as news on a fresh install would be false at the exact moment somebody is deciding whether to trust the surface.
+  - **Unknown → known is not zero → n.** If `gh` was missing last time the issue count was *unreadable*, and "0 → 12 issues" invents a twelve-issue spike that never happened.
+  - **Known → unknown is news.** A count that used to read and now does not usually means a tool stopped answering — and that explains why everything else went quiet, so it ranks *above* the movement it hides.
+  - **A different repository is not a comparison.** A changed repo slug discards the baseline instead of subtracting two unrelated readings from each other.
+  - **It never reports your own actions back to you.** Your branch and whether your tree is dirty are excluded on purpose. A delta that tells you that you edited a file trains you to ignore deltas.
+
+  Direction is kept, and which direction is *good* belongs to the field rather than the number: more CI workflows is better, more stale issues is worse, a version changing is neither. Ranking is by consequence, not magnitude — a red pipeline outranks forty new issues. Lists compare as sets, because `gh` promises no ordering and a reorder is nothing anybody did.
+
+  The baseline lives in **`workspaceState`, never in `project_memory/`**. The SSOT is git-tracked, so a baseline there would mean "when did *anybody* last look", would appear as an uncommitted change every time the dashboard opened, and would conflict between two people looking on the same day. **Mark as seen** clears a delta you have read.
 ## [0.203.0] - 2026-07-30
 
 ### Added

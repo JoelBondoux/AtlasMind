@@ -6,6 +6,23 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.204.0 — What moved since you last looked
+
+Every band on the Workflow page answered *what is the state?* — the score, the gates, the counts, the gaps. None answered *what changed?*, and when the state is nearly the same every day, a surface that only reports state is one you learn to skim.
+
+The delta is the **first card on the page**, because the ladder is a setting you change once and this is the part that differs daily. The window is *since you last opened this project*, and the card names it rather than leaving "since you last looked" to do the work — a quarter's drift read as this morning's news is the failure being avoided.
+
+**Five ways a delta can lie, closed in the module:**
+
+- No baseline is a **first look**, not eighteen changes.
+- **Unknown → known is not zero → n.** If `gh` was missing last time, "0 → 12 issues" invents a spike that never happened.
+- **Known → unknown is news**, and ranks above the movement it hides — it explains the silence.
+- **A different repository is not a comparison.**
+- **It never reports your own actions back to you.** Your branch and dirty tree are excluded on purpose.
+
+Direction is kept, and which direction is *good* belongs to the field: more CI workflows better, more stale issues worse, a version change neither. Ranking is by consequence — a red pipeline outranks forty new issues. Lists compare as sets, since `gh` promises no ordering.
+
+The baseline lives in `workspaceState`, **never in `project_memory/`**: the SSOT is git-tracked, so a baseline there would mean "when did anybody last look", would show as an uncommitted change on every dashboard open, and would conflict between two people looking on the same day.
 ## v0.203.0 — Turning the workflow on, from the dashboard
 
 The four automation gates were a read-out with one link to a settings page. They are now controls, and the card opens by saying exactly what would have to change to reach `propose` — the rung where AtlasMind starts changing things other people can see.

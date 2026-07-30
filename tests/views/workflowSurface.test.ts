@@ -677,3 +677,54 @@ describe('the automation gates are controls, not a read-out', () => {
     expect(rendered()).toContain('class="segmented"');
   });
 });
+
+describe('the page answers "what moved", not only "what is the state"', () => {
+  const rendered = (): string => workflowRenderedStrings();
+
+  it('puts the delta first in the grid', () => {
+    // The ladder is a setting you change once; this is the part that differs
+    // every day. A page whose first card never changes is one people stop
+    // reading.
+    const grid = rendered();
+    expect(grid.indexOf('${deltaCard}')).toBeGreaterThan(-1);
+    expect(grid.indexOf('${deltaCard}')).toBeLessThan(grid.indexOf('${healthCard}'));
+    expect(grid.indexOf('${deltaCard}')).toBeLessThan(grid.indexOf('${ladderCard}'));
+  });
+
+  it('renders a first look as an explanation rather than an empty state', () => {
+    // "Nothing here" at the exact moment somebody decides whether to trust a
+    // surface is the worst time to say nothing useful.
+    expect(rendered()).toMatch(/no earlier reading to compare/);
+    expect(rendered()).toMatch(/Nothing is missing and nothing is wrong/);
+  });
+
+  it('says what the comparison covers when nothing moved', () => {
+    // A clean result only means something if you can see what was looked for.
+    expect(rendered()).toMatch(/The comparison covers/);
+    expect(rendered()).toMatch(/deliberately excluded/);
+  });
+
+  it('labels each change by direction rather than only by number', () => {
+    expect(rendered()).toContain('DELTA_WORD');
+    expect(rendered()).toMatch(/worsened: 'worse'/);
+    expect(rendered()).toMatch(/'no-longer-readable': 'went quiet'/);
+  });
+
+  it('states the cap rather than truncating silently', () => {
+    expect(rendered()).toMatch(/droppedByCap > 0/);
+    expect(rendered()).toMatch(/more moved than are listed here/);
+  });
+
+  it('offers a way to clear a delta that has been read', () => {
+    // Otherwise the list keeps reporting news you have already acted on.
+    expect(rendered()).toContain('data-action="delta-seen"');
+    expect(rendered()).toMatch(/Mark as seen/);
+  });
+
+  it('takes its wording from the host and composes none of it', () => {
+    // The webview renders `headline` and `summary`; it never writes a sentence
+    // making a claim about the project.
+    expect(rendered()).toContain('escapeHtml(delta.headline)');
+    expect(rendered()).toContain('escapeHtml(change.summary)');
+  });
+});

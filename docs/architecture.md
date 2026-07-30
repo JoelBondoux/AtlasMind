@@ -485,6 +485,26 @@ The tag gate is what catches a double publish: an existing tag means the publish
 
 **Nothing here executes anything.** `buildReleasePlan` is pure over observed state, and tagging and publishing stay with the human at every automation rung.
 
+### ObservedDelta (`src/core/observedDelta.ts`)
+
+The only thing in AtlasMind that answers *what changed?*. Everything else answers *what is the state?* — and when the state is nearly the same every day, a surface that reports only state is one people learn to skim. (`ssotDelta.ts` is unrelated despite the name: it compares memory against code to find drift. This compares the project against its own past.)
+
+Five properties are enforced in the module rather than left to the caller, because each is a way a delta can lie.
+
+**No baseline is a first look, not a change.** With no prior snapshot every field differs from nothing, and rendering that as "18 things moved" on a fresh install would be false at the exact moment somebody is deciding whether to trust the surface. The status is `first-look` with an *empty* change list, and the reason is carried so the wording can differ between "nothing stored yet", "the stored reading could not be read back", and "that was a different repository".
+
+**Unknown → known is not zero → n.** If `gh` was missing at the last reading the open-issue count was `undefined`, and "0 → 12 issues" invents a twelve-issue spike that never happened. It reports as `now-known` and carries no `before`. The inverse case, **known → unknown, is news rather than a gap to skip** — a count that used to read and now does not usually means a tool stopped answering, and it ranks *above* the movement it hides because it explains why the rest of the page went quiet.
+
+**A different repository is not a comparison.** A snapshot taken in one repo diffed against another produces confident nonsense, so a changed slug discards the baseline. Absence of a slug on either side is not disagreement, and still compares.
+
+**It never reports the user's own actions back to them.** `currentBranch` and `workingTreeClean` are deliberately outside the tracked set: those are the developer's position, not the project's movement, and a delta that says "you are on a different branch" trains somebody to ignore deltas. `ghInstalled` and `hasChangelog` are also excluded, because each is implied by a field already tracked and reporting one movement twice reads as two things happening.
+
+**Direction belongs to the field, not the number.** More CI workflows is better, more stale issues is worse, a version changing is neither — so each tracked field declares a polarity, and a field with no better direction is reported as `moved` rather than being assigned a virtue it does not have. Ranking is by **consequence rather than magnitude**: a pipeline turning red outranks forty new issues, however much larger the forty looks. Ties break on declaration order, so the list does not shuffle between renders. Lists compare as *sets*, because `gh` promises no ordering and a reorder is nothing anybody did.
+
+The reported list is capped, with the remainder stated. Above the cap it stops being a delta and becomes a second copy of the page — and the situations producing twenty simultaneous changes are nearly always one cause (`gh` came back) rather than twenty events.
+
+**Storage is the caller's, and it must be per-developer.** `OBSERVED_SNAPSHOT_NOTE` states this in the module so it cannot be got wrong quietly: `project_memory/` is git-tracked on purpose, so a baseline kept there would mean "when did *anybody* last look", would appear as an uncommitted change every time the dashboard opened, and would conflict between two people looking on the same day. The dashboard keeps it in `workspaceState` beside the delivery review's `reviewedAt`, and holds the computed delta for the session — advancing the baseline on every render would empty the delta from the second render onwards, so the surface would work exactly once and then quietly report nothing forever.
+
 ### WorkflowAutomation (`src/core/workflowAutomation.ts`)
 
 Where the specification's central claim is kept: **full automation is possible, never default.** That has to be true by construction rather than by policy, and the mechanism is a minimum over four independent gates that all default closed — `effective = min(master, userCeiling, capability, stage)`. A project's committed workflow file may request `auto`; if any one of the four disagrees, `auto` does not happen. Personal settings can only *lower* the result, so a repository cannot force unattended action onto somebody's machine and a developer cannot grant themselves more than the repository allows. An exhaustive test walks the whole lattice rather than arguing the property.
