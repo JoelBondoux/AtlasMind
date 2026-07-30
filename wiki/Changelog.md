@@ -6,6 +6,18 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.213.1 — A project can be more than one thing, in more than one place
+
+`docs/project-composition.md` specifies how AtlasMind models a project made of several components — an engine fork, gameplay systems, shared libraries, backend services, tools, content — each with its own role, archetype and version control system. A single-repo project becomes the *simplest* case rather than the assumed one.
+
+**It is general capability, not a game feature.** Games force the issue, but the same model serves a Shopify build (theme + app + extensions), an ML project (training, serving, data, weights), embedded work (firmware + app + cloud) and any product built on a forked upstream.
+
+Three facts made the gap concrete at v0.213.0: the archetype is single-valued per project, so a game with a matchmaking service can never get correct advice for both halves; **123 of 130 `workspaceFolders` reads take `[0]`**, so AtlasMind is single-root by construction; and the bootstrap picker already offers *Shopify Store / Theme* and *Shopify App* as mutually exclusive choices while the vocabulary underneath maps them to two different archetypes.
+
+The load-bearing rules are honesty rules. **Unknown is not zero** — a component whose version control cannot be read reports *not visible*, never a count, because telling a Perforce studio it has "0 pending changes" is worse than telling it nothing. **Topology is derived, never stored**, so it cannot disagree with the components it describes. **One SSOT, in a declared home component.** And **non-git version control is read-only forever** — an agent that can revert an artist's unsubmitted work is not a tool anybody will install, and no dialog makes it safe when the loss is silent and belongs to somebody who never saw the prompt.
+
+Alongside it, `project_memory/roadmap/game-engine-integration.md` plans Unreal, Unity and Godot integration on top of that model: read the project first, then a read-only in-engine bridge, then breadth. The companion plugins are Python, C# and GDScript — **no compiled artifact ever ships into a user's engine**.
+
 ## v0.213.0 — The sidebar tells you what is ready to ship
 
 A **Ready to ship?** section in Project State lists every promotion path with whether anything *declared* is standing in its way: `blocked` (red, and the only verdict that counts as needing a person), `gated` with a count of the gates the plan will evaluate, or `clear`. It expands itself only when something is blocked.

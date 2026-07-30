@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.213.1] - 2026-07-30
+
+### Added
+- **`docs/project-composition.md`** — the normative specification for a project that is more than one thing, in more than one place. Components carry their own role, archetype and version control system; a single-repo project is the simplest case rather than the assumed one.
+
+  **Written as general capability, not a game feature.** Games are the forcing function — an engine fork, gameplay systems, shared libraries, a shader pipeline, backend services and internal tools are six components with different archetypes, often in different repositories, sometimes under different version control. But the same model serves Shopify, ML projects, embedded work and any forked upstream. Building it game-only would guarantee a second, disagreeing answer when the monorepo roadmap item lands, which is exactly the failure `projectArchetype.ts` was written to fix.
+
+  **Three facts that made the gap concrete**, verified at v0.213.0: the archetype is single-valued per project, so a game with a matchmaking service can never get correct advice for both halves; there are 130 `workspaceFolders` reads in `src/` of which **123 take `[0]`**, so AtlasMind is single-root by construction; and the bootstrap picker already offers *Shopify Store / Theme* and *Shopify App* as mutually exclusive options, while `fromBootstrapLabel` maps them to two different archetypes — the composite is modelled in the vocabulary and impossible to express in the product.
+
+  The load-bearing rules are honesty rules. **Unknown is not zero** — a component whose version control cannot be read reports `not-visible`, never a count, because telling a Perforce studio it has "0 pending changes" is worse than telling it nothing. **Topology is derived, never stored**, so it cannot disagree with the components it describes. **One SSOT, in a declared home component**, because the roadmap and debt register are about the project even when it spans six repositories. And **non-git version control is read-only forever**: an agent that can revert an artist's unsubmitted work is not a tool anybody will install, and no confirmation dialog makes it safe, because the loss is silent and belongs to somebody who never saw the prompt.
+
+- **`project_memory/roadmap/game-engine-integration.md`** — the phased plan for Unreal, Unity and Godot integration, built on the composition model. Reading the project first (no install), then a read-only in-engine bridge, then breadth. The companion plugins are Python, C# and GDScript — **no compiled artifact ever ships into a user's engine**, which is both a security property and the only way the per-engine-version maintenance commitment stays keepable.
+
+### Notes
+- `upstreamDivergence` is named for what it does rather than where it was needed. Tracking distance from a forked upstream is pure git; a vendor board-support package, a Chromium fork and a patched Postgres have the same problem, and a module named `engineForkDistance` would have guaranteed a second copy for each of them.
+- `docs/roadmap.md`'s multi-root line and Game Dev prefab line now both point here, so the three do not drift.
+
 ## [0.213.0] - 2026-07-30
 
 ### Added
