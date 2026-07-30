@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.210.0",
+  "version": "0.211.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -1058,12 +1058,6 @@
           "type": "webview"
         },
         {
-          "id": "atlasmind.projectStateView",
-          "name": "Project State",
-          "when": "atlasmind.hasProjectState",
-          "visibility": "visible"
-        },
-        {
           "id": "atlasmind.projectDirectorView",
           "name": "Project Director",
           "icon": "media/icon.svg",
@@ -1071,12 +1065,10 @@
           "visibility": "collapsed"
         },
         {
-          "id": "atlasmind.projectRunsView",
-          "name": "Project Runs",
-          "icon": "media/icon.svg",
-          "type": "tree",
-          "visibility": "collapsed",
-          "when": "atlasmind.hasProjectRuns"
+          "id": "atlasmind.projectStateView",
+          "name": "Project State",
+          "when": "atlasmind.hasProjectState",
+          "visibility": "visible"
         },
         {
           "id": "atlasmind.sessionsView",
@@ -1087,8 +1079,23 @@
           "when": "atlasmind.hasSessions"
         },
         {
+          "id": "atlasmind.projectRunsView",
+          "name": "Project Runs",
+          "icon": "media/icon.svg",
+          "type": "tree",
+          "visibility": "collapsed",
+          "when": "atlasmind.hasProjectRuns"
+        },
+        {
           "id": "atlasmind.memoryView",
           "name": "Memory (SSOT)",
+          "icon": "media/icon.svg",
+          "type": "tree",
+          "visibility": "collapsed"
+        },
+        {
+          "id": "atlasmind.modelsView",
+          "name": "Models",
           "icon": "media/icon.svg",
           "type": "tree",
           "visibility": "collapsed"
@@ -1103,13 +1110,6 @@
         {
           "id": "atlasmind.skillsView",
           "name": "Skills",
-          "icon": "media/icon.svg",
-          "type": "tree",
-          "visibility": "collapsed"
-        },
-        {
-          "id": "atlasmind.modelsView",
-          "name": "Models",
           "icon": "media/icon.svg",
           "type": "tree",
           "visibility": "collapsed"
@@ -2069,6 +2069,22 @@
           "default": true,
           "description": "Refuse a commit when an AI instruction file has a stale AtlasMind block. Verify only — never edits files.",
           "markdownDescription": "Before each commit, check that the AtlasMind-managed blocks in your AI instruction files\n(`CLAUDE.md`, `.github/copilot-instructions.md`, `AGENTS.md`, Cursor, Cline, Gemini,\nWindsurf, Aider) still match the documents they were generated from.\n\n**On by default, and verify-only: the check never edits a file.** It refuses the commit and\nnames the command that fixes it — the same way this repository already treats a missing\nversion bump. That is deliberate rather than cautious:\n\n- A hook that rewrote files would mean the commit you staged and reviewed is not the commit\n  that lands.\n- A *bi-directional* sync at commit time would pull another agent's edits into this project\n  and broadcast them to every other tool's instruction file without review — one tool's\n  change silently becoming every tool's instruction.\n\nIt only checks blocks generated from **files** (the testing matrix and the workflow). The\ndebt-marker block comes from a setting, which a git hook cannot read, so it is not checked\nrather than guessed at.\n\nA block that a file does not carry is never reported: adopting one tool should not become a\nstanding complaint about the eight you do not use.\n\nSkip a single commit with `ATLASMIND_SKIP_INSTRUCTION_CHECK=1`. Because a git hook has no\nVS Code host, this is read from `.vscode/settings.json` — so the checkbox writes **workspace**\nscope, and a User-scoped value would not be seen."
+        },
+        "atlasmind.workflow.chatGuidance": {
+          "type": "string",
+          "default": "inform",
+          "enum": [
+            "off",
+            "inform",
+            "gate"
+          ],
+          "enumDescriptions": [
+            "Say nothing. The declared workflow is not mentioned in chat.",
+            "State what the workflow expects before acting, and offer both paths. Default.",
+            "Refuse until you say to go ahead anyway."
+          ],
+          "description": "What AtlasMind does when a chat request would commit, push, branch, open a pull request, or release. Defaults to informing you, not blocking.",
+          "markdownDescription": "What AtlasMind does when something you ask for in chat is covered by the declared workflow —\na commit, a push, a new branch, a pull request, or a release.\n\nUntil this existed the workflow was invisible where most people stand: only the Workflow\ndashboard page and other tools' instruction files ever read it, so asking Atlas to \"commit and\npush this\" got no workflow awareness at all.\n\n- `inform` **(default)** — states what the workflow expects, then offers to follow it or to carry\n  on as asked. A newcomer learns the rule at the one moment it matters; an expert ignores a line.\n- `gate` — refuses until you explicitly say to go ahead. Stronger, and opt-in on purpose: a prompt\n  that appears on every commit becomes one people learn to click through, at which point it\n  protects nobody and is still in the way.\n- `off` — no notices.\n\nDetection is a **published keyword table**, not a model: no model call in front of every chat turn,\nand the same prompt always produces the same notice, so the advice is something you can learn\nfrom. Being wording-based it can miss an unusual phrasing — which is survivable precisely because\nthe default only adds a sentence. That asymmetry is why `gate` is not the default.\n\nNothing is said when no workflow is declared, or when the stage that owns the action is disabled.\nThere would be no rule to report, and inventing one would describe a process the project never\nadopted."
         }
       }
     }

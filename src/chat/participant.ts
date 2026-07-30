@@ -39,6 +39,7 @@ import {
 } from '../constants.js';
 import { mergeImageAttachments, resolveInlineImageAttachments, resolvePickedImageAttachments } from './imageAttachments.js';
 import { ATLAS_SLASH_COMMANDS } from '../views/chatSlashRouting.js';
+import { detectGovernedAction } from '../core/workflowChatGuard.js';
 import {
   applyManagedInstructionBlock,
   detectedWritebackTools,
@@ -923,6 +924,26 @@ async function handleChatRequest(
     }
   }
 
+  // The declared workflow, stated before acting on a request it covers.
+  //
+  // Both chat surfaces get this, from one implementation, for the reason the
+  // slash dispatch is shared: two copies of "what does the workflow expect"
+  // would answer differently within a release. `gate` returns without running
+  // the turn; `inform` prepends a line and continues.
+  // Gated on the synchronous detector so an ordinary turn does no async work
+  // here at all — see the note in `ChatPanel.runPrompt`.
+  const workflowNotice = detectGovernedAction(prompt)
+    ? await buildWorkflowNoticeForChat(prompt, atlas)
+    : undefined;
+  if (workflowNotice) {
+    stream.markdown(`${workflowNotice.markdown}
+
+`);
+    if (workflowNotice.blocking) {
+      return { metadata: { command: command ?? 'freeform', outcome: undefined } };
+    }
+  }
+
   switch (command) {
     case 'project': {
       const { sessionContextBundle, sessionContext } = await prepareProjectRunContext(atlas, sessionId);
@@ -974,6 +995,41 @@ async function handleChatRequest(
   }
 
   return { metadata: { command: command ?? 'freeform', outcome: projectOutcome } };
+}
+
+/**
+ * The workflow notice for a chat turn, or `undefined` when there is nothing to say.
+ *
+ * Mirrors `ChatPanel.announceWorkflowExpectation`, and deliberately delegates the
+ * *decision* to the same pure module rather than restating the rules: the panel
+ * and `@atlas` must not disagree about what this repository expects.
+ *
+ * Never throws. The notice is advisory, and a guard that took a turn down would
+ * be worse than the silence it replaced.
+ */
+async function buildWorkflowNoticeForChat(
+  prompt: string,
+  atlas: AtlasMindContext,
+): Promise<import('../core/workflowChatGuard.js').WorkflowChatNotice | undefined> {
+  void atlas;
+  try {
+    const [{ buildWorkflowChatNotice, parseWorkflowChatGuidanceMode }, { readWorkflowConfig }] = await Promise.all([
+      import('../core/workflowChatGuard.js'),
+      import('../core/workflowConfig.js'),
+    ]);
+    const settings = vscode.workspace.getConfiguration('atlasmind');
+    const mode = parseWorkflowChatGuidanceMode(settings.get<string>('workflow.chatGuidance', 'inform'));
+    if (mode === 'off') {
+      return undefined;
+    }
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      return undefined;
+    }
+    return buildWorkflowChatNotice({ prompt, mode, config: readWorkflowConfig(workspaceRoot) });
+  } catch {
+    return undefined;
+  }
 }
 
 export async function prepareProjectRunContext(

@@ -57,6 +57,7 @@ import { formatCost } from '../core/currencyFormatter.js';
 // Re-exported for existing importers/tests that resolve these from chatPanel.
 export { getStatusDrivenComposerMode, isOneShotComposerMode, isChatPanelMessage };
 import { routePanelPrompt, type PanelSlashRoute } from './chatSlashRouting.js';
+import { detectGovernedAction } from '../core/workflowChatGuard.js';
 export type { ComposerSendMode, ChatPanelMessage } from './chatProtocol.js';
 
 const FONT_SCALE_STORAGE_KEY = 'atlasmind.chatFontScale';
@@ -970,6 +971,32 @@ export class ChatPanel {
         // to plan, and the file-count proposal gate still applies. Wrapping it
         // in the approval token would have removed a safety gate in passing.
         forcedProjectGoal = decision.goal;
+      }
+    }
+
+    // The declared workflow, said out loud at the moment it applies.
+    //
+    // Nothing in the chat path had ever read the workflow: it lived on a
+    // dashboard page and in *other* tools' instruction files, so asking Atlas to
+    // "commit and push this" got no workflow awareness at all. A novice's
+    // failure mode is not breaking a rule, it is not knowing one existed — so at
+    // the default level this adds a sentence and proceeds. `gate` stops instead,
+    // and is opt-in because a prompt on every commit becomes one people learn to
+    // click through.
+    //
+    // Steering is exempt for the same reason it is exempt from slash routing:
+    // mid-run text redirects a request already in flight.
+    //
+    // `detectGovernedAction` is synchronous and statically imported, and it gates
+    // everything else here. That ordering is the point: the first version awaited
+    // two dynamic imports and a git call in front of **every** prompt, which
+    // delayed the busy indicator on every message — the identical mistake the
+    // slash router made, caught by the identical microtask-counting test. An
+    // ordinary prompt now pays one regex pass and no microtask.
+    if (mode !== 'steer' && detectGovernedAction(prompt)) {
+      const stop = await this.announceWorkflowExpectation(prompt);
+      if (stop) {
+        return;
       }
     }
 
@@ -2297,6 +2324,66 @@ export class ChatPanel {
     }
   }
 
+  /**
+   * Say what the declared workflow expects, before doing what was asked.
+   *
+   * Returns `true` only when the caller must **stop** — which happens solely at
+   * `gate`. At `inform` the notice is appended to the transcript and the turn
+   * continues, because informing that costs the user their request would be
+   * gating with extra steps.
+   *
+   * Reads its own settings rather than taking them as arguments: this is the
+   * `vscode`-aware half, and `workflowChatGuard.ts` is the pure half that decides
+   * what to say.
+   */
+  private async announceWorkflowExpectation(prompt: string): Promise<boolean> {
+    let notice: import('../core/workflowChatGuard.js').WorkflowChatNotice | undefined;
+    try {
+      const [{ buildWorkflowChatNotice, parseWorkflowChatGuidanceMode }, { readWorkflowConfig }] = await Promise.all([
+        import('../core/workflowChatGuard.js'),
+        import('../core/workflowConfig.js'),
+      ]);
+      const settings = vscode.workspace.getConfiguration('atlasmind');
+      const mode = parseWorkflowChatGuidanceMode(settings.get<string>('workflow.chatGuidance', 'inform'));
+      if (mode === 'off') {
+        return false;
+      }
+      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!workspaceRoot) {
+        return false;
+      }
+      const branch = await readCurrentBranch(workspaceRoot);
+      notice = buildWorkflowChatNotice({
+        prompt,
+        mode,
+        config: readWorkflowConfig(workspaceRoot),
+        ...(branch ? { currentBranch: branch } : {}),
+      });
+    } catch {
+      // Advisory by nature. A guard that took a turn down would be worse than
+      // the silence it was meant to replace.
+      return false;
+    }
+
+    if (!notice) {
+      return false;
+    }
+
+    const sessionId = this.selectedSessionId;
+    if (notice.blocking) {
+      // A gate records the request too, so the transcript shows what was asked
+      // and what stopped it rather than only the refusal.
+      this.atlas.sessionConversation.appendMessage('user', prompt, sessionId);
+      this.atlas.sessionConversation.appendMessage('assistant', notice.markdown, sessionId);
+      await this.syncState();
+      return true;
+    }
+
+    this.atlas.sessionConversation.appendMessage('assistant', notice.markdown, sessionId);
+    await this.syncState();
+    return false;
+  }
+
   /** Put a short AtlasMind-authored reply in the transcript, with no model involved. */
   private async postAssistantNotice(userPrompt: string, notice: string): Promise<void> {
     const sessionId = this.selectedSessionId;
@@ -2837,6 +2924,15 @@ interface GitRepositoryLike {
   rootUri: vscode.Uri;
   state: {
     remotes: readonly GitRemoteLike[];
+    /**
+     * The checked-out ref, when there is one.
+     *
+     * Optional because a detached HEAD and a freshly-initialised repository both
+     * legitimately have no branch name — and because the workflow notice that
+     * reads this must degrade to a general message rather than claim you are on
+     * a branch it could not identify.
+     */
+    HEAD?: { name?: string };
     onDidChange: vscode.Event<void>;
   };
 }
@@ -2847,6 +2943,39 @@ interface GitApiLike {
 interface GitExtensionLike {
   getAPI(version: number): GitApiLike;
 }
+
+/**
+ * The branch the workspace is on, or `undefined`.
+ *
+ * Used to make the workflow notice specific — "you are on `main`, which this
+ * project marks protected" is worth saying, where the general form is not.
+ * Undefined on a detached HEAD, in a repository with no commits, and anywhere
+ * the Git extension is absent; every one of those degrades to the general
+ * message rather than guessing.
+ */
+async function readCurrentBranch(workspaceRoot: string | undefined): Promise<string | undefined> {
+  if (!workspaceRoot) {
+    return undefined;
+  }
+  try {
+    // Bounded, because `getGitApi` awaits the Git extension's activation and this
+    // sits in front of a chat turn. An extension that is slow to activate must
+    // cost the notice its specificity, never cost the user their request.
+    const api = await Promise.race([
+      getGitApi(),
+      new Promise<undefined>(resolve => setTimeout(() => resolve(undefined), GIT_BRANCH_READ_TIMEOUT_MS)),
+    ]);
+    const repo = api?.repositories.find(candidate => workspaceRoot.startsWith(candidate.rootUri.fsPath))
+      ?? api?.repositories[0];
+    const name = repo?.state.HEAD?.name;
+    return typeof name === 'string' && name.length > 0 ? name : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Long enough for a warm Git extension, short enough not to be felt. */
+const GIT_BRANCH_READ_TIMEOUT_MS = 750;
 
 /**
  * Returns the built-in `vscode.git` extension API, activating the extension if

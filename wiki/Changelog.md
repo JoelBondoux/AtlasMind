@@ -6,6 +6,22 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.211.0 — Atlas tells you the workflow exists, when it applies
+
+The chat path never read the declared workflow. Only the Workflow dashboard page and (from 0.210.0) *other* tools' instruction files did — `src/chat/`, the orchestrator, the planner and the mission runner had no reference to it. So typing *"commit this and push it"* into Atlas got zero workflow awareness: the rules lived on a page you may never have opened and in a file written for a different tool.
+
+Now, when a prompt implies a commit, push, branch, pull request or release, AtlasMind states what the workflow expects — naming your integration branch, and leading with a protected-branch warning where that is where you are — then offers to follow the workflow or carry on as asked.
+
+**The default informs and continues.** The user this is for is a novice, and a novice's failure mode is not breaking a rule but not knowing one existed while it still mattered. Informing teaches at the one relevant moment and costs an expert a line. `atlasmind.workflow.chatGuidance` raises it to `gate` or drops it to `off`; gating is opt-in because a prompt on every commit becomes one people learn to click through, at which point it protects nobody and is still in the way.
+
+**Detection is a published keyword table, not a model** — no model in front of every chat turn, and the same prompt always gives the same notice, so the advice is learnable. The cost is stated: wording-based matching will miss an unanticipated phrasing, which is survivable precisely because the default only adds a sentence. That asymmetry is the deeper reason `gate` is not the default.
+
+Silence is a valid answer where anything else would be untrue: no workflow declared, nothing governed in the prompt, or the owning stage disabled. A stage nobody enabled has no expectations to assert.
+
+**The sidebar now ships in the order reached by using it**, and Project State stays expanded — collapsing it would have reversed v0.187.1's "a collapsed summary shows nothing" and worked against the very newcomer this release is aimed at.
+
+Two robustness notes: the guard's first version awaited imports and a git call in front of every prompt, delaying the busy indicator — the same mistake the slash router made one release earlier, caught by the same microtask-counting test. And the branch read is now bounded at 750 ms, so a slow Git extension costs the notice its detail rather than costing you your request.
+
 ## v0.210.0 — The workflow rules reach the agents that are not AtlasMind
 
 AtlasMind's workflow gates are **self-restraints**. The effective level of a stage is `min(master, ceiling, capability, stage)`, and that arithmetic governs what *AtlasMind* may do — it cannot bind the human, and it cannot bind Claude Code, Copilot or Cursor, none of which can read a VS Code setting or a file in `project_memory/`.

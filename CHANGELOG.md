@@ -6,6 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.211.0] - 2026-07-30
+
+### Added
+- **The chat path knows the workflow exists.** It never did. Only two things read the declared workflow — the Workflow dashboard page, and (as of 0.210.0) the managed blocks written into *other* tools' instruction files. `src/chat/`, the orchestrator, the planner and the mission runner had no reference to it at all. So somebody typing *"commit this and push it"* into Atlas got zero workflow awareness: the rules lived on a page they had not opened and in a file written for a different tool.
+
+  `src/core/workflowChatGuard.ts` closes that. When a prompt implies a commit, push, branch, pull request or release, AtlasMind states what the declared workflow expects — naming the integration branch, and leading with a protected-branch warning when that is where you actually are — then offers to follow the workflow or to carry on as asked.
+
+  **The default informs and continues, and that is the design rather than timidity.** The user this exists for is a novice, whose failure mode is not violating a rule but not knowing one existed while it still mattered. Informing teaches the rule at the one relevant moment and costs an expert a line of text. `atlasmind.workflow.chatGuidance` raises it to `gate` or drops it to `off`; gating is **opt-in** because a prompt that appears on every commit becomes a prompt people learn to click through, at which point it protects nobody and is still in the way.
+
+  **Detection is a published keyword table, not a model.** In order of weight: a model call here would sit in front of every chat turn; the same prompt must always produce the same notice, or the advice is not something anyone can learn from; and a table can be read, argued with, and tested. The cost is stated rather than hidden — matching on wording will miss an unanticipated phrasing — and it is survivable *because the default only adds a sentence*. That asymmetry is the deeper reason `gate` is not the default: the same heuristic would not be acceptable behind a refusal.
+
+  Silence is treated as a valid answer in four cases, each of which would otherwise assert something untrue: the mode is `off`; no workflow is declared (no rules to be outside of); the prompt implies nothing governed; or the stage that owns the action is disabled. A stage nobody enabled has no expectations, and inventing some would describe a process the project never adopted.
+
+  Both surfaces share the one implementation, for the reason the slash dispatch does: two copies of "what does the workflow expect" would answer differently within a release.
+
+### Changed
+- **The sidebar ships in the order the maintainer actually arrived at by using it**, which beats a reasoned guess about a layout nobody had lived with: Chat, Project Director, Project State, Sessions, Project Runs, Memory, Models, Agents, Skills, MCP Servers, Resource Discovery. Both properties the previous ordering was protecting still hold — Project State stays near the top rather than below ten inventory rows, and the Director's overdue badge is somewhere you do not have to scroll to.
+
+  **Project State stays expanded**, and declining to collapse it was deliberate: v0.187.1 made it the one uncollapsed row because "a collapsed summary shows nothing", and closing it would work directly against the newcomer this release is otherwise aimed at. Ten identical shut drawers tell a beginner nothing about where they stand.
+
+### Fixed
+- **Two robustness details found while wiring this up**, both worth recording because the first was a repeat offence.
+
+  The guard's first version awaited two dynamic imports *and* a git call in front of **every** prompt, delaying the busy indicator on every message — the identical mistake the slash router made in 0.209.1, caught by the identical microtask-counting test in `panelFlows`. The synchronous, statically-imported detector now gates all of it, so an ordinary prompt pays one regex pass and no microtask. A test catching the same class of error twice in two releases is a test earning its keep.
+
+  And reading the branch awaited the Git extension's activation unbounded, which would have hung a turn behind a slow extension. It is now raced against a 750 ms timeout: a slow extension costs the notice its specificity, never the user their request.
+
+- **The detector distinguishes a verb from a noun.** "commit this" asks for a commit; "was this commit signed?" and "the push failed" are questions *about* one. A preceding determiner settles it, and both cases are pinned by test — the noun readings were matching before.
+
 ## [0.210.0] - 2026-07-30
 
 ### Added

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.210.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.211.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,9 +68,15 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.210.0
+## What's new in 0.211.0
 
 Since the last Marketplace publication, **v0.208.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Atlas tells you the workflow exists, at the moment it applies.** If you ask it to commit, push, branch, open a pull request or cut a release, it now says what your declared workflow expects first — naming your integration branch, and warning you outright if you are sitting on a protected one. Then it offers to follow the workflow or to carry on as asked.
+
+  This is aimed squarely at someone new. A beginner's problem is not breaking a rule; it is not knowing a rule existed, with nothing saying so while it still mattered. So the default **informs and continues** — an expert ignores one line. `atlasmind.workflow.chatGuidance` can raise it to `gate` (refuse until you say go ahead) or drop it to `off`. Gating is opt-in on purpose: a prompt that appears on every commit becomes a prompt people learn to click through, at which point it protects nobody and is still in the way.
+
+  Before this, nothing in the chat path read the workflow at all — it lived on a dashboard page you may never have opened and in instruction files written for *other* tools.
 
 - **Your workflow rules now reach the agents that are not AtlasMind.** AtlasMind's workflow gates only ever restrained AtlasMind — they could not bind you, Claude Code, Copilot or Cursor, none of which can see a VS Code setting. So an external agent committing straight to your integration branch was not breaking the rules; it had no way to know any existed.
 
