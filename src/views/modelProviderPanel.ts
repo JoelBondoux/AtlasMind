@@ -7,11 +7,9 @@ import {
   BEDROCK_REGION_SETTING,
   BEDROCK_SECRET_KEY_SECRET,
   BEDROCK_SESSION_TOKEN_SECRET,
-  CLAUDE_CLI_SETUP_URL,
   getConfiguredBedrockModelIds,
   getConfiguredBedrockRegion,
   getConfiguredLocalEndpoints,
-  probeClaudeCli,
   ACP_SETUP_URL,
   ACP_PROVIDER_BRIDGES,
   ACP_PROVIDER_ID,
@@ -36,7 +34,6 @@ const COPILOT_MULTIPLIER_SYNC_STORAGE_KEY = 'atlasmind.copilotMultiplierSync';
 export const PROVIDER_IDS: readonly ProviderId[] = [
   // First-party model providers
   'acp',
-  'claude-cli',
   'anthropic',
   'openai',
   'google',
@@ -663,9 +660,6 @@ export class ModelProviderPanel {
           : `Configured, not usable: ${agents[0]!.command}`;
       return { displayName: 'ACP Agents (subscription)', badge, failureBadge };
     }
-    if (providerId === 'claude-cli') {
-      return { displayName: 'Claude Code CLI (chat only)', badge: configured ? 'Chat only: local CLI ready' : 'Chat only: install CLI + sign in', failureBadge };
-    }
     if (providerId === 'copilot') {
       return { displayName: 'GitHub Copilot', badge: 'uses VS Code sign-in', failureBadge };
     }
@@ -859,7 +853,7 @@ const SETTINGS_PAGE_LINKS: ReadonlyArray<readonly [string, string]> = [
 ];
 
 function isSubscriptionProvider(providerId: ProviderId): boolean {
-  return providerId === 'copilot' || providerId === 'claude-cli' || providerId === 'acp';
+  return providerId === 'copilot' || providerId === 'acp';
 }
 
 /** The button's words: the provider's name, unless the provider is not the plan. */
@@ -879,8 +873,6 @@ function getProviderMetaLabel(providerId: ProviderId): string {
   switch (providerId) {
     case 'acp':
       return 'Agent Client Protocol';
-    case 'claude-cli':
-      return 'Beta session bridge';
     case 'copilot':
       return 'Session-backed';
     case 'local':
@@ -897,8 +889,6 @@ function getProviderNotes(providerId: ProviderId): string {
   switch (providerId) {
     case 'acp':
       return 'Drives an agent you have installed (claude-agent-acp, codex-acp, …) over the Agent Client Protocol, so its subscription becomes routable capacity. Streams and has no prompt-length ceiling. By default the agent answers but cannot act — no MCP servers are passed through and any permission it requests is refused; turn on "Let subscription agents act" under Settings → Safety to change that. AtlasMind never installs an agent for you.';
-    case 'claude-cli':
-      return 'Chat-only bridge that reuses an installed Claude Code CLI login in constrained print mode, so AtlasMind remains the orchestrator and tool executor. Superseded by the ACP provider, which streams and has no ~26,000-character prompt limit — kept until ACP has been proven against a real agent binary.';
     case 'copilot':
       return 'Reuses your signed-in VS Code Copilot session instead of storing a separate AtlasMind API key.';
     case 'local':
@@ -955,11 +945,6 @@ const COPILOT_TIERS: SubscriptionTier[] = [
   { label: 'Copilot Enterprise', description: 'Org-pooled AI credits — $39/seat/month (enter org total)',           totalRequests: 3900,  monthlyCostUsd: 39 },
 ];
 
-const CLAUDE_CLI_TIERS: SubscriptionTier[] = [
-  { label: 'Claude Max 5×',  description: '5× usage of Claude.ai Pro — $100/month',  totalRequests: 225,  monthlyCostUsd: 100 },
-  { label: 'Claude Max 20×', description: '20× usage of Claude.ai Pro — $200/month', totalRequests: 900,  monthlyCostUsd: 200 },
-];
-
 /**
  * Plans per ACP agent, because ACP is not one subscription.
  *
@@ -971,7 +956,7 @@ const CLAUDE_CLI_TIERS: SubscriptionTier[] = [
  * subject and attaching it to whichever ACP model the router happened to pick.
  *
  * Units are *messages included per period*, the only figure these vendors
- * publish and the same convention {@link CLAUDE_CLI_TIERS} already uses. They
+ * publish and the same convention {@link COPILOT_TIERS} already uses. They
  * are approximations of a usage allowance that flexes with load, which is why
  * the flow keeps asking for the remaining count rather than deriving it — and
  * why "Custom…" stays available for anyone whose plan is not listed.
@@ -995,7 +980,6 @@ const ACP_AGENT_TIERS: Record<string, SubscriptionTier[]> = {
 
 function getSubscriptionTiers(providerId: ProviderId): SubscriptionTier[] {
   if (providerId === 'copilot') return COPILOT_TIERS;
-  if (providerId === 'claude-cli') return CLAUDE_CLI_TIERS;
   return [];
 }
 
@@ -1353,39 +1337,6 @@ export async function configureProvider(
 ): Promise<void> {
   if (provider === 'acp') {
     await configureAcpProvider(atlas);
-    return;
-  }
-
-  if (provider === 'claude-cli') {
-    const probe = await probeClaudeCli();
-    if (!probe.installed) {
-      const selection = await vscode.window.showWarningMessage(
-        'Claude Code CLI (chat only) is not installed. Install Claude, sign in, then retry this provider.',
-        'Open Setup Docs',
-      );
-      if (selection === 'Open Setup Docs') {
-        await vscode.env.openExternal(vscode.Uri.parse(CLAUDE_CLI_SETUP_URL));
-      }
-      return;
-    }
-
-    if (!probe.authenticated) {
-      const selection = await vscode.window.showWarningMessage(
-        'Claude Code CLI (chat only) is installed but not signed in. Run "claude auth login" in a terminal, then retry this provider.',
-        'Open Setup Docs',
-      );
-      if (selection === 'Open Setup Docs') {
-        await vscode.env.openExternal(vscode.Uri.parse(CLAUDE_CLI_SETUP_URL));
-      }
-      return;
-    }
-
-    const summary = await atlas.refreshProviderModels(true);
-    await atlas.refreshProviderHealth();
-    atlas.modelsRefresh.fire();
-    vscode.window.showInformationMessage(
-      `Claude Code CLI (chat only) is ready for AtlasMind. Refreshed ${summary.providersUpdated} provider(s) and ${summary.modelsAvailable} model entries.`,
-    );
     return;
   }
 
@@ -1773,10 +1724,6 @@ export async function isProviderConfigured(
     const probe = await new AcpAdapter({ agents }).probe().catch(() => undefined);
     return Boolean(probe?.installed && probe.authenticated);
   }
-  if (provider === 'claude-cli') {
-    const probe = await probeClaudeCli();
-    return probe.installed && probe.authenticated;
-  }
   if (provider === 'copilot') {
     return true;
   }
@@ -1806,7 +1753,7 @@ export function getProviderSecretKey(provider: ProviderId): string {
 
 export function requiresApiKey(provider: ProviderId): boolean {
   // ACP reuses the agent's own vendor login, so AtlasMind stores no key for it.
-  return provider !== 'claude-cli' && provider !== 'copilot' && provider !== 'local'
+  return provider !== 'copilot' && provider !== 'local'
     && provider !== 'azure' && provider !== 'bedrock' && provider !== 'acp';
 }
 
@@ -1814,8 +1761,6 @@ export function getProviderDisplayName(provider: ProviderId): string {
   switch (provider) {
     case 'acp':
       return 'ACP Agents (subscription)';
-    case 'claude-cli':
-      return 'Claude Code CLI (chat only)';
     case 'anthropic':
       return 'Anthropic (Claude)';
     case 'openai':
@@ -1868,9 +1813,6 @@ export function getProviderDisplayName(provider: ProviderId): string {
 }
 
 export function getProviderActionLabel(provider: ProviderId): string {
-  if (provider === 'claude-cli') {
-    return 'Enable Beta';
-  }
   if (provider === 'copilot') {
     return 'Use Session';
   }

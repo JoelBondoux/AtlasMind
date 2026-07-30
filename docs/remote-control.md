@@ -17,7 +17,7 @@ Node.js runtime**. AtlasMind depends on Node built-ins throughout — `fs`, `pat
 
 - on-device OS voice (SAPI / `say` / `espeak-ng`),
 - the local speech-to-text transcriber,
-- the Claude CLI provider,
+- ACP agent subprocesses,
 - stdio MCP servers,
 - project routines / `/ship`.
 

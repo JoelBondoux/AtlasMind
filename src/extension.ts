@@ -1689,7 +1689,6 @@ async function bootstrapAtlasMind(
       registerTreeViews: treeViewsModule.registerTreeViews,
       AnthropicAdapter: providersModule.AnthropicAdapter,
       BedrockAdapter: providersModule.BedrockAdapter,
-      ClaudeCliAdapter: providersModule.ClaudeCliAdapter,
       AcpAdapter: providersModule.AcpAdapter,
       parseAcpAgentSettings: providersModule.parseAcpAgentSettings,
       acpToolRisk: providersModule.acpToolRisk,
@@ -1883,7 +1882,6 @@ async function bootstrapAtlasMind(
         getEndpoints: () => vscode.workspace.getConfiguration('atlasmind').get<unknown>('localOpenAiEndpoints'),
         getBaseUrl: () => vscode.workspace.getConfiguration('atlasmind').get<string>('localOpenAiBaseUrl'),
       }),
-      new startupModules.ClaudeCliAdapter(),
       // ACP agents are user-authored and deny-by-default: with no configured
       // agent the adapter reports no models and never spawns anything.
       new startupModules.AcpAdapter({
@@ -2542,10 +2540,6 @@ async function bootstrapAtlasMind(
       isProviderConfigured: async (providerId: ProviderId) => {
         if (providerId === 'copilot') {
           return true;
-        }
-        if (providerId === 'claude-cli') {
-          const adapter = providerRegistry.get('claude-cli');
-          return Boolean(adapter && await adapter.healthCheck());
         }
         if (providerId === 'acp') {
           // ACP is keyless by construction: the whole point is to drive an agent
@@ -3526,13 +3520,6 @@ async function updateProviderStatusBar(
       continue;
     }
     try {
-      if (adapter.providerId === 'claude-cli') {
-        if (await adapter.healthCheck()) {
-          configured++;
-          healthy++;
-        }
-        continue;
-      }
       if (adapter.providerId === 'local') {
         const configuredEndpoints = getConfiguredLocalEndpoints({
           getEndpoints: () => vscode.workspace.getConfiguration('atlasmind').get<unknown>('localOpenAiEndpoints'),

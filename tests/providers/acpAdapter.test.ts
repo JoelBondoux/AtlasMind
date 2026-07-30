@@ -196,7 +196,7 @@ describe('AcpAdapter — a full turn', () => {
     expect(agents[0]!.written.map(frame => frame['method'])).toEqual(['initialize', 'session/new', 'session/prompt']);
   });
 
-  it('streams each chunk as it arrives — the thing claude-cli cannot do', async () => {
+  it('streams each chunk as it arrives — the thing the old argv bridge could not do', async () => {
     const { factory } = scriptedAgent({ chunks: ['one ', 'two ', 'three'] });
     const adapter = new AcpAdapter({ agents: [AGENT], spawnProcess: factory });
     const seen: string[] = [];
@@ -234,7 +234,7 @@ describe('AcpAdapter — a full turn', () => {
     expect(await adapter.complete(request())).toMatchObject({ inputTokens: 0, outputTokens: 0 });
   });
 
-  it('carries a prompt far larger than the claude-cli argv ceiling, intact', async () => {
+  it('carries a prompt far larger than the old argv ceiling, intact', async () => {
     // The regression the roadmap asks for: >26,000 characters, which the argv
     // bridge silently truncates and stdio does not.
     const huge = 'x'.repeat(60_000);

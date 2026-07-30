@@ -1510,19 +1510,6 @@ interface ProviderProfile {
 }
 
 const PROVIDER_PROFILES: Record<string, ProviderProfile> = {
-  'claude-cli': {
-    tagline: 'Uses your existing Claude.ai session via the Claude Code CLI — no separate API key needed.',
-    strengths: [
-      'Zero marginal token cost if you already have a Claude subscription',
-      'Instant setup — no API key management',
-    ],
-    weaknesses: [
-      'Chat-only mode: tool use and agent skills are unavailable',
-      'Requires Claude Code CLI to be installed and authenticated separately',
-      'Rate-limited by your Claude plan, not a dedicated API quota',
-    ],
-    notable: 'Designed for quick conversational tasks inside VS Code when you do not want to incur API charges. Not suitable for agentic workflows.',
-  },
   anthropic: {
     tagline: 'The maker of Claude — strong reasoning, safety, and 200 K context across all models.',
     strengths: [

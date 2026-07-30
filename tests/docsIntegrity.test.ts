@@ -160,10 +160,21 @@ describe('CLAUDE.md and AGENTS.md stay byte-identical', () => {
   });
 });
 
+/**
+ * A changelog names files as they were at that version.
+ *
+ * Requiring a past release note to cite a file that still exists would mean
+ * every deletion forces a rewrite of history — and the entry would then be
+ * describing something other than what shipped. Current documents are held to
+ * the check; records of the past are not.
+ */
+const HISTORICAL_DOCS = new Set(['wiki/Changelog.md', 'CHANGELOG.md']);
+
 describe('a document naming a source file names one that exists', () => {
   it('resolves every src/ path mentioned in backticks', () => {
     const broken: string[] = [];
-    for (const file of [...DOC_FILES, ...WIKI_FILES, 'README.md', 'CONTRIBUTING.md', 'CLAUDE.md']) {
+    for (const file of [...DOC_FILES, ...WIKI_FILES, 'README.md', 'CONTRIBUTING.md', 'CLAUDE.md']
+      .filter(file => !HISTORICAL_DOCS.has(file))) {
       const body = read(file);
       // Only `src/…` with a real extension: prose about a directory is not a
       // claim about a file, and the tables in these documents cite exact paths.

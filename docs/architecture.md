@@ -46,7 +46,7 @@
 │                   │  Adapters   │                              │
 │                   │             │                              │
 │                   │ Anthropic   │                              │
-│                   │ Claude CLI  │                              │
+│                   │ ACP Agents  │                              │
 │                   │ OpenAI      │                              │
 │                   │ Google      │                              │
 │                   │ Mistral     │                              │
@@ -63,7 +63,7 @@
 2. `extension.ts` → `activate()` runs:
   - Creates core services: `CostTracker`, `AgentRegistry`, `SkillsRegistry`, `ModelRouter`, `TaskProfiler`, `MemoryManager`, `ToolWebhookDispatcher`.
     - Creates `VoiceManager` for browser-based voice panel orchestration and optional ElevenLabs audio delivery. It also owns a `HostSpeechSynthesizer` (`src/voice/hostSpeechSynthesizer.ts`) that drives the OS's built-in speech engine (Windows SAPI via PowerShell, macOS `say`, Linux `espeak-ng`) on-device when `atlasmind.voice.hostSpeechEnabled` is set; TTS backend priority is ElevenLabs → OS host engine → Web Speech API. For speech-to-text it owns a `LocalTranscriber` (`src/voice/localTranscriber.ts`) that runs a local `whisper-cli` on webview-captured WAV audio; the model (and, on Windows x64, the binary) are SHA-256-verified downloads provisioned on first use, and audio never leaves the machine. STT engine selection (`atlasmind.voice.sttEngine`) is `auto` | `webspeech` | `local`.
-  - Creates `ProviderRegistry` and registers provider adapters, including the Claude CLI Beta bridge.
+  - Creates `ProviderRegistry` and registers provider adapters, including the ACP subscription bridge.
    - Instantiates the `Orchestrator` with all services injected.
    - Bundles services into `AtlasMindContext`.
    - Calls `registerChatParticipant()`, `registerCommands()`, `registerTreeViews()`.
@@ -736,7 +736,7 @@ That linkage lets the chat panel nest autonomous runs under their parent session
 
 ### ProviderRegistry (`src/providers/index.ts`)
 
-In-memory map of provider adapters implementing `ProviderAdapter`. The orchestrator resolves adapters by provider id (for example `anthropic`, `claude-cli`, and `local`) before executing completions.
+In-memory map of provider adapters implementing `ProviderAdapter`. The orchestrator resolves adapters by provider id (for example `anthropic`, `acp`, and `local`) before executing completions.
 
 The local model advisor reads its release-aware recommendation catalog from `src/providers/localModelRecommendationRegistry.ts`, which supports a validated workspace override file at `.atlasmind/local-model-recommendations.json` and falls back to built-in defaults when the override is missing or invalid. Each recommendation card offers one-click install into **Ollama** (via the streaming `/api/pull` API — surfaced as live progress in a shared output channel and a cancellable notification, with a daemon-reachability preflight — translating `hf:owner/repo` candidates to the `hf.co/owner/repo` pull syntax) and **LM Studio** (via `lms get <model> --yes` run as a direct child process). Both stream into the shared **"AtlasMind: Local Model Install"** output channel. Cards whose model is already present in a local runtime — matched on a normalized identity key (`localModelMatchKey`) so HuggingFace- and Ollama-style ids reconcile — show an installed badge instead of install buttons.
 
@@ -997,7 +997,6 @@ extension.ts
         │     └── skills/gitApplyPatch.ts
         └── providers/index.ts
               ├── providers/anthropic.ts
-              ├── providers/claude-cli.ts
               ├── providers/copilot.ts
               ├── providers/acp.ts
               │     ├── providers/acpProtocol.ts     (wire framing, pure)

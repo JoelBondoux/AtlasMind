@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.219.0] - 2026-07-30
+
+### Removed
+- **The Claude Code CLI provider (`claude-cli`) is gone.** It was a chat-only bridge that shelled out to `claude --print`: it could not stream, it truncated prompts against the OS argv ceiling at roughly 26,000 characters, and it advertised no tool use. The ACP provider superseded it on every axis — the same subscription, with streaming, no prompt ceiling, image support, and now real model *and* effort selection — so keeping it meant two routes to one Claude plan, one of them strictly worse and quietly lossy.
+
+  Removed with it: `src/providers/claude-cli.ts`, the `claude-cli` member of `ProviderId`, its provider registration and catalog alias, its subscription tier table (superseded by the per-agent ACP tiers, which also carry Claude Pro), its entry in the CLI host's provider list, its provider profile, its bespoke 120-second timeout, its prompt-cache factor, and the Privacy page's special case that borrowed the periodic health signal because `isProviderConfigured` spawned the binary twice per render.
+
+  **Nothing breaks on upgrade, and that is asserted rather than assumed.** A workspace that pinned `claude-cli/opus` in `atlasmind.planningModelId` or `atlasmind.synthesisModelId` now holds an unknown id, which those settings already documented as falling back to normal routing; a subscription quota persisted under the old provider id resolves to nothing and spending against it is inert rather than throwing. `tests/core/removedProviderDegradation.test.ts` covers all four paths. To keep using a Claude subscription, configure an ACP agent — Model Providers → Anthropic → *"Use my Claude subscription"*, or `/acp`.
+
+### Changed
+- `docsIntegrity` no longer requires changelogs to cite source files that still exist. A changelog names files as they were at that version, so holding it to the current tree would mean every deletion forces a rewrite of history — and the entry would then describe something other than what shipped. Current documents are still held to the check.
+
 ## [0.218.1] - 2026-07-30
 
 ### Fixed

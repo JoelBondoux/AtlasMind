@@ -130,7 +130,7 @@ AtlasMind builds two targets from one codebase. The desktop build (`out/extensio
 2. extension.ts -> activate()
   |- Build shared runtime via `src/runtime/core.ts`
   |- Create all core services
-  |- Register provider adapters (Anthropic, Claude CLI Beta, OpenAI, Azure OpenAI, Bedrock, Copilot, z.ai, DeepSeek, Mistral, Google, Local)
+  |- Register provider adapters (Anthropic, ACP, OpenAI, Azure OpenAI, Bedrock, Copilot, z.ai, DeepSeek, Mistral, Google, Local)
   |- Seed default models -> restore persisted model availability -> start background model discovery
   |- Register default agent + restore user agents from globalState
   |- Register 43 built-in skills + restore enabled/disabled state
@@ -187,7 +187,7 @@ AtlasMind Settings now uses a dedicated multi-page webview workspace with a pers
 
 The Cost Dashboard panel now links spend back to the exact assistant response that produced it, shows the linked response's thumbs state in the recent-request table, and aggregates per-model approval rates plus filtered spend so feedback-weighted routing is inspectable from the same operational surface as cost data. Its time-period choices live in a compact, closed-by-default disclosure above the daily plot; opening it expands the toolbar in normal flow so it cannot cover a line-chart peak. Genuine local usage is grouped by exact model and compared with one explainable catalog-backed cloud reference per model, with the potential savings estimates totalled. That same calculation now appears in the top Efficiency summary with the local request count, so the overview and per-model drill-down share one filtered source.
 
-The Model Providers and Specialist Integrations panels now follow the same design language: each uses searchable page navigation, grouped cards instead of dense tables, and direct links back into the most relevant AtlasMind workflow or Settings page. Their hero summary chips now either jump into a full catalog filtered by setup status or expose a tooltip when the chip is explanatory only. The Model Providers panel also surfaces provider-level failure badges derived from routed model failures in the current session, and marks subscription-backed providers such as GitHub Copilot and Claude CLI with a dedicated inline icon on the provider title, so operators can see both live failure state and plan-backed session usage without drilling into the setup copy.
+The Model Providers and Specialist Integrations panels now follow the same design language: each uses searchable page navigation, grouped cards instead of dense tables, and direct links back into the most relevant AtlasMind workflow or Settings page. Their hero summary chips now either jump into a full catalog filtered by setup status or expose a tooltip when the chip is explanatory only. The Model Providers panel also surfaces provider-level failure badges derived from routed model failures in the current session, and marks subscription-backed providers such as GitHub Copilot and ACP agents with a dedicated inline icon on the provider title, so operators can see both live failure state and plan-backed session usage without drilling into the setup copy.
 
 The Agent Manager webview uses a searchable master/detail layout: the directory, enabled/custom/built-in filters, and the selected agent stay visible together, and search/filter state survives extension-host re-renders. Its grouped editor progressively discloses Identity, Instructions & completion, Skills, Models & budget, Testing, and Maintenance. Custom definitions can add bounded completion-rubric rows and incomplete-result retry patterns; built-in identity and factory criteria are inspectable but read-only. The global Agent Auto-Update cadence appears once under **Defaults & automation** and updates `atlasmind.agentAutoUpdateCadence` through validated extension-host message handling. Built-ins render their exclusion checked and disabled, mirroring the host-side `AgentAutoUpdater.isDue()` guard that rejects them before any provider call.
 
@@ -354,7 +354,6 @@ src/
 |  |- adapter.ts         ProviderAdapter interface
 |  |- anthropic.ts       Anthropic (Claude) adapter
 |  |- bedrock.ts         Amazon Bedrock adapter with SigV4 signing
-|  |- claude-cli.ts      Claude CLI (Beta) adapter for local CLI-backed routing
 |  |- copilot.ts         GitHub Copilot adapter
 |  |- openai-compatible.ts  OpenAI-compatible adapter used by OpenAI, Azure OpenAI, DeepSeek, Mistral, Google, z.ai, xAI, Cohere, Hugging Face, NVIDIA, and Perplexity
 |  |- modelCatalog.ts    Well-known model metadata

@@ -122,7 +122,6 @@ describe('provider copy that names a settings page routes to it', () => {
     // Three subscription providers can be on screen at once, and every one of
     // these buttons read "$ Configure plan".
     expect(subscriptionButtonLabel('copilot', 'GitHub Copilot')).toBe('$ Configure GitHub Copilot plan');
-    expect(subscriptionButtonLabel('claude-cli', 'Claude Code CLI')).toBe('$ Configure Claude Code CLI plan');
   });
 
   it('does not name ACP after the protocol, because the plan belongs to an agent', () => {

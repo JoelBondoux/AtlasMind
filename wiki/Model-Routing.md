@@ -13,15 +13,13 @@ Subscription model gating has been tightened: `balanced` budget mode now exclude
 
 The task profiler's session-context inheritance has been tightened: terse follow-up messages (≤ 8 words) that continue a high-complexity session now inherit `medium` reasoning (down from `high`), and messages containing action verbs (`do`, `apply`, `fix`, `run`, etc.) are excluded from the inheritance path entirely.
 
-When the first-pass route finds no healthy real model, AtlasMind now retries with permissive routing gates before it falls back to the built-in local echo model. If the only blocker was an implicit tool requirement, it also retries the turn in text-only mode so providers such as Claude Code CLI (chat only) can still answer normal chat prompts.
+When the first-pass route finds no healthy real model, AtlasMind now retries with permissive routing gates before it falls back to the built-in local echo model. If the only blocker was an implicit tool requirement, it also retries the turn in text-only mode so text-only providers can still answer normal chat prompts.
 
 For terse command-style MCP actions such as starting or stopping a timer, AtlasMind now tries the local provider first when it exposes a real function-calling model. That keeps trivial tool turns off billed providers whenever a suitable local model is available, while still falling back to the normal cross-provider pool if local cannot satisfy the request.
 
 AtlasMind now also derives lightweight intent aliases for MCP-backed tools from their names and descriptions. Plain-English prompts such as “commit”, “save changes”, or “show status” are scored against those aliases so the model sees a shortlist of the most likely tools for the current request. When multiple tools score similarly, Atlas explicitly nudges the model to ask the user for clarification instead of guessing.
 
 AtlasMind also now treats failed tool results as authoritative. If a tool round only returns failures, denials, validation problems, or no-op responses, Atlas will surface that failed tool summary instead of accepting a contradictory success narration from the model.
-
-Claude Code CLI (chat only) also runs behind a compact bridge prompt: Atlas trims bulky memory and live-evidence sections from the routed system prompt before forwarding it to the local Claude CLI process, and the provider gets a longer execution timeout budget than the generic provider default so ordinary Atlas chat turns can finish reliably. Because that bridge is text-only print mode, AtlasMind no longer advertises Claude Code CLI (chat only) as `function_calling` capable during model discovery refresh.
 
 For OpenAI-family chat completion providers, AtlasMind now applies provider-specific compatibility rules instead of one shared payload shape. OpenAI and Azure OpenAI use the newer chat contract with `developer` messages and `max_completion_tokens`, while third-party OpenAI-compatible providers continue using the broader `system` plus `max_tokens` contract for compatibility. AtlasMind also omits `temperature` for fixed-temperature OpenAI model families such as GPT-5 and the `o`-series, while retaining it for models and providers that still support sampling controls.
 
@@ -65,7 +63,6 @@ That feedback bias is controlled by `atlasmind.feedbackRoutingWeight`. Set it to
 |----------|----|--------------|----------------|-------|
 | **Anthropic** | `anthropic` | Pay-per-token | Runtime discovery via adapter `discoverModels()` / `listModels()` | One seed model is registered before refresh completes |
 | **ACP Agents (subscription)** | `acp` | Subscription | User-authored agent list (`atlasmind.acp.agents`); models are `acp/<id>` | Drives any Agent Client Protocol agent (`claude-agent-acp`, `codex-acp`, `gemini --acp`, `copilot --acp`, `qwen --acp`, …) over JSON-RPC on stdio using that vendor's subscription. Streams, has no argv prompt ceiling, and sends images when the agent declares support. A completion source by default — no MCP pass-through, permission requests refused — until `atlasmind.acp.toolsEnabled` lets the agent act, one approved operation at a time. Declares `vision` once a handshake reports image support; never `function_calling`. Seeded disabled — nothing is spawned until you name a command you have installed. See [ACP agents](#acp-agents) below |
-| **Claude Code CLI (chat only)** | `claude-cli` | Subscription | Adapter-managed static alias list validated through local `claude auth status` | Reuses a locally installed Claude CLI login in constrained print mode, starts with `claude-cli/sonnet` until refresh confirms the CLI is ready, uses a compact recent-context prompt, strips pseudo-tool markup from print responses, surfaces a clear provider error when the CLI returns JSON without assistant text, and stays out of the `function_calling` routing pool. **Superseded by ACP**, which now runs end to end against real `claude-agent-acp` and `codex-acp` binaries — retained as a fallback |
 | **OpenAI** | `openai` | Pay-per-token | Runtime discovery via `/models` on the OpenAI-compatible adapter | One seed model is registered before refresh completes |
 | **Azure OpenAI** | `azure` | Pay-per-token | Deployment list from `atlasmind.azureOpenAiDeployments` plus a workspace-configured Azure endpoint | Starts empty until you configure an endpoint and at least one deployment |
 | **GitHub Copilot** | `copilot` | Subscription | Runtime discovery from the VS Code Language Model API | Starts with `copilot/default`; live discovery is deferred until you explicitly activate Copilot so AtlasMind does not prompt for language-model access during startup |
@@ -128,7 +125,7 @@ ACP models are priced at zero per token because the subscription already paid. T
 
 ### Subscription capacity comes first
 
-Capacity you have already paid for is preferred over metered tokens — Copilot, Claude CLI and ACP are treated identically, because the preference keys on *how a provider is priced*, not on its name. There is a general nudge on every turn while quota remains, and a bigger one on background maintenance work (paired with a penalty for pay-per-token), so housekeeping never spends metered tokens. Once a plan's quota is exhausted the nudge disappears and the provider is treated as pay-per-token, which is what it has become.
+Capacity you have already paid for is preferred over metered tokens — Copilot and ACP are treated identically, because the preference keys on *how a provider is priced*, not on its name. There is a general nudge on every turn while quota remains, and a bigger one on background maintenance work (paired with a penalty for pay-per-token), so housekeeping never spends metered tokens. Once a plan's quota is exhausted the nudge disappears and the provider is treated as pay-per-token, which is what it has become.
 
 One thing worth knowing if you run more than one plan through ACP: your quotas are stored **per model**, not per provider, because `acp` fronts several unrelated subscriptions — your Claude plan on `acp/claude`, your ChatGPT one on `acp/codex`. Effort and model variants (`acp/claude@opus#high`) bill against the base plan, so the remaining count moves however you routed.
 
@@ -179,7 +176,7 @@ Every other subscription provider is one provider in front of one plan. `acp` is
 
 **Configure agent plan** on the ACP card opens on *"Which subscription are you configuring?"* when more than one agent is set up, lists each agent with its current allowance, and titles every step after it with that agent. Each vendor's real tiers are offered — Claude Pro / Max 5× / Max 20×, ChatGPT Plus / Pro, Google AI Pro / Ultra — with *Custom…* still available for anything unlisted. The card shows one row per agent.
 
-The plan you configure is the one that gets spent: pricing, budget gating and the post-turn decrement all resolve through the same accessor, so a Codex turn can never be charged to your Claude allowance. Providers that front exactly one plan (Copilot, Claude Code CLI) are unaffected.
+The plan you configure is the one that gets spent: pricing, budget gating and the post-turn decrement all resolve through the same accessor, so a Codex turn can never be charged to your Claude allowance. Providers that front exactly one plan (Copilot) are unaffected.
 
 Before v0.216.0 the button opened directly on "Enter monthly cost" with no subject, and whatever you typed landed on the provider — so configuring a second plan overwrote the first.
 
@@ -254,7 +251,6 @@ AtlasMind uses a two-stage catalog strategy:
 Azure OpenAI and Bedrock are the exceptions: their routed model lists are intentionally empty until the workspace config defines deployments or model IDs.
 Copilot is also handled specially: AtlasMind keeps its seed model registered but skips live discovery on startup until the user explicitly activates Copilot.
 When Copilot is activated, AtlasMind now merges VS Code LM results from both the `copilot` vendor bucket and GitHub-backed aliases used by some preview rollouts, and it refreshes again when VS Code reports that the chat-model inventory changed.
-Claude Code CLI (chat only) is also adapter-managed: AtlasMind keeps its seeded alias visible, then validates the local CLI install and auth state before exposing the live alias list. Its adapter now requests plain-text print replies with tools disabled, strips embedded pseudo-tool XML from successful results, and fails fast when the CLI returns a JSON envelope with no assistant text.
 DeepSeek stays on the standard OpenAI-compatible adapter path. AtlasMind now treats the live `deepseek-reasoner` route as tool-capable in addition to reasoning-capable, based on observed API behavior from the live service even though DeepSeek's public docs have not been fully consistent on that point.
 
 This means the provider table should be read as **dynamic discovery capability**, not a hardcoded model inventory.
@@ -474,7 +470,7 @@ A subscription provider with quota remaining also gets a small **general** prefe
 
 ## Subscription Quota Management
 
-For subscription providers (e.g. GitHub Copilot and Claude Code CLI (chat only)):
+For subscription providers (e.g. GitHub Copilot and ACP agents):
 
 ### Premium Request Multiplier
 

@@ -60,7 +60,7 @@ const ACTIVE_SUBSCRIPTION_BONUS = 0.3;
  * listed here.
  */
 const CACHE_CAPABLE_PROVIDERS = new Set<string>([
-  'anthropic', 'claude-cli', 'openai', 'azure', 'deepseek', 'google', 'copilot',
+  'anthropic', 'openai', 'azure', 'deepseek', 'google', 'copilot',
 ]);
 /**
  * Conservative cache-read discount applied to input price when a model is
@@ -79,7 +79,6 @@ const DEFAULT_CACHE_READ_FACTOR = 0.25;
  */
 const PROVIDER_CACHE_READ_FACTOR: Record<string, number> = {
   anthropic: 0.1,
-  'claude-cli': 0.1,
   openai: 0.5,
   azure: 0.5,
   copilot: 0.5,
@@ -239,9 +238,9 @@ export class ModelRouter {
    *
    * So the scope is the *model*, which for ACP is exactly one agent and
    * therefore exactly one subscription. Provider-level quotas are untouched —
-   * {@link subscriptionQuotaForModel} falls back to them — so Copilot and
-   * `claude-cli` keep the behaviour they have, and only a provider that actually
-   * fronts more than one plan pays the cost of saying which.
+   * {@link subscriptionQuotaForModel} falls back to them — so Copilot keeps the
+   * behaviour it has, and only a provider that actually fronts more than one
+   * plan pays the cost of saying which.
    */
   setModelSubscriptionQuota(modelId: string, quota: SubscriptionQuota): void {
     this.modelSubscriptionQuotas.set(modelId, quota);

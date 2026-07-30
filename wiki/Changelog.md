@@ -16,6 +16,16 @@ Silent, and in the direction that costs money: every model-variant turn looked l
 
 ---
 
+## v0.219.0 — The Claude Code CLI provider is removed
+
+It was a chat-only bridge that shelled out to `claude --print`: no streaming, a ~26,000-character prompt ceiling imposed by the OS argv limit, and no tool use. The ACP provider superseded it on every axis — the same subscription, with streaming, no prompt ceiling, images, and now real model *and* effort selection — so keeping it meant two routes to one Claude plan, one of them strictly worse and quietly lossy.
+
+**Nothing breaks on upgrade.** If you pinned `claude-cli/opus` in `atlasmind.planningModelId` or `atlasmind.synthesisModelId`, the id is now unknown and those settings do what they already promised: fall back to normal routing. A subscription quota saved under the old provider is never consulted, and spending against it is inert rather than an error.
+
+**To keep using your Claude plan**, configure an ACP agent — Model Providers → Anthropic → *"Use my Claude subscription"*, or run `/acp` for the walkthrough. You get the same plan with streaming, the full prompt, and per-model routing.
+
+---
+
 ## v0.218.0 — The models inside a subscription
 
 The same session response that advertises effort also advertises the plan's *models* — Opus, Sonnet, Haiku on Claude; Luna, Terra, Sol on ChatGPT — and AtlasMind was discarding that half. Each is now a routed model, and the two knobs compose: `acp/claude@opus#high`. The orchestrator can send a throwaway rename to the light model and a refactor to the deep one, inside the plan you already pay for.

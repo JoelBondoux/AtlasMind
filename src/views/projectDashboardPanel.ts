@@ -7018,16 +7018,11 @@ async function buildPrivacySnapshot(atlas: AtlasMindContext): Promise<DashboardP
   const placedTrusted = new Set<string>();
   const catalog = atlas.modelRouter.listProviders();
   const configuredFlags = await Promise.all(
-    catalog.map(provider => {
-      // `isProviderConfigured('claude-cli')` spawns the Claude CLI twice (--version
-      // then auth status). That is far too costly to pay on every dashboard render,
-      // so use the already-established, periodically-refreshed health signal for it.
-      // Every other provider's configured check is a cheap SecretStorage / config read.
-      if (provider.id === 'claude-cli') {
-        return Promise.resolve(atlas.modelRouter.isProviderHealthy('claude-cli'));
-      }
-      return atlas.isProviderConfigured(provider.id).catch(() => false);
-    }),
+    // Every remaining provider's configured check is a cheap SecretStorage or
+    // config read. The one exception was the Claude Code CLI, which spawned the
+    // binary twice per render and had to borrow the periodic health signal
+    // instead; it was removed in v0.219.0 along with the exception.
+    catalog.map(provider => atlas.isProviderConfigured(provider.id).catch(() => false)),
   );
   for (let i = 0; i < catalog.length; i++) {
     const provider = catalog[i];

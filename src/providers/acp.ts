@@ -2,15 +2,16 @@
  * ACP provider adapter — subscription-backed completion capacity over the
  * Agent Client Protocol.
  *
- * This is Tier 1 of `project_memory/roadmap/acp-integration.md`: ACP replaces
- * `claude-cli` as the Claude-subscription path with strictly more capability and
- * **no new security surface**. What it buys over the argv bridge:
+ * This is Tier 1 of `project_memory/roadmap/acp-integration.md`. It superseded
+ * the `claude-cli` argv bridge (removed in v0.219.0) as the Claude-subscription
+ * path, with strictly more capability and **no new security surface**. What it
+ * bought over that bridge is why it is shaped this way:
  *
- * - **Streaming.** `session/update` text chunks map to `onTextChunk`;
- *   `claude-cli` cannot stream at all.
+ * - **Streaming.** `session/update` text chunks map to `onTextChunk`; the argv
+ *   bridge could not stream at all.
  * - **No 26k prompt ceiling.** Prompts travel as JSON-RPC over stdio rather than
- *   in argv, so `CLAUDE_CLI_TOTAL_PROMPT_BUDGET` and the truncation constants
- *   simply do not apply. A long context arrives intact instead of silently cut.
+ *   in argv, so the argv length limit and its truncation constants simply do not
+ *   apply. A long context arrives intact instead of silently cut.
  * - **Images.** Sent as ACP `image` content blocks when the agent's
  *   `promptCapabilities.image` says it accepts them — and dropped with a note
  *   when it does not, rather than sent hopefully.
@@ -26,7 +27,7 @@
  *
  * The launch command is **user-authored** (`atlasmind.acp.agents`). Nothing here
  * installs, downloads, or `npx`-fetches an agent: the adapter probes for a
- * binary the user already has, exactly as `probeClaudeCli` does.
+ * binary the user already has.
  *
  * Wire framing lives in {@link ./acpProtocol.ts}, verified against the published
  * spec. The child process is injected via {@link AcpProcessFactory} — the
@@ -642,7 +643,7 @@ export class AcpAdapter implements ProviderAdapter {
    * Handshake with an agent to find out whether it is installed, speaks our
    * protocol version, and is logged in.
    *
-   * Mirrors `probeClaudeCli`: TTL-cached, because read-only callers (the Models
+   * TTL-cached, because read-only callers (the Models
    * tree, the Project Dashboard, the provider panel) re-probe on every render,
    * and each probe here spawns a process.
    */
@@ -968,8 +969,8 @@ export function resetAcpProbeCache(): void {
  * The whole conversation goes in one prompt because this tier does not reuse
  * sessions — the spec's own ecosystem notes warn that session resume is not
  * universally supported, so designing around it would be building on sand.
- * Crucially there is **no character budget**: the argv ceiling that forced
- * `claude-cli` to truncate does not exist over stdio.
+ * Crucially there is **no character budget**: the argv ceiling that forced the
+ * old CLI bridge to truncate does not exist over stdio.
  */
 export function buildPromptBlocks(request: CompletionRequest, agent: Pick<AcpInitializeResult, 'supportsImages'>): AcpPromptBlock[] {
   const blocks: AcpPromptBlock[] = [];

@@ -22,7 +22,6 @@ export type EnvironmentRecord = UserEnvironment;
 // ── Model Providers ─────────────────────────────────────────────
 
 export type ProviderId =
-  | 'claude-cli'
   | 'anthropic'
   | 'openai'
   | 'google'

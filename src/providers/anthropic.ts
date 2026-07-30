@@ -454,7 +454,7 @@ type AnthropicSystemField = string | AnthropicSystemBlock[] | undefined;
  * turns. Splitting at the first volatile marker lets the stable head — identical
  * across turns — be cached while the volatile tail stays uncached, raising the
  * cross-turn cache-hit rate. Kept in sync with the orchestrator's system-prompt
- * assembly and the claude-cli compaction markers.
+ * assembly and the compaction markers the old CLI bridge emitted.
  */
 const VOLATILE_SYSTEM_MARKERS = [
   'Relevant project memory:',

@@ -32,13 +32,6 @@ describe('lookupCatalog', () => {
     expect(entry!.inputPricePer1k).toBeGreaterThan(0.01);
   });
 
-  it('matches Claude Code CLI aliases through the Anthropic catalog mirror', () => {
-    const entry = lookupCatalog('claude-cli', 'claude-cli/sonnet');
-    expect(entry).toBeDefined();
-    expect(entry!.name).toBe('Claude Sonnet');
-    expect(entry!.capabilities).toContain('reasoning');
-  });
-
   // ── OpenAI ───────────────────────────────────────────────────
 
   it('matches GPT-4o', () => {
@@ -291,10 +284,5 @@ describe('lookupCatalog', () => {
   it('uses the NVIDIA model catalog page for provider and model info links', () => {
     expect(getProviderInfoUrl('nvidia')).toBe('https://build.nvidia.com/models');
     expect(getModelInfoUrl('nvidia', 'nvidia/meta/llama-3.1-70b-instruct')).toBe('https://build.nvidia.com/models');
-  });
-
-  it('uses the Claude Code CLI reference page for provider and model info links', () => {
-    expect(getProviderInfoUrl('claude-cli')).toBe('https://code.claude.com/docs/en/cli-reference');
-    expect(getModelInfoUrl('claude-cli', 'claude-cli/sonnet')).toBe('https://code.claude.com/docs/en/cli-reference');
   });
 });

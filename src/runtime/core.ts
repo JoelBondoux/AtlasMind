@@ -947,25 +947,6 @@ export function seedDefaultProviders(modelRouter: ModelRouter): void {
       ],
     },
     {
-      id: 'claude-cli',
-      displayName: 'Claude Code CLI (chat only)',
-      apiKeySettingKey: 'atlasmind.provider.claude-cli.apiKey',
-      enabled: true,
-      pricingModel: 'subscription',
-      models: [
-        {
-          id: 'claude-cli/sonnet',
-          provider: 'claude-cli',
-          name: 'Claude Sonnet (Beta)',
-          contextWindow: 200000,
-          inputPricePer1k: 0,
-          outputPricePer1k: 0,
-          capabilities: ['chat', 'code', 'reasoning'],
-          enabled: true,
-        },
-      ],
-    },
-    {
       id: 'anthropic',
       displayName: 'Anthropic',
       apiKeySettingKey: 'atlasmind.provider.anthropic.apiKey',

@@ -14,7 +14,7 @@ This mirrors [`docs/remote-control.md`](https://github.com/JoelBondoux/AtlasMind
 The web extension host runs inside a browser Web Worker with **no Node.js runtime**.
 AtlasMind depends on Node built-ins throughout — `fs`, `path`, `os`, `crypto`, and most
 critically `child_process` (`spawn`/`exec`), which powers on-device OS voice, the local
-speech-to-text transcriber, the Claude CLI provider, stdio MCP servers, and project
+speech-to-text transcriber, ACP agent subprocesses, stdio MCP servers, and project
 routines. A genuine browser port would have to disable all of that.
 
 Instead, the desktop instance keeps doing every Node-heavy operation, and the web build

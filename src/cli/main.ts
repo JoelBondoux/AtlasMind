@@ -6,7 +6,6 @@ import type { SecretStore } from '../runtime/secrets.js';
 import { LocalEchoAdapter } from '../providers/registry.js';
 import { OpenAiCompatibleAdapter } from '../providers/openai-compatible.js';
 import { AnthropicAdapter } from '../providers/anthropic.js';
-import { ClaudeCliAdapter } from '../providers/claude-cli.js';
 import type { ProviderAdapter } from '../providers/adapter.js';
 import type { BudgetMode, SpeedMode, ProviderId, AgentDefinition, OrchestratorHooks, TaskRequest, ProjectProgressUpdate } from '../types.js';
 import { NodeMemoryManager } from './nodeMemoryManager.js';
@@ -23,7 +22,6 @@ type AtlasCliRuntime = ReturnType<typeof createAtlasRuntime> & {
 };
 
 const VALID_PROVIDER_IDS: readonly ProviderId[] = [
-  'claude-cli',
   'anthropic',
   'openai',
   'google',
@@ -507,7 +505,6 @@ async function runTestCommand(parsed: ParsedCliArgs, workspaceRoot: string): Pro
 function createCliProviderAdapters(): ProviderAdapter[] {
   const secretStore = new EnvSecretStore();
   const adapters: ProviderAdapter[] = [
-    new ClaudeCliAdapter(),
     new LocalEchoAdapter({
       secrets: secretStore,
       getBaseUrl: () => process.env['ATLASMIND_LOCAL_OPENAI_BASE_URL'],

@@ -153,7 +153,6 @@ import { IMMUTABLE_GUARDRAILS } from '../../src/core/orchestrator.ts';
 import { escapeHtml } from '../../src/views/webviewUtils.ts';
 import { McpPanel, buildWizardServerConfig, validatePanelMessage } from '../../src/views/mcpPanel.ts';
 import { getRecommendedMcpStarterDetails } from '../../src/constants.ts';
-import * as providerIndex from '../../src/providers/index.ts';
 import { removeTempDir } from '../helpers/tempDir';
 
 function createSessionConversationStub(transcript: Array<{ id?: string }> = []) {
@@ -348,11 +347,6 @@ describe('panel refresh flows', () => {
     mocks.postMessage.mockResolvedValue(true);
     mocks.configurationGet.mockImplementation((_key: string, fallback?: unknown) => fallback);
     mocks.configurationInspect.mockImplementation((_key: string) => undefined);
-    vi.spyOn(providerIndex, 'probeClaudeCli').mockResolvedValue({
-      installed: false,
-      authenticated: false,
-      message: 'not installed in unit test',
-    });
   });
 
   it('treats the local provider as configured when the workspace endpoint setting exists', async () => {
