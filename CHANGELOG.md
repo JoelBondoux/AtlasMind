@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.208.2] - 2026-07-30
+
+### Fixed
+- **The release promotion conflicted with itself on every release after the first.** `release.yml` merged the `develop` → `main` pull request with `--squash`. Squashing rewrites develop's commits into one *new* commit on `main`, so `main` immediately holds a commit that is not an ancestor of `develop`. The next promotion therefore has a merge base two releases back, and every file both branches touched in between conflicts — which is precisely `CHANGELOG.md`, `package.json`, `README.md` and `wiki/Changelog.md`, the four that every single release touches.
+
+  It works once and conflicts forever afterwards. Promoting 0.208.1 hit it: nine conflicting hunks, `main` one commit ahead, `develop` fifty-nine, merge base at PR #145.
+
+  Promotion now uses `--merge`, which keeps `main` an ancestor of `develop` so the next promotion has nothing to resolve. This release also carries the back-merge that unpicks the divergence squashing already created.
+
+### Notes
+- A `workflow_dispatch` workflow must exist on the **default branch** before it can be dispatched. Since `main` here only moves by release promotion, a newly added manual workflow needs a promotion before it can be run — which is why 0.208.1 was promoted without a tag.
+## [0.208.1] - 2026-07-30
+
+### Added
+- **A workflow that proves the Marketplace publishing identity works, without publishing.** `Marketplace — verify publishing identity` authenticates as the `vscode-marketplace-publisher` managed identity through workload identity federation and answers two questions: what its Azure DevOps profile id is, and whether it has publish rights on the publisher.
+
+  The profile id matters because it is what the publisher's Members list calls a "User Id", and **it does not exist until the identity has authenticated at least once** — so this run is the only way to obtain it. Neither an ARM resource id nor an Entra object id is accepted there.
+
+  The rights check runs `vsce verify-pat --azure-credential`, which is the point: a published version can never be replaced, so the only safe way to test a publishing credential is one that consumes no version number. Before the membership exists the check fails, and the job summary says so explicitly rather than reading as a broken setup — authentication failing and rights failing are separated, because the first is a misconfiguration and the second is just where you are in the setup.
+
+  `workflow_dispatch` only. It authenticates as the release identity, so it runs when somebody asks.
+
+### Changed
+- **Azure identity values are repo *variables*, not secrets.** A client id, tenant id and subscription id are all discoverable; treating them as secrets would imply the security rests on keeping them quiet. It rests on the federated credential's subject — `repo:JoelBondoux/AtlasMind:environment:marketplace` — which is why the verify job declares that environment and would fail without it.
+
+### Notes
+- `publish.yml` is deliberately unchanged for now. Switching it to `--azure-credential` before the publisher membership exists would replace one broken publish path with another; it changes once the verify workflow reports `success`. PAT authentication for the Marketplace is retired on **1 December 2026**, so the switch is not optional — only sequenced.
 ## [0.208.0] - 2026-07-30
 
 ### Added
