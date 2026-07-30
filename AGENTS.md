@@ -70,6 +70,38 @@ The release is **Actions-driven**. When asked to publish or ship a release, foll
 
 **`npm run publish:release` publishes only; it no longer pushes a tag.** The two were chained until v0.184.0, and the chain was a hazard: the tag push triggered `publish.yml`, which ran `publish:release` again and failed on "version already exists". One release now has exactly one publish path (CI, from the tag) and one tag path (`npm run tag:release`, run deliberately). For an emergency local publish when Actions is unavailable, run both in that order.
 
+**CI publishes through Microsoft Entra ID, not a PAT.** There is no Marketplace
+secret in this repository. `publish.yml` signs in with `azure/login` using the
+user-assigned managed identity `vscode-marketplace-publisher` and workload
+identity federation, then runs `npm run publish:release:ci` (`vsce publish
+--azure-credential`). PAT authentication for the Marketplace is retired on
+**1 December 2026**.
+
+Three things about that path are worth knowing before touching it:
+
+- **The publish job must declare `environment: marketplace`.** The federated
+  credential's subject is `repo:JoelBondoux/AtlasMind:environment:marketplace`,
+  and standard federated credentials reject wildcards — so it cannot be scoped to
+  the `v*` tag the workflow triggers on. Without the environment the OIDC token
+  carries the tag subject, Entra refuses the exchange, and the error reads like a
+  wrong client id.
+- **`npm run publish:release` and `npm run publish:release:ci` are different on
+  purpose.** The first uses whatever credential `vsce login` stored in the OS
+  keychain and is the emergency path from a developer machine; the second uses the
+  Entra identity and is what CI runs. Adding `--azure-credential` to the first
+  would break local publishing.
+- **`Marketplace — verify publishing identity` tests the credential without
+  publishing.** Run it whenever the identity changes. A published version can
+  never be replaced, so the only safe way to test a publishing credential is one
+  that consumes no version number. `publish.yml` runs the same check as a
+  pre-flight, so a dead credential fails before the extension is packaged rather
+  than during the upload.
+
+The Marketplace publisher's Members list identifies that identity by its **Azure
+DevOps profile id**, not by an ARM resource id (which the VS Code docs suggest and
+the UI rejects) and not by an Entra object id. The profile id does not exist until
+the identity has authenticated once, which is what the verify workflow is for.
+
 ## Architecture Quick Reference
 
 ### Entry Point

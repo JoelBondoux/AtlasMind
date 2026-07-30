@@ -133,7 +133,7 @@ repository's values rather than restating its rules.
 - `main` relies on required CI, auto-merge, and PR-only merges rather than mandatory approving reviews. That is the **solo profile**, and it is a deliberate choice: requiring self-approval trains a maintainer to dismiss a gate, so CI is the reviewer instead.
 - Keep AtlasMind branded as Beta until `1.0.0`.
 - Treat `develop` as the normal destination for development push requests.
-- Use the `Release — promote develop to main` workflow to start a release. Once the release PR merges, run `npm run tag:release`; the tag push triggers the Marketplace publish workflow, which does the publishing. `publish:release` publishes only and does not tag — the two were chained until v0.184.0, and the chain made CI publish twice.
+- Use the `Release — promote develop to main` workflow to start a release. Once the release PR merges, run `npm run tag:release`; the tag push triggers the Marketplace publish workflow, which does the publishing. `publish:release` publishes only and does not tag — the two were chained until v0.184.0, and the chain made CI publish twice. CI authenticates to the Marketplace through Microsoft Entra ID rather than a PAT, so there is no Marketplace secret in the repository; run `Marketplace — verify publishing identity` to check that credential without publishing anything.
 
 ---
 

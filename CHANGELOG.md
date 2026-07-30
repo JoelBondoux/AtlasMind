@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.208.3] - 2026-07-30
+
+### Changed
+- **The Marketplace publish no longer uses a secret.** `publish.yml` now signs in with `azure/login` as the user-assigned managed identity `vscode-marketplace-publisher` through GitHub OIDC workload identity federation, and publishes with `vsce publish --azure-credential`. There is no Marketplace credential in this repository to expire, rotate, or leak. PAT authentication for the Marketplace is retired on **1 December 2026**, so this was not optional — only sequenced.
+
+  Verified before switching: the identity authenticated, resolved its Azure DevOps profile, and reported `The Personal Access Token verification succeeded for the publisher 'JoelBondoux'` — all without publishing anything.
+
+- **`publish.yml` checks publish rights before it packages.** The 0.208.0 release found out its credential was dead *during* the upload, after building the extension. The pre-flight asks first, costs a second, and consumes no version number.
+
+- **`npm run publish:release:ci` is new and deliberately separate from `publish:release`.** The existing script authenticates with whatever `vsce login` stored in the OS keychain and remains the emergency path from a developer machine; the CI script uses the Entra identity. Adding `--azure-credential` to the first would have broken local publishing, so there are two scripts and neither pretends to be the other.
+
+- **`release.yml` no longer demands a `VSCE_PAT` secret**, because none is used. It checks the three Azure identity variables instead — variables rather than secrets, since a client id, tenant id and subscription id are all discoverable. The security is the federated credential's subject, `repo:JoelBondoux/AtlasMind:environment:marketplace`, which is why both jobs declare that environment and would fail without it.
+
+### Notes
+- The publisher's Members list identifies the identity by its **Azure DevOps profile id**, not an ARM resource id (which the VS Code docs suggest and the UI rejects with "Not a valid User Id") and not an Entra object id. That id does not exist until the identity has authenticated once, which is why `Marketplace — verify publishing identity` has to run before the membership can be granted.
+- The expired `VSCE_PAT` secret is now referenced by nothing. It is inert, and can be deleted with `gh secret delete VSCE_PAT`.
 ## [0.208.2] - 2026-07-30
 
 ### Fixed

@@ -13,12 +13,27 @@ on:
 
 permissions:
   contents: write
+  # Required for the runner to mint an OIDC token for the managed identity's
+  # federated credential. Publishing authenticates through Microsoft Entra ID;
+  # there is no Marketplace secret in this repository.
+  id-token: write
 
 jobs:
   publish:
     name: Publish Marketplace release
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # Load-bearing, twice over.
+    #
+    # The managed identity's federated credential is scoped to the subject
+    # `repo:JoelBondoux/AtlasMind:environment:marketplace`, so the OIDC token only
+    # matches while the job runs in this environment. Without this line the subject
+    # is the tag ref instead and Entra refuses the exchange.
+    #
+    # It is also the natural place to require a reviewer, should this ever want an
+    # approval gate: publishing cannot be undone, and a published version can never
+    # be replaced.
+    environment: marketplace
 
     steps:
       - name: Resolve target ref
@@ -58,10 +73,33 @@ jobs:
             exit 1
           fi
 
+      - name: Sign in to Azure with workload identity federation
+        uses: azure/login@v2
+        with:
+          # Variables, not secrets: a client id, tenant id and subscription id are
+          # all discoverable. What stops anyone else assuming this identity is the
+          # federated credential's subject, which names this repository and the
+          # environment above.
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Check publish rights before attempting to publish
+        # The guard that was missing. A dead credential used to surface as a failure
+        # *during* the publish — the run that produced `TF400813 … not authorized`
+        # for 0.208.0 had already packaged the extension before finding out. This
+        # asks the question first, costs a second, and consumes no version number.
+        #
+        # `vsce verify-pat` is named for the PAT era; with `--azure-credential` it
+        # verifies the Entra identity instead.
+        run: npx @vscode/vsce verify-pat JoelBondoux --azure-credential
+
       - name: Publish to Visual Studio Marketplace
-        env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
-        run: npm run publish:release
+        # Not `publish:release`. That script is the local emergency path and uses
+        # whatever credential `vsce login` stored in the OS keychain; adding
+        # `--azure-credential` to it would break publishing from a developer
+        # machine. Two paths, two scripts, neither pretending to be the other.
+        run: npm run publish:release:ci
 
       - name: Create GitHub release
         env:

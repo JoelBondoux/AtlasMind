@@ -84,7 +84,7 @@ The specification's stage 6 (Release Automation), instantiated. **The release is
    It creates or reuses the `develop` → `main` release PR and enables squash auto-merge.
 2. Wait for the release PR to merge into `main`.
 3. Run **`npm run tag:release`** locally. This pushes `v<package.json version>`.
-4. The tag push triggers **`Release — publish Marketplace from tag`**, which publishes via `vsce`
+4. The tag push triggers **`Release — publish Marketplace from tag`**, which signs in as the managed identity `vscode-marketplace-publisher` via workload identity federation, verifies it still has publish rights, then publishes via `vsce`
    and creates the GitHub Release with generated notes.
 
 > **Publishing and tagging are separate commands, deliberately.**

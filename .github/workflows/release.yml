@@ -41,10 +41,21 @@ jobs:
             exit 1
           fi
 
-          if [ -z "${{ secrets.VSCE_PAT }}" ]; then
-            echo "::error::Missing VSCE_PAT secret."
-            exit 1
-          fi
+          # No Marketplace secret is required any more: publishing authenticates
+          # through Microsoft Entra ID with workload identity federation. What the
+          # publish job needs is the identity's coordinates, which are variables
+          # rather than secrets because none of them is secret.
+          for VAR_NAME in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID; do
+            case "$VAR_NAME" in
+              AZURE_CLIENT_ID) VALUE='${{ vars.AZURE_CLIENT_ID }}' ;;
+              AZURE_TENANT_ID) VALUE='${{ vars.AZURE_TENANT_ID }}' ;;
+              AZURE_SUBSCRIPTION_ID) VALUE='${{ vars.AZURE_SUBSCRIPTION_ID }}' ;;
+            esac
+            if [ -z "$VALUE" ]; then
+              echo "::error::Missing repository variable ${VAR_NAME}."
+              exit 1
+            fi
+          done
 
       - name: Create or find release PR
         id: pr

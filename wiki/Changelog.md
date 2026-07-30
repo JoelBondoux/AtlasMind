@@ -6,6 +6,15 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.208.3 — Publishing without a secret
+
+The Marketplace publish now authenticates through **Microsoft Entra ID** with GitHub OIDC workload identity federation, as the user-assigned managed identity `vscode-marketplace-publisher`. There is no Marketplace credential in the repository to expire, rotate or leak. PAT authentication for the Marketplace is retired on **1 December 2026**.
+
+**The publish job checks its rights before it packages.** The 0.208.0 release discovered its credential was dead *during* the upload, after building the extension. `vsce verify-pat --azure-credential` asks first and consumes no version number — which matters because a published version can never be replaced.
+
+**Two publish scripts, on purpose.** `publish:release` uses the credential `vsce login` stored in the OS keychain and stays the emergency path from a developer machine. `publish:release:ci` uses the Entra identity. Adding `--azure-credential` to the first would have broken local publishing.
+
+The security rests on the federated credential's subject — `repo:JoelBondoux/AtlasMind:environment:marketplace` — not on secrecy, which is why the Azure identity values are stored as repository *variables* and why both jobs must declare that environment.
 ## v0.208.2 — The release promotion no longer conflicts with itself
 
 `release.yml` merged the `develop` → `main` pull request with `--squash`. Squashing rewrites develop's commits into one new commit on `main`, so `main` immediately holds a commit that is not an ancestor of `develop`. Every promotion after the first then has a merge base two releases back, and every file both branches touched conflicts — which is exactly `CHANGELOG.md`, `package.json`, `README.md` and `wiki/Changelog.md`, the four that every release touches.
