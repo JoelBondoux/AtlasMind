@@ -6,6 +6,18 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.212.1 — The ideation guide moves above the canvas, and the shortcuts get audited
+
+**"How this workspace works" now sits directly above the Canvas it describes.** It rendered last — below the composer, inspector, feedback and analytics — so the explanation of the staged workflow was the final thing reached by somebody who had already worked the board out unaided.
+
+That reverses a deliberate decision, and the reversal is only safe because of what changed in between. The guide was demoted because the canvas was below the fold: "a hero panel, a four-card process guide and a very tall composer came first". Two of the three are gone — the hero is a compact stat strip, and the guide is a `<details>` collapsed unless the board is empty. Collapsed it costs one line rather than four cards; expanded, only on an empty board where there is nothing to push down.
+
+**Every dashboard's top-right shortcuts were audited, and nothing was broken.** Across Project Dashboard, Ideation, Run Center, Cost Dashboard, Mission Control and Personality Profile: every header button has a listener, every command target exists, every webview-offered command is allowlisted, and Cost's "Budget Settings" lands on the page that actually hosts the budget.
+
+Two false positives from the manual pass are recorded in the test, because the naive checks reproduce them: `workbench.view.scm` is a built-in VS Code command rather than a missing AtlasMind one, and Mission Control wires its button through a `$('id')` helper rather than a literal `getElementById` — so a substring check calls a working button dead.
+
+The checks are kept because each fails silently, and the subtlest is the allowlist one: a command offered in the UI but missing from its panel's allowlist is ignored by the host by design. Correct security behaviour, invisible bug.
+
 ## v0.212.0 — The settings gear comes back, and a command stops hiding
 
 **The settings route was invisible on every sidebar view, for two compounding reasons.** v0.202.0 capped each titlebar at five slots — correctly, since VS Code collapses the rest behind `…` — and the settings link was demoted to make room, into a `4_config` group that VS Code renders *only* inside the overflow menu. Separately, four of the five settings commands had **no icon declared at all**, so promoting the group alone would still have drawn nothing. Both fixed: the four gain a gear, and the route is promoted on the ten views with a free slot. Chat keeps its in the overflow, because its five slots are genuinely full.

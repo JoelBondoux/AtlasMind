@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.212.1] - 2026-07-30
+
+### Changed
+- **The Ideation page's "How this workspace works" guide moved to directly above the Canvas it describes.** It rendered last — below the composer, inspector, feedback and analytics — so the explanation of the staged workflow was the final thing reached by somebody who had already had to work the board out unaided.
+
+  **This reverses a deliberate decision, and the reversal is only safe because of what changed in between.** The guide was sent to the end because the canvas was below the fold: "a hero panel, a four-card process guide and a very tall composer came first". Two of those three are gone — the hero is now a compact stat strip, and the guide is a `<details>` element collapsed unless the board is empty. Collapsed it costs one summary line rather than four cards; expanded, that only happens on an empty board, where there is no canvas content to push down. The fold argument no longer applies to it. The test that pinned the old position now records why.
+
+### Verified
+- **Audited every dashboard's top-right shortcuts, and nothing is broken.** Across Project Dashboard, Ideation, Project Run Center, Cost Dashboard, Mission Control and Personality Profile: every header button has a listener, every command target resolves to a declared or registered command, every webview-offered command is present in its panel's allowlist, and the Cost Dashboard's "Budget Settings" lands on the settings page that actually hosts `dailyCostLimitUsd`.
+
+  Two false positives came out of the manual pass and are worth recording, because the naive checks reproduce them: `workbench.view.scm` is a **built-in** VS Code command rather than a missing AtlasMind one, and Mission Control wires its "Project Run Center" button through a `$('id')` helper rather than a literal `getElementById`, so a substring check reports a working button as dead.
+
+- `tests/views/dashboardShortcuts.test.ts` keeps all three checks, since each fails silently: a button with no listener, a command that does not exist, and — the subtlest — a command offered in the UI but absent from the panel's allowlist, which the host then ignores by design. That last one is correct security behaviour and an invisible bug when the allowlist is simply missing an entry.
+
 ## [0.212.0] - 2026-07-30
 
 ### Fixed

@@ -636,6 +636,18 @@
             renderStat('Runs', String(snapshot.runs.length), 'Auditable ideation evolutions captured so far.', 'accent') +
             renderStat('Queued media', String(snapshot.promptAttachments.length), 'Files, images, and links waiting for the next Atlas pass.', snapshot.promptAttachments.length > 0 ? 'good' : 'accent') +
           '</section>' +
+          // Directly above the Canvas it describes. It used to sit at the very
+          // bottom, below the composer, inspector, feedback and analytics — so
+          // the explanation of the staged workflow was the last thing reached by
+          // somebody who had already had to work the board out for themselves.
+          // It still auto-opens only on an empty board, which is exactly when
+          // reading it first is the useful order.
+          '<section class="ideation-process-section">' +
+            '<details class="ideation-process-details"' + (boardIsEmpty ? ' open' : '') + '>' +
+              '<summary>How this workspace works' + (boardIsEmpty ? '' : ' — staged workflow') + '</summary>' +
+              renderProcessGuide(snapshot) +
+            '</details>' +
+          '</section>' +
           '<section class="ideation-main-grid">' +
             renderBoard(snapshot) +
           '</section>' +
@@ -648,12 +660,6 @@
           '</section>' +
           '<section class="ideation-analytics-section">' +
             renderAnalytics(snapshot) +
-          '</section>' +
-          '<section class="ideation-process-section">' +
-            '<details class="ideation-process-details"' + (boardIsEmpty ? ' open' : '') + '>' +
-              '<summary>How this workspace works' + (boardIsEmpty ? '' : ' — staged workflow') + '</summary>' +
-              renderProcessGuide(snapshot) +
-            '</details>' +
           '</section>' +
         '</div>';
       wireDropzones();
