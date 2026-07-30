@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.212.2] - 2026-07-30
+
+### Fixed
+- **A failing dashboard action produced no error, no log and no reply.** `onDidReceiveMessage` discarded the handler's promise with `void`, so a rejection anywhere inside it vanished: the webview posted its message and waited for ever. Every failure was therefore indistinguishable from a button that had never been wired — which is how it was reported, as the Delivery **Promote** buttons appearing to do nothing.
+
+  The dispatcher now catches, logs the message type, and shows the reason. It cannot recover the action, so it does the only useful thing left: says a failure happened and names it. Silence is the one outcome worse than an error message.
+
+- **Both promotion handlers now report their own failures into the modal.** `handlePromotionPlanRequest` and `handleRunPromotion` gather facts from git, `gh`, the routine registry and the plan builder before doing anything. Each of those has internal guards, but a gap in any one of them rejected the whole handler — and the dispatcher swallowed it. A failure now arrives where the user is looking, carrying the underlying message rather than a generic shrug.
+
+  In `handleRunPromotion` the guard deliberately sits **before** `acquireDeliveryLock`, so a handler that throws on its way to the lock cannot leave the single-flight lock held. That one matters more than the plan request: by then the user has read the plan, ticked the attestations and confirmed.
+
+### Notes
+- The rest of the Promote chain was verified and is correct: the button carries the right `data-action`, the click delegate has a branch for it, the payload passes `isProjectDashboardMessage` (checked by running it against the real path ids in this repo's `delivery.json`), the handler exists, all four replies are handled, the modal renders — including with `plan === null` for the error case — it sits outside the `display: none` page sections, and its CSS is defined. Neither of this repository's two promotion paths is blocked, so both render the enabled button. The defect was only ever in the failure path.
+- `void this.handleMessage(message)` **without a catch appears in six panels** — chat, MCP, model comparison, model providers, personality profile and this one. Only the Project Dashboard is fixed here, because that is where the report came from; the same silence is available in the other five.
+
 ## [0.212.1] - 2026-07-30
 
 ### Changed

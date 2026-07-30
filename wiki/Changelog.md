@@ -6,6 +6,16 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.212.2 — A failing dashboard action no longer vanishes
+
+Reported as "the Delivery Promote buttons appear to not do anything". The whole chain behind them turned out to be correct — the button, the click delegate, the payload validator, the handler, all four replies, the modal and its CSS. Every link verified, including running the validator against this repository's real promotion path ids.
+
+**What was missing was the failure path.** `onDidReceiveMessage` discarded the handler's promise with `void`, so a rejection anywhere below produced no error, no log and no reply: the webview posted its message and waited for ever. Every failure looked exactly like a button that had never been wired.
+
+The dispatcher now catches, names the message type, and reports the reason. Both promotion handlers additionally report their own failures into the modal the user is already looking at, carrying the underlying message rather than a generic shrug. In the run handler the guard sits deliberately *before* the delivery lock is acquired, so a throw on the way to the lock cannot leave the single-flight lock held.
+
+Worth knowing: `void this.handleMessage(message)` without a catch appears in six panels. Only the Project Dashboard is fixed here, because that is where the report came from — the same silence is available in chat, MCP, model comparison, model providers and personality profile.
+
 ## v0.212.1 — The ideation guide moves above the canvas, and the shortcuts get audited
 
 **"How this workspace works" now sits directly above the Canvas it describes.** It rendered last — below the composer, inspector, feedback and analytics — so the explanation of the staged workflow was the final thing reached by somebody who had already worked the board out unaided.

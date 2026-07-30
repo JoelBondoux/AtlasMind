@@ -2138,7 +2138,22 @@ export class ProjectDashboardPanel {
 
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
     this.panel.webview.onDidReceiveMessage(message => {
-      void this.handleMessage(message);
+      // A rejected handler used to disappear entirely: `void` discards the
+      // promise, so a throw anywhere below produced no error, no log and no
+      // reply — the webview simply waited, and the button that sent the message
+      // looked like it did nothing. Which is exactly how it was reported.
+      //
+      // Nothing here can recover the action, so this does the one useful thing
+      // available: it says a failure happened and names it. Silence is the only
+      // outcome worse than an error message.
+      void this.handleMessage(message).catch((error: unknown) => {
+        const detail = error instanceof Error ? error.message : String(error);
+        const kind = typeof (message as { type?: unknown } | undefined)?.type === 'string'
+          ? (message as { type: string }).type
+          : 'unknown';
+        console.error(`[AtlasMind] Project Dashboard failed to handle "${kind}":`, error);
+        void vscode.window.showErrorMessage(`AtlasMind: that dashboard action failed — ${detail}`);
+      });
     }, null, this.disposables);
     this.panel.onDidChangeViewState(({ webviewPanel }) => {
       if (webviewPanel.visible) {
@@ -5091,17 +5106,31 @@ ${buildCardEvidenceSection(source, derivation)}`;
       await this.postMessage({ type: 'promotionError', payload: 'That promotion path no longer exists.' });
       return;
     }
-    const facts = await gatherPromotionFacts(workspaceRoot, from, to);
-    await this.atlas.routineRegistry.reload(workspaceRoot).catch(() => undefined);
-    const routine = promo.routineId ? this.atlas.routineRegistry.get(promo.routineId) : undefined;
-    const liveStatusChecks = await this.resolveLiveCiStatus(workspaceRoot, from);
-    const remediationAssessment = await assessPromotionRemediation(workspaceRoot, from, to);
-    const plan = buildPromotionPlan({ config, pathId, ...facts, routine, liveStatusChecks, remediationAssessment });
-    if (!plan) {
-      await this.postMessage({ type: 'promotionError', payload: 'Could not build a promotion plan.' });
-      return;
+    // Everything below reaches git, `gh`, the routine registry and the plan
+    // builder. Each of those has its own internal guards, but a gap in any one
+    // of them used to reject this whole handler — and the dispatcher discarded
+    // the rejection, so the Promote button posted a message and heard nothing
+    // back for ever. A failure has to arrive where the user is looking, which is
+    // the modal the button was supposed to open.
+    try {
+      const facts = await gatherPromotionFacts(workspaceRoot, from, to);
+      await this.atlas.routineRegistry.reload(workspaceRoot).catch(() => undefined);
+      const routine = promo.routineId ? this.atlas.routineRegistry.get(promo.routineId) : undefined;
+      const liveStatusChecks = await this.resolveLiveCiStatus(workspaceRoot, from);
+      const remediationAssessment = await assessPromotionRemediation(workspaceRoot, from, to);
+      const plan = buildPromotionPlan({ config, pathId, ...facts, routine, liveStatusChecks, remediationAssessment });
+      if (!plan) {
+        await this.postMessage({ type: 'promotionError', payload: 'Could not build a promotion plan for that path.' });
+        return;
+      }
+      await this.postMessage({ type: 'promotionPlan', payload: { plan, mode } });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      await this.postMessage({
+        type: 'promotionError',
+        payload: `Could not prepare the promotion: ${detail.slice(0, 300)}`,
+      });
     }
-    await this.postMessage({ type: 'promotionPlan', payload: { plan, mode } });
   }
 
   private async handleRunPromotion(payload: { pathId: string; attestations: string[]; confirmText: string }): Promise<void> {
@@ -5120,16 +5149,32 @@ ${buildCardEvidenceSection(source, derivation)}`;
     }
     // Rebuild the plan from live state so gates are enforced against current facts,
     // not whatever the webview last saw.
-    const facts = await gatherPromotionFacts(workspaceRoot, from, to);
-    await this.atlas.routineRegistry.reload(workspaceRoot).catch(() => undefined);
-    const routine = promo.routineId ? this.atlas.routineRegistry.get(promo.routineId) : undefined;
-    const liveStatusChecks = await this.resolveLiveCiStatus(workspaceRoot, from);
-    const approver = await resolveGitActorEmail(workspaceRoot);
-    const lastCommitAuthor = await resolveLastCommitAuthor(workspaceRoot, from.branchRef);
-    const remediationAssessment = await assessPromotionRemediation(workspaceRoot, from, to);
-    const plan = buildPromotionPlan({ config, pathId: payload.pathId, ...facts, routine, liveStatusChecks, approver, lastCommitAuthor, remediationAssessment });
+    // Same gap as the plan request, and worse here: the user has already read
+    // the plan, ticked the attestations and confirmed. A throw while rebuilding
+    // the facts left them watching a modal that never moved. This runs *before*
+    // the delivery lock is taken, so failing here holds nothing.
+    let facts: Awaited<ReturnType<typeof gatherPromotionFacts>>;
+    let routine: ReturnType<typeof this.atlas.routineRegistry.get>;
+    let plan: ReturnType<typeof buildPromotionPlan>;
+    try {
+      facts = await gatherPromotionFacts(workspaceRoot, from, to);
+      await this.atlas.routineRegistry.reload(workspaceRoot).catch(() => undefined);
+      routine = promo.routineId ? this.atlas.routineRegistry.get(promo.routineId) : undefined;
+      const liveStatusChecks = await this.resolveLiveCiStatus(workspaceRoot, from);
+      const approver = await resolveGitActorEmail(workspaceRoot);
+      const lastCommitAuthor = await resolveLastCommitAuthor(workspaceRoot, from.branchRef);
+      const remediationAssessment = await assessPromotionRemediation(workspaceRoot, from, to);
+      plan = buildPromotionPlan({ config, pathId: payload.pathId, ...facts, routine, liveStatusChecks, approver, lastCommitAuthor, remediationAssessment });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      await this.postMessage({
+        type: 'promotionError',
+        payload: `Could not re-check the promotion before running it: ${detail.slice(0, 300)}`,
+      });
+      return;
+    }
     if (!plan) {
-      await this.postMessage({ type: 'promotionError', payload: 'Could not build a promotion plan.' });
+      await this.postMessage({ type: 'promotionError', payload: 'Could not build a promotion plan for that path.' });
       return;
     }
     const gate = evaluatePromotionGate(plan, payload.attestations, payload.confirmText, to.name);
