@@ -438,6 +438,40 @@ export class AgentManagerPanel {
     this.render();
   }
 
+  /**
+   * Clickable chips for the models this workspace can actually route to.
+   *
+   * "Allowed models" was a bare text box, so assigning a model meant knowing its
+   * id by heart — which made every newly added provider effectively invisible
+   * here. ACP is the case that exposed it: an agent could be configured and
+   * enabled and still never occur to anyone as something to assign.
+   *
+   * Only *enabled* providers are offered, because a chip for a provider that
+   * cannot run is an invitation to build an agent that never routes.
+   */
+  private renderModelChips(): string {
+    // Defensive by intent, not for the tests: this runs inside the editor's
+    // render, and an unavailable router must cost the user a row of chips —
+    // not the whole agent editor. That failure mode has bitten this codebase.
+    const providers = (this.atlas?.modelRouter?.listProviders?.() ?? []).filter(provider => provider.enabled);
+    const chips: string[] = [];
+    for (const provider of providers) {
+      for (const model of provider.models.filter(entry => entry.enabled).slice(0, 8)) {
+        const subscription = provider.pricingModel === 'subscription';
+        chips.push(
+          `<button type="button" class="model-chip${subscription ? ' model-chip-subscription' : ''}" `
+          + `data-add-model="${escapeHtml(model.id)}" `
+          + `title="${escapeHtml(`${provider.displayName}${subscription ? ' — included in a subscription' : ''}`)}">`
+          + `${escapeHtml(model.id)}</button>`,
+        );
+      }
+    }
+    if (chips.length === 0) {
+      return '<div class="hint">No provider is enabled yet, so there is nothing to assign. Configure one under Model Providers first.</div>';
+    }
+    return `<div class="model-chip-row">${chips.join('')}</div>`;
+  }
+
   private validate(data: AgentFormData, isNew: boolean, resolvedId: string): string {
     if (!data.name.trim()) { return 'Name is required.'; }
     if (!data.role.trim()) { return 'Role is required.'; }
@@ -731,7 +765,8 @@ export class AgentManagerPanel {
               <div>
                 <input type="text" id="agentModels" value="${currentModels}" placeholder="model-id-1, model-id-2 (leave blank for any)" ${isBuiltIn ? 'readonly' : ''} />
                 <div class="hint">${isBuiltIn ? 'Built-in model assignments are managed from the model surfaces.' : 'Comma-separated model IDs. Empty allows any eligible model.'}</div>
-                ${isBuiltIn ? '<button type="button" class="btn-link inline-link" data-open-model-assignments>Assign from the Models sidebar →</button>' : ''}
+                ${isBuiltIn ? '<button type="button" class="btn-link inline-link" data-open-model-assignments>Assign from the Models sidebar →</button>' : this.renderModelChips()}
+                ${isBuiltIn ? '' : '<div class="hint">Click a model to add it. Subscription-backed models — ACP agents, Copilot — cost nothing per token.</div>'}
               </div>
 
               <label for="agentCost">Cost limit (USD)</label>
@@ -886,6 +921,24 @@ export class AgentManagerPanel {
       document.querySelectorAll('[data-open-model-assignments]').forEach(openModelsView => {
         openModelsView.addEventListener('click', () => {
           vscode.postMessage({ type: 'openModelsView' });
+        });
+      });
+
+      // Chips append to the field rather than replacing it: an agent usually
+      // wants a short list, and re-typing the previous entry to add one more is
+      // exactly the friction that left the box empty.
+      document.querySelectorAll('[data-add-model]').forEach(chip => {
+        chip.addEventListener('click', () => {
+          const field = document.getElementById('agentModels');
+          if (!field || field.readOnly) { return; }
+          const wanted = chip.getAttribute('data-add-model') || '';
+          const current = String(field.value || '').split(',').map(part => part.trim()).filter(Boolean);
+          if (current.indexOf(wanted) === -1) {
+            current.push(wanted);
+          }
+          field.value = current.join(', ');
+          field.dispatchEvent(new Event('input', { bubbles: true }));
+          field.focus();
         });
       });
 
@@ -1061,6 +1114,19 @@ export class AgentManagerPanel {
       .override-label { font-size: 0.88em; color: var(--atlas-muted); }
       .override-model-input { width: 100%; box-sizing: border-box; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, #444); padding: 3px 7px; border-radius: 2px; font-family: inherit; font-size: inherit; }
       .btn-link { background: none; border: none; color: var(--atlas-accent); cursor: pointer; padding: 0; font: inherit; font-size: 0.88em; text-decoration: underline; }
+      /* Assignable models, so a provider you enabled is discoverable here rather
+         than something you have to already know the id of. */
+      .model-chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+      .model-chip {
+        border: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.35));
+        background: transparent; color: var(--vscode-foreground);
+        border-radius: 999px; padding: 3px 10px; font: inherit; font-size: 0.8em; cursor: pointer;
+      }
+      .model-chip:hover { border-color: var(--atlas-accent); }
+      .model-chip-subscription {
+        border-style: dashed;
+        border-color: color-mix(in srgb, var(--atlas-accent) 60%, var(--vscode-widget-border, #444));
+      }
       .inline-link { margin-top: 5px; }
       .empty-editor { display: grid; place-items: center; min-height: 320px; border: 1px dashed var(--atlas-border); border-radius: 14px; color: var(--atlas-muted); text-align: center; }
       @media (max-width: 920px) {

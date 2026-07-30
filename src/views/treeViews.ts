@@ -1,8 +1,21 @@
 import * as vscode from 'vscode';
 import { getValidatedSsotPath } from '../bootstrap/bootstrapper.js';
 import type { AtlasMindContext } from '../extension.js';
+import {
+  buildProjectState,
+  countAttentionItems,
+  hasProjectState,
+  type ProjectStateInput,
+  type ProjectStateSection,
+} from '../core/projectStateTree.js';
+import {
+  explainAutomationLevel,
+  resolveRestrictiveFlag,
+  resolveRestrictiveLevel,
+} from '../core/workflowAutomation.js';
 import { SSOT_FOLDERS } from '../types.js';
-import type { AgentDefinition, ArdDiscoveredResource, ArdDiscoveryEndpoint, McpServerState, MemoryEntry, ProjectRunRecord, SkillDefinition, SkillScanResult } from '../types.js';
+import type { AgentDefinition, ArdDiscoveredResource, ArdDiscoveryEndpoint, McpServerState, MemoryEntry, ProjectRunRecord, ProviderConfig, SkillDefinition, SkillScanResult } from '../types.js';
+import { ACP_PROVIDER_ID, findAcpBridge, parseAcpAgentSettings } from '../providers/acp.js';
 import { countOverdueFollowUps, deriveFollowUpUrgency, resolveTeamMode } from '../core/projectDirectorManager.js';
 import type { SessionConversationSummary, SessionFolderSummary } from '../chat/sessionConversation.js';
 import { ChatViewProvider } from './chatPanel.js';
@@ -52,6 +65,53 @@ export function registerTreeViews(
   const projectDirectorTreeView = vscode.window.createTreeView('atlasmind.projectDirectorView', {
     treeDataProvider: projectDirectorProvider,
   });
+  const projectStateProvider = new ProjectStateTreeProvider(atlas);
+  const projectStateTreeView = vscode.window.createTreeView('atlasmind.projectStateView', {
+    treeDataProvider: projectStateProvider,
+  });
+  /**
+   * Badge and visibility, recomputed together.
+   *
+   * The badge counts only rows that need a person — one that counted
+   * everything would be permanently non-zero and therefore ignored. The
+   * context key hides the view entirely when nothing could be assessed, so a
+   * row never sits in the sidebar with nothing to say.
+   */
+  const refreshProjectState = (): void => {
+    projectStateProvider.refresh();
+    // This runs during activation, so a failure to gather must not take the
+    // other nine views down with it. An unreadable state means the view hides,
+    // which is exactly what it should do when it has nothing to say.
+    let sections: ProjectStateSection[] = [];
+    try {
+      sections = projectStateProvider.compute();
+    } catch {
+      sections = [];
+    }
+    const waiting = countAttentionItems(sections);
+    projectStateTreeView.badge = waiting > 0
+      ? { value: waiting, tooltip: `${waiting} thing${waiting === 1 ? '' : 's'} waiting on you` }
+      : undefined;
+    void vscode.commands.executeCommand('setContext', 'atlasmind.hasProjectState', hasProjectState(sections));
+  };
+  /**
+   * Hide views that have nothing to say.
+   *
+   * Only **pure-inventory** views are hidden: a project with no MCP servers or
+   * no past runs does not need a row telling it so. Views that are the *only*
+   * entry point to a feature — Discovery, Director, Agents, Skills, Models —
+   * stay visible even when empty, because hiding them would make the feature
+   * undiscoverable, which is a worse problem than a quiet row.
+   */
+  const refreshEmptyViewContexts = (): void => {
+    const set = (key: string, value: boolean): void => {
+      void vscode.commands.executeCommand('setContext', key, value);
+    };
+    set('atlasmind.hasProjectRuns', (atlas.projectRunHistory?.listRuns() ?? []).length > 0);
+    set('atlasmind.hasSessions', (atlas.sessionConversation?.listSessions?.() ?? []).length > 0);
+    set('atlasmind.hasMcpServers', (atlas.mcpServerRegistry?.listServers?.() ?? []).length > 0);
+  };
+
   const refreshDirectorBadge = (): void => {
     const overdue = countOverdueFollowUps(atlas.projectDirectorManager?.getConfig());
     projectDirectorTreeView.badge = overdue > 0
@@ -59,6 +119,8 @@ export function registerTreeViews(
       : undefined;
   };
   refreshDirectorBadge();
+  refreshProjectState();
+  refreshEmptyViewContexts();
   atlas.agentsRefresh.event(() => agentsProvider.refresh());
   atlas.skillsRefresh.event(() => skillsProvider.refresh());
   atlas.skillsRefresh.event(() => mcpServersProvider.refresh());
@@ -74,6 +136,10 @@ export function registerTreeViews(
     }
     void vscode.commands.executeCommand('setContext', 'atlasmind.hasAutoPausedProviders', autoDisabledCount > 0);
   });
+  // Both the state view and the hide-empty keys follow the same events as the
+  // providers they summarise, so a stale badge cannot outlive its data.
+  atlas.projectRunsRefresh.event(() => { refreshProjectState(); refreshEmptyViewContexts(); });
+  atlas.skillsRefresh.event(() => refreshEmptyViewContexts());
   atlas.projectRunsRefresh.event(() => projectRunsProvider.refresh());
   atlas.projectRunsRefresh.event(() => sessionsProvider.refresh());
   atlas.memoryRefresh.event(() => memoryProvider.refresh());
@@ -112,6 +178,13 @@ export function registerTreeViews(
       'atlasmind.projectRunsView',
       projectRunsProvider,
     ),
+    // Exposed as a command so the view's titlebar can offer it. The function
+    // already existed and only the tree's own events reached it — a glance
+    // surface whose only way to update is an unrelated event firing is one
+    // people learn not to trust.
+    vscode.commands.registerCommand('atlasmind.refreshProjectState', () => {
+      refreshProjectState();
+    }),
     vscode.commands.registerCommand('atlasmind.memory.openEntry', async (item?: MemoryEntryTreeItem) => {
       if (!item) {
         return;
@@ -1040,6 +1113,134 @@ class DirectorEntryItem extends vscode.TreeItem {
   }
 }
 
+/**
+ * The Project State view: where you are, what AtlasMind may do, what needs you.
+ *
+ * Deliberately narrow. Nothing here duplicates Source Control or a GitHub
+ * extension — no commits, branches, diffs or issue lists. Only facts that exist
+ * because AtlasMind exists, and only ones worth a glance rather than a panel.
+ *
+ * The model is built by `projectStateTree.ts`, which is pure and tested; this
+ * class is a renderer. Sections whose data could not be gathered are omitted
+ * there rather than shown empty, so the honesty rule survives the trip.
+ */
+class ProjectStateTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
+  private readonly _onDidChangeTreeData = new vscode.EventEmitter<vscode.TreeItem | undefined>();
+  readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
+
+  private sections: ProjectStateSection[] = [];
+
+  constructor(private readonly atlas: AtlasMindContext) {}
+
+  refresh(): void {
+    this._onDidChangeTreeData.fire(undefined);
+  }
+
+  /**
+   * Rebuild the model and return it.
+   *
+   * Deliberately independent of `getChildren`. The badge and the `when` clause
+   * are computed from this, and reading a cache that only `getChildren` fills
+   * created a deadlock: the view was hidden because it had no sections, and it
+   * had no sections because being hidden meant `getChildren` never ran. It
+   * could never appear.
+   */
+  compute(): ProjectStateSection[] {
+    this.sections = buildProjectState(this.gather());
+    return this.sections;
+  }
+
+  getTreeItem(element: vscode.TreeItem): vscode.TreeItem {
+    return element;
+  }
+
+  getChildren(element?: vscode.TreeItem): vscode.TreeItem[] {
+    if (!element) {
+      this.compute();
+      return this.sections.map(section => {
+        const item = new vscode.TreeItem(
+          section.label,
+          section.expanded
+            ? vscode.TreeItemCollapsibleState.Expanded
+            : vscode.TreeItemCollapsibleState.Collapsed,
+        );
+        item.id = `state.${section.id}`;
+        item.iconPath = new vscode.ThemeIcon(section.icon);
+        item.tooltip = section.tooltip;
+        item.contextValue = `atlasmind.state.${section.id}`;
+        return item;
+      });
+    }
+
+    const sectionId = String(element.id ?? '').replace(/^state\./, '');
+    const section = this.sections.find(candidate => candidate.id === sectionId);
+    return (section?.nodes ?? []).map(node => {
+      const item = new vscode.TreeItem(node.label, vscode.TreeItemCollapsibleState.None);
+      item.id = `state.node.${node.id}`;
+      if (node.description) {
+        item.description = node.description;
+      }
+      if (node.tooltip) {
+        item.tooltip = node.tooltip;
+      }
+      if (node.icon) {
+        item.iconPath = new vscode.ThemeIcon(node.icon);
+      }
+      if (node.command) {
+        item.command = {
+          command: node.command.command,
+          title: node.command.title,
+          ...(node.command.args ? { arguments: node.command.args } : {}),
+        };
+      }
+      return item;
+    });
+  }
+
+  /**
+   * Gather what is cheap and already in memory.
+   *
+   * A tree refreshes on unrelated events, so this must not read the network or
+   * walk the workspace. Anything unavailable is left `undefined`, and the model
+   * omits that section rather than guessing — which is why the input type is
+   * optional throughout.
+   */
+  private gather(): ProjectStateInput {
+    const input: ProjectStateInput = {};
+
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    const flag = (key: string): boolean =>
+      resolveRestrictiveFlag(configuration.inspect<boolean>(key) ?? {});
+    const decision = explainAutomationLevel({
+      masterEnabled: flag('workflow.enabled'),
+      userCeiling: resolveRestrictiveLevel(configuration.inspect<string>('workflow.maxAutomationLevel') ?? {}),
+      capabilityEnabled: true,
+      stageLevel: 'auto',
+    });
+    input.automation = {
+      masterEnabled: flag('workflow.enabled'),
+      effective: decision.level,
+      limitedBy: decision.limitedBy,
+      detail: decision.detail,
+      capabilities: [
+        { label: 'Issue writes', enabled: flag('workflow.allowIssueWrites') },
+        { label: 'Pull request writes', enabled: flag('workflow.allowPullRequestWrites') },
+        { label: 'Release writes', enabled: flag('workflow.allowReleaseWrites') },
+        { label: 'Protected branch writes', enabled: flag('workflow.allowProtectedRefWrites') },
+      ],
+    };
+
+    // Follow-ups are already in memory on the Director manager, so this costs
+    // nothing. Runs likewise.
+    const directorConfig = this.atlas.projectDirectorManager?.getConfig();
+    if (directorConfig) {
+      input.attention = { overdueFollowUps: countOverdueFollowUps(directorConfig) };
+    }
+
+    return input;
+  }
+}
+
 class ProjectDirectorTreeProvider implements vscode.TreeDataProvider<DirectorTreeNode> {
   private readonly _onDidChangeTreeData = new vscode.EventEmitter<DirectorTreeNode | undefined>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
@@ -1440,7 +1641,91 @@ function getShortModelId(modelId: string): string {
   return slashIndex >= 0 ? modelId.slice(slashIndex + 1) : modelId;
 }
 
-type ModelsTreeNode = ModelProviderTreeItem | ModelTreeItem | vscode.TreeItem;
+/**
+ * The ACP route for one vendor, shown as its own line beside that vendor's API
+ * entry.
+ *
+ * A single "ACP" node would be technically accurate — the router does hold one
+ * `acp` provider — and practically useless: it files a Claude subscription under
+ * a protocol acronym, several rows away from the Anthropic entry it is an
+ * alternative to. Someone deciding *how to reach Claude* wants those two
+ * choices adjacent, which is what this node makes possible.
+ *
+ * It carries a distinct `contextValue` so the provider-level enable/disable
+ * actions do **not** attach to it: those act on the whole `acp` provider, and
+ * offering them here would let "disable the Claude subscription" silently switch
+ * off Codex too. Enabling is per-model, on the child rows.
+ */
+export class AcpBridgeTreeItem extends vscode.TreeItem {
+  constructor(
+    /**
+     * The vendor whose API row this sits under — `anthropic`, `openai`.
+     *
+     * Deliberately **not** called `providerId`. The models tree's command
+     * handlers identify their argument by duck typing (`'providerId' in item`),
+     * so a row carrying that property was accepted as a provider row and acted
+     * on under the vendor's id: the visibility toggle on
+     * "Anthropic — Claude subscription" flipped *Anthropic's API provider*, and
+     * the info and configure actions reported and prompted for Anthropic too.
+     * The property name was the bug, so the name is the fix.
+     */
+    public readonly vendorId: string,
+    public readonly agentId: string,
+    label: string,
+    description: string | undefined,
+    tooltip: string,
+    state: AcpBridgeState,
+    collapsibleState: vscode.TreeItemCollapsibleState,
+  ) {
+    super(label, collapsibleState);
+    this.description = description;
+    this.tooltip = tooltip;
+    // Its own namespace, so the `/^model-/` menu contributions do not attach.
+    // Actions for this row are declared against `acp-bridge-` explicitly.
+    this.contextValue = state === 'ready' ? 'acp-bridge-ready' : 'acp-bridge-incomplete';
+    this.iconPath = acpBridgeIcon(state);
+    this.command = state === 'ready'
+      ? { command: 'atlasmind.openModelProviders', title: 'Open Model Providers' }
+      // Clicking an unfinished row should start finishing it, not open a screen
+      // and leave the user to work out which control applies.
+      : { command: 'atlasmind.acp.setUpBridge', title: 'Set up', arguments: [{ vendorId, agentId }] };
+  }
+}
+
+/** Which of the conditions routing needs is currently unmet, if any. */
+export type AcpBridgeState = 'not-set-up' | 'provider-off' | 'not-discovered' | 'model-disabled' | 'unhealthy' | 'ready';
+
+/**
+ * Built on demand rather than as a module constant.
+ *
+ * A `new vscode.ThemeIcon(...)` at module scope runs on import, which makes the
+ * whole module unimportable anywhere the API is not fully present — the tests
+ * being the immediate case, but the same is true of any early-activation path.
+ */
+function acpBridgeIcon(state: AcpBridgeState): vscode.ThemeIcon {
+  switch (state) {
+    // `plug` reads as "connectable" where a warning triangle would read as
+    // broken. Nothing is wrong with an ACP route nobody has set up yet.
+    case 'not-set-up':
+      return new vscode.ThemeIcon('plug', new vscode.ThemeColor('descriptionForeground'));
+    case 'not-discovered':
+      return new vscode.ThemeIcon('sync', new vscode.ThemeColor('testing.iconQueued'));
+    case 'provider-off':
+    case 'model-disabled':
+      return new vscode.ThemeIcon('circle-slash', new vscode.ThemeColor('testing.iconQueued'));
+    case 'unhealthy':
+      return new vscode.ThemeIcon('warning', new vscode.ThemeColor('testing.iconFailed'));
+    case 'ready':
+      return new vscode.ThemeIcon('check', new vscode.ThemeColor('testing.iconPassed'));
+  }
+}
+
+type ModelsTreeNode = ModelProviderTreeItem | ModelTreeItem | AcpBridgeTreeItem | vscode.TreeItem;
+
+/** The agent id in a model id like `acp/claude`. */
+function acpAgentIdOf(modelId: string): string {
+  return modelId.startsWith('acp/') ? modelId.slice(4) : '';
+}
 
 class ModelsTreeProvider implements vscode.TreeDataProvider<ModelsTreeNode> {
   private readonly _onDidChangeTreeData = new vscode.EventEmitter<ModelsTreeNode | undefined>();
@@ -1488,7 +1773,7 @@ class ModelsTreeProvider implements vscode.TreeDataProvider<ModelsTreeNode> {
         };
       }));
 
-      return items
+      const ordered = items
         .sort((left, right) => {
           if (left.configured !== right.configured) {
             return left.configured ? -1 : 1;
@@ -1496,6 +1781,32 @@ class ModelsTreeProvider implements vscode.TreeDataProvider<ModelsTreeNode> {
           return left.index - right.index;
         })
         .map(entry => entry.item);
+
+      return this.withAcpBridgeRows(ordered, providers);
+    }
+
+    if (element instanceof AcpBridgeTreeItem) {
+      const provider = providers.find(candidate => candidate.id === ACP_PROVIDER_ID);
+      const providerEnabled = provider?.enabled === true;
+      const models = (provider?.models ?? []).filter(model => acpAgentIdOf(model.id) === element.agentId);
+      return models.map(model => {
+        const failure = getModelFailure(this.atlas, model.id);
+        return new ModelTreeItem(
+          ACP_PROVIDER_ID,
+          model.id,
+          model.name,
+          // A model enabled under a disabled provider is not selectable, and the
+          // row has to say so rather than showing a tick for a route that is off.
+          providerEnabled
+            ? buildModelTreeDescription(model.id, false, !!failure)
+            : 'provider off',
+          `${model.name}\nID: ${model.id}\nReached over ACP using your subscription\n`
+          + `Status: ${providerEnabled ? describeModelStatus(model.enabled, true, !!failure) : 'not selectable — the ACP provider is disabled'}\n`
+          + `Capabilities: ${model.capabilities.join(', ')}`,
+          model.enabled && providerEnabled,
+          !!failure,
+        );
+      });
     }
 
     if (element instanceof ModelProviderTreeItem) {
@@ -1538,6 +1849,183 @@ class ModelsTreeProvider implements vscode.TreeDataProvider<ModelsTreeNode> {
 
     return [];
   }
+
+  /**
+   * Slot each vendor's ACP route in directly after that vendor's API row.
+   *
+   * Placement is the whole point: adjacency is what turns "what is ACP?" into
+   * "oh — this is the other way to reach Claude". A bridge with no configured
+   * agent is still shown, greyed, because the row is also how someone discovers
+   * the option exists; hiding it until configured would mean only people who
+   * already knew about ACP would ever find it.
+   *
+   * The generic `acp` provider row is kept whenever any ACP agent is actually
+   * configured, because it is the row that carries the provider-level
+   * enable/disable action. Dropping it once every agent had a vendor row removed
+   * the only way to turn ACP on from the tree.
+   *
+   * **What "configured" means here is load-bearing.** It is read from
+   * `atlasmind.acp.agents` — the user's own list — and *not* from the provider's
+   * model list, which contains a seeded `acp/claude` entry that exists whether or
+   * not any agent was ever set up. Deriving it from the models made an untouched
+   * install show a configured, ticked Claude subscription that the router would
+   * never select.
+   */
+  private withAcpBridgeRows(rows: ModelsTreeNode[], providers: ProviderConfig[]): ModelsTreeNode[] {
+    const acpProvider = providers.find(candidate => candidate.id === ACP_PROVIDER_ID);
+    const configuredAgentIds = new Set(
+      parseAcpAgentSettings(vscode.workspace.getConfiguration('atlasmind').get<unknown>('acp.agents'))
+        .map(agent => agent.id),
+    );
+    const providerEnabled = acpProvider?.enabled === true;
+
+    const bridged = new Set<string>();
+    const out: ModelsTreeNode[] = [];
+
+    for (const row of rows) {
+      // Hold the generic ACP row back until we know whether anything is left for it.
+      if (row instanceof ModelProviderTreeItem && row.providerId === ACP_PROVIDER_ID) {
+        continue;
+      }
+
+      out.push(row);
+      if (!(row instanceof ModelProviderTreeItem)) {
+        continue;
+      }
+      const bridge = findAcpBridge(row.providerId);
+      if (!bridge) {
+        continue;
+      }
+
+      const configured = configuredAgentIds.has(bridge.agentId);
+      const models = (acpProvider?.models ?? []).filter(model => acpAgentIdOf(model.id) === bridge.agentId);
+      // Routable, not merely present. `getCandidateModels` requires all of: an
+      // agent in settings, an enabled provider, a discovered and enabled model,
+      // and a healthy provider. A tick that reflected only `model.enabled`
+      // promised a route the router would never take — which is exactly how an
+      // ACP entry sat there looking active while every prompt went elsewhere.
+      const state = resolveAcpBridgeState({
+        configured,
+        providerEnabled,
+        modelCount: models.length,
+        modelEnabled: models.some(model => model.enabled),
+        healthy: isProviderHealthy(this.atlas, ACP_PROVIDER_ID),
+      });
+      if (configured) {
+        bridged.add(bridge.agentId);
+      }
+
+      out.push(new AcpBridgeTreeItem(
+        row.providerId,
+        bridge.agentId,
+        `${row.label as string} — ${bridge.subscriptionName}`,
+        describeAcpBridgeState(state),
+        describeAcpBridgeTooltip(row.label as string, bridge, state),
+        state,
+        configured && models.length > 0
+          ? vscode.TreeItemCollapsibleState.Collapsed
+          : vscode.TreeItemCollapsibleState.None,
+      ));
+    }
+
+    // Keep the provider row whenever anything is configured: it owns the
+    // enable/disable action, and an agent no vendor row claims — a Gemini CLI,
+    // say — has nowhere else to live.
+    if (configuredAgentIds.size > 0) {
+      const acpRow = rows.find((row): row is ModelProviderTreeItem =>
+        row instanceof ModelProviderTreeItem && row.providerId === ACP_PROVIDER_ID);
+      if (acpRow) {
+        out.push(acpRow);
+      }
+    }
+
+    return out;
+  }
+}
+
+/**
+ * Which condition is unmet, in the order the user has to fix them.
+ *
+ * `not-discovered` is separate from `model-disabled` because they look identical
+ * and mean opposite things. Only `acp/claude` is seeded, so a freshly configured
+ * Codex agent has *no* model row until discovery runs — reporting that as
+ * "model disabled" sent the user hunting for a switch that does not exist. One
+ * needs a refresh; the other needs a toggle.
+ */
+export function resolveAcpBridgeState(input: {
+  configured: boolean;
+  providerEnabled: boolean;
+  modelCount: number;
+  modelEnabled: boolean;
+  healthy: boolean;
+}): AcpBridgeState {
+  if (!input.configured) {
+    return 'not-set-up';
+  }
+  if (!input.providerEnabled) {
+    return 'provider-off';
+  }
+  if (input.modelCount === 0) {
+    return 'not-discovered';
+  }
+  if (!input.modelEnabled) {
+    return 'model-disabled';
+  }
+  return input.healthy ? 'ready' : 'unhealthy';
+}
+
+/** The state, in the words that name the next step. */
+export function describeAcpBridgeState(state: AcpBridgeState): string {
+  switch (state) {
+    case 'not-set-up': return '(ACP — set up)';
+    case 'provider-off': return '(ACP — provider off)';
+    case 'not-discovered': return '(ACP — refresh to finish)';
+    case 'model-disabled': return '(ACP — model disabled)';
+    case 'unhealthy': return '(⚠ ACP — agent not responding)';
+    case 'ready': return '(ACP)';
+  }
+}
+
+/**
+ * Say which of the four conditions is missing, not merely that something is.
+ *
+ * All four fail the same way from the outside — prompts quietly go elsewhere —
+ * so a row that only reported "not working" would leave the user checking the
+ * same settings screens in turn. Each branch names the one thing to fix.
+ */
+function describeAcpBridgeTooltip(
+  vendorLabel: string,
+  bridge: { command: string; subscriptionName: string },
+  state: AcpBridgeState,
+): string {
+  switch (state) {
+    case 'not-set-up':
+      return `Use your ${bridge.subscriptionName} for ${vendorLabel} models instead of paying per token.\n\n`
+        + `Click this row to set it up. AtlasMind checks whether ${bridge.command} is installed and signed in, `
+        + 'and walks you through it if not — nothing is installed for you.';
+    case 'provider-off':
+      return `${bridge.command} is configured, but the ACP provider is switched off, so the router will not choose it.\n\n`
+        + 'Click to turn it on.';
+    case 'not-discovered':
+      return `${bridge.command} is configured and the provider is on, but no model has been discovered for it yet.\n\n`
+        + 'Click to refresh — that is usually all this needs.';
+    case 'model-disabled':
+      return `${bridge.command} is ready, but its model is disabled, so the router will skip it.\n\n`
+        + 'Enable it from the model row beneath this one.';
+    case 'unhealthy':
+      return `${bridge.command} is configured and enabled, but its last health check failed, so the router is skipping it.\n\n`
+        + 'The usual causes are the command not being on PATH, or the agent not being signed in. '
+        + 'Run it once in a terminal to see which.';
+    case 'ready':
+      return `Reach ${vendorLabel} models through your ${bridge.subscriptionName} over ACP, instead of paying per token.\n`
+        + `Command: ${bridge.command}`;
+  }
+}
+
+/** Router health for a provider, tolerant of a stubbed router in tests. */
+function isProviderHealthy(atlas: AtlasMindContext, providerId: string): boolean {
+  const router = atlas.modelRouter as unknown as { isProviderHealthy?: (id: string) => boolean };
+  return typeof router.isProviderHealthy === 'function' ? router.isProviderHealthy(providerId) : true;
 }
 
 function describeModelStatus(enabled: boolean, configured: boolean, failed = false): string {

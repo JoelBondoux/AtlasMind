@@ -60,10 +60,11 @@ import {
 } from '../../src/chat/participant.ts';
 import type { TaskImageAttachment } from '../../src/types.ts';
 import type { SessionTranscriptEntry } from '../../src/chat/sessionConversation.ts';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
+import { removeTempDir } from '../helpers/tempDir';
 
 function makeSnapshotEntry(relativePath: string, signature: string) {
   return {
@@ -547,7 +548,7 @@ describe('participant helper logic', () => {
     } finally {
       (vscode.workspace as { workspaceFolders?: unknown }).workspaceFolders = originalFolders;
       (vscode.workspace as { getConfiguration: typeof vscode.workspace.getConfiguration }).getConfiguration = originalGetConfiguration;
-      rmSync(tempRoot, { recursive: true, force: true });
+      removeTempDir(tempRoot);
     }
   });
 
@@ -590,7 +591,7 @@ describe('participant helper logic', () => {
     } finally {
       (vscode.workspace as { workspaceFolders?: unknown }).workspaceFolders = originalFolders;
       (vscode.workspace as { getConfiguration: typeof vscode.workspace.getConfiguration }).getConfiguration = originalGetConfiguration;
-      rmSync(tempRoot, { recursive: true, force: true });
+      removeTempDir(tempRoot);
     }
   });
 
@@ -638,7 +639,7 @@ describe('participant helper logic', () => {
     } finally {
       (vscode.workspace as { workspaceFolders?: unknown }).workspaceFolders = originalFolders;
       (vscode.workspace as { getConfiguration: typeof vscode.workspace.getConfiguration }).getConfiguration = originalGetConfiguration;
-      rmSync(tempRoot, { recursive: true, force: true });
+      removeTempDir(tempRoot);
     }
   });
 
@@ -672,7 +673,7 @@ describe('participant helper logic', () => {
     } finally {
       (vscode.workspace as { workspaceFolders?: unknown }).workspaceFolders = originalFolders;
       (vscode.workspace as { getConfiguration: typeof vscode.workspace.getConfiguration }).getConfiguration = originalGetConfiguration;
-      rmSync(tempRoot, { recursive: true, force: true });
+      removeTempDir(tempRoot);
     }
   });
 
@@ -702,7 +703,7 @@ describe('participant helper logic', () => {
     } finally {
       (vscode.workspace as { workspaceFolders?: unknown }).workspaceFolders = originalFolders;
       (vscode.workspace as { getConfiguration: typeof vscode.workspace.getConfiguration }).getConfiguration = originalGetConfiguration;
-      rmSync(tempRoot, { recursive: true, force: true });
+      removeTempDir(tempRoot);
     }
   });
 

@@ -1,5 +1,5 @@
 
-> **Note:** The `project_memory/` folder is only present in development and feature branches. It is excluded from the `main` branch and all release builds.
+> **Note:** The `project_memory/` folder is **tracked in git and is present on `main`** — only `sessions/`, `temp/`, `project-run-*.json`, and `.delivery-lock.json` are gitignored. What keeps it out of published Marketplace packages is `.vscodeignore`, not `.gitignore`.
 
 # Remote Control (Web → Desktop)
 

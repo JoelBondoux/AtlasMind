@@ -7,7 +7,9 @@ export { type ProviderAdapter, type CompletionRequest, type CompletionResponse, 
 export { AnthropicAdapter } from './anthropic.js';
 export { BedrockAdapter, BEDROCK_ACCESS_KEY_SECRET, BEDROCK_MODEL_IDS_SETTING, BEDROCK_REGION_SETTING, BEDROCK_SECRET_KEY_SECRET, BEDROCK_SESSION_TOKEN_SECRET, getConfiguredBedrockModelIds, getConfiguredBedrockRegion } from './bedrock.js';
 export { ClaudeCliAdapter, CLAUDE_CLI_PROVIDER_ID, CLAUDE_CLI_SETUP_URL, probeClaudeCli } from './claude-cli.js';
-export { AcpAdapter, ACP_PROVIDER_ID, ACP_SETUP_URL, VERIFIED_ACP_AGENTS, parseAcpAgentSettings, resetAcpProbeCache, type AcpAgentConfig, type AcpProbeResult } from './acp.js';
+export { AcpAdapter, ACP_PROVIDER_ID, ACP_SETUP_URL, ACP_PROVIDER_BRIDGES, VERIFIED_ACP_AGENTS, findAcpBridge, parseAcpAgentSettings, resetAcpProbeCache, type AcpAgentConfig, type AcpPermissionPolicy, type AcpProbeResult, type AcpProviderBridge, type AcpToolEventListener } from './acp.js';
+export { acpToolRisk, chooseAllowOption, chooseDenyOption, describeAcpToolCall, resolveAcpPermission, selectAcpMcpServers, type AcpToolRisk, type SkippedAcpMcpServer } from './acpPermission.js';
+export { ACP_PERMISSION_METHOD, ACP_TOOL_KINDS, ACP_TOOL_CALL_STATUSES, type AcpMcpServer, type AcpPermissionOption, type AcpPermissionRequest, type AcpToolCall, type AcpToolKind } from './acpProtocol.js';
 export { CopilotAdapter } from './copilot.js';
 export { OpenAiCompatibleAdapter } from './openai-compatible.js';
 export { OpenRouterAdapter } from './openrouter.js';

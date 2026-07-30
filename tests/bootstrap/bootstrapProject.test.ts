@@ -322,6 +322,79 @@ describe('bootstrapProject', () => {
     expect(atlas.memoryManager.loadFromDisk).toHaveBeenCalled();
   });
 
+  it('never overwrites an ideation board somebody has worked on', async () => {
+    // This wrote unconditionally, so running bootstrap a second time destroyed
+    // every card, connection and piece of evidence on the board and reported it
+    // as "seeded". The board is a document the user authors, not a scaffold
+    // AtlasMind maintains — and a board silently discarded on re-run is a board
+    // nobody invests in.
+    const existing = JSON.stringify({
+      version: 1,
+      cards: [{ id: 'card-1', title: 'Six weeks of research', kind: 'evidence' }],
+    });
+    seedFile('/workspace/project_memory/ideas/atlas-ideation-board.json', existing);
+    seedFile('/workspace/project_memory/ideas/atlas-ideation-board.md', '# My board');
+
+    // Re-running bootstrap on an existing SSOT asks to confirm first. Answering
+    // it is part of this scenario — without it the run returns early and the
+    // test would pass because nothing happened.
+    showWarningMessage.mockResolvedValueOnce('Continue');
+
+    showQuickPick
+      .mockResolvedValueOnce({ intakeMode: 'minimal' })
+      .mockResolvedValueOnce('No')
+      .mockResolvedValueOnce('No');
+
+    await bootstrapProject(ROOT as any, makeAtlas());
+
+    const board = Buffer.from(
+      fileResponses.get('/workspace/project_memory/ideas/atlas-ideation-board.json') ?? [],
+    ).toString('utf-8');
+    expect(board).toBe(existing);
+    expect(board).toContain('Six weeks of research');
+    // The summary mirror goes with it: rewriting that alone would leave a board
+    // and a summary describing different things.
+    expect(Buffer.from(
+      fileResponses.get('/workspace/project_memory/ideas/atlas-ideation-board.md') ?? [],
+    ).toString('utf-8')).toBe('# My board');
+  });
+
+  it('reports that it left the board alone, rather than claiming it seeded one', async () => {
+    // `ideationSeeded` returned true either way, so the report said "seeded" for
+    // what was an erasure. Both branches now describe what actually happened.
+    seedFile('/workspace/project_memory/ideas/atlas-ideation-board.json', '{}');
+
+    // Re-running bootstrap on an existing SSOT asks to confirm first. Answering
+    // it is part of this scenario — without it the run returns early and the
+    // test would pass because nothing happened.
+    showWarningMessage.mockResolvedValueOnce('Continue');
+
+    showQuickPick
+      .mockResolvedValueOnce({ intakeMode: 'minimal' })
+      .mockResolvedValueOnce('No')
+      .mockResolvedValueOnce('No');
+
+    const reported: string[] = [];
+    await bootstrapProject(ROOT as any, makeAtlas(), { markdown: (value: unknown) => { reported.push(String(value)); } } as any);
+
+    const summary = reported.join('\n');
+    expect(summary).toContain('Left the existing ideation board');
+    expect(summary).not.toContain('Seeded ideation defaults');
+  });
+
+  it('still seeds a board when there is not one', async () => {
+    showQuickPick
+      .mockResolvedValueOnce({ intakeMode: 'minimal' })
+      .mockResolvedValueOnce('No')
+      .mockResolvedValueOnce('No');
+
+    const reported: string[] = [];
+    await bootstrapProject(ROOT as any, makeAtlas(), { markdown: (value: unknown) => { reported.push(String(value)); } } as any);
+
+    expect(fileResponses.has('/workspace/project_memory/ideas/atlas-ideation-board.json')).toBe(true);
+    expect(reported.join('\n')).toContain('Seeded ideation defaults');
+  });
+
   it('keeps out-of-turn details and skips later prompts when earlier answers already supplied them', async () => {
     showQuickPick
       .mockResolvedValueOnce({ intakeMode: 'guided' })

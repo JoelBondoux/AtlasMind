@@ -21,6 +21,162 @@ import {
   type IssueRecord,
   type IssueSummary,
 } from '../core/issueTracker.js';
+import { ghFailureOf, runGhOrThrow } from '../core/ghClient.js';
+import {
+  buildWorkflowCurriculum,
+  glossaryEntry,
+  nextWorkflowStep,
+  referencedGlossaryKeys,
+  summarizeWorkflowProgress,
+  type WorkflowObservedState,
+  type WorkflowProgress,
+  type WorkflowStageDefinition,
+  type WorkflowStageId,
+} from '../core/workflowCurriculum.js';
+import { deriveRoadmapIssueDraft } from '../core/roadmapIssueDraft.js';
+import {
+  buildCardEvidenceSection,
+  collectCardConnectionSources,
+  countUnrealizedByKind,
+  deriveCardRoadmapText,
+  normalizeForRoadmapMatch,
+} from '../core/ideationDerivation.js';
+import {
+  describeMissingLinks,
+  githubLinksForPage,
+  parseRepoSlug,
+  resolveGithubLink,
+} from '../core/githubDeepLinks.js';
+import {
+  compareObservedState,
+  describeSince,
+  summarizeObservedDelta,
+  takeObservedSnapshot,
+  type ObservedDelta,
+  type ObservedSnapshot,
+} from '../core/observedDelta.js';
+import {
+  deriveBranchMetrics,
+  deriveCiMetrics,
+  deriveDoraMetrics,
+  deriveIssueMetrics,
+  derivePullRequestMetrics,
+  deriveReleaseMetrics,
+  deriveWorkflowHealth,
+  known,
+  unknown,
+  DECLARED_CHANGE_FAILURE_RULE,
+  type BranchMetrics,
+  type CiMetrics,
+  type DoraMetrics,
+  type HealthComponent,
+  type IssueMetrics,
+  type MetricReleaseInput,
+  type PullRequestMetrics,
+  type ReleaseMetrics,
+  type WorkflowHealth,
+} from '../core/workflowMetrics.js';
+import {
+  buildReleasePlan,
+  describeReleasePlan,
+  type ReleasePlan,
+} from '../core/releasePreparation.js';
+import {
+  DEBT_SSOT_PATH,
+  DEBT_RULES,
+  DebtRegisterManager,
+  buildDebtWorkPrompt,
+  customMarkerRules,
+  parseCustomDebtMarkers,
+  deriveDebtFromSignals,
+  deriveDebtMetrics,
+  isDependencyPullRequest,
+  reconcileDebtScan,
+  scanForDebtMarkers,
+  setDebtStatus,
+  sortDebtEntries,
+  type DebtEntry,
+  type DebtMetrics,
+  type DebtStatus,
+} from '../core/debtRegister.js';
+import {
+  WORKFLOW_HISTORY_SSOT_PATH,
+  WorkflowAuditLedger,
+  beginWorkflowRun,
+  completeWorkflowRun,
+  type WorkflowActor,
+  type WorkflowHistorySummary,
+  type WorkflowRunRecord,
+} from '../core/workflowAuditRecord.js';
+import {
+  WorkflowConfigManager,
+  applyWorkflowConfigEdit,
+  stageBlockers,
+  validateWorkflowConfig,
+  WORKFLOW_SSOT_PATH,
+  type WorkflowConfig,
+  type WorkflowConfigEdit,
+  type WorkflowConfigProblem,
+} from '../core/workflowConfig.js';
+import {
+  buildReviewCommentPrompt,
+  describePullRequestAction,
+  parseGhPullRequestList,
+  parseGhReviewComments,
+  type PullRequestRecord,
+  type ReviewCommentRecord,
+} from '../core/pullRequestTracker.js';
+import {
+  describeLabelDeletion,
+  describeLabelDeletionImpact,
+  findTaxonomyDrift,
+  normalizeLabelName,
+  safeLabelColor,
+  parseGhLabelList,
+  parseGhMilestoneList,
+  type LabelRecord,
+  type MilestoneRecord,
+} from '../core/labelRegistry.js';
+import { PROTECTED_BRANCH_NAMES } from '../core/branchNaming.js';
+import {
+  ARCHETYPE_LABEL,
+  TRAIT_LABEL,
+  describeArchetypeAgreement,
+  detectProjectArchetype,
+  normalizeArchetype,
+  normalizeTraits,
+  type ArchetypeTrait,
+  type ProjectArchetype,
+} from '../core/projectArchetype.js';
+import { resolveArchetypePack, type ArchetypePack } from '../core/archetypePacks.js';
+import {
+  CODEOWNERS_MARKERS,
+  buildCodeownersBlock,
+  describeRoleApplication,
+  resolveTeamRoles,
+  roleWorkspaceSettings,
+  type TeamRole,
+} from '../core/teamRoles.js';
+import { upsertManagedBlock } from '../utils/managedBlock.js';
+import {
+  buildCiFailureReport,
+  type CiFailureReport,
+} from '../core/ciFailureAnalysis.js';
+import {
+  FIRST_WRITING_LEVEL,
+  explainAutomationLevel,
+  permits,
+  permitsProtectedRefWrite,
+  resolveRestrictiveFlag,
+  blockingFlagScopes,
+  describeSettingScope,
+  requirementsFor,
+  AUTOMATION_LEVELS,
+  resolveRestrictiveLevel,
+  type AutomationDecision,
+  type AutomationLevel,
+  type WorkflowCapability,
+} from '../core/workflowAutomation.js';
 import { DASHBOARD_THEME_CSS } from './dashboardTheme.js';
 import {
   MAX_ROADMAP_GATES,
@@ -105,12 +261,64 @@ const IDEATION_SUMMARY_FILE = 'atlas-ideation-board.md';
 const IDEATION_WORKSPACE_REGISTRY_FILE = 'atlas-ideation-workspaces.json';
 const DEFAULT_IDEATION_WORKSPACE_ID = 'default';
 const IDEATION_RESPONSE_TAG = 'atlasmind-ideation';
+/**
+ * What each gate actually permits, in the words a confirmation needs.
+ *
+ * Kept beside the allowlist rather than in the webview because it is the text
+ * of a *decision dialog*: the webview asks to change a gate and never supplies
+ * the sentence describing what that means, or a compromised surface could
+ * describe a switch as something other than what it does.
+ */
+const WORKFLOW_GATE_COPY: Record<string, { label: string; permits: string }> = {
+  'atlasmind.workflow.enabled': {
+    label: 'the workflow master switch',
+    permits: 'This is the master switch. With it off, AtlasMind explains and measures the workflow and '
+      + 'never acts on it. On, the other three gates start to matter — and they all default closed, so '
+      + 'this alone still permits nothing.',
+  },
+  'atlasmind.workflow.allowIssueWrites': {
+    label: 'issue writes',
+    permits: 'Permits creating, commenting on, closing and reopening issues, and managing the label '
+      + 'taxonomy. Issues are public to anyone who can see the repository. AtlasMind never auto-closes '
+      + 'an issue — closing somebody\'s report is a social act, not a cleanup task.',
+  },
+  'atlasmind.workflow.allowPullRequestWrites': {
+    label: 'pull request writes',
+    permits: 'Permits opening, reviewing, commenting on and merging pull requests. A review recorded '
+      + 'this way is public and in your name. Merging changes the branch other people build on.',
+  },
+  'atlasmind.workflow.allowReleaseWrites': {
+    label: 'release writes',
+    permits: 'Permits release preparation. Tagging and publishing still stay with you at every level, '
+      + 'because a published version cannot be withdrawn.',
+  },
+  'atlasmind.workflow.allowProtectedRefWrites': {
+    label: 'writes to a protected branch',
+    permits: 'Permits targeting a protected branch. This is the widest of the gates: protected branches '
+      + 'are the ones your team agreed to guard. Force-pushing and tag deletion remain impossible at '
+      + 'every level, whatever this is set to.',
+  },
+};
+
+/** What each rung permits, for the ceiling picker's confirmation. */
+const AUTOMATION_LEVEL_COPY: Record<string, string> = {
+  off: 'Nothing. AtlasMind does not even report on the workflow.',
+  observe: 'Reports only. Nothing is prepared and nothing is written.',
+  draft: 'Prepares work and shows it to you. Still writes nothing outside the editor.',
+  propose: 'Writes after a confirmation that names the repository and the exact action. This is the '
+    + 'rung where AtlasMind starts changing things other people can see.',
+  auto: 'Writes unattended, without a confirmation. Only reachable when every other gate agrees, and '
+    + 'never for a force-push, a tag deletion, a CI re-run, a CI workflow edit, or a dependency merge '
+    + '— those are outside the ladder at every level.',
+};
+
 const ALLOWED_DASHBOARD_COMMANDS = new Set([
   'atlasmind.openChatView',
   'atlasmind.openChatPanel',
   'atlasmind.openModelProviders',
   'atlasmind.openCostDashboard',
   'atlasmind.openProjectRunCenter',
+  'atlasmind.openSettings',
   'atlasmind.openSettingsProject',
   'atlasmind.openSettingsSafety',
   'atlasmind.openSettingsTesting',
@@ -202,6 +410,7 @@ type ProjectDashboardMessage =
   | { type: 'ready' }
   | { type: 'refresh' }
   | { type: 'openCommand'; payload: string }
+  | { type: 'openSettingKey'; payload: string }
   | { type: 'openPrompt'; payload: string | { prompt: string; sourcePage?: DashboardPageId } }
   | { type: 'openFile'; payload: string }
   | { type: 'openRun'; payload: string }
@@ -219,6 +428,29 @@ type ProjectDashboardMessage =
   | { type: 'closeIssue'; payload: { number: number } }
   | { type: 'reopenIssue'; payload: { number: number } }
   | { type: 'commentIssue'; payload: { number: number; body: string } }
+  | { type: 'scanDebt' }
+  | { type: 'setDebtStatus'; payload: { id: string; status: string; note?: string } }
+  | { type: 'openDebtEvidence'; payload: { id: string } }
+  | { type: 'workOnDebt'; payload: { id: string } }
+  | { type: 'loadReviewComments'; payload: { number: number } }
+  | { type: 'createLabel'; payload: { name: string; color?: string; description?: string } }
+  | { type: 'deleteLabel'; payload: { name: string } }
+  | { type: 'createMilestone'; payload: { title: string } }
+  | { type: 'closeMilestone'; payload: { number: number } }
+  | { type: 'addressReviewComment'; payload: { number: number; index: number } }
+  | { type: 'draftIssueFromRoadmap'; payload: { itemId: string } }
+  | { type: 'openGithubLink'; payload: { page: string; id: string } }
+  | { type: 'markDeltaSeen' }
+  | { type: 'setWorkflowGate'; payload: { key: string; enabled: boolean } }
+  | { type: 'setAutomationCeiling'; payload: { level: string } }
+  | { type: 'createWorkflowConfig'; payload: { profile: string } }
+  | { type: 'editWorkflowConfig'; payload: unknown }
+  | { type: 'applyTeamRole'; payload: { roleId: string } }
+  | { type: 'generateCodeowners' }
+  | { type: 'createPullRequest'; payload: { title: string; body?: string; base: string; head: string; draft?: boolean } }
+  | { type: 'reviewPullRequest'; payload: { number: number; verdict: 'approve' | 'request-changes' | 'comment'; body?: string } }
+  | { type: 'mergePullRequest'; payload: { number: number; base: string } }
+  | { type: 'closePullRequest'; payload: { number: number } }
   | { type: 'runIdeationLoop'; payload: IdeationRunPayload }
   | { type: 'runGapAnalysis' }
   | { type: 'addressGap'; payload: string }
@@ -270,7 +502,21 @@ type DashboardWebviewMessage =
   | { type: 'promotionDone'; payload: import('../types.js').PromotionRunResult }
   | { type: 'promotionError'; payload: string }
   | { type: 'rollbackResult'; payload: { ok: boolean; summary: string } }
-  | { type: 'healthTestResult'; payload: { ok: boolean; summary: string } };
+  | { type: 'healthTestResult'; payload: { ok: boolean; summary: string } }
+  /**
+   * Prefill the issue composer with a derived draft.
+   *
+   * Sent instead of filing directly. The user reads the text, edits it, and the
+   * existing create flow confirms before anything is posted — two steps rather
+   * than one, because the alternative is a button that publishes.
+   */
+  | { type: 'issueDraft'; payload: {
+      title: string;
+      body: string;
+      labels: string[];
+      /** Label intents with no matching label on the repository. */
+      droppedLabels?: string[];
+    } };
 
 type Tone = 'accent' | 'good' | 'warn' | 'critical' | 'neutral';
 
@@ -305,20 +551,46 @@ interface DashboardStat {
  * so `createOrShow(..., 'ideation')` type-checked and rendered a blank dashboard.
  */
 const DASHBOARD_PAGE_IDS = [
-  'overview', 'score', 'gapAnalysis', 'roadmap', 'issues', 'director', 'runtime', 'repo', 'testing',
-  'security', 'privacy', 'risk', 'delivery', 'documents', 'ssot', 'ideation',
+  'overview', 'score', 'gapAnalysis', 'workflow', 'roadmap', 'issues', 'pullRequests', 'director',
+  'repo', 'pipeline', 'testing', 'debt', 'security', 'privacy', 'risk', 'release', 'delivery', 'documents',
+  'ssot', 'runtime', 'ideation',
 ] as const;
 
 type DashboardPageId = typeof DASHBOARD_PAGE_IDS[number];
 
+/**
+ * Card kinds, as the *union of both vocabularies that exist on disk*.
+ *
+ * The ideation panel's kinds changed — `idea`, `problem`, `requirement`,
+ * `user-insight`, `evidence` — and this list was left on the older set. Since
+ * `sanitizeIdeationCard` coerced anything unrecognised to `concept`, five of the
+ * nine current kinds were silently relabelled on every read.
+ *
+ * That was not cosmetic. `summarizeIdeationBoard` renders `- [kind] title` into a
+ * model prompt, so a `problem` card and an `idea` card arrived at the model
+ * indistinguishable — erasing exactly the distinction the card kinds exist to
+ * make.
+ *
+ * Both sets are kept because both are really out there: a board written by an
+ * older AtlasMind contains `concept` and `question`, and coercing *those* away
+ * would repeat the mistake in the other direction.
+ */
 type IdeationCardKind =
+  // Current, as written by the ideation panel.
+  | 'idea'
+  | 'problem'
+  | 'requirement'
+  | 'user-insight'
+  | 'evidence'
+  // Legacy, still present in boards written by earlier versions.
   | 'concept'
   | 'insight'
   | 'question'
   | 'opportunity'
+  | 'user-need'
+  // Common to both.
   | 'risk'
   | 'experiment'
-  | 'user-need'
   | 'atlas-response'
   | 'attachment';
 
@@ -326,6 +598,11 @@ type IdeationCardAuthor = 'user' | 'atlas';
 
 type IdeationAnchor = 'center' | 'north' | 'east' | 'south' | 'west';
 
+// A deliberately narrower copy of the ideation panel's own record: this panel
+// renders a board it does not own, and only needs the fields it shows. The
+// duplication predates this comment and is worth collapsing into `types.ts`;
+// until then, a field added there and not here is dropped silently, because the
+// sanitizer builds a fresh object and keeps only what it names.
 interface IdeationCardRecord {
   id: string;
   title: string;
@@ -336,6 +613,8 @@ interface IdeationCardRecord {
   y: number;
   color: string;
   imageSources: string[];
+  /** What this card became, for showing a roadmap item's origin. */
+  derived?: { roadmapText: string; roadmapNormalized: string; derivedAt: string; issueNumber?: number };
   createdAt: string;
   updatedAt: string;
 }
@@ -360,6 +639,16 @@ interface IdeationConnectionRecord {
   fromCardId: string;
   toCardId: string;
   label: string;
+  /**
+   * What the edge means, and which way it points.
+   *
+   * Both were absent from this copy of the record, so a board's typed relations
+   * were invisible to this panel — which is why an issue raised from a card could
+   * not say what the card depends on. Defaulted rather than required, because a
+   * board written before the ideation panel had relations has neither.
+   */
+  relation: 'supports' | 'causal' | 'dependency' | 'contradiction' | 'opportunity';
+  direction: 'none' | 'forward' | 'reverse' | 'both';
 }
 
 interface IdeationHistoryEntry {
@@ -467,6 +756,14 @@ interface GitSnapshot {
   commits: DashboardCommit[];
   commitDates: string[];
   commitLog: DashboardCommitLogEntry[];
+  /**
+   * `origin`'s URL, for deriving the GitHub slug without a network call.
+   *
+   * The alternative was `gh repo view`, which is a round trip and needs an
+   * authenticated CLI — so the links would have been absent on exactly the
+   * setups that most need a route to the repository.
+   */
+  remoteUrl?: string;
 }
 
 interface PackageSnapshot {
@@ -632,6 +929,14 @@ interface DashboardRoadmapItem {
   priorityReason: string;
   /** Retained as `gates.includes('mvp')` — the MVP gate keeps its own name. */
   isMvp: boolean;
+  /**
+   * The ideation card this item was raised from, where there is one.
+   *
+   * Matched on normalized text rather than an id, because roadmap ids are
+   * positional and renumber on insert. A rename breaks the link, which is
+   * reported as a missing origin rather than shown against the wrong card.
+   */
+  origin?: { cardId: string; cardTitle: string; cardKind: string };
   /** Every declared gate this item is tagged for, in declared order. */
   gates: string[];
   mvpCandidate: boolean;
@@ -672,6 +977,21 @@ interface DashboardMvpSnapshot {
  * "we could not look" are different facts, and a page that showed an empty
  * board for a missing `gh` would report a clean tracker that nobody checked.
  */
+/**
+ * The repository's label and milestone taxonomy.
+ *
+ * Absent until the issue refresh has run. `labels: []` after a load means the
+ * repository genuinely has none — a different fact from not having looked, and
+ * one that changes what the surface should offer.
+ */
+interface DashboardTaxonomySnapshot {
+  loaded: boolean;
+  labels: LabelRecord[];
+  milestones: MilestoneRecord[];
+  /** Where the declared taxonomy and the repository disagree, in both directions. */
+  drift: { missing: string[]; undeclared: string[]; summary: string };
+}
+
 interface DashboardIssuesSnapshot {
   status: 'ready' | 'not-loaded' | 'no-cli' | 'not-authenticated' | 'no-repo' | 'error';
   /** Plain-English state, including what to run when something is missing. */
@@ -686,6 +1006,217 @@ interface DashboardIssuesSnapshot {
   busy: boolean;
 }
 
+/**
+ * The Workflow page's payload.
+ *
+ * Everything here is derived from data the dashboard already gathers — git
+ * state, package state, governance files, testing configuration, CI workflow
+ * files — so opening the page costs no network call. That is deliberate: `gh`
+ * is rate-limited, and a teaching surface that spent the user's quota to
+ * explain itself would be a poor trade.
+ *
+ * The curriculum and the metrics are computed in pure modules
+ * (`workflowCurriculum.ts`, `workflowMetrics.ts`) and simply carried through
+ * here, so the numbers on this page are unit-tested rather than eyeballed.
+ */
+/** One CI run, as `gh run list` reports it. */
+interface DashboardCiRun {
+  databaseId: number;
+  workflowName: string;
+  displayTitle: string;
+  conclusion: string;
+  status: string;
+  headSha: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Recent runs plus a classified report for the latest failure.
+ *
+ * `report` absent with runs present means nothing has failed. `logFailure`
+ * set means something failed but the log could not be read — a different
+ * fact, and one the surface has to state rather than imply.
+ */
+interface DashboardCiIntelligence {
+  runs: DashboardCiRun[];
+  report?: CiFailureReport;
+  logFailure?: string;
+  loadedAt: string;
+}
+
+/**
+ * Published releases, the tags that exist, and what a release from here would
+ * look like.
+ *
+ * Absent until a fetch succeeded. A repository whose releases were never read is
+ * not a repository with no releases, and only one of those two facts justifies
+ * telling somebody their deployment frequency is unmeasurable.
+ */
+interface DashboardReleaseSnapshot {
+  releases: MetricReleaseInput[];
+  /** Every tag `git tag` reported, so an existing tag can block a re-publish. */
+  tags: string[];
+  plan: ReleasePlan;
+  planSummary: string;
+  dora: DoraMetrics;
+  /** The rule the change-failure number applied, shown wherever it is shown. */
+  changeFailureRule: string;
+  loadedAt?: string;
+  /** Why the release list could not be read, when it could not. */
+  loadFailure?: string;
+}
+
+/**
+ * The committed workflow configuration, when there is one.
+ *
+ * `config` absent means the file does not exist — the common case, and not a
+ * fault. `notice` set means it exists and this build must not write over it,
+ * which the page has to say rather than silently offering an editor that would
+ * destroy a newer format.
+ */
+interface DashboardWorkflowConfigSnapshot {
+  path: string;
+  config?: WorkflowConfig;
+  notice?: string;
+  /**
+   * Problems with what the file *names* — an owner that is not an agent, a
+   * stage blocked by its own empty command, an empty taxonomy. Separate from
+   * `notice`, which is about whether the file can be read at all.
+   */
+  problems?: WorkflowConfigProblem[];
+  /** Everything stopping each stage, declared and derived, keyed by stage id. */
+  blockers?: Record<string, string[]>;
+}
+
+/**
+ * The GitHub page each dashboard page is about.
+ *
+ * Keyed by page and carrying **no URL** — only an id the host resolves. A
+ * webview that could name the URL to open could name any URL, and
+ * `openExternal` does not care whose it is.
+ */
+interface DashboardGithubLinksSnapshot {
+  /**
+   * The resolved `owner/repo`, absent when there is not one.
+   *
+   * Safe to send: it is the repository's name, which is already on screen, and
+   * it is *re-validated* on the way back rather than trusted.
+   */
+  slug?: string;
+  links: Record<string, Array<{ id: string; label: string; detail: string }>>;
+  /** Why a page has none, where that is worth saying. */
+  notices: Record<string, string>;
+}
+
+interface DashboardGuidedWorkflowSnapshot {
+  stages: WorkflowStageDefinition[];
+  progress: WorkflowProgress;
+  /**
+   * The raw reading behind every step's status, carried so the caller can
+   * compare it against the last one. Not rendered.
+   */
+  observed: WorkflowObservedState;
+  /**
+   * What moved since the project was last opened.
+   *
+   * Every other band on this page answers *what is the state?*. This is the only
+   * one that answers *what changed?*, which for a small team is the more useful
+   * question — the state is nearly the same every day, so a surface that only
+   * reports state is one you learn to skim.
+   */
+  delta: {
+    status: ObservedDelta['status'];
+    headline: string;
+    window: string;
+    changes: Array<{ label: string; kind: string; summary: string; before?: string; after?: string }>;
+    droppedByCap: number;
+  };
+  /** The next actionable step, or absent when the workflow is complete. */
+  next?: { stageId: WorkflowStageId; stepId: string; stageName: string; stepTitle: string };
+  /** Only the glossary entries this curriculum actually references. */
+  glossary: Array<{ key: string; term: string; definition: string }>;
+  profile: 'solo' | 'studio' | 'custom';
+  /** Deny-by-default: false until the user turns the workflow on. */
+  enabled: boolean;
+  automationLevel: string;
+  /**
+   * The capability gates, and where each currently stands.
+   *
+   * Surfaced rather than merely honoured, because the page teaches the ladder:
+   * somebody learning why "full automation is possible, never default" is true
+   * needs to see the four independent switches, not just be told they exist.
+   */
+  /** `id` is the setting key — it already was, so there is no second copy. */
+  capabilities: Array<{ id: string; label: string; enabled: boolean; detail: string }>;
+  /**
+   * What would have to change to reach the first writing rung, and which scope
+   * is holding each closed. The single most useful thing this surface can say:
+   * "not permitted" tells somebody they are blocked, this tells them which
+   * switches.
+   */
+  enablement: {
+    target: string;
+    requirements: Array<{ key: string; label: string; current: string; needed: string }>;
+    /** Scopes other than the workspace that would make a write here a no-op. */
+    blockedScopes: Record<string, string[]>;
+    masterKey: string;
+    ceilingKey: string;
+    levels: string[];
+  };
+  issues?: IssueMetrics;
+  /** Absent until pull requests have actually been fetched — absent ≠ zero. */
+  pullRequests?: PullRequestMetrics;
+  /**
+   * The pull requests themselves, for the list those metrics summarise.
+   *
+   * Already sanitized by `pullRequestTracker` — bodies clamped and
+   * control-stripped, non-`https` urls dropped — so the webview receives text
+   * that is safe to render once escaped.
+   */
+  pullRequestRecords?: PullRequestRecord[];
+  /**
+   * Line-level review comments, keyed by pull-request number.
+   *
+   * Absent until fetched. An empty array for a number means that pull request
+   * genuinely has no line comments — which is a different fact from not having
+   * looked, and the surface says which.
+   */
+  reviewComments?: Record<string, ReviewCommentRecord[]>;
+  /** Absent until CI has actually been read — absent ≠ healthy. */
+  ciIntelligence?: DashboardCiIntelligence;
+  /**
+   * What kind of project this is, and what that changes.
+   *
+   * Detected and declared are carried separately on purpose. Detection is a
+   * suggestion from the manifests; the declaration is the truth. Where they
+   * disagree the surface says so rather than silently preferring one — a
+   * project declared `library` while its manifests look like `web-app` is a
+   * decision, not a mistake.
+   */
+  archetype: {
+    declared?: ProjectArchetype;
+    traits: ArchetypeTrait[];
+    detected?: { archetype: ProjectArchetype; reasons: string[]; confident: boolean };
+    agreement: { agrees: boolean; detail: string };
+    pack: ArchetypePack;
+    labels: { archetype: Record<string, string>; trait: Record<string, string> };
+  };
+  /** The committed workflow file, and what it says. */
+  workflowConfig: DashboardWorkflowConfigSnapshot;
+  /**
+   * The audit record: what the workflow has done, and whether it was
+   * deterministic. Always present — an empty ledger is a fact, not an absence.
+   */
+  audit: { summary: WorkflowHistorySummary; recent: WorkflowRunRecord[]; path: string };
+  branches: BranchMetrics;
+  ci: CiMetrics;
+  release: ReleaseMetrics;
+  health: WorkflowHealth;
+  /** Commits per day over the standard window, for the activity chart. */
+  commitSeries: DashboardSeriesPoint[];
+}
+
 interface DashboardRoadmapSnapshot {
   filePath: string;
   items: DashboardRoadmapItem[];
@@ -694,6 +1225,14 @@ interface DashboardRoadmapSnapshot {
   nextSuggestedWork: DashboardRoadmapItem[];
   /** The MVP gate's route. Kept under its own name — it feeds the score. */
   mvp: DashboardMvpSnapshot;
+  /**
+   * What is still sitting on the ideation board.
+   *
+   * `needsAttention` counts only problems, requirements and risks: an idea
+   * nobody has acted on is not a problem, but something written down as wrong or
+   * needed that never reached the backlog is.
+   */
+  boardBacklog: { total: number; needsAttention: number };
   /** Declared gates with their progress, in declared order (`mvp` first). */
   gates: DashboardRoadmapGateView[];
   /** One route per gate, keyed by gate id, so switching gates needs no round trip. */
@@ -853,6 +1392,18 @@ interface DashboardDirectorSnapshot {
   storesRawPii: boolean;
   /** True once the user has acknowledged the one-time PII/GDPR storage notice. */
   piiAcknowledged: boolean;
+  /**
+   * The assignable roles, built-ins merged with any the Director edited.
+   *
+   * Resolved here rather than in the webview so the merge rule — a deleted
+   * built-in comes back — lives in one tested place.
+   */
+  roles: TeamRole[];
+  /**
+   * How many CODEOWNERS rules the current roster would produce, and what would
+   * be left out. Shown before the action so the button is not a surprise.
+   */
+  codeowners: { ruleCount: number; warnings: string[] };
   /** Count of overdue follow-ups (derived). */
   overdueCount: number;
   /** Derived urgency per follow-up id, so the client can group without re-deriving. */
@@ -999,7 +1550,11 @@ interface DashboardSnapshot {
     delta: SsotDelta;
   };
   roadmap: DashboardRoadmapSnapshot;
+  guidedWorkflow: DashboardGuidedWorkflowSnapshot;
+  githubLinks: DashboardGithubLinksSnapshot;
   issues: DashboardIssuesSnapshot;
+  /** Labels and milestones — the taxonomy stage 1 draws from. */
+  taxonomy: DashboardTaxonomySnapshot;
   security: {
     toolApprovalMode: string;
     allowTerminalWrite: boolean;
@@ -1023,6 +1578,18 @@ interface DashboardSnapshot {
     reviewReadiness: Array<{ label: string; ok: boolean }>;
     artifacts: ArtifactSignal[];
     stages: DashboardStagePipeline;
+  };
+  /** Stage 6 — what a release from here would look like, and what blocks it. */
+  release: DashboardReleaseSnapshot;
+  /** Stage 7 — what has been deferred, and how long ago. */
+  debt: {
+    path: string;
+    entries: DebtEntry[];
+    metrics: DebtMetrics;
+    lastScanAt?: string;
+    /** The declared rules, so a grade can be checked against them on screen. */
+    rules: Array<{ id: string; domain: string; severity: string; describes: string }>;
+    scanning: boolean;
   };
   director: DashboardDirectorSnapshot;
   documents: DashboardDocumentsSnapshot;
@@ -1427,12 +1994,111 @@ export class ProjectDashboardPanel {
    * every unrelated re-render would spend the user's quota to show a tab they
    * may not be looking at.
    */
+  /**
+   * `origin`'s URL as of the last render, so a link can be resolved on click
+   * without re-reading git. Held rather than looked up because resolution
+   * happens in a message handler and a shell call there would make a button
+   * feel slow for no reason.
+   */
+  private lastGitRemoteUrl: string | undefined;
+
   private issuesState: DashboardIssuesSnapshot = {
     status: 'not-loaded',
     detail: 'Issues have not been loaded yet.',
     issues: [],
     busy: false,
   };
+
+  /**
+   * Pull requests, loaded alongside issues on the same explicit refresh.
+   *
+   * Two reads on one user action rather than a second button, because they are
+   * halves of the same question — what work is in flight — and nobody wants to
+   * press refresh twice. Kept `undefined` until a load actually succeeds, so a
+   * surface can tell "none open" from "never looked": the second must never
+   * render as the first.
+   */
+  private pullRequestsState: PullRequestRecord[] | undefined;
+
+  /**
+   * Recent CI runs and the latest classified failure.
+   *
+   * Loaded alongside issues and pull requests on the same explicit refresh.
+   * `undefined` until a load succeeds, so the surface can distinguish "no
+   * failures" from "never looked" — the second must never render as the first.
+   */
+  private ciState: DashboardCiIntelligence | undefined;
+
+  /**
+   * Published releases, from the same explicit refresh.
+   *
+   * Only the *fetched* half lives here. The release plan is rebuilt from local
+   * files on every render, so a changelog edit shows up immediately without
+   * spending a request — and the page still works with no `gh` at all.
+   */
+  private releaseState: { records: readonly MetricReleaseInput[]; loadedAt: string } | { failure: string } | undefined;
+
+  /**
+   * The committed workflow file.
+   *
+   * Held rather than re-read on every render because it is a file read on the
+   * synchronous render path, and re-read explicitly after every write so the
+   * page shows what is actually on disk rather than what it just sent.
+   */
+  private workflowConfigManager: WorkflowConfigManager | undefined;
+
+  /**
+   * The append-only record of what the workflow has done.
+   *
+   * Constructed lazily and reloaded after each write, so a ledger edited
+   * outside the editor (or by a colleague's commit) is read rather than
+   * overwritten from a stale copy.
+   */
+  private auditLedgerInstance: WorkflowAuditLedger | undefined;
+
+  /** The tech-debt register, and whether a scan is currently running. */
+  private debtManagerInstance: DebtRegisterManager | undefined;
+
+  private debtScanning = false;
+
+  /**
+   * Line-level review comments, by pull-request number.
+   *
+   * Fetched per pull request on request, not with the list: a repository with
+   * forty open pull requests would be forty extra calls against a rate limit,
+   * for comments on thirty-nine of them nobody asked to see.
+   */
+  private reviewCommentsState: Record<string, ReviewCommentRecord[]> = {};
+
+  /**
+   * Labels and milestones, from the same explicit refresh as the issues.
+   *
+   * Two cheap calls rather than per-item ones, and loaded together because a
+   * label's issue count comes from the issue list — fetching one without the
+   * other would show every label as unused.
+   */
+  private taxonomyState: { labels: LabelRecord[]; milestones: MilestoneRecord[] } | undefined;
+
+  private get debtManager(): DebtRegisterManager {
+    this.debtManagerInstance ??= new DebtRegisterManager(
+      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+    );
+    return this.debtManagerInstance;
+  }
+
+  private get auditLedger(): WorkflowAuditLedger {
+    this.auditLedgerInstance ??= new WorkflowAuditLedger(
+      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+    );
+    return this.auditLedgerInstance;
+  }
+
+  private get workflowConfig(): WorkflowConfigManager {
+    this.workflowConfigManager ??= new WorkflowConfigManager(
+      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+    );
+    return this.workflowConfigManager;
+  }
 
   public static createOrShow(context: vscode.ExtensionContext, atlas: AtlasMindContext, targetPage?: DashboardPageId): void {
     const column = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
@@ -1546,6 +2212,26 @@ export class ProjectDashboardPanel {
       case 'openCommand':
         if (ALLOWED_DASHBOARD_COMMANDS.has(message.payload)) {
           await vscode.commands.executeCommand(message.payload);
+        } else {
+          // Never silently. A dropped command produced a button that did
+          // nothing and said nothing — indistinguishable, from the outside,
+          // from a feature that is broken or from one that quietly worked.
+          // Two shipped buttons were dead this way and nobody could have
+          // told which.
+          void vscode.window.showWarningMessage(
+            `AtlasMind blocked "${String(message.payload).slice(0, 80)}" — it is not on the dashboard's `
+            + 'command allowlist. This is a bug in AtlasMind, not something you did.',
+          );
+        }
+        return;
+      case 'openSettingKey':
+        // Opens VS Code's settings filtered to one key. Constrained to the
+        // `atlasmind.` namespace rather than checked against a hand-written
+        // list: a list of every settable key would drift the moment somebody
+        // added a setting, and drifting is how the button above died. The
+        // command only *filters a UI* — it changes nothing.
+        if (/^atlasmind\.[A-Za-z][A-Za-z0-9.]{0,80}$/.test(message.payload)) {
+          await vscode.commands.executeCommand('workbench.action.openSettings', message.payload);
         }
         return;
       case 'openFile':
@@ -1599,6 +2285,12 @@ export class ProjectDashboardPanel {
       case 'reopenIssue':
       case 'commentIssue':
         await this.handleIssueWrite(message);
+        return;
+      case 'createPullRequest':
+      case 'reviewPullRequest':
+      case 'mergePullRequest':
+      case 'closePullRequest':
+        await this.handlePullRequestWrite(message);
         return;
       case 'saveTestingConfig':
         {
@@ -1668,6 +2360,60 @@ export class ProjectDashboardPanel {
         return;
       case 'seedDirectorFromRepo':
         await this.handleSeedDirector();
+        return;
+      case 'scanDebt':
+        await this.handleScanDebt();
+        return;
+      case 'setDebtStatus':
+        await this.handleSetDebtStatus(message.payload);
+        return;
+      case 'openDebtEvidence':
+        await this.handleOpenDebtEvidence(message.payload);
+        return;
+      case 'workOnDebt':
+        await this.handleWorkOnDebt(message.payload);
+        return;
+      case 'loadReviewComments':
+        await this.handleLoadReviewComments(message.payload.number);
+        return;
+      case 'createLabel':
+      case 'deleteLabel':
+      case 'createMilestone':
+      case 'closeMilestone':
+        await this.handleTaxonomyWrite(message);
+        return;
+      case 'addressReviewComment':
+        await this.handleAddressReviewComment(message.payload);
+        return;
+      case 'draftIssueFromRoadmap':
+        await this.handleDraftIssueFromRoadmap(message.payload);
+        return;
+      case 'openGithubLink':
+        await this.handleOpenGithubLink(message.payload);
+        return;
+      case 'markDeltaSeen':
+        // No payload and nothing to validate: it clears a held computation and
+        // touches neither settings, secrets, nor the repository.
+        clearHeldObservedDelta();
+        await this.syncState();
+        return;
+      case 'setWorkflowGate':
+        await this.handleSetWorkflowGate(message.payload);
+        return;
+      case 'setAutomationCeiling':
+        await this.handleSetAutomationCeiling(message.payload);
+        return;
+      case 'createWorkflowConfig':
+        await this.handleCreateWorkflowConfig(message.payload);
+        return;
+      case 'editWorkflowConfig':
+        await this.handleEditWorkflowConfig(message.payload);
+        return;
+      case 'applyTeamRole':
+        await this.handleApplyTeamRole(message.payload);
+        return;
+      case 'generateCodeowners':
+        await this.handleGenerateCodeowners();
         return;
       case 'runRiskAnalysis':
         await this.handleRunRiskAnalysis(message.payload.domain);
@@ -1754,7 +2500,7 @@ export class ProjectDashboardPanel {
           }
           const configuration = vscode.workspace.getConfiguration('atlasmind');
           const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState);
           const seedItems = snapshot.gapAnalysis.items.filter(item => !item.resolved);
           this.queueNavigation('gapAnalysis');
           await this.postMessage({ type: 'navigate', payload: 'gapAnalysis' });
@@ -1781,7 +2527,7 @@ export class ProjectDashboardPanel {
           if (!workspaceRoot || message.payload.trim().length === 0) {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState);
           const targetItem = snapshot.gapAnalysis.items.find(item => item.id === message.payload.trim() && !item.resolved && item.type !== 'praise');
           if (!targetItem) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: 'That gap could not be found. Try re-running the analysis.' });
@@ -1807,7 +2553,7 @@ export class ProjectDashboardPanel {
           if (priority !== 'P1' && priority !== 'P2' && priority !== 'P3') {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState);
           const groupedItems = snapshot.gapAnalysis.items.filter(item => !item.resolved && item.type !== 'praise' && item.priority === priority);
           if (groupedItems.length === 0) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: `No open ${priority} items are available to resolve.` });
@@ -1833,7 +2579,7 @@ export class ProjectDashboardPanel {
           if (!gapId) {
             return;
           }
-          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState);
+          const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState);
           const targetItem = snapshot.gapAnalysis.items.find(item => item.id === gapId);
           if (!targetItem) {
             await this.postMessage({ type: 'gapAnalysisStatus', payload: 'Gap item not found. Try re-running the analysis.' });
@@ -1892,7 +2638,7 @@ export class ProjectDashboardPanel {
 
   private async syncState(): Promise<void> {
     try {
-      const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState);
+      const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState);
       await this.postMessage({ type: 'state', payload: snapshot });
       if (this.pendingNavigationTarget) {
         await this.postMessage({ type: 'navigate', payload: this.pendingNavigationTarget });
@@ -1957,8 +2703,7 @@ export class ProjectDashboardPanel {
       return;
     }
 
-    const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('atlasmind.ssotPath', 'project_memory')
-      ?? vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
+    const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
     const filePath = path.join(workspaceRoot, ssotPath, 'roadmap', 'improvement-plan.md');
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     const existing = await fs.readFile(filePath, 'utf-8').catch(() => '');
@@ -2069,32 +2814,93 @@ export class ProjectDashboardPanel {
         loadedAt: new Date().toISOString(),
         busy: false,
       };
+
+      // Pull requests, best-effort and deliberately not fatal: a repository can
+      // have issues readable and pull requests not (a permissions split, or an
+      // older `gh`), and failing the whole refresh over the secondary read would
+      // hide the primary one that succeeded.
+      try {
+        const prRaw = await runGh(workspaceRoot, [
+          'pr', 'list',
+          '--state', 'all',
+          '--limit', '100',
+          '--json', 'number,title,state,author,headRefName,baseRefName,labels,body,url,createdAt,updatedAt,mergedAt,isDraft,additions,deletions,changedFiles,reviews',
+        ]);
+        this.pullRequestsState = parseGhPullRequestList(prRaw);
+      } catch {
+        // Left as-is rather than emptied: a failed refresh must not turn a
+        // previously-read list into a confident "none".
+      }
+
+      // CI intelligence, also best-effort. A repository can have readable
+      // issues and unreadable runs, and failing the whole refresh over the
+      // tertiary read would hide the two that succeeded.
+      try {
+        const branch = (await runGit(workspaceRoot, ['rev-parse', '--abbrev-ref', 'HEAD'])).trim();
+        if (branch && branch !== 'HEAD') {
+          this.ciState = await gatherCiIntelligence(workspaceRoot, branch);
+        }
+      } catch {
+        // Same reasoning as above.
+      }
+
+      // Labels and milestones. Two cheap calls, and loaded here rather than
+      // on demand because a label's issue count comes from the list above —
+      // fetching one without the other would show every label as unused.
+      try {
+        const [labelRaw, milestoneRaw] = await Promise.all([
+          runGh(workspaceRoot, ['label', 'list', '--limit', '200', '--json', 'name,color,description']),
+          runGh(workspaceRoot, ['api', `repos/${slug}/milestones?state=all&per_page=100`]),
+        ]);
+        this.taxonomyState = {
+          labels: parseGhLabelList(labelRaw, issues),
+          milestones: parseGhMilestoneList(milestoneRaw),
+        };
+      } catch {
+        // Left as-is rather than emptied: a failed refresh must not turn a
+        // previously-read taxonomy into a confident "none".
+      }
+
+      // Published releases, for the delivery metrics. The failure is *kept*
+      // rather than swallowed: a repository that has never cut a release and one
+      // whose releases could not be read produce the same empty list, and the
+      // four delivery keys mean nothing if those two are reported alike.
+      try {
+        const releaseRaw = await runGh(workspaceRoot, [
+          'release', 'list', '--limit', '100',
+          '--json', 'tagName,publishedAt,isPrerelease,isDraft',
+        ]);
+        this.releaseState = { records: parseGhReleaseList(releaseRaw), loadedAt: new Date().toISOString() };
+      } catch (error) {
+        this.releaseState = { failure: ghFailureOf(error).detail };
+      }
     } catch (error) {
       this.issuesState = { ...this.classifyIssueFailure(error), issues: [], busy: false };
     }
     await this.syncState();
   }
 
-  /** Turn a `gh` failure into the specific thing that is wrong, and its fix. */
+  /**
+   * Turn a `gh` failure into the specific thing that is wrong, and its fix.
+   *
+   * The diagnosis comes from `ghClient` rather than being re-derived from the
+   * message here. Two independent classifications of the same failure is how a
+   * user ends up told to re-authenticate when they are merely rate-limited.
+   */
   private classifyIssueFailure(error: unknown): Pick<DashboardIssuesSnapshot, 'status' | 'detail' | 'fixCommand'> {
-    const message = error instanceof Error ? error.message : String(error);
-    if (/ENOENT|not recognized|command not found/i.test(message)) {
-      return {
-        status: 'no-cli',
-        detail: 'The GitHub CLI (`gh`) is not installed, so AtlasMind cannot read this repository\'s issues.',
-        fixCommand: 'winget install --id GitHub.cli',
-      };
-    }
-    if (/auth|login|credential|token/i.test(message)) {
-      return {
-        status: 'not-authenticated',
-        detail: 'The GitHub CLI is installed but not authenticated for this repository.',
-        fixCommand: 'gh auth login',
-      };
-    }
+    const failure = ghFailureOf(error);
+    // `GhFailureKind` is richer than this page's status set, so the extra kinds
+    // fold into `error` — keeping their specific detail and fix, which is the
+    // part the user actually needs.
+    const status: DashboardIssuesSnapshot['status'] =
+      failure.kind === 'no-cli' ? 'no-cli'
+        : failure.kind === 'not-authenticated' ? 'not-authenticated'
+          : failure.kind === 'not-found' ? 'no-repo'
+            : 'error';
     return {
-      status: 'error',
-      detail: `Could not read issues: ${message.slice(0, 300)}`,
+      status,
+      detail: failure.detail,
+      ...(failure.fixCommand === undefined ? {} : { fixCommand: failure.fixCommand }),
     };
   }
 
@@ -2118,6 +2924,31 @@ export class ProjectDashboardPanel {
       return;
     }
 
+    // The same ladder gate pull-request writes have had since v0.183.0.
+    //
+    // `atlasmind.workflow.allowIssueWrites` shipped as a documented safety
+    // switch that **nothing consulted** — `automationFor` handled the
+    // capability and no call site passed it. A switch a user can turn off
+    // believing it stops issue writes, which it does not, is a false
+    // assurance, and a false assurance is worse than no switch at all.
+    const decision = this.automationFor('issueWrites', 'auto');
+    if (!permits(decision.level, FIRST_WRITING_LEVEL)) {
+      await this.recordRefusal({
+        stageId: 'planning',
+        action: message.type,
+        actor: 'user',
+        decision,
+        requestedLevel: 'propose',
+        inputs: { repo: slug, action: message.type },
+        detail: decision.detail,
+      });
+      void vscode.window.showWarningMessage(
+        `AtlasMind is not permitted to write to the issue tracker right now (level: ${decision.level}).`,
+        { modal: true, detail: decision.detail },
+      );
+      return;
+    }
+
     let args: string[];
     let description: string;
     let successNote: string;
@@ -2131,6 +2962,23 @@ export class ProjectDashboardPanel {
       args = ['issue', 'create', '--title', draft.title, '--body', draft.body || '_No description provided._'];
       for (const label of draft.labels) {
         args.push('--label', label);
+      }
+      // A milestone could be declared in the taxonomy and attached to nothing:
+      // this call never passed `--milestone`. Checked against the loaded list
+      // rather than passed through, because `gh` fails on an unknown milestone
+      // and that failure reaches the user as a raw CLI error instead of an
+      // explanation.
+      const requested = (message.payload as { milestone?: unknown } | undefined)?.milestone;
+      if (typeof requested === 'string' && requested.trim() !== '') {
+        const known = this.taxonomyState?.milestones.find(entry => entry.title === requested.trim());
+        if (known === undefined) {
+          void vscode.window.showWarningMessage(
+            `\`${requested.trim().slice(0, 80)}\` is not a milestone on ${slug}. Nothing has been created — `
+            + 'open the Issues tab to load the milestone list, or create the milestone first.',
+          );
+          return;
+        }
+        args.push('--milestone', known.title);
       }
       description = describeIssueAction('create', slug, { title: draft.title });
       successNote = `Created an issue on ${slug}.`;
@@ -2171,8 +3019,26 @@ export class ProjectDashboardPanel {
     }
 
     try {
-      await runGh(workspaceRoot, args);
-      void vscode.window.showInformationMessage(successNote);
+      // Record, then act. The record names the action and fingerprints the
+      // arguments; the arguments themselves stay out of the committed ledger,
+      // because an issue body is third-party text.
+      const wrote = await this.runRecorded(
+        {
+          stageId: 'planning',
+          action: message.type,
+          actor: 'user',
+          decision,
+          requestedLevel: 'propose',
+          inputs: { repo: slug, action: message.type, args },
+        },
+        async () => {
+          await runGh(workspaceRoot, args);
+          return { ok: true };
+        },
+      );
+      if (wrote) {
+        void vscode.window.showInformationMessage(successNote);
+      }
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       void vscode.window.showWarningMessage(`The issue action failed: ${detail.slice(0, 300)}`);
@@ -2180,6 +3046,1189 @@ export class ProjectDashboardPanel {
     // Re-read either way: a failed write may still have partially applied, and
     // the list is the only honest report of what the tracker now holds.
     await this.handleRefreshIssues();
+  }
+
+  /**
+   * Run an action with an audit record around it.
+   *
+   * **Record first, then act.** That ordering is the wrong way round from the
+   * obvious one on purpose: a record written afterwards is missing exactly when
+   * it matters most, because the run that crashed is the run somebody needs to
+   * read about. A record that cannot be written **stops the action** — the whole
+   * point of the ledger is that it is complete, and an action that quietly
+   * skipped its record because a disk was full would be the one nobody could
+   * account for later.
+   *
+   * The action's inputs are **fingerprinted, not stored**. This ledger is
+   * committed, so recording what was processed would put issue bodies and review
+   * comments into the repository.
+   */
+  private async runRecorded<T>(
+    spec: {
+      stageId: WorkflowStageId;
+      action: string;
+      actor: WorkflowActor;
+      decision: AutomationDecision;
+      requestedLevel: AutomationLevel;
+      /** Whatever determines the outcome. Hashed; never persisted. */
+      inputs: unknown;
+    },
+    act: () => Promise<T>,
+    /** What to fingerprint as the output. Defaults to the returned value. */
+    outputsOf: (result: T) => unknown = result => result,
+  ): Promise<T | undefined> {
+    const opened = beginWorkflowRun({
+      stageId: spec.stageId,
+      action: spec.action,
+      actor: spec.actor,
+      requestedLevel: spec.requestedLevel,
+      effectiveLevel: spec.decision.level,
+      ...(spec.decision.limitedBy === undefined ? {} : { limitedBy: spec.decision.limitedBy }),
+      gates: [{ gate: 'automation ladder', passed: spec.decision.limitedBy === 'none', detail: spec.decision.detail }],
+      inputs: spec.inputs,
+      at: new Date().toISOString(),
+    });
+
+    try {
+      await this.auditLedger.record(opened);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(
+        `Not doing that: AtlasMind could not write its audit record (${detail.slice(0, 200)}). `
+        + 'An action that skipped its record would be the one nobody could account for later.',
+      );
+      return undefined;
+    }
+
+    try {
+      const result = await act();
+      await this.auditLedger.record(completeWorkflowRun(opened, {
+        outputs: outputsOf(result),
+        outcome: 'complete',
+      }));
+      return result;
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      // Best-effort on the closing write only. The opening record already
+      // exists, so the run is accounted for either way; failing here as well
+      // would replace a useful error with a confusing one.
+      try {
+        await this.auditLedger.record(completeWorkflowRun(opened, { outcome: 'failed', detail }));
+      } catch {
+        // The opened record stands as the account of what happened.
+      }
+      throw error;
+    }
+  }
+
+  /** Record an action that was refused before it ran, and why. */
+  private async recordRefusal(spec: {
+    stageId: WorkflowStageId;
+    action: string;
+    actor: WorkflowActor;
+    decision: AutomationDecision;
+    requestedLevel: AutomationLevel;
+    inputs: unknown;
+    detail: string;
+  }): Promise<void> {
+    const opened = beginWorkflowRun({
+      stageId: spec.stageId,
+      action: spec.action,
+      actor: spec.actor,
+      requestedLevel: spec.requestedLevel,
+      effectiveLevel: spec.decision.level,
+      ...(spec.decision.limitedBy === undefined ? {} : { limitedBy: spec.decision.limitedBy }),
+      gates: [{ gate: 'automation ladder', passed: false, detail: spec.decision.detail }],
+      inputs: spec.inputs,
+      at: new Date().toISOString(),
+    });
+    try {
+      // A refusal is recorded best-effort rather than blocking: nothing is
+      // about to happen, so failing to record it cannot leave an unaccounted
+      // action — which is the only thing the blocking rule protects against.
+      await this.auditLedger.record(completeWorkflowRun(opened, {
+        outcome: 'refused',
+        detail: spec.detail,
+      }));
+    } catch {
+      // Nothing happened, so there is nothing unaccounted for.
+    }
+  }
+
+  /**
+   * The effective automation level for a workflow action, and why.
+   *
+   * Read at the moment of acting rather than carried from a snapshot: a setting
+   * changed while a panel was open must take effect on the next action, not on
+   * the next reload. The webview never supplies the level — it asks to act, and
+   * this decides whether it may.
+   */
+  private automationFor(capability: WorkflowCapability, stageLevel: AutomationLevel): AutomationDecision {
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    const capabilitySetting = capability === 'issueWrites'
+      ? 'workflow.allowIssueWrites'
+      : capability === 'pullRequestWrites'
+        ? 'workflow.allowPullRequestWrites'
+        : 'workflow.allowReleaseWrites';
+    // Read *scopes*, not the resolved value. VS Code resolves workspace above
+    // user, which is right for a preference and wrong for a safety ceiling:
+    // read that way, a repository committing `auto` would raise the ceiling of
+    // everyone who opened it, and somebody wanting to be more cautious than
+    // their team could not be. The most restrictive scope wins instead.
+    const flag = (key: string): boolean =>
+      resolveRestrictiveFlag(configuration.inspect<boolean>(key) ?? {});
+
+    return explainAutomationLevel({
+      masterEnabled: flag('workflow.enabled'),
+      userCeiling: resolveRestrictiveLevel(configuration.inspect<string>('workflow.maxAutomationLevel') ?? {}),
+      capabilityEnabled: flag(capabilitySetting),
+      stageLevel,
+    });
+  }
+
+  /**
+   * Create a pull request, review it, or merge it.
+   *
+   * Two gates, in this order. First the **automation ladder** — the effective
+   * level must reach `propose`, and a refusal names the switch that caused it so
+   * nobody has to toggle four settings at random. Then the **modal
+   * confirmation**, naming the repository and the exact action, built from the
+   * same values that will be sent.
+   *
+   * A merge carries a third gate: the base branch may be protected, and a
+   * protected target is a *veto*, not a level to raise. The webview supplies
+   * only data — never a command — and `gh` runs without a shell.
+   */
+  private async handlePullRequestWrite(message: {
+    type: 'createPullRequest' | 'reviewPullRequest' | 'mergePullRequest' | 'closePullRequest';
+    payload: unknown;
+  }): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const slug = this.issuesState.repoSlug;
+    if (!workspaceRoot || !slug) {
+      void vscode.window.showWarningMessage('Load the issue list first so AtlasMind knows which repository to write to.');
+      return;
+    }
+
+    // Stage level comes from the project's declared workflow. Until the
+    // configuration file lands (Tier 4), the stage's shipped default applies —
+    // which is `draft`, so a write needs the user to raise it deliberately.
+    const decision = this.automationFor('pullRequestWrites', 'auto');
+    if (!permits(decision.level, FIRST_WRITING_LEVEL)) {
+      await this.recordRefusal({
+        stageId: 'pull-request',
+        action: message.type,
+        actor: 'user',
+        decision,
+        requestedLevel: 'propose',
+        inputs: { repo: slug, action: message.type },
+        detail: decision.detail,
+      });
+      void vscode.window.showWarningMessage(
+        `AtlasMind is not permitted to write pull requests right now (level: ${decision.level}).`,
+        { modal: true, detail: decision.detail },
+      );
+      return;
+    }
+
+    const payload = (message.payload ?? {}) as Record<string, unknown>;
+    const number = sanitizeIssueNumber(payload['number']);
+
+    let args: string[];
+    let description: string;
+    let successNote: string;
+
+    if (message.type === 'createPullRequest') {
+      const title = typeof payload['title'] === 'string' ? payload['title'].trim() : '';
+      const body = typeof payload['body'] === 'string' ? payload['body'] : '';
+      const base = typeof payload['base'] === 'string' ? payload['base'].trim() : '';
+      const head = typeof payload['head'] === 'string' ? payload['head'].trim() : '';
+      if (!title || !base || !head) {
+        void vscode.window.showWarningMessage('A pull request needs a title, a base, and a head branch.');
+        return;
+      }
+      args = ['pr', 'create', '--base', base, '--head', head, '--title', title, '--body', body || '_No description provided._'];
+      if (payload['draft'] === true) {
+        args.push('--draft');
+      }
+      description = describePullRequestAction('create', slug, { title, base, head });
+      successNote = `Opened a pull request on ${slug}.`;
+    } else if (number === 0) {
+      return;
+    } else if (message.type === 'reviewPullRequest') {
+      const verdict = payload['verdict'];
+      const comment = typeof payload['body'] === 'string' ? payload['body'].trim() : '';
+      if (verdict === 'approve') {
+        args = ['pr', 'review', String(number), '--approve'];
+        if (comment) {
+          args.push('--body', comment);
+        }
+        description = describePullRequestAction('approve', slug, { number });
+        successNote = `Approved #${number}.`;
+      } else if (verdict === 'request-changes') {
+        if (!comment) {
+          // GitHub requires one, and so does courtesy: "changes requested" with
+          // no explanation is a rejection the author cannot act on.
+          void vscode.window.showWarningMessage('Requesting changes needs a comment explaining what to change.');
+          return;
+        }
+        args = ['pr', 'review', String(number), '--request-changes', '--body', comment];
+        description = describePullRequestAction('request-changes', slug, { number });
+        successNote = `Requested changes on #${number}.`;
+      } else {
+        if (!comment) {
+          void vscode.window.showWarningMessage('Write a comment before posting it.');
+          return;
+        }
+        args = ['pr', 'review', String(number), '--comment', '--body', comment];
+        description = describePullRequestAction('comment', slug, { number });
+        successNote = `Commented on #${number}.`;
+      }
+    } else if (message.type === 'mergePullRequest') {
+      const base = typeof payload['base'] === 'string' ? payload['base'].trim() : '';
+      const protection = permitsProtectedRefWrite({
+        targetIsProtected: PROTECTED_BRANCH_NAMES.has(base),
+        allowProtectedRefWrites: vscode.workspace
+          .getConfiguration('atlasmind')
+          .get<boolean>('workflow.allowProtectedRefWrites', false),
+      });
+      if (!protection.allowed) {
+        void vscode.window.showWarningMessage(
+          `Merging into \`${base}\` is not permitted.`,
+          { modal: true, detail: protection.detail ?? '' },
+        );
+        return;
+      }
+      // Squash by default: it keeps the integration branch readable, and the
+      // branch's intermediate steps are the part nobody reads later.
+      args = ['pr', 'merge', String(number), '--squash'];
+      description = describePullRequestAction('merge', slug, { number, base });
+      successNote = `Merged #${number}.`;
+    } else {
+      args = ['pr', 'close', String(number)];
+      description = describePullRequestAction('close', slug, { number });
+      successNote = `Closed #${number} without merging.`;
+    }
+
+    const confirmation = await vscode.window.showWarningMessage(
+      'Write to GitHub?',
+      { modal: true, detail: description },
+      'Yes, do it',
+    );
+    if (confirmation !== 'Yes, do it') {
+      return;
+    }
+
+    try {
+      // Record, then act. The arguments are fingerprinted rather than stored:
+      // a pull-request body is third-party text and this ledger is committed.
+      const wrote = await this.runRecorded(
+        {
+          stageId: 'pull-request',
+          action: message.type,
+          actor: 'user',
+          decision,
+          requestedLevel: 'propose',
+          inputs: { repo: slug, action: message.type, args },
+        },
+        async () => {
+          await runGh(workspaceRoot, args);
+          return { ok: true };
+        },
+      );
+      if (wrote) {
+        void vscode.window.showInformationMessage(successNote);
+      }
+    } catch (error) {
+      void vscode.window.showWarningMessage(`The pull request action failed: ${ghFailureOf(error).detail}`);
+    }
+    // Re-read either way: a failed write may still have partially applied, and
+    // the list is the only honest report of what GitHub now holds.
+    await this.handleRefreshIssues();
+  }
+
+  /**
+   * Apply a role's settings to the workspace.
+   *
+   * Writes to **workspace** scope deliberately: the point of a role is that it
+   * applies to everyone who opens the repository. Since v0.185.1 that is safe in
+   * the direction that matters — a person can still set themselves stricter, and
+   * the most restrictive scope wins.
+   *
+   * The confirmation lists every key and value, because a role writes several
+   * settings at once and approving a change nobody can read is not consent. The
+   * master switch is deliberately not among them: turning the workflow *on*
+   * stays each person's own decision.
+   */
+  /**
+   * Scan the workspace for debt markers and fold the result into the register.
+   *
+   * On explicit request only. This is a filesystem walk, and a page that walked
+   * the tree on every render would make the dashboard unusable on a large
+   * repository — the same reasoning that keeps `gh` calls off the render path.
+   *
+   * The scan writes; the confirmation is therefore not decoration. It is
+   * non-destructive by construction (nothing is deleted, and vanished evidence
+   * becomes `obsolete` rather than `resolved`), but it still commits a change to
+   * a tracked file, so the user gets told what it will do first.
+   */
+  private async handleScanDebt(): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      void vscode.window.showWarningMessage('Open a workspace folder before scanning for technical debt.');
+      return;
+    }
+    if (this.debtScanning) {
+      return;
+    }
+
+    const confirmation = await vscode.window.showWarningMessage(
+      'Scan this workspace for deferred work?',
+      {
+        modal: true,
+        detail:
+          `This reads your source files for TODO, FIXME, HACK and XXX markers and writes what it finds to \`${DEBT_SSOT_PATH}\`, with a readable mirror beside it.\n\n`
+          + 'Nothing is deleted. An entry whose marker has gone is recorded as obsolete rather than resolved, '
+          + 'because "the line is gone" and "somebody did the work" are different facts.\n\n'
+          + 'Severity comes from a declared rule, never a judgement call, and every entry names the rule that graded it.',
+      },
+      'Yes, scan',
+    );
+    if (confirmation !== 'Yes, scan') {
+      return;
+    }
+
+    this.debtScanning = true;
+    await this.syncState();
+
+    try {
+      const { files, scannedPaths, truncated } = await collectDebtScanFiles(workspaceRoot);
+      // A project's own markers, read at scan time rather than cached: the
+      // setting can change between scans, and a stale list would keep looking
+      // for markers somebody removed.
+      const customMarkers = parseCustomDebtMarkers(
+        vscode.workspace.getConfiguration('atlasmind').get<string[]>('debt.markers', []),
+      );
+      // Two sources, one register. The marker scan finds what somebody wrote
+      // down; the signal derivation finds what the project is doing that nobody
+      // wrote down at all — an unmerged dependency update, a testing
+      // methodology declared and not evidenced, a document past its review
+      // date, an absent pipeline. None of those leaves a `TODO`.
+      const snapshot = await collectDashboardSnapshot(
+        this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState,
+        this.ciState, this.releaseState, this.workflowConfig, this.auditLedger,
+        { register: this.debtManager.get(), scanning: true },
+      );
+      const candidates = [
+        ...scanForDebtMarkers(files, customMarkers),
+        ...deriveDebtFromSignals({
+          now: Date.now(),
+          ...(this.pullRequestsState === undefined ? {} : { pullRequests: this.pullRequestsState }),
+          uncoveredMethodologies: (snapshot.testing.policyCoverage?.rows ?? [])
+            // `missing` only. `tooling-only` has partial evidence and
+            // `not-file-evident` is a practice, which is never a gap — a
+            // register that recorded those would be recording a category error.
+            .filter(row => row.status === 'missing')
+            .map(row => ({ id: row.id, label: row.label })),
+          ciWorkflowCount: snapshot.delivery.workflows.length,
+        }),
+      ];
+      const at = new Date().toISOString();
+      // The derived entries' evidence paths are added to the scanned set, so a
+      // signal that has cleared (the update merged, the methodology covered)
+      // goes obsolete on the next scan rather than lingering forever.
+      const result = reconcileDebtScan(
+        this.debtManager.get(),
+        candidates,
+        [...scannedPaths, ...DERIVED_DEBT_EVIDENCE_ROOTS],
+        at,
+      );
+      await this.debtManager.save(result.register, customMarkers);
+      void vscode.window.showInformationMessage(
+        `Scanned ${scannedPaths.length} files: ${result.added.length} new, ${result.unchanged} already recorded`
+        + `${result.wentObsolete.length > 0 ? `, ${result.wentObsolete.length} now obsolete` : ''}`
+        + `${result.reopened.length > 0 ? `, ${result.reopened.length} reopened` : ''}.`
+        // Stated, never silent. A scan that quietly stopped at the cap would
+        // report a clean register for a project it only half read.
+        + `${truncated ? ` The scan stopped at ${DEBT_SCAN_MAX_FILES} files, so this is a partial result.` : ''}`,
+      );
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`The debt scan failed: ${detail.slice(0, 300)}`);
+    } finally {
+      this.debtScanning = false;
+      await this.syncState();
+    }
+  }
+
+  /**
+   * Transition a debt entry.
+   *
+   * No confirmation: this writes to a local tracked file, changes nothing
+   * outside the repository, and is itself recorded as a transition that can be
+   * read back. Gating every status change behind a modal would make the register
+   * tedious enough that people stopped keeping it current, which costs more than
+   * the mistaken click it would prevent.
+   */
+  private async handleSetDebtStatus(payload: { id: string; status: string; note?: string }): Promise<void> {
+    const status = ['open', 'accepted', 'scheduled', 'resolved', 'obsolete'].includes(payload.status)
+      ? payload.status as DebtStatus
+      : undefined;
+    if (!status) {
+      return;
+    }
+    const entry = this.debtManager.get().entries.find(candidate => candidate.id === payload.id);
+    if (!entry) {
+      void vscode.window.showWarningMessage('That entry is no longer in the register.');
+      return;
+    }
+    try {
+      await this.debtManager.save(setDebtStatus(
+        this.debtManager.get(),
+        payload.id,
+        status,
+        new Date().toISOString(),
+        payload.note,
+      ));
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not update the register: ${detail.slice(0, 300)}`);
+    }
+    await this.syncState();
+  }
+
+  /**
+   * Open the file a debt entry points at.
+   *
+   * The path comes from the *register*, looked up by id — never from the
+   * webview. The register's own reader already rejected traversal and absolute
+   * paths, so what is opened is a workspace-relative path this build wrote.
+   */
+  private async handleOpenDebtEvidence(payload: { id: string }): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const entry = this.debtManager.get().entries.find(candidate => candidate.id === payload.id);
+    if (!workspaceRoot || !entry) {
+      return;
+    }
+    try {
+      const uri = vscode.Uri.file(path.join(workspaceRoot, entry.evidencePath));
+      const document = await vscode.workspace.openTextDocument(uri);
+      const line = Math.max(0, (entry.evidenceLine ?? 1) - 1);
+      await vscode.window.showTextDocument(document, {
+        selection: new vscode.Range(line, 0, line, 0),
+      });
+    } catch {
+      void vscode.window.showWarningMessage(
+        `\`${entry.evidencePath}\` could not be opened. If the file has gone, a rescan will mark this entry obsolete.`,
+      );
+    }
+  }
+
+  /** Coerce a level from the webview, defaulting closed. */
+  private static normalizeLevel(value: string): AutomationLevel {
+    return (AUTOMATION_LEVELS as readonly string[]).includes(value)
+      ? value as AutomationLevel
+      : 'off';
+  }
+
+  /**
+   * Turn one automation gate on or off from the dashboard.
+   *
+   * The asymmetry is the point. **Turning a gate off is immediate** — more
+   * restrictive is always safe, and putting a dialog in front of somebody
+   * reaching for the brake is how you train them to ignore dialogs. **Turning
+   * one on asks first**, naming what it permits, because that is the direction
+   * where a mis-click has consequences outside the editor.
+   *
+   * Written to the **workspace** scope: whether this project may write to its own
+   * tracker is a per-project decision, and writing to the user scope would
+   * silently change every other repository.
+   *
+   * The refusal that matters: if a *different* scope is holding the gate closed,
+   * this writes nothing and says which one. Writing `true` to the workspace
+   * while the user scope says `false` would flip a switch and change no
+   * behaviour — the same silent no-op as a dead button, arriving through the
+   * settings system instead of the command allowlist.
+   */
+  /**
+   * Raise a roadmap item as a GitHub issue.
+   *
+   * The gap this closes: the roadmap held the work in a structured, prioritised,
+   * gate-tagged list, and issues could only be created by hand-typing a title, a
+   * body and a comma-separated label list. Anybody planning here and tracking on
+   * GitHub retyped every item.
+   *
+   * **The draft is derived, not generated.** No model is in this path, so the same
+   * item produces the same issue every time — which is what makes it reviewable.
+   * A generated issue title is a claim nobody checked, posted publicly in your
+   * name.
+   *
+   * **It drafts; it does not file.** The text is put in front of the user, and
+   * posting goes through the same confirmation as every other issue write. Two
+   * steps rather than one, because the alternative is a button that publishes.
+   */
+  private async handleDraftIssueFromRoadmap(payload: { itemId: string }): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
+    const roadmap = await collectRoadmapSnapshot(workspaceRoot, ssotPath);
+    const item = roadmap.items.find(entry => entry.id === payload.itemId);
+    if (item === undefined) {
+      void vscode.window.showWarningMessage(
+        'That roadmap item could not be found. It may have been edited or removed since this page was drawn.',
+      );
+      return;
+    }
+
+    // The repository's real labels where they have been loaded. An empty list is
+    // a legitimate answer and produces a draft with no labels — never invented
+    // ones, because an invented label is created on the repository as a side
+    // effect of filing.
+    const declared = this.taxonomyState?.labels.map(label => label.name) ?? [];
+    const draft = deriveRoadmapIssueDraft(item, declared);
+
+    // Where the item came from an ideation card, the board's reasoning goes into
+    // the issue — what this depends on, what supports it, what contradicts it.
+    // That is the one thing here that a hand-typed issue body never has.
+    //
+    // Recomputed from the board as it is *now* rather than stored when the item
+    // was raised: a connection added since is still true, and an issue quoting a
+    // month-old snapshot of the board would be quietly wrong.
+    const body = await this.appendCardEvidence(draft.body, item.origin?.cardId);
+
+    if (draft.alreadyComplete) {
+      const proceed = await vscode.window.showWarningMessage(
+        'That item is already ticked off.',
+        {
+          modal: true,
+          detail: 'Raising an issue for finished work is usually a mis-click. Nothing has been created yet.',
+        },
+        'Draft it anyway',
+      );
+      if (proceed !== 'Draft it anyway') {
+        return;
+      }
+    }
+
+    // Into the composer, not onto the tracker. The user reads it, edits it, and
+    // the existing create flow confirms before anything is posted.
+    this.pendingNavigationTarget = 'issues';
+    await this.postMessage({ type: 'issueDraft', payload: {
+      title: draft.title,
+      body,
+      labels: draft.labels,
+      ...(draft.droppedLabels.length === 0 ? {} : { droppedLabels: [...draft.droppedLabels] }),
+    } });
+    await this.syncState();
+  }
+
+  /**
+   * Append an ideation card's reasoning to an issue body.
+   *
+   * Returns the body unchanged when the item did not come from a card, or when
+   * the card has since been deleted — a missing card is not an error worth
+   * interrupting a draft for, and an issue with no evidence section is a normal
+   * issue.
+   */
+  private async appendCardEvidence(body: string, cardId: string | undefined): Promise<string> {
+    if (cardId === undefined) {
+      return body;
+    }
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
+    const activeWorkspace = await loadActiveIdeationWorkspace(workspaceRoot, ssotPath);
+    const board = await loadIdeationBoard(workspaceRoot, ssotPath, activeWorkspace);
+    const card = board.cards.find(entry => entry.id === cardId);
+    if (card === undefined) {
+      return body;
+    }
+    const source = { id: card.id, title: card.title, summary: card.body, kind: card.kind };
+    const derivation = deriveCardRoadmapText(
+      source,
+      collectCardConnectionSources(board.cards, board.connections, card.id),
+    );
+    return `${body}
+
+## From the ideation board
+
+${buildCardEvidenceSection(source, derivation)}`;
+  }
+
+  /**
+   * Open the GitHub page a dashboard page is about.
+   *
+   * The URL is built here from the repository slug and a constant path, never
+   * taken from the message. A surface that could name the URL to open could name
+   * any URL, and `openExternal` hands it to the user's browser without asking.
+   */
+  private async handleOpenGithubLink(payload: { page: string; id: string }): Promise<void> {
+    const source = this.lastGitRemoteUrl ?? this.issuesState.repoSlug;
+    const url = resolveGithubLink(payload.page, payload.id, parseRepoSlug(source));
+    if (url === undefined) {
+      // Nothing to report to the user: the only way here is a webview that sent
+      // an id this page does not have, which is not something they did.
+      return;
+    }
+    await vscode.env.openExternal(vscode.Uri.parse(url));
+  }
+
+  private async handleSetWorkflowGate(payload: { key: string; enabled: boolean }): Promise<void> {
+    // Unsectioned on purpose: a gate key is written in full, so there is no
+    // section to prefix it with. Named to say so, because `configuration` in
+    // this file conventionally means the sectioned one — a convention the
+    // settings-integrity test relies on to catch double prefixing.
+    const rootConfig = vscode.workspace.getConfiguration();
+    const scopes = rootConfig.inspect<boolean>(payload.key) ?? {};
+
+    if (payload.enabled) {
+      // Only scopes *other than* the one being written can make this a no-op.
+      const blocking = blockingFlagScopes(scopes).filter(scope => scope !== 'workspace');
+      if (blocking.length > 0) {
+        void vscode.window.showWarningMessage(
+          `\`${payload.key}\` is turned off in ${blocking.map(describeSettingScope).join(' and ')}, `
+          + 'so enabling it here would change nothing. AtlasMind has not written anything — change it '
+          + 'there instead, or the switch would look on while the behaviour stayed off.',
+          { modal: true },
+        );
+        return;
+      }
+
+      const gate = WORKFLOW_GATE_COPY[payload.key];
+      const confirmation = await vscode.window.showWarningMessage(
+        `Allow ${gate?.label ?? payload.key}?`,
+        {
+          modal: true,
+          detail: `${gate?.permits ?? 'This permits AtlasMind to act on your behalf.'}\n\n`
+            + 'Every individual action still asks for confirmation and names the repository. This '
+            + 'raises one of four gates — the others still apply, and the lowest of them wins.',
+        },
+        'Yes, allow it',
+      );
+      if (confirmation !== 'Yes, allow it') {
+        return;
+      }
+    }
+
+    try {
+      await rootConfig.update(payload.key, payload.enabled, vscode.ConfigurationTarget.Workspace);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not write \`${payload.key}\`: ${detail.slice(0, 200)}`);
+    }
+    await this.syncState();
+  }
+
+  /**
+   * Set the personal automation ceiling.
+   *
+   * A level rather than a switch, so it gets a picker. **Lowering is immediate**
+   * and **raising asks**, for the same reason as the gates above. Also written to
+   * the workspace scope, and it cannot raise the effective level past whatever
+   * another scope allows — which the dialog says rather than leaving somebody to
+   * discover.
+   */
+  private async handleSetAutomationCeiling(payload: { level: string }): Promise<void> {
+    const level = ProjectDashboardPanel.normalizeLevel(payload.level);
+    const rootConfig = vscode.workspace.getConfiguration();
+    const current = resolveRestrictiveLevel(
+      rootConfig.inspect<string>('atlasmind.workflow.maxAutomationLevel') ?? {},
+    );
+
+    if (AUTOMATION_LEVELS.indexOf(level) > AUTOMATION_LEVELS.indexOf(current)) {
+      const confirmation = await vscode.window.showWarningMessage(
+        `Raise your automation ceiling to \`${level}\`?`,
+        {
+          modal: true,
+          detail: `${AUTOMATION_LEVEL_COPY[level]}\n\n`
+            + 'This is a ceiling, not an instruction: it permits up to that level and nothing happens '
+            + 'until a stage asks for it and the other gates agree. The lowest of the four still wins, '
+            + 'so if another scope or the workflow file is stricter, that is what applies.',
+        },
+        `Yes, allow up to ${level}`,
+      );
+      if (confirmation !== `Yes, allow up to ${level}`) {
+        return;
+      }
+    }
+
+    try {
+      await rootConfig.update(
+        'atlasmind.workflow.maxAutomationLevel',
+        level,
+        vscode.ConfigurationTarget.Workspace,
+      );
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not write the ceiling: ${detail.slice(0, 200)}`);
+    }
+    await this.syncState();
+  }
+
+  /**
+   * Create or delete a label, create or close a milestone.
+   *
+   * Same two gates as every other outward-facing write: the automation ladder
+   * first — labels are issue taxonomy, so they take `allowIssueWrites` — then a
+   * `{ modal: true }` confirmation built from the values that will be sent.
+   *
+   * A **deletion** carries a third thing, and it is the reason this handler is
+   * not three lines: GitHub removes a label from the repository *and* from every
+   * issue carrying it, in one irreversible step, and says nothing about how
+   * many. The confirmation names them, from the issue list already on screen. If
+   * that list was never loaded it says so rather than reporting zero — "nothing
+   * uses this" and "we did not look" lead to opposite decisions and only one is
+   * safe to act on.
+   *
+   * A milestone is **closed, never deleted**. Deleting one detaches every issue
+   * from it silently; closing preserves the record, which is what a milestone is
+   * for.
+   */
+  private async handleTaxonomyWrite(message: {
+    type: 'createLabel' | 'deleteLabel' | 'createMilestone' | 'closeMilestone';
+    payload: unknown;
+  }): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const slug = this.issuesState.repoSlug;
+    if (!workspaceRoot || !slug) {
+      void vscode.window.showWarningMessage('Load the issue list first so AtlasMind knows which repository to write to.');
+      return;
+    }
+
+    const decision = this.automationFor('issueWrites', 'auto');
+    if (!permits(decision.level, FIRST_WRITING_LEVEL)) {
+      await this.recordRefusal({
+        stageId: 'planning',
+        action: message.type,
+        actor: 'user',
+        decision,
+        requestedLevel: 'propose',
+        inputs: { repo: slug, action: message.type },
+        detail: decision.detail,
+      });
+      void vscode.window.showWarningMessage(
+        `AtlasMind is not permitted to change the label taxonomy right now (level: ${decision.level}).`,
+        { modal: true, detail: decision.detail },
+      );
+      return;
+    }
+
+    const payload = (message.payload ?? {}) as Record<string, unknown>;
+    let args: string[];
+    let description: string;
+    let successNote: string;
+    let confirmLabel = 'Yes, do it';
+
+    if (message.type === 'createLabel') {
+      const name = normalizeLabelName(payload['name']);
+      if (!name) {
+        return;
+      }
+      const color = safeLabelColor(payload['color']);
+      const note = normalizeLabelName(payload['description']);
+      args = ['label', 'create', name];
+      if (color) {
+        args.push('--color', color);
+      }
+      if (note) {
+        args.push('--description', note);
+      }
+      description = `Create the label \`${name}\` on ${slug}. This is visible to anyone who can see the repository.`;
+      successNote = `Created the label \`${name}\`.`;
+    } else if (message.type === 'deleteLabel') {
+      const name = normalizeLabelName(payload['name']);
+      if (!name) {
+        return;
+      }
+      args = ['label', 'delete', name, '--yes'];
+      description = describeLabelDeletion(
+        describeLabelDeletionImpact(name, this.issuesState.issues),
+        slug,
+        this.issuesState.status === 'ready',
+      );
+      successNote = `Deleted the label \`${name}\`.`;
+      // A different word, because this one cannot be undone and "do it" reads
+      // the same for a create and a delete.
+      confirmLabel = 'Yes, delete it';
+    } else if (message.type === 'createMilestone') {
+      const title = normalizeLabelName(payload['title']);
+      if (!title) {
+        return;
+      }
+      args = ['api', '--method', 'POST', `repos/${slug}/milestones`, '-f', `title=${title}`];
+      description = `Create the milestone "${title}" on ${slug}. This is public.`;
+      successNote = `Created the milestone "${title}".`;
+    } else {
+      const number = Number(payload['number']);
+      if (!Number.isInteger(number) || number <= 0) {
+        return;
+      }
+      args = ['api', '--method', 'PATCH', `repos/${slug}/milestones/${number}`, '-f', 'state=closed'];
+      description = `Close milestone #${number} on ${slug}. Its issues keep their milestone — closing preserves the record, `
+        + 'which is why AtlasMind never offers to delete one.';
+      successNote = `Closed milestone #${number}.`;
+    }
+
+    const confirmation = await vscode.window.showWarningMessage(
+      'Change the label taxonomy?',
+      { modal: true, detail: description },
+      confirmLabel,
+    );
+    if (confirmation !== confirmLabel) {
+      return;
+    }
+
+    try {
+      const wrote = await this.runRecorded(
+        {
+          stageId: 'planning',
+          action: message.type,
+          actor: 'user',
+          decision,
+          requestedLevel: 'propose',
+          inputs: { repo: slug, action: message.type, args },
+        },
+        async () => {
+          await runGh(workspaceRoot, args);
+          return { ok: true };
+        },
+      );
+      if (wrote) {
+        void vscode.window.showInformationMessage(successNote);
+      }
+    } catch (error) {
+      void vscode.window.showWarningMessage(`The taxonomy change failed: ${ghFailureOf(error).detail}`);
+    }
+    // Re-read either way: a failed write may still have partially applied, and
+    // the list is the only honest report of what the repository now holds.
+    await this.handleRefreshIssues();
+  }
+
+  /**
+   * Fetch the line-level review comments for one pull request.
+   *
+   * Per pull request, on request. Fetching them with the list would be one
+   * call per open pull request against a rate limit, for comments on all but
+   * one of them that nobody asked to see.
+   *
+   * A failure records an empty list rather than leaving the key absent, so the
+   * surface can say "none found" instead of offering the button again forever.
+   */
+  private async handleLoadReviewComments(number: number): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const slug = this.issuesState.repoSlug;
+    if (!workspaceRoot || !slug) {
+      void vscode.window.showWarningMessage('Load the pull request list first so AtlasMind knows which repository to read.');
+      return;
+    }
+    try {
+      const raw = await runGh(workspaceRoot, [
+        'api', `repos/${slug}/pulls/${number}/comments`, '--paginate',
+      ]);
+      this.reviewCommentsState = {
+        ...this.reviewCommentsState,
+        [String(number)]: parseGhReviewComments(raw),
+      };
+    } catch (error) {
+      this.reviewCommentsState = { ...this.reviewCommentsState, [String(number)]: [] };
+      void vscode.window.showWarningMessage(
+        `Could not read review comments on #${number}: ${ghFailureOf(error).detail}`,
+      );
+    }
+    await this.syncState();
+  }
+
+  /**
+   * Hand one review comment to chat, scoped to the line it points at.
+   *
+   * The comment is looked up host-side by index into the list this build
+   * fetched, so the webview supplies neither the text nor the path — and this
+   * text was written by an arbitrary third party, which is exactly why.
+   */
+  private async handleAddressReviewComment(payload: { number: number; index: number }): Promise<void> {
+    const comment = this.reviewCommentsState[String(payload.number)]?.[payload.index];
+    const pullRequest = this.pullRequestsState?.find(entry => entry.number === payload.number);
+    if (!comment || !pullRequest) {
+      void vscode.window.showWarningMessage('That review comment is no longer in the fetched list. Refresh and try again.');
+      return;
+    }
+    await vscode.commands.executeCommand('atlasmind.openChatPanel', {
+      draftPrompt: buildReviewCommentPrompt(pullRequest, comment),
+      sendMode: 'new-session',
+    });
+  }
+
+  /**
+   * Hand a debt entry to `refactorer` as a *record*, never as a work order.
+   *
+   * The prompt is built host-side from the entry looked up by id, so the
+   * webview supplies neither the text nor the path. `refactorer` proposes and
+   * explains; it does not apply, which is the same division every other
+   * agent in this workflow works under — rules decide, agents explain.
+   */
+  private async handleWorkOnDebt(payload: { id: string }): Promise<void> {
+    const entry = this.debtManager.get().entries.find(candidate => candidate.id === payload.id);
+    if (!entry) {
+      void vscode.window.showWarningMessage('That entry is no longer in the register.');
+      return;
+    }
+    await vscode.commands.executeCommand('atlasmind.openChatPanel', {
+      draftPrompt: buildDebtWorkPrompt(entry),
+      sendMode: 'new-session',
+    });
+  }
+
+  /**
+   * Create `workflow.json` from a profile.
+   *
+   * Never happens implicitly. Every other persisted document in AtlasMind seeds
+   * itself on first read, and this one deliberately does not: a workflow
+   * configuration is a statement about how a team works, it gets **committed**,
+   * and writing one into somebody's repository because they opened a tab would
+   * be putting words in their mouth in a file other people review.
+   */
+  private async handleCreateWorkflowConfig(payload: unknown): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      void vscode.window.showWarningMessage('Open a workspace folder before declaring a workflow.');
+      return;
+    }
+    if (this.workflowConfig.hasConfig()) {
+      void vscode.window.showInformationMessage('This workspace already has a workflow configuration.');
+      return;
+    }
+    const notice = this.workflowConfig.getNotice();
+    if (notice) {
+      // The file exists and was written by a newer AtlasMind. It is not corrupt
+      // — this build simply cannot read it — so replacing it would destroy a
+      // working configuration.
+      void vscode.window.showWarningMessage(notice);
+      return;
+    }
+
+    const profile = normalizeWorkflowProfile(
+      typeof (payload as { profile?: unknown })?.profile === 'string'
+        ? (payload as { profile: string }).profile
+        : undefined,
+    );
+
+    const confirmation = await vscode.window.showWarningMessage(
+      `Create ${WORKFLOW_SSOT_PATH} from the ${profile} profile?`,
+      {
+        modal: true,
+        detail:
+          'This writes two files into your repository, which you would then commit: '
+          + `\`${WORKFLOW_SSOT_PATH}\` and a generated markdown mirror beside it.\n\n`
+          + 'Every stage is created disabled and at "observe". A profile changes what you are '
+          + 'asked to attest, never what AtlasMind may do unattended — nothing here turns anything on.',
+      },
+      'Yes, create it',
+    );
+    if (confirmation !== 'Yes, create it') {
+      return;
+    }
+
+    try {
+      const seeded = await this.workflowConfig.create({
+        profile,
+        integrationBranch: this.issuesState.repoSlug ? undefined : undefined,
+      });
+      if (!seeded) {
+        void vscode.window.showWarningMessage('The workflow file could not be created.');
+        return;
+      }
+      void vscode.window.showInformationMessage(
+        `Created ${WORKFLOW_SSOT_PATH}. Every stage starts disabled — enable the ones you use, and commit the file so the team shares one workflow.`,
+      );
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not write the workflow file: ${detail.slice(0, 300)}`);
+    }
+    await this.syncState();
+  }
+
+  /**
+   * Apply an edit to the committed workflow configuration.
+   *
+   * The confirmation lists the exact changes rather than summarising them,
+   * because this file becomes a diff somebody else reviews: the person clicking
+   * the button and the person reading the pull request need to be looking at the
+   * same thing. Refusals are shown too — an edit that silently did nothing would
+   * be indistinguishable from one that worked.
+   */
+  private async handleEditWorkflowConfig(payload: unknown): Promise<void> {
+    const current = this.workflowConfig.getConfig();
+    if (!current) {
+      void vscode.window.showWarningMessage('There is no workflow configuration to edit yet.');
+      return;
+    }
+    const edit = sanitizeWorkflowConfigEdit(payload);
+    if (!edit) {
+      return;
+    }
+
+    const result = applyWorkflowConfigEdit(current, edit);
+    if (result.changes.length === 0) {
+      void vscode.window.showInformationMessage(
+        result.refused.length > 0
+          ? `Nothing changed. ${result.refused.join(' ')}`
+          : 'Nothing changed.',
+      );
+      return;
+    }
+
+    const confirmation = await vscode.window.showWarningMessage(
+      `Update ${WORKFLOW_SSOT_PATH}?`,
+      {
+        modal: true,
+        detail: [
+          result.changes.map(change => `• ${change}`).join('\n'),
+          ...(result.refused.length > 0 ? ['', `Not applied: ${result.refused.join(' ')}`] : []),
+          '',
+          'This file is committed, so this becomes a diff your team reviews.',
+        ].join('\n'),
+      },
+      'Yes, update it',
+    );
+    if (confirmation !== 'Yes, update it') {
+      return;
+    }
+
+    try {
+      await this.workflowConfig.save(result.config);
+      void vscode.window.showInformationMessage(
+        `Updated ${WORKFLOW_SSOT_PATH}.${result.refused.length > 0 ? ` ${result.refused.join(' ')}` : ''}`,
+      );
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not write the workflow file: ${detail.slice(0, 300)}`);
+    }
+    await this.syncState();
+  }
+
+  private async handleApplyTeamRole(payload: unknown): Promise<void> {
+    const roleId = typeof (payload as { roleId?: unknown })?.roleId === 'string'
+      ? (payload as { roleId: string }).roleId
+      : '';
+    const config = this.atlas.projectDirectorManager?.getConfig?.();
+    const role = resolveTeamRoles(config?.roles).find(candidate => candidate.id === roleId);
+    if (!role) {
+      void vscode.window.showWarningMessage('That role no longer exists.');
+      return;
+    }
+
+    const changes = roleWorkspaceSettings(role);
+    const confirmation = await vscode.window.showWarningMessage(
+      `Apply the ${role.label} role to this workspace?`,
+      { modal: true, detail: describeRoleApplication(role) },
+      'Yes, apply it',
+    );
+    if (confirmation !== 'Yes, apply it') {
+      return;
+    }
+
+    const configuration = vscode.workspace.getConfiguration();
+    try {
+      for (const change of changes) {
+        await configuration.update(change.key, change.value, vscode.ConfigurationTarget.Workspace);
+      }
+      void vscode.window.showInformationMessage(
+        `Applied the ${role.label} role. Each person can still set themselves more restrictive, and the workflow stays off until they turn it on.`,
+      );
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not write the role settings: ${detail.slice(0, 300)}`);
+    }
+    await this.syncState();
+  }
+
+  /**
+   * Write the managed CODEOWNERS block from the Director's responsibilities.
+   *
+   * This is the one place a role becomes an enforced restriction rather than a
+   * declared expectation, because GitHub enforces CODEOWNERS and AtlasMind
+   * cannot. It is therefore the one place worth being most careful:
+   *
+   * - only the managed block is rewritten, so hand-written rules survive;
+   * - an owner GitHub could not resolve is dropped and reported, because GitHub
+   *   silently ignores one and the path would end up with no reviewer at all;
+   * - the confirmation shows the exact block before anything is written.
+   */
+  private async handleGenerateCodeowners(): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const config = this.atlas.projectDirectorManager?.getConfig?.();
+    if (!workspaceRoot || !config) {
+      void vscode.window.showWarningMessage('Open a workspace with a Project Director roster first.');
+      return;
+    }
+
+    // A GitHub handle lives on the contact as a `github` communication link —
+    // a public identifier, which is the kind the roster prefers to a raw one.
+    const handleFor = (contactId: string | undefined): string[] => {
+      const contact = config.contacts.find(candidate => candidate.id === contactId);
+      return (contact?.links ?? [])
+        .filter(link => link.kind === 'github')
+        .map(link => link.handle);
+    };
+
+    const { block, entries, warnings } = buildCodeownersBlock({
+      responsibilities: config.responsibilities.map(responsibility => ({
+        area: responsibility.area,
+        ...(responsibility.paths === undefined ? {} : { paths: responsibility.paths }),
+        ownerHandles: handleFor(responsibility.ownerContactId),
+        backupHandles: handleFor(responsibility.backupContactId),
+      })),
+    });
+
+    if (entries.length === 0) {
+      void vscode.window.showWarningMessage(
+        'Nothing to write to CODEOWNERS.',
+        {
+          modal: true,
+          detail: warnings.length > 0
+            ? warnings.join('\n\n')
+            : 'No responsibility has both a path pattern and a contact with a GitHub handle. Add paths to a responsibility, and a GitHub link to its owner.',
+        },
+      );
+      return;
+    }
+
+    const file = path.join(workspaceRoot, '.github', 'CODEOWNERS');
+    let existing = '';
+    try {
+      existing = await fs.readFile(file, 'utf8');
+    } catch {
+      existing = '';
+    }
+
+    const detail = [
+      `${entries.length} rule${entries.length === 1 ? '' : 's'} will be written to .github/CODEOWNERS.`,
+      existing.length > 0
+        ? 'Only AtlasMind\'s managed block is replaced — your own entries are left untouched.'
+        : 'The file does not exist yet and will be created.',
+      '',
+      block,
+      ...(warnings.length > 0 ? ['', 'Left out:', ...warnings.map(warning => `• ${warning}`)] : []),
+    ].join('\n');
+
+    const confirmation = await vscode.window.showWarningMessage(
+      'Write CODEOWNERS?',
+      { modal: true, detail },
+      'Yes, write it',
+    );
+    if (confirmation !== 'Yes, write it') {
+      return;
+    }
+
+    try {
+      await fs.mkdir(path.dirname(file), { recursive: true });
+      await fs.writeFile(file, upsertManagedBlock(existing, block, CODEOWNERS_MARKERS), 'utf8');
+      void vscode.window.showInformationMessage(
+        `Wrote ${entries.length} CODEOWNERS rule${entries.length === 1 ? '' : 's'}. GitHub will request review from these owners on matching paths.`,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      void vscode.window.showWarningMessage(`Could not write CODEOWNERS: ${message.slice(0, 300)}`);
+    }
+    await this.syncState();
   }
 
   /** Hand an issue to chat as *reported content*, never as instructions. */
@@ -2287,8 +4336,7 @@ export class ProjectDashboardPanel {
       return undefined;
     }
     const configuration = vscode.workspace.getConfiguration('atlasmind');
-    const ssotPath = normalizeSsotPath(configuration.get<string>('atlasmind.ssotPath', 'project_memory')
-      ?? configuration.get<string>('ssotPath', 'project_memory'));
+    const ssotPath = normalizeSsotPath(configuration.get<string>('ssotPath', 'project_memory'));
     const filePath = path.join(workspaceRoot, ssotPath, 'roadmap', 'improvement-plan.md');
     const existing = await fs.readFile(filePath, 'utf-8').catch(() => '');
     const gates = parseRoadmapGates(existing);
@@ -2401,6 +4449,11 @@ export class ProjectDashboardPanel {
   }
 
   private async postMessage(message: DashboardWebviewMessage): Promise<void> {
+    // The one place every snapshot passes through, so the slug is captured once
+    // rather than at each of the six collection sites.
+    if (message.type === 'state') {
+      this.lastGitRemoteUrl = message.payload.githubLinks.slug;
+    }
     await this.panel.webview.postMessage(message);
   }
 
@@ -3361,6 +5414,166 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return sanitizeIssueDraft(candidate['payload']) !== undefined;
   }
 
+  // A role id is looked up against the role list, so it only has to be a slug —
+  // an unrecognised one resolves to no role rather than a partial match.
+  if (candidate['type'] === 'applyTeamRole') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null
+      && typeof payload['roleId'] === 'string'
+      && /^[a-z0-9][a-z0-9-]{0,59}$/.test(payload['roleId']);
+  }
+
+  // A debt status is looked up against the register, so it only has to be a
+  // known value — an unrecognised one resolves to no entry rather than a
+  // partial match.
+  if (candidate['type'] === 'setDebtStatus' || candidate['type'] === 'openDebtEvidence'
+    || candidate['type'] === 'workOnDebt') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null && typeof payload['id'] === 'string';
+  }
+
+  // A pull-request number and an index into the fetched list. Both are looked
+  // up host-side, so an out-of-range value resolves to nothing rather than to
+  // something adjacent.
+  if (candidate['type'] === 'loadReviewComments' || candidate['type'] === 'addressReviewComment') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    if (typeof payload !== 'object' || payload === null) {
+      return false;
+    }
+    const number = Number(payload['number']);
+    if (!Number.isInteger(number) || number <= 0) {
+      return false;
+    }
+    if (candidate['type'] === 'addressReviewComment') {
+      const index = Number(payload['index']);
+      return Number.isInteger(index) && index >= 0;
+    }
+    return true;
+  }
+
+  // Taxonomy writes are outward-facing and public, so the shape is checked
+  // here and every value is re-derived before it reaches `gh`. A label name is
+  // deliberately permissive about content — GitHub is too — and strict about
+  // emptiness, which is the thing that breaks.
+  if (candidate['type'] === 'createLabel' || candidate['type'] === 'deleteLabel'
+    || candidate['type'] === 'createMilestone') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    if (typeof payload !== 'object' || payload === null) {
+      return false;
+    }
+    const key = candidate['type'] === 'createMilestone' ? 'title' : 'name';
+    return typeof payload[key] === 'string' && payload[key].trim().length > 0;
+  }
+
+  if (candidate['type'] === 'closeMilestone') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    const number = Number(payload?.['number']);
+    return Number.isInteger(number) && number > 0;
+  }
+
+  if (candidate['type'] === 'scanDebt') {
+    // No payload: the scan reads the workspace, and the webview cannot
+    // influence which files it looks at.
+    return true;
+  }
+
+  // A gate write changes a *safety* setting, so the key is checked against the
+  // copy table rather than a pattern: a surface that could name an arbitrary
+  // `atlasmind.*` key could flip something that is not a workflow gate at all,
+  // and the confirmation would describe the wrong thing.
+  if (candidate['type'] === 'draftIssueFromRoadmap') {
+    // The id is resolved against the roadmap the host holds, so an id that is
+    // not there produces nothing. The webview never supplies the issue text.
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null && typeof payload['itemId'] === 'string';
+  }
+
+  if (candidate['type'] === 'openGithubLink') {
+    // Shape only. The id is resolved against this page's own link list in the
+    // handler, so an id that is not there produces nothing — which is why the
+    // webview never has to be trusted with a URL.
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null
+      && typeof payload['page'] === 'string'
+      && typeof payload['id'] === 'string';
+  }
+
+  if (candidate['type'] === 'markDeltaSeen') {
+    return true;
+  }
+
+  if (candidate['type'] === 'setWorkflowGate') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null
+      && typeof payload['key'] === 'string'
+      && Object.prototype.hasOwnProperty.call(WORKFLOW_GATE_COPY, payload['key'])
+      && typeof payload['enabled'] === 'boolean';
+  }
+
+  if (candidate['type'] === 'setAutomationCeiling') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null
+      && typeof payload['level'] === 'string'
+      && (AUTOMATION_LEVELS as readonly string[]).includes(payload['level']);
+  }
+
+  // Both workflow writes touch a file that gets committed, so the shape is
+  // checked here and every value is sanitized again in the config module.
+  if (candidate['type'] === 'createWorkflowConfig') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null && typeof payload['profile'] === 'string';
+  }
+
+  if (candidate['type'] === 'editWorkflowConfig') {
+    return sanitizeWorkflowConfigEdit(candidate['payload']) !== undefined;
+  }
+
+  if (candidate['type'] === 'generateCodeowners') {
+    // No payload: the content comes entirely from the persisted roster, so the
+    // webview cannot influence what gets written.
+    return true;
+  }
+
+  // Pull-request writes carry the same rule as issue writes: the shape is
+  // checked here, the content is re-sanitised before it reaches `gh`, and the
+  // webview supplies only these fields — never a command or an argument list.
+  if (candidate['type'] === 'createPullRequest') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    if (typeof payload !== 'object' || payload === null) {
+      return false;
+    }
+    // A ref is a git ref, not free text: anything else is refused here rather
+    // than sanitised into something that might still be a valid ref elsewhere.
+    const ref = (value: unknown): boolean =>
+      typeof value === 'string' && value.length > 0 && value.length <= 255 && !/[~^:\s\\?*[\]]|\.\./.test(value);
+    return typeof payload['title'] === 'string'
+      && payload['title'].trim().length > 0
+      && ref(payload['base'])
+      && ref(payload['head'])
+      && (payload['body'] === undefined || typeof payload['body'] === 'string')
+      && (payload['draft'] === undefined || typeof payload['draft'] === 'boolean');
+  }
+
+  if (candidate['type'] === 'reviewPullRequest') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null
+      && sanitizeIssueNumber(payload['number']) > 0
+      && (payload['verdict'] === 'approve' || payload['verdict'] === 'request-changes' || payload['verdict'] === 'comment')
+      && (payload['body'] === undefined || typeof payload['body'] === 'string');
+  }
+
+  if (candidate['type'] === 'mergePullRequest') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null
+      && sanitizeIssueNumber(payload['number']) > 0
+      && typeof payload['base'] === 'string';
+  }
+
+  if (candidate['type'] === 'closePullRequest') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null && sanitizeIssueNumber(payload['number']) > 0;
+  }
+
   if (candidate['type'] === 'closeIssue' || candidate['type'] === 'reopenIssue') {
     const payload = candidate['payload'] as Record<string, unknown> | undefined;
     return typeof payload === 'object' && payload !== null && sanitizeIssueNumber(payload['number']) > 0;
@@ -3379,7 +5592,7 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return typeof candidate['payload'] === 'string' && slugifyGateId(candidate['payload']).length > 0;
   }
 
-  if ((candidate['type'] === 'openCommand' || candidate['type'] === 'openFile' || candidate['type'] === 'openRun' || candidate['type'] === 'openRunWithGoal' || candidate['type'] === 'openSession' || candidate['type'] === 'addressGap' || candidate['type'] === 'resolveGapItem' || candidate['type'] === 'resolveGapGroup' || candidate['type'] === 'openGapFiles' || candidate['type'] === 'copyContact' || candidate['type'] === 'createShelfFolder') && typeof candidate['payload'] === 'string') {
+  if ((candidate['type'] === 'openCommand' || candidate['type'] === 'openSettingKey' || candidate['type'] === 'openFile' || candidate['type'] === 'openRun' || candidate['type'] === 'openRunWithGoal' || candidate['type'] === 'openSession' || candidate['type'] === 'addressGap' || candidate['type'] === 'resolveGapItem' || candidate['type'] === 'resolveGapGroup' || candidate['type'] === 'openGapFiles' || candidate['type'] === 'copyContact' || candidate['type'] === 'createShelfFolder') && typeof candidate['payload'] === 'string') {
     return candidate['payload'].trim().length > 0;
   }
 
@@ -3577,12 +5790,629 @@ export function normalizeDashboardPromptRequest(payload: unknown): { prompt: str
   };
 }
 
+/**
+ * Assemble the Workflow page from state the dashboard already holds.
+ *
+ * No network call, no file read: every input is something a sibling collector
+ * gathered for another page. The page therefore costs nothing to open, which is
+ * what lets it be the first thing somebody looks at.
+ *
+ * The honesty rules from `workflowMetrics.ts` carry through unchanged — an
+ * unmeasured component is omitted from the health score rather than counted as
+ * zero, and a repository with no CI reports "no checks" rather than "0% passing".
+ */
+function buildGuidedWorkflowSnapshot(input: {
+  configuration: vscode.WorkspaceConfiguration;
+  gitSnapshot: GitSnapshot;
+  packageVersion: string;
+  ciWorkflowCount: number;
+  testing: TestingDashboardSnapshot;
+  issues: DashboardIssuesSnapshot;
+  pullRequests?: readonly PullRequestRecord[];
+  /** Line-level review comments, by pull-request number, once fetched. */
+  reviewComments?: Record<string, ReviewCommentRecord[]>;
+  ci?: DashboardCiIntelligence;
+  /** Manifest evidence for archetype detection. Absent means "we did not look". */
+  archetypeEvidence?: { corpus: string; files: readonly string[]; language?: string };
+  changelogPresent: boolean;
+  /** The committed workflow file, read once per snapshot. */
+  workflowConfig?: WorkflowConfig;
+  /** Why the file could not be used, when it exists but this build must not. */
+  workflowConfigNotice?: string;
+  /** The audit ledger's summary, and the most recent records for the list. */
+  auditSummary?: WorkflowHistorySummary;
+  auditRecent?: WorkflowRunRecord[];
+  /** The latest CI conclusion, where CI was read at all. */
+  ciStatus?: 'pass' | 'fail' | 'pending' | 'none';
+  /** Documents past their review baseline, where the register was readable. */
+  staleDocumentCount?: number;
+  /** True once a debt register exists — not merely once it has entries. */
+  hasDebtRegister?: boolean;
+  /** Agent ids in this workspace, so a stage owner can be checked to exist. */
+  knownAgentIds?: readonly string[];
+  /** The changelog itself, so its headings can be read rather than assumed. */
+  changelog?: string;
+  /** Commits on top of the most recent tag, when git could answer. */
+  commitsSinceTag?: number;
+  prTemplatePresent: boolean;
+  codeownersPresent: boolean;
+  issueTemplateCount: number;
+  commitSeries: DashboardSeriesPoint[];
+  // The delta is not built here: it needs per-developer editor storage, and
+  // this function is pure over its input. `withObservedDelta` attaches it.
+}): Omit<DashboardGuidedWorkflowSnapshot, 'delta'> {
+  const now = Date.now();
+  // Deliberately a normal `get()`, unlike the safety settings below it.
+  // `profile` and `archetype` are *declarations* about the project, not
+  // permissions: the team's answer should win over an individual's, which is
+  // exactly VS Code's default precedence. Only settings that gate an action
+  // take the most-restrictive-scope rule.
+  // The file is the declaration where there is one. A setting that disagreed
+  // with a committed workflow would be a second answer to a question that
+  // should have exactly one.
+  const profile = input.workflowConfig?.profile
+    ?? normalizeWorkflowProfile(input.configuration.get<string>('workflow.profile', 'solo'));
+  // Read scopes, matching how the gate actually decides — otherwise the card
+  // would display a ceiling the enforcement does not use, which is worse than
+  // showing nothing.
+  const enabled = resolveRestrictiveFlag(input.configuration.inspect<boolean>('workflow.enabled') ?? {});
+  const automationLevel = resolveRestrictiveLevel(
+    input.configuration.inspect<string>('workflow.maxAutomationLevel') ?? {},
+  );
+
+  const enabledMethodologies = (input.testing.projectTestingConfig?.methodologies ?? [])
+    .filter(entry => entry.enabled)
+    .map(entry => entry.id);
+
+  const branches = deriveBranchMetrics(
+    input.gitSnapshot.branches.map(branch => ({ name: branch.name, lastCommitAt: branch.lastCommitAt })),
+    now,
+  );
+
+  // Issues come from a network call the user may never have triggered. An
+  // un-loaded tracker is *absent*, not empty — reporting "0 open issues" for a
+  // list nobody fetched would be a confident lie.
+  const issueMetrics = input.issues.status === 'ready'
+    ? deriveIssueMetrics(
+      input.issues.issues.map(issue => ({
+        number: issue.number,
+        state: issue.state,
+        labels: issue.labels,
+        assignees: issue.assignees,
+        createdAt: issue.createdAt,
+        updatedAt: issue.updatedAt,
+      })),
+      now,
+    )
+    : undefined;
+
+  // Absent until a load succeeded — absent is not the same as none open, and
+  // only one of those is a fact about the repository.
+  const prMetrics = input.pullRequests === undefined
+    ? undefined
+    : derivePullRequestMetrics(
+      input.pullRequests.map(pr => ({
+        number: pr.number,
+        state: pr.state,
+        createdAt: pr.createdAt,
+        updatedAt: pr.updatedAt,
+        mergedAt: pr.mergedAt,
+        additions: pr.additions,
+        deletions: pr.deletions,
+        reviews: pr.reviews.map(review => ({ verdict: review.verdict, submittedAt: review.submittedAt })),
+        linkedIssues: pr.linkedIssues,
+      })),
+      now,
+    );
+
+  // Phase 1 has no check-run fetch on the render path, so CI reports honestly
+  // that it has not looked rather than implying a green build.
+  const ci = deriveCiMetrics([]);
+
+  // The versions the changelog *actually documents*, read from its headings.
+  //
+  // This used to be `changelogPresent ? [packageVersion] : []`, which asserted
+  // that any repository owning a `CHANGELOG.md` had an entry for the version it
+  // was about to ship. That is the single most commonly missing thing at release
+  // time, and the check that was supposed to catch it could not fail. It fed
+  // `changelogHasCurrentVersion`, so stage 6 read as complete on a changelog
+  // whose last entry was six versions old.
+  const release = deriveReleaseMetrics({
+    version: input.packageVersion,
+    changelogVersions: listChangelogVersions(input.changelog),
+    commitsSinceTag: input.commitsSinceTag ?? 0,
+    commitSubjects: input.gitSnapshot.commits.map(commit => commit.subject),
+  });
+
+  const observed: WorkflowObservedState = {
+    ...(input.issues.repoSlug === undefined ? {} : { repoSlug: input.issues.repoSlug }),
+    ...(input.issues.status === 'no-cli' ? { ghInstalled: false } : {}),
+    ...(input.issues.status === 'not-authenticated' ? { ghInstalled: true, ghAuthenticated: false } : {}),
+    ...(input.issues.status === 'ready' ? { ghInstalled: true, ghAuthenticated: true } : {}),
+    ...(issueMetrics === undefined ? {} : {
+      openIssueCount: issueMetrics.open,
+      staleIssueCount: issueMetrics.stale,
+    }),
+    hasIssueTemplates: input.issueTemplateCount > 0,
+    // Four fields the curriculum reads and nothing ever set, so the steps
+    // depending on them could not change state whatever the repository did.
+    ...(prMetrics === undefined ? {} : {
+      openDependencyPrCount: input.pullRequests === undefined
+        ? 0
+        : input.pullRequests.filter(pr => isDependencyPullRequest(pr)).length,
+    }),
+    ...(input.staleDocumentCount === undefined ? {} : { staleDocumentCount: input.staleDocumentCount }),
+    // A studio asks for one reviewer other than the author; a solo developer
+    // asks for none. Stated as a number rather than inferred from the profile
+    // at each call site, so one answer serves every step that needs it.
+    requiredApprovers: profile === 'studio' ? 1 : 0,
+    declaredLabelCount: issueMetrics ? issueMetrics.byLabel.length : 0,
+    currentBranch: input.gitSnapshot.currentBranch,
+    // From the file where there is one. These were hardcoded to this
+    // repository's own branch names, so every other project was taught a
+    // workflow naming branches it does not have.
+    integrationBranch: input.workflowConfig?.branches.integration ?? 'develop',
+    protectedBranches: input.workflowConfig?.branches.protected ?? ['main'],
+    workingTreeClean: !input.gitSnapshot.dirty,
+    nonConformingBranchCount: branches.nonConforming.length,
+    enabledTestingMethodologyIds: enabledMethodologies,
+    hasPullRequestTemplate: input.prTemplatePresent,
+    hasCodeOwners: input.codeownersPresent,
+    ciWorkflowCount: input.ciWorkflowCount,
+    // The real conclusion where CI was read. This was hardcoded to `'none'`,
+    // so a project with a green build was told it had no check runs — a
+    // false statement rather than a missing one, which is worse.
+    ciStatus: input.ciStatus ?? 'none',
+    // The report's *presence* is the signal — there is no "found" flag, because
+    // a report that could not be read is indistinguishable from one that does
+    // not exist, and both mean "no verdict".
+    hasTestReport: input.testing.policyCoverage?.report !== undefined,
+    currentVersion: input.packageVersion,
+    hasChangelog: input.changelogPresent,
+    changelogHasCurrentVersion: release.changelogCurrent,
+    commitsSinceLastTag: release.commitsSinceTag,
+    // Read from the register rather than hardcoded. Like `workflowConfigPresent`
+    // before it, this was `false` from the moment the curriculum shipped, so
+    // stage 7's step could never be completed by anybody.
+    hasDebtRegister: input.hasDebtRegister === true,
+    // Read from disk rather than hardcoded. This was `false` from the moment
+    // the curriculum shipped, which made "declare your workflow" a step nobody
+    // could ever complete — a permanently open gap, and a dashboard with one of
+    // those teaches people to ignore gaps.
+    workflowConfigPresent: input.workflowConfig !== undefined,
+    workflowEnabled: enabled,
+    profile,
+  };
+
+  // Archetype. Detection reads the manifests the dashboard already loaded, so
+  // this costs nothing; the declaration comes from settings until `workflow.json`
+  // lands in Tier 4, at which point the file becomes the source.
+  const declaredRaw = input.configuration.get<string>('workflow.archetype', '');
+  const declared = declaredRaw ? normalizeArchetype(declaredRaw) : undefined;
+  const traits = normalizeTraits(input.configuration.get<string[]>('workflow.traits', []));
+  const detected = input.archetypeEvidence
+    ? detectProjectArchetype(input.archetypeEvidence)
+    : undefined;
+  // The pack follows the *declared* value where there is one — detection never
+  // overrides a decision somebody made on purpose.
+  const effectiveArchetype = declared ?? (detected?.confident ? detected.archetype : 'generic');
+
+  const stages = buildWorkflowCurriculum(observed);
+  const progress = summarizeWorkflowProgress(stages);
+  const next = nextWorkflowStep(stages);
+
+  // Only the parts that could actually be measured contribute. `governance` is
+  // always measurable because it reads local files; the rest may be absent, and
+  // absent is reported rather than scored.
+  const components: HealthComponent[] = [
+    {
+      key: 'setup',
+      label: 'Workflow setup',
+      score: progress.total > 0 ? known(Math.round((progress.done / progress.total) * 100)) : unknown('No steps evaluated.'),
+      weight: 3,
+    },
+    { key: 'branches', label: 'Branch naming', score: branches.conformanceRate, weight: 1 },
+    { key: 'commits', label: 'Commit conventions', score: release.conformance.rate, weight: 2 },
+    { key: 'ci', label: 'CI pass rate', score: ci.passRate, weight: 2 },
+    {
+      key: 'issues',
+      label: 'Issue hygiene',
+      score: issueMetrics === undefined
+        ? unknown('Issues have not been loaded.', 'Open the Issues tab to fetch them.')
+        : issueMetrics.open === 0
+          ? unknown('No open issues to assess.')
+          : known(Math.round(((issueMetrics.open - issueMetrics.stale) / issueMetrics.open) * 100)),
+      weight: 1,
+    },
+  ];
+
+  return {
+    stages,
+    progress,
+    // Returned so the caller can compare it against the last reading. The
+    // comparison itself is not done here: it needs per-developer storage, and
+    // this function is pure over its input.
+    observed,
+    ...(next === undefined ? {} : {
+      next: {
+        stageId: next.stage.id,
+        stepId: next.step.id,
+        stageName: next.stage.name,
+        stepTitle: next.step.title,
+      },
+    }),
+    glossary: referencedGlossaryKeys(stages).flatMap(key => {
+      const entry = glossaryEntry(key);
+      return entry ? [{ key, term: entry.term, definition: entry.definition }] : [];
+    }),
+    profile,
+    enabled,
+    automationLevel,
+    capabilities: [
+      {
+        id: 'atlasmind.workflow.allowIssueWrites',
+        label: 'Issue writes',
+        enabled: resolveRestrictiveFlag(input.configuration.inspect<boolean>('workflow.allowIssueWrites') ?? {}),
+        detail: 'Create, comment on, edit, close or reopen issues. Every write still confirms first.',
+      },
+      {
+        id: 'atlasmind.workflow.allowPullRequestWrites',
+        label: 'Pull request writes',
+        enabled: resolveRestrictiveFlag(input.configuration.inspect<boolean>('workflow.allowPullRequestWrites') ?? {}),
+        detail: 'Open pull requests, post reviews, merge. Every write still confirms first.',
+      },
+      {
+        id: 'atlasmind.workflow.allowReleaseWrites',
+        label: 'Release writes',
+        enabled: resolveRestrictiveFlag(input.configuration.inspect<boolean>('workflow.allowReleaseWrites') ?? {}),
+        detail: 'Bump the version and write the changelog entry. Tagging and publishing stay human-triggered.',
+      },
+      {
+        id: 'atlasmind.workflow.allowProtectedRefWrites',
+        label: 'Protected branch writes',
+        enabled: resolveRestrictiveFlag(input.configuration.inspect<boolean>('workflow.allowProtectedRefWrites') ?? {}),
+        detail: 'A hard ceiling. With this off, unattended automation is unreachable for any stage whose base is protected.',
+      },
+    ],
+    enablement: {
+      // `propose` rather than `auto`: it is the rung where AtlasMind starts
+      // changing things other people can see, which is the threshold anybody
+      // asking "how do I turn this on?" actually means.
+      target: FIRST_WRITING_LEVEL,
+      requirements: requirementsFor(FIRST_WRITING_LEVEL, {
+        masterEnabled: enabled,
+        userCeiling: automationLevel as AutomationLevel,
+        // Issue writes stand in for the capability gate here: it is the first
+        // one most projects need, and the card lists all four separately anyway.
+        capabilityEnabled: resolveRestrictiveFlag(
+          input.configuration.inspect<boolean>('workflow.allowIssueWrites') ?? {},
+        ),
+        capabilityKey: 'atlasmind.workflow.allowIssueWrites',
+        capabilityLabel: 'Issue writes',
+        stageLevel: input.workflowConfig?.stages.find(stage => stage.id === 'planning')?.automationLevel
+          ?? 'observe',
+      }),
+      // Which scopes would make a workspace write a no-op. Surfaced so a control
+      // can say so *before* somebody clicks it rather than after.
+      blockedScopes: Object.fromEntries(
+        ['workflow.enabled', 'workflow.allowIssueWrites', 'workflow.allowPullRequestWrites',
+          'workflow.allowReleaseWrites', 'workflow.allowProtectedRefWrites']
+          .map(key => [
+            `atlasmind.${key}`,
+            blockingFlagScopes(input.configuration.inspect<boolean>(key) ?? {})
+              .filter(scope => scope !== 'workspace')
+              .map(describeSettingScope),
+          ]),
+      ),
+      masterKey: 'atlasmind.workflow.enabled',
+      ceilingKey: 'atlasmind.workflow.maxAutomationLevel',
+      levels: [...AUTOMATION_LEVELS],
+    },
+    ...(issueMetrics === undefined ? {} : { issues: issueMetrics }),
+    ...(prMetrics === undefined ? {} : { pullRequests: prMetrics }),
+    ...(input.pullRequests === undefined ? {} : { pullRequestRecords: [...input.pullRequests] }),
+    ...(input.reviewComments === undefined ? {} : { reviewComments: input.reviewComments }),
+    ...(input.ci === undefined ? {} : { ciIntelligence: input.ci }),
+    archetype: {
+      ...(declared === undefined ? {} : { declared }),
+      traits,
+      ...(detected === undefined ? {} : {
+        detected: { archetype: detected.archetype, reasons: detected.reasons, confident: detected.confident },
+      }),
+      agreement: describeArchetypeAgreement(detected, declared),
+      pack: resolveArchetypePack(effectiveArchetype, traits),
+      labels: { archetype: { ...ARCHETYPE_LABEL }, trait: { ...TRAIT_LABEL } },
+    },
+    branches,
+    audit: {
+      summary: input.auditSummary ?? { total: 0, unfinished: 0, failed: 0, refused: 0, byStage: [], byOutcome: [], breaches: [], droppedByCap: 0 },
+      recent: input.auditRecent ?? [],
+      path: WORKFLOW_HISTORY_SSOT_PATH,
+    },
+    workflowConfig: {
+      path: WORKFLOW_SSOT_PATH,
+      ...(input.workflowConfig === undefined ? {} : {
+        config: input.workflowConfig,
+        // Validated against the agents this workspace actually has. A stage
+        // owned by an agent nobody installed is reported rather than dropped:
+        // a silently ownerless stage reads as one nobody was assigned, not as
+        // one whose assignee has gone.
+        problems: validateWorkflowConfig(input.workflowConfig, {
+          ...(input.knownAgentIds === undefined ? {} : { knownAgentIds: input.knownAgentIds }),
+        }),
+        blockers: Object.fromEntries(
+          input.workflowConfig.stages.map(stage => [stage.id, stageBlockers(stage)]),
+        ),
+      }),
+      ...(input.workflowConfigNotice === undefined ? {} : { notice: input.workflowConfigNotice }),
+    },
+    ci,
+    release,
+    health: deriveWorkflowHealth(components),
+    commitSeries: input.commitSeries,
+  };
+}
+
+function normalizeWorkflowProfile(value: string | undefined): 'solo' | 'studio' | 'custom' {
+  return value === 'studio' || value === 'custom' ? value : 'solo';
+}
+
+/**
+ * What a release from here would look like, and what is stopping it.
+ *
+ * Split deliberately along the network boundary. The **plan** is computed from
+ * files already on disk — the manifest version, the changelog, the tag list, the
+ * working tree — so it is always present and always current, and a user with no
+ * `gh` at all still gets a useful answer about their own repository. The
+ * **published releases** and therefore the four delivery keys need a fetch, so
+ * they stay absent until one succeeds.
+ *
+ * That split is why the gates distinguish `fail` from `unknown`. Without a
+ * release list the "version moved on" gate genuinely has no answer, and saying
+ * so is the only honest option — a plan that reported the version as fine
+ * because it could not check would be worse than one that reported nothing.
+ */
+function buildReleaseSnapshot(input: {
+  packageVersion: string;
+  changelog?: string;
+  tags?: readonly string[];
+  workingTreeClean: boolean;
+  commitSubjects: readonly string[];
+  ciConclusion?: 'success' | 'failure' | 'pending' | 'none';
+  releases?: readonly MetricReleaseInput[];
+  pullRequests?: readonly PullRequestRecord[];
+  loadedAt?: string;
+  loadFailure?: string;
+  now: number;
+}): DashboardReleaseSnapshot {
+  // The most recent published release, by publish date rather than by list
+  // order — `gh` returns newest first today, but a metric that silently depends
+  // on somebody else's sort order breaks without a symptom.
+  const published = (input.releases ?? [])
+    .filter(release => !release.isDraft && !release.isPrerelease)
+    .slice()
+    .sort((a, b) => Date.parse(b.publishedAt ?? '') - Date.parse(a.publishedAt ?? ''));
+  const lastReleased = published[0]?.tagName.replace(/^v/i, '');
+
+  const plan = buildReleasePlan({
+    currentVersion: input.packageVersion,
+    ...(input.changelog === undefined ? {} : { changelog: input.changelog }),
+    ...(input.tags === undefined ? {} : { existingTags: input.tags }),
+    ...(lastReleased === undefined ? {} : { lastReleasedVersion: lastReleased }),
+    commitSubjects: input.commitSubjects,
+    workingTreeClean: input.workingTreeClean,
+    ...(input.ciConclusion === undefined ? {} : { ciConclusion: input.ciConclusion }),
+  });
+
+  return {
+    releases: [...(input.releases ?? [])],
+    tags: [...(input.tags ?? [])],
+    plan,
+    planSummary: describeReleasePlan(plan),
+    dora: deriveDoraMetrics({
+      releases: input.releases ?? [],
+      ...(input.pullRequests === undefined ? {} : {
+        pullRequests: input.pullRequests.map(pr => ({
+          number: pr.number,
+          state: pr.state,
+          createdAt: pr.createdAt,
+          ...(pr.mergedAt === undefined ? {} : { mergedAt: pr.mergedAt }),
+        })),
+      }),
+      now: input.now,
+    }),
+    changeFailureRule: DECLARED_CHANGE_FAILURE_RULE,
+    ...(input.loadedAt === undefined ? {} : { loadedAt: input.loadedAt }),
+    ...(input.loadFailure === undefined ? {} : { loadFailure: input.loadFailure }),
+  };
+}
+
+/**
+ * Validate a workflow edit arriving from the webview.
+ *
+ * The webview supplies **data only** — never a command, never a path — and this
+ * is where that stops being a convention. `applyWorkflowConfigEdit` sanitizes
+ * every value again on the other side; this pass exists to reject a payload
+ * whose *shape* is wrong before it gets there, so a malformed message produces
+ * nothing rather than a partial edit.
+ */
+/**
+ * A label edit names one category. Editing the whole taxonomy in one message
+ * would mean a client that only knew about `type` could wipe `area` by omission.
+ */
+function sanitizeLabelEdit(value: unknown): { category: string; values: string[] } | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+  const raw = value as Record<string, unknown>;
+  if (typeof raw['category'] !== 'string' || !Array.isArray(raw['values'])) {
+    return undefined;
+  }
+  return {
+    category: raw['category'],
+    values: raw['values'].slice(0, 200).filter((entry): entry is string => typeof entry === 'string'),
+  };
+}
+
+export function sanitizeWorkflowConfigEdit(payload: unknown): WorkflowConfigEdit | undefined {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return undefined;
+  }
+  const raw = payload as Record<string, unknown>;
+  const strings = (value: unknown, cap: number): string[] | undefined =>
+    Array.isArray(value)
+      ? value.slice(0, cap).filter((entry): entry is string => typeof entry === 'string')
+      : undefined;
+
+  const stages = Array.isArray(raw['stages'])
+    ? raw['stages'].slice(0, 40)
+      .filter((entry): entry is Record<string, unknown> =>
+        Boolean(entry) && typeof entry === 'object' && typeof (entry as Record<string, unknown>)['id'] === 'string')
+      .map(entry => ({
+        id: entry['id'] as string,
+        ...(typeof entry['enabled'] === 'boolean' ? { enabled: entry['enabled'] } : {}),
+        ...(typeof entry['automationLevel'] === 'string' ? { automationLevel: entry['automationLevel'] } : {}),
+        ...(strings(entry['requiredChecks'], 20) === undefined ? {} : { requiredChecks: strings(entry['requiredChecks'], 20)! }),
+        ...(strings(entry['requiredStatusChecks'], 20) === undefined ? {} : { requiredStatusChecks: strings(entry['requiredStatusChecks'], 20)! }),
+        ...(strings(entry['blockers'], 20) === undefined ? {} : { blockers: strings(entry['blockers'], 20)! }),
+      }))
+    : undefined;
+
+  const edit: WorkflowConfigEdit = {
+    ...(typeof raw['profile'] === 'string' ? { profile: raw['profile'] } : {}),
+    ...(typeof raw['integrationBranch'] === 'string' ? { integrationBranch: raw['integrationBranch'] } : {}),
+    ...(typeof raw['releaseBranch'] === 'string' ? { releaseBranch: raw['releaseBranch'] } : {}),
+    ...(sanitizeLabelEdit(raw['labels']) === undefined ? {} : { labels: sanitizeLabelEdit(raw['labels'])! }),
+    ...(strings(raw['branchTypes'], 30) === undefined ? {} : { branchTypes: strings(raw['branchTypes'], 30)! }),
+    ...(stages === undefined ? {} : { stages }),
+  };
+
+  // An edit with no recognised field is a malformed message, not a no-op edit.
+  return Object.keys(edit).length > 0 ? edit : undefined;
+}
+
+/**
+ * Every version a Keep-a-Changelog document has a heading for.
+ *
+ * Deliberately permissive about heading decoration — dates, links, codenames —
+ * and strict about the version itself, so a real entry is found whatever
+ * surrounds it and nothing that is not a version is mistaken for one.
+ */
+export function listChangelogVersions(raw: string | undefined): string[] {
+  if (typeof raw !== 'string' || !raw) {
+    return [];
+  }
+  const found: string[] = [];
+  for (const line of raw.split(/\r?\n/)) {
+    if (!line.startsWith('## ')) {
+      continue;
+    }
+    const match = /^##\s+\[?v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\]?/.exec(line);
+    if (match?.[1]) {
+      found.push(match[1]);
+    }
+    if (found.length >= 500) {
+      break;
+    }
+  }
+  return found;
+}
+
+/**
+ * Commits on top of the most recent reachable tag.
+ *
+ * `undefined` when there is no tag or git could not answer — distinct from
+ * zero, which means "the tag is the current commit" and is a fact worth stating.
+ */
+async function collectCommitsSinceTag(workspaceRoot: string | undefined): Promise<number | undefined> {
+  if (!workspaceRoot) {
+    return undefined;
+  }
+  try {
+    const described = (await runGit(workspaceRoot, ['describe', '--tags', '--abbrev=0'])).trim();
+    if (!described) {
+      return undefined;
+    }
+    const count = (await runGit(workspaceRoot, ['rev-list', `${described}..HEAD`, '--count'])).trim();
+    const parsed = Number.parseInt(count, 10);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  } catch {
+    // No tags yet is the common case here, and it is not an error.
+    return undefined;
+  }
+}
+
+/**
+ * The repository's local tags.
+ *
+ * `undefined` rather than `[]` when git could not answer, because an empty tag
+ * list and an unanswered question lead to opposite advice: one says the version
+ * is free to tag, the other says nobody knows.
+ */
+async function collectLocalTags(workspaceRoot: string | undefined): Promise<string[] | undefined> {
+  if (!workspaceRoot) {
+    return undefined;
+  }
+  try {
+    const raw = await runGit(workspaceRoot, ['tag', '--list']);
+    return raw.split(/\r?\n/).map(line => line.trim()).filter(Boolean).slice(0, 2000);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Parse `gh release list --json …`. Never throws; a bad entry is dropped. */
+export function parseGhReleaseList(raw: string): MetricReleaseInput[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) {
+    return [];
+  }
+  const out: MetricReleaseInput[] = [];
+  for (const entry of parsed.slice(0, 200)) {
+    if (!entry || typeof entry !== 'object') {
+      continue;
+    }
+    const record = entry as Record<string, unknown>;
+    const tagName = typeof record['tagName'] === 'string' ? record['tagName'].trim().slice(0, 120) : '';
+    if (!tagName) {
+      continue;
+    }
+    const publishedAt = typeof record['publishedAt'] === 'string' ? record['publishedAt'] : undefined;
+    out.push({
+      tagName,
+      ...(publishedAt === undefined ? {} : { publishedAt }),
+      ...(record['isPrerelease'] === true ? { isPrerelease: true } : {}),
+      ...(record['isDraft'] === true ? { isDraft: true } : {}),
+    });
+  }
+  return out;
+}
+
 async function collectDashboardSnapshot(
   atlas: AtlasMindContext,
   ideationAttachments: TaskImageAttachment[] = [],
   // Held by the panel rather than collected here: issues come from a network
   // call, so they are fetched on demand and simply carried through a render.
   issues: DashboardIssuesSnapshot = { status: 'not-loaded', detail: 'Issues have not been loaded yet.', issues: [], busy: false },
+  // Undefined until a load has actually succeeded. An empty array would claim
+  // "no pull requests", which is a different fact from "we have not looked".
+  pullRequests?: readonly PullRequestRecord[],
+  ci?: DashboardCiIntelligence,
+  // Undefined until `gh release list` has succeeded. The release *plan* is built
+  // from local files regardless, so the page is useful without this.
+  releases?: { records: readonly MetricReleaseInput[]; loadedAt: string } | { failure: string },
+  // Held by the panel so it is read once and after each write, not on every
+  // render — this is a synchronous file read on the render path.
+  workflowConfigManager?: WorkflowConfigManager,
+  auditLedger?: WorkflowAuditLedger,
+  debt?: { register: import('../core/debtRegister.js').DebtRegister; scanning: boolean },
+  reviewComments?: Record<string, ReviewCommentRecord[]>,
+  taxonomy?: { labels: LabelRecord[]; milestones: MilestoneRecord[] },
 ): Promise<DashboardSnapshot> {
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const workspaceName = vscode.workspace.workspaceFolders?.[0]?.name ?? 'No Workspace';
@@ -3630,7 +6460,27 @@ async function collectDashboardSnapshot(
   const autoVerifyAfterWrite = configuration.get<boolean>('autoVerifyAfterWrite', false);
   const autoVerifyScripts = normalizeVerificationScripts(configuration.get<string[] | string>('autoVerifyScripts', []));
   const securityPolicyPresent = await fileExists(workspaceRoot ? path.join(workspaceRoot, 'SECURITY.md') : undefined);
-  const changelogPresent = await fileExists(workspaceRoot ? path.join(workspaceRoot, 'CHANGELOG.md') : undefined);
+  // Read rather than merely detected: the changelog section for the current
+  // version *is* the release notes, so its content is needed to say whether a
+  // release could go out — not just whether the file exists.
+  const changelog = await readWorkspaceText(workspaceRoot, 'CHANGELOG.md');
+  const changelogPresent = changelog !== undefined;
+  // Local tags, so an already-published version is caught before anything is
+  // attempted. `undefined` when git could not be asked — which the release gate
+  // reports as "a collision cannot be ruled out" rather than as "the tag is free".
+  const localTags = await collectLocalTags(workspaceRoot);
+  const commitsSinceTag = await collectCommitsSinceTag(workspaceRoot);
+  // The most recent conclusive run, if CI was read at all. `pending` and "not
+  // read" are kept apart: one is a build in progress, the other is no answer.
+  const latestCiConclusion = ci === undefined
+    ? undefined
+    : ci.runs.length === 0
+      ? 'none' as const
+      : ci.runs[0]!.conclusion === 'success'
+        ? 'success' as const
+        : ci.runs[0]!.conclusion === 'failure'
+          ? 'failure' as const
+          : 'pending' as const;
   const codeownersPresent = await fileExists(workspaceRoot ? path.join(workspaceRoot, '.github', 'CODEOWNERS') : undefined);
   const prTemplatePresent = await fileExists(workspaceRoot ? path.join(workspaceRoot, '.github', 'pull_request_template.md') : undefined);
   const issueTemplateCount = await countIssueTemplates(workspaceRoot);
@@ -3858,7 +6708,94 @@ async function collectDashboardSnapshot(
       blockedEntries,
       delta: ssotDelta,
     },
-    roadmap: roadmapSnapshot,
+    roadmap: withIdeationOrigins(roadmapSnapshot, ideationBoard),
+    taxonomy: {
+      loaded: taxonomy !== undefined,
+      labels: taxonomy?.labels ?? [],
+      milestones: taxonomy?.milestones ?? [],
+      // Compared against the committed workflow's declared set where there is
+      // one. Both directions are reported: a declared label that does not
+      // exist gets dropped from every draft, and an undeclared one in use will
+      // never be suggested.
+      drift: findTaxonomyDrift(
+        workflowConfigManager?.getConfig()?.labels
+          ? [
+            ...workflowConfigManager.getConfig()!.labels.type,
+            ...workflowConfigManager.getConfig()!.labels.priority,
+            ...workflowConfigManager.getConfig()!.labels.status,
+            ...workflowConfigManager.getConfig()!.labels.area,
+          ]
+          : [],
+        taxonomy?.labels ?? [],
+      ),
+    },
+    debt: {
+      path: DEBT_SSOT_PATH,
+      entries: sortDebtEntries(debt?.register.entries ?? []),
+      metrics: deriveDebtMetrics(debt?.register ?? { version: 1, entries: [] }, Date.now()),
+      ...(debt?.register.lastScanAt === undefined ? {} : { lastScanAt: debt.register.lastScanAt }),
+      // The project's own marker rules are published alongside the shipped
+      // ones. A grade whose rule is not on the page is a grade nobody can
+      // check, which is the same as no rule at all.
+      rules: [
+        ...DEBT_RULES,
+        ...customMarkerRules(parseCustomDebtMarkers(
+          configuration.get<string[]>('debt.markers', []),
+        )),
+      ].map(rule => ({ ...rule })),
+      scanning: debt?.scanning ?? false,
+    },
+    release: buildReleaseSnapshot({
+      packageVersion: packageSnapshot.version,
+      ...(changelog === undefined ? {} : { changelog }),
+      ...(localTags === undefined ? {} : { tags: localTags }),
+      workingTreeClean: !gitSnapshot.dirty,
+      commitSubjects: gitSnapshot.commits.map(commit => commit.subject),
+      ...(latestCiConclusion === undefined ? {} : { ciConclusion: latestCiConclusion }),
+      ...(releases && 'records' in releases ? { releases: releases.records, loadedAt: releases.loadedAt } : {}),
+      ...(releases && 'failure' in releases ? { loadFailure: releases.failure } : {}),
+      ...(pullRequests === undefined ? {} : { pullRequests }),
+      ...(reviewComments === undefined ? {} : { reviewComments }),
+      now: Date.now(),
+    }),
+    githubLinks: buildGithubLinksSnapshot(gitSnapshot.remoteUrl ?? issues.repoSlug),
+    guidedWorkflow: withObservedDelta(atlas, workspaceRoot, buildGuidedWorkflowSnapshot({
+      configuration,
+      gitSnapshot,
+      // Detection reads dependency names the package snapshot already loaded, so
+      // this adds no I/O. Absent evidence means "we did not look", which the
+      // surface reports as such rather than as "generic project".
+      archetypeEvidence: await collectArchetypeEvidence(workspaceRoot),
+      packageVersion: packageSnapshot.version,
+      ciWorkflowCount: workflowSnapshot.length,
+      testing: testingSnapshot,
+      issues,
+      ...(pullRequests === undefined ? {} : { pullRequests }),
+      ...(ci === undefined ? {} : { ci }),
+      changelogPresent,
+      ...(workflowConfigManager?.getConfig() === undefined
+        ? {} : { workflowConfig: workflowConfigManager!.getConfig()! }),
+      ...(workflowConfigManager?.getNotice() === undefined
+        ? {} : { workflowConfigNotice: workflowConfigManager!.getNotice()! }),
+      knownAgentIds: agents.map(agent => agent.id),
+      hasDebtRegister: (debt?.register.entries.length ?? 0) > 0 || debt?.register.lastScanAt !== undefined,
+      ...(latestCiConclusion === undefined ? {} : {
+        ciStatus: latestCiConclusion === 'success' ? 'pass' as const
+          : latestCiConclusion === 'failure' ? 'fail' as const
+            : latestCiConclusion === 'pending' ? 'pending' as const : 'none' as const,
+      }),
+      staleDocumentCount: documentsSnapshot.reviewDueCount,
+      ...(auditLedger === undefined ? {} : {
+        auditSummary: auditLedger.getSummary(),
+        auditRecent: auditLedger.getFile().records.slice(0, 25),
+      }),
+      ...(changelog === undefined ? {} : { changelog }),
+      ...(commitsSinceTag === undefined ? {} : { commitsSinceTag }),
+      prTemplatePresent,
+      codeownersPresent,
+      issueTemplateCount,
+      commitSeries: buildDailySeries(gitSnapshot.commitDates, SERIES_DAY_RANGE),
+    })),
     issues,
     security: {
       toolApprovalMode,
@@ -4141,6 +7078,7 @@ async function collectGitSnapshot(workspaceRoot: string | undefined): Promise<Gi
     return emptyGitSnapshot();
   }
 
+  const remoteUrl = (await runGit(workspaceRoot, ['remote', 'get-url', 'origin'])).trim() || undefined;
   const [statusOutput, branchOutput, commitOutput] = await Promise.all([
     runGit(workspaceRoot, ['status', '--short', '--branch']),
     runGit(workspaceRoot, ['for-each-ref', '--sort=-committerdate', '--format=%(refname:short)|%(committerdate:iso8601)|%(upstream:short)|%(subject)', 'refs/heads']),
@@ -4215,6 +7153,7 @@ async function collectGitSnapshot(workspaceRoot: string | undefined): Promise<Gi
     commits,
     commitDates,
     commitLog,
+    ...(remoteUrl === undefined ? {} : { remoteUrl }),
   };
 }
 
@@ -4531,10 +7470,16 @@ async function detectDispatchWorkflow(workspaceRoot: string): Promise<string | u
   return undefined;
 }
 
-/** Run a `gh` command (best-effort; short timeout, never used on the render path). */
+/**
+ * Run a `gh` command (best-effort; short timeout, never used on the render path).
+ *
+ * Delegates to {@link runGhOrThrow} so every `gh` invocation in AtlasMind shares
+ * one implementation — one answer to "is this escaped?", one timeout policy, one
+ * failure taxonomy. The throwing shape is kept because this function's callers
+ * are written around try/catch.
+ */
 async function runGh(workspaceRoot: string, args: string[]): Promise<string> {
-  const { stdout } = await execFileAsync('gh', args, { cwd: workspaceRoot, windowsHide: true, timeout: 8000, maxBuffer: 1024 * 1024 });
-  return stdout.trim();
+  return runGhOrThrow(workspaceRoot, args);
 }
 
 /** Best-effort GitHub branch-protection import: exact required-check contexts + PR requirement. */
@@ -4564,6 +7509,187 @@ async function fetchBranchProtection(
  * Best-effort: returns undefined when gh is unavailable or the repo is not on
  * GitHub. Worst state per name wins (fail > pending > pass).
  */
+/**
+ * Recent CI runs, and a classified report for whichever failed most recently.
+ *
+ * Fetched on explicit request only. `gh run view --log-failed` downloads a log,
+ * which is slow and rate-limited — a page that did it on every render would
+ * spend the user's quota to show a tab they may not be looking at.
+ *
+ * The log never reaches a surface unsanitized: `buildCiFailureReport` strips
+ * ANSI, redacts secrets, caps the size and marks truncation. Classification is
+ * a rule table with no model in it, so the same log always produces the same
+ * class and the taxonomy can be charted over time.
+ */
+async function gatherCiIntelligence(
+  workspaceRoot: string,
+  branch: string,
+): Promise<DashboardCiIntelligence> {
+  const runs = await runGh(workspaceRoot, [
+    'run', 'list',
+    '--branch', branch,
+    '--limit', '30',
+    '--json', 'databaseId,displayTitle,conclusion,status,workflowName,createdAt,updatedAt,headSha',
+  ]);
+
+  const parsed = parseGhRunList(runs);
+  if (parsed.length === 0) {
+    return { runs: [], loadedAt: new Date().toISOString() };
+  }
+
+  // Only the most recent failure is analysed. Fetching a log per failed run
+  // would multiply a slow call by thirty for information nobody asked for.
+  const failed = parsed.find(run => run.conclusion === 'failure');
+  if (!failed) {
+    return { runs: parsed, loadedAt: new Date().toISOString() };
+  }
+
+  try {
+    const log = await runGhOrThrow(
+      workspaceRoot,
+      ['run', 'view', String(failed.databaseId), '--log-failed'],
+      // A log is a download, not a status query; the read-only default of eight
+      // seconds is not enough.
+      { timeoutMs: 45_000, maxBufferBytes: 8 * 1024 * 1024 },
+    );
+    // Attempts on the same commit decide flakiness — a property of history that
+    // no single log can establish.
+    const attempts = parsed
+      .filter(run => run.headSha === failed.headSha && run.workflowName === failed.workflowName)
+      .map(run => ({ conclusion: run.conclusion }));
+
+    return {
+      runs: parsed,
+      report: buildCiFailureReport({
+        runId: String(failed.databaseId),
+        jobName: failed.workflowName || failed.displayTitle,
+        log,
+        attempts,
+      }),
+      loadedAt: new Date().toISOString(),
+    };
+  } catch (error) {
+    // A log we could not read is reported as such. "No failure detail" and
+    // "the build is fine" are different facts.
+    return {
+      runs: parsed,
+      logFailure: ghFailureOf(error).detail,
+      loadedAt: new Date().toISOString(),
+    };
+  }
+}
+
+/**
+ * Manifest evidence for archetype detection.
+ *
+ * Reads dependency *names* only — never values — from whichever manifests are
+ * present, plus the root file listing. Returns `undefined` when there is no
+ * workspace, so the surface can distinguish "no shape identified" from "we did
+ * not look"; presenting the second as the first is the error this whole
+ * detected-versus-declared split exists to prevent.
+ */
+async function collectArchetypeEvidence(
+  workspaceRoot: string | undefined,
+): Promise<{ corpus: string; files: readonly string[]; language?: string } | undefined> {
+  if (!workspaceRoot) {
+    return undefined;
+  }
+  const parts: string[] = [];
+  let language: string | undefined;
+
+  const read = async (relative: string): Promise<string> => {
+    try {
+      return await fs.readFile(path.join(workspaceRoot, relative), 'utf8');
+    } catch {
+      return '';
+    }
+  };
+
+  const pkg = await read('package.json');
+  if (pkg) {
+    language = 'node';
+    try {
+      const parsed = JSON.parse(pkg) as Record<string, unknown>;
+      for (const field of ['dependencies', 'devDependencies', 'peerDependencies'] as const) {
+        const deps = parsed[field];
+        if (deps && typeof deps === 'object') {
+          parts.push(Object.keys(deps as Record<string, unknown>).join(' '));
+        }
+      }
+      // `main`/`exports` distinguish a package from an application, and are the
+      // only non-dependency signals detection reads.
+      for (const key of ['main', 'exports'] as const) {
+        if (parsed[key] !== undefined) {
+          parts.push(`"${key}"`);
+        }
+      }
+    } catch {
+      // A malformed manifest yields no signal rather than an exception.
+    }
+  }
+
+  for (const [file, lang] of [
+    ['Cargo.toml', 'rust'], ['go.mod', 'go'], ['pyproject.toml', 'python'],
+    ['requirements.txt', 'python'], ['pubspec.yaml', 'dart'],
+  ] as const) {
+    const content = await read(file);
+    if (content) {
+      language ??= lang;
+      parts.push(content.slice(0, 8000));
+    }
+  }
+
+  let files: string[] = [];
+  try {
+    files = (await fs.readdir(workspaceRoot)).slice(0, 400);
+  } catch {
+    files = [];
+  }
+
+  return {
+    corpus: parts.join(' ').toLowerCase(),
+    files,
+    ...(language === undefined ? {} : { language }),
+  };
+}
+
+/** Parse `gh run list --json …`. Never throws; a bad entry is dropped. */
+export function parseGhRunList(raw: string): DashboardCiRun[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) {
+    return [];
+  }
+  const out: DashboardCiRun[] = [];
+  for (const entry of parsed.slice(0, 100)) {
+    if (!entry || typeof entry !== 'object') {
+      continue;
+    }
+    const record = entry as Record<string, unknown>;
+    const id = record['databaseId'];
+    if (typeof id !== 'number' || !Number.isFinite(id)) {
+      continue;
+    }
+    const text = (value: unknown, max: number): string =>
+      typeof value === 'string' ? value.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, max) : '';
+    out.push({
+      databaseId: id,
+      workflowName: text(record['workflowName'], 120),
+      displayTitle: text(record['displayTitle'], 200),
+      conclusion: text(record['conclusion'], 40).toLowerCase(),
+      status: text(record['status'], 40).toLowerCase(),
+      headSha: text(record['headSha'], 64),
+      createdAt: text(record['createdAt'], 40),
+      updatedAt: text(record['updatedAt'], 40),
+    });
+  }
+  return out;
+}
+
 async function gatherLiveCiStatus(workspaceRoot: string, sourceRef: string): Promise<Record<string, 'pass' | 'fail' | 'pending'> | undefined> {
   const ref = normalizeBranchRef(sourceRef);
   if (!ref || ref === 'Not a git repository' || ref === 'Detached') {
@@ -4981,6 +8107,138 @@ async function collectDeliveryStagePipeline(
 
 const DELIVERY_REVIEW_STATE_KEY = 'atlasmind.deliveryReview';
 
+/**
+ * The last reading of the project's observed state, for "what moved since you
+ * last looked".
+ *
+ * `workspaceState`, deliberately — `project_memory/` is git-tracked, so a
+ * baseline kept there would mean "when did *anybody* last look", would show up
+ * as an uncommitted change every time the dashboard opened, and would conflict
+ * between two people looking on the same day. Same reasoning as the delivery
+ * review's `reviewedAt` above.
+ */
+const OBSERVED_BASELINE_STATE_KEY = 'atlasmind.workflow.observedBaseline';
+
+/**
+ * The delta, computed once and then held.
+ *
+ * The window is *since you last opened this project*, which is both the most
+ * useful span for somebody working alone and the only one that can be stated in
+ * a sentence. Advancing the baseline on every render would make the delta empty
+ * from the second render onwards — the surface would work exactly once and then
+ * quietly report nothing forever, which is the failure mode this codebase keeps
+ * finding. Keyed by workspace root so opening a second project computes its own.
+ */
+let heldObservedDelta: { root: string; delta: ObservedDelta } | undefined;
+
+/**
+ * Compare the current reading against the stored one, then store the current one.
+ *
+ * Storage failures degrade to a first look rather than throwing: a watermark is
+ * a convenience, and a dashboard that will not open because it could not write
+ * one has traded something useful for something trivial.
+ */
+function resolveObservedDelta(
+  atlas: AtlasMindContext,
+  workspaceRoot: string | undefined,
+  observed: WorkflowObservedState,
+): ObservedDelta {
+  const root = workspaceRoot ?? '';
+  if (heldObservedDelta?.root === root) {
+    return heldObservedDelta.delta;
+  }
+  const state = atlas.extensionContext?.workspaceState;
+  let previous: ObservedSnapshot | undefined;
+  try {
+    previous = state?.get<ObservedSnapshot>(OBSERVED_BASELINE_STATE_KEY) ?? undefined;
+  } catch {
+    previous = undefined;
+  }
+  const delta = compareObservedState(previous, observed);
+  heldObservedDelta = { root, delta };
+  // Stored even on a first look — especially on a first look, because that is
+  // what makes the next one a comparison.
+  void (async () => {
+    try {
+      await state?.update(OBSERVED_BASELINE_STATE_KEY, takeObservedSnapshot(observed, new Date().toISOString()));
+    } catch {
+      // A baseline that could not be written means the next look is another
+      // first look, which reports itself honestly. Nothing to recover.
+    }
+  })();
+  return delta;
+}
+
+/**
+ * Forget the held delta so the next render recomputes against the stored
+ * baseline — which `resolveObservedDelta` has already advanced to now. Used by
+ * the explicit "mark as seen" action, the only way to clear a delta you have
+ * read: the alternative is a list that keeps reporting news you have acted on.
+ */
+/**
+ * Attach the delta to a freshly built guided-workflow snapshot.
+ *
+ * A wrapper rather than a step inside `buildGuidedWorkflowSnapshot` because that
+ * function is pure over its input and this needs editor storage. Rendering-ready
+ * strings are produced here, host-side, for the same reason every other sentence
+ * on this page is: the webview receives data and never composes the wording of a
+ * claim about the project.
+ */
+function withObservedDelta(
+  atlas: AtlasMindContext,
+  workspaceRoot: string | undefined,
+  snapshot: Omit<DashboardGuidedWorkflowSnapshot, 'delta'>,
+): DashboardGuidedWorkflowSnapshot {
+  const now = new Date().toISOString();
+  const delta = resolveObservedDelta(atlas, workspaceRoot, snapshot.observed);
+  return {
+    ...snapshot,
+    delta: {
+      status: delta.status,
+      headline: summarizeObservedDelta(delta, now),
+      window: describeSince(delta.since, now),
+      changes: delta.changes.map(change => ({
+        label: change.label,
+        kind: change.kind,
+        summary: change.summary,
+        ...(change.before === undefined ? {} : { before: change.before }),
+        ...(change.after === undefined ? {} : { after: change.after }),
+      })),
+      droppedByCap: delta.droppedByCap,
+    },
+  };
+}
+
+/**
+ * Every page's GitHub links, built from whatever identifies the repository.
+ *
+ * Prefers the git remote over `gh repo view`: the remote is already read, needs
+ * no network and no authenticated CLI, and a route *to* GitHub is most useful on
+ * exactly the setups where `gh` is not working.
+ */
+function buildGithubLinksSnapshot(source: string | undefined): DashboardGithubLinksSnapshot {
+  const slug = parseRepoSlug(source);
+  const links: DashboardGithubLinksSnapshot['links'] = {};
+  const notices: DashboardGithubLinksSnapshot['notices'] = {};
+  for (const page of DASHBOARD_PAGE_IDS) {
+    const found = githubLinksForPage(page, slug);
+    if (found.length > 0) {
+      // The URL is deliberately not carried across. Label and detail only.
+      links[page] = found.map(link => ({ id: link.id, label: link.label, detail: link.detail }));
+      continue;
+    }
+    const notice = describeMissingLinks(page, slug);
+    if (notice !== undefined) {
+      notices[page] = notice;
+    }
+  }
+  return { ...(slug === undefined ? {} : { slug: `${slug.owner}/${slug.repo}` }), links, notices };
+}
+
+function clearHeldObservedDelta(): void {
+  heldObservedDelta = undefined;
+}
+
 /** Workspace-scoped flag: the user has acknowledged the one-time PII/GDPR storage notice. */
 const PROJECT_DIRECTOR_PII_ACK_KEY = 'atlasmind.projectDirector.piiStorageAcknowledged';
 
@@ -5121,6 +8379,10 @@ async function collectDirectorSnapshot(
     teamMode: 'solo',
     storesRawPii: false,
     piiAcknowledged: false,
+    // Built-ins with no persisted edits, and nothing to write until a roster
+    // exists. Both are recomputed below once the config loads.
+    roles: resolveTeamRoles(undefined),
+    codeowners: { ruleCount: 0, warnings: [] },
     overdueCount: 0,
     followUpUrgency: {},
     runs: [],
@@ -5185,12 +8447,30 @@ async function collectDirectorSnapshot(
     ownerName: ownerByRun.get(run.id),
   }));
 
+  // A preview of what generating CODEOWNERS would produce, computed from the
+  // same function that writes it — so the count shown and the file written
+  // cannot disagree.
+  const githubHandles = (contactId: string | undefined): string[] =>
+    (config.contacts.find(candidate => candidate.id === contactId)?.links ?? [])
+      .filter(link => link.kind === 'github')
+      .map(link => link.handle);
+  const codeownersPreview = buildCodeownersBlock({
+    responsibilities: config.responsibilities.map(responsibility => ({
+      area: responsibility.area,
+      ...(responsibility.paths === undefined ? {} : { paths: responsibility.paths }),
+      ownerHandles: githubHandles(responsibility.ownerContactId),
+      backupHandles: githubHandles(responsibility.backupContactId),
+    })),
+  });
+
   return {
     ...base,
     config,
     teamMode: resolveTeamMode(config),
     storesRawPii: configStoresRawPii(config),
     piiAcknowledged,
+    roles: resolveTeamRoles(config.roles),
+    codeowners: { ruleCount: codeownersPreview.entries.length, warnings: codeownersPreview.warnings },
     overdueCount: countOverdueFollowUps(config),
     followUpUrgency,
     runs: runViews,
@@ -6031,6 +9311,12 @@ interface DashboardDocumentsSnapshot {
   missingCount: number;
   uncovered: string[];
   summary: string;
+  /**
+   * Something worth saying about the file itself — that it was migrated
+   * forward, or that it came from a newer AtlasMind and was left untouched.
+   * Absent in the ordinary case.
+   */
+  fileNotice?: string;
 }
 
 // ── Risk oversight snapshot ──────────────────────────────────────────────────
@@ -6389,12 +9675,16 @@ async function collectDocumentsSnapshot(atlas: AtlasMindContext, workspaceRoot: 
     summary = `${parts.join(' · ')}.`;
   }
 
+  // Surfaced rather than kept internal: an explicit save *will* write over a
+  // newer-format file, so the user has to have been told it exists first.
+  const fileNotice = atlas.documentsManager?.getNotice();
   return {
     filePath, summaryPath, configured,
     filing, autoUpdate,
     totalMarkdown, markdownCapped,
     reviewDueCount, missingCount,
     uncovered, summary,
+    ...(fileNotice ? { fileNotice } : {}),
   };
 }
 
@@ -6411,6 +9701,8 @@ async function collectRoadmapSnapshot(workspaceRoot: string | undefined, ssotPat
       mvp: buildMvpSnapshot([], MVP_GATE_ID),
       gates: buildGateViews(gates, []),
       gateRoutes: buildGateRoutes(gates, []),
+      // Filled by `withIdeationOrigins`; nothing here has read the board.
+      boardBacklog: { total: 0, needsAttention: 0 },
     };
   }
 
@@ -6428,6 +9720,8 @@ async function collectRoadmapSnapshot(workspaceRoot: string | undefined, ssotPat
     mvp: buildMvpSnapshot(items, MVP_GATE_ID),
     gates: buildGateViews(gates, items),
     gateRoutes: buildGateRoutes(gates, items),
+    // Filled by `withIdeationOrigins`; nothing here has read the board.
+    boardBacklog: { total: 0, needsAttention: 0 },
   };
 }
 
@@ -6687,6 +9981,102 @@ function buildMvpPlanPrompt(outstanding: DashboardMvpStep[], hasTaggedItems: boo
     list,
     'Recommend an ordered sequence that front-loads foundational, security, and architectural work, calls out dependencies between the items, and identifies the single best next step to take now. Keep the response concise.',
   ].join('\n\n');
+}
+
+/**
+ * Prepend one item to the roadmap, for a caller outside this panel.
+ *
+ * Exists so the ideation board does not grow a second roadmap serializer. The
+ * markdown format — managed block, gate tags, the `- [ ]` checklist — is
+ * load-bearing for a git-tracked file, and two writers of it would drift; the
+ * first symptom would be a roadmap the dashboard could no longer parse.
+ *
+ * Returns the **normalized text**, which is the key a caller stores to find this
+ * item again. Not an id: ids here are positional and renumber on insert.
+ * Returns `undefined` when there is nothing to write to.
+ */
+export async function addRoadmapItemFromExternalSurface(
+  atlas: AtlasMindContext,
+  text: string,
+): Promise<{ normalized: string; text: string } | undefined> {
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const trimmed = text.trim();
+  if (!workspaceRoot || trimmed === '') {
+    return undefined;
+  }
+  const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
+  const filePath = path.join(workspaceRoot, ssotPath, 'roadmap', 'improvement-plan.md');
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  const existing = await fs.readFile(filePath, 'utf-8').catch(() => '');
+
+  const declaredGates = normalizeGates(parseRoadmapGates(existing));
+  // Gate tags are metadata: strip any that leaked into the text and re-derive
+  // them, so the round trip stays idempotent.
+  const stripped = extractItemGates(trimmed, declaredGates);
+  const existingItems = parseDashboardRoadmapItems(existing, declaredGates)
+    .map(item => ({ text: item.text, completed: item.completed, gates: item.gates }));
+
+  // Prepended, matching what the dashboard's own “Add item” does: a newly raised
+  // item is the one you just decided on, and the roadmap is manually ordered.
+  const nextDocument = serializeDashboardRoadmapDocument(
+    existing,
+    [{ text: stripped.text, completed: false, gates: stripped.gates }, ...existingItems],
+    declaredGates,
+  );
+  await fs.writeFile(filePath, nextDocument, 'utf-8');
+
+  const ssotRoot = vscode.Uri.file(path.join(workspaceRoot, ssotPath));
+  await atlas.memoryManager.loadFromDisk(ssotRoot);
+  atlas.memoryRefresh.fire();
+  return { normalized: normalizeRoadmapText(stripped.text), text: stripped.text };
+}
+
+/**
+ * Attach each roadmap item's ideation origin, and count what is still on the
+ * board.
+ *
+ * The join is the card's stored normalized text against the item's, because
+ * roadmap ids are positional and renumber on insert — so an item that moved is
+ * still found, and an item that was *renamed* is honestly reported as no longer
+ * linked rather than shown against whatever now sits where it used to be.
+ *
+ * No new I/O: the board is already read once per snapshot.
+ */
+function withIdeationOrigins(
+  roadmap: DashboardRoadmapSnapshot,
+  board: IdeationBoardRecord,
+): DashboardRoadmapSnapshot {
+  const byNormalized = new Map<string, IdeationCardRecord>();
+  for (const card of board.cards) {
+    if (card.derived?.roadmapNormalized) {
+      byNormalized.set(card.derived.roadmapNormalized, card);
+    }
+  }
+
+  const attach = (item: DashboardRoadmapItem): DashboardRoadmapItem => {
+    const card = byNormalized.get(normalizeForRoadmapMatch(item.text));
+    return card === undefined
+      ? item
+      : { ...item, origin: { cardId: card.id, cardTitle: card.title, cardKind: card.kind } };
+  };
+
+  const items = roadmap.items.map(attach);
+  return {
+    ...roadmap,
+    items,
+    // The suggestion list holds the same objects, so it is re-derived rather than
+    // left pointing at un-attached copies.
+    nextSuggestedWork: roadmap.nextSuggestedWork.map(attach),
+    boardBacklog: countUnrealizedByKind(
+      board.cards.map(card => ({
+        id: card.id,
+        title: card.title,
+        kind: card.kind,
+        ...(card.derived === undefined ? {} : { derived: card.derived }),
+      })),
+      items,
+    ),
+  };
 }
 
 function serializeDashboardRoadmapDocument(
@@ -7004,6 +10394,101 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/**
+ * Evidence roots for entries derived from signals rather than markers.
+ *
+ * Included in the scanned set so a signal that has *cleared* — the update
+ * merged, the methodology covered, the pipeline added — goes obsolete on the
+ * next scan instead of lingering as permanently open work nobody can close.
+ */
+const DERIVED_DEBT_EVIDENCE_ROOTS: readonly string[] = [
+  '.github/workflows',
+  'project_memory/index/testing-config.json',
+];
+
+/** Directories a debt scan never descends into. */
+const DEBT_SCAN_SKIP_DIRS = new Set([
+  'node_modules', '.git', 'out', 'dist', 'build', 'coverage', '.vscode-test',
+  'vendor', 'target', '__pycache__', '.next', '.nuxt', '.venv', 'venv',
+]);
+
+/** Extensions worth reading. Anything else is either binary or not authored. */
+const DEBT_SCAN_EXTENSIONS = new Set([
+  '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py', '.rs', '.go', '.java',
+  '.kt', '.swift', '.rb', '.php', '.cs', '.c', '.h', '.cpp', '.hpp', '.css',
+  '.scss', '.vue', '.svelte', '.sql', '.sh', '.yml', '.yaml',
+]);
+
+/** Ceilings, so a scan on a large repository stays a scan rather than a hang. */
+const DEBT_SCAN_MAX_FILES = 3000;
+const DEBT_SCAN_MAX_BYTES = 512 * 1024;
+
+/**
+ * Read the files a debt scan should look at.
+ *
+ * Bounded three ways — skipped directories, an extension allowlist, and a file
+ * cap — because this runs on somebody's whole repository. The caps are stated in
+ * the result rather than applied silently: a scan that quietly stopped at three
+ * thousand files would report a clean register for a project it only half read.
+ *
+ * Markdown is deliberately **absent** from the extension list. A `TODO` in prose
+ * is usually a heading in a plan, not a deferred decision in code, and a
+ * register full of those is one people stop reading.
+ */
+async function collectDebtScanFiles(
+  workspaceRoot: string,
+): Promise<{ files: Array<{ path: string; content: string }>; scannedPaths: string[]; truncated: boolean }> {
+  const files: Array<{ path: string; content: string }> = [];
+  const scannedPaths: string[] = [];
+  let truncated = false;
+
+  const walk = async (directory: string): Promise<void> => {
+    if (files.length >= DEBT_SCAN_MAX_FILES) {
+      truncated = true;
+      return;
+    }
+    let entries: import('node:fs').Dirent[];
+    try {
+      entries = await fs.readdir(directory, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (files.length >= DEBT_SCAN_MAX_FILES) {
+        truncated = true;
+        return;
+      }
+      if (entry.name.startsWith('.') && entry.name !== '.github') {
+        continue;
+      }
+      const full = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        if (!DEBT_SCAN_SKIP_DIRS.has(entry.name)) {
+          await walk(full);
+        }
+        continue;
+      }
+      if (!DEBT_SCAN_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {
+        continue;
+      }
+      try {
+        const stat = await fs.stat(full);
+        if (stat.size > DEBT_SCAN_MAX_BYTES) {
+          continue;
+        }
+        const relative = path.relative(workspaceRoot, full).replace(/\\/g, '/');
+        files.push({ path: relative, content: await fs.readFile(full, 'utf8') });
+        scannedPaths.push(relative);
+      } catch {
+        // A file we cannot read contributes nothing and is not an error.
+      }
+    }
+  };
+
+  await walk(workspaceRoot);
+  return { files, scannedPaths, truncated };
+}
+
 async function walkFiles(directoryPath: string, visitor: (filePath: string) => Promise<void>): Promise<void> {
   try {
     const entries = await fs.readdir(directoryPath, { withFileTypes: true });
@@ -7153,11 +10638,23 @@ function isIdeationCardRecord(value: unknown): value is IdeationCardRecord {
     && typeof candidate['updatedAt'] === 'string';
 }
 
+function isIdeationRelation(value: unknown): value is IdeationConnectionRecord['relation'] {
+  return typeof value === 'string'
+    && ['supports', 'causal', 'dependency', 'contradiction', 'opportunity'].includes(value);
+}
+
+function isIdeationDirection(value: unknown): value is IdeationConnectionRecord['direction'] {
+  return typeof value === 'string' && ['none', 'forward', 'reverse', 'both'].includes(value);
+}
+
 function isIdeationConnectionRecord(value: unknown): value is IdeationConnectionRecord {
   if (typeof value !== 'object' || value === null) {
     return false;
   }
   const candidate = value as Record<string, unknown>;
+  // `relation` and `direction` are deliberately not required: a board written
+  // before the ideation panel had typed edges has neither, and refusing those
+  // connections would silently empty an older board's graph.
   return typeof candidate['id'] === 'string'
     && typeof candidate['fromCardId'] === 'string'
     && typeof candidate['toCardId'] === 'string'
@@ -7331,6 +10828,11 @@ function sanitizeIdeationBoard(value: Partial<IdeationBoardRecord> | IdeationBoa
         fromCardId: connection.fromCardId,
         toCardId: connection.toCardId,
         label: clampText(connection.label, 36),
+        // `supports` is the neutral reading: it is the weakest claim of the five,
+        // so an untyped edge is not promoted into a dependency or a contradiction
+        // that nobody drew.
+        relation: isIdeationRelation(connection.relation) ? connection.relation : 'supports',
+        direction: isIdeationDirection(connection.direction) ? connection.direction : 'none',
       }))
     : fallback.connections;
   const history = Array.isArray(value.history)
@@ -7362,19 +10864,30 @@ function sanitizeIdeationCard(card: IdeationCardRecord): IdeationCardRecord {
     id: card.id.trim() || createIdeationId('card'),
     title: clampText(card.title, 80) || 'Untitled idea',
     body: clampText(card.body, 320),
-    kind: isIdeationCardKind(card.kind) ? card.kind : 'concept',
+    // Falls back to the current neutral kind, not the legacy `concept`: a card
+    // AtlasMind cannot recognise should read as an unclassified idea rather than
+    // be relabelled into a vocabulary this board never used.
+    kind: isIdeationCardKind(card.kind) ? card.kind : 'idea',
     author: card.author === 'atlas' ? 'atlas' : 'user',
     x: clampNumber(card.x, -1600, 1600),
     y: clampNumber(card.y, -1200, 1200),
     color: normalizeIdeationColor(card.color),
     imageSources: Array.isArray(card.imageSources) ? card.imageSources.filter(source => typeof source === 'string').slice(0, 4) : [],
+    ...(card.derived !== undefined && typeof card.derived.roadmapText === 'string'
+      && card.derived.roadmapText.trim() !== ''
+      ? { derived: card.derived }
+      : {}),
     createdAt: normalizeIso(card.createdAt),
     updatedAt: normalizeIso(card.updatedAt),
   };
 }
 
 function isIdeationCardKind(value: string): value is IdeationCardKind {
-  return ['concept', 'insight', 'question', 'opportunity', 'risk', 'experiment', 'user-need', 'atlas-response', 'attachment'].includes(value);
+  return [
+    'idea', 'problem', 'requirement', 'user-insight', 'evidence',
+    'concept', 'insight', 'question', 'opportunity', 'user-need',
+    'risk', 'experiment', 'atlas-response', 'attachment',
+  ].includes(value);
 }
 
 function normalizeIdeationColor(value: string): string {
@@ -7570,6 +11083,14 @@ function applyIdeationResponse(
       fromCardId: focusCard.id,
       toCardId: card.id,
       label: buildIdeationLinkLabel(card.kind, index),
+      // `supports`, forward, for every suggested card. The model was asked to
+      // expand the focus card, not to assert a dependency or a contradiction —
+      // and those two carry real weight: a `dependency` reorders work, and a
+      // `contradiction` becomes a caution on any issue raised from the card.
+      // Claiming either from a suggestion nobody reviewed would put structure on
+      // the board that no human drew.
+      relation: 'supports' as const,
+      direction: 'forward' as const,
     }))
     : [];
   nextBoard.connections = [...nextBoard.connections, ...links].slice(-MAX_IDEATION_CONNECTIONS);
@@ -7850,6 +11371,27 @@ async function fileExists(filePath: string | undefined): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Read a workspace file, or `undefined` when there is nothing to read.
+ *
+ * `undefined` deliberately covers both "absent" and "unreadable": to every
+ * caller here they mean the same thing — no content to work from — and a
+ * distinction nobody acts on is a distinction that only invites wrong branches.
+ */
+async function readWorkspaceText(
+  workspaceRoot: string | undefined,
+  relative: string,
+): Promise<string | undefined> {
+  if (!workspaceRoot) {
+    return undefined;
+  }
+  try {
+    return await fs.readFile(path.join(workspaceRoot, relative), 'utf8');
+  } catch {
+    return undefined;
   }
 }
 
@@ -8278,6 +11820,30 @@ const DASHBOARD_CSS = `
   }
 
   .page-nav button,
+  /* The row of links to the GitHub page a dashboard page is about. Quieter than
+     an action: it is a route out, not something that changes anything here. */
+  .github-link-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 14px;
+  }
+
+  .github-link-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    opacity: 0.62;
+  }
+
+  .github-link-row .action-link {
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 500;
+  }
+
   .action-link {
     border-radius: 999px;
     border: 1px solid var(--dash-border);
@@ -8899,6 +12465,181 @@ const DASHBOARD_CSS = `
   .risk-coverage[open] > summary::before { transform: rotate(90deg); }
   .risk-coverage > summary:hover { color: var(--vscode-foreground); }
   .risk-coverage .stat-detail { margin: 4px 0 0; }
+
+  /* ── Workflow help affordance ─────────────────────────────────────────
+     The "?" that opens the why/how for a step.
+
+     A real <button>, not a <span> with a title attribute, for three reasons: a
+     native tooltip is unreachable by keyboard, truncated by the OS, and cannot
+     hold a paragraph — and this content is the point of the page rather than a
+     hint about it. Being a button also means it inherits the shared
+     :focus-visible ring instead of needing its own. */
+  .wf-help-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    margin-left: 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--dash-accent-strong);
+    background: transparent;
+    border: 1px solid color-mix(in srgb, var(--dash-accent-strong) 55%, var(--dash-border));
+    cursor: pointer;
+    vertical-align: middle;
+    transition: background var(--dash-dur-fast) var(--dash-ease), color var(--dash-dur-fast) var(--dash-ease);
+  }
+
+  .wf-help-toggle:hover,
+  .wf-help-toggle[aria-expanded="true"] {
+    background: color-mix(in srgb, var(--dash-accent-strong) 18%, transparent);
+    color: var(--vscode-foreground);
+  }
+
+  /* The expanded panel. Indented and rule-marked so a long explanation reads as
+     an aside rather than as the next section of the page. */
+  .wf-help-panel {
+    margin: 8px 0 4px 0;
+    padding: 10px 14px;
+    border-left: 2px solid color-mix(in srgb, var(--dash-accent-strong) 45%, var(--dash-border));
+    background: color-mix(in srgb, var(--dash-accent-strong) 6%, transparent);
+    border-radius: 0 var(--dash-radius) var(--dash-radius) 0;
+  }
+
+  .wf-help-panel h5 {
+    margin: 0 0 4px;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--dash-muted);
+  }
+
+  .wf-help-panel h5:not(:first-child) { margin-top: 12px; }
+  .wf-help-panel p { margin: 0 0 6px; font-size: 12px; line-height: 1.6; max-width: 78ch; }
+  .wf-help-panel ol,
+  .wf-help-panel ul { margin: 0; padding-left: 18px; font-size: 12px; line-height: 1.6; max-width: 78ch; }
+  .wf-help-panel li { margin-bottom: 4px; }
+  .wf-help-panel code {
+    font-family: var(--dash-mono);
+    font-size: 11px;
+    padding: 1px 4px;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--dash-border) 45%, transparent);
+  }
+
+  /* Mistakes are visually distinct from the how-to. Somebody skimming for "what
+     goes wrong" should be able to find it without reading the steps. */
+  .wf-help-mistakes { border-left-color: color-mix(in srgb, var(--dash-warn) 55%, var(--dash-border)); }
+  .wf-help-mistakes li { color: color-mix(in srgb, var(--dash-warn) 75%, var(--dash-body)); }
+
+  /* The release notes exactly as they would be published. Monospaced and
+     scrollable rather than reflowed: this is the one place on the dashboard
+     showing bytes rather than a summary, and wrapping it would misrepresent
+     what goes out. */
+  /* A label's own colour, from six validated hex digits. Anything else arrives
+     as an empty string and the swatch is simply absent — a "colour" reaching a
+     stylesheet is an injection, so there is no repair path. */
+  .label-swatch {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: middle;
+    border: 1px solid color-mix(in srgb, var(--dash-border) 70%, transparent);
+  }
+
+  .wf-notes {
+    font-family: var(--dash-mono);
+    font-size: 11px;
+    line-height: 1.6;
+    margin: 8px 0;
+    padding: 10px 12px;
+    max-height: 320px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    border: 1px solid var(--dash-border);
+    border-radius: var(--dash-radius);
+    background: color-mix(in srgb, var(--dash-border) 22%, transparent);
+  }
+
+  .wf-stage {
+    border: 1px solid var(--dash-border);
+    border-radius: var(--dash-radius);
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    background: var(--dash-panel);
+  }
+
+  .wf-stage-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .wf-stage-head h4 { margin: 0; font-size: 14px; }
+  .wf-stage-ordinal {
+    font-family: var(--dash-mono);
+    font-size: 11px;
+    color: var(--dash-muted);
+    min-width: 18px;
+  }
+
+  .wf-step {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 6px 0;
+    border-top: 1px solid color-mix(in srgb, var(--dash-border) 55%, transparent);
+  }
+
+  .wf-step:first-of-type { border-top: none; }
+  .wf-step-mark { font-size: 12px; line-height: 1.6; }
+  .wf-step-body { flex: 1; min-width: 0; }
+  .wf-step-title { font-size: 13px; font-weight: 600; }
+  .wf-step-detail { font-size: 12px; color: var(--dash-muted); margin-top: 2px; line-height: 1.5; }
+
+  .wf-proficiency {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--dash-muted);
+    border: 1px solid var(--dash-border);
+    border-radius: 999px;
+    padding: 0 6px;
+  }
+
+  /* A metric with no verdict. Deliberately quiet rather than alarming: "not
+     measured" is not a failure, and styling it like one would train people to
+     ignore the styling. */
+  .wf-unknown { color: var(--dash-muted); font-style: italic; }
+
+  /* A classified CI failure and the lines that decided it. */
+  .wf-ci-failure {
+    margin-top: 10px;
+    padding: 10px 12px;
+    border-left: 2px solid color-mix(in srgb, var(--dash-critical) 55%, var(--dash-border));
+    background: color-mix(in srgb, var(--dash-critical) 6%, transparent);
+    border-radius: 0 var(--dash-radius) var(--dash-radius) 0;
+  }
+
+  /* Evidence is log text: monospaced, and allowed to scroll rather than forcing
+     the page to. A long line must never make the body scroll horizontally. */
+  .wf-ci-evidence {
+    margin: 6px 0;
+    padding: 8px 10px;
+    max-height: 220px;
+    overflow: auto;
+    font-family: var(--dash-mono);
+    font-size: 11px;
+    line-height: 1.5;
+    white-space: pre;
+    background: color-mix(in srgb, var(--dash-border) 35%, transparent);
+    border-radius: 8px;
+  }
+
+  .wf-glossary dt { font-size: 12px; font-weight: 600; margin-top: 8px; }
+  .wf-glossary dd { font-size: 12px; color: var(--dash-muted); margin: 2px 0 0; line-height: 1.6; max-width: 78ch; }
 
   /* ── Release strip ────────────────────────────────────────────────────
      One tick per recorded promotion, oldest left. Turns "read eight rows" into

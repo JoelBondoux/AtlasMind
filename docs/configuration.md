@@ -40,7 +40,6 @@ Example `settings.json` presets for common setups:
 | `atlasmind.planningModelId` | `string` | `""` | Optional model ID pinned for the planning/decomposition phase (the planner "brain"). When set to a known model, the planner uses it directly (bypassing budget/speed gates) while execution subtasks route normally; empty routes planning normally. Good for a strong reasoner or a Claude subscription (`claude-cli`). |
 | `atlasmind.synthesisModelId` | `string` | `""` | Optional model ID pinned for the synthesis phase (summarizing results/sessions into reusable reasoning context). Symmetric to `planningModelId`; empty routes synthesis normally. |
 | `atlasmind.draftModelId` | `string` | `""` | Optional model ID pinned to draft mechanical/low-stakes tasks (e.g. a fast local model). The first attempt uses it; struggle-gated escalation upgrades to a stronger model if needed. Empty routes normally. |
-| `atlasmind.specialistRoutingOverrides` | `object` | `{}` | Per-domain overrides for specialist routing automation. Supported keys today are `media-generation`, `visual-analysis`, `voice`, `research`, `robotics`, and `simulation`. |
 | `atlasmind.localOpenAiEndpoints` | `object[]` | `[]` | Labeled local OpenAI-compatible endpoints AtlasMind should aggregate under the Local provider. |
 | `atlasmind.localOpenAiBaseUrl` | `string` | `""` | Legacy single local OpenAI-compatible endpoint fallback used only when the structured endpoint list is absent. |
 | `atlasmind.azureOpenAiEndpoint` | `string` | `""` | Azure OpenAI resource endpoint for deployment-backed routing. Example: `https://your-resource.openai.azure.com`. |
@@ -54,7 +53,7 @@ Example `settings.json` presets for common setups:
 
 `atlasmind.feedbackRoutingWeight` does not unlock or remove any models by itself. It only scales the small capped thumbs-up/thumbs-down bias AtlasMind derives from stored assistant-response votes.
 
-`atlasmind.specialistRoutingOverrides` is the explicit override layer for AtlasMind's live specialist-routing registry. AtlasMind now derives specialist-provider preferences from refreshed model metadata first, including domain tags such as research or visual analysis. Use overrides only when a workspace needs to pin a provider, suppress a route, tighten required capabilities, or swap the dedicated command AtlasMind opens for that domain.
+Specialist-provider preferences are derived from refreshed model metadata, including domain tags such as research or visual analysis. **There is no override setting.** `atlasmind.specialistRoutingOverrides` shipped once and was removed from both the manifest and the code in April 2026; this document went on describing it, with a worked example, for three months afterwards. Pin a provider through the Model Providers panel instead.
 
 `atlasmind.localOpenAiEndpoints` is the preferred way to configure local engines now. Each entry carries a stable `id`, a human-facing `label`, and a `baseUrl`, which lets AtlasMind keep multiple local engines online together while still showing which endpoint owns a routed model in the provider surfaces. When AtlasMind Settings opens and only the legacy `atlasmind.localOpenAiBaseUrl` is explicitly configured, AtlasMind now auto-migrates that value into the structured endpoint list once so older workspaces pick up the new UI without manual JSON edits.
 
@@ -79,22 +78,6 @@ Example:
 
 Use `atlasmind.localOpenAiBaseUrl` only as a backward-compatible single-endpoint fallback.
 
-Example:
-
-```json
-{
-	"atlasmind.specialistRoutingOverrides": {
-		"research": {
-			"preferredProvider": "perplexity",
-			"budget": "expensive"
-		},
-		"visual-analysis": {
-			"preferredProvider": "openai",
-			"requiredCapabilities": ["vision"]
-		}
-	}
-}
-```
 
 When either mode is set to `auto`, the task profiler infers the appropriate level from the request context.
 
@@ -198,7 +181,9 @@ Integration with [Buzz](https://buzz.xyz) — the open-source, Nostr-based works
 | `atlasmind.buzz.inboundEnabled` | `boolean` | `false` | Hold a **read-only** subscription to the Buzz relay and derive AtlasMind work items from the activity. Also requires `atlasmind.buzz.enabled`. The subscription can never publish to Buzz. |
 | `atlasmind.buzz.inboundChannels` | `string[]` | `[]` | Buzz channel ids (UUIDs) to watch. Empty means every channel the agent key can read. |
 | `atlasmind.buzz.autoCreateFollowUps` | `boolean` | `false` | Record inbound activity as Project Director follow-ups. Off by default because `project_memory/` is git-tracked — while off, inbound items are reported, not written. |
-| `atlasmind.acp.agents` | `array` | `[]` | Agent Client Protocol agents AtlasMind may use as subscription-backed completion capacity, e.g. `[{ "id": "claude", "command": "claude-agent-acp" }]`. Empty by default: nothing is spawned until you name a command you have installed, and AtlasMind never installs or `npx`-fetches an agent. Agents run in restricted mode (no filesystem, no terminal, no MCP pass-through) and any permission request they make is refused. |
+| `atlasmind.acp.agents` | `array` | `[]` | Agent Client Protocol agents AtlasMind may use as subscription-backed completion capacity, e.g. `[{ "id": "claude", "command": "claude-agent-acp" }]`. Empty by default: nothing is spawned until you name a command you have installed, and AtlasMind never installs or `npx`-fetches an agent. By default agents run as a completion source: no MCP pass-through, and any permission request they make is refused. `atlasmind.acp.toolsEnabled` changes that. |
+| `atlasmind.acp.toolsEnabled` | `boolean` | `false` | Allow ACP agents to run their own tools, with AtlasMind approving each operation. Off by default: the agent answers but cannot act. The work runs inside the agent's process; AtlasMind decides whether each operation may proceed. AtlasMind never selects an agent's `allow_always` option — a standing grant would live in the agent's own state, unrevokable from here — and declines outright if that is the only way to approve. A missing or throwing approval gate is a refusal, never a bypass. |
+| `atlasmind.acp.mcpServers` | `array` | `[]` | Names of MCP servers an ACP agent may connect to. Empty by default, and only consulted when `acp.toolsEnabled` is on. Servers whose credentials live in SecretStorage are never forwarded — that would copy a key given to AtlasMind into another vendor's process — nor are HTTP/SSE servers, whose headers carry bearer tokens. Skipped servers are reported in the output channel. |
 | `atlasmind.buzz.agentBindings` | `object` | `{}` | Map a Buzz identity (`npub…` or 64-char hex) to one AtlasMind agent id, or to a list of them, so inbound work from that Buzz agent lands with the right specialist. With several, the first owns the work — a follow-up has exactly one owner — and the rest are recorded as also-relevant. Unbound identities stay unassigned. |
 | `atlasmind.buzz.allowRemoteRelay` | `boolean` | `false` | Allow a non-local Buzz relay URL. When `false`, only loopback/localhost relays are used so project data stays on-machine. |
 
@@ -311,3 +296,18 @@ Use **AtlasMind: Specialist Integrations** for search, voice, image, and video p
 | Local | `atlasmind.provider.local.apiKey` | Optional API key for a local OpenAI-compatible endpoint. The endpoint URL itself is stored in `atlasmind.localOpenAiBaseUrl`. |
 
 Specialist integration credentials are also stored in SecretStorage using the `atlasmind.integration.<provider>.apiKey` pattern for providers such as EXA, ElevenLabs, Stability AI, and Runway.
+
+## Technical debt
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `atlasmind.debt.markers` | array | `[]` | Extra comment markers the tech-debt scan looks for, on top of `TODO`, `FIXME`, `HACK` and `XXX`. Written as `NAME` or `NAME:severity`, e.g. `["DEBT", "REVISIT:high"]`. An unqualified marker is graded **medium**. Each becomes a declared rule, named on every entry it grades and published in `tech-debt.md`. The built-in four cannot be redefined, and a marker mentioning a credential is still graded high whatever you called it. |
+
+## Settings that were live but undeclared
+
+Both of these have been read by real code for months and were absent from the manifest, so they worked if you typed them into `settings.json` by hand and were invisible in the Settings UI. Documented, functioning, and undiscoverable is the worst of the three states — declared in 0.205.0.
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `atlasmind.testingPolicyOverride` | string | `""` | Testing methodology the Settings dashboard reports as this project's policy. Empty means Red-Green TDD, the default. **Read since 0.46 and never declared**, so it could not be found in Settings until 0.205.0. |
+| `atlasmind.ideation.crossProjectPaths` | array | `[]` | Absolute paths to other AtlasMind projects whose ideation boards may be read for cross-project context. At most three are consulted, and nothing is ever written to another project. **Read since 0.86 and never declared**, so it could not be found in Settings until 0.205.0. |

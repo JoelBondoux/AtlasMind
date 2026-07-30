@@ -206,6 +206,15 @@
       }
       return;
     }
+    if (action === 'ideation-raise-work') {
+      // The host derives the wording and confirms before writing. This sends
+      // only the card id — a line that lands in a tracked file is not composed
+      // in a webview.
+      if (state.selectedCardId) {
+        vscode.postMessage({ type: 'raiseCardAsWork', payload: { cardId: state.selectedCardId } });
+      }
+      return;
+    }
     if (action === 'ideation-sync-card') {
       if (state.selectedCardId) {
         vscode.postMessage({ type: 'syncCardToSsot', payload: { cardId: state.selectedCardId } });
@@ -944,6 +953,7 @@
             '</div>' +
             '<label class="section-kicker" for="ideationTagsInput">Tags</label>' +
             '<input id="ideationTagsInput" type="text" value="' + escapeAttr((selectedCard.tags || []).join(', ')) + '" placeholder="analytics, transcript, hypothesis" />' +
+            renderWorkHandoff(selectedCard) +
             '<div class="panel-card ideation-sync-card"><p class="section-kicker">Project memory sync</p>' + renderSyncTargets(selectedCard.syncTargets || []) + '</div>' +
             '<div class="ideation-chip-row">' +
               '<span class="tag">' + escapeHtml(selectedCard.author) + '</span>' +
@@ -1601,6 +1611,42 @@
 
   function renderScoreField(label, id, value) {
     return '<label class="ideation-score-field"><span class="section-kicker">' + escapeHtml(label) + '</span><input id="' + id + '" type="range" min="0" max="100" step="1" value="' + escapeAttr(String(value || 0)) + '" /><span class="stat-detail">' + escapeHtml(String(value || 0)) + '</span></label>';
+  }
+
+  // The door from the board into the backlog, and what went through it.
+  //
+  // Two kinds of card get no button: an Atlas reply and an attachment are not
+  // work in themselves. Saying so beats a button that explains itself only after
+  // you press it.
+  var DERIVABLE_KINDS = ['idea', 'problem', 'experiment', 'user-insight', 'risk', 'requirement', 'evidence'];
+
+  function renderWorkHandoff(card) {
+    var derived = card.derived;
+    if (derived && derived.roadmapText) {
+      return '<div class="panel-card ideation-sync-card">' +
+        '<p class="section-kicker">On the roadmap</p>' +
+        '<p class="section-copy">“' + escapeHtml(derived.roadmapText) + '”</p>' +
+        '<p class="stat-detail">Raised from this card. The roadmap tracks the work; this card keeps the reasoning. ' +
+        'Open the Project Dashboard → Roadmap to prioritise it or raise it as a GitHub issue.</p>' +
+        (derived.issueNumber ? '<p class="stat-detail">Filed as issue #' + escapeHtml(String(derived.issueNumber)) + '.</p>' : '') +
+        '</div>';
+    }
+    if (DERIVABLE_KINDS.indexOf(card.kind) === -1) {
+      return '<div class="panel-card ideation-sync-card">' +
+        '<p class="section-kicker">Not work in itself</p>' +
+        '<p class="stat-detail">A ' + escapeHtml(card.kind) + ' card records something rather than asking for it. ' +
+        'Make a card for what you want done and link this one to it as evidence — the link becomes part of the item.</p>' +
+        '</div>';
+    }
+    return '<div class="panel-card ideation-sync-card">' +
+      '<p class="section-kicker">Raise as work</p>' +
+      '<p class="section-copy">Add this to the roadmap, where the planner weighs it with everything else. ' +
+      'This card’s connections travel with it as the reasoning — what it depends on, what supports it, and anything that contradicts it.</p>' +
+      '<div class="ideation-chip-row">' +
+        '<button type="button" class="action-link dashboard-button-solid" data-action="ideation-raise-work">Add to roadmap</button>' +
+      '</div>' +
+      '<p class="stat-detail">You will see the exact line before anything is written.</p>' +
+      '</div>';
   }
 
   function renderSyncTargets(syncTargets) {

@@ -58,10 +58,13 @@
       id: 'work',
       label: 'The work',
       pages: [
+        ['workflow', 'Workflow'],
         ['roadmap', 'Roadmap'],
         ['issues', 'Issues'],
+        // Issues had a page and pull requests had a single card, despite being
+        // the stage where a change stops being private. Parity.
+        ['pullRequests', 'Pull Requests'],
         ['director', 'Director'],
-        ['runtime', 'Runtime'],
       ],
     },
     {
@@ -69,7 +72,13 @@
       label: 'The code',
       pages: [
         ['repo', 'Repo'],
+        // CI sat as one card on Workflow while carrying the failure taxonomy —
+        // the thing that most rewards a page of its own.
+        ['pipeline', 'Pipeline'],
         ['testing', 'Testing'],
+        // Stage 7. Under "The code" rather than "The work": deferred work is
+        // a property of the codebase, not an item on the backlog.
+        ['debt', 'Tech Debt'],
       ],
     },
     {
@@ -85,9 +94,23 @@
       id: 'ship',
       label: 'Ship & record',
       pages: [
+        // Release is versioning, changelog, tags and the four delivery keys;
+        // Delivery is the environments a version moves through. Adjacent, and
+        // genuinely different questions.
+        ['release', 'Release'],
         ['delivery', 'Delivery'],
         ['documents', 'Documents'],
         ['ssot', 'SSOT'],
+      ],
+    },
+    {
+      // Runtime is AtlasMind's own state — agents, models, providers, sessions
+      // — not the project's. It sat under "The work", where it was the only
+      // tab not about the work.
+      id: 'engine',
+      label: 'The engine',
+      pages: [
+        ['runtime', 'Runtime'],
       ],
     },
   ];
@@ -111,7 +134,35 @@
   // Opening tag for a page panel. Centralised so the tab/panel ARIA wiring
   // cannot drift out of sync with the nav.
   function pageSectionOpen(id) {
-    return `<section id="panel-${id}" class="page-section ${state.activePage === id ? 'active' : ''}" role="tabpanel" aria-labelledby="tab-${id}">`;
+    return `<section id="panel-${id}" class="page-section ${state.activePage === id ? 'active' : ''}" role="tabpanel" aria-labelledby="tab-${id}">`
+      + githubLinkRow(id);
+  }
+
+  // The GitHub page this dashboard page is about.
+  //
+  // Rendered here rather than in `renderPageIntro` because this is the one place
+  // that knows *which* page it is building — `renderPageIntro` is called from
+  // inside each page's own render, where `state.activePage` would give every page
+  // the active one's links.
+  //
+  // No URL is sent back: the button carries `page` and a link id, and the host
+  // maps that to a URL it built itself. A surface that could name the URL to open
+  // could name any URL.
+  function githubLinkRow(id) {
+    const gh = (state.snapshot && state.snapshot.githubLinks) || { links: {}, notices: {} };
+    const links = (gh.links || {})[id] || [];
+    if (links.length === 0) {
+      // The notice is only worth showing where a page would otherwise look like
+      // it failed to load something. A page with no GitHub equivalent says so on
+      // hover of nothing, so it stays silent.
+      return '';
+    }
+    return `<div class="github-link-row">
+      <span class="github-link-label">On GitHub</span>
+      ${links.map(link => `<button type="button" class="action-link"
+        data-action="github-link" data-payload="${escapeAttr(id + ' ' + link.id)}"
+        title="${escapeAttr(link.detail)}">${escapeHtml(link.label)} ↗</button>`).join('')}
+    </div>`;
   }
 
   const state = {
@@ -139,8 +190,20 @@
     contributorFilter: '',
     /** Issues page: 'open' | 'unassigned' | 'closed' | 'all'. */
     issueFilter: 'open',
+    debtSearch: '',
+    // Filter by the *rule* rather than by severity: a project that declared
+    // its own markers wants to see what `REVISIT` found, and two rules can
+    // share a severity.
+    debtRuleFilter: 'all',
     issueSearch: '',
     issueDraftOpen: false,
+    /**
+     * A derived draft waiting in the composer, or undefined.
+     *
+     * Held in module state rather than written into the DOM on arrival, because
+     * `render()` rebuilds every section's innerHTML and would discard it.
+     */
+    issuePrefill: undefined,
     /** Issue number whose comment box is open, or 0. */
     issueCommentFor: 0,
     activeTestCategory: 'all',
@@ -150,6 +213,14 @@
     privacyTest: { kind: 'text', value: '' },
     privacyTestResult: null,
     privacyExpandedProviders: {},
+    // Which "?" explanations are open, by step id.
+    //
+    // Held here rather than relying on a native <details open> attribute,
+    // because render() rebuilds every page's innerHTML on every render —
+    // including host status pushes the user did not trigger — which would snap
+    // every open explanation shut mid-read. The module closure survives that;
+    // the DOM does not.
+    workflowHelpOpen: {},
     editingStageId: '',
     confirmRemoveStageId: '',
     editingPathId: '',
@@ -174,6 +245,9 @@
   // scroll position instead of restoring the previous page's.
   let focusTabAfterRender = '';
   let resetScrollAfterRender = false;
+  // A CSS selector for one control to re-focus after the next render. Consumed
+  // and cleared by render(), so it never leaks into an unrelated update.
+  let refocusAfterRender = '';
 
   refreshButton?.addEventListener('click', () => {
     vscode.postMessage({ type: 'refresh' });
@@ -231,6 +305,12 @@
       return;
     }
 
+    if (message.type === 'issueDraft') {
+      state.issuePrefill = message.payload;
+      state.issueDraftOpen = true;
+      render();
+      return;
+    }
     if (message.type === 'navigate') {
       state.activePage = normalizePageId(typeof message.payload === 'string' ? message.payload : DEFAULT_PAGE);
       render();
@@ -385,6 +465,10 @@
       vscode.postMessage({ type: 'openCommand', payload });
       return;
     }
+    if (action === 'setting') {
+      vscode.postMessage({ type: 'openSettingKey', payload });
+      return;
+    }
     if (action === 'prompt') {
       vscode.postMessage({ type: 'openPrompt', payload: { prompt: payload, sourcePage: state.activePage } });
       return;
@@ -464,6 +548,12 @@
       persistRoadmapItems(roadmapItemsForSave().filter(item => item.id !== payload));
       return;
     }
+    if (action === 'roadmap-raise-issue') {
+      // The host derives the text from the roadmap it holds. This sends only the
+      // item id — the webview never composes the wording of a public issue.
+      vscode.postMessage({ type: 'draftIssueFromRoadmap', payload: { itemId: payload } });
+      return;
+    }
     if (action === 'roadmap-toggle') {
       persistRoadmapItems(roadmapItemsForSave().map(item => item.id === payload ? { ...item, completed: !item.completed } : item));
       return;
@@ -522,6 +612,7 @@
     }
     if (action === 'issues-new-cancel') {
       state.issueDraftOpen = false;
+      state.issuePrefill = undefined;
       render();
       return;
     }
@@ -533,13 +624,16 @@
       };
       const title = read('title');
       if (!title) { return; }
+      const milestone = read('milestone');
       state.issueDraftOpen = false;
+      state.issuePrefill = undefined;
       vscode.postMessage({
         type: 'createIssue',
         payload: {
           title: title,
           body: read('body'),
           labels: read('labels').split(',').map(label => label.trim()).filter(Boolean),
+          ...(milestone ? { milestone: milestone } : {}),
         },
       });
       render();
@@ -713,6 +807,142 @@
     if (action === 'privacy-provider-expand') {
       const current = privacyProviderExpandedById(payload);
       state.privacyExpandedProviders[payload] = !current;
+      render();
+      return;
+    }
+    if (action === 'apply-team-role') {
+      vscode.postMessage({ type: 'applyTeamRole', payload: { roleId: payload } });
+      return;
+    }
+    if (action === 'generate-codeowners') {
+      vscode.postMessage({ type: 'generateCodeowners' });
+      return;
+    }
+    if (action === 'set-debt-rule-filter') {
+      state.debtRuleFilter = payload || 'all';
+      render();
+      return;
+    }
+    if (action === 'scan-debt') {
+      vscode.postMessage({ type: 'scanDebt' });
+      return;
+    }
+    if (action === 'open-debt-evidence') {
+      vscode.postMessage({ type: 'openDebtEvidence', payload: { id: payload } });
+      return;
+    }
+    if (action === 'delete-label') {
+      vscode.postMessage({ type: 'deleteLabel', payload: { name: payload } });
+      return;
+    }
+    if (action === 'close-milestone') {
+      vscode.postMessage({ type: 'closeMilestone', payload: { number: Number(payload) } });
+      return;
+    }
+    if (action === 'create-label') {
+      const input = document.getElementById('label-new-name');
+      const name = input && input.value ? input.value.trim() : '';
+      if (name) {
+        const colorInput = document.getElementById('label-new-color');
+        vscode.postMessage({
+          type: 'createLabel',
+          payload: { name, color: colorInput && colorInput.value ? colorInput.value.trim() : '' },
+        });
+      }
+      return;
+    }
+    if (action === 'create-milestone') {
+      const input = document.getElementById('milestone-new-title');
+      const title = input && input.value ? input.value.trim() : '';
+      if (title) {
+        vscode.postMessage({ type: 'createMilestone', payload: { title } });
+      }
+      return;
+    }
+    if (action === 'load-review-comments') {
+      vscode.postMessage({ type: 'loadReviewComments', payload: { number: Number(payload) } });
+      return;
+    }
+    if (action === 'address-review-comment') {
+      // Number and index in one attribute, split on the colon. Both are
+      // integers and neither can contain one.
+      const parts = String(payload).split(':');
+      vscode.postMessage({
+        type: 'addressReviewComment',
+        payload: { number: Number(parts[0]), index: Number(parts[1]) },
+      });
+      return;
+    }
+    if (action === 'work-on-debt') {
+      vscode.postMessage({ type: 'workOnDebt', payload: { id: payload } });
+      return;
+    }
+    if (action === 'set-debt-status') {
+      // Status and id travel in one attribute, split on the first space: an
+      // id can contain slashes and colons but never a space, because the
+      // register constrains it to an identifier charset.
+      const space = payload.indexOf(' ');
+      if (space > 0) {
+        vscode.postMessage({
+          type: 'setDebtStatus',
+          payload: { status: payload.slice(0, space), id: payload.slice(space + 1) },
+        });
+      }
+      return;
+    }
+    if (action === 'github-link') {
+      // `page id` — neither contains a space, so one split is unambiguous.
+      const cut = payload.indexOf(' ');
+      if (cut > 0) {
+        vscode.postMessage({
+          type: 'openGithubLink',
+          payload: { page: payload.slice(0, cut), id: payload.slice(cut + 1) },
+        });
+      }
+      return;
+    }
+    if (action === 'delta-seen') {
+      vscode.postMessage({ type: 'markDeltaSeen' });
+      return;
+    }
+    if (action === 'workflow-gate') {
+      // `key:on|off` — a setting key cannot contain a colon, so the last
+      // segment is unambiguous.
+      const cut = payload.lastIndexOf(':');
+      if (cut > 0) {
+        vscode.postMessage({
+          type: 'setWorkflowGate',
+          payload: { key: payload.slice(0, cut), enabled: payload.slice(cut + 1) === 'on' },
+        });
+      }
+      return;
+    }
+    if (action === 'automation-ceiling') {
+      vscode.postMessage({ type: 'setAutomationCeiling', payload: { level: payload } });
+      return;
+    }
+    if (action === 'create-workflow-config') {
+      vscode.postMessage({ type: 'createWorkflowConfig', payload: { profile: payload } });
+      return;
+    }
+    // Every stage edit is one field. The host confirms with the exact change
+    // listed, so batching several into one dialog would mean confirming a list
+    // nobody assembled deliberately.
+    if (action === 'workflow-stage-toggle') {
+      const stage = workflowStageById(payload);
+      if (stage) {
+        vscode.postMessage({
+          type: 'editWorkflowConfig',
+          payload: { stages: [{ id: payload, enabled: !stage.enabled }] },
+        });
+      }
+      return;
+    }
+    if (action === 'workflow-help') {
+      state.workflowHelpOpen[payload] = !state.workflowHelpOpen[payload];
+      // Re-focus this exact toggle after the rebuild, so a keyboard user who
+      // opened an explanation is still standing on the control they pressed.
+      refocusAfterRender = 'button[data-action="workflow-help"][data-payload="' + cssEscape(payload) + '"]';
       render();
       return;
     }
@@ -1098,6 +1328,10 @@
       state.issueSearch = target.value;
       render();
     }
+    if (target instanceof HTMLInputElement && target.id === 'debt-search-input') {
+      state.debtSearch = target.value;
+      render();
+    }
     if (target instanceof HTMLInputElement && target.id === 'privacy-rule-value') {
       state.privacyDraftRule.value = target.value;
       return;
@@ -1388,10 +1622,20 @@
       return;
     }
 
+    // A selector for one control to re-focus after this render, set by whichever
+    // handler triggered it. The `activeId` mechanism below only covers three
+    // hardcoded inputs; anything else — such as a "?" toggle — would silently
+    // lose focus on every activation, which makes the control keyboard-hostile
+    // in exactly the way a teaching surface must not be.
+    const refocusSelector = refocusAfterRender;
+    refocusAfterRender = '';
+
     // --- Preserve focus and cursor position for test search and roadmap textarea ---
     let activeId = null, cursorPos = null, isTextarea = false;
     const active = document.activeElement;
-    if (active && (active.id === 'test-search-input' || active.id === 'issue-search-input' || (active instanceof HTMLTextAreaElement && active.hasAttribute('data-roadmap-draft')))) {
+    if (active && (active.id === 'test-search-input' || active.id === 'issue-search-input'
+      || active.id === 'debt-search-input'
+      || (active instanceof HTMLTextAreaElement && active.hasAttribute('data-roadmap-draft')))) {
       activeId = active.id || (active.hasAttribute('data-roadmap-draft') ? 'roadmap-draft' : null);
       isTextarea = active instanceof HTMLTextAreaElement;
       if (typeof active.selectionStart === 'number') {
@@ -1448,25 +1692,39 @@
         ${renderOverview(snapshot)}
         ${renderScore(snapshot)}
         ${renderGapAnalysis(snapshot)}
+        ${renderWorkflow(snapshot)}
         ${renderRoadmap(snapshot)}
         ${renderIssues(snapshot)}
+        ${renderPullRequests(snapshot)}
+        ${renderPipeline(snapshot)}
         ${renderDirector(snapshot)}
         ${renderRuntime(snapshot)}
         ${renderRepo(snapshot)}
         ${renderTesting(snapshot)}
+        ${renderDebt(snapshot)}
         ${renderSecurity(snapshot)}
         ${renderPrivacy(snapshot)}
         ${renderRisk(snapshot)}
+        ${renderRelease(snapshot)}
         ${renderDelivery(snapshot)}
         ${renderDocuments(snapshot)}
         ${renderSsot(snapshot)}
         ${renderPromotionModal()}
       `;
 
+      // --- Re-focus a control that asked to keep focus across its own render ---
+      if (refocusSelector) {
+        const target = root.querySelector(refocusSelector);
+        if (target && typeof target.focus === 'function') {
+          target.focus({ preventScroll: true });
+        }
+      }
+
       // --- Restore focus and cursor position if needed ---
       if (activeId) {
         let el = null;
-        if (activeId === 'test-search-input' || activeId === 'issue-search-input') {
+        if (activeId === 'test-search-input' || activeId === 'issue-search-input'
+          || activeId === 'debt-search-input') {
           el = document.getElementById(activeId);
         } else if (activeId === 'roadmap-draft') {
           el = document.querySelector('textarea[data-roadmap-draft]');
@@ -2893,6 +3151,7 @@
             </div>
           </article>
         ` : ''}
+        ${renderTaxonomy(snapshot)}
       </section>
     `;
   }
@@ -2933,15 +3192,29 @@
   }
 
   function renderIssueComposer() {
+    const prefill = state.issuePrefill || {};
+    // Only milestones already on the repository are offered. `gh` fails on an
+    // unknown one, and that failure reaches the user as a raw CLI error rather
+    // than an explanation — so the host refuses it too.
+    const taxonomy = (state.snapshot && state.snapshot.taxonomy) || {};
+    const milestones = (taxonomy.milestones || []).filter(m => m && m.state !== 'closed');
     return `
       <article class="panel-card stage-editor" id="issue-composer">
         <p class="section-kicker">New issue</p>
         <h3>Open an issue on this repository</h3>
         <div class="stage-edit-grid">
-          <label class="stage-edit-field" style="grid-column:1 / -1;"><span>Title *</span><input type="text" data-issue-field="title" placeholder="Short, specific summary" /></label>
-          <label class="stage-edit-field" style="grid-column:1 / -1;"><span>Labels (comma separated)</span><input type="text" data-issue-field="labels" placeholder="bug, docs" /></label>
+          <label class="stage-edit-field" style="grid-column:1 / -1;"><span>Title *</span><input type="text" data-issue-field="title" placeholder="Short, specific summary" value="${escapeAttr(prefill.title || '')}" /></label>
+          <label class="stage-edit-field" style="grid-column:1 / -1;"><span>Labels (comma separated)</span><input type="text" data-issue-field="labels" placeholder="bug, docs" value="${escapeAttr((prefill.labels || []).join(', '))}" /></label>
+          ${milestones.length > 0 ? `<label class="stage-edit-field" style="grid-column:1 / -1;"><span>Milestone</span>
+            <select data-issue-field="milestone">
+              <option value="">None</option>
+              ${milestones.map(m => `<option value="${escapeAttr(m.title)}">${escapeHtml(m.title)}</option>`).join('')}
+            </select></label>` : ''}
         </div>
-        <textarea class="roadmap-textarea" data-issue-field="body" rows="5" placeholder="What happened, what you expected, and how to reproduce it."></textarea>
+        <textarea class="roadmap-textarea" data-issue-field="body" rows="5" placeholder="What happened, what you expected, and how to reproduce it.">${escapeHtml(prefill.body || '')}</textarea>
+        ${(prefill.droppedLabels || []).length > 0
+          ? `<p class="stat-detail">Not labelled ${prefill.droppedLabels.map(label => `<code>${escapeHtml(label)}</code>`).join(', ')} — no matching label exists on this repository, and AtlasMind does not create one as a side effect of filing. Add it on GitHub first if you want it.</p>`
+          : ''}
         <div class="stat-detail">This posts to the repository's public tracker. AtlasMind shows you exactly what will be sent and asks you to confirm first.</div>
         <div class="stage-edit-actions">
           <button type="button" class="action-link primary" data-action="issues-create">Create issue</button>
@@ -2949,6 +3222,1348 @@
         </div>
       </article>
     `;
+  }
+
+  // ── Workflow ───────────────────────────────────────────────────────────
+  // The guided GitHub workflow: what the eight stages are, why each exists,
+  // how far this repository has got, and what the numbers say.
+  //
+  // Written for somebody who has not done this before. Every step carries a "?"
+  // opening its why/how/what-goes-wrong, and every empty state explains what the
+  // thing is *for* rather than reporting that it is empty — the opposite of the
+  // convention elsewhere on this dashboard, deliberately, because a blank
+  // Workflow page is most likely being read by the person who most needs it.
+
+  const WF_MARK = { done: '✅', todo: '⬜', blocked: '⛔', optional: '🔹' };
+  const WF_STATUS_WORD = { done: 'done', todo: 'to do', blocked: 'blocked', optional: 'optional' };
+
+  /** A "?" toggle plus, when open, the explanation panel it controls. */
+  function renderWorkflowHelp(id, payload) {
+    const open = state.workflowHelpOpen[id] === true;
+    const button = `<button type="button" class="wf-help-toggle" data-action="workflow-help" data-payload="${escapeAttr(id)}"
+      aria-expanded="${open ? 'true' : 'false'}" aria-controls="wf-help-${escapeAttr(id)}"
+      aria-label="${open ? 'Hide' : 'Show'} the explanation for ${escapeAttr(payload.label || 'this step')}">?</button>`;
+    if (!open) { return { button, panel: '' }; }
+
+    const section = (heading, body) => body ? `<h5>${escapeHtml(heading)}</h5>${body}` : '';
+    const lines = (payload.how || []).map(line => {
+      const text = `<li>${escapeHtml(line.text || '')}`;
+      const command = line.command
+        ? `<div><code>${escapeHtml(line.command)}</code></div>`
+        : '';
+      // A URL is rendered as text, not an anchor: the dashboard's CSP requires
+      // a nonce for scripts and external navigation goes through the host, so a
+      // raw href would either be dead or a hole.
+      const url = line.url ? `<div class="wf-unknown">${escapeHtml(line.url)}</div>` : '';
+      return `${text}${command}${url}</li>`;
+    }).join('');
+
+    const mistakes = (payload.commonMistakes || []).length
+      ? `<div class="wf-help-panel wf-help-mistakes"><h5>What goes wrong</h5><ul>${
+        payload.commonMistakes.map(item => `<li>${escapeHtml(item)}</li>`).join('')
+      }</ul></div>`
+      : '';
+
+    const terms = (payload.glossary || [])
+      .map(key => (snapshotGlossary() || {})[key])
+      .filter(Boolean);
+    const glossary = terms.length
+      ? section('Terms', `<dl class="wf-glossary">${terms.map(entry =>
+        `<dt>${escapeHtml(entry.term)}</dt><dd>${escapeHtml(entry.definition)}</dd>`).join('')}</dl>`)
+      : '';
+
+    const panel = `
+      <div class="wf-help-panel" id="wf-help-${escapeAttr(id)}" role="region">
+        ${section('Why this matters', `<p>${escapeHtml(payload.why || '')}</p>`)}
+        ${lines ? section('How to do it', `<ol>${lines}</ol>`) : ''}
+        ${glossary}
+      </div>
+      ${mistakes}`;
+    return { button, panel };
+  }
+
+  /** Glossary lookup, keyed, from the current snapshot. */
+  let wfGlossaryCache = null;
+  function snapshotGlossary() { return wfGlossaryCache; }
+
+  /**
+   * The committed stage list, cached the same way.
+   *
+   * A toggle sends the *inverse* of the current value, so it has to read that
+   * value from the same snapshot the button was drawn from — otherwise a click
+   * arriving after a refresh would flip a stage the user never looked at.
+   */
+  let wfStageCache = null;
+  function workflowStageById(id) {
+    return (wfStageCache || []).find(stage => stage.id === id);
+  }
+
+  /** A metric verdict: the number, or an honest account of why there isn't one. */
+  function renderVerdict(verdict, format) {
+    if (verdict && verdict.known === true) {
+      return escapeHtml(format ? format(verdict.value) : String(verdict.value));
+    }
+    const reason = verdict && verdict.reason ? verdict.reason : 'Not measured.';
+    const hint = verdict && verdict.fixHint ? ' ' + verdict.fixHint : '';
+    return `<span class="wf-unknown" title="${escapeAttr(reason + hint)}">—</span>`;
+  }
+
+  // ── Pull Requests ──────────────────────────────────────────────────────
+  // Stage 4 of the guided workflow: where a change stops being private. Issues
+  // had a whole page and this had one card, which understated the stage where
+  // CI runs, review happens, and the reasoning gets recorded.
+
+  const PR_STATE_TONE = { open: '', draft: 'tag-warn', merged: 'tag-good', closed: '' };
+
+  /**
+   * The line-level review comments on one pull request.
+   *
+   * This is the actionable half of a review — somebody pointing at a line and
+   * saying what is wrong with it — and "address the review" used to mean
+   * handing a model every comment at once and hoping it found the place.
+   *
+   * Every comment is third-party text, so it is escaped here and fenced on the
+   * way to a model. The file button uses the path the *host* validated, and
+   * a comment whose path could not be trusted simply does not get one — the
+   * comment is still worth reading.
+   */
+  function renderReviewComments(number, comments) {
+    if (comments === undefined) {
+      return '';
+    }
+    if (comments.length === 0) {
+      return '<p class="stat-detail">No line comments on this review. Any feedback was left as a summary.</p>';
+    }
+    return `<div class="stack-list">${comments.map((comment, index) => `
+      <div class="recent-item">
+        <div class="row-head">
+          ${comment.path
+            ? `<button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(comment.path)}"
+                title="Open ${escapeAttr(comment.path)}"><code>${escapeHtml(comment.path)}${comment.line > 0 ? ':' + comment.line : ''}</code></button>`
+            : '<span class="list-meta">no file named — the comment is on an outdated diff</span>'}
+          <span class="list-meta">${escapeHtml(comment.author || 'a reviewer')}</span>
+        </div>
+        <p class="stat-detail">${escapeHtml(comment.body)}${comment.bodyTruncated ? '…' : ''}</p>
+        <div class="tag-row">
+          <button type="button" class="action-link" data-action="address-review-comment" data-payload="${pr_number_index(number, index)}">Address this one</button>
+          ${comment.url ? `<button type="button" class="action-link" data-action="external-url" data-payload="${escapeAttr(comment.url)}">Open on GitHub</button>` : ''}
+        </div>
+      </div>`).join('')}</div>`;
+  }
+
+  /** `number:index`, the pair the host looks both halves up by. */
+  function pr_number_index(number, index) {
+    return String(number) + ':' + String(index);
+  }
+
+  function renderPullRequests(snapshot) {
+    const wf = snapshot.guidedWorkflow || {};
+    const metrics = wf.pullRequests;
+    const records = wf.pullRequestRecords;
+    // Keyed by number, and `undefined` for a pull request nobody has asked
+    // about. Absent and empty are different facts here: one offers the button,
+    // the other says the review left no line comments.
+    const reviewComments = wf.reviewComments || {};
+
+    const intro = renderPageIntro({
+      kicker: 'Stage 4',
+      title: 'Pull requests and review',
+      summary: metrics
+        ? `${metrics.open} open, ${metrics.awaitingReview} awaiting review, ${metrics.merged} merged in the window.`
+        : 'Pull requests have not been read yet. AtlasMind fetches them on the same refresh as issues, because the GitHub API is rate-limited.',
+      chips: metrics && metrics.awaitingReview > 0
+        ? [{ label: `${metrics.awaitingReview} awaiting review`, tone: 'warn' }]
+        : [],
+    });
+
+    if (!metrics) {
+      return `${pageSectionOpen('pullRequests')}
+        ${intro}
+        <div class="dashboard-empty"><div>
+          <strong>Pull requests have not been loaded</strong>
+          <p class="section-copy">A pull request is where a change stops being private: the point CI runs, the point a second pair of eyes can see it, and the durable record of why the change looked right at the time. Even working alone it is worth opening one — CI is the reviewer.</p>
+          <button type="button" class="action-link" data-action="page" data-payload="issues">Open the Issues tab and refresh</button>
+        </div></div>
+      </section>`;
+    }
+
+    const open = (records || []).filter(pr => pr.state === 'open' || pr.state === 'draft');
+
+    const list = open.length > 0
+      ? open.map(pr => {
+        const comments = reviewComments[String(pr.number)];
+        const reviews = pr.reviews || [];
+        const submitted = reviews.filter(r => r.verdict !== 'pending');
+        const changesRequested = submitted.some(r => r.verdict === 'changes-requested');
+        const approved = submitted.some(r => r.verdict === 'approved');
+        const size = (pr.additions || 0) + (pr.deletions || 0);
+        return `
+          <div class="recent-item">
+            <div class="row-head">
+              <strong>#${escapeHtml(String(pr.number))} ${escapeHtml(pr.title)}</strong>
+              <span class="tag ${PR_STATE_TONE[pr.state] || ''}">${escapeHtml(pr.state)}</span>
+            </div>
+            <div class="list-meta">
+              ${escapeHtml(pr.headRefName)} → ${escapeHtml(pr.baseRefName)}
+              ${pr.author ? ' · ' + escapeHtml(pr.author) : ''}
+              · ${size} line${size === 1 ? '' : 's'}
+            </div>
+            <div class="tag-row">
+              ${changesRequested ? '<span class="tag tag-critical">changes requested</span>' : ''}
+              ${approved && !changesRequested ? '<span class="tag tag-good">approved</span>' : ''}
+              ${submitted.length === 0 ? '<span class="tag tag-warn">awaiting review</span>' : ''}
+              ${(pr.linkedIssues || []).length === 0
+                // Stated rather than left out: an unlinked PR means the diff and
+                // the reasoning behind it end up in separate places.
+                ? '<span class="tag tag-warn">no linked issue</span>'
+                : `<span class="tag">closes #${escapeHtml(String(pr.linkedIssues[0]))}</span>`}
+              ${pr.url ? `<button type="button" class="action-link" data-action="external-url" data-payload="${escapeAttr(pr.url)}">Open on GitHub</button>` : ''}
+              ${comments === undefined
+                ? `<button type="button" class="action-link" data-action="load-review-comments" data-payload="${pr.number}">Read the review comments</button>`
+                : ''}
+            </div>
+            ${renderReviewComments(pr.number, comments)}
+          </div>`;
+      }).join('')
+      : `<div class="dashboard-empty"><div>
+          <strong>No open pull requests</strong>
+          <p class="section-copy">Nothing is in flight. The metrics below still describe what has merged.</p>
+        </div></div>`;
+
+    return `${pageSectionOpen('pullRequests')}
+      ${intro}
+      <article class="panel-card">
+        <p class="card-kicker">In flight</p>
+        <div class="stack-list">${list}</div>
+      </article>
+      <div class="panel-grid">
+        <article class="panel-card">
+          <p class="card-kicker">Review health</p>
+          <div class="mini-grid">
+            ${renderMetricPill('Time to first review', formatDuration(metrics.medianTimeToFirstReviewMs))}
+            ${renderMetricPill('Time to merge', formatDuration(metrics.medianTimeToMergeMs))}
+            ${renderMetricPill('Linked to an issue', renderVerdictText(metrics.linkedRate, value => `${value}%`))}
+          </div>
+          <p class="stat-detail">A long time to first review usually means work is queued rather than that people are slow — the fix is scheduling, not effort. Medians below three samples report no verdict rather than a misleading number.</p>
+        </article>
+        <article class="panel-card">
+          <p class="card-kicker">Size</p>
+          ${renderDistributionBar('pr-size', metrics.sizeDistribution || [], {
+            title: 'Merged pull requests by lines changed',
+            caption: 'A 40-line diff gets read; a 400-line one gets skimmed',
+            emptyLabel: 'Nothing merged yet to size.',
+          })}
+        </article>
+      </div>
+      ${renderChartCard('pr-throughput', 'Merge throughput',
+        'Pull requests merged per day. Long flat stretches usually mean work is waiting in review rather than that nobody is writing it.',
+        (metrics.throughput || []).map(point => ({ label: point.label, value: point.value })), 'pullRequests')}
+    </section>`;
+  }
+
+  // ── Pipeline ───────────────────────────────────────────────────────────
+  // Stage 5. AtlasMind reads check *states* everywhere else; this is the page
+  // where it reads a *log* and says why something failed.
+
+  // ── Labels and milestones ───────────────────────────────────
+  // The taxonomy stage 1 draws from. Managed here because a rule that draws
+  // only from the declared set is only as good as the set behind it.
+
+  function renderTaxonomy(snapshot) {
+    const taxonomy = snapshot.taxonomy || { loaded: false, labels: [], milestones: [], drift: {} };
+    const drift = taxonomy.drift || {};
+
+    const help = renderWorkflowHelp('issues.taxonomy', {
+      label: 'why the label set matters',
+      why: 'When AtlasMind drafts an issue it takes labels only from the declared taxonomy, and drops anything that does not match rather than inventing it. That rule is what stops a drafter making up categories — and it is only as good as the set behind it. A declared label that does not exist on the repository gets silently dropped from every draft; a label people are using that is not declared will never be suggested.',
+      how: [
+        { text: 'Deleting a label removes it from the repository and from every issue carrying it, in one step GitHub cannot undo. AtlasMind names the issues before you confirm — GitHub does not.' },
+        { text: 'If you want to stop using a label without losing the record, rename it rather than deleting it.' },
+        { text: 'A milestone is closed, never deleted. Deleting one detaches every issue from it silently; closing preserves the record, which is what a milestone is for.' },
+        { text: 'A colour must be six hex digits. Anything else is dropped rather than repaired — the value is rendered into a style attribute, and a nearly-valid colour made plausible is worse than a missing swatch.' },
+      ],
+      commonMistakes: [
+        'Deleting a label to tidy up, and losing the categorisation on every closed issue that had it.',
+        'Declaring a taxonomy in `workflow.json` and never creating the labels, so every draft silently drops them.',
+      ],
+    });
+
+    if (!taxonomy.loaded) {
+      return `
+        <article class="panel-card">
+          <p class="card-kicker">Labels and milestones${help.button}</p>
+          ${help.panel}
+          <div class="dashboard-empty"><div>
+            <strong>Not read yet</strong>
+            <p class="section-copy">The label set is what AtlasMind draws from when it drafts an issue — it uses only what is declared and drops the rest rather than inventing categories. Refresh the issue list to read it.</p>
+          </div></div>
+        </article>`;
+    }
+
+    const labelRows = (taxonomy.labels || []).map(label => `
+      <div class="recent-item">
+        <div class="row-head">
+          <span>
+            ${label.color ? `<span class="label-swatch" style="background:#${escapeAttr(label.color)}"></span>` : ''}
+            <strong>${escapeHtml(label.name)}</strong>
+          </span>
+          <span class="list-meta">${label.issueCount} issue${label.issueCount === 1 ? '' : 's'}</span>
+        </div>
+        ${label.description ? `<div class="list-meta">${escapeHtml(label.description)}</div>` : ''}
+        <div class="tag-row">
+          <button type="button" class="action-link" data-action="delete-label" data-payload="${escapeAttr(label.name)}">Delete…</button>
+        </div>
+      </div>`).join('');
+
+    const milestoneRows = (taxonomy.milestones || []).map(milestone => `
+      <div class="recent-item">
+        <div class="row-head">
+          <strong>${escapeHtml(milestone.title)}</strong>
+          <span class="tag ${milestone.state === 'closed' ? 'tag-good' : 'tag-warn'}">${escapeHtml(milestone.state)}</span>
+        </div>
+        <div class="list-meta">
+          ${milestone.openIssues} open · ${milestone.closedIssues} closed
+          ${milestone.dueOn ? ' · due ' + escapeHtml(milestone.dueOn) : ' · no due date'}
+        </div>
+        ${milestone.state === 'open'
+          ? `<div class="tag-row"><button type="button" class="action-link" data-action="close-milestone" data-payload="${milestone.number}">Close it</button></div>`
+          : ''}
+      </div>`).join('');
+
+    return `
+      <div class="panel-grid">
+        <article class="panel-card">
+          <div class="row-head">
+            <p class="card-kicker">Labels${help.button}</p>
+            <span class="list-meta">${(taxonomy.labels || []).length}</span>
+          </div>
+          ${help.panel}
+          ${drift.summary && (drift.missing || []).length + (drift.undeclared || []).length > 0
+            ? `<p class="stat-detail wf-unknown">${escapeHtml(drift.summary)}</p>`
+            : drift.summary ? `<p class="stat-detail">${escapeHtml(drift.summary)}</p>` : ''}
+          <div class="stack-list">${labelRows || '<div class="dashboard-empty">This repository has no labels. A draft will carry none until some exist.</div>'}</div>
+          <div class="tag-row">
+            <input id="label-new-name" class="ideation-input" type="text" placeholder="New label name" />
+            <input id="label-new-color" class="ideation-input" type="text" placeholder="Colour (6 hex digits, optional)" maxlength="6" />
+            <button type="button" class="action-link" data-action="create-label">Create it</button>
+          </div>
+        </article>
+        <article class="panel-card">
+          <div class="row-head">
+            <p class="card-kicker">Milestones</p>
+            <span class="list-meta">${(taxonomy.milestones || []).length}</span>
+          </div>
+          <div class="stack-list">${milestoneRows || '<div class="dashboard-empty">No milestones. Issues will have nothing to be scheduled against.</div>'}</div>
+          <div class="tag-row">
+            <input id="milestone-new-title" class="ideation-input" type="text" placeholder="New milestone title" />
+            <button type="button" class="action-link" data-action="create-milestone">Create it</button>
+          </div>
+          <p class="stat-detail">A milestone is closed, never deleted. Deleting one detaches every issue from it silently; closing preserves the record, which is what a milestone is for.</p>
+        </article>
+      </div>`;
+  }
+
+  // ── Tech Debt ──────────────────────────────────────────────────────────
+  // Stage 7. The one page whose value depends entirely on being *comparable*
+  // over time, which is why severity comes from a published rule table rather
+  // than from a judgement call somebody made on a Tuesday.
+
+  const DEBT_SEVERITY_TONE = { high: 'tag-critical', medium: 'tag-warn', low: '' };
+  const DEBT_STATUS_TONE = { open: 'tag-warn', accepted: '', scheduled: '', resolved: 'tag-good', obsolete: '' };
+
+  function renderDebt(snapshot) {
+    const debt = snapshot.debt || { entries: [], metrics: {}, rules: [] };
+    const metrics = debt.metrics || {};
+    const entries = debt.entries || [];
+    const allOpen = entries.filter(entry =>
+      entry.status === 'open' || entry.status === 'accepted' || entry.status === 'scheduled');
+
+    // Search covers the title, the path and the rule, because those are the
+    // three things somebody already knows when they come looking: what it
+    // said, where it was, or which marker found it.
+    const needle = (state.debtSearch || '').trim().toLowerCase();
+    const ruleFilter = state.debtRuleFilter || 'all';
+    const openEntries = allOpen.filter(entry => {
+      if (ruleFilter !== 'all' && entry.rule !== ruleFilter) { return false; }
+      if (!needle) { return true; }
+      return (entry.title || '').toLowerCase().includes(needle)
+        || (entry.evidencePath || '').toLowerCase().includes(needle)
+        || (entry.rule || '').toLowerCase().includes(needle);
+    });
+    const filtered = openEntries.length !== allOpen.length;
+
+    const help = renderWorkflowHelp('debt.rules', {
+      label: 'how severity is decided',
+      why: 'Taking on debt is often the right call — the metaphor is exact, and borrowing to ship sooner is legitimate. The danger is the interest you pay by forgetting it exists. A register is only worth keeping if its grades are comparable, so severity comes from a published rule table and never from a judgement call: a score assigned last Tuesday cannot be compared with one assigned today, and comparability is the whole point.',
+      how: (debt.rules || []).map(rule => ({ text: rule.id + ' → ' + rule.severity + '. ' + rule.describes })).concat([
+        { text: 'Severity does not drift with age. An entry whose grade changed while nothing about the code changed could not be compared with last month’s. Age is shown separately instead.' },
+        { text: 'Entries transition; nothing is ever deleted. A resolved item is evidence the work was done; a vanished one is a gap in the record.' },
+        { text: 'When a marker disappears and nobody said they fixed it, the entry becomes obsolete rather than resolved. “The line is gone” and “somebody did the work” are different facts, and only one of them is an accomplishment.' },
+      ]),
+      commonMistakes: [
+        'Reading an empty register as “no debt”. It means nothing was found, or nothing was scanned.',
+        'Deleting entries to make the number look better. The number is the only reason the register is worth keeping.',
+      ],
+    });
+
+    const intro = renderPageIntro({
+      kicker: 'Stage 7',
+      title: 'What you deferred, and how long ago',
+      summary: debt.lastScanAt
+        ? openEntries.length + ' open, ' + (metrics.resolved || 0) + ' resolved. Last scanned ' + (debt.lastScanAt || '').slice(0, 10) + '.'
+        : 'Nothing has been scanned yet. A solo developer has no colleague who remembers the shortcut, and a studio has no shared memory of it either.',
+      chips: (metrics.bySeverity || []).map(slice => ({
+        label: slice.value + ' ' + slice.label,
+        tone: slice.key === 'high' ? 'critical' : slice.key === 'medium' ? 'warn' : 'neutral',
+      })),
+    });
+
+    if (!debt.lastScanAt && entries.length === 0) {
+      return pageSectionOpen('debt') + intro + `
+        <div class="dashboard-empty"><div>
+          <strong>No register yet</strong>
+          <p class="section-copy">A scan reads your source for <code>TODO</code>, <code>FIXME</code>, <code>HACK</code> and <code>XXX</code> markers and records each one with its file, its line, and the rule that graded it. Nothing is ever deleted — entries transition, so the register stays a complete account of what was deferred and what became of it.</p>
+          <p class="section-copy">An empty register means nothing was found or nothing was scanned. It does not mean there is no debt.</p>
+          <button type="button" class="action-link" data-action="scan-debt"${debt.scanning ? ' disabled' : ''}>${debt.scanning ? 'Scanning…' : 'Scan this workspace'}</button>
+        </div></div>
+      </section>`;
+    }
+
+    // Only rules that actually graded something get a chip. A filter for a
+    // rule with no entries is a button that does nothing, and a project's own
+    // markers are the ones most worth filtering by — so the list is derived
+    // from the register rather than from the rule table.
+    const rulesInUse = [...new Set(allOpen.map(entry => entry.rule))]
+      .sort()
+      .map(id => ({ id, label: id }));
+
+    const rows = openEntries.slice(0, 200).map(entry => `
+      <div class="recent-item">
+        <div class="row-head">
+          <button type="button" class="action-link" data-action="open-debt-evidence" data-payload="${escapeAttr(entry.id)}"
+            title="Open ${escapeAttr(entry.evidencePath)}">${escapeHtml(entry.title)}</button>
+          <span>
+            <span class="tag ${DEBT_SEVERITY_TONE[entry.severity] || ''}">${escapeHtml(entry.severity)}</span>
+            <span class="tag ${DEBT_STATUS_TONE[entry.status] || ''}">${escapeHtml(entry.status)}</span>
+          </span>
+        </div>
+        <div class="list-meta"><code>${escapeHtml(entry.evidencePath)}${entry.evidenceLine ? ':' + entry.evidenceLine : ''}</code> · ${escapeHtml(entry.domain)} · since ${escapeHtml((entry.detectedAt || '').slice(0, 10))} · graded by <code>${escapeHtml(entry.rule)}</code></div>
+        <div class="tag-row">
+          ${entry.status !== 'accepted' ? `<button type="button" class="action-link" data-action="set-debt-status" data-payload="accepted ${escapeAttr(entry.id)}">Accept</button>` : ''}
+          ${entry.status !== 'scheduled' ? `<button type="button" class="action-link" data-action="set-debt-status" data-payload="scheduled ${escapeAttr(entry.id)}">Schedule</button>` : ''}
+          <button type="button" class="action-link" data-action="set-debt-status" data-payload="resolved ${escapeAttr(entry.id)}">Mark resolved</button>
+          <button type="button" class="action-link" data-action="work-on-debt" data-payload="${escapeAttr(entry.id)}">Look at it with Atlas</button>
+        </div>
+      </div>`).join('');
+
+    return pageSectionOpen('debt') + intro + `
+      <div class="panel-grid">
+        <article class="panel-card">
+          <p class="card-kicker">Where it is${help.button}</p>
+          ${help.panel}
+          <div class="mini-grid">
+            ${renderMetricPill('Open', String(metrics.open || 0))}
+            ${renderMetricPill('Median age', metrics.medianAgeDays === undefined ? '—' : metrics.medianAgeDays + 'd')}
+            ${renderMetricPill('Resolved', String(metrics.resolved || 0), { tone: 'good' })}
+          </div>
+          ${renderDistributionBar('debt-severity', (metrics.bySeverity || []).map(slice => ({
+            key: slice.key,
+            label: slice.label,
+            value: slice.value,
+            tone: slice.key === 'high' ? 'critical' : slice.key === 'medium' ? 'warn' : 'accent',
+          })), {
+            title: 'Open by severity',
+            caption: 'Graded by rule, so this month compares with last',
+            emptyLabel: 'Nothing open.',
+          })}
+          ${renderDonutChart('debt-domain', metrics.byDomain || [], { emptyLabel: 'Nothing open.' })}
+        </article>
+        <article class="panel-card">
+          <p class="card-kicker">How long it has been there</p>
+          ${renderDistributionBar('debt-age', metrics.ageDistribution || [], {
+            title: 'Open entries by age',
+            caption: 'The shape matters more than the total — a long tail is deferral becoming permanent',
+            emptyLabel: 'Nothing open.',
+          })}
+          ${metrics.oldest
+            ? `<p class="stat-detail">Oldest open: <strong>${escapeHtml(metrics.oldest.title)}</strong> in <code>${escapeHtml(metrics.oldest.evidencePath)}</code>, since ${escapeHtml((metrics.oldest.detectedAt || '').slice(0, 10))}.</p>`
+            : ''}
+          ${metrics.obsolete
+            ? `<p class="stat-detail wf-unknown">${metrics.obsolete} entr${metrics.obsolete === 1 ? 'y has' : 'ies have'} gone obsolete — the evidence disappeared and nobody recorded fixing it. That is not the same as resolved, and the register keeps them apart.</p>`
+            : ''}
+          <button type="button" class="action-link" data-action="scan-debt"${debt.scanning ? ' disabled' : ''}>${debt.scanning ? 'Scanning…' : 'Rescan'}</button>
+        </article>
+      </div>
+      <article class="panel-card">
+        <div class="row-head">
+          <p class="card-kicker">Open entries</p>
+          <span class="list-meta">${filtered ? openEntries.length + ' of ' + allOpen.length : allOpen.length}</span>
+        </div>
+        <input id="debt-search-input" class="ideation-input" type="search"
+          placeholder="Search by what it says, where it is, or which marker found it"
+          value="${escapeAttr(state.debtSearch || '')}" />
+        ${rulesInUse.length > 1
+          ? `<div class="segmented" role="group" aria-label="Filter by marker">${
+            [{ id: 'all', label: 'All markers' }].concat(rulesInUse).map(entry => `
+              <button type="button" data-action="set-debt-rule-filter" data-payload="${escapeAttr(entry.id)}"
+                class="${ruleFilter === entry.id ? 'active' : ''}"
+                aria-pressed="${ruleFilter === entry.id ? 'true' : 'false'}">${escapeHtml(entry.label)}</button>`).join('')}</div>`
+          : ''}
+        <div class="stack-list">${rows || `<div class="dashboard-empty">${
+          filtered
+            ? 'Nothing matches that. ' + allOpen.length + ' open entr' + (allOpen.length === 1 ? 'y' : 'ies') + ' in total.'
+            : 'Nothing open. Every entry has been resolved, accepted, or gone obsolete.'}</div>`}</div>
+        ${openEntries.length > 200 ? `<p class="stat-detail">Showing 200 of ${openEntries.length}. The rest are in <code>${escapeHtml(debt.path || '')}</code>.</p>` : ''}
+      </article>
+    </section>`;
+  }
+
+  // ── Release ────────────────────────────────────────────────────────────
+  // Stage 6. Two questions that look like one: *can* this version be released
+  // (the gates), and *how is delivery going* (the four keys). The first is about
+  // one moment, the second about a quarter, and a page that mixed them would
+  // answer neither.
+
+  const GATE_TONE = { pass: 'tag-good', fail: 'tag-critical', unknown: 'tag-warn' };
+  const GATE_WORD = { pass: 'ready', fail: 'blocked', unknown: 'unknown' };
+  const DORA_BAND_TONE = { elite: 'tag-good', high: 'tag-good', medium: 'tag-warn', low: 'tag-critical' };
+
+  function renderRelease(snapshot) {
+    const rel = snapshot.release || {};
+    const plan = rel.plan || { gates: [], blockedBy: [] };
+    const dora = rel.dora || { bands: {}, failures: [] };
+    const notes = plan.notes;
+
+    const intro = renderPageIntro({
+      kicker: 'Stage 6',
+      title: 'Release preparation and delivery performance',
+      summary: rel.planSummary || 'Nothing evaluated yet.',
+      chips: [
+        { label: plan.tag || '—', tone: plan.ready ? 'good' : 'warn' },
+        ...(rel.loadedAt ? [] : [{ label: 'releases not read', tone: 'warn' }]),
+      ],
+    });
+
+    // The gates, in evaluation order. `unknown` is rendered as its own state
+    // rather than folded into failure: "we could not check" and "we checked and
+    // it is wrong" call for different actions, and only one of them is yours.
+    const gateRows = (plan.gates || []).map(gate => `
+      <div class="recent-item">
+        <div class="row-head">
+          <strong>${escapeHtml(gate.label)}</strong>
+          <span class="tag ${GATE_TONE[gate.status] || ''}">${escapeHtml(GATE_WORD[gate.status] || gate.status)}</span>
+        </div>
+        <div class="list-meta">${escapeHtml(gate.detail)}</div>
+        ${gate.fixHint ? `<p class="stat-detail${gate.status === 'pass' ? '' : ' wf-unknown'}">${escapeHtml(gate.fixHint)}</p>` : ''}
+      </div>`).join('');
+
+    const gateHelp = renderWorkflowHelp('release.gates', {
+      label: 'why a release has gates at all',
+      why: 'A published version cannot be withdrawn. Anyone who fetched a tag keeps whatever it pointed at, package registries refuse a re-publish of the same number, and a release note is a permanent public record somebody is accountable for. Every other stage of this workflow is recoverable by editing and pushing again; this one is not, which is the whole reason it is checked before rather than fixed after.',
+      how: [
+        { text: 'A gate reporting "unknown" is not a pass. It means the question was asked and nothing answered — usually because `gh` or `git` could not be reached — and shipping on an unknown is the habit this stage exists to break.' },
+        { text: 'The tag gate is the one that catches a double publish: an existing tag means the publish workflow already fired for this version.' },
+        { text: 'AtlasMind never deletes or moves a tag to make room. Anyone who already fetched it would keep the old contents under the new name, and never find out.' },
+        { text: 'Release notes are the changelog section for this version, copied verbatim. Not summarised, not rewritten, and never model-generated — a generated release note is a claim nobody checked attached to a version nobody can change.' },
+        { text: 'If the notes contain anything shaped like a credential, the release is refused rather than quietly redacted. Publishing an edited version of what you reviewed, without telling you what was removed, is the worse of the two failures.' },
+      ],
+      commonMistakes: [
+        'Tagging before the changelog entry exists, so the release ships with an empty body that looks deliberate.',
+        'Deleting a bad tag and re-pushing it. The tag moves; the copies people already fetched do not.',
+        'Treating a green tick from an unread pipeline as a passing build.',
+      ],
+    });
+
+    const planCard = `
+      <article class="panel-card">
+        <div class="row-head">
+          <p class="card-kicker">Release gates${gateHelp.button}</p>
+          <span class="tag ${plan.ready ? 'tag-good' : 'tag-warn'}">${plan.ready ? 'all clear' : (plan.blockedBy || []).length + ' outstanding'}</span>
+        </div>
+        ${gateHelp.panel}
+        <div class="stack-list">${gateRows || '<div class="dashboard-empty">No gates evaluated.</div>'}</div>
+        <p class="stat-detail">Nothing here publishes anything. Tagging and publishing stay with you at every automation level, because a released version cannot be taken back.</p>
+      </article>`;
+
+    const versionCard = `
+      <article class="panel-card">
+        <p class="card-kicker">Version</p>
+        <div class="mini-grid">
+          ${renderMetricPill('In the manifest', plan.currentVersion || '—')}
+          ${renderMetricPill('Last published', plan.lastReleasedVersion || '—', { tone: plan.lastReleasedVersion ? '' : 'warn' })}
+          ${renderMetricPill('Commits suggest', plan.suggestedLevel || '—')}
+        </div>
+        <p class="stat-detail">The suggested level comes from the conventional-commit prefixes in the range — the same rule the promotion runner uses, not a second one. A breaking change makes it major, any <code>feat:</code> makes it minor, everything else is a patch.</p>
+        ${plan.lastReleasedVersion && plan.suggestedVersion !== plan.currentVersion
+          ? `<p class="stat-detail wf-unknown">Next version on that basis: ${escapeHtml(plan.suggestedVersion || '')}.</p>`
+          : ''}
+      </article>`;
+
+    const notesCard = `
+      <article class="panel-card">
+        <p class="card-kicker">Release notes</p>
+        ${notes
+          ? `<div class="list-meta">${escapeHtml(notes.heading)}</div>
+             <pre class="wf-notes">${escapeHtml(notes.body)}</pre>
+             ${notes.truncated ? '<p class="stat-detail wf-unknown">Truncated for display and for publishing — the changelog section is longer than the release-note limit.</p>' : ''}
+             ${(notes.secretTypes || []).length
+               ? `<p class="stat-detail wf-unknown">Blocked: this text contains something shaped like a credential (${escapeHtml(notes.secretTypes.join(', '))}). Remove it from the changelog and rotate the credential — AtlasMind will not publish a redacted version of notes you reviewed.</p>`
+               : '<p class="stat-detail">This is what would be published, byte for byte.</p>'}`
+          : `<div class="dashboard-empty"><div>
+              <strong>No changelog section for this version</strong>
+              <p class="section-copy">The release notes are the <code>CHANGELOG.md</code> section for the version being released, copied verbatim. Writing it is the step people skip, and the one readers actually use — it is the only place the reasoning behind a version survives after the pull request is closed.</p>
+            </div></div>`}
+      </article>`;
+
+    // The four keys. Two describe speed, two describe stability, which is what
+    // stops a team improving the pair it likes by ruining the other.
+    const doraHelp = renderWorkflowHelp('release.dora', {
+      label: 'what the four delivery keys measure',
+      why: 'Deployment frequency, lead time, change failure rate and time to restore are the standard professional framing for delivery performance. They are paired on purpose: the first two describe speed and the last two describe stability, so a team cannot improve the half it likes by quietly wrecking the other. Shipping daily means nothing if a third of releases need a same-day fix.',
+      how: [
+        { text: `Measured over the last ${dora.windowDays || 90} days, from published releases and merged pull requests.` },
+        { text: 'Lead time is measured from a pull request merging to the release that carried it — the half you can actually act on. Work that merged and has not shipped is excluded rather than counted as infinitely slow; that it is waiting is itself the finding.' },
+        { text: rel.changeFailureRule || '' },
+        { text: 'Draft and pre-release entries are excluded. Neither is a deployment to anybody.' },
+        { text: 'The bands are the widely cited thresholds, not a certification — the exact boundaries have moved between annual industry reports, and your own trend matters far more than which side of a line you land on.' },
+      ].filter(line => line.text),
+    });
+
+    const key = (label, verdict, band, format) => `
+      <div class="recent-item">
+        <div class="row-head">
+          <strong>${escapeHtml(label)}</strong>
+          <span>${renderVerdict(verdict, format)}${band ? ` <span class="tag ${DORA_BAND_TONE[band] || ''}">${escapeHtml(band)}</span>` : ''}</span>
+        </div>
+      </div>`;
+
+    const doraCard = `
+      <article class="panel-card">
+        <p class="card-kicker">Delivery performance${doraHelp.button}</p>
+        ${doraHelp.panel}
+        <div class="stack-list">
+          ${key('Deployment frequency', dora.deploymentFrequency, dora.bands && dora.bands.deploymentFrequency, value => `${value}/week`)}
+          ${key('Lead time for change', dora.leadTimeHours, dora.bands && dora.bands.leadTime, value => value < 48 ? `${value.toFixed(1)}h` : `${(value / 24).toFixed(1)}d`)}
+          ${key('Change failure rate', dora.changeFailureRate, dora.bands && dora.bands.changeFailureRate, value => `${value}%`)}
+          ${key('Time to restore', dora.timeToRestoreHours, dora.bands && dora.bands.timeToRestore, value => value < 48 ? `${value.toFixed(1)}h` : `${(value / 24).toFixed(1)}d`)}
+        </div>
+        ${(dora.failures || []).length
+          ? `<p class="stat-detail">Counted as failures: ${escapeHtml(dora.failures.map(f => `${f.tag} → ${f.followedBy}`).join(', '))}. Named so the number can be argued with rather than taken on trust.</p>`
+          : ''}
+        ${rel.loadFailure
+          ? `<p class="stat-detail wf-unknown">Releases could not be read: ${escapeHtml(rel.loadFailure)}</p>`
+          : ''}
+      </article>`;
+
+    const frequencyChart = renderChartCard(
+      'release-frequency',
+      'Releases per day',
+      `Published releases over the window. Cadence is worth watching as a shape rather than a number — a long flat stretch followed by a spike usually means work was queued, and a queued release is the one most likely to go wrong.`,
+      (dora.series || []).map(point => ({ label: point.label, value: point.value })),
+      'release',
+    );
+
+    const recent = (rel.releases || []).slice(0, 12).map(entry => `
+      <div class="recent-item">
+        <div class="row-head">
+          <strong>${escapeHtml(entry.tagName)}</strong>
+          <span class="list-meta">${escapeHtml((entry.publishedAt || '').slice(0, 10))}</span>
+        </div>
+        ${entry.isPrerelease || entry.isDraft
+          ? `<div class="list-meta">${entry.isDraft ? 'draft' : 'pre-release'} — excluded from the delivery metrics</div>`
+          : ''}
+      </div>`).join('');
+
+    const historyCard = `
+      <article class="panel-card">
+        <p class="card-kicker">Published releases</p>
+        ${rel.loadedAt || (rel.releases || []).length
+          ? `<div class="stack-list">${recent || '<div class="dashboard-empty">This repository has no published releases yet.</div>'}</div>`
+          : `<div class="dashboard-empty"><div>
+              <strong>Releases have not been read</strong>
+              <p class="section-copy">Reading the release list is a network call, so it happens when you ask rather than on every render. The gates above do not need it — they come from your own files, which is why they are already filled in.</p>
+              <button type="button" class="action-link" data-action="page" data-payload="issues">Open the Issues tab and refresh</button>
+            </div></div>`}
+      </article>`;
+
+    return `${pageSectionOpen('release')}
+      ${intro}
+      <div class="panel-grid">
+        ${planCard}
+        ${versionCard}
+      </div>
+      <div class="panel-grid">
+        ${notesCard}
+        ${doraCard}
+      </div>
+      ${frequencyChart}
+      ${historyCard}
+    </section>`;
+  }
+
+  function renderPipeline(snapshot) {
+    // Computed once: the button and the panel are two halves of one control,
+    // and calling the builder twice would recompute the whole payload.
+    const taxonomyHelp = renderWorkflowHelp('pipeline.taxonomy', {
+      label: 'how AtlasMind decides why a build failed',
+      why: 'The cause is decided by an ordered rule table over the log text, first match wins, with no model in the path. That is deliberate: a taxonomy that varies run to run cannot be charted, and a chart of CI failures over time is one of the most useful things a team can look at. An agent explains a classification and proposes a fix — it never chooses the classification.',
+      how: [
+        { text: 'Infrastructure is checked first, because an unreachable registry looks exactly like a dependency failure — and telling somebody to fix their lockfile when npm was down wastes an afternoon.' },
+        { text: 'Then dependency install, because nothing after a failed install had a chance to run; reporting the compile error would send you to fix code that never built.' },
+        { text: 'Then compile, lint, test failure, and timeout — each narrower than the last.' },
+        { text: 'Flakiness comes from history rather than one log: a job that both passed and failed on the same commit is flaky whatever its latest log says.' },
+        { text: 'When nothing matches, the answer is unknown and it escalates. A confidently wrong root cause costs more than an honest admission.' },
+        { text: 'AtlasMind never re-runs a job automatically. Re-running until green turns a flaky test into policy.' },
+      ],
+    });
+    const wf = snapshot.guidedWorkflow || {};
+    const intel = wf.ciIntelligence;
+    const runs = (intel && intel.runs) || [];
+    const report = intel && intel.report;
+
+    const counts = runs.reduce((acc, run) => {
+      const key = run.status !== 'completed' ? 'running'
+        : run.conclusion === 'success' ? 'passing'
+          : run.conclusion === 'failure' ? 'failing' : 'other';
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {});
+    const completed = (counts.passing || 0) + (counts.failing || 0);
+
+    const intro = renderPageIntro({
+      kicker: 'Stage 5',
+      title: 'Pipeline and failure analysis',
+      summary: intel
+        ? `${runs.length} recent run${runs.length === 1 ? '' : 's'} on this branch${completed > 0 ? `, ${Math.round(((counts.passing || 0) / completed) * 100)}% passing` : ''}.`
+        : 'CI has not been read yet. Fetching runs and downloading a failed log are slow, rate-limited calls, so they happen when you ask.',
+      chips: report ? [{ label: report.classification, tone: report.classification === 'unknown' ? 'warn' : 'critical' }] : [],
+    });
+
+    if (!intel) {
+      return `${pageSectionOpen('pipeline')}
+        ${intro}
+        <div class="dashboard-empty"><div>
+          <strong>CI has not been read</strong>
+          <p class="section-copy">CI is the only reviewer that never gets tired and never approves something because it is Friday. On a solo project it is not a supplement to review — it is the review. AtlasMind reports no verdict rather than implying a green build.</p>
+          <button type="button" class="action-link" data-action="page" data-payload="issues">Open the Issues tab and refresh</button>
+        </div></div>
+      </section>`;
+    }
+
+    const runRows = runs.slice(0, 15).map(run => `
+      <div class="recent-item">
+        <div class="row-head">
+          <strong>${escapeHtml(run.workflowName || run.displayTitle || 'Run')}</strong>
+          <span class="tag ${run.conclusion === 'success' ? 'tag-good' : run.conclusion === 'failure' ? 'tag-critical' : 'tag-warn'}">${
+            escapeHtml(run.status !== 'completed' ? run.status : (run.conclusion || 'unknown'))}</span>
+        </div>
+        <div class="list-meta">${escapeHtml(run.displayTitle || '')}</div>
+      </div>`).join('');
+
+    return `${pageSectionOpen('pipeline')}
+      ${intro}
+      <div class="panel-grid">
+        <article class="panel-card">
+          <p class="card-kicker">Outcome</p>
+          <div class="mini-grid">
+            ${renderMetricPill('Passing', String(counts.passing || 0), { tone: 'good' })}
+            ${renderMetricPill('Failing', String(counts.failing || 0), { tone: (counts.failing || 0) > 0 ? 'critical' : 'good' })}
+            ${renderMetricPill('Pass rate', completed > 0 ? Math.round(((counts.passing || 0) / completed) * 100) + '%' : '—')}
+          </div>
+          ${renderDistributionBar('pipeline-outcome', [
+            { key: 'pass', label: 'Passing', value: counts.passing || 0, tone: 'good' },
+            { key: 'run', label: 'Running', value: counts.running || 0, tone: 'accent' },
+            { key: 'fail', label: 'Failing', value: counts.failing || 0, tone: 'critical' },
+            { key: 'other', label: 'Cancelled or skipped', value: counts.other || 0, tone: 'warn' },
+          ], {
+            title: 'Recent runs on this branch',
+            caption: 'The shape over time matters more than the latest result',
+            emptyLabel: 'No runs recorded for this branch.',
+          })}
+        </article>
+        <article class="panel-card">
+          <p class="card-kicker">Latest failure</p>
+          ${report ? renderCiFailure(report) : ''}
+          ${!report && intel.logFailure
+            ? `<p class="stat-detail wf-unknown">A run failed, but its log could not be read: ${escapeHtml(intel.logFailure)}</p>`
+            : ''}
+          ${!report && !intel.logFailure
+            ? '<div class="dashboard-empty"><div><strong>No failing runs</strong><p class="section-copy">Nothing on this branch has failed recently.</p></div></div>'
+            : ''}
+          ${taxonomyHelp.button}
+          ${taxonomyHelp.panel}
+        </article>
+      </div>
+      <article class="panel-card">
+        <p class="card-kicker">Recent runs</p>
+        <div class="stack-list">${runRows || '<div class="dashboard-empty">No runs on this branch.</div>'}</div>
+      </article>
+    </section>`;
+  }
+
+  function renderWorkflow(snapshot) {
+    const wf = snapshot.guidedWorkflow;
+    if (!wf) {
+      return `${pageSectionOpen('workflow')}<div class="dashboard-empty"><div>
+        <strong>The guided workflow is not available</strong>
+        <p class="section-copy">AtlasMind could not read this workspace's state. Open a folder containing a git repository to see the workflow.</p>
+      </div></div></section>`;
+    }
+    wfGlossaryCache = (wf.glossary || []).reduce((all, entry) => {
+      all[entry.key] = entry; return all;
+    }, {});
+    wfStageCache = (wf.workflowConfig && wf.workflowConfig.config && wf.workflowConfig.config.stages) || [];
+
+    const progress = wf.progress || { done: 0, total: 0, finished: false };
+    const pct = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
+
+    const intro = renderPageIntro({
+      kicker: 'Guided workflow',
+      title: 'The eight stages, and where you are in them',
+      summary: progress.total === 0
+        ? 'The workflow could not be assessed for this workspace yet.'
+        : `${progress.done} of ${progress.total} steps done (${pct}%). ${
+          wf.next ? `Next: ${wf.next.stepTitle}, in ${wf.next.stageName}.` : 'Every step is complete.'
+        } Press ? on any step to see why it exists and how to do it.`,
+      chips: [
+        { label: `${wf.profile} profile`, tone: 'accent' },
+        { label: wf.enabled ? `automation: ${wf.automationLevel}` : 'automation: off', tone: wf.enabled ? 'warn' : 'good' },
+      ],
+    });
+
+    const strip = renderFlowStrip((wf.stages || []).map(stage => ({
+      label: String(stage.ordinal),
+      sub: stage.name.split(' ')[0],
+      icon: WF_MARK[stage.status] || '⬜',
+      status: stage.status === 'done' ? 'ok' : stage.status === 'blocked' ? 'fail' : 'pending',
+      title: `${stage.name} — ${WF_STATUS_WORD[stage.status] || stage.status}. ${stage.blurb}`,
+    })));
+
+    const stages = (wf.stages || []).map(stage => {
+      const stageHelp = renderWorkflowHelp(`stage.${stage.id}`, {
+        label: stage.name,
+        why: stage.why,
+        how: [
+          { text: `Owned by \`${stage.ownerAgentId}\`.${
+            (stage.supportingAgentIds || []).length ? ` Supported by ${stage.supportingAgentIds.join(', ')}.` : ''
+          }` },
+          { text: (stage.githubSurface || []).length
+            ? `Uses: ${stage.githubSurface.join(', ')}.`
+            : 'Touches no GitHub surface at all — this stage is deliberately local.' },
+          { text: stage.determinism },
+        ],
+      });
+
+      const steps = (stage.steps || []).map(step => {
+        const help = renderWorkflowHelp(step.id, step);
+        return `
+          <div class="wf-step">
+            <span class="wf-step-mark" aria-hidden="true">${WF_MARK[step.status] || '⬜'}</span>
+            <div class="wf-step-body">
+              <div class="wf-step-title">
+                <span class="visually-hidden">${escapeHtml(WF_STATUS_WORD[step.status] || step.status)}: </span>
+                ${escapeHtml(step.title)}
+                ${step.proficiency && step.proficiency !== 'core'
+                  ? `<span class="wf-proficiency">${escapeHtml(step.proficiency)}</span>` : ''}
+                ${help.button}
+              </div>
+              <div class="wf-step-detail">${escapeHtml(step.detail || '')}</div>
+              ${help.panel}
+            </div>
+          </div>`;
+      }).join('');
+
+      return `
+        <article class="wf-stage">
+          <div class="wf-stage-head">
+            <span class="wf-stage-ordinal">${escapeHtml(String(stage.ordinal))}</span>
+            <h4>${escapeHtml(stage.name)}</h4>
+            <span class="tag ${stage.status === 'done' ? 'tag-good' : stage.status === 'blocked' ? 'tag-critical' : ''}">${
+              escapeHtml(WF_STATUS_WORD[stage.status] || stage.status)}</span>
+            ${stageHelp.button}
+          </div>
+          <p class="stat-detail">${escapeHtml(stage.blurb)}</p>
+          ${stageHelp.panel}
+          ${steps}
+        </article>`;
+    }).join('');
+
+    const issues = wf.issues;
+    const branches = wf.branches || { nonConforming: [] };
+    const ci = wf.ci || {};
+    const release = wf.release || { conformance: {} };
+    const health = wf.health || {};
+
+    // Health. Omitted components are named rather than silently folded in, so a
+    // score of 80 cannot be mistaken for "80% of everything is fine".
+    const healthCard = `
+      <article class="panel-card">
+        <p class="card-kicker">Workflow health</p>
+        ${health.score && health.score.known
+          ? renderScoreRing(health.score.value)
+          : `<div class="dashboard-empty"><div>
+              <strong>Not enough measured yet</strong>
+              <p class="section-copy">${escapeHtml((health.score && health.score.reason) || 'Nothing measurable yet.')}</p>
+            </div></div>`}
+        <div class="stack-list">
+          ${(health.components || []).map(component => `
+            <div class="row-head">
+              <span>${escapeHtml(component.label)}</span>
+              <span>${renderVerdict(component.score, value => `${value}%`)}</span>
+            </div>`).join('')}
+        </div>
+        ${(health.omitted || []).length
+          ? `<p class="stat-detail wf-unknown">Not counted in the score: ${escapeHtml(health.omitted.join(', '))}. A component that could not be measured is left out rather than scored zero.</p>`
+          : ''}
+      </article>`;
+
+    // Branch health stays on Workflow rather than moving to Repo: naming
+    // conformance is a property of stage 2, and Repo is about the working tree.
+    const branchCard = `
+      <article class="panel-card">
+        <p class="card-kicker">Branches</p>
+        <div class="mini-grid">
+          ${renderMetricPill('Total', String(branches.total || 0))}
+          ${renderMetricPill('Stale', String(branches.stale || 0), { tone: (branches.stale || 0) > 0 ? 'warn' : 'good' })}
+          ${renderMetricPill('Naming', renderVerdictText(branches.conformanceRate, value => `${value}%`))}
+        </div>
+        ${renderDistributionBar('wf-branch-age', branches.ageDistribution || [], {
+          title: 'Branches by last commit',
+          caption: 'A branch nobody has touched in a month is usually finished or abandoned',
+          emptyLabel: 'No branches with a recorded commit date.',
+        })}
+        ${(branches.nonConforming || []).length
+          ? `<p class="stat-detail">Not matching <code>&lt;type&gt;/&lt;issue&gt;-&lt;slug&gt;</code>: ${
+            escapeHtml(branches.nonConforming.slice(0, 8).join(', '))}${branches.nonConforming.length > 8 ? '…' : ''}</p>`
+          : '<p class="stat-detail">Every branch matches the naming convention.</p>'}
+      </article>`;
+
+    const releaseCard = `
+      <article class="panel-card">
+        <p class="card-kicker">Release readiness</p>
+        <div class="mini-grid">
+          ${renderMetricPill('Version', release.version || '—')}
+          ${renderMetricPill('Commit conventions', renderVerdictText(release.conformance && release.conformance.rate, value => `${value}%`))}
+        </div>
+        ${release.drift
+          ? `<p class="stat-detail">${escapeHtml(release.drift)} The changelog section is used verbatim as the release notes, so a missing entry blocks a clean release.</p>`
+          : '<p class="stat-detail">The changelog covers the current version.</p>'}
+        ${(release.conformance && (release.conformance.examples || []).length)
+          ? `<p class="stat-detail wf-unknown">Recent commits outside the convention: ${
+            escapeHtml(release.conformance.examples.join(' · '))}</p>`
+          : ''}
+        ${(release.conformance && (release.conformance.byType || []).length)
+          ? renderDonutChart('wf-commit-types', release.conformance.byType, { emptyLabel: 'No conventional commits yet.' })
+          : ''}
+      </article>`;
+
+    // The four gates, shown rather than merely honoured. Somebody learning why
+    // "full automation is possible, never default" holds needs to see that the
+    // switches are independent and all default closed.
+    // What moved since this project was last opened.
+    //
+    // Placed above the ladder deliberately: the ladder is a setting you change
+    // once, and this is the part that is different every day. A page whose first
+    // card never changes is a page people stop reading.
+    const delta = wf.delta || { status: 'first-look', headline: '', window: '', changes: [], droppedByCap: 0 };
+    const DELTA_TAG = {
+      improved: 'tag-good',
+      worsened: 'tag-warn',
+      moved: '',
+      'now-known': '',
+      'no-longer-readable': 'tag-warn',
+    };
+    const DELTA_WORD = {
+      improved: 'better',
+      worsened: 'worse',
+      moved: 'changed',
+      'now-known': 'now readable',
+      'no-longer-readable': 'went quiet',
+    };
+    const deltaCard = `
+      <article class="panel-card">
+        <p class="card-kicker">What moved</p>
+        <p class="stat-detail">${escapeHtml(delta.headline)}</p>
+        ${delta.status === 'changed'
+          ? `<div class="stack-list">${delta.changes.map(change => `
+              <div class="row-head">
+                <span>
+                  <strong>${escapeHtml(change.label)}</strong>
+                  <span class="section-copy">${escapeHtml(change.summary)}</span>
+                </span>
+                <span class="tag ${DELTA_TAG[change.kind] || ''}">${escapeHtml(DELTA_WORD[change.kind] || change.kind)}</span>
+              </div>`).join('')}</div>
+            ${delta.droppedByCap > 0
+              ? `<p class="stat-detail">${delta.droppedByCap} more moved than are listed here. Enough changed at once that it is usually one cause rather than ${delta.droppedByCap + delta.changes.length} events — a tool coming back online, or a branch switch.</p>`
+              : ''}
+            <button type="button" class="action-link" data-action="delta-seen">Mark as seen</button>`
+          : delta.status === 'first-look'
+            ? '<p class="stat-detail">Nothing is missing and nothing is wrong — there is simply no earlier reading to compare this one against yet.</p>'
+            : `<p class="stat-detail">The comparison covers open issues, stale issues, CI, the version, protected branches, dependency updates, test evidence and eleven other readings. Your own branch and whether your tree is dirty are deliberately excluded — you already know what you just did.</p>`}
+      </article>`;
+
+    // The gates, as controls rather than a read-out. Turning one *off* is
+    // immediate — more restrictive is always safe, and a dialog in front of
+    // somebody reaching for the brake teaches them to dismiss dialogs. Turning
+    // one *on* asks first, in the host, naming what it permits.
+    const enablement = wf.enablement || { requirements: [], blockedScopes: {}, levels: [] };
+    const blockedFor = key => (enablement.blockedScopes || {})[key] || [];
+
+    const gateRow = (label, detail, key, on, onWord, offWord) => `
+      <div class="row-head" title="${escapeAttr(detail || '')}">
+        <span>${escapeHtml(label)}</span>
+        <span>
+          <span class="tag ${on ? 'tag-warn' : 'tag-good'}">${on ? onWord : offWord}</span>
+          ${blockedFor(key).length && !on
+            ? `<span class="tag" title="${escapeAttr('Turned off in ' + blockedFor(key).join(' and ') + ', so changing it here would do nothing.')}">held by ${escapeHtml(blockedFor(key).join(' and '))}</span>`
+            : `<button type="button" class="action-link" data-action="workflow-gate" data-payload="${escapeAttr(key + ':' + (on ? 'off' : 'on'))}">${on ? 'Turn off' : 'Allow…'}</button>`}
+          <button type="button" class="action-link" data-action="setting" data-payload="${escapeAttr(key)}" title="Open this setting">⚙</button>
+        </span>
+      </div>`;
+
+    const ladderCard = `
+      <article class="panel-card">
+        <p class="card-kicker">What AtlasMind may do</p>
+        <p class="stat-detail">The effective level for any stage is the <em>lowest</em> of four independent gates. All four default closed, which is what keeps unattended action off until you deliberately allow it. Turning one off takes effect at once; allowing one asks you to confirm what it permits.</p>
+        ${(enablement.requirements || []).length
+          ? `<div class="dashboard-empty"><div>
+              <strong>To reach <code>${escapeHtml(enablement.target || 'propose')}</code>, ${enablement.requirements.length} thing${enablement.requirements.length === 1 ? '' : 's'} must change</strong>
+              <ol class="section-copy">${enablement.requirements.map(entry =>
+                `<li>${escapeHtml(entry.label)}: <code>${escapeHtml(entry.current)}</code> → <code>${escapeHtml(entry.needed)}</code></li>`).join('')}</ol>
+              <p class="section-copy"><code>${escapeHtml(enablement.target || 'propose')}</code> is the rung where AtlasMind starts changing things other people can see. Everything below it explains and prepares only.</p>
+            </div></div>`
+          : `<p class="stat-detail">Nothing is holding <code>${escapeHtml(enablement.target || 'propose')}</code> back — every gate permits it. Individual actions still confirm first.</p>`}
+        <div class="stack-list">
+          ${gateRow('Master switch', 'With this off, AtlasMind explains and measures the workflow and never acts on it.',
+            enablement.masterKey || 'atlasmind.workflow.enabled', wf.enabled, 'on', 'off')}
+          <div class="row-head">
+            <span>Your ceiling</span>
+            <span>
+              <span class="segmented" role="group" aria-label="Automation ceiling">${(enablement.levels || []).map(level =>
+                `<button type="button" data-action="automation-ceiling" data-payload="${escapeAttr(level)}"
+                  class="${(wf.automationLevel || 'observe') === level ? 'active' : ''}"
+                  aria-pressed="${(wf.automationLevel || 'observe') === level ? 'true' : 'false'}">${escapeHtml(level)}</button>`).join('')}</span>
+              <button type="button" class="action-link" data-action="setting" data-payload="${escapeAttr(enablement.ceilingKey || 'atlasmind.workflow.maxAutomationLevel')}" title="Open this setting">⚙</button>
+            </span>
+          </div>
+          ${(wf.capabilities || []).map(capability =>
+            gateRow(capability.label, capability.detail, capability.id, capability.enabled, 'allowed', 'off')).join('')}
+        </div>
+        <p class="stat-detail">Written to this workspace, so it is a per-project decision. Where another settings scope is stricter, the row says so instead of offering a switch that would change nothing.</p>
+      </article>`;
+
+    // The audit record. Every other part of this workflow makes a determinism
+    // claim; this is the card where those claims are either true or visibly not.
+    const audit = snapshot.audit || { summary: {}, recent: [] };
+    const auditSummary = audit.summary || {};
+    const breaches = auditSummary.breaches || [];
+    const auditHelp = renderWorkflowHelp('workflow.audit', {
+      label: 'what the audit record proves',
+      why: 'Branch names are derived, pull-request titles are classified by rule, CI failures are matched against an ordered table, release notes are copied verbatim. Every one of those is a determinism claim, and a determinism claim is either verifiable or it is marketing. The record makes it verifiable: two runs with the same inputs must produce the same outputs, and where they did not, both runs are named.',
+      how: [
+        { text: 'Inputs and outputs are recorded as fingerprints, never as values. This ledger is committed, so storing what was processed would put issue bodies, review comments and CI logs into your repository.' },
+        { text: 'The record is written before the action, not after. A record written afterwards is missing exactly when it matters most — the run that crashed is the run somebody needs to read about.' },
+        { text: 'An action whose record cannot be written does not happen. An action that quietly skipped its record would be the one nobody could account for later.' },
+        { text: 'A refused action is recorded too. “We were not allowed to” is a fact worth keeping, and it is the one somebody asks about when a switch turns out to be off.' },
+        { text: 'Records transition through complete or failed; they are never deleted or rewritten. The ledger is capped, and the truncation is stated in the file rather than applied silently.' },
+      ],
+      commonMistakes: [
+        'Reading an empty ledger as “nothing went wrong”. It means nothing has run.',
+        'Treating a failed run as a determinism breach. A failure has no output, so there is nothing to compare.',
+      ],
+    });
+
+    const auditCard = `
+      <article class="panel-card">
+        <div class="row-head">
+          <p class="card-kicker">What has been done${auditHelp.button}</p>
+          ${breaches.length
+            ? `<span class="tag tag-critical">${breaches.length} determinism breach${breaches.length === 1 ? '' : 'es'}</span>`
+            : (auditSummary.total ? '<span class="tag tag-good">consistent</span>' : '')}
+        </div>
+        ${auditHelp.panel}
+        <div class="mini-grid">
+          ${renderMetricPill('Recorded', String(auditSummary.total || 0))}
+          ${renderMetricPill('Unfinished', String(auditSummary.unfinished || 0), { tone: (auditSummary.unfinished || 0) > 0 ? 'warn' : 'good' })}
+          ${renderMetricPill('Refused', String(auditSummary.refused || 0))}
+        </div>
+        ${breaches.length
+          ? `<div class="stack-list">${breaches.map(breach => `
+              <div class="recent-item">
+                <div class="row-head"><strong>${escapeHtml(breach.stageId)} · ${escapeHtml(breach.action)}</strong></div>
+                <div class="list-meta">Inputs <code>${escapeHtml(breach.inputsFingerprint)}</code> produced ${
+                  breach.outputs.map(output => `<code>${escapeHtml(output.outputsFingerprint)}</code> (${escapeHtml((output.at || '').slice(0, 10))})`).join(' and ')}</div>
+              </div>`).join('')}</div>`
+          : ''}
+        ${(audit.recent || []).length
+          ? `<div class="stack-list">${audit.recent.slice(0, 8).map(record => `
+              <div class="recent-item">
+                <div class="row-head">
+                  <strong>${escapeHtml(record.action)}</strong>
+                  <span class="tag ${record.outcome === 'complete' ? 'tag-good' : record.outcome === 'failed' ? 'tag-critical' : 'tag-warn'}">${escapeHtml(record.outcome)}</span>
+                </div>
+                <div class="list-meta">${escapeHtml(record.stageId)} · ${escapeHtml((record.at || '').slice(0, 16).replace('T', ' '))} · ${
+                  record.effectiveLevel === record.requestedLevel
+                    ? escapeHtml(record.effectiveLevel)
+                    : `${escapeHtml(record.effectiveLevel)} (asked for ${escapeHtml(record.requestedLevel)}${record.limitedBy ? `, capped by ${escapeHtml(record.limitedBy)}` : ''})`}</div>
+              </div>`).join('')}</div>`
+          : `<div class="dashboard-empty"><div>
+              <strong>Nothing recorded yet</strong>
+              <p class="section-copy">This is the record of what the workflow has actually done — which stage, at what level, with what result. An empty ledger means nothing has run, not that nothing went wrong.</p>
+            </div></div>`}
+        ${auditSummary.droppedByCap
+          ? `<p class="stat-detail wf-unknown">${auditSummary.droppedByCap} older records have been dropped by the retention cap. The count is kept so the ledger never quietly forgets.</p>`
+          : ''}
+      </article>`;
+    // The committed workflow file. This is the one card on the page that edits
+    // something a team reviews, so it says so, and every control is one field
+    // whose exact change the host confirms before writing.
+    const cfg = wf.workflowConfig || {};
+    const configHelp = renderWorkflowHelp('workflow.config', {
+      label: 'why the workflow is a committed file',
+      why: 'A workflow kept in settings is a workflow each person has their own version of, and the version that matters is whichever one nobody wrote down. Putting it in a file that gets committed means a team that disagrees with a default disagrees in public — with a diff and a reviewer — rather than in a habit. It is also the difference between a workflow you have and a workflow you can point at when somebody new joins.',
+      how: [
+        { text: 'The file sets intent; your settings set the ceiling. A stage can request "auto" and still do nothing, because what actually happens is the lowest of four independent gates.' },
+        { text: 'A stage you do not use is disabled, never deleted. Disabling leaves the decision in the record; deleting erases the evidence it was ever made.' },
+        { text: 'Profiles seed, they do not govern. Changing the profile later never rewrites stages you customised.' },
+        { text: 'Fields written by a newer AtlasMind survive a round trip, so an older build saving the file cannot silently drop a colleague’s settings.' },
+        { text: 'The markdown mirror beside it is generated. Edit the JSON or this page; hand edits to the mirror are lost on the next save.' },
+      ],
+      commonMistakes: [
+        'Keeping the workflow out of version control, which recreates the drift it exists to solve.',
+        'Assuming a stage set to "auto" will act. Four gates all have to agree, and they all default closed.',
+      ],
+    });
+
+    const configCard = cfg.config ? (() => {
+      const config = cfg.config;
+      const enabledCount = (config.stages || []).filter(stage => stage.enabled).length;
+      // Derived host-side and carried, never re-derived here: two copies of
+      // "what is stopping this stage" would eventually disagree, and the one
+      // on screen would be the one nobody tested.
+      const blockersFor = id => (cfg.blockers && cfg.blockers[id]) || [];
+      const problems = cfg.problems || [];
+      const stageRows = (config.stages || []).map(stage => `
+        <div class="recent-item">
+          <div class="row-head">
+            <button type="button" class="action-link" data-action="workflow-stage-toggle" data-payload="${escapeAttr(stage.id)}"
+              aria-label="${stage.enabled ? 'Disable' : 'Enable'} ${escapeAttr(stage.name)}">
+              ${stage.enabled ? '☑' : '☐'} ${escapeHtml(stage.name)}
+            </button>
+            <span class="tag">${escapeHtml(stage.automationLevel)}</span>
+          </div>
+          ${(stage.requiredChecks || []).length
+            ? `<div class="list-meta">Attests: ${escapeHtml(stage.requiredChecks.join(' · '))}</div>`
+            : ''}
+          ${stage.command !== undefined
+            ? (stage.command
+              ? `<div class="list-meta">Runs: <code>${escapeHtml(stage.command)}</code></div>`
+              : '<p class="stat-detail wf-unknown">No command set. That emptiness <em>is</em> the blocker — the stage stays shut until somebody supplies one.</p>')
+            : ''}
+          ${(blockersFor(stage.id) || []).length
+            ? `<p class="stat-detail wf-unknown">Blocked: ${escapeHtml(blockersFor(stage.id).join('; '))}</p>`
+            : ''}
+        </div>`).join('');
+
+      return `
+      <article class="panel-card">
+        <div class="row-head">
+          <p class="card-kicker">Your workflow file${configHelp.button}</p>
+          <span class="tag ${enabledCount > 0 ? 'tag-good' : ''}">${enabledCount} of ${(config.stages || []).length} enabled</span>
+        </div>
+        ${configHelp.panel}
+        <div class="list-meta">${escapeHtml(cfg.path || '')} · ${escapeHtml(config.profile)} profile · merges into <code>${escapeHtml(config.branches.integration)}</code>, releases from <code>${escapeHtml(config.branches.release)}</code></div>
+        <div class="stack-list">${stageRows}</div>
+        ${problems.length
+          ? `<p class="stat-detail wf-unknown">${problems.map(problem => escapeHtml(problem.detail)).join(' ')}</p>`
+          : ''}
+        <p class="stat-detail">A stage requests a level; what happens is the lowest of that, your ceiling, the matching capability switch, and the master switch. Toggling one here writes the committed file — you will see the exact change first.</p>
+      </article>`;
+    })() : `
+      <article class="panel-card">
+        <div class="row-head">
+          <p class="card-kicker">Your workflow file${configHelp.button}</p>
+          <span class="tag tag-warn">not declared</span>
+        </div>
+        ${configHelp.panel}
+        ${cfg.notice
+          ? `<p class="stat-detail wf-unknown">${escapeHtml(cfg.notice)}</p>`
+          : `<div class="dashboard-empty"><div>
+              <strong>This project has no declared workflow</strong>
+              <p class="section-copy">AtlasMind is using its built-in defaults, which is fine until two people disagree about them. Declaring the workflow writes <code>${escapeHtml(cfg.path || 'project_memory/operations/workflow.json')}</code> and a readable mirror beside it, both of which you commit — so how your team works becomes something reviewed rather than remembered.</p>
+              <p class="section-copy">Every stage starts disabled and at <code>observe</code>. Declaring a workflow turns nothing on.</p>
+              <div class="tag-row">
+                <button type="button" class="action-link" data-action="create-workflow-config" data-payload="solo">Declare it — solo</button>
+                <button type="button" class="action-link" data-action="create-workflow-config" data-payload="studio">Declare it — small studio</button>
+              </div>
+            </div></div>`}
+      </article>`;
+
+    // What kind of project this is, and what that changes. Detected and declared
+    // are shown separately: detection is a suggestion from the manifests, the
+    // declaration is the decision. Where they disagree we say so rather than
+    // silently preferring one.
+    const arch = wf.archetype;
+    const archCard = arch ? (() => {
+      const labels = arch.labels || { archetype: {}, trait: {} };
+      const name = key => (labels.archetype && labels.archetype[key]) || key;
+      const pack = arch.pack || {};
+      const requiredCi = (pack.ci || []).filter(step => step.required);
+
+      const help = renderWorkflowHelp('archetype.pack', {
+        label: 'what this project shape changes',
+        why: 'A game, a website, a library and a CLI do not share a CI pipeline, a release mechanism, a testing strategy, or the same idea of what counts as technical debt. Declaring the shape is what lets the workflow specialise instead of staying general for everybody. Detection reads your manifests and suggests; the declaration decides — a project deliberately declared one thing while its dependencies look like another is a decision, not a mistake.',
+        how: [
+          { text: requiredCi.length
+            ? `Required CI steps for this shape: ${requiredCi.map(step => step.label).join(', ')}.`
+            : 'No shape-specific CI steps — declare an archetype to get them.' },
+          { text: pack.release ? `Releases go to: ${pack.release.channel}. ${pack.release.versioningNote || ''}` : '' },
+          { text: pack.testing ? `Recommended testing: ${(pack.testing.recommended || []).join(', ')}. ${pack.testing.rationale || ''}` : '' },
+          { text: pack.testing && (pack.testing.discouraged || []).length
+            ? `Deliberately not recommended: ${pack.testing.discouraged.join(', ')}. ${pack.testing.discouragedReason || ''}`
+            : '' },
+          { text: (pack.refactor || []).length
+            ? `Watch for: ${pack.refactor.map(item => item.label).join('; ')}.`
+            : '' },
+          { text: (pack.documentation || []).length
+            ? `Documentation this shape expects: ${pack.documentation.map(doc => doc.path).join(', ')}.`
+            : '' },
+        ].filter(line => line.text),
+      });
+
+      return `
+      <article class="panel-card">
+        <p class="card-kicker">Project shape</p>
+        <div class="row-head">
+          <strong>${escapeHtml(arch.declared ? name(arch.declared) : 'Not declared')}</strong>
+          ${arch.declared ? '<span class="tag tag-good">declared</span>' : '<span class="tag tag-warn">undeclared</span>'}
+        </div>
+        <p class="stat-detail">${escapeHtml((arch.agreement && arch.agreement.detail) || '')}</p>
+        ${arch.detected && arch.detected.confident && arch.detected.archetype !== arch.declared
+          ? `<p class="stat-detail wf-unknown">Manifests suggest ${escapeHtml(name(arch.detected.archetype))}: ${
+            escapeHtml((arch.detected.reasons || []).join(' '))}</p>`
+          : ''}
+        ${(arch.traits || []).length
+          ? `<div class="tag-row">${arch.traits.map(trait =>
+            `<span class="tag">${escapeHtml((labels.trait && labels.trait[trait]) || trait)}</span>`).join('')}</div>`
+          : ''}
+        ${pack.blurb ? `<p class="stat-detail">${escapeHtml(pack.blurb)}${help.button}</p>` : help.button}
+        ${help.panel}
+        <button type="button" class="action-link" data-action="setting" data-payload="atlasmind.workflow.archetype">Change the project shape</button>
+      </article>`;
+    })() : '';
+
+    const activity = renderChartCard(
+      'wf-commits',
+      'Commit activity',
+      'Commits per day. The shape matters more than the total — long flat stretches usually mean work is queued somewhere rather than that nobody was working.',
+      (wf.commitSeries || []).map(point => ({ label: point.label, value: point.value })),
+      'workflow',
+    );
+
+    return `${pageSectionOpen('workflow')}
+      ${intro}
+      ${strip}
+      <div class="panel-grid">
+        ${deltaCard}
+        ${healthCard}
+        ${configCard}
+        ${auditCard}
+        ${archCard}
+        ${ladderCard}
+        ${branchCard}
+        ${releaseCard}
+      </div>
+      ${activity}
+      <section>
+        <p class="section-kicker">The eight stages</p>
+        ${stages}
+      </section>
+    </section>`;
+  }
+
+  /** Plain-language account of each failure class, mirroring CLASS_EXPLANATION. */
+  const CI_CLASS_LABEL = {
+    'dependency-install': 'Dependency install',
+    compile: 'Compile',
+    lint: 'Lint',
+    'test-failure': 'Test failure',
+    timeout: 'Timeout',
+    'flake-suspect': 'Flake suspect',
+    infra: 'Infrastructure',
+    unknown: 'Unknown',
+  };
+
+  /**
+   * The classified failure, with its evidence.
+   *
+   * The classification came from a rule table, not a model — so it is stated as
+   * a finding. `unknown` is shown as itself rather than dressed up: a
+   * confidently wrong root cause costs more than an honest admission.
+   */
+  function renderCiFailure(report) {
+    const cls = report.classification || 'unknown';
+    const tone = cls === 'unknown' ? 'warn' : cls === 'infra' || cls === 'flake-suspect' ? 'accent' : 'critical';
+    const evidence = (report.evidenceLines || []).map(line => escapeHtml(line)).join('\n');
+    return `
+      <div class="wf-ci-failure">
+        <div class="row-head">
+          <strong>${escapeHtml(report.jobName || 'A job')} failed</strong>
+          <span class="tag tag-${tone === 'critical' ? 'critical' : 'warn'}">${escapeHtml(CI_CLASS_LABEL[cls] || cls)}</span>
+        </div>
+        ${report.stepName ? `<div class="list-meta">Step: ${escapeHtml(report.stepName)}</div>` : ''}
+        ${evidence ? `<pre class="wf-ci-evidence">${evidence}</pre>` : '<p class="stat-detail wf-unknown">No evidence lines were captured.</p>'}
+        <div class="list-meta">
+          ${report.truncated ? 'Earlier output was truncated. ' : ''}${report.redacted ? 'Secret-shaped values were removed. ' : ''}
+          ${cls === 'unknown'
+            ? 'Nothing matched a known pattern, so AtlasMind is not guessing — this one needs a human.'
+            : report.suggestedOwnerAgentId
+              ? `Best placed to act: <code>${escapeHtml(report.suggestedOwnerAgentId)}</code>.`
+              : ''}
+        </div>
+      </div>`;
+  }
+
+  /** A duration verdict as text, scaling its unit with magnitude. */
+  function formatDuration(verdict) {
+    if (!verdict || verdict.known !== true) { return '—'; }
+    const hours = verdict.value / 3600000;
+    if (hours < 1) { return Math.round(hours * 60) + 'm'; }
+    if (hours < 48) { return hours.toFixed(1) + 'h'; }
+    return (hours / 24).toFixed(1) + 'd';
+  }
+
+  /** Plain-text verdict, for slots that cannot take markup. */
+  function renderVerdictText(verdict, format) {
+    return verdict && verdict.known === true
+      ? (format ? format(verdict.value) : String(verdict.value))
+      : '—';
+  }
+
+  // What is still sitting on the ideation board and never became work.
+  //
+  // On the Roadmap page rather than a page of its own: the question it answers
+  // is “is the backlog everything?”, which only means something beside the
+  // backlog. Absent when the board is empty — a project with no board should not
+  // be told it has nothing on it.
+  function boardBacklogCard(roadmap) {
+    var backlog = (roadmap && roadmap.boardBacklog) || { total: 0, needsAttention: 0 };
+    if (backlog.total === 0) {
+      return '';
+    }
+    var attention = backlog.needsAttention;
+    var cardWord = backlog.total === 1 ? 'card has' : 'cards have';
+    var detail = attention > 0
+      ? '<strong>' + attention + '</strong> of them '
+        + (attention === 1 ? 'is a problem, requirement or risk' : 'are problems, requirements or risks')
+        + ' — somebody wrote down that something was wrong or needed, and it never reached the backlog.'
+      : 'None of them are problems, requirements or risks, so nothing is being lost — a board is for holding ideas.';
+    return '<article class="panel-card">'
+      + '<p class="card-kicker">Still on the ideation board</p>'
+      + '<p class="stat-detail">' + backlog.total + ' ' + cardWord + ' not become work. ' + detail + '</p>'
+      + '<button type="button" class="action-link" data-action="command"'
+      + ' data-payload="atlasmind.openProjectIdeation">Open the ideation board</button>'
+      + '</article>';
   }
 
   function renderRoadmap(snapshot) {
@@ -2992,6 +4607,7 @@
               <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(roadmap.filePath)}">Open roadmap file</button>
             </div>
           </article>
+          ${boardBacklogCard(roadmap)}
           <article class="panel-card">
             <p class="section-kicker">Atlas weighting</p>
             <h3>Recommended next work</h3>
@@ -3052,8 +4668,12 @@
           ${gateChips}
         </div>
         <div class="tag-row">
+          ${item.origin
+            ? `<span class="tag" title="${escapeAttr('Raised from the ideation card “' + item.origin.cardTitle + '” (' + item.origin.cardKind + '). The board keeps the reasoning.')}">from ideation</span>`
+            : ''}
           <button type="button" class="action-link" data-action="roadmap-toggle" data-payload="${escapeAttr(item.id)}">${item.completed ? 'Mark active' : 'Mark done'}</button>
           <button type="button" class="action-link" data-action="roadmap-edit" data-payload="${escapeAttr(item.id)}">Edit</button>
+          ${item.completed ? '' : `<button type="button" class="action-link" data-action="roadmap-raise-issue" data-payload="${escapeAttr(item.id)}" title="Draft a GitHub issue from this item. Nothing is posted until you confirm.">Raise as issue</button>`}
           <button type="button" class="action-link" data-action="roadmap-delete" data-payload="${escapeAttr(item.id)}">Delete</button>
         </div>
       </div>
@@ -3555,6 +5175,11 @@
     }
 
     const emptyState = !docs.configured && filing.length === 0 && autoUpdate.length === 0 && !editing;
+    // A file this build could not read was left on disk rather than replaced.
+    // Saying so matters because an explicit save *will* overwrite it.
+    const fileNotice = docs.fileNotice
+      ? '<div class="delivery-review-banner warn"><div class="delivery-review-body"><strong>About this file</strong><div class="list-meta">' + escapeHtml(docs.fileNotice) + '</div></div></div>'
+      : '';
 
     return `
       ${pageSectionOpen('documents')}
@@ -3565,6 +5190,7 @@
           chips,
           ...(docs.configured ? { action: { file: docs.summaryPath, hint: 'Open documents.md' }, actionLabel: 'Open runbook' } : {}),
         })}
+        ${fileNotice}
         ${emptyState ? `
           <article class="panel-card">
             <p class="section-kicker">Get started</p>
@@ -5148,6 +6774,62 @@
       </article>`;
   }
 
+  /**
+   * Assignable roles, and the two things assigning one actually does.
+   *
+   * The card leads with what a role is *not*, because the obvious reading of
+   * "roles and restrictions" is a permission system, and AtlasMind cannot be
+   * one — it runs inside each person's editor. Saying so here is cheaper than
+   * somebody discovering it later.
+   */
+  function renderTeamRoles(snapshot) {
+    const d = snapshot.director || {};
+    const roles = d.roles || [];
+    const codeowners = d.codeowners || { ruleCount: 0, warnings: [] };
+    if (roles.length === 0) { return ''; }
+
+    const cap = (role, key, label) =>
+      role.capabilities && role.capabilities[key]
+        ? `<span class="tag tag-good">${escapeHtml(label)}</span>`
+        : '';
+
+    return `
+      <article class="panel-card">
+        <p class="card-kicker">Team roles</p>
+        <p class="stat-detail">A role sets the workflow envelope for everyone who opens this repository, and records who is expected to do what. It is <strong>not</strong> a permission boundary — AtlasMind runs in each person's editor and cannot enforce one. Where restriction genuinely bites is CODEOWNERS, because GitHub enforces that.</p>
+        <div class="stack-list">
+          ${roles.map(role => `
+            <div class="recent-item">
+              <div class="row-head">
+                <strong>${escapeHtml(role.label)}</strong>
+                <span class="tag">${escapeHtml(role.ceiling)}</span>
+              </div>
+              <div class="stat-detail">${escapeHtml(role.blurb)}</div>
+              <div class="tag-row">
+                ${cap(role, 'issueWrites', 'issues')}
+                ${cap(role, 'pullRequestWrites', 'pull requests')}
+                ${cap(role, 'releaseWrites', 'releases')}
+                ${cap(role, 'protectedRefWrites', 'protected branches')}
+                <button type="button" class="action-link" data-action="apply-team-role" data-payload="${escapeAttr(role.id)}">Apply to this workspace</button>
+              </div>
+            </div>`).join('')}
+        </div>
+        <p class="stat-detail">Applying a role never turns the workflow on — that stays each person's own decision — and anyone can still set themselves more restrictive than their role.</p>
+        <div class="row-head">
+          <span>CODEOWNERS</span>
+          <span class="tag ${codeowners.ruleCount > 0 ? 'tag-good' : 'tag-warn'}">${codeowners.ruleCount} rule${codeowners.ruleCount === 1 ? '' : 's'}</span>
+        </div>
+        <p class="stat-detail">${codeowners.ruleCount > 0
+          ? 'Generated from responsibilities that have both a path pattern and an owner with a GitHub handle. Only AtlasMind\'s managed block is written — your own entries are left alone.'
+          : 'Nothing to write yet. A responsibility needs a path pattern, and its owner needs a GitHub link on their contact.'}</p>
+        ${(codeowners.warnings || []).length
+          ? `<ul class="stat-detail wf-unknown">${codeowners.warnings.slice(0, 5).map(warning =>
+            `<li>${escapeHtml(warning)}</li>`).join('')}</ul>`
+          : ''}
+        <button type="button" class="action-link" data-action="generate-codeowners">Write CODEOWNERS</button>
+      </article>`;
+  }
+
   function renderDirectorResponsibilities(cfg) {
     const contactOptions = cfg.contacts.map(c => ({ value: c.id, label: c.name }));
     const rows = cfg.responsibilities.map(r => `
@@ -5486,6 +7168,7 @@
         ${rosterCard}
       </div>
       <div class="review-grid">
+        ${renderTeamRoles(snapshot)}
         ${renderDirectorResponsibilities(cfg)}
         ${renderDirectorAssignments(cfg, d)}
       </div>
@@ -6149,6 +7832,17 @@
 
   function escapeAttr(value) {
     return escapeHtml(value).replace(/`/g, '&#96;');
+  }
+
+  /**
+   * Escape a value for use inside a CSS attribute selector.
+   *
+   * Step ids are ours and contain only word characters and dots, but building a
+   * selector from data without escaping is the kind of thing that is safe until
+   * somebody adds an id with a quote in it.
+   */
+  function cssEscape(value) {
+    return String(value).replace(/["\\]/g, '\\$&');
   }
 
   vscode.postMessage({ type: 'ready' });

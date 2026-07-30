@@ -2000,7 +2000,7 @@ async function fetchBuzzDoc(url: string): Promise<string | undefined> {
  * without rendering its walkthrough — one gatherer, so the index and the guide
  * can never disagree about how far along it is.
  */
-async function collectBuzzSetupSteps(atlas: AtlasMindContext): Promise<import('../core/setupWalkthrough.js').SetupStep[]> {
+export async function collectBuzzSetupSteps(atlas: AtlasMindContext): Promise<import('../core/setupWalkthrough.js').SetupStep[]> {
   const [{ buildBuzzSetupPlan }, { hasLauncherOnPath }, { BUZZ_AGENT_KEY_SECRET }, { parseAgentBindings }] =
     await Promise.all([
       import('../core/buzzSetupPlan.js'),
@@ -2044,7 +2044,7 @@ async function collectBuzzSetupSteps(atlas: AtlasMindContext): Promise<import('.
  * the only part that costs anything, and it is skipped entirely when no agent
  * has been named, because there would be nothing to probe *for*.
  */
-async function collectAcpSetupSteps(atlas: AtlasMindContext): Promise<import('../core/setupWalkthrough.js').SetupStep[]> {
+export async function collectAcpSetupSteps(atlas: AtlasMindContext): Promise<import('../core/setupWalkthrough.js').SetupStep[]> {
   const [{ buildAcpSetupPlan }, { parseAcpAgentSettings, AcpAdapter }, { ACP_PROTOCOL_VERSION }] = await Promise.all([
     import('../core/acpSetupPlan.js'),
     import('../providers/acp.js'),

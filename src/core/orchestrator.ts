@@ -1,6 +1,14 @@
 import * as vscode from 'vscode';
 import type { AgentDefinition, BudgetMode, DataPrivacyMatch, MemoryEntry, ModelCapability, ModelStruggleKind, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, SubTaskStatus, TaskProfile, TaskRequest, TaskResult, TestingMethodologyId, ToolExecutionArtifact } from '../types.js';
 import type { AgentAutoUpdater } from './agentAutoUpdater.js';
+import { buildDebtMarkerGuidance, parseCustomDebtMarkers } from './debtRegister.js';
+import {
+  evaluateHandoff,
+  buildHandoffPrompt,
+  formatHandoffResult,
+  describeHandoffRefusal,
+  type HandoffChainLink,
+} from './agentHandoff.js';
 import { ClassifierService, type ClassificationResult } from './classifierService.js';
 import { formatCost } from './currencyFormatter.js';
 import type { AgentRegistry } from './agentRegistry.js';
@@ -480,6 +488,132 @@ export class Orchestrator {
     this.onClassifiedContentForUntrustedModel = hooks?.onClassifiedContentForUntrustedModel;
     this.classifier = new ClassifierService(router, providers, taskProfiler);
     this.cfg = { ...defaultConfig, ...config };
+
+    // Late-bound on purpose. The skill context is constructed before the
+    // orchestrator exists, so delegation cannot be an ordinary dependency —
+    // the orchestrator installs itself once it can. `??=` so a host that
+    // supplied its own delegation keeps it.
+    this.skillContext.runAgent ??= request => this.runDelegatedAgent(request);
+  }
+
+  /**
+   * The delegation chain per task, so depth and cycles can be seen.
+   *
+   * Keyed by the task id the delegate will run under, because that is what
+   * it presents when it in turn wants to hand off. Removed when the
+   * delegated run finishes, so a long session does not accumulate them.
+   */
+  private handoffChains = new Map<string, HandoffChainLink[]>();
+
+  /** What is executing right now, for attributing a handoff to its caller. */
+  /**
+   * What is executing right now, for attributing a handoff to its caller.
+   *
+   * Carries the caller's **resolved** skills rather than its id alone. A
+   * planner subtask runs as an ephemeral agent that is not in the registry, so
+   * a lookup by id would find nothing and hand back an empty ceiling — which
+   * would refuse every handoff a subtask ever made, for a reason that looks
+   * like policy and is actually a missing record.
+   */
+  private currentExecution: { agentId: string; taskId: string; skillIds: string[] } | undefined;
+
+  /**
+   * Run another agent on a question, within the caller's authority.
+   *
+   * The caller's identity comes from `currentExecution` — what the
+   * orchestrator knows it is running — and never from tool arguments, because
+   * a model able to name its own caller could name a more privileged one.
+   *
+   * Every refusal returns a sentence rather than throwing. A thrown error
+   * becomes a tool failure the model retries, and retrying a refusal helps
+   * nobody.
+   */
+  private async runDelegatedAgent(request: {
+    targetAgentId: string;
+    reason: string;
+    question: string;
+  }): Promise<string> {
+    const caller = this.currentExecution;
+    if (!caller) {
+      return 'Handoff refused (unavailable). Nothing is currently executing, so there is no caller '
+        + 'to delegate on behalf of.';
+    }
+
+    const chain = this.handoffChains.get(caller.taskId) ?? [];
+    const targetAgent = this.agents.get(request.targetAgentId);
+
+    const decision = evaluateHandoff({
+      request: {
+        targetAgentId: request.targetAgentId,
+        reason: request.reason,
+        question: request.question,
+      },
+      chain,
+      callerAgentId: caller.agentId,
+      // Enabled agents only. A disabled agent is one somebody switched off,
+      // and reaching it through delegation would route around that.
+      knownAgentIds: this.agents.listEnabledAgents().map(agent => agent.id),
+      // What the caller may *currently* use — the same list its own tool
+      // definitions were built from, so the ceiling is the real one rather than
+      // whatever its definition says.
+      callerSkillIds: caller.skillIds,
+      targetSkillIds: targetAgent
+        ? this.skills.getSkillsForAgent(targetAgent).map(skill => skill.id)
+        : [],
+    });
+
+    if (!decision.allowed || !targetAgent) {
+      return describeHandoffRefusal(decision.refusal ?? {
+        kind: 'unknown-agent',
+        detail: `There is no agent \`${request.targetAgentId}\` available in this workspace.`,
+      });
+    }
+
+    // A *narrowed copy* of the target: its own prompt and role, with the
+    // granted skill set substituted. Mutating the registered agent would leak
+    // this run's ceiling into every later use of it.
+    const delegate: AgentDefinition = {
+      ...targetAgent,
+      id: `${targetAgent.id}#handoff`,
+      skills: decision.grantedSkillIds,
+    };
+
+    const delegateTaskId = `${caller.taskId}~${targetAgent.id}`;
+    this.handoffChains.set(delegateTaskId, [...chain, { agentId: caller.agentId, taskId: caller.taskId }]);
+    const outerExecution = this.currentExecution;
+
+    try {
+      const result = await this.processTaskWithAgent(
+        {
+          id: delegateTaskId,
+          userMessage: buildHandoffPrompt(
+            { targetAgentId: targetAgent.id, reason: request.reason, question: request.question },
+            decision,
+            caller.agentId,
+          ),
+          context: {},
+          // The caller's own constraints are not inherited: a delegate answering
+          // one question is a smaller job than whatever the caller is doing, and
+          // letting it run at the caller's budget would make a handoff an
+          // unbounded cost multiplier. Balanced on both, and the router picks
+          // a model to suit the question it was actually given.
+          constraints: { budget: 'balanced', speed: 'balanced' },
+          timestamp: new Date().toISOString(),
+        },
+        delegate,
+      );
+      return formatHandoffResult(targetAgent.id, result.response ?? '', decision);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return `Handoff to \`${targetAgent.id}\` failed: ${detail.slice(0, 300)}. `
+        + 'Answer with what you have, or report what is missing.';
+    } finally {
+      this.handoffChains.delete(delegateTaskId);
+      // Restored rather than cleared: the caller is still running, and losing
+      // its identity here would make its *next* handoff look like it had no
+      // caller at all.
+      this.currentExecution = outerExecution;
+    }
   }
 
   updateConfig(patch: Partial<OrchestratorConfig>): void {
@@ -1018,6 +1152,14 @@ export class Orchestrator {
     const retrievalContext = (request.context['__preloadedRetrievalCtx'] as RetrievalContextBundle | undefined)
       ?? await this.buildRetrievalContext(request);
     const availableAgentSkills = this.skills.getSkillsForAgent(agent);
+    // Recorded here rather than taken from a tool argument, so a handoff is
+    // attributed to what the orchestrator knows is running. A model able to
+    // name its own caller could name a more privileged one.
+    this.currentExecution = {
+      agentId: agent.id,
+      taskId: request.id,
+      skillIds: availableAgentSkills.map(skill => skill.id),
+    };
     let activeAgentSkills = availableAgentSkills;
     let baseTaskProfile = this.taskProfiler.profileTask({
       userMessage: request.userMessage,
@@ -5729,9 +5871,35 @@ export function buildProjectSessionContextBundle(
   };
 }
 
+/**
+  * The markers this project records debt with, for any agent that writes code.
+  *
+  * An agent that leaves a shortcut marked `@todo`, `NOTE`, or nothing at all
+  * has produced debt the register cannot see — and invisible debt is worse than
+  * no register, because emptiness then reads as an absence of debt rather than
+  * an absence of detection.
+  *
+  * Read from settings at prompt-build time rather than cached: a project that
+  * declares a new marker should have its next subtask told about it, not its
+  * next window.
+  */
+function debtMarkerGuidance(): string {
+  try {
+    return buildDebtMarkerGuidance(parseCustomDebtMarkers(
+      vscode.workspace.getConfiguration('atlasmind').get<string[]>('debt.markers', []),
+    ));
+  } catch {
+    // No workspace configuration (a test, a headless host). The built-in
+    // markers are still worth stating.
+    return buildDebtMarkerGuidance();
+  }
+}
+
 function buildRolePrompt(role: string): string {
   const basePrompt = ROLE_PROMPTS[role] ?? ROLE_PROMPTS['general-assistant']!;
-  return `${basePrompt} ${AUTONOMOUS_PROJECT_DELIVERY_PROMPT}`;
+  return `${basePrompt} ${AUTONOMOUS_PROJECT_DELIVERY_PROMPT}
+
+${debtMarkerGuidance()}`;
 }
 
 function buildProjectSubTaskMessage(task: SubTask, depOutputs: Record<string, string>, projectGoal: string): string {

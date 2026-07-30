@@ -24,8 +24,9 @@ LICENSE
 README.md
 SECURITY.md
 architecture/
-atlasmind-0.127.1.vsix
-atlasmind-0.127.2.vsix
+atlasmind-0.169.0.vsix
+atlasmind-0.171.1.vsix
+atlasmind0.157.0.vsix
 coverage/
 data/
 debug_node.js
@@ -39,6 +40,7 @@ out/
 package-lock.json
 package.json
 project_memory/
+project_memory_old/
 src/
 test/
 tests/
@@ -50,8 +52,8 @@ wiki/
 <!-- atlasmind-import
 entry-path: architecture/project-structure.md
 generator-version: 2
-generated-at: 2026-07-24T11:56:11.404Z
+generated-at: 2026-07-28T12:06:49.103Z
 source-paths: workspace-root
-source-fingerprint: b5f87ccc
-body-fingerprint: 73880d6a
+source-fingerprint: 83373b1f
+body-fingerprint: f8def649
 -->

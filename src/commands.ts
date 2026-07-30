@@ -14,6 +14,7 @@ import { hasAiInstructionSyncFile, scanAiInstructionFiles, syncAiInstructionFile
 import { getSelectedSessionRenameTarget, postSidebarSummaryToChat } from './views/treeViews.js';
 import { checkStarterRuntime, runRuntimeInstallPlan } from './mcp/mcpRuntime.js';
 import type { ChatSessionTreeItem, DiscoveryFinderItem, McpServerTreeItem, ModelProviderTreeItem, ModelTreeItem, SessionFolderTreeItem, SkillFolderTreeItem, SkillTreeItem } from './views/treeViews.js';
+import { parseCustomDebtMarkers } from './core/debtRegister.js';
 
 const SKILL_LEARNING_WARNING =
   'Experimental skill learning uses model tokens and may generate incorrect or unsafe code. ' +
@@ -324,7 +325,14 @@ export function registerCommands(
       }
       const { syncTestingProtocols } = await import('./utils/testingProtocolSync.js');
       const agents = getAtlas()?.agentRegistry?.listAgents() ?? [];
-      const result = await syncTestingProtocols(workspaceRoot, config, agents);
+      const result = await syncTestingProtocols(
+        workspaceRoot,
+        config,
+        agents,
+        parseCustomDebtMarkers(
+          vscode.workspace.getConfiguration('atlasmind').get<string[]>('debt.markers', []),
+        ),
+      );
       if (result.success) {
         void vscode.window.showInformationMessage(result.summary);
       } else {
@@ -380,6 +388,123 @@ export function registerCommands(
       if (!atlas) { return; }
       const { ChatPanel } = await import('./views/chatPanel.js');
       ChatPanel.createOrShow(context, atlas, target);
+    }),
+
+    /**
+     * Open a setup walkthrough, **rendered without a model**.
+     *
+     * The obvious implementation — open chat with `/acp` and submit it — does
+     * not work, and fails silently. Slash commands are dispatched only by the
+     * VS Code chat participant; the AtlasMind chat panel has no such handling,
+     * so the text went to the orchestrator as an ordinary prompt. On a machine
+     * with no provider configured, routing lands on the built-in echo model,
+     * which answered "Answered from context." — teaching the user that setup
+     * guides are broken, at the exact moment they most need one.
+     *
+     * Setup plans are **derived from observed configuration, never generated**,
+     * so no model is needed to produce one. Rendering the plan directly and
+     * posting it as an assistant message makes the guide work on a fresh
+     * install with nothing configured at all, which is the only state in which
+     * it is genuinely load-bearing.
+     */
+    vscode.commands.registerCommand('atlasmind.openSetupGuide', async (guide?: string) => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+
+      const [{ findSetupGuide, SETUP_GUIDES }, walkthrough, participant, { postSidebarSummaryToChat }] = await Promise.all([
+        import('./core/setupGuideRegistry.js'),
+        import('./core/setupWalkthrough.js'),
+        import('./chat/participant.js'),
+        import('./views/treeViews.js'),
+      ]);
+
+      const raw = (guide ?? '').trim().replace(/^\//, '').toLowerCase();
+      const summary = findSetupGuide(raw);
+
+      // No guide named, or one we do not have: show the index rather than
+      // nothing. Someone who reached here wants to set *something* up.
+      if (!summary) {
+        const entries = await Promise.all(SETUP_GUIDES.map(async candidate => {
+          const steps = await collectSetupSteps(candidate.id, atlas, participant).catch(() => []);
+          const progress = walkthrough.summarizeSetupProgress(steps, candidate.stepIds);
+          const next = walkthrough.nextSetupStep(steps, candidate.stepIds);
+          return { guide: candidate, progress, ...(next ? { nextTitle: next.title } : {}) };
+        }));
+        await postSidebarSummaryToChat(atlas, 'Setup guides', walkthrough.renderSetupIndexMarkdown(entries));
+        return;
+      }
+
+      const steps = await collectSetupSteps(summary.id, atlas, participant).catch(() => []);
+      if (steps.length === 0) {
+        await postSidebarSummaryToChat(
+          atlas,
+          `${summary.label} setup`,
+          `AtlasMind could not read enough of this workspace's configuration to work out where you are with ${summary.label} setup. `
+          + 'That is usually a permissions problem on the workspace folder rather than anything to do with the feature itself.',
+        );
+        return;
+      }
+
+      const progress = walkthrough.summarizeSetupProgress(steps, summary.stepIds);
+      await postSidebarSummaryToChat(
+        atlas,
+        `${summary.label} setup`,
+        walkthrough.renderSetupGuideMarkdown(summary, steps, progress),
+      );
+    }),
+
+    /**
+     * Finish setting up the ACP route for one vendor, from the Models tree.
+     *
+     * The sidebar could report that a subscription route was unfinished but
+     * offered no way to finish it — the provider-level actions it inherited all
+     * pointed at the vendor's *API* provider, so there was no control on the row
+     * that did what the row was about.
+     *
+     * Whatever is missing, this is the single next step: not configured runs the
+     * install-and-sign-in check (offering the walkthrough when the adapter is
+     * absent), provider off turns it on, and a configured agent with no
+     * discovered model refreshes.
+     */
+    vscode.commands.registerCommand('atlasmind.acp.setUpBridge', async (item?: { vendorId?: string; agentId?: string }) => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const vendorId = typeof item?.vendorId === 'string' ? item.vendorId : '';
+      if (!vendorId) {
+        await vscode.commands.executeCommand('atlasmind.openModelProviders');
+        return;
+      }
+
+      const acpProvider = atlas.modelRouter.listProviders().find(provider => provider.id === 'acp');
+      const { parseAcpAgentSettings, findAcpBridge } = await import('./providers/acp.js');
+      const bridge = findAcpBridge(vendorId);
+      const configured = bridge
+        ? parseAcpAgentSettings(vscode.workspace.getConfiguration('atlasmind').get<unknown>('acp.agents'))
+          .some(agent => agent.id === bridge.agentId)
+        : false;
+
+      // Already configured and merely switched off: flipping it is the whole
+      // job, and routing through the probe would re-ask a question already
+      // answered.
+      if (configured && acpProvider && !acpProvider.enabled) {
+        await atlas.setProviderEnabled('acp', true);
+        await atlas.refreshProviderModels(true);
+        await atlas.refreshProviderHealth();
+        atlas.modelsRefresh.fire();
+        void vscode.window.showInformationMessage('ACP is enabled. Its models are now available to the router.');
+        return;
+      }
+
+      if (configured && acpProvider?.enabled) {
+        await atlas.refreshProviderModels(true);
+        await atlas.refreshProviderHealth();
+        atlas.modelsRefresh.fire();
+        return;
+      }
+
+      const { useSubscriptionForProvider } = await import('./views/modelProviderPanel.js');
+      await useSubscriptionForProvider(atlas, vendorId as ProviderId);
+      atlas.modelsRefresh.fire();
     }),
 
     vscode.commands.registerCommand('atlasmind.openChatView', async (target?: string | import('./views/chatPanel.js').ChatPanelTarget) => {
@@ -1266,12 +1391,51 @@ export function registerCommands(
   );
 }
 
+/**
+ * These identify a tree item by shape, and the shape is not unique.
+ *
+ * `AcpBridgeTreeItem` once carried a `providerId` holding the *vendor* it sits
+ * beneath, which made it indistinguishable from a provider row: the visibility
+ * toggle on "Anthropic — Claude subscription" flipped Anthropic's API provider,
+ * and the info action reported on it. That row no longer has the property, but
+ * relying on its absence alone is how the bug happened, so both guards also
+ * require the `model-` context value — the same namespace the `when` clauses in
+ * `package.json` use to decide these commands are offered at all.
+ */
+/**
+ * The derived state for one guide.
+ *
+ * Reuses the participant's collectors rather than re-deriving: two readings of
+ * "is ACP set up" that could disagree is exactly the drift the shared
+ * walkthrough module exists to prevent.
+ */
+async function collectSetupSteps(
+  guideId: string,
+  atlas: AtlasMindContext,
+  participant: typeof import('./chat/participant.js'),
+): Promise<import('./core/setupWalkthrough.js').SetupStep[]> {
+  if (guideId === 'acp') {
+    return participant.collectAcpSetupSteps(atlas);
+  }
+  if (guideId === 'buzz') {
+    return participant.collectBuzzSetupSteps(atlas);
+  }
+  return [];
+}
+
+function isModelContextValue(item: unknown): boolean {
+  const contextValue = (item as { contextValue?: unknown } | null)?.contextValue;
+  return typeof contextValue === 'string' && contextValue.startsWith('model-');
+}
+
 function isModelProviderTreeItem(item: unknown): item is ModelProviderTreeItem {
-  return typeof item === 'object' && item !== null && 'providerId' in item && !('modelId' in item);
+  return typeof item === 'object' && item !== null
+    && 'providerId' in item && !('modelId' in item) && isModelContextValue(item);
 }
 
 function isModelTreeItem(item: unknown): item is ModelTreeItem {
-  return typeof item === 'object' && item !== null && 'providerId' in item && 'modelId' in item;
+  return typeof item === 'object' && item !== null
+    && 'providerId' in item && 'modelId' in item && isModelContextValue(item);
 }
 
 function buildAgentSummary(atlas: AtlasMindContext, agent: AgentDefinition): string {

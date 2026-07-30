@@ -53,17 +53,21 @@
 
 
 ### Branching and Pull Requests
-- Branch from `develop` using descriptive names (for example `feat/provider-health-checks`).
+
+The workflow is specified in [docs/guided-github-workflow.md](docs/guided-github-workflow.md); this
+repository's values are in [docs/github-workflow.md](docs/github-workflow.md). Both are
+authoritative — the bullets here name values, they do not restate rules.
+
+- Branch from `develop` using descriptive names (for example `feat/provider-health-checks`), or `<type>/<issue>-<slug>` where an issue exists.
 - `develop` is the default branch for routine integration work and normal push targets.
-- Keep `main` reserved for release-ready stable builds only.
-- **Do not include any `project_memory/` files or folders in `main`.** The entire `project_memory/` directory is for development and feature branches only, and must be excluded from release PRs and the `main` branch. This is enforced by `.gitignore` and should be checked in PR reviews.
-- Open pull requests early and link the governing issue.
+- Keep `main` reserved for release-ready stable builds only. Do not treat it as a normal push target.
+- `project_memory/` **is tracked and is present on `main`.** Only `sessions/`, `temp/`, `project-run-*.json`, and `.delivery-lock.json` are gitignored; `.vscodeignore` is what keeps project memory out of the shipped VSIX. Seeing it in a release PR is expected and correct.
+- Open pull requests early and link the governing issue with `Closes #<n>`.
 - Complete all PR checklist items from `.github/pull_request_template.md`.
-- For the current solo-maintainer flow, rely on required CI plus PR-only merges on `main` instead of mandatory reviewer approval.
+- This repository runs the **`solo` profile**: required CI plus PR-only merges on `main`, and **zero required approvals**. That is a deliberate choice, not an omission — see the specification's §8.
 - Merge feature work into `develop` when CI checks pass.
-- Promote `develop` into `main` only when you intentionally want a new published stable release.
-- Marketplace publication uses the standard release channel (`npm run publish:release`); use `npm run publish:pre-release` only for explicit opt-in pre-release cuts.
-- Do not treat `main` as a normal development push target.
+- Promote `develop` into `main` only for an intentional release, via the `Release — promote develop to main` workflow.
+- For a normal release, run `npm run tag:release` after the release PR merges and let CI publish. **Do not run `npm run publish:release`** — it publishes *and* pushes the tag, and the tag push makes CI publish again. Use `npm run publish:pre-release` only for explicit opt-in pre-release cuts.
 
 ### Issues and Project Tracking
 - Create bugs and features using the issue templates under `.github/ISSUE_TEMPLATE/`.

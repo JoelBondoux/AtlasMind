@@ -30,7 +30,7 @@ const FALLBACK_SKILL_ID_LIST = [
   'memory-query', 'memory-write',
   'test-run', 'git-commit', 'git-status', 'git-diff', 'git-log',
   'git-branch', 'git-push', 'git-apply-patch', 'git-blame',
-  'terminal-run', 'workspace-observability',
+  'terminal-run', 'workspace-observability', 'agent-handoff',
 ] as const;
 const FALLBACK_SKILL_IDS = FALLBACK_SKILL_ID_LIST.join(', ');
 const PROJECT_EVIDENCE_SKILL_IDS = ['file-read', 'file-search', 'workspace-observability'] as const;

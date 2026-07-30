@@ -4,43 +4,37 @@ Imported from `README.md`.
 
 ## Configuration
 
-Key settings under `atlasmind.*` in VS Code settings:
+AtlasMind's main settings are available in its Settings panel and under `atlasmind.*` in VS Code settings.
 
-| Setting | Default | Description |
-|---|---|---|
-| `budgetMode` | `balanced` | Model cost preference: `cheap`, `balanced`, `expensive`, `auto` |
-| `speedMode` | `balanced` | Model speed preference: `fast`, `balanced`, `considered`, `auto` |
-| `planningModelId` | `""` | Optional model ID pinned for the planning "brain" phase; empty routes planning normally |
-| `synthesisModelId` | `""` | Optional model ID pinned for the synthesis (summarization) phase; empty routes synthesis normally |
-| `draftModelId` | `""` | Optional model pinned to draft mechanical tasks (local-draft / frontier-escalate); empty routes normally |
-| `toolApprovalMode` | `ask-on-write` | When to prompt for tool approval: `always-ask`, `ask-on-write`, `ask-on-external`, `allow-safe-readonly` |
-| `dailyCostLimitUsd` | `0` | Daily spend cap in USD (0 = unlimited) |
-| `agentAutoUpdateCadence` | `never` | How often to AI-refresh agent definitions: `never`, `daily`, `weekly`, `monthly`, `every-use` |
-| `maxToolIterations` | `10` | Max tool-call loop iterations per agent turn |
-| `loop.enabled` | `true` | Enable the autonomous Mission Loop (`/loop` + Mission Control) |
-| `loop.defaultMaxIterations` | `8` | Default hard cap on Mission Loop iterations |
-| `loop.defaultMaxCostUsd` | `5` | Default hard ceiling (USD) on a Mission Loop run |
-| `loop.defaultMaxTokens` | `2000000` | Default cumulative token cap for a Mission Loop run |
-| `loop.defaultMaxDurationMinutes` | `30` | Default wall-clock cap (minutes) for a Mission Loop run |
-| `loop.maxConsecutiveNoProgress` | `2` | Stop after this many consecutive no-progress iterations |
-| `loop.checkpointEveryNIterations` | `3` | Pause for approval every N iterations (0 = off) |
-| `loop.checkpointAtBudgetFraction` | `0.75` | Pause when spend crosses this fraction (0..1) of the cost budget |
-| `loop.requireApprovalBeforeWriteBatches` | `false` | Require approval before any write/commit iteration |
-| `loop.allowDiscovery` | `true` | Allow the loop to synthesize/discover capabilities (gated) |
-| `loop.goalAchievedConfidenceThreshold` | `0.7` | Min evaluator confidence to accept an `achieved` verdict |
-| `allowTerminalWrite` | `false` | Allow terminal subprocesses (installs, commits) after explicit approval |
-| `autoVerifyAfterWrite` | `true` | Run verification scripts after workspace writes |
-| `autoStartProposedProjectRuns` | `true` | When a reply offers an autonomous project run, flow straight into it (immediate under Autopilot; cancellable notice otherwise) instead of waiting for "Proceed"; the file-count gate still applies |
-| `ssotPath` | `project_memory` | Relative path to the SSOT memory folder |
-| `localOpenAiEndpoints` | `[]` | Labeled local OpenAI-compatible endpoints (`id`/`label`/`baseUrl`) aggregated under the Local provider; managed from Settings → Models & Integrations |
-| `localOpenAiBaseUrl` | `http://127.0.0.1:11434/v1` | Legacy single-endpoint fallback for Ol
-…(truncated)
+| Setting | Default | What it controls |
+|---|---:|---|
+| `budgetMode` | `balanced` | Cost preference used during model routing |
+| `speedMode` | `balanced` | Latency/reasoning preference used during routing |
+| `dailyCostLimitUsd` | `0` | Daily spend ceiling; `0` disables the limit |
+| `toolApprovalMode` | `ask-on-write` | When tools require operator approval |
+| `autoStartProposedProjectRuns` | `true` | Permit proposal auto-start only under Autopilot; otherwise show Start, Save for later, and Cancel |
+| `allowTerminalWrite` | `false` | Whether approved terminal subprocesses may mutate state |
+| `autoVerifyAfterWrite` | `true` | Whether configured verification runs after writes |
+| `agentAutoUpdateCadence` | `never` | Optional AI refresh cadence for custom agent definitions |
+| `ssotPath` | `project_memory` | Workspace-relative project-memory location |
+| `localOpenAiEndpoints` | `[]` | Labeled local OpenAI-compatible endpoints |
+| `loop.enabled` | `true` | Whether Mission Loop can run |
+| `feedbackRoutingWeight` | `1` | Strength of saved response feedback in routing |
+| `remote.enabled` | `false` | Whether desktop remote control is available |
+| `buzz.enabled` | `false` | Master switch for the Buzz integration (Settings → Buzz) |
+| `buzz.inboundEnabled` | `false` | Hold a read-only subscription to a Buzz relay |
+| `buzz.autoCreateFollowUps` | `false` | Record derived Buzz follow-ups into git-tracked project memory |
+| `buzz.agentBindings` | `{}` | Route a Buzz identity's work to an AtlasMind agent (edited per person on Dashboard → Director) |
+
+See the [Configuration Reference](docs/configuration.md) or [wiki Configuration](wiki/Configuration.md) for every setting, accepted value, security implication, and provider-specific option.
+
+---
 
 <!-- atlasmind-import
 entry-path: domain/product-capabilities.md
 generator-version: 2
-generated-at: 2026-07-24T12:06:10.564Z
+generated-at: 2026-07-28T12:06:49.103Z
 source-paths: README.md | package.json
-source-fingerprint: 955381c5
-body-fingerprint: ca109b33
+source-fingerprint: fe4c08af
+body-fingerprint: c7a85900
 -->

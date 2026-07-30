@@ -1,11 +1,11 @@
 # Project Memory Rule (main branch)
 
-**Important:** The `project_memory/` folder and its contents are only present in development and feature branches. They are excluded from the `main` branch and all release builds. This is enforced by `.gitignore` and documented in the contribution guidelines. Do not expect `project_memory/` to exist on `main` or in published Marketplace packages.
+**Important:** The `project_memory/` folder is **tracked in git and is present on `main`** — only `sessions/`, `temp/`, `project-run-*.json`, and `.delivery-lock.json` are gitignored. What keeps it out of published Marketplace packages is `.vscodeignore`, not `.gitignore`, so do not expect `project_memory/` inside an installed extension.
 
 If you need to reference SSOT memory or session context, use the `atlasmind.ssotPath` setting, which defaults to `project_memory`. For more details, see the [Memory System](Memory-System.md) documentation.
 
 
-> **Note:** The `project_memory/` folder is only present in development and feature branches. It is excluded from the `main` branch and all release builds. This is enforced by `.gitignore` and documented in the contribution guidelines.
+> **Note:** The `project_memory/` folder is **tracked in git and is present on `main`** — only `sessions/`, `temp/`, `project-run-*.json`, and `.delivery-lock.json` are gitignored. What keeps it out of published Marketplace packages is `.vscodeignore`, not `.gitignore`.
 
 # User Environment Tracking
 
@@ -55,7 +55,6 @@ Example `settings.json` presets:
 | `atlasmind.planningModelId` | string | `""` | Optional model ID pinned for the planning phase (the planner "brain"). When set to a known model the planner uses it directly while execution routes normally; empty routes planning normally. |
 | `atlasmind.synthesisModelId` | string | `""` | Optional model ID pinned for the synthesis phase (summarizing results/sessions). Symmetric to `planningModelId`; empty routes synthesis normally. |
 | `atlasmind.draftModelId` | string | `""` | Optional model ID pinned to draft mechanical/low-stakes tasks (e.g. a fast local model); struggle-gated escalation upgrades if needed. Empty routes normally. |
-| `atlasmind.specialistRoutingOverrides` | object | `{}` | Per-domain overrides for specialist routing automation. Supported domain keys today are `media-generation`, `visual-analysis`, `voice`, `research`, `robotics`, and `simulation`. |
 | `atlasmind.localOpenAiEndpoints` | object[] | `[]` | Labeled local OpenAI-compatible endpoints AtlasMind should aggregate under the Local provider |
 | `atlasmind.localOpenAiBaseUrl` | string | `""` | Legacy single local OpenAI-compatible endpoint fallback |
 | `atlasmind.azureOpenAiEndpoint` | string | `""` | Azure OpenAI resource endpoint used for deployment-backed routing |
@@ -65,7 +64,7 @@ Example `settings.json` presets:
 
 See [[Model Routing]] for details on how these settings affect model selection.
 
-`atlasmind.specialistRoutingOverrides` sits on top of AtlasMind's live specialist-routing registry. Atlas first recomputes specialist-provider preferences from the refreshed model catalog and any discovered domain tags, then applies any matching override for the domain. Use it when you need to pin a preferred provider, disable a domain route, tighten required capabilities, or swap the fallback command Atlas opens for that specialist workflow.
+Specialist-provider preferences are derived from refreshed model metadata, including domain tags such as research or visual analysis. **There is no override setting.** `atlasmind.specialistRoutingOverrides` shipped once and was removed from both the manifest and the code in April 2026; this page went on describing it for three months afterwards. Pin a provider through the Model Providers panel instead.
 
 `atlasmind.localOpenAiEndpoints` is now the preferred local-model setting. Each entry includes a stable `id`, a human-facing `label`, and a `baseUrl`, which lets AtlasMind keep multiple local engines online together and still show which endpoint owns each routed local model back in the provider surfaces. When AtlasMind Settings opens and only the legacy `atlasmind.localOpenAiBaseUrl` is explicitly configured, AtlasMind now auto-migrates that value into the structured endpoint list once.
 
@@ -214,7 +213,17 @@ Integration with [Buzz](https://buzz.xyz) — the open-source, Nostr-based works
 | `atlasmind.buzz.inboundEnabled` | boolean | `false` | Hold a **read-only** Buzz subscription and derive work items. Also requires `atlasmind.buzz.enabled`; can never publish to Buzz. |
 | `atlasmind.buzz.inboundChannels` | string[] | `[]` | Buzz channel ids (UUIDs) to watch. Empty = every channel the agent key can read. |
 | `atlasmind.buzz.autoCreateFollowUps` | boolean | `false` | Record inbound activity as follow-ups. Off by default — `project_memory/` is git-tracked, so this is opt-in. |
-| `atlasmind.acp.agents` | array | `[]` | ACP agents to use as subscription-backed capacity: `[{"id": "claude", "command": "claude-agent-acp"}]`. Empty by default; you name a command you already have installed. Restricted mode — no filesystem, no terminal, no MCP pass-through — and permission requests are refused. |
+| `atlasmind.acp.agents` | array | `[]` | ACP agents to use as subscription-backed capacity: `[{"id": "claude", "command": "claude-agent-acp"}]`. Empty by default; you name a command you already have installed. By default a completion source only — no MCP pass-through, permission requests refused. |
+| `atlasmind.workflow.enabled` | boolean | `false` | Master switch for [[GitHub Workflow\|the guided GitHub workflow]]. Off by default: the Workflow page still teaches and measures, it simply never acts. Turning it on does not by itself permit anything — the effective level for a stage is the *minimum* of this, your ceiling, the matching capability switch, and the stage's own declared level. All four default closed. |
+| `atlasmind.workflow.profile` | string | `solo` | `solo`, `studio`, or `custom`. Solo requires **zero** approvals and makes CI the reviewer, because requiring self-approval trains you to dismiss a gate. Studio requires at least one approver distinct from the author. A profile *seeds* a configuration; it does not govern one. |
+| `atlasmind.workflow.maxAutomationLevel` | string | `observe` | Your personal ceiling: `off`, `observe`, `draft`, `propose`, `auto`. Can only ever **lower** the project's declared level, never raise it. |
+| `atlasmind.debt.markers` | array | `[]` | Extra comment markers the tech-debt scan looks for, beyond `TODO`, `FIXME`, `HACK` and `XXX`. Written as `NAME` or `NAME:severity` — an unqualified marker is **medium**, because somebody who declared a marker is asserting something is wrong. Each becomes a *declared rule*, named on every entry it grades and published in the rule table, which is what keeps grades comparable. The built-in four cannot be redefined (a project grading its own `TODO` as high would make two registers incomparable), and a marker mentioning a credential is graded high whatever you called it. |
+| `atlasmind.workflow.allowIssueWrites` | boolean | `false` | Permit issue create / comment / edit / close / reopen. Every write still confirms first, naming the repository and the exact action. AtlasMind never auto-closes an issue — closing somebody's report is a social act, not a cleanup task. |
+| `atlasmind.workflow.allowPullRequestWrites` | boolean | `false` | Permit PR creation, review and merge. Incoming review comments are treated as untrusted input regardless of this setting: anyone who can comment can write text designed to read as an instruction, so review bodies are always sanitized and fenced before an agent sees them. |
+| `atlasmind.workflow.allowReleaseWrites` | boolean | `false` | Permit version bump and changelog entry. Tagging and publishing stay human-triggered even with this on, and release notes are the changelog section **verbatim** — never model-generated. |
+| `atlasmind.workflow.allowProtectedRefWrites` | boolean | `false` | A hard ceiling rather than an ordinary preference. With it off, unattended automation is *unreachable* for any stage whose base is protected. AtlasMind never force-pushes regardless. |
+| `atlasmind.acp.toolsEnabled` | boolean | `false` | Let ACP agents run their own tools, approving each operation. Off by default. AtlasMind never accepts an agent's "always allow" — it answers "allow once", so no grant ends up somewhere you cannot revoke it — and a missing approval gate denies rather than opens. |
+| `atlasmind.acp.mcpServers` | array | `[]` | MCP servers an ACP agent may use, by name. Empty by default. Servers holding SecretStorage credentials and HTTP/SSE servers are never forwarded. |
 | `atlasmind.buzz.agentBindings` | object | `{}` | Assign AtlasMind agents to Buzz agents: `{"npub1…": "devops-engineer"}`, or several with `{"npub1…": ["api-designer", "ux-reviewer"]}`. The first owns the work; the rest are recorded as also-relevant. Unbound identities stay unassigned. |
 | `atlasmind.buzz.allowRemoteRelay` | boolean | `false` | Allow a non-local Buzz relay URL. When `false`, only loopback/localhost relays are used so project data stays on-machine. |
 
@@ -319,3 +328,12 @@ Routed provider credentials live in VS Code SecretStorage and are configured fro
 - Azure OpenAI uses `atlasmind.provider.azure.apiKey` plus the endpoint/deployment settings above.
 - Amazon Bedrock uses `atlasmind.provider.bedrock.accessKeyId`, `atlasmind.provider.bedrock.secretAccessKey`, and optional `atlasmind.provider.bedrock.sessionToken`.
 - Specialist integrations such as EXA, ElevenLabs, Stability AI, and Runway use `atlasmind.integration.<provider>.apiKey` from **AtlasMind: Specialist Integrations**.
+
+## Settings that were live but undeclared
+
+Both have been read by real code for months while being absent from the manifest — so they worked if you hand-edited `settings.json` and were invisible in the Settings UI. Declared in 0.205.0.
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `atlasmind.testingPolicyOverride` | string | `""` | Testing methodology the Settings dashboard reports as this project's policy. Empty means Red-Green TDD, the default. **Read since 0.46 and never declared**, so it could not be found in Settings until 0.205.0. |
+| `atlasmind.ideation.crossProjectPaths` | array | `[]` | Absolute paths to other AtlasMind projects whose ideation boards may be read for cross-project context. At most three are consulted, and nothing is ever written to another project. **Read since 0.86 and never declared**, so it could not be found in Settings until 0.205.0. |

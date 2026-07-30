@@ -91,7 +91,16 @@ const SPECIALIST_DOMAIN_VALUES: readonly SpecialistDomain[] = [
   'media-generation', 'visual-analysis', 'voice', 'research', 'robotics', 'simulation',
 ];
 
-const ROUTING_NEED_VALUES: readonly RoutingNeedId[] = [
+/**
+ * Exported so tests can assert against the real list rather than a copy.
+ *
+ * An agent with no declared `primaryRoutingNeeds` can still re-enter the
+ * routing contest if one of these tokens appears in its `role` or
+ * `description`, because `scoreAgentRoutingNeeds` pattern-matches them there.
+ * A test that inlined its own copy would stop checking the moment a need was
+ * added here.
+ */
+export const ROUTING_NEED_VALUES: readonly RoutingNeedId[] = [
   'architecture', 'backend', 'build', 'commercial', 'debugging', 'devops', 'docs', 'ethics',
   'frontend', 'git', 'legal', 'package', 'performance', 'release', 'review', 'security', 'seo', 'testing',
 ];

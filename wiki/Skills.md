@@ -51,6 +51,7 @@ Skill names, descriptions, and JSON Schemas are supplied to the routed model as 
 | Skill | Description |
 |-------|-------------|
 | `workspace-observability` | Snapshot of the current workspace state: active debug session, open terminals, and most recent test run summary |
+| `agent-handoff` | Ask a named specialist agent a question and get their answer back. **A handoff transfers the question, not the permissions** — the delegate runs with the *intersection* of your skills and its own, never the union, so a tool you do not have it does not get either. If it granted the union, any restricted agent could obtain any capability by asking a permissive one. Capped at three deep, cannot loop back to an agent already in the chain, and refuses rather than running a delegate that would end up with no tools. The answer returns labelled as another agent's opinion, not a verified result |
 
 ### Search & Fetch
 

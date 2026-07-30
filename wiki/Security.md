@@ -22,7 +22,7 @@ AtlasMind is designed with a **safety-first** principle: the extension defaults 
 ### 2. File System Sandbox
 
 
-> **Note:** The `project_memory/` folder is only present in development and feature branches. It is excluded from the `main` branch and all release builds. This is enforced by `.gitignore` and documented in the contribution guidelines.
+> **Note:** The `project_memory/` folder is **tracked in git and is present on `main`** — only `sessions/`, `temp/`, `project-run-*.json`, and `.delivery-lock.json` are gitignored. What keeps it out of published Marketplace packages is `.vscodeignore`, not `.gitignore`.
 
 **Managed-block writers.** The outbound testing-protocol sync (`src/utils/testingProtocolSync.ts`) and the framework scaffolder (`src/core/testingScaffolder.ts`) are strictly non-destructive. The protocol sync only writes to instruction files that *already exist*, only ever replaces its own delimited block (`<!-- atlasmind:testing-protocols:start -->` … `:end -->`) while preserving all surrounding content, skips JSON-config files (which cannot host a markdown block), and routes every path through the shared `isSafeRelativePath` / `resolveRelativePath` traversal guard. The scaffolder creates starter files only when absent (never overwriting), never mutates `package.json`, and is modal-confirmed before running.
 
@@ -284,3 +284,27 @@ Out of scope:
 ### Safe Harbor
 
 Security researchers acting in good faith are protected under AtlasMind's safe harbor policy. We will not pursue legal action for responsible disclosure.
+
+## Delegation does not carry authorization
+
+An agent can ask another agent a question (`agent-handoff`). **The delegate runs with the intersection of
+the caller's capabilities and its own — never the union.**
+
+This is the security property, not a limitation. Handing off to a specialist *feels* like it should give
+you the specialist's tools; that is what makes them a specialist. But if it did, any restricted agent could
+obtain any capability by asking a permissive one for it, and every restriction described on this page would
+become a suggestion. Privilege escalation by delegation is a classic precisely because the escalating step
+always looks reasonable in isolation.
+
+Four supporting boundaries:
+
+- **The caller cannot name itself.** Identity comes from what the orchestrator knows it is running, never
+  from tool arguments — a model able to name its own caller could name a more privileged one.
+- **The delegate is a narrowed copy** of the target agent, so a run's ceiling cannot leak into later uses.
+- **A disabled agent cannot be reached** through delegation. Somebody switched it off.
+- **Every tool the delegate uses is approved on its own account.** Allowing a handoff approves the spend,
+  not whatever the delegate goes on to do.
+
+Delegation is capped at three deep and cannot loop back to an agent already in the chain. A delegate that
+would end up with no tools at all is refused rather than run: a model that cannot check anything produces
+confident prose, and confident prose arriving as an answer is worse than a refusal naming what is missing.

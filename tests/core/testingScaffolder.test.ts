@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
@@ -16,8 +16,10 @@ vi.mock('vscode', () => ({
   default: {},
 }));
 
-import { scaffoldTestingFramework } from '../../src/core/testingScaffolder.ts';
+import { scaffoldTestingFramework, toProjectArchetype, archetypeTestingModel } from '../../src/core/testingScaffolder.ts';
+import { resolveArchetypePack } from '../../src/core/archetypePacks.ts';
 import type { ProjectTestingConfig } from '../../src/types.ts';
+import { removeTempDir } from '../helpers/tempDir';
 
 function makeConfig(methodologies: ProjectTestingConfig['methodologies']): ProjectTestingConfig {
   return { version: 1, updatedAt: '2026-01-01T00:00:00.000Z', methodologies };
@@ -30,7 +32,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(workspace, { recursive: true, force: true });
+  removeTempDir(workspace);
 });
 
 function writePackageJson(deps: Record<string, string>): void {
@@ -218,5 +220,167 @@ describe('scaffoldTestingFramework — archetype detection', () => {
     );
     const result = await scaffoldTestingFramework(workspace, makeConfig([{ id: 'unit', enabled: true }]));
     expect(result.stackLabel).not.toContain('archetype: web');
+  });
+});
+
+/**
+ * The scaffolder used to hold its own opinion about what each shape needs, and
+ * `game` — detected since the archetype work shipped — was acted on nowhere.
+ * A game project got a Playwright test for a page it does not serve.
+ */
+describe('the scaffolder reads the archetype packs rather than restating them', () => {
+  it('translates its local vocabulary into the shared one', () => {
+    // The mapping was described in a comment and did not exist, so the
+    // scaffolder detected a shape and had no way to ask the packs about it.
+    expect(toProjectArchetype('web')).toBe('web-app');
+    expect(toProjectArchetype('game')).toBe('game');
+    expect(toProjectArchetype('cli')).toBe('cli');
+    expect(toProjectArchetype('generic')).toBe('generic');
+  });
+
+  it('maps `web` to web-app rather than website', () => {
+    // The scaffolder only reaches that branch when it found a UI framework,
+    // and a static site does not have one.
+    expect(toProjectArchetype('web')).not.toBe('website');
+  });
+
+  it('returns the pack\'s own testing model, not a copy', () => {
+    const model = archetypeTestingModel({ archetype: 'game' });
+    expect(model).toEqual(resolveArchetypePack('game', []).testing);
+  });
+
+  it('recommends different things for different shapes', () => {
+    // If these matched, the pack lookup would be decorative.
+    const game = archetypeTestingModel({ archetype: 'game' }).recommended.join();
+    const api = archetypeTestingModel({ archetype: 'api' }).recommended.join();
+    expect(game).not.toBe(api);
+  });
+});
+
+describe('the playbook says what the project shape asks for', () => {
+  const runFor = async (files: Record<string, string>, enabled: string[]) => {
+    const root = mkdtempSync(path.join(os.tmpdir(), 'atlasmind-shape-'));
+    for (const [rel, content] of Object.entries(files)) {
+      mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+      writeFileSync(path.join(root, rel), content);
+    }
+    const config: ProjectTestingConfig = {
+      version: 1,
+      methodologies: enabled.map(id => ({ id, enabled: true })),
+    } as ProjectTestingConfig;
+    await scaffoldTestingFramework(root, config);
+    const playbook = readFileSync(
+      path.join(root, 'project_memory/operations/testing-strategy.md'), 'utf8',
+    );
+    return { root, playbook };
+  };
+
+  it('names the shape and the reasoning behind its recommendations', async () => {
+    const { root, playbook } = await runFor(
+      { 'package.json': JSON.stringify({ dependencies: { phaser: '^3' } }) },
+      ['unit'],
+    );
+    expect(playbook).toContain('For a game project');
+    expect(playbook).toContain('Suits this shape:');
+    removeTempDir(root);
+  });
+
+  it('says which recommended methodologies are not switched on', async () => {
+    const { root, playbook } = await runFor(
+      { 'package.json': JSON.stringify({ dependencies: { phaser: '^3' } }) },
+      ['unit'],
+    );
+    expect(playbook).toContain('Recommended and not enabled:');
+    removeTempDir(root);
+  });
+
+  it('warns when an enabled methodology is discouraged for the shape', async () => {
+    // The one that matters most: a methodology a shape cannot produce evidence
+    // for becomes a permanent gap, and a permanent gap teaches people to ignore
+    // gaps.
+    const { root, playbook } = await runFor(
+      { 'package.json': JSON.stringify({ dependencies: { phaser: '^3' } }) },
+      ['unit', 'bdd'],
+    );
+    expect(playbook).toContain('Enabled but discouraged here:');
+    expect(playbook).toMatch(/teaches people to ignore gaps/);
+    removeTempDir(root);
+  });
+});
+
+describe('a game gets recipes a game can actually run', () => {
+  const scaffoldGame = async (enabled: string[]) => {
+    const root = mkdtempSync(path.join(os.tmpdir(), 'atlasmind-game-'));
+    writeFileSync(
+      path.join(root, 'package.json'),
+      JSON.stringify({ dependencies: { phaser: '^3' }, devDependencies: { vitest: '^1' } }),
+    );
+    const config: ProjectTestingConfig = {
+      version: 1,
+      methodologies: enabled.map(id => ({ id, enabled: true })),
+    } as ProjectTestingConfig;
+    const result = await scaffoldTestingFramework(root, config);
+    return { root, result };
+  };
+
+  it('scaffolds a determinism test rather than a browser test', async () => {
+    // A game does not serve a page. The generic recipe was a Playwright test
+    // that would fail forever, which is worse than no starter file.
+    const { root, result } = await scaffoldGame(['e2e']);
+    expect(result.files.some(file => file.path.includes('simulation'))).toBe(true);
+    expect(result.files.some(file => file.path.includes('e2e/example'))).toBe(false);
+    // Read the path the scaffolder chose rather than assuming an extension:
+    // it follows the project, and this fixture has no TypeScript.
+    const written = readFileSync(
+      path.join(root, result.files.find(file => file.path.includes('simulation'))!.path), 'utf8',
+    );
+    expect(written).toMatch(/same seed/);
+    // Recipes have to be valid in both .ts and .js, because the extension
+    // follows the project. Type annotations would emit unparseable JavaScript.
+    expect(written).not.toMatch(/:\s*number/);
+    removeTempDir(root);
+  });
+
+  it('scaffolds a frame budget rather than an HTTP load script', async () => {
+    const { root, result } = await scaffoldGame(['performance']);
+    expect(result.files.some(file => file.path.includes('frame-budget'))).toBe(true);
+    expect(result.files.some(file => file.path.includes('k6'))).toBe(false);
+    removeTempDir(root);
+  });
+
+  it('leaves non-game shapes on their own recipes', async () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), 'atlasmind-api-'));
+    writeFileSync(
+      path.join(root, 'package.json'),
+      JSON.stringify({ dependencies: { express: '^4' }, devDependencies: { vitest: '^1' } }),
+    );
+    const result = await scaffoldTestingFramework(root, {
+      version: 1,
+      methodologies: [{ id: 'performance', enabled: true }],
+    } as ProjectTestingConfig);
+    expect(result.files.some(file => file.path.includes('k6'))).toBe(true);
+    removeTempDir(root);
+  });
+});
+
+describe('every Node recipe is valid in both .ts and .js', () => {
+  it('emits no TypeScript-only syntax', () => {
+    // The extension follows the project, not the recipe: a `.js` project gets
+    // `.js` files containing whatever the recipe says. A type annotation there
+    // produces a starter file that does not parse — which is worse than no
+    // starter file, because it looks like the scaffolder succeeded.
+    const source = readFileSync(
+      path.join(process.cwd(), 'src', 'core', 'testingScaffolder.ts'), 'utf8',
+    );
+    const nodeRecipes = source.slice(
+      source.indexOf('function nodeRecipe('),
+      source.indexOf('function pythonRecipe('),
+    );
+    const templates = [...nodeRecipes.matchAll(/content: `([^`]*)`/g)].map(match => match[1]!);
+    expect(templates.length).toBeGreaterThan(5);
+    for (const template of templates) {
+      expect(template, template.slice(0, 60)).not.toMatch(/\(\s*\w+\s*:\s*(number|string|boolean|unknown|any)\b/);
+      expect(template, template.slice(0, 60)).not.toMatch(/\)\s*:\s*(number|string|boolean|void)\s*=>/);
+    }
   });
 });

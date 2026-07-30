@@ -239,6 +239,80 @@ export function renderSetupStepMarkdown(
 }
 
 /**
+ * The whole guide at once — every step, with what is done and what is not.
+ *
+ * The step-at-a-time renderer above is the better experience *when a chat
+ * surface can run the walkthrough*. This one exists because that is not always
+ * true, and the failure was silent: slash commands are dispatched only by the
+ * VS Code chat participant, so `/acp` sent to the AtlasMind chat panel was
+ * treated as an ordinary prompt and answered by whatever model routing picked —
+ * on a machine with nothing configured, the built-in echo model, which replied
+ * "Answered from context." and taught the user that setup guides do not work.
+ *
+ * Setup guides are **derived, not model-generated**, so there is no reason for a
+ * model to be involved at all. Rendering the full plan makes the guide reachable
+ * from any surface that can display markdown, including on a fresh install with
+ * no provider configured — which is exactly when someone needs it most and is
+ * least able to get an answer out of a model.
+ *
+ * Commands are shown as copyable text. `authored: false` marks a command quoted
+ * from somebody else's documentation, and those are labelled as such rather
+ * than presented as something AtlasMind is telling you to run.
+ */
+export function renderSetupGuideMarkdown(
+  guide: SetupGuideSummary,
+  steps: SetupStep[],
+  progress: SetupProgress,
+): string {
+  const lines = [
+    `## ${guide.label} setup`,
+    '',
+    guide.blurb,
+    '',
+    progress.finished
+      ? `**All ${progress.total} steps are done.**`
+      : `**${progress.done} of ${progress.total} done.** Work down the list; each step says how to tell whether it already applies.`,
+    '',
+  ];
+
+  for (const step of steps) {
+    lines.push(`### ${SETUP_STATUS_MARKS[step.status]} ${step.title}`, '', step.detail);
+
+    for (const line of step.guidance ?? []) {
+      lines.push('', `- ${line.text}`);
+      if (line.url) {
+        lines.push(`  ${line.url}`);
+      }
+      if (line.command) {
+        lines.push(
+          '',
+          line.authored === false
+            ? '  Quoted from that project\'s own documentation — check it before running it:'
+            : '',
+          '```bash',
+          line.command,
+          '```',
+        );
+      }
+    }
+
+    if (step.docs) {
+      lines.push('', `Read more: ${step.docs.url}`);
+    }
+    lines.push('');
+  }
+
+  return lines.filter(line => line !== undefined).join('\n');
+}
+
+const SETUP_STATUS_MARKS: Record<SetupStatus, string> = {
+  done: '✅',
+  todo: '⬜',
+  blocked: '⛔',
+  optional: '🔹',
+};
+
+/**
  * The index shown by `/setup`: every guide with how far along it is.
  *
  * Progress is computed from the same plans the individual walkthroughs use, so

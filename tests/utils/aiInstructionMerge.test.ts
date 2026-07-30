@@ -1,7 +1,8 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, it, expect } from 'vitest';
+import { removeTempDir } from '../helpers/tempDir';
 import {
   parseMergeResult,
   parseRenderResult,
@@ -108,7 +109,7 @@ describe('renderUnifiedMarkdown', () => {
 describe('gatherInstructionSources / detectedWritebackTools', () => {
   let root: string;
   beforeEach(() => { root = tempWorkspace(); });
-  afterEach(() => { rmSync(root, { recursive: true, force: true }); });
+  afterEach(() => { removeTempDir(root); });
 
   it('collects authored content and strips AtlasMind-managed blocks', () => {
     write(
@@ -148,7 +149,7 @@ describe('gatherInstructionSources / detectedWritebackTools', () => {
 describe('applyManagedInstructionBlock', () => {
   let root: string;
   beforeEach(() => { root = tempWorkspace(); });
-  afterEach(() => { rmSync(root, { recursive: true, force: true }); });
+  afterEach(() => { removeTempDir(root); });
 
   it('reports detected markdown files as updated and JSON configs as skipped', async () => {
     write(root, 'CLAUDE.md', '# Claude\n\nrules');

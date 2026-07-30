@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -134,7 +134,13 @@ vi.mock('vscode', () => ({
   },
 }));
 
-import { ModelProviderPanel, isProviderConfigured } from '../../src/views/modelProviderPanel.ts';
+import {
+  ModelProviderPanel,
+  PROVIDER_IDS,
+  getProviderActionLabel,
+  isProviderConfigured,
+  requiresApiKey,
+} from '../../src/views/modelProviderPanel.ts';
 import { ProjectRunCenterPanel } from '../../src/views/projectRunCenterPanel.ts';
 import { AgentManagerPanel } from '../../src/views/agentManagerPanel.ts';
 import { ChatPanel, getStatusDrivenComposerMode, isOneShotComposerMode } from '../../src/views/chatPanel.ts';
@@ -148,6 +154,7 @@ import { escapeHtml } from '../../src/views/webviewUtils.ts';
 import { McpPanel, buildWizardServerConfig, validatePanelMessage } from '../../src/views/mcpPanel.ts';
 import { getRecommendedMcpStarterDetails } from '../../src/constants.ts';
 import * as providerIndex from '../../src/providers/index.ts';
+import { removeTempDir } from '../helpers/tempDir';
 
 function createSessionConversationStub(transcript: Array<{ id?: string }> = []) {
   const sessions = new Map<string, { id: string; entries: Array<{ id: string }> }>();
@@ -1272,7 +1279,7 @@ describe('panel refresh flows', () => {
     );
 
     mocks.state.workspaceFolders = undefined;
-    rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    removeTempDir(tempRoot);
   });
 
   it('shows interim thinking updates while a chat-panel request is still running', async () => {
@@ -2806,7 +2813,7 @@ describe('panel refresh flows', () => {
     // The #mvp tag is metadata and must never appear in the displayed step text.
     expect(mvp.route.every(step => !/#mvp/i.test(step.text))).toBe(true);
 
-    rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    removeTempDir(tempRoot);
   });
 
   it('persists the #mvp tag when an item is marked for the MVP path', async () => {
@@ -2858,7 +2865,7 @@ describe('panel refresh flows', () => {
     const written = readFileSync(roadmapFile, 'utf-8');
     expect(written).toContain('- [ ] Ship onboarding flow #mvp');
 
-    rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    removeTempDir(tempRoot);
   });
 
   it('persists a user-declared release gate and tags items for it', async () => {
@@ -2938,7 +2945,7 @@ describe('panel refresh flows', () => {
     });
     expect(readFileSync(roadmapFile, 'utf-8')).toContain('- [ ] Ship onboarding flow\n');
 
-    rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    removeTempDir(tempRoot);
   });
 
   it('runs the allowlisted Cost Dashboard command but ignores non-allowlisted commands', async () => {
@@ -3510,5 +3517,29 @@ describe('mission control panel', () => {
     mocks.executeCommand.mockClear();
     mocks.state.webviewMessageHandler?.({ type: 'openRunCenter' });
     expect(mocks.executeCommand).toHaveBeenCalledWith('atlasmind.openProjectRunCenter');
+  });
+});
+
+describe('provider card buttons promise what the button actually does', () => {
+  it('never offers "Set API Key" for a provider that stores no key', () => {
+    // The ACP card carried this label while `requiresApiKey('acp')` was false,
+    // so its primary button advertised a credential prompt that never appears —
+    // and hid the agent picker that is the real first step. The rule is general:
+    // the two must not disagree for any provider.
+    for (const provider of PROVIDER_IDS) {
+      if (!requiresApiKey(provider)) {
+        expect(getProviderActionLabel(provider)).not.toBe('Set API Key');
+      }
+    }
+  });
+
+  it('does offer "Set API Key" wherever a key genuinely is stored', () => {
+    // Guards the inverse: relabelling every button would satisfy the rule above
+    // while making key-based providers just as unclear.
+    for (const provider of PROVIDER_IDS) {
+      if (requiresApiKey(provider)) {
+        expect(getProviderActionLabel(provider)).toBe('Set API Key');
+      }
+    }
   });
 });

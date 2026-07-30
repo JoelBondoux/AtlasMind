@@ -5,6 +5,8 @@ import {
   parseAcpAgentSettings,
   resetAcpProbeCache,
   VERIFIED_ACP_AGENTS,
+  ACP_PROVIDER_BRIDGES,
+  findAcpBridge,
   type AcpAgentConfig,
   type AcpProcessFactory,
   type AcpProcessHandle,
@@ -187,9 +189,10 @@ describe('AcpAdapter — restricted mode is the security boundary', () => {
     expect(session['cwd']).toBe('/work');
   });
 
-  it('FAILS CLOSED on a permission request instead of answering it', async () => {
-    // Answering would authorize a tool call through a path with no policy
-    // behind it. That is Tier 3 work; this tier must refuse.
+  it('FAILS CLOSED on a permission request it cannot parse', async () => {
+    // The request below has no `toolCallId`, so it cannot be read. Answering a
+    // request whose contents are unknown would be authorizing an unknown
+    // operation, so it must be refused rather than guessed at.
     const agents: FakeAgent[] = [];
     const factory: AcpProcessFactory = () => {
       const agent = new FakeAgent((self, frame) => {
@@ -211,17 +214,25 @@ describe('AcpAdapter — restricted mode is the security boundary', () => {
 
     const reply = agents[0]!.written.find(frame => frame['id'] === 99);
     expect(reply).toBeDefined();
-    // A JSON-RPC "method not found" error — never a granted permission.
-    expect((reply!['error'] as { code: number }).code).toBe(-32601);
+    // A JSON-RPC error — never a granted permission.
+    expect(reply!['error']).toBeDefined();
+    expect(reply!['result']).toBeUndefined();
     expect(JSON.stringify(reply)).not.toMatch(/allow|granted|approved/i);
   });
 
-  it('refuses a request that carries tools rather than ignoring them', async () => {
+  it('refuses AtlasMind\'s own tool definitions rather than ignoring them', async () => {
+    // Distinct from the agent's own tools, which Tier 3 does enable: ACP has no
+    // channel for injecting a client's function schemas into a turn, so this
+    // refusal holds however much delegation is switched on.
     const { factory } = scriptedAgent();
-    const adapter = new AcpAdapter({ agents: [AGENT], spawnProcess: factory });
+    const adapter = new AcpAdapter({
+      agents: [AGENT],
+      spawnProcess: factory,
+      permissionPolicy: async () => true,
+    });
     await expect(adapter.complete(request({
       tools: [{ name: 'read_file', description: 'read', parameters: {} }],
-    }))).rejects.toThrow(/restricted mode/i);
+    }))).rejects.toThrow(/cannot run AtlasMind's own tool definitions/i);
   });
 
   it('refuses to run when the agent is not authenticated', async () => {
@@ -243,6 +254,186 @@ describe('AcpAdapter — restricted mode is the security boundary', () => {
     };
     const adapter = new AcpAdapter({ agents: [AGENT], spawnProcess: factory });
     await expect(adapter.complete(request())).rejects.toThrow(/exited/i);
+  });
+});
+
+/**
+ * A permission-requesting agent: handshake, session, then one tool call that
+ * asks for authorization before the turn ends.
+ */
+function permissionAgent(options?: {
+  options?: Array<{ optionId: string; name: string; kind: string }>;
+  toolCall?: Record<string, unknown>;
+}): { factory: AcpProcessFactory; agents: FakeAgent[] } {
+  const agents: FakeAgent[] = [];
+  const factory: AcpProcessFactory = () => {
+    const agent = new FakeAgent((self, frame) => {
+      const id = frame['id'];
+      switch (frame['method']) {
+        case 'initialize':
+          self.emitFrame({ jsonrpc: '2.0', id, result: INITIALIZE_OK });
+          return;
+        case 'session/new':
+          self.emitFrame({ jsonrpc: '2.0', id, result: { sessionId: 'sess_1' } });
+          return;
+        case 'session/prompt':
+          self.emitFrame({
+            jsonrpc: '2.0',
+            id: 77,
+            method: 'session/request_permission',
+            params: {
+              sessionId: 'sess_1',
+              toolCall: options?.toolCall ?? { toolCallId: 'call_1', title: 'Run the build', kind: 'execute', status: 'pending' },
+              options: options?.options ?? [
+                { optionId: 'once', name: 'Allow once', kind: 'allow_once' },
+                { optionId: 'always', name: 'Always allow', kind: 'allow_always' },
+                { optionId: 'no', name: 'Reject', kind: 'reject_once' },
+              ],
+            },
+          });
+          self.emitFrame({ jsonrpc: '2.0', id, result: { stopReason: 'end_turn' } });
+          return;
+        default:
+          return;
+      }
+    });
+    agents.push(agent);
+    return agent;
+  };
+  return { factory, agents };
+}
+
+/** The outcome the agent was sent for permission request id 77. */
+function permissionOutcome(agent: FakeAgent): Record<string, unknown> | undefined {
+  const reply = agent.written.find(frame => frame['id'] === 77);
+  const result = reply?.['result'] as { outcome?: Record<string, unknown> } | undefined;
+  return result?.outcome;
+}
+
+describe('AcpAdapter — delegated execution is never delegated authorization', () => {
+  it('refuses a readable permission request when NO policy is wired', async () => {
+    // The load-bearing default. A caller that enables tools but forgets the gate
+    // must get an agent that cannot act, not one that acts unsupervised.
+    const { factory, agents } = permissionAgent();
+    await new AcpAdapter({ agents: [AGENT], spawnProcess: factory }).complete(request());
+
+    const reply = agents[0]!.written.find(frame => frame['id'] === 77);
+    expect(reply!['error']).toBeDefined();
+    expect(permissionOutcome(agents[0]!)).toBeUndefined();
+  });
+
+  it('selects a reject option when the policy declines', async () => {
+    const { factory, agents } = permissionAgent();
+    await new AcpAdapter({
+      agents: [AGENT],
+      spawnProcess: factory,
+      permissionPolicy: async () => false,
+    }).complete(request());
+
+    expect(permissionOutcome(agents[0]!)).toEqual({ outcome: 'selected', optionId: 'no' });
+  });
+
+  it('selects allow_once — never allow_always — when the policy approves', async () => {
+    // "Always" chosen on the wire is remembered inside the agent, where the user
+    // cannot see or revoke it. AtlasMind keeps that decision on its own side.
+    const { factory, agents } = permissionAgent();
+    await new AcpAdapter({
+      agents: [AGENT],
+      spawnProcess: factory,
+      permissionPolicy: async () => true,
+    }).complete(request());
+
+    expect(permissionOutcome(agents[0]!)).toEqual({ outcome: 'selected', optionId: 'once' });
+  });
+
+  it('declines rather than granting when the ONLY way to allow is permanent', async () => {
+    const { factory, agents } = permissionAgent({
+      options: [
+        { optionId: 'always', name: 'Always allow', kind: 'allow_always' },
+        { optionId: 'no', name: 'Reject', kind: 'reject_once' },
+      ],
+    });
+    await new AcpAdapter({
+      agents: [AGENT],
+      spawnProcess: factory,
+      permissionPolicy: async () => true,
+    }).complete(request());
+
+    expect(permissionOutcome(agents[0]!)).toEqual({ outcome: 'selected', optionId: 'no' });
+  });
+
+  it('treats a policy that throws as a refusal', async () => {
+    const { factory, agents } = permissionAgent();
+    await new AcpAdapter({
+      agents: [AGENT],
+      spawnProcess: factory,
+      permissionPolicy: async () => { throw new Error('dialog blew up'); },
+    }).complete(request());
+
+    expect(permissionOutcome(agents[0]!)).toEqual({ outcome: 'selected', optionId: 'no' });
+  });
+
+  it('shows the user the tool call the agent asked to run', async () => {
+    const seen: string[] = [];
+    const { factory } = permissionAgent();
+    await new AcpAdapter({
+      agents: [AGENT],
+      spawnProcess: factory,
+      permissionPolicy: async () => false,
+      onToolEvent: event => seen.push(`${event.kind}:${event.title}`),
+    }).complete(request());
+
+    expect(seen).toContain('execute:Run the build');
+  });
+
+  it('still refuses fs and terminal requests, which it never claimed to support', async () => {
+    const agents: FakeAgent[] = [];
+    const factory: AcpProcessFactory = () => {
+      const agent = new FakeAgent((self, frame) => {
+        const id = frame['id'];
+        if (frame['method'] === 'initialize') {
+          self.emitFrame({ jsonrpc: '2.0', id, result: INITIALIZE_OK });
+        } else if (frame['method'] === 'session/new') {
+          self.emitFrame({ jsonrpc: '2.0', id, result: { sessionId: 'sess_1' } });
+        } else if (frame['method'] === 'session/prompt') {
+          self.emitFrame({ jsonrpc: '2.0', id: 55, method: 'fs/write_text_file', params: { path: '/etc/passwd', content: 'x' } });
+          self.emitFrame({ jsonrpc: '2.0', id: 56, method: 'terminal/create', params: { command: 'rm -rf /' } });
+          self.emitFrame({ jsonrpc: '2.0', id, result: { stopReason: 'end_turn' } });
+        }
+      });
+      agents.push(agent);
+      return agent;
+    };
+
+    await new AcpAdapter({
+      agents: [AGENT],
+      spawnProcess: factory,
+      permissionPolicy: async () => true,
+    }).complete(request());
+
+    for (const id of [55, 56]) {
+      const reply = agents[0]!.written.find(frame => frame['id'] === id);
+      expect((reply!['error'] as { code: number }).code).toBe(-32601);
+    }
+  });
+
+  it('hands over only the MCP servers it was given, and none by default', async () => {
+    const { factory: bare, agents: bareAgents } = scriptedAgent();
+    await new AcpAdapter({ agents: [AGENT], spawnProcess: bare }).complete(request());
+    expect((bareAgents[0]!.method('session/new')!['params'] as Record<string, unknown>)['mcpServers']).toEqual([]);
+
+    const { factory, agents } = scriptedAgent();
+    await new AcpAdapter({
+      agents: [AGENT],
+      spawnProcess: factory,
+      getMcpServers: () => [{ name: 'docs', command: 'npx', args: ['-y', 'server'], env: [{ name: 'MODE', value: 'ro' }] }],
+    }).complete(request());
+
+    const params = agents[0]!.method('session/new')!['params'] as Record<string, unknown>;
+    // Stdio entries are `#[serde(untagged)]` — a `type` field would break them.
+    expect(params['mcpServers']).toEqual([
+      { name: 'docs', command: 'npx', args: ['-y', 'server'], env: [{ name: 'MODE', value: 'ro' }] },
+    ]);
   });
 });
 
@@ -376,5 +567,46 @@ describe('VERIFIED_ACP_AGENTS', () => {
     // Gemini CLI implements ACP but publishes no invocation, so guessing one
     // would produce a spawn failure the user cannot diagnose.
     expect(VERIFIED_ACP_AGENTS.some(agent => /gemini/i.test(agent.id))).toBe(false);
+  });
+});
+
+describe('ACP_PROVIDER_BRIDGES — the subscription offer on a pay-per-token card', () => {
+  it('offers Claude on the Anthropic card and ChatGPT on the OpenAI card', () => {
+    // "ACP" is a protocol name and nobody shops for a protocol; the offer has
+    // to appear where the user already is, in the words they already use.
+    expect(findAcpBridge('anthropic')).toMatchObject({
+      agentId: 'claude',
+      command: 'claude-agent-acp',
+      offerLabel: 'Use my Claude subscription',
+    });
+    expect(findAcpBridge('openai')).toMatchObject({
+      agentId: 'codex',
+      command: 'codex-acp',
+    });
+  });
+
+  it('offers nothing for a vendor whose launch command is unpublished', () => {
+    // Gemini CLI implements ACP but publishes no invocation, so a button on the
+    // Google card would be one that cannot work.
+    expect(findAcpBridge('google')).toBeUndefined();
+    expect(findAcpBridge('mistral')).toBeUndefined();
+    expect(findAcpBridge('local')).toBeUndefined();
+  });
+
+  it('names a command that is also a verified agent', () => {
+    // The offer and the verified list must not drift: every bridge has to point
+    // at an agent whose launch command was actually read from the ACP docs.
+    const verified = new Set(VERIFIED_ACP_AGENTS.map(agent => agent.command));
+    for (const bridge of ACP_PROVIDER_BRIDGES) {
+      expect(verified, `${bridge.providerId} → ${bridge.command}`).toContain(bridge.command);
+    }
+  });
+
+  it('phrases the offer in the user\'s terms, not the protocol\'s', () => {
+    for (const bridge of ACP_PROVIDER_BRIDGES) {
+      expect(bridge.offerLabel.toLowerCase()).not.toContain('acp');
+      expect(bridge.offerLabel.toLowerCase()).toContain('subscription');
+      expect(bridge.install.length).toBeGreaterThan(0);
+    }
   });
 });

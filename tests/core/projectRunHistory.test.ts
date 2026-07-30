@@ -1,6 +1,8 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+
+import { removeTempDir } from '../helpers/tempDir.js';
 import { describe, expect, it } from 'vitest';
 import { ProjectRunHistory } from '../../src/core/projectRunHistory.ts';
 import type { ProjectRunRecord } from '../../src/types.ts';
@@ -94,7 +96,7 @@ describe('ProjectRunHistory', () => {
     expect(run?.id).toBe('disk-run');
     expect(run?.title).toBe('Run disk-run');
 
-    await fs.rm(tempDir, { recursive: true, force: true });
+    removeTempDir(tempDir);
   });
 
   it('deletes a stored run from history state', async () => {
@@ -118,7 +120,7 @@ describe('ProjectRunHistory', () => {
     expect(await history.listRunsAsync()).toEqual([]);
     await expect(fs.access(path.join(tempDir, 'disk-delete.json'))).rejects.toThrow();
 
-    await fs.rm(tempDir, { recursive: true, force: true });
+    removeTempDir(tempDir);
   });
 
   it('only lists runs from the active workspace', async () => {
@@ -170,6 +172,6 @@ describe('ProjectRunHistory', () => {
     expect((await history.listRunsAsync()).map(run => run.id)).toEqual(['legacy-migrate']);
     expect((await history.getRunAsync('legacy-migrate'))?.workspaceKey).toBe(normalizeWorkspaceKeyForTest('c:\\repo-a'));
 
-    await fs.rm(tempDir, { recursive: true, force: true });
+    removeTempDir(tempDir);
   });
 });

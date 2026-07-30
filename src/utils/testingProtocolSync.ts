@@ -4,6 +4,7 @@ import type { AgentDefinition, ProjectTestingConfig } from '../types.js';
 import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
 import { resolveRelativePath } from './aiInstructionSync.js';
 import { upsertManagedBlock } from './managedBlock.js';
+import { buildDebtMarkerGuidance, type CustomDebtMarker } from '../core/debtRegister.js';
 
 /**
  * Outbound testing-protocol sync.
@@ -22,6 +23,17 @@ import { upsertManagedBlock } from './managedBlock.js';
 
 export const MANAGED_BLOCK_START = '<!-- atlasmind:testing-protocols:start -->';
 export const MANAGED_BLOCK_END = '<!-- atlasmind:testing-protocols:end -->';
+
+/**
+ * A second, separate managed block for the debt markers.
+ *
+ * Separate rather than folded into the testing block because the two answer
+ * different questions and change at different times — and because a tool that
+ * has one block and not the other should keep the one it has rather than
+ * having it rewritten by a sync about something else.
+ */
+export const DEBT_MARKER_BLOCK_START = '<!-- atlasmind:debt-markers:start -->';
+export const DEBT_MARKER_BLOCK_END = '<!-- atlasmind:debt-markers:end -->';
 
 /** Markdown-style instruction files that can host the managed block. */
 const MANAGED_MARKDOWN_TARGETS: { tool: string; path: string }[] = [
@@ -120,6 +132,7 @@ export function buildTestingProtocolsMarkdown(
 }
 
 const TESTING_PROTOCOL_MARKERS = { start: MANAGED_BLOCK_START, end: MANAGED_BLOCK_END };
+const DEBT_MARKER_MARKERS = { start: DEBT_MARKER_BLOCK_START, end: DEBT_MARKER_BLOCK_END };
 
 /**
  * Writes the testing-protocol managed block into every detected (existing)
@@ -127,12 +140,36 @@ const TESTING_PROTOCOL_MARKERS = { start: MANAGED_BLOCK_START, end: MANAGED_BLOC
  * managed block are preserved verbatim. JSON-config tools are reported as
  * skipped. Returns a per-file result for surfacing to the operator.
  */
+/**
+ * The debt-marker block body, for an external agent's instruction file.
+ *
+ * These files are read by Claude Code, Copilot, Cursor and the rest — tools
+ * that write code in this repository and, until now, had no way of knowing
+ * which markers this project records debt with. An agent that leaves a
+ * shortcut marked its own way produces debt the register cannot see, and an
+ * empty register then reads as "no debt" rather than "not detected".
+ */
+export function buildDebtMarkerMarkdown(customMarkers: readonly CustomDebtMarker[]): string {
+  return [
+    '## Technical debt markers',
+    '',
+    buildDebtMarkerGuidance(customMarkers),
+    '',
+  ].join('\n');
+}
+
 export async function syncTestingProtocols(
   workspaceRoot: string,
   config: ProjectTestingConfig,
   agents: AgentDefinition[],
+  // Supplied rather than read here, like `config` and `agents` above it. This
+  // module writes what it is given; reading a setting inside it would make a
+  // file writer depend on a configuration host, which is both a wider
+  // dependency than it needs and one its tests would have to fake.
+  customMarkers: readonly CustomDebtMarker[] = [],
 ): Promise<TestingProtocolSyncResult> {
   const blockBody = buildTestingProtocolsMarkdown(config, agents);
+  const markerBody = buildDebtMarkerMarkdown(customMarkers);
   const updated: string[] = [];
   const skipped: { path: string; reason: string }[] = [];
 
@@ -143,7 +180,10 @@ export async function syncTestingProtocols(
     }
     try {
       const existing = readFileSync(resolved, { encoding: 'utf8' });
-      const next = upsertManagedBlock(existing, blockBody, TESTING_PROTOCOL_MARKERS);
+      // Two blocks, written in one pass. Each owns its own delimiters, so a
+      // file carrying one and not the other keeps what it has.
+      const withProtocols = upsertManagedBlock(existing, blockBody, TESTING_PROTOCOL_MARKERS);
+      const next = upsertManagedBlock(withProtocols, markerBody, DEBT_MARKER_MARKERS);
       if (next !== existing) {
         await vscode.workspace.fs.writeFile(vscode.Uri.file(resolved), Buffer.from(next, 'utf8'));
       }

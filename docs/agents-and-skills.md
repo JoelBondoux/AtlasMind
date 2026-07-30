@@ -46,6 +46,9 @@ AtlasMind now ships a small developer-focused built-in set for freeform routing:
 | `legal-oversight` | Legal Oversight | Dependency and third-party licence compatibility, IP, GDPR/CCPA, liability, terms of service, regulated data. Read-only, advisory — not a lawyer and not legal advice |
 | `commercial-oversight` | Commercial Oversight | Monetisation and business viability, vendor cost and lock-in, contractual and customer obligations, competitor positioning, go-to-market impact. Read-only, advisory |
 | `github-operator` | GitHub Operator | Evidence-backed pull requests, issues, CI diagnosis, branch/commit operations, and project-policy-aware releases |
+| `ci-analyst` | CI Analyst | Explains a *classified* pipeline failure from its evidence lines and proposes the smallest fix. Never re-classifies (the rule table decided), never re-runs a job, never edits a pipeline definition |
+| `release-manager` | Release Manager | Confirms the derived version matches the compatibility impact and that release notes stay the changelog verbatim. Never pushes, tags, or publishes |
+| `refactorer` | Refactorer | Records deferred work with a file and line as evidence, severity from the declared rule rather than an impression. Records first, proposes second — never applies unrequested |
 | `test-developer` | Test Developer | Unit, integration, E2E, and regression tests; coverage analysis; test-first delivery |
 | `docs-writer` | Documentation Writer | README, API docs, JSDoc/TSDoc, wiki pages, guides, changelogs, and inline documentation |
 | `performance-analyst` | Performance Analyst | CPU hot paths, memory leaks, slow queries, latency, throughput, and optimization |
@@ -232,6 +235,19 @@ The Manage Agents sidebar exposes this once under **Defaults & automation**, so 
 The built-in check is enforced in `AgentAutoUpdater.isDue()` before any provider call, and Agent Manager renders the exclusion checked and disabled for built-ins. **Failure safety:** If the AI call fails for any reason, the original user-agent definition is used unmodified. The `lastAutoUpdated` timestamp is only written after a successful update, so the cadence clock is not advanced on failure.
 
 ---
+
+
+## Asking another agent (`agent-handoff`)
+
+The tenth built-in workspace tool, and the first that gains an agent a *capability* rather than a fact.
+
+An agent calls it to put a question to a named specialist — a security judgement, a test-design decision — and gets that specialist's answer back. The caller keeps ownership of the task and acts on what it hears.
+
+**It runs with the caller's permissions, not the delegate's.** The delegate gets `intersection(caller's skills, target's skills)`, never the union. A tool the caller does not have, the delegate does not get either, even if it normally would. This is the point rather than an oversight: if a handoff granted the union, any restricted agent could obtain any capability by asking a permissive one, and every restriction in the system would become a suggestion.
+
+Delegation is capped at three deep and cannot loop back to an agent already in the chain. A delegate that would end up with no tools at all is refused rather than run, because a model that cannot check anything produces confident prose. Every refusal names what to do instead.
+
+The delegate's answer returns fenced and labelled as another agent's opinion — it is model output feeding another model's reasoning, and it has not earned the credence a tool result gets.
 
 ## Ephemeral Sub-Agents (Project Execution)
 

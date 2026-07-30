@@ -262,6 +262,14 @@ Pure-Node utility (no VS Code dependency) that connects the Testing Methodology 
 
 Constructs a language- and archetype-aware starter testing framework from the enabled methodologies. `scaffoldTestingFramework(workspaceRoot, config)` detects the project **language** — Node (JS/TS), Python, Rust, Go, .NET, or Java — from manifest fingerprints (`package.json`, `pyproject.toml`/`requirements.txt`/`setup.py`/`Pipfile`, `Cargo.toml`, `go.mod`, `*.csproj`/`*.sln`, `pom.xml`/`build.gradle`) and a coarse **archetype** (web / api / cli / game / mobile / library / generic), then generates idiomatic starter files per enabled methodology: Vitest/Jest/Playwright/Cypress/fast-check/k6 (Node, with e2e branching on archetype), pytest/Hypothesis/Locust (Python), `cargo test`/proptest/criterion (Rust), `go test`/`testing/quick`/benchmarks (Go), xUnit (.NET), JUnit 5 (Java). It also writes a managed `project_memory/operations/testing-strategy.md` playbook with language-specific set-up hints. Unknown stacks degrade to playbook-only guidance. Strictly non-destructive: starter files are created only when absent and never overwritten, no manifest is ever mutated, and the only file always (re)written is the managed playbook.
 
+### SchemaMigration (`src/core/schemaMigration.ts`)
+
+How a persisted AtlasMind document changes shape over time — the mechanism that makes 1.0's compatibility promise keepable. Every document in `project_memory/` carries a `version`, but until now that field was only ever a **validity test** (`version === 1` or the file was treated as unreadable), with two consequences that only bite later: a format could not change except as a break, and **a document from the future was destroyed silently**. An unreadable file made the manager seed a default *and write it back*, so opening a project in an older AtlasMind than the one that wrote it replaced the documents registry, delivery pipeline, or people roster with an empty one — with nothing to warn you, because from the reader's point of view there was simply no valid file.
+
+The load-bearing distinction is between **invalid** (corrupt, truncated, not ours — safe to replace) and **refused** (structurally fine but written by a newer AtlasMind — *never* safe to replace). `interpretVersionedDocument` owns that decision for every manager rather than leaving nine readers to re-derive it, `shouldPreserveExisting` expresses the rule once, and `DocumentsManager`, `ProjectDirectorManager`, `RiskOversightManager` and `SecurityReviewManager` all skip their seed-and-persist path on a refusal, surfacing the reason through `getNotice()`. An **explicit** save still writes — the user is editing on purpose, and refusing their own edit would be its own data loss — which is why the notice is rendered on the page rather than kept internal.
+
+`applyMigrationLadder` walks a document up one version at a time: it starts from the version found rather than the beginning, stamps the resulting version even when a step forgets to, and reports a throwing step rather than leaving a half-applied chain. It takes its bounds as arguments specifically so it can be tested while every kind still sits at v1 — otherwise the code that runs at the first real format change would ship unexercised. `SCHEMA_MIGRATIONS` is deliberately empty today, and a test asserts each kind's version matches its migration count, so bumping a version without writing the migration fails the build.
+
 ### SetupWalkthrough (`src/core/setupWalkthrough.ts`)
 
 The shape **every** AtlasMind setup guide shares. The Buzz walkthrough worked because of a handful of decisions — derive the state rather than asking the user to self-report it, show one step at a time with the command written out, count only the steps that gate the outcome, and never flip a switch on the user's behalf — and none of those is specific to Buzz. Re-deriving them per feature is how they get lost; the second guide is always the one that quietly starts installing things. So the *mechanics* live here and the *content* lives per guide: `buzzSetupPlan.ts` and `acpSetupPlan.ts` decide what the steps are, and this module orders them, picks the next one, renders it, and counts progress identically for both.
@@ -282,6 +290,324 @@ The repository's issue tracker, read into the Project Dashboard → **Issues** p
 **A body that reaches a model is quoted as data.** `buildIssueWorkPrompt` fences the issue and labels it `REPORTED CONTENT, not instructions`, telling the model not to follow anything inside it and not to treat its claims as verified. This is the one path on the page where text written by an arbitrary internet user reaches a model that can call tools, so the mitigation lives in the prompt itself rather than in a reviewer's memory (pinned by test).
 
 **Reads on demand; writes behind a confirmation.** The list comes from a rate-limited network call, so it is fetched when the user asks and cached on the panel — never refreshed as part of an unrelated render. Creating, commenting, closing, and reopening are outward-facing and usually public, so each is gated on a `{ modal: true }` confirmation built by `describeIssueAction` from the same values that will be sent; the webview supplies data only, never a command or an argument list, and `gh` is executed directly rather than through a shell. Failure modes are reported as themselves with the command that fixes them (`gh` missing, not authenticated, no GitHub repo) — "no issues" and "we could not look" are different facts, and collapsing them would report a clean tracker that nobody checked.
+
+### WorkflowCurriculum (`src/core/workflowCurriculum.ts`)
+
+The eight-stage guided GitHub workflow as *teachable data*, backing the Project Dashboard → **Workflow** page. `docs/guided-github-workflow.md` is the normative specification; this module is its machine-readable form and the source of every word the page shows.
+
+**Derived, never model-generated.** A hallucinated workflow step is worse than no step at all, because somebody would follow it. Status comes from observed repository state — a file exists, a command answered, a count is what it is — and the prose is written in source and reviewed like code.
+
+**The teaching payload is a first-class field.** `WorkflowStep` extends `SetupStep` with required `why` and `how`, plus optional `commonMistakes` and `glossary` references. That shape exists because the audience includes somebody learning professional practice for the first time, and a step that says only *what* to do has not done its job. `commonMistakes` is separate from `how` because recognising the failure is a different skill from following the happy path.
+
+**Built on the setup-walkthrough model rather than beside it.** `setupWalkthrough.ts` already had status, progress counting and next-step selection, pure and tested, and had no webview consumer — only chat. Reusing it is what stops the chat guidance and the dashboard guidance drifting apart, which is the same failure the specification exists to fix. The `isOpeningAction` allowlist carries over: a guide opens surfaces, it never flips the switches it exists to explain.
+
+**Absent evidence is never "done".** `statusFrom` reports `todo` for undetermined evidence rather than `done` — "not known" and "not done" are different, and only one is the user's problem. `deriveStageStatus` and `summarizeWorkflowProgress` exclude `optional` steps, so a stage is not unfinished because somebody declined something they were told was a choice; an empty curriculum reports **unfinished**, never finished.
+
+### WorkflowMetrics (`src/core/workflowMetrics.ts`)
+
+Every statistic on the Workflow page, derived purely so each is testable against fixtures rather than inspected by eye in a webview. No I/O, no `vscode`, and no clock — `now` is always a parameter, so a windowed metric is reproducible in a test.
+
+**`MetricVerdict` does most of the work.** A metric is either *known* or it is not, and "not known" carries a reason and often the command that would produce the data. This exists because the most damaging thing a delivery dashboard can do is render a confident zero for something it never measured: a test suite that did not run is not one that passed, and a repository with no merged pull requests has no median review latency — displaying "0 hours" would be a lie that looks like an achievement. Making absence a *type* means a renderer cannot forget to handle it.
+
+Consequences that follow from that one decision: `median` refuses below `MIN_SAMPLES_FOR_MEDIAN` (3) so one data point is never reported as a project characteristic; `percentage` has no verdict on a zero denominator; `deriveCiMetrics` on an empty check list reports `none` with a fix hint rather than 0% passing; and `deriveWorkflowHealth` **omits** unmeasured components and redistributes their weight, returning the omissions by name so a score of 80 cannot read as "80% of everything is fine".
+
+Output shapes match the dashboard's existing render primitives — series for `renderChartCard`, slices for `renderDonutChart`, segments for `renderDistributionBar` — so the instrumentation wall is assembled from components that already exist. `deriveBranchMetrics` exempts integration and release branches from naming conformance, because a permanent unfixable gap teaches people to ignore gaps; `deriveCommitConformance` excludes platform-generated merge commits, which would otherwise penalise a team for using squash merges.
+
+### ProjectStateTree (`src/core/projectStateTree.ts`)
+
+The project state worth a glance without opening a panel, backing the sidebar's **Project State** view.
+
+The sidebar carried ten views before this and they were almost entirely *inventory* — lists of agents, skills, models, servers, sessions. Nothing said where you are in the workflow, and nothing said what AtlasMind is currently permitted to do. The second gap was the sharper one: safety-critical, genuinely computed, and visible only by opening the dashboard or reading four settings across two scopes.
+
+Scope is deliberately narrow — nothing duplicates Source Control or a GitHub extension. No commits, branches, diffs or issue lists; only facts that exist because AtlasMind exists.
+
+Three rules carry over from the dashboard and matter more here, because a tree row is glanced at rather than studied. **A section whose input is absent is omitted entirely** rather than rendered empty, so the tree never implies AtlasMind looked at something it did not — and "waiting on you" is the one section that *does* say "nothing waiting", because it was genuinely assessed. **The badge counts only `needsAttention` rows**: one counting everything would be permanently non-zero and therefore ignored. And **unbuilt capability is absent, not zero** — the tech-debt register does not exist, so its row is omitted rather than claiming a store with nothing in it.
+
+A *classified* CI failure deliberately does not raise the badge: it already has an owner and a suggested fix, so flagging it would leave the badge lit on any project with a red build. Only `unknown` needs a person. Every row's command opens a surface and never mutates, the same rule the setup guides follow.
+
+### TeamRoles (`src/core/teamRoles.ts`)
+
+Roles a Director assigns, and what assigning one actually does. The honest framing leads the module, because the obvious reading of "roles and restrictions" is a permission system:
+
+> **A role is a configuration template and a declared expectation. It is not a permission boundary.**
+
+AtlasMind runs inside each person's editor and cannot prevent them editing their own settings. Claiming otherwise would be security theatre. What a role *can* do is real: **configure** (settings written at workspace scope apply to everyone, and since v0.185.1 an individual can still be stricter), **declare** (the assignment lives in a committed file, so expectations are reviewable rather than remembered), and **route review** — which is the only part GitHub enforces.
+
+Two deliberate limits. A role **never writes the master switch**: turning the workflow on stays each person's decision, and a role flipping it would remove the one control users are told makes them certain. And no shipped role grants `auto`. The Maintainer/Director split carries the useful separation — a Maintainer prepares a release but cannot write to a protected branch; a Contributor opens pull requests but cannot merge them.
+
+`sanitizeTeamRole` defaults every capability to denied and the ceiling to the most restrictive value, because a role document is hand-editable and a missing field must never read as consent. `resolveTeamRoles` merges edits over the built-ins and **restores a deleted built-in**, since deleting one would silently drop the expectations attached to everybody already assigned it.
+
+CODEOWNERS generation is where a role becomes enforceable. Only the managed block is written, so hand-written rules survive — CODEOWNERS routes review, and replacing somebody's rules would reassign it for paths nobody asked about. Input order is preserved because CODEOWNERS is **last-match-wins**. `normalizeGithubOwner` *validates rather than sanitises*: GitHub silently ignores an owner it cannot resolve, so a plausible-but-wrong handle would leave a path with no required reviewer and nobody would notice until a change landed unreviewed. A `*` pattern is refused for the same reason — it would override every more specific rule above it.
+
+### ProjectArchetype (`src/core/projectArchetype.ts`)
+
+"What kind of software is this?" asked and answered once. Before this module there were **three** answers in the codebase and they disagreed: a twelve-option bootstrap picker whose value was consumed by a single regex, `testingScaffolder`'s seven-value `Archetype`, and `deliveryManager`'s four-value `DeliveryArchetype`. Games were the clearest casualty — detected from `phaser`/`bevy`/`pygame`, never acted on, not selectable at bootstrap, and shipped as `generic`.
+
+**Archetype plus traits, not archetype alone.** A Shopify theme is a `website` that happens to be platform-hosted; a VS Code extension is a `library` that ships a packaged artifact. Modelling those as archetypes multiplies the set every time a platform appears, and each archetype is a promise that something specialises for it. Traits compose instead.
+
+**Detection suggests; declaration decides.** Inference from manifests is always a suggestion — the declared value is the truth, mirroring "profiles seed, they do not govern". `detectProjectArchetype` returns `confident: false` when nothing matched, so "this is a generic project" and "we could not tell" stay distinct facts; and `describeArchetypeAgreement` reports a disagreement rather than silently preferring one side, because a project deliberately declared `library` while its manifests look like `web-app` is a decision.
+
+Detection rules are ordered most-specific-first (React Native contains React) and short Node package names are gated to Node projects, because `next` matches inside `cargo-nextest`. The forward-mapping functions retire the other two vocabularies; `delivery.json` never persisted an archetype, so no schema migration was needed.
+
+### ArchetypePacks (`src/core/archetypePacks.ts`)
+
+What each project shape changes about the workflow, across the six axes that actually differ: CI steps, release model, testing strategy, documentation, refactor heuristics, and workspace intelligence.
+
+**Packs are data in source, not code branches** — reviewable in a diff, testable without a workspace, and overridable per item, none of which a branching implementation allows. **A pack recommends; it never requires**: everything seeds a project's configuration and is then owned by the project.
+
+**Nothing is recommended that the archetype cannot produce evidence for.** A pack asking a static site for load tests would create a permanent, unfixable gap — and a dashboard with a permanent false gap teaches people to ignore gaps, which is the same lesson as `practice`-category testing protocols. Hence `api`, `cli` and `library` explicitly *discourage* visual testing, each with a stated reason, rather than leaving it as an unexplained absence.
+
+`resolveArchetypePack` merges trait additions with archetype entries first, so a trait can never silently replace a specific expectation with a weaker generic one. A trait that needed to *remove* an expectation would be a sign the thing should have been its own archetype.
+
+**The four delivery keys** (`deriveDoraMetrics`) live here for the same reason the rest do: they are pure over data the dashboard already fetched, so each is unit-tested against fixtures rather than eyeballed against a live repository. They are paired on purpose — deployment frequency and lead time describe speed, change failure rate and time to restore describe stability — so a team cannot improve the half it likes by quietly wrecking the other.
+
+Three definitions are declared rather than left implicit, because a delivery metric whose definition is implicit cannot be compared with last month's. **Lead time is merge → release**, not first-commit → release: it is the half a team can act on, and the other half depends on branch history that squash-merging destroys. Work that merged and has not shipped is *excluded* rather than counted as infinitely slow — that it is waiting is itself the finding, and the verdict says so. **A change failure is a patch release within 48 hours**, published as `DECLARED_CHANGE_FAILURE_RULE` and shown wherever the number is; a minor or major follow-up is a planned release, not a remediation, and counting it would make a busy release day read as an outage. **Drafts and pre-releases are excluded**, since neither is a deployment to anybody. Every release the rule counts is named on the surface, so the number can be argued with rather than taken on trust.
+
+`DORA_BANDS` is a constant in source so the thresholds are reviewable in a diff, and the surface states that they are a widely cited orientation rather than a certification — the exact boundaries have moved between annual industry reports, and a team's own trend matters more than which side of a line it lands on.
+
+**The packs are read, not restated.** `testingScaffolder` translates its local detection vocabulary through `toProjectArchetype` — a function its own comment had described for two versions without it existing, so the scaffolder detected a shape and then had no way to ask the packs what that shape needs. The playbook now carries what the shape asks for: which methodologies suit it, which recommended ones are not switched on, and which *enabled* ones the shape discourages. That last is the one that matters — a methodology a shape cannot produce evidence for becomes a permanent gap, and a permanent gap teaches people to ignore gaps.
+
+`game` finally does something. It has been detected since the archetype work shipped and acted on nowhere, so a game project was handed a Playwright end-to-end test for a page it does not serve and a k6 load script for requests it does not take. It now gets a determinism test (a fixed seed must replay exactly, or a bug reported from a play session cannot be reproduced) and a frame-budget test rather than a request rate.
+
+Scaffolded CI has two halves that are deliberately different in kind. The **generic Node steps are real commands**, because AtlasMind can see a `package.json` and what scripts it declares. The **archetype steps are commented suggestions with their rationale**, because it cannot: it knows a game wants a determinism gate without knowing what command this project would use for one, and writing a guess that fails on the first commit teaches people to delete the file. `archetypeFromProjectTypeLabel` maps the bootstrap picker's prose onto the vocabulary — without it every chosen shape resolved to `generic`, which was the same detected-but-never-acted-on failure one step earlier in the pipeline.
+
+### CiFailureAnalysis (`src/core/ciFailureAnalysis.ts`)
+
+Why a CI run failed, decided by rule rather than by model. AtlasMind has always read check *states*; it has never read a *log*, and that is the difference between knowing a build failed and knowing why.
+
+**No model participates in classification**, and that is the design rather than an implementation choice. A taxonomy that varies run to run cannot be charted, and a chart of CI failures over time is one of the most useful things a team can look at. An agent's job is to *explain* a classification and propose a fix — never to choose it, which is why `ci-analyst`'s prompt tells it not to re-classify.
+
+The rules are ordered and first-match-wins, and the order is part of the contract: `infra → dependency-install → compile → lint → test-failure → timeout`. A run that could not install its dependencies also fails to compile, so reporting the compile error would send somebody to fix code that never had a chance to build; and an unreachable registry looks exactly like a dependency failure, so infrastructure is checked before it. Patterns are deliberately narrow — a rule that matches too eagerly is worse than one falling through to `unknown`, because `unknown` asks a human while a wrong class sends them somewhere else entirely.
+
+**`unknown` is a real answer**, not a fallback for guessing: it escalates to a human and names no agent. **Flakiness is a property of history, not of one log** — `detectFlakeSuspect` needs both a pass and a fail on the same commit, and overrides whatever the latest log says, because no amount of reading one failure can establish it.
+
+A CI log is untrusted input. `sanitizeCiLog` strips ANSI *before* redacting (a secret wrapped in colour codes would not match a redaction pattern otherwise), then caps size keeping the **tail** — a failure message is at the end of a log, and keeping the head would reliably discard the only part anybody needs. Truncation and redaction are both reported on the report, never silent, and `buildCiFailurePrompt` fences the excerpt as REPORTED CONTENT.
+
+### AgentHandoff (`src/core/agentHandoff.ts`)
+
+Delegated execution, and the authorization that does not come with it. Until now collaboration was structural — a subtask declares `dependsOn` and a `role`, the planner orders them, one agent's output becomes another's input — and nothing could *ask* another agent a question mid-task.
+
+**A handoff transfers the question, not the permissions.** The delegate runs with `intersection(caller's skills, target's skills)`, never the union, and that is the whole security argument. Handing off to a specialist *feels* like it should give you their tools — that is what makes them a specialist. But if it did, any restricted agent could obtain any capability by asking a permissive one for it, and every restriction in the system would become a suggestion. Privilege escalation by delegation is a classic precisely because the escalating step always looks reasonable in isolation. An exhaustive test walks the whole subset lattice rather than arguing the property.
+
+What a handoff *does* buy is real: the delegate's expertise — its system prompt, its role framing, its rubric — applied within the caller's authority.
+
+**An empty intersection refuses rather than running a tool-less delegate.** A model with no ability to check anything produces confident prose, and confident prose arriving as an answer is worse than an honest refusal naming the missing capability. Depth is capped at three and cycles are refused, both naming the chain.
+
+Three properties live in the wiring rather than the policy, where a mistake would leave the policy intact and route around it. **The caller cannot name itself:** identity comes from `currentExecution`, which the orchestrator sets from what it knows it is running, never from tool arguments — a model able to name its own caller could name a more privileged one. It carries the caller's *resolved* skills rather than an id, because a planner subtask is an ephemeral agent absent from the registry, and a lookup would hand back an empty ceiling that refused every handoff for a reason resembling policy. **The delegate is a narrowed copy**, so this run's ceiling cannot leak into later uses of the registered agent. And **the caller's budget is not inherited** — a delegate answering one question is a smaller job, and inheriting would make a handoff an unbounded cost multiplier.
+
+The answer comes back fenced: model output feeding another model's reasoning gets the same boundary as every other untrusted surface here. The delegate is not hostile, but it is not authoritative either, and an answer that arrived looking like a tool result would be believed more than it has earned.
+
+`classifyToolInvocation` names the tool explicitly rather than letting it fall through to the unknown-tool default, which would label it `network` — safe, but it would tell a user their assistant was about to reach the internet, which it is not. The risk being approved is *spend*, not action: every tool the delegate reaches for passes the same gate on its own account, and the summary says so.
+
+### DebtRegister (`src/core/debtRegister.ts`)
+
+Stage 7. Taking on debt is often the right call — the metaphor is exact, and borrowing to ship sooner is legitimate. The danger is the interest paid by forgetting it exists.
+
+**Severity comes from a declared rule table, never from a model.** A score produced last Tuesday is not comparable with one produced today, and comparability is the entire point: a register you cannot sort or age is a list. Every entry names the rule that graded it, so the number can be argued with rather than taken on trust, and the rule table is published in the markdown mirror beside the entries.
+
+**Severity does not drift with age.** The obvious feature is to escalate an item the longer it sits, and it fails for the same reason: an entry whose severity changed while nothing about the code changed cannot be compared with last month's. Age is reported alongside severity as its own fact.
+
+**Entries transition; they are never deleted.** `resolved` and `obsolete` are deliberately distinct — `resolved` means somebody did the work, `obsolete` means the evidence disappeared and nobody said they fixed it. Collapsing them would let the register report progress it cannot attest to. Reconciliation can only mark an entry obsolete if its file was actually in the scan, so a scan of `src/` never declares everything in `docs/` gone.
+
+Entry ids are derived from domain, path and marker text, and deliberately **not** from the line number: code moves, and an entry that got a new id every time somebody added an import above it would lose its whole history on a whitespace change. That stability is what lets a rescan *recognise* an entry rather than duplicate it.
+
+**A marker only counts when it opens a comment**, and both halves of that rule were learned by running the scanner over this repository — which promptly reported its own rule table, its own tests, and the dashboard copy describing the feature as technical debt. Twenty-nine entries, every one false. A marker inside a string literal, a template literal or a regex is *data*; a marker being discussed in prose ("a `FIXME` asserts that something is wrong") is documentation. Only a marker at the start of a comment is a deferred decision. `commentStartIndex` is a small quote-tracking scanner rather than a regex, because "is this delimiter inside a string" is a question a regex cannot answer.
+
+**Debt from signals nobody wrote down.** The marker scan finds what somebody recorded; `deriveDebtFromSignals` finds what the project is doing that nobody recorded at all — a dependency update sitting unmerged past its threshold, a testing methodology declared and not evidenced, a document past its review baseline, an absent pipeline. Those four rot quietly and none of them leaves a `TODO`. Every input is already on the dashboard for another page, so the derivation costs nothing, and each candidate is graded by the same rule table as a scanned one — a register holding two incompatible scales would be worse than one holding half the entries.
+
+A dependency update is recognised by **author, label or branch prefix, never by title**: bots rename their own templates between versions, and a title match would silently stop working on an upgrade nobody connected to the change. Only `missing` testing policies count — `tooling-only` has partial evidence and `not-file-evident` is a practice, which is never a gap. The evidence roots for derived entries are added to the scanned set, so a signal that has *cleared* goes obsolete on the next scan rather than lingering as permanently open work nobody can close.
+
+**A project can declare its own markers.** `atlasmind.debt.markers` takes `NAME` or `NAME:severity` entries — an array of strings rather than of objects, because one is something somebody edits in a line and the other is a form. Each becomes a *declared rule* with a generated id, named on every entry it grades and published in the mirror's rule table, which is what keeps the register comparable: a grade you can look up is a grade you can argue with.
+
+Three constraints matter. A marker becomes part of a regular expression, so the charset is letters, digits, underscore and hyphen — `.*` would match every comment and `(?:` would throw inside the scanner; the escape is applied as well, because a defence that relies on a second function staying strict is not a defence. **The built-in four cannot be redefined**, since a project grading its own `TODO` as high would make two registers incomparable, which is the one thing the rule table exists to prevent. And **the security override still applies** — a marker mentioning a credential is graded high whatever the project called it, or a project could downgrade the one grade that is never negotiable by inventing its own word for it.
+
+The page searches title, path and rule, because those are the three things somebody already knows when they come looking: what it said, where it was, or which marker found it. Filter chips are derived from the rules that actually graded something rather than from the rule table — a filter for a rule with no entries is a button that does nothing. A filtered view says how many it is hiding, because in a register whose whole promise is that nothing is ever deleted, a shorter list must not look like work disappearing.
+
+**Agents are told which markers to use.** An agent that leaves temporary code marked `@todo`, `NOTE`, or nothing at all has produced debt the register cannot see — and invisible debt is worse than no register, because emptiness then reads as an absence of debt rather than an absence of *detection*. That is the confident-zero failure this codebase keeps finding, arriving from a direction nobody was watching.
+
+`buildDebtMarkerGuidance` produces the instruction, and it reaches both audiences. AtlasMind's own agents get it appended to every role prompt, read from settings at prompt-build time so a project that declares a marker this morning has its next subtask told about it. External agents — Claude Code, Copilot, Cursor and the rest — get it as a **second managed block** in their instruction files, separate from the testing-protocol block because the two answer different questions, change at different times, and a file carrying one and not the other should keep what it has rather than have it rewritten by a sync about something else. The markers are passed to `syncTestingProtocols` rather than read inside it, so a file writer does not acquire a dependency on a configuration host.
+
+**Handing an entry to an agent.** `buildDebtWorkPrompt` fences the entry, and the fence does a different job from the ones around issue bodies and review comments. A debt entry is not untrusted third-party text — AtlasMind wrote it, from the user's own repository, through a sanitizer. The risk is the opposite one: that the *agent* mistakes a recorded shortcut for a mandate. The register says a decision was deferred, not that it should now be reversed, and plenty of debt is worth keeping. So the prompt offers "worth keeping, with the reason it was the right call" as a first-class answer alongside "worth fixing", and says plainly: propose, do not apply. The button is labelled "Look at it with Atlas" rather than "Fix it" for the same reason.
+
+### WorkflowAuditRecord (`src/core/workflowAuditRecord.ts`)
+
+Every other part of this workflow makes a determinism claim. Branch names are derived, pull-request titles are classified by rule, CI failures are matched against an ordered table, release notes are copied verbatim. Those claims are either verifiable or they are marketing, and this is what makes them verifiable.
+
+**Fingerprints, not payloads.** A record stores a hash of the inputs and a hash of the outputs, never the values. That is not a size optimisation — the ledger lives in `project_memory/`, which is git-tracked, so storing what was processed would commit issue bodies, review comments and CI logs into the repository. A fingerprint proves the same input produced the same output without publishing either. `WorkflowRunRecord` has no field that could hold a payload, and a test asserts it.
+
+Everything rests on `canonicalJson`: object keys sorted recursively, so key order cannot change a fingerprint. Without it the determinism check would cry wolf on every run — `{a:1,b:2}` and `{b:2,a:1}` describe the same input — and a check that cries wolf gets turned off. Fingerprints are truncated to 16 hex characters, long enough that an accidental collision across a thousand records is not a practical concern and short enough that a human can compare two by eye in a diff, which is the whole point of putting them in a committed file. Nothing decides an authorization from a fingerprint.
+
+**Record first, then act.** The ordering is the wrong way round from the obvious one, deliberately: a record written afterwards is missing exactly when it matters most, because the run that crashed is the run somebody needs to read about. Writing first can leave a record for an action that then failed — which is why `outcome` exists and why `started` is a real state rather than a gap. **A record that cannot be written stops the action**, because an action that quietly skipped its record because a disk was full would be the one nobody could account for later. A *refusal* is recorded best-effort instead: nothing is about to happen, so failing to record it cannot create the gap the blocking rule protects against.
+
+`findDeterminismBreaches` groups by `(stageId, action, inputsFingerprint)`. The same inputs to different actions have no reason to agree, and treating them as a breach would fill the report with false positives nobody could act on. Incomplete runs are skipped, because a failure has no output and comparing "no output" against a real one would report every failure as non-determinism. A breach names both runs rather than reporting a count: a count tells somebody they have a problem, the ids tell them where it is.
+
+The actor is deliberately coarse — `user` / `agent` / `automation`. The file is committed, so a name or address here would be personal data in a public repository, and it would add nothing: git already records who committed, with far better provenance.
+
+### WorkflowConfig (`src/core/workflowConfig.ts`)
+
+The workflow as data a team owns. Everything else in the guided workflow reads from somewhere — the curriculum from observed state, the ladder from settings, the metrics from `gh`. This is the one place where a team *says* what their workflow is, and it is a committed file rather than a setting for one reason: a change to how a team works should arrive as a diff with a reviewer, not as a habit nobody wrote down.
+
+Four rules carry semantics rather than shape, and each exists because the obvious alternative has a failure mode.
+
+**A `managed` stage may be disabled but never deleted.** A team that decides a stage does not apply to them should say so; a team that deletes it leaves no evidence the decision was made. Disabling is a record, deletion is an erasure, and only one of those survives somebody asking "why don't we do code review?" a year later. `sanitizeStages` therefore *restores* a managed stage the file has lost — disabled, which is the safe direction. Deleting one by hand is not an error; it simply does not work.
+
+**The file sets intent; settings set the ceiling.** A stage may request `auto` and get `observe`, because `effective = min(master, ceiling, capability, stage)` and a repository must not be able to force unattended action onto somebody's machine. Every level change reported by `applyWorkflowConfigEdit` says so in the same sentence, because the number people remember is the one they typed.
+
+**Profiles seed; they do not govern.** Changing `profile` after the file exists never rewrites stages — a team that customised their workflow and then flipped a dropdown would lose that work with no diff to notice it in. A profile changes what a team is *asked to attest* (a studio names a second reviewer, a solo developer does not), never how much AtlasMind may do.
+
+**Unknown fields survive a round trip.** Dropping them would mean a newer AtlasMind's settings silently vanish the first time an older build saves the file.
+
+**An empty `command` is the blocker, not an oversight.** A stage that needs a user-authored command ships with `''`, and that emptiness is what holds the gate shut until a human supplies a real one — the `deliveryManager` precedent, for the same reason: a command that silently did nothing would let a stage report success having run nothing at all. `undefined` and `''` are therefore kept apart at every layer, because absent means "needs no command" and empty means "needs one and has none", and collapsing them either turns a deliberate blocker into an oversight or — worse — opens a gate. `stageBlockers` folds the derived blocker in with the declared ones so every surface asking "what is stopping this?" gets one answer.
+
+**The label taxonomy is categorised, not flat.** A drafter picking labels needs one *type* and one *priority*, not an arbitrary subset; a flat list makes "drawn only from the declared taxonomy" satisfiable by three conflicting priorities. Observed repository labels seed `type` only, because sorting somebody's labels into priority, status and area would be guessing at what they mean. `priority` and `status` seed empty — plenty of projects run without either, and inventing a scheme teaches a vocabulary nobody picked.
+
+**`testing: { inherit: true }` is single-valued on purpose.** It exists to *say* that testing requirements live in `testing-config.json` and are deliberately not duplicated, so a reader finding no testing rules here knows that is the design rather than an omission. Per-stage exceptions go in `stages[].testingOverrides`.
+
+**`validateWorkflowConfig` is separate from sanitizing**, because they answer different questions: sanitizing asks "is this file usable", validation asks "does everything it names exist" — which needs knowledge a pure reader does not have, so the known agent ids are passed in. An unresolvable owner is **reported, never dropped**: a silently ownerless stage reads as one nobody was ever assigned, rather than one whose assignee has gone.
+
+The manager mirrors `documentsManager` including the asymmetry that matters — seeding never writes over a newer-format file, an explicit save does — with one deliberate difference: **it is never seeded on render.** Every other persisted document creates itself on first read. This one gets committed, so writing one into somebody's repository because they opened a tab would be putting words in their mouth in a file other people review.
+
+Building this closed a gap that could not be closed: `workflowConfigPresent` had been hardcoded `false` since the curriculum shipped, so "declare your workflow" was a step nobody could ever complete. `integrationBranch` and `protectedBranches` were likewise hardcoded to this repository's own branch names, teaching every other project a workflow naming branches it does not have.
+
+### ReleasePreparation (`src/core/releasePreparation.ts`)
+
+Stage 6, and the only stage of this workflow describing an action that cannot be undone. Every property here follows from that.
+
+The hard parts already existed and were already pure — `classifyBumpLevel`, `bumpVersion`, `setPackageJsonVersion`, `insertChangelogEntry` and `compareSemver` have shipped in `promotionRunner.ts` since long before this workflow did. What was missing was a *path*: something that puts them in order, checks the preconditions, and says plainly what is not ready. This module borrows all five rather than growing a second copy, which is the same rule that keeps `pullRequestDraft`'s title in agreement with the version bump.
+
+**Release notes are the changelog section, verbatim.** `extractChangelogSection` copies bytes; it does not summarise, rewrite or generate. A release note is a permanent public record somebody is accountable for, and a generated one is a claim nobody checked attached to a version nobody can change. Truncation is marked in the published text itself rather than silently applied.
+
+**A secret in the notes refuses the release rather than being redacted out of it.** This inverts the boundary rule used everywhere else in AtlasMind, deliberately. Untrusted *inbound* text is redacted and passed on because the alternative loses information; these notes are *outbound and permanent*, so quietly redacting them would mean publishing something other than what the author reviewed, with no way for them to find out. The same reasoning `buzzSendPolicy` applies to an outbound message applies with more force to a release that cannot be recalled.
+
+**`unknown` is not a pass.** The gates are `pass` / `fail` / `unknown`, and the third is a first-class outcome: a repository where `gh` could not be reached genuinely has no answer about whether its version is ahead of the last published one, and shipping on an unknown is the habit this stage exists to break. Gates run in order — changelog entry, notes content, notes clean, version ahead, tag free, clean tree, CI green — so the first failure a user reads is the one closest to the root cause. Being told CI is red is unhelpful when the real problem is that no changelog entry exists.
+
+The tag gate is what catches a double publish: an existing tag means the publish workflow already fired for this version, which is the failure this repository documented in 0.181.0 and fixed in 0.184.0. Its fix hint says never to delete or move a published tag, because anyone who already fetched it keeps the old contents under the new name and never finds out.
+
+**Nothing here executes anything.** `buildReleasePlan` is pure over observed state, and tagging and publishing stay with the human at every automation rung.
+
+### IdeationDerivation (`src/core/ideationDerivation.ts`)
+
+Ideation as stage 0 of the workflow. The board held nine card kinds and had two outbound paths — launch an autonomous run, or append prose to a memory file — so nothing fed the backlog and a card called `requirement` could not become a requirement.
+
+**Focus is not decided here.** `prioritizeDashboardRoadmapItems` already derives a roadmap item's focus from its *text*, with one published keyword table. A second classifier keyed on card kind would eventually disagree with it, and the disagreement would surface as an item whose priority reason contradicts its own label. So this module shapes the text and lets the existing rule read it — which also means a card-derived item behaves exactly like a hand-typed one, with no special case to remember. A test reads the source to confirm no focus vocabulary appears here at all.
+
+**A kind becomes a prefix only where it changes what the sentence commits to.** A `problem` titled “Webhook has no rate limit” must not enter the backlog as a goal — the work is `Fix: …`. A `risk` becomes `Mitigate: …` and an `experiment` `Trial: …`. A `requirement` or an `idea` gets nothing, because deciding to put an idea on the roadmap *is* the commitment and hedging it would misreport the decision just made. `decapitalizeFirstWord` exists because the first version tested `/^[A-Z][a-z]/`, which matched the `Gi` in `GitHub` and produced `Fix: gitHub token expires silently`; the rule is now the whole first word, since any capital past the first character means the word is a name.
+
+**Connections are the evidence, and direction is load-bearing.** “This depends on X” and “X depends on this” are opposite plans, so all five relations are written out in both directions rather than computed from one template. Evidence is ranked by consequence — a `contradiction` first, because it argues against doing the work at all — and a contradiction is surfaced as a **caution** rather than listed among the supporting points. This is the one thing ideation knows that no hand-typed issue body contains.
+
+**Provenance is keyed on text, not on ids.** Card ids are durable; roadmap item ids are positional (`roadmap-${index + 1}`, assigned after filtering), so inserting one item renumbers every item below it. The card stores the item's **normalized text** — the same key the roadmap already uses to detect duplicates — and `resolveDerivedRoadmapItem` finds the item wherever it has moved to, reporting `missing` with the previous text when a rename breaks the link rather than matching whatever now sits at that position. `normalizeForRoadmapMatch` is pinned to the dashboard's `normalizeRoadmapText` by a test, both textually and behaviourally: two normalizers drifting apart would break every stored link at once.
+
+`collectCardConnectionSources` lives here rather than in either panel because both need it — the board writes the roadmap item, and the dashboard recomputes the evidence when that item becomes an issue. Two copies would eventually disagree about direction, which is the one thing here that must not be wrong.
+
+### RoadmapIssueDraft (`src/core/roadmapIssueDraft.ts`)
+
+A roadmap item, turned into an issue draft. `IssueDraft` existed with only a sanitizer, and issues could only be created by hand-typing a title, a body and a comma-separated label list into a form — while the roadmap held the same work structured, prioritised and gate-tagged. Somebody planning here and tracking on GitHub retyped every item.
+
+**No model is in this path.** The same item produces a byte-identical draft every time, which is what makes it reviewable: the rule that chose a label is visible, and the next item's output is predictable. A generated issue title is a claim nobody checked, posted publicly under the user's name.
+
+**A draft is not a filed issue.** Nothing here calls `gh`. The output is proposed text; the confirmation that posts it lives at the call site, behind the same gate as every other issue write.
+
+**Labels come only from the declared taxonomy**, because an invented label is created on the repository as a side effect of filing — a write nobody asked for, in a vocabulary the team agreed. `FOCUS_LABEL_CANDIDATES` lists several candidates per focus in preference order, since matching one of `architecture`/`refactor`/`tech-debt` beats inventing the first. The repository's own spelling is used rather than the candidate's: `Documentation` and `documentation` are one label to a human and two to `gh`, and filing with the wrong case creates a second. An intent that matches nothing is recorded in `droppedLabels` **and stated in the issue body**, so the omission is visible to whoever reads the issue rather than only to whoever filed it. A gate becomes a label only where the repository already uses that word.
+
+The title is clamped on a word boundary, because a title ending mid-word reads as a truncation bug and somebody scanning a list of issues cannot tell ours from theirs; the full text stays in the body, so the clamp loses nothing. The body's `Where this came from` section names the roadmap and the item id verbatim — an issue that came from a roadmap and does not say so becomes a duplicate the first time somebody reads the roadmap again — and states plainly that closing the issue does not tick the item off and vice versa.
+
+`draftableRoadmapItems` excludes completed items rather than sorting them last: raising an issue for finished work is never the intent, and offering it invites a mis-click that posts publicly.
+
+### GithubDeepLinks (`src/core/githubDeepLinks.ts`)
+
+The GitHub page each dashboard page is about. The dashboard read GitHub, reasoned about it, and then left the user to navigate from the repository root — a small friction repeated many times a day.
+
+**A slug is untrusted input.** It arrives from a git remote or `gh repo view`, and it is interpolated into a URL, so `parseRepoSlug` validates against GitHub's actual naming rules — 1–39 characters for an owner with no leading or trailing hyphen, `[A-Za-z0-9._-]` capped at 100 for a repository — rather than checking for a slash. That is the point of validating: a slug carrying a path segment or a query would point the link somewhere else entirely. A slug that does not parse yields **no links at all** rather than links to a plausible-looking wrong repository, because pointing somebody at somebody else's issue tracker is a worse outcome than a missing button. The origin is a constant in the file, so nothing in the input can move a link off GitHub.
+
+**Only surfaces every repository has.** `/wiki`, `/discussions` and `/projects` can each be disabled, and a 404 behind a button AtlasMind drew reads as AtlasMind's bug rather than as a repository setting. Determining which are enabled costs a `gh` call, and a link is not worth a network round trip — so the ones that might not exist are simply absent, and a test holds them out.
+
+**The caller resolves ids, not URLs.** `resolveGithubLink(page, id, slug)` exists so the webview can send `{page, id}`: a surface that could name the URL to open could name any URL, and `openExternal` does not care whose it is. The id space is scoped per page, so `dependabot` does not resolve from the Issues page — a button that resolved from a page it was not drawn for would go somewhere unexpected.
+
+Four pages get nothing, listed in `PAGES_WITHOUT_GITHUB_EQUIVALENT` so the omission is a decision a test can hold: Privacy, Runtime, Risk and Ideation are about this machine, this extension and this project's own judgement, and giving them a repository page would be inventing a relationship to fill a slot. `describeMissingLinks` distinguishes "no repository" from "no equivalent", because one is fixed by a `gh` sign-in and the other is not fixed at all.
+
+### ObservedDelta (`src/core/observedDelta.ts`)
+
+The only thing in AtlasMind that answers *what changed?*. Everything else answers *what is the state?* — and when the state is nearly the same every day, a surface that reports only state is one people learn to skim. (`ssotDelta.ts` is unrelated despite the name: it compares memory against code to find drift. This compares the project against its own past.)
+
+Five properties are enforced in the module rather than left to the caller, because each is a way a delta can lie.
+
+**No baseline is a first look, not a change.** With no prior snapshot every field differs from nothing, and rendering that as "18 things moved" on a fresh install would be false at the exact moment somebody is deciding whether to trust the surface. The status is `first-look` with an *empty* change list, and the reason is carried so the wording can differ between "nothing stored yet", "the stored reading could not be read back", and "that was a different repository".
+
+**Unknown → known is not zero → n.** If `gh` was missing at the last reading the open-issue count was `undefined`, and "0 → 12 issues" invents a twelve-issue spike that never happened. It reports as `now-known` and carries no `before`. The inverse case, **known → unknown, is news rather than a gap to skip** — a count that used to read and now does not usually means a tool stopped answering, and it ranks *above* the movement it hides because it explains why the rest of the page went quiet.
+
+**A different repository is not a comparison.** A snapshot taken in one repo diffed against another produces confident nonsense, so a changed slug discards the baseline. Absence of a slug on either side is not disagreement, and still compares.
+
+**It never reports the user's own actions back to them.** `currentBranch` and `workingTreeClean` are deliberately outside the tracked set: those are the developer's position, not the project's movement, and a delta that says "you are on a different branch" trains somebody to ignore deltas. `ghInstalled` and `hasChangelog` are also excluded, because each is implied by a field already tracked and reporting one movement twice reads as two things happening.
+
+**Direction belongs to the field, not the number.** More CI workflows is better, more stale issues is worse, a version changing is neither — so each tracked field declares a polarity, and a field with no better direction is reported as `moved` rather than being assigned a virtue it does not have. Ranking is by **consequence rather than magnitude**: a pipeline turning red outranks forty new issues, however much larger the forty looks. Ties break on declaration order, so the list does not shuffle between renders. Lists compare as *sets*, because `gh` promises no ordering and a reorder is nothing anybody did.
+
+The reported list is capped, with the remainder stated. Above the cap it stops being a delta and becomes a second copy of the page — and the situations producing twenty simultaneous changes are nearly always one cause (`gh` came back) rather than twenty events.
+
+**Storage is the caller's, and it must be per-developer.** `OBSERVED_SNAPSHOT_NOTE` states this in the module so it cannot be got wrong quietly: `project_memory/` is git-tracked on purpose, so a baseline kept there would mean "when did *anybody* last look", would appear as an uncommitted change every time the dashboard opened, and would conflict between two people looking on the same day. The dashboard keeps it in `workspaceState` beside the delivery review's `reviewedAt`, and holds the computed delta for the session — advancing the baseline on every render would empty the delta from the second render onwards, so the surface would work exactly once and then quietly report nothing forever.
+
+### WorkflowAutomation (`src/core/workflowAutomation.ts`)
+
+Where the specification's central claim is kept: **full automation is possible, never default.** That has to be true by construction rather than by policy, and the mechanism is a minimum over four independent gates that all default closed — `effective = min(master, userCeiling, capability, stage)`. A project's committed workflow file may request `auto`; if any one of the four disagrees, `auto` does not happen. Personal settings can only *lower* the result, so a repository cannot force unattended action onto somebody's machine and a developer cannot grant themselves more than the repository allows. An exhaustive test walks the whole lattice rather than arguing the property.
+
+Three decisions carry weight. **A disabled capability caps at `draft`** rather than zeroing the stage — turning off "may write pull requests" should stop the writing, not stop AtlasMind explaining and preparing, and `propose` is exactly where writing begins. **Every refusal names its binding gate**, because "you cannot do that" with no reason sends somebody to toggle four settings at random. And **an unrecognised level reads as `off`** — a settings file with a typo must never be read as consent.
+
+Hard ceilings sit outside the ladder deliberately: force-pushing, deleting a tag or release, re-running CI, editing a CI workflow or the workflow config, and merging a dependency update are excluded at *every* rung, so their messages must not imply a setting exists that would permit them. `permitsProtectedRefWrite` is likewise a veto on a *target* rather than a cap on a level — with it off, `auto` is unreachable for a protected base, not merely discouraged.
+
+**A gate that cannot be reached is not a gate somebody can use.** Four independent switches that all default closed are the right safety property and the wrong discoverability one: the effect is that AtlasMind reports it is not permitted to do something and the reason lives across four settings keys in a settings UI. `requirementsFor` closes that by deriving, for a target rung, the ordered list of what would have to change — master, then ceiling, then capability, then the stage's own declared level, root cause first, so somebody following it top to bottom never enables a capability that the master switch was already suppressing. The capability requirement is skipped for a `draft` target because a disabled capability caps at `draft` and turning it on would change nothing; naming it would be an instruction to no effect.
+
+**`blockingFlagScopes` exists because VS Code resolves settings in the order a preference wants and a safety ceiling does not.** `resolveRestrictiveFlag` already takes the *minimum* across scopes, so a user-level `false` holds a workspace-level `true` closed. That is correct, and it means a surface offering to enable a gate in the workspace can write `true`, succeed, and change no behaviour — the silent no-op again, arriving through the settings system rather than through a dropped command. The function names which other scopes are holding a flag down so the caller can decline to write, and say which.
+
+### PullRequestDraft (`src/core/pullRequestDraft.ts`)
+
+Removes the two steps people skip — writing the body and linking the issue — without letting a model author either. The determinism requirement is exact: the same commit range plus the same template produces a byte-identical draft.
+
+**The title reuses `classifyBumpLevel`** rather than parsing commits again. That function already reads conventional commits to decide a version bump; a second parser of the same format would eventually disagree with it, and the disagreement would surface as a release whose version does not match its own pull-request title. A single conventional commit keeps its subject verbatim — a human already wrote the best available description.
+
+**The template is filled, never replaced.** Recognised headings receive content; everything else is preserved exactly, including headings this module has never seen, because a team's checklist is theirs and a drafter that quietly dropped a custom section would be worse than one that left the body empty. The `- Closes #<issue-number>` placeholder is substituted rather than appended to, so a pull request never ships containing a literal `<issue-number>`; where there is no issue, the body says so, because a silent omission reads as an oversight. Labels come only from the declared taxonomy, and an unmatched one is dropped *and reported*.
+
+### LabelRegistry (`src/core/labelRegistry.ts`)
+
+Labels and milestones — the taxonomy stage 1 draws from. Stage 1 takes labels only from the declared set and drops an unmatched one rather than inventing it; that rule is only as good as the set behind it, and until now a team could see which labels their issues carried but had to leave the editor to change them.
+
+**A deletion names every issue that will lose the label.** GitHub removes a label from the repository *and* from every issue carrying it, in one irreversible step, and its own confirmation does not say how many. That is the whole reason this is a module rather than a list: the count comes from the issue list already on screen, so it costs nothing, and it is the difference between an informed decision and a click. Closed issues count — a label stripped from a closed issue takes the reason it was categorised that way with it, and closed issues are what people search when they want to know what happened before. Where the issue list was never loaded the confirmation says so rather than reporting zero: "nothing uses this" and "we did not look" lead to opposite decisions and only one is safe to act on.
+
+**A colour is validated, not cleaned.** Six hex digits exactly, or nothing. The value is rendered into a style attribute, so anything else is dropped rather than repaired — a "colour" reaching a stylesheet is an injection, and a nearly-valid one made plausible is worse than a missing swatch.
+
+**A milestone is closed, never deleted.** Deleting one detaches every issue from it silently; closing preserves the record, which is what a milestone is for. There is no delete affordance, by design.
+
+`findTaxonomyDrift` compares the declared set against the repository in both directions, because they mean different things. A **declared** label that does not exist is one the drafter will silently drop — the single failure stage 1 promises not to have. An **undeclared** label in use is one the workflow will never suggest, usually a sign the declaration is stale rather than that the label is wrong. Neither is reported as an error: this is a comparison, not a verdict.
+
+### PullRequestTracker (`src/core/pullRequestTracker.ts`)
+
+**Line-level review comments are the actionable half**, and nothing read them until C3.4 — so "address the review" meant handing a model every comment at once and hoping it found the place. `parseGhReviewComments` reads them with the same discipline as everything else here, plus one thing the other readers do not need: the path is traversal-checked, because it arrives from a third party and becomes a file somebody clicks. A path that could not be trusted is **emptied rather than rewritten**, and the comment is still shown — the text is worth reading even when the button is withheld.
+
+`buildReviewCommentPrompt` scopes the question to one comment and the line it points at, because a scoped question gets a scoped answer. It carries the same REPORTED CONTENT fence as the summary prompt and for the same reason — this is the path where an arbitrary third party's text reaches a model that can call tools — and it forbids two things a model would otherwise reasonably do: address the rest of the review, and reply on the pull request.
+
+`resolved` stays `false` rather than inferred. The REST comments endpoint does not carry thread resolution; that lives in a GraphQL field. Guessing from something adjacent would hide feedback that is still open, so `false` here means "not known to be resolved" and errs towards showing it.
+
+Comments are fetched **per pull request, on request**. Fetching them with the list would be one call per open pull request against a rate limit, for comments on all but one that nobody asked to see. A failed fetch records an empty list rather than leaving the key absent, so the surface says "none found" instead of offering the button again forever.
+
+The sibling of `issueTracker.ts`, built to the same discipline because the threat is the same one: **a pull-request body and a review comment are third-party text.** Anyone who can comment can write a paragraph designed to be read as an instruction by an AI assistant, and "address this review feedback" is precisely the workflow that hands that paragraph to a model holding tools.
+
+Until this module, nothing in AtlasMind sanitized that text — because nothing read it. Adding the reading is what created the obligation.
+
+`parseGhPullRequestList` never throws: malformed JSON, a wrong shape, or one unusable entry degrades to *fewer pull requests*, never to an exception on a dashboard render. `buildPrReviewPrompt` fences review bodies as REPORTED CONTENT and instructs the model not to follow them, so the mitigation lives where the prompt is built rather than in a reviewer's memory. Two smaller decisions carry real weight: an unrecognised review verdict reads as `commented` rather than `approved`, so a malformed feed can never satisfy an approval gate; and `parseLinkedIssues` recognises only GitHub's closing keywords, so a bare `#142` is not counted as traceability the repository does not have.
+
+### BranchNaming (`src/core/branchNaming.ts`)
+
+`deriveBranchName` turns an issue into `feat/142-guided-github-workflow`. A branch name is the only context anyone gets before opening a branch, and deriving it means the link back to the issue is never forgotten because it was never typed.
+
+Three properties are asserted rather than assumed. It is **pure and predictable** — collisions resolve with an ordinal suffix (`-2`, `-3`) rather than a hash or timestamp, so running the same command twice gives a name you could have predicted rather than one you have to go and read. It is **structurally incapable of producing a protected name**, because the result always carries a `<type>/` prefix; the protected-set check is belt-and-braces against a future format change. And it **refuses rather than inventing**: a title that reduces to no ASCII slug produces a stated refusal, not `feat/142-branch`, because an unreadable branch name is worse than a question. Accents fold to their base letter rather than being dropped, since "caf" reads as a typo and a branch name is read far more often than typed.
+
+### GhClient (`src/core/ghClient.ts`)
+
+The single boundary between AtlasMind and the GitHub CLI. Before it there were three independent `gh` call sites — one in the dashboard panel, one in the bootstrapper, and one that built a command *string* for later shell execution — and three call sites means three answers to "is this argument escaped?", only one of which needs to be wrong.
+
+**No shell, ever.** Every call is `execFile(cmd, args)` with an argv array, so a repository name, an issue title, or a branch name may contain a semicolon or a backtick without becoming a second command. `assertNoShellMetacharacters` sits on top of that and can never fire in correct code — which is the point: it converts a future refactor that reintroduces string composition from a silent vulnerability into a loud failure at the call site.
+
+**AtlasMind holds no credential.** It shells to an already-authenticated `gh`, so the user's GitHub authorisation is managed by GitHub's own tooling, lives in the OS keychain, and is revocable there. There is no token setting and adding one would move a secret AtlasMind does not need into a place it does not belong.
+
+**A failure names its fix.** `classifyGhFailure` distinguishes not-installed, not-authenticated, rate-limited, forbidden, not-found and timeout, each with the command that resolves it — ordered most-specific first, because a rate-limit message mentions tokens and sending somebody to re-authenticate when they are merely throttled wastes their time. Every method returns a result rather than throwing: a dashboard that throws on a network failure disappears exactly when you wanted it to say what was wrong. The process runner is injected, so the module is unit-tested without a `gh` binary.
 
 ### RoadmapGates (`src/core/roadmapGates.ts`)
 
@@ -636,6 +962,10 @@ extension.ts
               ├── providers/anthropic.ts
               ├── providers/claude-cli.ts
               ├── providers/copilot.ts
+              ├── providers/acp.ts
+              │     ├── providers/acpProtocol.ts     (wire framing, pure)
+              │     ├── providers/acpPermission.ts   (authorization policy, pure)
+              │     └── providers/acpInstaller.ts    (install planning, pure)
               └── providers/localModelRecommendationRegistry.ts
 
 tests/core/

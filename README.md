@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.171.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.208.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -48,7 +48,7 @@ Project Dashboard, Project Run Center, Cost Dashboard, Mission Control, Website 
 
 ### Grow the team around the project
 
-Start with 18 built-in agents and 43 built-in skills. Add custom agents, assign models and testing responsibilities, connect MCP servers, or discover new agentic resources when the project needs more.
+Start with 21 built-in agents and 43 built-in skills. Add custom agents, assign models and testing responsibilities, connect MCP servers, or discover new agentic resources when the project needs more.
 
 ---
 
@@ -64,12 +64,170 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.171.1
+## What's new in 0.208.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
 
+- **The ideation board is stage 0 of the workflow now.** It had nine card kinds — including `problem`, `requirement` and `risk` — and two outbound paths: launch an autonomous run, or append prose to a memory file. Neither reached the backlog, so a card literally called `requirement` could not become a requirement.
+
+  **Raise as work** turns a card into a roadmap item. Nothing is generated: a `problem` becomes `Fix: …` and a `risk` becomes `Mitigate: …`, because the work is the fix rather than the problem. The board's **connections travel with it as the reasoning** — what the work depends on, what supports it, and what contradicts it, which is the one thing here no hand-typed issue body ever has. A contradiction is stated as a caution, never listed as support.
+
+  Provenance runs both ways, keyed on the item's text rather than its id — roadmap ids are positional and renumber on insert, so a stored id would mean something different a week later. A renamed item reports as no longer linked instead of pointing at whatever took its place.
+
+- **Fixed: the dashboard had been reading the board through a stale vocabulary.** Five of the nine card kinds were silently relabelled `concept` on every read — and since the board summary goes into a model prompt, a `problem` card and an `idea` card reached the model indistinguishable. It also could not see the board's typed relations at all, which is why an issue raised from a card had no way to say what it depended on.
+
+- **Fixed: re-running bootstrap destroyed your ideation board.** It wrote `ideas/atlas-ideation-board.json` unconditionally, so a second bootstrap replaced every card, connection and piece of evidence with defaults from the intake answers — and reported it as "Seeded ideation defaults". The board is a document you author, not a scaffold AtlasMind maintains: seeding now never overwrites, and the report says which of the two things happened.
+
+- **A roadmap item can be raised as a GitHub issue — and a milestone can be attached.** The roadmap held the work in a structured, prioritised, gate-tagged list; issues could only be created by hand-typing a title and a comma-separated label list. Anybody planning here and tracking on GitHub retyped every item.
+
+  **Derived, not generated.** No model is in this path, so the same item produces a byte-identical draft every time — which is what makes it reviewable. A generated issue title is a claim nobody checked, posted publicly in your name. And it *drafts*: the text lands in the composer for you to read and edit, and posting still confirms.
+
+  **Labels come only from the declared taxonomy**, because an invented label is created on the repository as a side effect of filing. The repository's own spelling wins, and an intent that matches nothing is reported in the draft rather than dropped quietly.
+
+  `gh issue create` had been called with `--title`, `--body` and `--label` only — so a milestone could be declared, managed, and attached to nothing. A name that is not a real milestone is now refused with an explanation rather than handed to `gh` to fail on.
+
+- **Every dashboard page links to the GitHub page it is about.** Issues → the tracker, unassigned issues, and labels. Pipeline → Actions. Release → releases and tags. Workflow → branch protection. SSOT → `project_memory/` as your team sees it committed.
+
+  The webview never names a URL — it sends a page and a link id, and the host builds the URL from a validated slug and a constant path. The slug is treated as untrusted input, because it comes from a git remote and ends up inside a URL: validated against GitHub's real naming rules, not checked for a slash. A slug that does not parse produces no links rather than a plausible link to the wrong repository.
+
+  Derived from the git remote rather than a `gh` call, so it needs no network and no signed-in CLI — a route *to* GitHub is most useful when `gh` is not working. Only surfaces every repository has: `/wiki` and `/discussions` can be switched off, and a 404 behind a button we drew reads as our bug.
+
+- **Two guards for the two bug classes that kept coming back — and both found things.** Documentation drift was the most-repeated defect here and the only one with no test; tree row commands were attached in twelve places with none either.
+
+  What they turned up: a setting (`atlasmind.specialistRoutingOverrides`) **removed in April and documented as current ever since**, in four files, one with a worked JSON example — so following the docs meant writing that JSON and getting silence. Four rows in this project's own agent instruction file naming **source files that do not exist**. A root-level link written as a sibling link. And two settings that were **live but undeclared**, so they worked only if you hand-edited `settings.json` and were invisible in the Settings UI.
+
+- **What moved since you last opened the project.** Every other band on the Workflow page answers *what is the state?*. This one answers *what changed?* — which, when the state is nearly the same every day, is the question actually worth reading. It is the first card on the page.
+
+  Five things it refuses to do, because each is a way a delta can lie: report a first look as eighteen changes; read "unknown last time" as zero (that invents a spike that never happened); drop a count that *stopped* being readable, which is the news that explains the silence; compare two different repositories; or report your own branch and dirty tree back to you — you already know what you just did.
+
+  Which direction is *good* belongs to the field, not the number, and ranking is by consequence: a red pipeline outranks forty new issues. The baseline is per-developer editor state, never `project_memory/`.
+
+- **You can turn the workflow on from the dashboard.** The four gates were a read-out; they are now controls, and the card opens by telling you exactly what must change to reach `propose` — the rung where AtlasMind starts changing things other people can see.
+
+  Turning a gate off is immediate; turning one on asks first and names what it permits. Where another settings scope is holding a gate closed, the row says so and writes nothing — flipping a switch that changes no behaviour is the same silent no-op as a dead button.
+
+- **The sidebar reads like a sentence now.** Where you work, what needs you, what has happened, what the project knows, what does the work, what it runs on, what it can reach. **Project Director moved from last to third** — it carries an overdue badge and sat below three configuration views, and a badge nobody scrolls to does nothing.
+
+  Every titlebar carries actions about *its own view*. Sessions had ten, seven of them about something else, and VS Code hides anything past five behind a `…` menu — so the list was both irrelevant and invisible. **Project State had no titlebar at all**; it now opens the dashboard, refreshes, and opens its settings.
+
+  **Four links in Project State were missing or stale** — including the CI-failure row, which pointed at the Workflow page after that content moved to Pipeline. A link to where something used to be is worse than a missing one, because it looks like it worked.
+
+- **Labels and milestones, managed where they are used.** Every label with its colour and issue count, every milestone with its due date, and create / delete / close from the Issues tab.
+
+  **A deletion names every issue that will lose the label** — GitHub strips it from the repository and from every issue carrying it in one step it cannot undo, and says nothing about how many. Closed issues count. Where the issue list was never loaded, the dialog says so rather than reporting zero.
+
+  A milestone is closed, never deleted: deleting one detaches every issue from it silently.
+
+- **Review comments, one at a time.** The line-level comments are the actionable half of a review, and nothing read them before. Each now shows the file and line it points at, with a button that opens exactly there and an “Address this one” that starts a chat scoped to that comment alone — because a scoped question gets a scoped answer, and it will not go on to address the rest of the review or reply on the pull request.
+
+  The path is traversal-checked, because it arrives from a third party and becomes something you click. One that cannot be trusted is emptied rather than rewritten, and the comment is still shown.
+
+- **Agents are told which debt markers to use.** An agent that marks temporary code its own way produces debt the register cannot see — and invisible debt is worse than no register, because emptiness then reads as “no debt” rather than “not detected”. AtlasMind's own agents get the vocabulary in their prompts; external agents get it as a managed block in the instruction files they already read.
+
+- **Fixed: two Workflow buttons that did nothing.** “Change the project shape” and “Open settings” posted a command the host silently dropped. A blocked command now says so — from the outside, a silent drop is indistinguishable from a broken feature and from one that quietly worked.
+
+- **Declare your own debt markers.** `atlasmind.debt.markers` takes entries like `["DEBT", "REVISIT:high"]`, and the scan looks for those alongside `TODO`, `FIXME`, `HACK` and `XXX`. Each becomes a **declared rule** — named on every entry it grades and published in the rule table — because a grade you can look up is a grade you can argue with.
+
+  You cannot redefine the built-in four (grading your own `TODO` as high would make two projects' registers incomparable), and a marker mentioning a credential is still graded high whatever you called it.
+
+  The Tech Debt page gains a search over what it says, where it is, and which marker found it, plus a filter chip per marker in use. A filtered view says how many it is hiding — in a register that never deletes anything, a shorter list must not look like work disappearing.
+
+- **Your project shape now changes what gets scaffolded.** The testing playbook says which methodologies suit your shape, which recommended ones are not enabled, and which enabled ones your shape discourages — a methodology that cannot be evidenced becomes a permanent gap, and permanent gaps teach people to ignore gaps.
+
+  Scaffolded CI gains your shape's steps as **commented suggestions with their reasoning**, never as commands AtlasMind invented: it knows a game wants a determinism gate without knowing your command for one, and a guess that fails on your first commit teaches you to delete the file.
+
+  **`game` finally does something.** It had been detected since the archetype work shipped and acted on nowhere, so a game project got a Playwright test for a page it does not serve. It now gets a determinism test and a frame budget.
+
+- **Agents can ask each other questions.** An agent puts a question to a named specialist and gets their answer back, while keeping ownership of the task.
+
+  **A handoff transfers the question, not the permissions.** The delegate runs with the intersection of the caller's tools and its own — never the union. A tool the caller does not have, the delegate does not get either, even if it normally would. That is the point: if a handoff granted the union, any restricted agent could obtain any capability by asking a permissive one, and every restriction would become a suggestion.
+
+  Capped at three deep, no loops, and a delegate that would end up with no tools is refused rather than run. The answer comes back labelled as another agent's opinion, not a verified result.
+
+- **Every debt entry can be handed to an agent.** “Look at it with Atlas” opens a scoped chat with the entry, its evidence and the rule that graded it — and the prompt says plainly that a recorded shortcut is not a mandate. Plenty of debt is worth keeping, so “worth keeping, with the reason it was the right call” is a first-class answer, and the standing rule is propose, never apply.
+
+- **The debt register finds what nobody wrote down.** Alongside `TODO` markers: a dependency update unmerged past two weeks, a testing methodology you declared with no evidence it runs, a document past its review date, an absent pipeline. All graded by the same published rule table, so a derived entry and a written one are comparable.
+
+- **Four more guide steps that could not change state.** `ciStatus` was hardcoded, so a project with a green build was told it had no check runs; three other fields were read by steps and never supplied. A test now enforces the whole class — four versions running, a field the guide reads turned out never to have been wired up, and each time the symptom was that the guide asks you to do something and then refuses to notice you did.
+
+- **A tech-debt register.** Borrowing to ship sooner is legitimate; the danger is the interest you pay by forgetting. A scan records each `TODO`, `FIXME`, `HACK` and `XXX` with its file, its line, and **the rule that graded it** — severity comes from a published table, never a judgement call, because a grade assigned last Tuesday cannot be compared with one assigned today.
+
+  Entries transition and are never deleted. `resolved` means somebody did the work; `obsolete` means the evidence vanished and nobody said they fixed it, which is a different fact. The first version of the scanner flagged 29 items in this repository and every one was false — so a marker now only counts when it *opens a comment*, not when it appears in a string or is discussed in prose.
+
+- **The workflow records what it did.** Every part of this workflow makes a determinism claim — branch names are derived, titles are classified by rule, release notes are copied verbatim — and a determinism claim is either verifiable or it is marketing. `workflow-history.json` makes them verifiable: two runs with the same inputs must produce the same outputs, and where they did not, both runs are named.
+
+  Inputs and outputs are recorded as **fingerprints, never values**, because the ledger is committed and storing what was processed would put issue bodies and review comments into your repository. The record is written **before** the action, and an action whose record cannot be written does not happen.
+
+- **A safety switch that did nothing now works.** `atlasmind.workflow.allowIssueWrites` had shipped as a documented setting that nothing consulted. Issue writes now take the same ladder gate pull-request writes already had — a deliberate behaviour change, because a false assurance is worse than no switch.
+
+- **Your workflow is now a file you own.** `project_memory/operations/workflow.json` holds your branches, naming convention, label taxonomy, and each stage's requested automation level — a committed file rather than a setting, so a change to how your team works arrives as a diff with a reviewer rather than a habit nobody wrote down. A readable mirror is generated beside it for the person reviewing that diff.
+
+  A stage can be disabled but never deleted, because disabling leaves the decision in the record and deleting erases the evidence it was made. The file sets intent; your settings still set the ceiling. It is never created implicitly — writing one into your repository because you opened a tab would be putting words in your mouth in a file other people review.
+
+  A stage can carry a command it runs, and an **empty command is the blocker** rather than an oversight — it holds the gate shut until somebody supplies a real one. Labels are categorised, so a drafter picks one type and one priority instead of an arbitrary subset. Testing requirements are deliberately *not* duplicated here: they come from your testing configuration, and the file says so rather than leaving you to wonder.
+
+- **A Release page, and the four delivery keys.** Preparing a release is the one step that cannot be undone, and AtlasMind had all the pieces without a path through them. Seven gates now run root-cause-first — changelog entry, notes, secrets, version, tag, working tree, CI — and a gate reporting *unknown* is not treated as a pass, because a repository whose tags could not be listed genuinely does not know whether its tag is free.
+
+  The notes are shown exactly as they would be published: the changelog section for that version, byte for byte, never summarised or model-generated. If they contain anything shaped like a credential the release is **refused rather than quietly redacted** — publishing an edited version of what you reviewed, without telling you what was removed, is the worse failure.
+
+  Alongside them, the four delivery keys: deployment frequency, lead time, change failure rate and time to restore. Each declares the rule it used where the number appears, and every release counted as a failure is named, so the numbers can be argued with rather than taken on trust.
+
+- **Pull requests and CI now have their own dashboard pages.** Issues had a whole page while pull requests had a single card, which understated the stage where a change stops being private. Pull Requests lists what is in flight with review state, size and issue linkage; Pipeline carries the classified build failure with its evidence and an explanation of how that classification is decided — by rule over the log, with no model in the path. The tabs are regrouped accordingly, and Runtime moved into its own group since it describes AtlasMind's own state rather than the project's.
+
+- **A Project State view, for the things that had nowhere to live.** The sidebar carried ten views and they were almost all *inventory* — agents, skills, models, servers, sessions. Nothing told you where you are in the workflow, or what AtlasMind is currently permitted to do on your behalf. Four collapsible sections now do: what AtlasMind may do, where you are, what is waiting on you, and what has been deferred.
+
+  It deliberately duplicates nothing your editor already shows — no commits, branches, diffs or issue lists. A section whose data could not be gathered is omitted rather than shown empty, and the badge counts only what genuinely needs a person, so it never becomes permanently lit and therefore ignored. Views with nothing to say now hide themselves too, though anything that is the only route to a feature stays put.
+
+- **A Director can assign roles, and assigning one does something.** Five roles ship — Director, Maintainer, Contributor, Reviewer, Observer — each carrying an automation ceiling and a set of capabilities. Applying one writes the matching settings to the workspace after a confirmation listing every key and value, so the whole team works inside the same envelope.
+
+  Worth being clear about what a role is: **a configuration template and a declared expectation, not a permission boundary.** AtlasMind runs inside each person's editor and cannot stop them changing their own settings. It never turns the workflow on for anybody either — that stays each person's decision — and no shipped role grants unattended action.
+
+  Where restriction genuinely bites is **CODEOWNERS**, because GitHub enforces that rather than AtlasMind. Give a responsibility some path patterns and its owner a GitHub handle, and it becomes a review-routing rule. Only AtlasMind's managed block is written, so your own entries survive; an owner GitHub could not resolve is dropped *and reported*, because GitHub silently ignores one and the path would otherwise end up with no reviewer at all.
+
+- **The workflow now specialises by what kind of project you are building.** A game, a website, a library and a CLI do not share a CI pipeline, a release mechanism, a testing strategy, an expected documentation set, or the same idea of what counts as technical debt — and until now the guided workflow treated them identically, which meant it was tuned for none of them.
+
+  Declaring a project shape switches all six. Games get asset validation and a frame budget, because performance there is a correctness property rather than an optimisation. Libraries get a public-API-surface check and mutation testing, because a library's tests are its specification. APIs get contract tests; CLIs get a cross-platform matrix, because path separators and shell quoting produce bugs invisible on the author's machine.
+
+  **Detection suggests; your declaration decides.** AtlasMind reads your manifests and proposes a shape, but declaring one thing while your dependencies look like another is a decision rather than a mistake — so the declaration wins, and the page shows both when they differ. Leaving it undeclared is honest rather than broken. Games are now declarable at bootstrap, which they were not before: they were detected and then ignored.
+
+- **A red build that explains itself.** AtlasMind has always read check *states*; it has never read a *log* — the difference between knowing a build failed and knowing why. It now fetches the failed log and classifies the cause with an **ordered rule table and no model in the path**: dependency-install, compile, lint, test-failure, timeout, flake-suspect, infrastructure, or unknown.
+
+  That is deliberate rather than incidental. A taxonomy that varies run to run cannot be charted, and a chart of CI failures over time is one of the most useful things a team can look at — so agents *explain* a classification and never choose it. Order matters too: infrastructure is checked first, because an unreachable registry looks exactly like a dependency failure, and telling you to fix your lockfile when npm was down wastes an afternoon. When nothing matches, AtlasMind says **unknown** and escalates rather than guessing.
+
+  Logs are treated as untrusted input — ANSI-stripped, secret-redacted, size-capped and tail-preserved, since a failure message is at the *end* of a log — with truncation and redaction both reported rather than silent.
+
+- **The automation ladder, and pull requests you can act on.** AtlasMind can now open, review, merge and close pull requests from the dashboard — the first thing it does that other people can see. Three gates in order: the automation ladder must reach `propose`, a protected base branch is a **veto** rather than a level anyone can raise, and a modal names the repository and the exact action before anything is sent.
+
+  The ladder itself became real in this release. 0.181.0 shipped the settings and showed their state; nothing evaluated them. The effective level for a stage is now genuinely the *minimum* of four independent gates that all start closed, and your own settings can only ever lower it — which is what makes "full automation is possible, never default" true by construction rather than by policy. Every refusal names the gate that caused it, so you are never left toggling four settings at random.
+
+  Draft pull requests are **synthesised, not generated**: the title comes from the conventional-commit classification of the commit range, reusing the same function that decides your version bump so the two can never disagree, and the body fills your own template while preserving every heading — including ones AtlasMind has never seen, because a team's checklist is theirs. Same range plus same template gives a byte-identical draft, with no model anywhere in the path.
+
+- **Pull requests, branch naming, and one door to `gh`.** The Workflow page now reads your pull requests and charts review health — open and awaiting-review counts, median time to first review and to merge, size distribution, merge throughput. Review text is *fenced* before any agent sees it: a review comment is written by whoever can comment, and "address this feedback" is exactly the path that hands that text to a model holding tools. Branch names now derive from the issue they serve (`feat/142-guided-github-workflow`) — pure, predictable, and structurally incapable of producing a protected branch name.
+
+  This pass also closed a shell-injection hole in GitHub repository creation, where the *unvalidated* owner field was interpolated into a command line; consolidated every `gh` invocation behind one argv-only boundary; and fixed a long-standing bug that flattened every issue body to a single line, because the control-character strip included the newline it was meant to preserve.
+
+- **One guided GitHub workflow — and a dashboard page that teaches it.** Project Dashboard → **Workflow** lays out eight stages, from issue intake to release and maintenance, and shows where your repository actually stands in each. Every stage and step carries a **?** opening *why this exists*, *how to do it*, and *what people usually get wrong* — written for somebody meeting a professional workflow for the first time, not only for somebody confirming one they already know, with a glossary for the terms that normally get assumed. The same page charts delivery health: issue ageing, branch naming conformance, CI state, commit conventions, changelog drift, and a weighted score. It adapts to the testing protocols your project has enabled, and it costs nothing to open — nothing on the render path touches the network.
+
+  Two rules run through it. A component that could not be measured is **omitted from the score and named**, never counted as zero; and **no test report means no verdict, never "0 failing"**, because a suite that did not run is not a suite that passed. Automation is deny-by-default: the effective level for any stage is the *minimum* of four independent gates that all start closed, and your own settings can only ever lower it. Force-pushing, deleting tags, re-running CI jobs, editing workflow files, and merging dependency updates never automate at any level. See the [workflow specification](docs/guided-github-workflow.md).
+
+  The same pass fixed nine contradictions in AtlasMind's own documented process — including a live hazard where the documented release step published *and* pushed a tag, and the tag push then made CI publish again.
+
+- **AtlasMind can install the ACP adapter for you — and the setup guide now works with no AI configured at all.** Telling someone to run `npm install -g …` is not help if they have never installed Node, which anyone arriving via "use the Claude subscription I already pay for" has no reason to have. AtlasMind now works out the whole chain — the runtime you are missing *and* the adapter — lists every command with what it is for, and runs them in order only if you say so. Nothing is generated or scraped: each command is fixed in AtlasMind's own source, none of it goes through a shell, and Rust's `curl … | sh` installer is deliberately not used. Separately, `/acp` used to do nothing useful in the AtlasMind chat panel — the panel doesn't handle slash commands, so it went to a model, and on a fresh machine that meant the built-in echo model replying "Answered from context." Setup guides are derived rather than generated, so they now render directly with no model involved, which is exactly what you need when nothing is set up yet.
+
+- **Choosing an ACP agent now actually starts setting it up.** Picking "Claude Agent" from the ACP card used to save the command, notice it wasn't installed, and tell you so in a toast whose only button opened a documentation index — which read as "this button just opens a website". You now get the exact install command, a copy button, and the step-by-step guide. The card's primary button also no longer says **Set API Key**: ACP stores no key, it reuses the agent's own login, so it now says **Choose Agent** — which is what it does.
+
+- **You can now set up a subscription route from the sidebar, and its buttons act on the right thing.** The ACP rows in the Models tree had no control that did anything about the state they were reporting — worse, the icons they inherited targeted the *vendor's API provider*, so the visibility toggle on "Anthropic — Claude subscription" flipped Anthropic itself. Unfinished rows now show a plug icon and act on click, taking whichever step is genuinely next: check the adapter is installed and signed in, switch the provider on, or refresh to pick up the model.
+
+- **An ACP entry can no longer look active while every prompt goes elsewhere.** The Models sidebar was ticking a Claude subscription green on installs where no agent had ever been configured — it was reading a seeded placeholder model rather than your actual settings, and ignoring whether the provider was even switched on. It now shows the four things that have to be true for the router to pick it, and names whichever one is missing: not set up, provider off, model disabled, or agent not responding. Enabling it from "Use my Claude subscription" also now sticks — it was being written to memory only, and the next refresh silently undid it. And setup guides open in a **new chat session** instead of dropping a half-written `/acp` into whatever conversation you had open.
+
+- **Your Claude or ChatGPT subscription can now do the work, not just describe it.** ACP agents shipped able to answer and nothing else. Turn on **Let subscription agents act** (Settings → Safety, off by default) and the agent can edit files, run commands, search, and fetch — with AtlasMind asking you before each operation and recording what ran. The agent does the work in its own process; AtlasMind decides whether it may. Two things it will not do on your behalf: it never accepts an agent's *"always allow"* — it answers *"allow once"* instead, because a standing grant would live inside the agent where you could not find or revoke it — and it never forwards an MCP server whose credentials you gave AtlasMind to keep. Each vendor's ACP route now also appears as its own row in the Models sidebar, directly under that vendor's API entry, so "the other way to reach Claude" is visible rather than filed under an acronym.
+
+- **"Use my Claude subscription" — on the Anthropic card, where you would look for it.** ACP is a protocol name, and nobody goes shopping for a protocol: if you have never heard of it, you had no reason to click the ACP provider and no way to know it applied to you. The Anthropic and OpenAI cards now carry a plain-language button offering to route those models through the subscription you already pay for. If the adapter it needs is not installed, you get the install command and the step-by-step guide rather than an error; if it is installed but signed out, it says which; if it is ready, it is configured and enabled in one click. Google is deliberately absent — Gemini implements the protocol but publishes no launch command, so a button there could not work.
+- **Three settings that did nothing now say so.** A settings audit found that `atlasmind.remote.enabled` and the two Buzz autonomous-reply settings were declared, documented, and read by no code at all. The Buzz ones failed safe — every message still asked for confirmation — but `remote.enabled` was worse than useless: setting it to `false` gave the impression you had switched remote control off when the real gate is the command plus a workspace approval. Their descriptions now say plainly that they are not active and what the real control is, and a new guard fails the build if another setting is ever declared that nothing reads.
+- **ACP agents are now something you can click.** The ACP provider shipped with no surface: the only way to use it was hand-editing a JSON setting. It now appears in **Model Providers** like any other — **Configure** offers the agents whose launch command is published, or takes your own, then probes it and tells you whether it is installed and signed in rather than just saving and hoping. And **Allowed models** in the Agent editor is no longer a bare text box: the models your enabled providers actually offer are one click away, with subscription-backed ones marked, so a provider you configured is discoverable instead of something you had to know the id of.
+- **Your project memory is no longer at risk from opening it in an older AtlasMind.** Files in `project_memory/` carry a format version, but every reader treated an unfamiliar version as *no file at all* — so an older build would seed a fresh default and **write it over** your documents registry, delivery pipeline, risk register, or people roster, silently. AtlasMind now tells the difference between a file that is corrupt (safe to replace) and one written by a newer version (left exactly as it was, with the reason shown on the page). This is also the mechanism that lets a format change at all, which is what a 1.0 compatibility promise needs behind it.
 - **Every setup process now works the way the Buzz one does.** `/acp` walks you through ACP setup a step at a time — name an agent, install it, sign in, enable the provider, and then **prove a completion actually comes back**, because configured and working are different things the settings screen cannot tell apart. `/setup` lists every guide with how far along it is, so a feature that needs configuring is discoverable before you hit the failure it causes. The two guides share their mechanics rather than resembling each other, so they cannot drift — and neither installs or enables anything for you: every button opens the screen where you decide.
-- **Use your Claude or Codex subscription as routable capacity.** AtlasMind can now drive coding agents over the [Agent Client Protocol](https://agentclientprotocol.com) — the emerging standard that is to coding agents what LSP is to language servers. Point it at an agent you have installed (`claude-agent-acp`, `codex-acp`) and its subscription becomes another model the router can choose. It replaces the old Claude CLI bridge on every axis that mattered: replies **stream** instead of arriving in one lump, the **~26,000-character prompt ceiling is gone** (prompts travel over a pipe, not a command line, so long context arrives intact rather than silently truncated), and **images** are sent when the agent accepts them. Agents run with no filesystem, no terminal, and no tools — they answer, they do not act — and if one asks for permission to do something, AtlasMind refuses rather than granting it. Nothing is installed for you, and nothing is enabled until you name a command yourself.
+- **Use your Claude or Codex subscription as routable capacity.** AtlasMind can now drive coding agents over the [Agent Client Protocol](https://agentclientprotocol.com) — the emerging standard that is to coding agents what LSP is to language servers. Point it at an agent you have installed (`claude-agent-acp`, `codex-acp`) and its subscription becomes another model the router can choose. It replaces the old Claude CLI bridge on every axis that mattered: replies **stream** instead of arriving in one lump, the **~26,000-character prompt ceiling is gone** (prompts travel over a pipe, not a command line, so long context arrives intact rather than silently truncated), and **images** are sent when the agent accepts them. Out of the box an agent answers but does not act — no filesystem, no terminal, no MCP servers, and any permission it asks for is refused; `atlasmind.acp.toolsEnabled` is what changes that, and then only one approved operation at a time. Nothing is installed for you, and nothing is enabled until you name a command yourself.
 - **Your issue tracker, inside the dashboard.** A new **Issues** tab reads the repository's GitHub issues: what is open, what nobody has picked up, and what has gone quiet for a month, with charts by label and assignee. You can comment, close, reopen, or open a new issue without leaving the editor — each one shown to you in full and confirmed before it is sent, because a tracker is public. **Work on it with Atlas** hands the issue to chat as a *report to check*, explicitly not as instructions, since an issue is written by whoever filed it.
 - **The dashboard opens with charts of who did the work and how far each release has to go.** A donut of **commits by contributor** (click a name to scope the commit timeline to that person), a **route to release** ring for whichever gate the Roadmap card is showing, and a bar of **outstanding objectives by release gate** — so the first screen answers who, what is left, and how far, not just how busy the repo has been. Everything is drawn from git history and the roadmap you already keep: no new scan, no model call, and author names only.
 - **When Atlas asks a question, you can answer it with one tap — everywhere.** One-tap reply pills existed only in the main Chat panel, which made them look like a feature of that panel rather than of Atlas asking. The Ideation panel and the Vision panel now show them too: click **Yes**, or the option you want, and it runs. Where a question has no clean options you still get the text box rather than invented buttons, which is exactly how chat has always behaved.
@@ -188,6 +346,10 @@ Open Project Ideation to build a visual decision board, explore constraints and 
 
 Website Studio connects client intake, information architecture, design review, platform readiness, and delivery planning. See the [Website Studio guide](docs/website-studio.md).
 
+### Follow a professional GitHub workflow — and learn it
+
+Project Dashboard → **Workflow** is the guided eight-stage workflow: issue intake, branch naming, development, pull requests, CI, release, maintenance, and the automation layer above them. Every stage and step carries a **?** explaining why it exists, how to do it, and what people usually get wrong — so it works as a teaching surface for someone learning professional practice, not only as a checklist for someone who already knows it. It adapts to the testing protocols your project has enabled, and charts delivery health alongside the guidance. See the [workflow specification](docs/guided-github-workflow.md).
+
 ### Keep the project organised
 
 Project Dashboard brings roadmap, issues, documents, delivery stages, privacy, risk, stakeholders, assignments, and follow-ups into one operational surface.
@@ -232,6 +394,7 @@ Open the Command Palette with `Ctrl+Shift+P`.
 |---|---|
 | `AtlasMind: Getting Started` | Open the guided onboarding walkthrough |
 | `AtlasMind: Open Chat Panel` | Open the larger detached Atlas chat |
+| `AtlasMind: Open a Setup Guide` | Start a setup walkthrough (`acp`, `buzz`) in a fresh chat session |
 | `AtlasMind: Focus Chat View` | Return focus to the sidebar chat |
 | `AtlasMind: Open Settings Panel` | Open the multi-page AtlasMind settings workspace |
 | `AtlasMind: Manage Model Providers` | Connect providers, credentials, and quotas |
@@ -318,6 +481,7 @@ Start with [Architecture](docs/architecture.md), [Development](docs/development.
 
 - [Getting Started](wiki/Getting-Started.md)
 - [Architecture](docs/architecture.md)
+- [The Guided GitHub Workflow](docs/guided-github-workflow.md)
 - [Agents & Skills](docs/agents-and-skills.md)
 - [Model Routing](docs/model-routing.md)
 - [Configuration Reference](docs/configuration.md)

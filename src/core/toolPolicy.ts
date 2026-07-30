@@ -41,6 +41,23 @@ export function classifyToolInvocation(
     case 'rollback-checkpoint':
       return { category: 'workspace-write', risk: 'high', summary: 'restore the most recent automatic checkpoint' };
 
+    // A handoff performs nothing itself — it runs another model, and every tool
+    // that model reaches for goes through this same gate on its own account. So
+    // the risk being approved here is *spend*, not action, and the summary says
+    // so: somebody deciding whether to allow it needs to know that saying yes
+    // does not pre-approve whatever the delegate goes on to do.
+    //
+    // Classified explicitly rather than left to the unknown-tool fallback, which
+    // would call it `network` — safe, but a label that would tell a user their
+    // assistant was about to reach the internet, which it is not.
+    case 'agent-handoff':
+      return {
+        category: 'read',
+        risk: 'medium',
+        summary: `ask ${typeof args['agent_id'] === 'string' ? args['agent_id'] : 'another agent'} a question`
+          + ' (it runs with your permissions; its own tool use is approved separately)',
+      };
+
     case 'terminal-run':
       return classifyTerminalInvocation(args);
 

@@ -19,6 +19,7 @@ import { isLocalSyncStale, LOCAL_MODEL_SYNC_CACHE_KEY, syncLocalModels, type Loc
 import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
 import { deriveTestingPolicyCoverage, parseJUnitReport, type TestingPolicyCoverage, type TestingPolicyTestFile } from '../core/testingPolicyCoverage.js';
 import { parseAgentBindings } from '../core/buzzAgentBindings.js';
+import { parseCustomDebtMarkers } from '../core/debtRegister.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -62,6 +63,7 @@ const SETTINGS_HELP = {
   localOpenAiEndpoints: 'Configure one or more labeled local OpenAI-compatible endpoints. Examples: Ollama at http://127.0.0.1:11434/v1 and LM Studio at http://127.0.0.1:1234/v1. Labels are shown back in provider surfaces so operators can tell which engine owns each routed model.',
   toolApprovalMode: 'Main approval policy for tool execution. Examples: always-ask for regulated repos, ask-on-write for normal coding, ask-on-external for tighter network boundaries, or allow-safe-readonly for investigation-only work.',
   allowTerminalWrite: 'Allows write-capable terminal subprocesses after approval. Enable it in a sandbox where installs and commits are expected, and keep it off where terminal mutations require separate controls.',
+  acpToolsEnabled: 'Lets an agent reached over the Agent Client Protocol — your Claude or ChatGPT subscription — run its own tools, with AtlasMind approving each operation. Off by default: the agent answers questions but cannot act. AtlasMind never accepts an agent\'s "always allow" option, so no permission is granted that you cannot later revoke.',
   autoVerifyAfterWrite: 'Runs configured verification scripts after successful workspace writes. Enable it for immediate lint or test feedback, or disable it when validation happens elsewhere.',
   autoVerifyScripts: 'Comma-separated package script names AtlasMind runs after writes. Examples: test, lint, compile or test:unit, test:manifest, typecheck.',
   autoVerifyTimeoutMs: 'Maximum time per verification script in milliseconds. Examples: 30000 for fast local checks, 120000 for mixed lint or test workflows, or 300000 for slower pipelines.',
@@ -238,6 +240,7 @@ type SettingsMessage =
   | { type: 'setShowImportProjectAction'; payload: boolean }
   | { type: 'setToolApprovalMode'; payload: 'always-ask' | 'ask-on-write' | 'ask-on-external' | 'allow-safe-readonly' }
   | { type: 'setAllowTerminalWrite'; payload: boolean }
+  | { type: 'setAcpToolsEnabled'; payload: boolean }
   | { type: 'setAutoVerifyAfterWrite'; payload: boolean }
   | { type: 'setAutoVerifyScripts'; payload: string }
   | { type: 'setAutoVerifyTimeoutMs'; payload: number }
@@ -784,6 +787,10 @@ export class SettingsPanel {
         await configuration.update('allowTerminalWrite', message.payload, vscode.ConfigurationTarget.Workspace);
         return;
 
+      case 'setAcpToolsEnabled':
+        await configuration.update('acp.toolsEnabled', message.payload === true, vscode.ConfigurationTarget.Workspace);
+        return;
+
       case 'setAutoVerifyAfterWrite':
         await configuration.update('autoVerifyAfterWrite', message.payload, vscode.ConfigurationTarget.Workspace);
         return;
@@ -1302,7 +1309,14 @@ export class SettingsPanel {
       // protocols automatically. Best-effort: a sync failure must not block save.
       try {
         const agents = this.atlasContext?.agentRegistry?.listAgents() ?? [];
-        const result = await syncTestingProtocols(workspaceRoot, config, agents);
+        const result = await syncTestingProtocols(
+        workspaceRoot,
+        config,
+        agents,
+        parseCustomDebtMarkers(
+          vscode.workspace.getConfiguration('atlasmind').get<string[]>('debt.markers', []),
+        ),
+      );
         if (result.success) {
           void vscode.window.showInformationMessage(`Testing strategy saved. ${result.summary}`);
         }
@@ -1329,7 +1343,14 @@ export class SettingsPanel {
     }
     const agents = this.atlasContext?.agentRegistry?.listAgents() ?? [];
     try {
-      const result = await syncTestingProtocols(workspaceRoot, config, agents);
+      const result = await syncTestingProtocols(
+        workspaceRoot,
+        config,
+        agents,
+        parseCustomDebtMarkers(
+          vscode.workspace.getConfiguration('atlasmind').get<string[]>('debt.markers', []),
+        ),
+      );
       if (result.success) {
         void vscode.window.showInformationMessage(result.summary);
       } else {
@@ -1822,6 +1843,10 @@ export class SettingsPanel {
     const showImportProjectAction = configuration.get<boolean>('showImportProjectAction', true);
     const selectedToolApprovalMode = getToolApprovalMode(configuration.get<string>('toolApprovalMode'));
     const allowTerminalWrite = configuration.get<boolean>('allowTerminalWrite', false);
+    const acpToolsEnabled = configuration.get<boolean>('acp.toolsEnabled', false);
+    const acpAgentCount = Array.isArray(configuration.get<unknown>('acp.agents'))
+      ? (configuration.get<unknown[]>('acp.agents') ?? []).length
+      : 0;
     const autoVerifyAfterWrite = configuration.get<boolean>('autoVerifyAfterWrite', true);
     const autoVerifyScripts = escapeHtml((configuration.get<string[]>('autoVerifyScripts', ['test']) ?? ['test']).join(', '));
     const autoVerifyTimeoutMs = getPositiveInteger(configuration.get<number>('autoVerifyTimeoutMs'), 120000);
@@ -1944,7 +1969,7 @@ export class SettingsPanel {
           <div class="nav-group" role="presentation">
             <span class="nav-group-label" aria-hidden="true">Capabilities</span>
             <button type="button" class="nav-link ${initialPage === 'agents' ? 'active' : ''}" id="tab-agents" data-page-target="agents" data-search="agents manage agents built-in custom roles prompts instructions rubrics completion criteria global immutable guardrails safety policy skills models budget auto-update automation" role="tab" aria-selected="${initialPage === 'agents' ? 'true' : 'false'}" aria-controls="page-agents" ${initialPage === 'agents' ? '' : 'tabindex="-1"'}>Agents</button>
-            <button type="button" class="nav-link ${initialPage === 'models' ? 'active' : ''}" id="tab-models" data-page-target="models" data-search="models integrations providers local endpoint local endpoints ollama lm studio azure bedrock personality profile role tone memory posture voice vision exa specialist" role="tab" aria-selected="${initialPage === 'models' ? 'true' : 'false'}" aria-controls="page-models" ${initialPage === 'models' ? '' : 'tabindex="-1"'}>Models & Integrations</button>
+            <button type="button" class="nav-link ${initialPage === 'models' ? 'active' : ''}" id="tab-models" data-page-target="models" data-search="models integrations providers local endpoint local endpoints ollama lm studio azure bedrock personality profile role tone memory posture voice vision exa specialist acp agent client protocol claude subscription chatgpt subscription codex subscription-backed claude-agent-acp codex-acp use my subscription no api key" role="tab" aria-selected="${initialPage === 'models' ? 'true' : 'false'}" aria-controls="page-models" ${initialPage === 'models' ? '' : 'tabindex="-1"'}>Models & Integrations</button>
             <button type="button" class="nav-link ${initialPage === 'discovery' ? 'active' : ''}" id="tab-discovery" data-page-target="discovery" data-search="resource discovery ard agent finders mcp servers agents skills apis search install publish catalog manifest registry" role="tab" aria-selected="${initialPage === 'discovery' ? 'true' : 'false'}" aria-controls="page-discovery" ${initialPage === 'discovery' ? '' : 'tabindex="-1"'}>Resource Discovery</button>
             <button type="button" class="nav-link ${initialPage === 'mcp' ? 'active' : ''}" id="tab-mcp" data-page-target="mcp" data-search="mcp servers model context protocol tools connect disconnect stdio http bridge" role="tab" aria-selected="${initialPage === 'mcp' ? 'true' : 'false'}" aria-controls="page-mcp" ${initialPage === 'mcp' ? '' : 'tabindex="-1"'}>MCP Servers</button>
             <button type="button" class="nav-link ${initialPage === 'buzz' ? 'active' : ''}" id="tab-buzz" data-page-target="buzz" data-search="buzz nostr relay inbound subscription follow-ups agent bindings npub agent key channels remote relay" role="tab" aria-selected="${initialPage === 'buzz' ? 'true' : 'false'}" aria-controls="page-buzz" ${initialPage === 'buzz' ? '' : 'tabindex="-1"'}>Buzz</button>
@@ -1956,7 +1981,7 @@ export class SettingsPanel {
           </div>
           <div class="nav-group" role="presentation">
             <span class="nav-group-label" aria-hidden="true">Guardrails</span>
-            <button type="button" class="nav-link ${initialPage === 'safety' ? 'active' : ''}" id="tab-safety" data-page-target="safety" data-search="safety verification approvals tool approval terminal write scripts timeout max tool iterations loop limit" role="tab" aria-selected="${initialPage === 'safety' ? 'true' : 'false'}" aria-controls="page-safety" ${initialPage === 'safety' ? '' : 'tabindex="-1"'}>Safety & Verification</button>
+            <button type="button" class="nav-link ${initialPage === 'safety' ? 'active' : ''}" id="tab-safety" data-page-target="safety" data-search="safety verification approvals tool approval terminal write scripts timeout max tool iterations loop limit acp agent client protocol acp tools delegated execution agent permissions allow once always allow acp mcp servers" role="tab" aria-selected="${initialPage === 'safety' ? 'true' : 'false'}" aria-controls="page-safety" ${initialPage === 'safety' ? '' : 'tabindex="-1"'}>Safety & Verification</button>
             <button type="button" class="nav-link ${initialPage === 'testing' ? 'active' : ''}" id="tab-testing" data-page-target="testing" data-search="testing methodology tdd bdd unit integration e2e mutation property snapshot contract performance security visual exploratory test strategy agent override model" role="tab" aria-selected="${initialPage === 'testing' ? 'true' : 'false'}" aria-controls="page-testing" ${initialPage === 'testing' ? '' : 'tabindex="-1"'}>Testing</button>
           </div>
           <div class="nav-group" role="presentation">
@@ -2323,6 +2348,32 @@ export class SettingsPanel {
                     <span class="muted-line">Allow install, commit, or other write-capable subprocesses after the relevant approval step.</span>
                   </span>
                 </label>
+              </article>
+
+              <article class="settings-card">
+                <div class="card-header">
+                  <p class="card-kicker">Delegated agents (ACP)</p>
+                  <h3>${renderHeadingWithHelp('Let subscription agents act', 'acpToolsEnabled')}</h3>
+                </div>
+                <label class="checkbox-card">
+                  <input id="acpToolsEnabled" type="checkbox" ${acpToolsEnabled ? 'checked' : ''}>
+                  <span>
+                    <strong>Allow ACP agents to run their own tools</strong>
+                    <span class="muted-line">
+                      An ACP agent is a subscription you already have — Claude, or ChatGPT via Codex — driven over the Agent Client Protocol.
+                      With this off it answers questions but cannot act. With it on it can edit files, run commands, search, and fetch,
+                      and <strong>AtlasMind asks you before each operation</strong>.
+                    </span>
+                  </span>
+                </label>
+                <p class="muted-line top-gap">
+                  The work runs inside the agent's own process, not inside AtlasMind. AtlasMind decides whether each operation may proceed
+                  and records what ran, and it never grants a permanent permission — where an agent offers &ldquo;always allow&rdquo;, AtlasMind
+                  answers &ldquo;allow once&rdquo; instead, so no grant can end up somewhere you cannot revoke it.
+                </p>
+                ${acpAgentCount === 0
+                  ? '<p class="muted-line">No ACP agent is configured yet, so this setting has nothing to govern. Set one up from Model Providers — look for &ldquo;Use my Claude subscription&rdquo;.</p>'
+                  : ''}
               </article>
 
               <article class="settings-card">
@@ -4489,6 +4540,13 @@ export class SettingsPanel {
           if (allowTerminalWrite instanceof HTMLInputElement) {
             allowTerminalWrite.addEventListener('change', () => {
               vscode.postMessage({ type: 'setAllowTerminalWrite', payload: allowTerminalWrite.checked });
+            });
+          }
+
+          const acpToolsEnabled = document.getElementById('acpToolsEnabled');
+          if (acpToolsEnabled instanceof HTMLInputElement) {
+            acpToolsEnabled.addEventListener('change', () => {
+              vscode.postMessage({ type: 'setAcpToolsEnabled', payload: acpToolsEnabled.checked });
             });
           }
 

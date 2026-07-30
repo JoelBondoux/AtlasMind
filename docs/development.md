@@ -66,6 +66,8 @@ npm run lint
 
 ## Test
 
+**Settings are guarded too.** A setting is a promise: it shows in the VS Code settings UI with a description saying what it does. `tests/settingsIntegrity.test.ts` fails the build if a declared setting is read by no code, if a configuration key is read with a redundant `atlasmind.` prefix (`getConfiguration('atlasmind').get('atlasmind.x')` silently resolves to `atlasmind.atlasmind.x`), or if a setting on the not-yet-wired allowlist has a description that reads like a working feature. Adding to that allowlist requires a written reason, so it cannot become the place dead settings go to be forgotten.
+
 **Webview scripts are guarded by a parser, not by the compiler.** `media/*.js` is a string handed to a browser: never type-checked, never imported by a test. A renamed function therefore leaves its old call site behind silently, and the failure arrives as a render-time `ReferenceError` that takes down the entire panel ("Dashboard refresh failed — …is not defined"). `tests/views/webviewIdentifierIntegrity.test.ts` parses each script with acorn and asserts every identifier it reads is bound — declared in the file, a parameter, or a real browser/host global. When it fails, the fix is either the rename you missed or, for a genuine new DOM global, an addition to its `HOST_GLOBALS` list.
 
 
@@ -107,12 +109,12 @@ AtlasMind/
 │   ├── commands.ts       Command handlers
 │   ├── types.ts          Shared type definitions
 │   ├── chat/             Chat participant
-│   ├── core/             Orchestrator, registries, router, skill drafting, task profiler, cost tracker, currency formatter, webhook dispatcher, Website Studio SSOT (`websiteWorkspaceManager.ts`), testing config loader + scaffolder + per-policy coverage (`testingScaffolder.ts`, `testingPolicyCoverage.ts`), roadmap release gates (`roadmapGates.ts`), shared setup walkthroughs (`setupWalkthrough.ts`, `setupGuideRegistry.ts`, `acpSetupPlan.ts`), issue-tracker parsing (`issueTracker.ts`), delivery/deployment-stage modelling (`deliveryManager.ts`) + guarded promotion engine (`promotionRunner.ts`), Project Director people/follow-up modelling (`projectDirectorManager.ts`) + guarded outbound-comms detection (`directorCommsRunner.ts`) + follow-up reminder scheduler (`followUpScheduler.ts`), Buzz inbound protocol/connection-policy/derivation/subscription (`buzzProtocol.ts`, `buzzConnectionPolicy.ts`, `buzzInboundDerivation.ts`, `buzzClient.ts`, `buzzSocket.ts`, `buzzSigner.ts`, `buzzAgentBindings.ts`, `buzzChannelCatalog.ts`, `buzzInboundService.ts`), security-review register persistence/scoring (`securityReviewManager.ts`), Mission Loop (`missionRunner.ts`, `goalEvaluator.ts`, `missionRegistry.ts`), routing intelligence (`executionQuality.ts`, `modelEvalHarness.ts`)
+│   ├── core/             Orchestrator, registries, router, skill drafting, task profiler, cost tracker, currency formatter, webhook dispatcher, Website Studio SSOT (`websiteWorkspaceManager.ts`), testing config loader + scaffolder + per-policy coverage (`testingScaffolder.ts`, `testingPolicyCoverage.ts`), roadmap release gates (`roadmapGates.ts`), shared setup walkthroughs (`setupWalkthrough.ts`, `setupGuideRegistry.ts`, `acpSetupPlan.ts`), persisted-document migration (`schemaMigration.ts`), issue-tracker parsing (`issueTracker.ts`), delivery/deployment-stage modelling (`deliveryManager.ts`) + guarded promotion engine (`promotionRunner.ts`), Project Director people/follow-up modelling (`projectDirectorManager.ts`) + guarded outbound-comms detection (`directorCommsRunner.ts`) + follow-up reminder scheduler (`followUpScheduler.ts`), Buzz inbound protocol/connection-policy/derivation/subscription (`buzzProtocol.ts`, `buzzConnectionPolicy.ts`, `buzzInboundDerivation.ts`, `buzzClient.ts`, `buzzSocket.ts`, `buzzSigner.ts`, `buzzAgentBindings.ts`, `buzzChannelCatalog.ts`, `buzzInboundService.ts`), security-review register persistence/scoring (`securityReviewManager.ts`), Mission Loop (`missionRunner.ts`, `goalEvaluator.ts`, `missionRegistry.ts`), routing intelligence (`executionQuality.ts`, `modelEvalHarness.ts`)
 │   ├── utils/            Shared helpers: `secretRedactor.ts`, `aiInstructionSync.ts` (inbound import), `aiInstructionMerge.ts` (two-way instruction-set sync), `managedBlock.ts` (shared delimited-block upsert/strip), `testingProtocolSync.ts` (outbound testing-protocol sync), `terminalOutput.ts` (ANSI/control-sequence sanitizer for captured tool output)
 │   ├── mcp/              MCP client/registry plus bundled Buzz CLI communications bridge/server
 │   ├── ard/              Agentic Resource Discovery: `ardClient.ts`, `ardRegistry.ts`, `ardInstaller.ts`, `ardCatalogExporter.ts`
 │   ├── memory/           SSOT memory manager
-│   ├── providers/        LLM provider adapters (for example `anthropic.ts`, `claude-cli.ts`, `copilot.ts`); also `acp.ts` + `acpProtocol.ts` (Agent Client Protocol), `copilotMultiplierSync.ts`, `localModelSync.ts`, and `localModelRecommendationRegistry.ts`
+│   ├── providers/        LLM provider adapters (for example `anthropic.ts`, `claude-cli.ts`, `copilot.ts`); also `acp.ts` + `acpProtocol.ts` + `acpPermission.ts` + `acpInstaller.ts` (Agent Client Protocol), `copilotMultiplierSync.ts`, `localModelSync.ts`, and `localModelRecommendationRegistry.ts`
 │   ├── skills/           Built-in skill handlers (for example `dockerCli.ts`, `terminalRun.ts`, `gitApplyPatch.ts`)
 │   ├── views/            Webview panels and tree views (including `personalityProfilePanel.ts`, `modelComparisonPanel.ts`, `missionControlPanel.ts`, `websiteStudioPanel.ts`)
 │   ├── voice/            TTS/STT: `voiceManager.ts` bridge, `hostSpeechSynthesizer.ts` (OS TTS), `localTranscriber.ts` (on-device Whisper STT)
@@ -257,35 +259,37 @@ Scaffolding is non-destructive and will not overwrite existing files.
 - Test runner: Vitest 4.
 - Baseline unit tests currently cover core services (`ModelRouter`, `CostTracker`).
 - Coverage reports are generated via `npm run test:coverage`.
-- CI runs compile, lint, test, and coverage on push and pull requests to `main`.
+- CI runs compile, lint, test, and coverage on push and pull requests to **`main` and `develop`**, and on manual `workflow_dispatch`.
 
 ## Security Reporting
 
-- Security disclosures should follow [SECURITY.md](SECURITY.md).
+- Security disclosures should follow [SECURITY.md](../SECURITY.md).
 - Do not report vulnerabilities through public GitHub issues.
 
 ## GitHub Governance
 
-- Use feature branches and open pull requests into `main`.
+The workflow itself is specified in **[The Guided GitHub Workflow](guided-github-workflow.md)**;
+this repository's instantiation of it — branches, labels, required checks, secrets — is in
+[github-workflow.md](github-workflow.md). Those two are authoritative. What follows names values
+only.
+
+- Feature branches are created from **`develop`**, and pull requests target **`develop`**. `develop` → `main` is the release promotion, not a feature PR.
+- This repository runs the **`solo` profile**, so `main` requires a pull request and passing checks but **zero approving reviews**. Requiring self-approval trains a maintainer to dismiss a gate; CI is the reviewer instead, which is why its checks are genuinely required.
 - Follow `.github/pull_request_template.md` for release and quality checklists.
 - Use `.github/ISSUE_TEMPLATE/` for bug and feature intake.
 - Keep ownership mappings updated in `.github/CODEOWNERS`.
-- Configure branch protection in GitHub settings:
-	- Require pull requests before merging
-	- Require status checks to pass
-	- Require at least one review
-	- Require conversation resolution before merge
+- Branch protection values for `main` and `develop` are listed in [github-workflow.md](github-workflow.md).
 
 ## Packaging
 
 ```bash
 npm run package    # Produces a .vsix file
 npm run package:vsix    # Packages with the checked-in @vscode/vsce dependency
-npm run publish:release    # Publishes the current build, then tags the release
+npm run publish:release    # Publishes the current build (does not tag)
 npm run tag:release    # Re-run the git tag step on its own if it failed after publish
 ```
 
-`publish:release` runs `vsce publish` and then `npm run tag:release`, which creates and pushes a `v<version>` annotated git tag (`.github/scripts/tag-release.mjs`). The tagger is cross-platform and idempotent — it skips if the tag already exists — so every Marketplace release stays traceable to a tagged commit without a manual step.
+`publish:release` runs `vsce publish` and nothing else. Tagging is `npm run tag:release`, which creates and pushes a `v<version>` annotated git tag (`.github/scripts/tag-release.mjs`, cross-platform and idempotent — it skips if the tag already exists). The two are deliberately **not** chained: the tag push triggers `publish.yml`, so chaining them made one release attempt two publishes, the second failing on "version already exists". Normal flow is `tag:release` locally, then CI publishes from the tag.
 
 The checked-in `.gitignore` keeps the local `project_memory_old/` backup outside source control, and `.vscodeignore` is the packaging boundary for local and release VSIX files. It intentionally excludes workspace-only content such as all `project_memory*` directories (including local archive or backup variants), `wiki/`, local `.vsix` outputs, Vitest JSON report artifacts, assistant instruction folders, and extra dependency test or docs folders so the packaged extension stays closer to runtime-only contents. Review the `vsce package` file listing before publishing; a workspace-memory directory in that listing is a release blocker.
 

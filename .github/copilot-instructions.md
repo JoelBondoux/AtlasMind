@@ -112,16 +112,21 @@ When you make **any** of the following changes, you **MUST** update the correspo
 - **`develop`** is the default branch for all implementation work and the normal push target.
 - **`main`** is protected — updated only by intentional Marketplace release promotion from `develop`.
 - Never push directly to `main`. Always push to `origin/develop`.
+- Feature PRs target `develop`. `develop` → `main` is the release promotion, not a feature PR.
+- The workflow is specified in `docs/guided-github-workflow.md`; this repository's values are in `docs/github-workflow.md`.
 
 ### Publishing Routine
-When asked to publish or ship a release, follow these steps in order:
+The release is **Actions-driven**. When asked to publish or ship a release, follow these steps in order:
 
 1. **Commit** all changes to the current working branch with a conventional commit message and version bump.
 2. **Merge to `develop`**: `git checkout develop && git pull origin develop && git merge <branch> --no-ff && git push origin develop`
 3. **Compile**: `npm run compile` — must produce zero TypeScript errors.
 4. **Package**: `npm run package` — produces `atlasmind-<version>.vsix`.
-5. **Open PR to `main`**: `gh pr create --base main --head develop` — main is protected and requires a PR; never force-push.
-6. **Publish**: `npm run publish:release` — publishes to the VS Code Marketplace via `vsce`.
+5. **Open the release PR**: trigger the `Release — promote develop to main` workflow from the Actions tab; it creates the `develop` → `main` PR and enables squash auto-merge. Never force-push.
+6. **Wait for the PR to merge** into `main` with CI green.
+7. **Tag**: `npm run tag:release` — pushes `v<version>`, which triggers CI to publish to the Marketplace and create the GitHub Release.
+
+**Do not run `npm run publish:release` for a normal release** — it publishes *and* pushes the tag, and the tag push makes CI publish again, failing on "version already exists". Reserve it for an emergency local publish.
 
 ### Commits
 - Use conventional commits: `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`.

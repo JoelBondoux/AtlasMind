@@ -1,7 +1,8 @@
 import { describe, expect, it, afterAll } from 'vitest';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { writeFileSync, rmSync, mkdtempSync } from 'node:fs';
+import { writeFileSync, mkdtempSync } from 'node:fs';
+import { removeTempDir } from '../helpers/tempDir';
 import {
   classifySecretEnvKey,
   parseMcpConfigFile,
@@ -12,7 +13,7 @@ import {
 } from '../../src/mcp/mcpEnvironmentScanner.ts';
 
 const tmp = mkdtempSync(path.join(os.tmpdir(), 'atlas-mcp-scan-'));
-afterAll(() => { try { rmSync(tmp, { recursive: true, force: true }); } catch { /* ignore */ } });
+afterAll(() => { removeTempDir(tmp); });
 
 describe('classifySecretEnvKey', () => {
   it('flags credential-looking names', () => {

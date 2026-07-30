@@ -4,6 +4,7 @@ import { SSOT_FOLDERS, TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
 import type { AtlasMindContext } from '../extension.js';
 import type { BudgetMode, MemoryDocumentClass, MemoryEntry, MemoryEvidenceType, ProjectTestingConfig, RoutineStep, SpeedMode, TestingMethodologyId } from '../types.js';
 import { formatCost } from '../core/currencyFormatter.js';
+import { GhClient, ghFailureOf, nodeGhRunner, runGhOrThrow } from '../core/ghClient.js';
 
 type DependencyMonitoringProvider = 'dependabot' | 'renovate' | 'snyk' | 'azure-devops';
 type DependencyMonitoringSchedule = 'daily' | 'weekly' | 'monthly';
@@ -392,6 +393,9 @@ async function collectBootstrapIntake(
           { label: 'VS Code Extension', description: '', template: undefined },
           { label: 'Desktop App', description: '', template: undefined },
           { label: 'Mobile App', description: '', template: undefined },
+          // Games were detectable from their engine but not selectable here, so a
+          // game project could not declare itself and was shipped as `generic`.
+          { label: 'Game', description: 'Frame budget as a gate, asset validation in CI, and simulation-focused testing.', template: undefined },
           { label: 'Other', description: '', template: undefined },
           { label: '$(store) Shopify New Store', description: 'Merchant setup guide, Partner account steps, CLI scaffold, extension recommendations.', template: 'shopify-new-store' as ShopifyTemplate },
           { label: '$(file-code) Shopify Store / Theme', description: 'Full Liquid theme scaffold (layout, sections, snippets, assets, locales), theme-check CI.', template: 'shopify-theme' as ShopifyTemplate },
@@ -1457,12 +1461,32 @@ async function writeBootstrapRoadmap(ssotRoot: vscode.Uri, intake: BootstrapProj
   );
 }
 
+/**
+ * Seed a starting ideation board — **only when there is not one already.**
+ *
+ * This used to write unconditionally, which meant running bootstrap a second
+ * time destroyed whatever was on the board: every card, every connection, every
+ * piece of evidence somebody had gathered, replaced by defaults derived from the
+ * intake answers. It returned `true` either way, so the report said "seeded" for
+ * what was actually an erasure.
+ *
+ * The board is a *document the user authors*, not a scaffold AtlasMind maintains.
+ * Same rule as `documentsManager` and `workflowConfig`: seeding never overwrites,
+ * and only an explicit save replaces content. A board that is silently discarded
+ * on re-run is a board nobody invests in.
+ */
 async function seedBootstrapIdeation(ssotRoot: vscode.Uri, intake: BootstrapProjectIntake): Promise<boolean> {
   const ideasDir = vscode.Uri.joinPath(ssotRoot, 'ideas');
-  await vscode.workspace.fs.createDirectory(ideasDir);
-
-  const board = buildBootstrapIdeationBoard(intake);
   const boardUri = vscode.Uri.joinPath(ideasDir, 'atlas-ideation-board.json');
+
+  // Checked before the directory is created, so a bootstrap re-run on an existing
+  // board touches nothing at all.
+  if (await pathExists(boardUri)) {
+    return false;
+  }
+
+  await vscode.workspace.fs.createDirectory(ideasDir);
+  const board = buildBootstrapIdeationBoard(intake);
   const summaryUri = vscode.Uri.joinPath(ideasDir, 'atlas-ideation-board.md');
 
   await vscode.workspace.fs.writeFile(boardUri, Buffer.from(JSON.stringify(board, null, 2), 'utf-8'));
@@ -1819,9 +1843,7 @@ async function createGitHubRepo(
 ): Promise<RemoteRepoResult> {
   reportBootstrapProgress(reporter, '- Checking for GitHub CLI (`gh`)...');
 
-  const ghAvailable = await new Promise<boolean>(resolve => {
-    cp.exec('gh --version', err => resolve(!err));
-  });
+  const ghAvailable = await ghCliAvailable(workspaceRoot.fsPath);
 
   if (!ghAvailable) {
     const installed = await installGitHubCli(reporter);
@@ -1873,31 +1895,43 @@ async function createGitHubRepo(
 
   reportBootstrapProgress(reporter, `- Creating GitHub repo \`${nameArg}\` (${visibility.label.toLowerCase()})...`);
 
-  return new Promise<RemoteRepoResult>(resolve => {
-    cp.exec(
-      `gh repo create ${nameArg} ${visibility.value} --source=. --remote=origin --push`,
-      { cwd },
-      (err, stdout, stderr) => {
-        if (err) {
-          const detail = stderr?.trim() || err.message;
-          vscode.window.showErrorMessage(`GitHub repo creation failed: ${detail}`, 'Open Terminal').then(choice => {
-            if (choice === 'Open Terminal') {
-              vscode.commands.executeCommand('workbench.action.terminal.new');
-            }
-          });
-          resolve({ created: false, url: undefined });
-          return;
-        }
-
-        const urlMatch = /https:\/\/github\.com\/[\w.\-/]+/.exec(stdout);
-        const url = urlMatch?.[0];
-        vscode.window.showInformationMessage(
-          url ? `GitHub repo created: ${url}` : `GitHub repo \`${nameArg}\` created and pushed.`,
-        );
-        resolve({ created: true, url });
-      },
+  // Argv array, not a shell string. `repoName` is validated at its input box but
+  // `owner` was not, and both were interpolated into a command line — so an owner
+  // containing a shell metacharacter would have run as a second command. Passing
+  // argv removes the class of bug rather than adding a second validator.
+  try {
+    const stdout = await runGhOrThrow(
+      cwd,
+      ['repo', 'create', nameArg, visibility.value, '--source=.', '--remote=origin', '--push'],
+      // Repo creation pushes the initial commit, so it needs longer than the
+      // read-only default eight seconds.
+      { timeoutMs: 120_000 },
     );
-  });
+    const url = /https:\/\/github\.com\/[\w.\-/]+/.exec(stdout)?.[0];
+    vscode.window.showInformationMessage(
+      url ? `GitHub repo created: ${url}` : `GitHub repo \`${nameArg}\` created and pushed.`,
+    );
+    return { created: true, url };
+  } catch (error) {
+    const detail = ghFailureOf(error).detail;
+    void vscode.window.showErrorMessage(`GitHub repo creation failed: ${detail}`, 'Open Terminal').then(choice => {
+      if (choice === 'Open Terminal') {
+        void vscode.commands.executeCommand('workbench.action.terminal.new');
+      }
+    });
+    return { created: false, url: undefined };
+  }
+}
+
+/**
+ * Whether the GitHub CLI is on PATH.
+ *
+ * Goes through the shared client so "is `gh` installed?" has one answer in the
+ * codebase, and so this stops being a shell invocation.
+ */
+async function ghCliAvailable(cwd: string): Promise<boolean> {
+  const client = new GhClient({ workspaceRoot: cwd, run: nodeGhRunner });
+  return (await client.probe()).installed;
 }
 
 async function ensureInitialCommit(cwd: string, reporter?: BootstrapPromptReporter): Promise<void> {
@@ -1941,7 +1975,7 @@ function buildBootstrapCompletionSummary(ssotRelPath: string, intake: BootstrapP
       : '- Personality Profile defaults were left unchanged.',
     artifacts.ideationSeeded
       ? '- Seeded ideation defaults in `ideas/atlas-ideation-board.json` and `ideas/atlas-ideation-board.md`.'
-      : '- Ideation defaults were not seeded.',
+      : '- Left the existing ideation board in `ideas/atlas-ideation-board.json` untouched. Bootstrap never overwrites a board you have worked on.',
     artifacts.websiteWorkspaceSeeded
       ? '- Seeded Website Studio in `domain/website.json` and `domain/website.md`; open **AtlasMind: Open Website Studio** to continue from brief to delivery.'
       : '',
@@ -2792,6 +2826,93 @@ function getStarterContent(filename: string): string {
   }
 }
 
+/**
+ * The scaffolded CI workflow, specialised by the project shape the user chose.
+ *
+ * Two halves, deliberately different in kind.
+ *
+ * The **generic Node steps are real commands**, because AtlasMind can see
+ * that a `package.json` exists and what scripts it declares. The
+ * **archetype-specific steps are commented suggestions**, because it cannot:
+ * a game needs a determinism gate and a website needs an accessibility scan,
+ * and AtlasMind knows *that* without knowing what command this project would
+ * use to do it. Writing a guess and running it in CI would produce a red
+ * build on somebody's first commit, which teaches them to delete the file.
+ *
+ * The trigger was `[master]`, hardcoded — not the default branch of any
+ * repository created since 2020, and not this project's either. It now names
+ * `main` and says what to change if the repository uses something else.
+ */
+function buildScaffoldedCiWorkflow(intake?: BootstrapProjectIntake): string {
+  const archetype = archetypeFromProjectTypeLabel(intake?.projectType);
+  const pack = archetype ? resolveArchetypePack(archetype, []) : undefined;
+
+  const lines: string[] = [
+    'name: CI',
+    '',
+    '# Triggered on `main`. If this repository integrates on a different branch,',
+    '# change both lists below — a workflow that never runs looks identical to one',
+    '# that always passes.',
+    'on:',
+    '  push:',
+    '    branches: [main]',
+    '  pull_request:',
+    '    branches: [main]',
+    '',
+    'jobs:',
+    '  quality:',
+    '    runs-on: ubuntu-latest',
+    '',
+    '    steps:',
+    '      - name: Checkout',
+    '        uses: actions/checkout@v4',
+    '',
+    '      - name: Setup Node',
+    '        uses: actions/setup-node@v4',
+    '        with:',
+    '          node-version: 20',
+    '          cache: npm',
+    '',
+    '      - name: Install dependencies',
+    '        run: npm ci',
+    '',
+    '      - name: Compile',
+    '        run: npm run compile',
+    '',
+    '      - name: Lint',
+    '        run: npm run lint',
+    '',
+    '      - name: Test',
+    '        run: npm run test',
+  ];
+
+  // Steps this shape needs that the generic four do not cover. Commented out
+  // with their rationale: AtlasMind knows a game wants a determinism gate,
+  // and does not know what command this project runs to get one.
+  const extra = (pack?.ci ?? []).filter(step =>
+    !['install', 'compile', 'lint', 'test'].includes(step.id));
+
+  if (extra.length > 0 && archetype) {
+    lines.push(
+      '',
+      `      # ── Suggested for a ${archetype} project ──`,
+      '      # These are commented out because they are suggestions, not commands',
+      '      # AtlasMind chose for you. Uncomment and replace with your own.',
+    );
+    for (const step of extra) {
+      lines.push(
+        '',
+        `      # ${step.label}${step.required ? ' (treat as a required check)' : ''}`,
+        `      # ${step.rationale}`,
+        `      # - name: ${step.label}`,
+        `      #   run: ${step.exampleCommand ?? '<your command here>'}`,
+      );
+    }
+  }
+
+  return lines.join('\n');
+}
+
 async function scaffoldGovernanceBaseline(
   workspaceRoot: vscode.Uri,
   ssotRoot: vscode.Uri,
@@ -2805,41 +2926,7 @@ async function scaffoldGovernanceBaseline(
   const files: Array<{ path: string; content: string }> = [
     {
       path: '.github/workflows/ci.yml',
-      content: [
-        'name: CI',
-        '',
-        'on:',
-        '  push:',
-        '    branches: [master]',
-        '  pull_request:',
-        '    branches: [master]',
-        '',
-        'jobs:',
-        '  quality:',
-        '    runs-on: ubuntu-latest',
-        '',
-        '    steps:',
-        '      - name: Checkout',
-        '        uses: actions/checkout@v4',
-        '',
-        '      - name: Setup Node',
-        '        uses: actions/setup-node@v4',
-        '        with:',
-        '          node-version: 20',
-        '          cache: npm',
-        '',
-        '      - name: Install dependencies',
-        '        run: npm ci',
-        '',
-        '      - name: Compile',
-        '        run: npm run compile',
-        '',
-        '      - name: Lint',
-        '        run: npm run lint',
-        '',
-        '      - name: Test',
-        '        run: npm run test',
-      ].join('\n'),
+      content: buildScaffoldedCiWorkflow(intake),
     },
     {
       path: '.github/pull_request_template.md',
@@ -4032,6 +4119,8 @@ const IMPORT_SCAN_FILES: ReadonlyArray<{ path: string; category: ImportScanCateg
 ];
 
 import { MAX_IMPORT_FILE_BYTES, MAX_IMPORT_SNIPPET } from '../constants.js';
+import { archetypeFromProjectTypeLabel } from '../core/projectArchetype.js';
+import { resolveArchetypePack } from '../core/archetypePacks.js';
 
 export interface ImportResult {
   entriesCreated: number;

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, existsSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import {
@@ -11,6 +11,7 @@ import {
   createShelfFolders,
 } from '../../src/core/documentsManager.ts';
 import type { DocumentsConfig } from '../../src/types.ts';
+import { removeTempDir } from '../helpers/tempDir';
 
 describe('normalizeRelPath — path safety boundary', () => {
   it('accepts a simple workspace-relative path', () => {
@@ -171,7 +172,7 @@ describe('createShelfFolders', () => {
 
   afterEach(() => {
     while (roots.length > 0) {
-      rmSync(roots.pop()!, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+      removeTempDir(roots.pop()!);
     }
   });
 
