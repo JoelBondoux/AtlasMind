@@ -6,6 +6,16 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.209.3 — The dashboard tabs get their styling back
+
+Every unselected tab on the Project Dashboard nav rendered as a light grey pill with grey text on a dark panel — the browser's default button look, with no theme colour in it.
+
+**A selector changed which rule block it belonged to.** `.page-nav button` was the first entry of the pill rule it shared with `.action-link`. The commit that added the GitHub link row (v0.206.0) inserted its rule directly beneath that line, so the nav buttons became part of a *container layout* — `display: flex`, `flex-wrap: wrap`, a 14px bottom margin — and were orphaned from background, border, colour, padding and radius. Nothing was deleted or renamed; in a diff it reads as one added rule.
+
+**It survived review because the selected tab still looked right.** `[aria-selected="true"]` declares its own colours, so exactly one tab was correct and the row read as a deliberate style rather than a fault.
+
+A test now asserts the tabs own their appearance from theme variables (never a literal colour), that the selected-tab rule still exists, that the GitHub link row is still a row, and that the pill stays one shared block rather than two that can drift. Reverting the fix fails 8 of its 11 assertions.
+
 ## v0.209.2 — The README was measuring "what's new" from the wrong release
 
 It claimed *"Since the last Marketplace publication, **v0.145.3**"* while the Marketplace has had **v0.208.0** since that morning — sixty-three releases stale. The section therefore listed **81 bullets** of work that is already in the published extension, so anyone using it to decide whether a source build was worth installing saw a two-hundred-line delta where the real one is four.

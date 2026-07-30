@@ -11819,9 +11819,20 @@ const DASHBOARD_CSS = `
     margin: 0;
   }
 
-  .page-nav button,
   /* The row of links to the GitHub page a dashboard page is about. Quieter than
-     an action: it is a route out, not something that changes anything here. */
+     an action: it is a route out, not something that changes anything here.
+
+     Do not add a selector above this comment. ".page-nav button" used to sit
+     there, as the first entry of the pill rule further down, and adding
+     ".github-link-row" beneath it silently moved the nav tabs into *this* rule —
+     a container layout. They kept display:flex, gained a 14px bottom margin, and
+     lost every property that made them look like buttons: background, border,
+     colour, padding, radius. With nothing themed left each unselected tab fell
+     back to the browser's default button appearance, light grey on a dark panel,
+     while the selected tab still looked correct because its own
+     aria-selected rule sets colours — so one tab looked right and the nav read
+     as deliberate. A selector moving between rule blocks is invisible in a diff.
+     Asserted by tests/views/dashboardNavStyles.test.ts. */
   .github-link-row {
     display: flex;
     flex-wrap: wrap;
@@ -11844,6 +11855,9 @@ const DASHBOARD_CSS = `
     font-weight: 500;
   }
 
+  /* Nav tabs and action links share one pill. ".page-nav button" was restored to
+     this block after v0.206.0 moved it out; see the note above ".github-link-row". */
+  .page-nav button,
   .action-link {
     border-radius: 999px;
     border: 1px solid var(--dash-border);

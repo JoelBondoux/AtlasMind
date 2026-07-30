@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.209.2</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.209.3</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,7 +68,7 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.209.2
+## What's new in 0.209.3
 
 Since the last Marketplace publication, **v0.208.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
 
@@ -89,6 +89,8 @@ Since the last Marketplace publication, **v0.208.0**, source builds have added t
   Silence was the real problem. A command that visibly fails gets reported; one that returns a plausible answer teaches you the feature works and you are using it wrong. And `/acp` and `/buzz` are *setup* commands you run precisely because nothing is set up — so the fall-through handed those questions to an agent holding every connected tool.
 
   The panel now runs the **same handlers** the `@atlas` chat surface does, rather than its own copies, so the two cannot answer `/agents` differently. Buttons a command offers appear as clickable chips. A typo like `/agent` names the real command instead of guessing. And a path stays a path: `/usr/local/bin/thing is missing` is still a question about a file, not a failed command lookup.
+
+- **The Project Dashboard's tabs look like tabs again.** Every unselected tab had been rendering as a light grey pill with grey text on a dark panel. A selector had quietly changed which style rule it belonged to, so the tabs kept a layout and lost their appearance — and because the *selected* tab sets its own colours, exactly one tab looked correct and the row read as intentional.
 
 - **The Marketplace publish no longer uses a stored secret.** Releases now authenticate through Microsoft Entra ID with GitHub OIDC, so there is no publishing credential in the repository to expire or leak — and the release pipeline checks its own rights *before* packaging rather than discovering a dead credential mid-upload. Promotion also merges rather than squashes, which was making every release after the first conflict on the four files every release touches.
 

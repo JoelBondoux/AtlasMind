@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.209.3] - 2026-07-30
+
+### Fixed
+- **The Project Dashboard's navigation tabs lost their styling in v0.206.0.** Every unselected tab rendered as a light grey pill with grey text on a dark panel — the browser's default button appearance, not a theme colour anywhere in it.
+
+  The mechanism is worth recording because no diff would have shown it. `.page-nav button` was the first selector of the pill rule it shared with `.action-link`:
+
+  ```css
+  .page-nav button,
+  .action-link { border-radius: 999px; border: …; background: …; color: …; padding: 8px 14px }
+  ```
+
+  The commit that added the GitHub link row inserted its rule *directly beneath that first line*, so `.page-nav button` became part of a **container layout** instead — `display: flex`, `flex-wrap: wrap`, `margin: 0 0 14px` — and was orphaned from every property that made it look like a button. Nothing was deleted and nothing was renamed; a selector simply changed which block it belonged to, which reads in a diff as one added rule.
+
+  **Why it survived review: the selected tab still looked right.** `[aria-selected="true"]` declares its own background, colour and weight, so exactly one tab in the nav was correct and the row read as a deliberate style rather than a fault. The stray `margin: 0 0 14px` was also adding phantom vertical space beneath every tab, and `gap: 8px` was overriding the `.nav-tab` gap by specificity.
+
+- **`tests/views/dashboardNavStyles.test.ts` now asserts the nav tabs own their appearance** — background, border, colour, padding and radius, all from theme variables and never a literal colour. It also checks the selected-tab rule still exists (the thing that camouflaged the bug), that the GitHub link row is still laid out as a row (so the fix cannot be made by breaking what displaced it), and that the pill remains **one** block shared with `.action-link` rather than two that can drift. Verified by reverting the fix: 8 of 11 assertions fail.
+
+### Notes
+- The first version of the explanatory comment used backticks around CSS selector names, inside the backtick-delimited `DASHBOARD_CSS` template literal — which terminated the string and produced five syntax errors. `tsc` is the guard for that class of mistake and caught it immediately; the comment now quotes selectors with `"` instead.
+
 ## [0.209.2] - 2026-07-30
 
 ### Fixed
