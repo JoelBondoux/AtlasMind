@@ -34,6 +34,12 @@ import {
   type WorkflowStageId,
 } from '../core/workflowCurriculum.js';
 import {
+  describeMissingLinks,
+  githubLinksForPage,
+  parseRepoSlug,
+  resolveGithubLink,
+} from '../core/githubDeepLinks.js';
+import {
   compareObservedState,
   describeSince,
   summarizeObservedDelta,
@@ -424,6 +430,7 @@ type ProjectDashboardMessage =
   | { type: 'createMilestone'; payload: { title: string } }
   | { type: 'closeMilestone'; payload: { number: number } }
   | { type: 'addressReviewComment'; payload: { number: number; index: number } }
+  | { type: 'openGithubLink'; payload: { page: string; id: string } }
   | { type: 'markDeltaSeen' }
   | { type: 'setWorkflowGate'; payload: { key: string; enabled: boolean } }
   | { type: 'setAutomationCeiling'; payload: { level: string } }
@@ -684,6 +691,14 @@ interface GitSnapshot {
   commits: DashboardCommit[];
   commitDates: string[];
   commitLog: DashboardCommitLogEntry[];
+  /**
+   * `origin`'s URL, for deriving the GitHub slug without a network call.
+   *
+   * The alternative was `gh repo view`, which is a round trip and needs an
+   * authenticated CLI — so the links would have been absent on exactly the
+   * setups that most need a route to the repository.
+   */
+  remoteUrl?: string;
 }
 
 interface PackageSnapshot {
@@ -999,6 +1014,26 @@ interface DashboardWorkflowConfigSnapshot {
   problems?: WorkflowConfigProblem[];
   /** Everything stopping each stage, declared and derived, keyed by stage id. */
   blockers?: Record<string, string[]>;
+}
+
+/**
+ * The GitHub page each dashboard page is about.
+ *
+ * Keyed by page and carrying **no URL** — only an id the host resolves. A
+ * webview that could name the URL to open could name any URL, and
+ * `openExternal` does not care whose it is.
+ */
+interface DashboardGithubLinksSnapshot {
+  /**
+   * The resolved `owner/repo`, absent when there is not one.
+   *
+   * Safe to send: it is the repository's name, which is already on screen, and
+   * it is *re-validated* on the way back rather than trusted.
+   */
+  slug?: string;
+  links: Record<string, Array<{ id: string; label: string; detail: string }>>;
+  /** Why a page has none, where that is worth saying. */
+  notices: Record<string, string>;
 }
 
 interface DashboardGuidedWorkflowSnapshot {
@@ -1435,6 +1470,7 @@ interface DashboardSnapshot {
   };
   roadmap: DashboardRoadmapSnapshot;
   guidedWorkflow: DashboardGuidedWorkflowSnapshot;
+  githubLinks: DashboardGithubLinksSnapshot;
   issues: DashboardIssuesSnapshot;
   /** Labels and milestones — the taxonomy stage 1 draws from. */
   taxonomy: DashboardTaxonomySnapshot;
@@ -1877,6 +1913,14 @@ export class ProjectDashboardPanel {
    * every unrelated re-render would spend the user's quota to show a tab they
    * may not be looking at.
    */
+  /**
+   * `origin`'s URL as of the last render, so a link can be resolved on click
+   * without re-reading git. Held rather than looked up because resolution
+   * happens in a message handler and a shell call there would make a button
+   * feel slow for no reason.
+   */
+  private lastGitRemoteUrl: string | undefined;
+
   private issuesState: DashboardIssuesSnapshot = {
     status: 'not-loaded',
     detail: 'Issues have not been loaded yet.',
@@ -2259,6 +2303,9 @@ export class ProjectDashboardPanel {
         return;
       case 'addressReviewComment':
         await this.handleAddressReviewComment(message.payload);
+        return;
+      case 'openGithubLink':
+        await this.handleOpenGithubLink(message.payload);
         return;
       case 'markDeltaSeen':
         // No payload and nothing to validate: it clears a held computation and
@@ -3402,6 +3449,24 @@ export class ProjectDashboardPanel {
    * behaviour — the same silent no-op as a dead button, arriving through the
    * settings system instead of the command allowlist.
    */
+  /**
+   * Open the GitHub page a dashboard page is about.
+   *
+   * The URL is built here from the repository slug and a constant path, never
+   * taken from the message. A surface that could name the URL to open could name
+   * any URL, and `openExternal` hands it to the user's browser without asking.
+   */
+  private async handleOpenGithubLink(payload: { page: string; id: string }): Promise<void> {
+    const source = this.lastGitRemoteUrl ?? this.issuesState.repoSlug;
+    const url = resolveGithubLink(payload.page, payload.id, parseRepoSlug(source));
+    if (url === undefined) {
+      // Nothing to report to the user: the only way here is a webview that sent
+      // an id this page does not have, which is not something they did.
+      return;
+    }
+    await vscode.env.openExternal(vscode.Uri.parse(url));
+  }
+
   private async handleSetWorkflowGate(payload: { key: string; enabled: boolean }): Promise<void> {
     // Unsectioned on purpose: a gate key is written in full, so there is no
     // section to prefix it with. Named to say so, because `configuration` in
@@ -4180,6 +4245,11 @@ export class ProjectDashboardPanel {
   }
 
   private async postMessage(message: DashboardWebviewMessage): Promise<void> {
+    // The one place every snapshot passes through, so the slug is captured once
+    // rather than at each of the six collection sites.
+    if (message.type === 'state') {
+      this.lastGitRemoteUrl = message.payload.githubLinks.slug;
+    }
     await this.panel.webview.postMessage(message);
   }
 
@@ -5207,6 +5277,16 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
   // copy table rather than a pattern: a surface that could name an arbitrary
   // `atlasmind.*` key could flip something that is not a workflow gate at all,
   // and the confirmation would describe the wrong thing.
+  if (candidate['type'] === 'openGithubLink') {
+    // Shape only. The id is resolved against this page's own link list in the
+    // handler, so an id that is not there produces nothing — which is why the
+    // webview never has to be trusted with a URL.
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null
+      && typeof payload['page'] === 'string'
+      && typeof payload['id'] === 'string';
+  }
+
   if (candidate['type'] === 'markDeltaSeen') {
     return true;
   }
@@ -6467,6 +6547,7 @@ async function collectDashboardSnapshot(
       ...(reviewComments === undefined ? {} : { reviewComments }),
       now: Date.now(),
     }),
+    githubLinks: buildGithubLinksSnapshot(gitSnapshot.remoteUrl ?? issues.repoSlug),
     guidedWorkflow: withObservedDelta(atlas, workspaceRoot, buildGuidedWorkflowSnapshot({
       configuration,
       gitSnapshot,
@@ -6786,6 +6867,7 @@ async function collectGitSnapshot(workspaceRoot: string | undefined): Promise<Gi
     return emptyGitSnapshot();
   }
 
+  const remoteUrl = (await runGit(workspaceRoot, ['remote', 'get-url', 'origin'])).trim() || undefined;
   const [statusOutput, branchOutput, commitOutput] = await Promise.all([
     runGit(workspaceRoot, ['status', '--short', '--branch']),
     runGit(workspaceRoot, ['for-each-ref', '--sort=-committerdate', '--format=%(refname:short)|%(committerdate:iso8601)|%(upstream:short)|%(subject)', 'refs/heads']),
@@ -6860,6 +6942,7 @@ async function collectGitSnapshot(workspaceRoot: string | undefined): Promise<Gi
     commits,
     commitDates,
     commitLog,
+    ...(remoteUrl === undefined ? {} : { remoteUrl }),
   };
 }
 
@@ -7913,6 +7996,32 @@ function withObservedDelta(
       droppedByCap: delta.droppedByCap,
     },
   };
+}
+
+/**
+ * Every page's GitHub links, built from whatever identifies the repository.
+ *
+ * Prefers the git remote over `gh repo view`: the remote is already read, needs
+ * no network and no authenticated CLI, and a route *to* GitHub is most useful on
+ * exactly the setups where `gh` is not working.
+ */
+function buildGithubLinksSnapshot(source: string | undefined): DashboardGithubLinksSnapshot {
+  const slug = parseRepoSlug(source);
+  const links: DashboardGithubLinksSnapshot['links'] = {};
+  const notices: DashboardGithubLinksSnapshot['notices'] = {};
+  for (const page of DASHBOARD_PAGE_IDS) {
+    const found = githubLinksForPage(page, slug);
+    if (found.length > 0) {
+      // The URL is deliberately not carried across. Label and detail only.
+      links[page] = found.map(link => ({ id: link.id, label: link.label, detail: link.detail }));
+      continue;
+    }
+    const notice = describeMissingLinks(page, slug);
+    if (notice !== undefined) {
+      notices[page] = notice;
+    }
+  }
+  return { ...(slug === undefined ? {} : { slug: `${slug.owner}/${slug.repo}` }), links, notices };
 }
 
 function clearHeldObservedDelta(): void {
@@ -11364,6 +11473,30 @@ const DASHBOARD_CSS = `
   }
 
   .page-nav button,
+  /* The row of links to the GitHub page a dashboard page is about. Quieter than
+     an action: it is a route out, not something that changes anything here. */
+  .github-link-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 14px;
+  }
+
+  .github-link-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    opacity: 0.62;
+  }
+
+  .github-link-row .action-link {
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 500;
+  }
+
   .action-link {
     border-radius: 999px;
     border: 1px solid var(--dash-border);

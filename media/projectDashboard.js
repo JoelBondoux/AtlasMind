@@ -134,7 +134,35 @@
   // Opening tag for a page panel. Centralised so the tab/panel ARIA wiring
   // cannot drift out of sync with the nav.
   function pageSectionOpen(id) {
-    return `<section id="panel-${id}" class="page-section ${state.activePage === id ? 'active' : ''}" role="tabpanel" aria-labelledby="tab-${id}">`;
+    return `<section id="panel-${id}" class="page-section ${state.activePage === id ? 'active' : ''}" role="tabpanel" aria-labelledby="tab-${id}">`
+      + githubLinkRow(id);
+  }
+
+  // The GitHub page this dashboard page is about.
+  //
+  // Rendered here rather than in `renderPageIntro` because this is the one place
+  // that knows *which* page it is building — `renderPageIntro` is called from
+  // inside each page's own render, where `state.activePage` would give every page
+  // the active one's links.
+  //
+  // No URL is sent back: the button carries `page` and a link id, and the host
+  // maps that to a URL it built itself. A surface that could name the URL to open
+  // could name any URL.
+  function githubLinkRow(id) {
+    const gh = (state.snapshot && state.snapshot.githubLinks) || { links: {}, notices: {} };
+    const links = (gh.links || {})[id] || [];
+    if (links.length === 0) {
+      // The notice is only worth showing where a page would otherwise look like
+      // it failed to load something. A page with no GitHub equivalent says so on
+      // hover of nothing, so it stays silent.
+      return '';
+    }
+    return `<div class="github-link-row">
+      <span class="github-link-label">On GitHub</span>
+      ${links.map(link => `<button type="button" class="action-link"
+        data-action="github-link" data-payload="${escapeAttr(id + ' ' + link.id)}"
+        title="${escapeAttr(link.detail)}">${escapeHtml(link.label)} ↗</button>`).join('')}
+    </div>`;
   }
 
   const state = {
@@ -835,6 +863,17 @@
         vscode.postMessage({
           type: 'setDebtStatus',
           payload: { status: payload.slice(0, space), id: payload.slice(space + 1) },
+        });
+      }
+      return;
+    }
+    if (action === 'github-link') {
+      // `page id` — neither contains a space, so one split is unambiguous.
+      const cut = payload.indexOf(' ');
+      if (cut > 0) {
+        vscode.postMessage({
+          type: 'openGithubLink',
+          payload: { page: payload.slice(0, cut), id: payload.slice(cut + 1) },
         });
       }
       return;

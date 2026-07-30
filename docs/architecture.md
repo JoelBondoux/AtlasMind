@@ -485,6 +485,18 @@ The tag gate is what catches a double publish: an existing tag means the publish
 
 **Nothing here executes anything.** `buildReleasePlan` is pure over observed state, and tagging and publishing stay with the human at every automation rung.
 
+### GithubDeepLinks (`src/core/githubDeepLinks.ts`)
+
+The GitHub page each dashboard page is about. The dashboard read GitHub, reasoned about it, and then left the user to navigate from the repository root — a small friction repeated many times a day.
+
+**A slug is untrusted input.** It arrives from a git remote or `gh repo view`, and it is interpolated into a URL, so `parseRepoSlug` validates against GitHub's actual naming rules — 1–39 characters for an owner with no leading or trailing hyphen, `[A-Za-z0-9._-]` capped at 100 for a repository — rather than checking for a slash. That is the point of validating: a slug carrying a path segment or a query would point the link somewhere else entirely. A slug that does not parse yields **no links at all** rather than links to a plausible-looking wrong repository, because pointing somebody at somebody else's issue tracker is a worse outcome than a missing button. The origin is a constant in the file, so nothing in the input can move a link off GitHub.
+
+**Only surfaces every repository has.** `/wiki`, `/discussions` and `/projects` can each be disabled, and a 404 behind a button AtlasMind drew reads as AtlasMind's bug rather than as a repository setting. Determining which are enabled costs a `gh` call, and a link is not worth a network round trip — so the ones that might not exist are simply absent, and a test holds them out.
+
+**The caller resolves ids, not URLs.** `resolveGithubLink(page, id, slug)` exists so the webview can send `{page, id}`: a surface that could name the URL to open could name any URL, and `openExternal` does not care whose it is. The id space is scoped per page, so `dependabot` does not resolve from the Issues page — a button that resolved from a page it was not drawn for would go somewhere unexpected.
+
+Four pages get nothing, listed in `PAGES_WITHOUT_GITHUB_EQUIVALENT` so the omission is a decision a test can hold: Privacy, Runtime, Risk and Ideation are about this machine, this extension and this project's own judgement, and giving them a repository page would be inventing a relationship to fill a slot. `describeMissingLinks` distinguishes "no repository" from "no equivalent", because one is fixed by a `gh` sign-in and the other is not fixed at all.
+
 ### ObservedDelta (`src/core/observedDelta.ts`)
 
 The only thing in AtlasMind that answers *what changed?*. Everything else answers *what is the state?* — and when the state is nearly the same every day, a surface that reports only state is one people learn to skim. (`ssotDelta.ts` is unrelated despite the name: it compares memory against code to find drift. This compares the project against its own past.)

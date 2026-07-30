@@ -208,3 +208,55 @@ describe('the delta baseline is per-developer', () => {
     expect(PANEL).toContain("}): Omit<DashboardGuidedWorkflowSnapshot, 'delta'> {");
   });
 });
+
+describe('a GitHub deep link is resolved by the host, never named by the webview', () => {
+  it('sends a page and a link id, and no URL', () => {
+    // A surface that could name the URL to open could name any URL, and
+    // `openExternal` hands it to the browser without asking whose it is.
+    expect(WEBVIEW).toContain("type: 'openGithubLink'");
+    const row = WEBVIEW.slice(WEBVIEW.indexOf('function githubLinkRow'), WEBVIEW.indexOf('const state = {'));
+    expect(row).not.toMatch(/https?:\/\//);
+    expect(row).not.toContain('link.url');
+  });
+
+  it('validates only the shape, because the id is checked by resolution', () => {
+    const guard = PANEL.slice(
+      PANEL.indexOf("if (candidate['type'] === 'openGithubLink')"),
+      PANEL.indexOf("if (candidate['type'] === 'markDeltaSeen')"),
+    );
+    expect(guard).toContain("typeof payload['page'] === 'string'");
+    expect(guard).toContain("typeof payload['id'] === 'string'");
+  });
+
+  it('builds the URL from the slug and a constant path', () => {
+    const handler = PANEL.slice(
+      PANEL.indexOf('private async handleOpenGithubLink'),
+      PANEL.indexOf('private async handleSetWorkflowGate'),
+    );
+    expect(handler).toContain('resolveGithubLink(payload.page, payload.id, parseRepoSlug(source))');
+    // Nothing from the message reaches `openExternal` except through resolution.
+    expect(handler).not.toMatch(/Uri\.parse\(payload/);
+    expect(handler).toContain('if (url === undefined)');
+  });
+
+  it('carries the slug in the snapshot but re-validates it on the way back', () => {
+    // The slug is the repository's name and already on screen, so sending it is
+    // harmless — but it comes back through `parseRepoSlug` rather than being
+    // interpolated into a URL on trust.
+    expect(PANEL).toContain('this.lastGitRemoteUrl = message.payload.githubLinks.slug;');
+    expect(PANEL).toContain('parseRepoSlug(source)');
+  });
+
+  it('derives the repository from the git remote, not a network call', () => {
+    // `gh repo view` needs an authenticated CLI, and a route *to* GitHub is most
+    // useful on exactly the setups where `gh` is not working.
+    expect(PANEL).toContain("runGit(workspaceRoot, ['remote', 'get-url', 'origin'])");
+    expect(PANEL).toContain('buildGithubLinksSnapshot(gitSnapshot.remoteUrl ?? issues.repoSlug)');
+  });
+
+  it('renders the row from the one place that knows which page it is building', () => {
+    // `renderPageIntro` runs inside each page's own render, where
+    // `state.activePage` would give every page the active one's links.
+    expect(WEBVIEW).toContain('+ githubLinkRow(id);');
+  });
+});

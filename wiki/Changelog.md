@@ -6,6 +6,17 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.206.0 — Every page links to the GitHub page it is about
+
+The dashboard read GitHub, reasoned about it, and left you to navigate from the repository root yourself. Issues now links to the tracker, to unassigned issues and to the label list; Pipeline to Actions; Release to releases and tags; Workflow to branch protection; SSOT to `project_memory/` as your team sees it committed.
+
+**The webview never names a URL.** It sends a page and a link id, and the host maps that to a URL it built itself. A surface that could name the URL to open could name any URL, and `openExternal` hands it to the browser without asking whose it is.
+
+**The slug is untrusted input** — it arrives from a git remote and is interpolated into a URL. Validated against GitHub's real naming rules rather than checked for a slash, so nothing carrying a path segment or a query can redirect a link. A slug that does not parse produces **no links at all**: pointing somebody at somebody else's issue tracker is worse than no button.
+
+**Derived from the git remote, not `gh`** — no network, no authenticated CLI. A route *to* GitHub is most useful on exactly the setups where `gh` is not working.
+
+**Only surfaces every repository has.** `/wiki`, `/discussions` and `/projects` can each be switched off, and a 404 behind a button we drew reads as our bug rather than as a repository setting. Privacy, Runtime, Risk and Ideation get no links: they are about this machine, this extension and this project's own judgement.
 ## v0.205.0 — Two guards, and what they found
 
 Documentation drift was the most-repeated defect in this project's history and the only one with no test. Tree row commands were attached in twelve places with no guard at all. Both now have one, and both found real things on the first run.

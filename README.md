@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.205.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.206.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -64,9 +64,15 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.205.0
+## What's new in 0.206.0
 
 Since the last Marketplace publication, **v0.145.3**, source builds have added:
+
+- **Every dashboard page links to the GitHub page it is about.** Issues → the tracker, unassigned issues, and labels. Pipeline → Actions. Release → releases and tags. Workflow → branch protection. SSOT → `project_memory/` as your team sees it committed.
+
+  The webview never names a URL — it sends a page and a link id, and the host builds the URL from a validated slug and a constant path. The slug is treated as untrusted input, because it comes from a git remote and ends up inside a URL: validated against GitHub's real naming rules, not checked for a slash. A slug that does not parse produces no links rather than a plausible link to the wrong repository.
+
+  Derived from the git remote rather than a `gh` call, so it needs no network and no signed-in CLI — a route *to* GitHub is most useful when `gh` is not working. Only surfaces every repository has: `/wiki` and `/discussions` can be switched off, and a 404 behind a button we drew reads as our bug.
 
 - **Two guards for the two bug classes that kept coming back — and both found things.** Documentation drift was the most-repeated defect here and the only one with no test; tree row commands were attached in twelve places with none either.
 

@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.206.0] - 2026-07-30
+
+### Added
+- **Every dashboard page now links to the GitHub page it is about.** The dashboard read GitHub, reasoned about it, and then left you to navigate from the repository root yourself — a small friction repeated many times a day. Issues links to the tracker, to unassigned issues, and to the label list; Pipeline to Actions; Release to releases and tags; Workflow to branch protection; SSOT to `project_memory/` as your team sees it committed.
+
+  **The webview never names a URL.** It sends a page and a link id; the host maps that to a URL it built itself from a validated slug and a constant path. A surface that could name the URL to open could name any URL, and `openExternal` hands it to the browser without asking whose it is.
+
+  **The slug is treated as untrusted input**, because it is: it arrives from a git remote or `gh`, and it is interpolated into a URL. It is validated against GitHub's real naming rules — 39 characters for an owner, no leading or trailing hyphen — rather than checked for a slash, so nothing carrying a path segment or a query can redirect a link. A slug that does not parse produces **no links at all** rather than links to a plausible-looking wrong repository; pointing somebody at somebody else's issue tracker is worse than no button.
+
+  **Derived from the git remote, not a `gh` call.** No network round trip, no authenticated CLI — which matters because a route *to* GitHub is most useful on exactly the setups where `gh` is not working.
+
+  **Only surfaces every repository has.** `/wiki`, `/discussions` and `/projects` can each be switched off, and a 404 behind a button we drew reads as our bug rather than as a repository setting. Four pages — Privacy, Runtime, Risk and Ideation — get no links at all, because they are about this machine, this extension, and this project's own judgement; inventing a repository page for them would be filling a slot rather than answering a question.
 ## [0.205.0] - 2026-07-30
 
 ### Added
