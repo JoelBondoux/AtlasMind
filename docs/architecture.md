@@ -1005,6 +1005,7 @@ extension.ts
               │     ├── providers/acpPermission.ts   (authorization policy, pure)
               │     ├── providers/acpInstaller.ts    (install planning, pure)
               │     └── providers/acpEffort.ts       (effort tiers + settable-config allowlist, pure)
+              │     └── providers/acpModels.ts       (detected model list + declared standing, pure)
               └── providers/localModelRecommendationRegistry.ts
 
 tests/core/

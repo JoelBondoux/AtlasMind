@@ -1895,6 +1895,11 @@ async function bootstrapAtlasMind(
         agents: () => startupModules.parseAcpAgentSettings(
           vscode.workspace.getConfiguration('atlasmind').get<unknown>('acp.agents'),
         ),
+        // Where the user says each model sits when AtlasMind cannot tell. Read
+        // per use for the same reason `agents` is: teaching it about a model
+        // shipped this morning must not need a window reload.
+        modelStanding: () => vscode.workspace.getConfiguration('atlasmind')
+          .get<Record<string, string>>('acp.modelStanding') ?? {},
         ...(workspaceRootPath ? { cwd: workspaceRootPath } : {}),
         clientVersion: context.extension?.packageJSON?.version ?? '0.0.0',
         // Delegated execution is never delegated authorization: the agent runs

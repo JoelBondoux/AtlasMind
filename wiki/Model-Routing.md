@@ -126,6 +126,28 @@ AtlasMind opens a real session instead. The reserved ACP error `-32000` means a 
 
 ACP models are priced at zero per token because the subscription already paid. The router's subscription handling, not the adapter, is what keeps that from automatically winning budget mode.
 
+### The models inside the subscription
+
+Your plan is not one model. `claude-agent-acp` offers Opus, Sonnet, Haiku and whatever else your plan carries; `codex-acp` offers Luna, Terra and Sol. AtlasMind reads that list from the agent itself and turns each into a routed model, so the orchestrator can send a throwaway rename to the light one and a refactor to the deep one.
+
+**The list is detected, never assumed.** Nothing in AtlasMind declares which models your plan has — vendors ship faster than we release, and a built-in roster would hide a model you are paying for. Whatever your installed agent offers today is what appears, after it has been probed.
+
+**Where a model *sits* is a different question, and it cannot be detected.** The protocol carries a name and a description, not a capability rating. So standing comes from a declared rule, in this order:
+
+1. Your `atlasmind.acp.modelStanding` setting.
+2. A short table of naming conventions we will stand behind (Haiku / Sonnet / Opus).
+3. Keywords in the agent's own description of the model.
+
+A model matching none of them is offered as **unknown** — fully routable and selectable, but never *preferred* on capability, because a guessed ranking would misroute every turn without telling you. Luna, Terra and Sol are currently unknown: they read as moon/earth/sun, which is etymology rather than anything OpenAI has stated. Tell AtlasMind where they sit and it will use them fully:
+
+```json
+"atlasmind.acp.modelStanding": { "Luna": "light", "Terra": "balanced", "Sol": "deep" }
+```
+
+Keys match the display name or the wire value; values are `light`, `balanced`, `deep` or `unknown`. Your declaration beats the built-in table, so you can correct one as well as fill a gap.
+
+**Model and effort combine.** They are separate knobs on the same session, so they appear together — `acp/claude@opus#high` — which is the combination worth having. Depth is the greater of the two (a light model does not become deep by asking harder) and cost multiplies (both spend your plan). The rule is on the provider card next to the numbers it produced.
+
 ### Effort levels inside the subscription
 
 An ACP subscription used to be one model to the router, running at whatever the agent defaulted to. The agents were already advertising more on every session, and AtlasMind was throwing it away.

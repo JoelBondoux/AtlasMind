@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.217.0",
+  "version": "0.218.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -1261,6 +1261,20 @@
           },
           "description": "Map a Buzz identity (npub or 64-character hex) to an AtlasMind agent id, so inbound work from that Buzz agent lands with the right specialist.",
           "markdownDescription": "Assign specific **AtlasMind agents** to specific **Buzz agents**.\n\nMaps a Buzz identity to an AtlasMind agent id, so inbound work from that identity is attributed to the right specialist — a Buzz build-bot's messages can land with your DevOps agent instead of arriving unattributed.\n\n```json\n{\n  \"npub1abc…\": \"devops-engineer\",\n  \"7e7e9c42…\": \"security-specialist\"\n}\n```\n\nKeys accept an `npub…` or a 64-character hex key (the bech32 checksum is validated, so a mistyped npub is rejected rather than binding to the wrong identity; an `nsec` secret key is refused). An unbound identity simply stays unassigned — AtlasMind never guesses an agent.\n\nThis is a **local routing preference only**. Buzz still owns the keypair, the directory, and the authorship ledger."
+        },
+        "atlasmind.acp.modelStanding": {
+          "type": "object",
+          "default": {},
+          "markdownDescription": "Where each ACP model sits relative to its siblings, when AtlasMind cannot tell. The model *list* is always read from the agent itself — nothing is assumed about which models your plan has — but the wire format carries no capability field, so a model matching none of the built-in naming conventions is offered with **unknown** standing: fully routable, never preferred on capability, because a guessed ranking would misroute every turn without telling you. Declare it here to fix that, keyed on the model's display name or its wire value: `{ \"Luna\": \"light\", \"Terra\": \"balanced\", \"Sol\": \"deep\" }`. Values must be `light`, `balanced`, `deep` or `unknown`; anything else is ignored rather than guessed at.",
+          "additionalProperties": {
+            "type": "string",
+            "enum": [
+              "light",
+              "balanced",
+              "deep",
+              "unknown"
+            ]
+          }
         },
         "atlasmind.acp.agents": {
           "type": "array",

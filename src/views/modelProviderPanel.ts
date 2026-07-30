@@ -16,6 +16,7 @@ import {
   ACP_PROVIDER_BRIDGES,
   ACP_PROVIDER_ID,
   ACP_EFFORT_RULE_NOTE,
+  ACP_MODEL_RULE_NOTE,
   parseAcpAgentSettings,
 } from '../providers/index.js';
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
@@ -1098,6 +1099,10 @@ function getAcpSubscriptionDetailsHtml(atlas: AtlasMindContext): string {
   // debt register prints the rule that graded an entry.
   const effortNote = rows.some(row => row.quota)
     ? `<p class="provider-detail-empty">${escapeHtml(ACP_EFFORT_RULE_NOTE)}</p>`
+      // And the same for models: which models exist is detected, but where each
+      // one *sits* is a declared rule, so the rule travels with the rows it
+      // ranked rather than living only in a settings description nobody opens.
+      + `<p class="provider-detail-empty">${escapeHtml(ACP_MODEL_RULE_NOTE)}</p>`
     : '';
 
   return `

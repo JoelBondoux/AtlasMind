@@ -75,6 +75,16 @@ import {
   parseAcpModelVariant,
   type AcpEffortTier,
 } from './acpEffort.js';
+import {
+  ACP_MODEL_CATEGORY,
+  acpModelChoicesFor,
+  acpModelRows,
+  buildAcpModelId,
+  composeAcpVariant,
+  describeAcpModelStanding,
+  splitAcpModelSegment,
+  type AcpModelChoice,
+} from './acpModels.js';
 
 export const ACP_PROVIDER_ID = 'acp';
 export const ACP_SETUP_URL = 'https://agentclientprotocol.com/get-started/agents';
@@ -443,6 +453,14 @@ export class AcpAdapter implements ProviderAdapter {
        * worth saying out loud rather than absorbing.
        */
       onEffortNotApplied?: (event: { agentId: string; requested: string; reason: string }) => void;
+      /**
+       * The user's `atlasmind.acp.modelStanding` declarations.
+       *
+       * A function for the same reason `agents` is: settings change while the
+       * extension host is alive, and a value captured at construction would go
+       * stale the moment somebody teaches AtlasMind where a new model sits.
+       */
+      modelStanding?: () => Record<string, string>;
       onToolEvent?: AcpToolEventListener;
     },
   ) {}
@@ -506,24 +524,88 @@ export class AcpAdapter implements ProviderAdapter {
       // a variant wrongly offered would route a turn to an effort the agent never
       // agreed to, while one wrongly withheld merely runs at the default.
       const tiers = acpEffortTiersFor(known?.configOptions ?? []);
+      // The models this agent offers *today*, read from the same probe. Nothing
+      // here names a model that must exist: a hardcoded roster would be wrong
+      // within weeks and wrong in the worst direction — a model the user is
+      // paying for, invisible to the router.
+      const models = acpModelChoicesFor(known?.configOptions ?? [], this.modelStanding());
+
+      // With no model knob the agent keeps its original shape: one base row plus
+      // an effort ladder. Adding an empty model dimension would rename every
+      // existing row for no gain and invalidate anyone's pinned model id.
+      if (models.length === 0) {
+        return [
+          base,
+          ...tiers.map(tier => ({
+            id: buildAcpModelVariantId(baseModelId, tier),
+            name: `${label} (${tier.label} effort)`,
+            inputPricePer1k: 0,
+            outputPricePer1k: 0,
+            capabilities,
+            // What the router already knows how to reason about. `reasoningDepth`
+            // drives task-fit scoring and `premiumRequestMultiplier` drives the
+            // budget gate, so the effort gradient falls out of existing machinery
+            // rather than needing a parallel one. Both come from a declared table
+            // — `ACP_EFFORT_RULE_NOTE`, published on the provider card.
+            reasoningDepth: tier.reasoningDepth,
+            premiumRequestMultiplier: tier.premiumRequestMultiplier,
+          })),
+        ];
+      }
+
+      // Model × effort, capped and ordered so truncation costs every *effort*
+      // before it costs any *model*. Both dimensions are real knobs on the same
+      // session, so the cross product is what lets the router ask for the deep
+      // model at low effort — a combination neither dimension can express alone.
       return [
         base,
-        ...tiers.map(tier => ({
-          id: buildAcpModelVariantId(baseModelId, tier),
-          name: `${label} (${tier.label} effort)`,
-          inputPricePer1k: 0,
-          outputPricePer1k: 0,
-          capabilities,
-          // What the router already knows how to reason about. `reasoningDepth`
-          // drives task-fit scoring and `premiumRequestMultiplier` drives the
-          // budget gate, so the effort gradient falls out of existing machinery
-          // rather than needing a parallel one. Both come from a declared table
-          // — `ACP_EFFORT_RULE_NOTE`, published on the provider card.
-          reasoningDepth: tier.reasoningDepth,
-          premiumRequestMultiplier: tier.premiumRequestMultiplier,
-        })),
+        ...acpModelRows(models, tiers).map(({ model, effort }) => {
+          const composed = composeAcpVariant(model, effort);
+          const modelId = buildAcpModelId(baseModelId, model);
+          return {
+            id: effort ? buildAcpModelVariantId(modelId, effort) : modelId,
+            // The agent's own name for the model, plus the standing that decided
+            // its routing weight — including when that standing is unknown, so a
+            // row nobody ranked does not look like one somebody did.
+            name: effort
+              ? `${label} · ${model.name} (${effort.label} effort)`
+              : `${label} · ${model.name} (${describeAcpModelStanding(model.standing)})`,
+            inputPricePer1k: 0,
+            outputPricePer1k: 0,
+            capabilities,
+            ...composed,
+          };
+        }),
       ];
     });
+  }
+
+  /** The user's declared model standings; a throwing getter degrades to none. */
+  private modelStanding(): Record<string, string> {
+    try {
+      const declared = this.options?.modelStanding?.();
+      return declared && typeof declared === 'object' ? declared : {};
+    } catch {
+      return {};
+    }
+  }
+
+  /**
+   * The model choice a slug names, for the agent that offers it.
+   *
+   * Resolved against the cached probe rather than a fresh session: this runs on
+   * the execute path, where a spawn to re-read a list we already have would add
+   * seconds to every turn. An unknown slug yields nothing and the turn runs on
+   * the agent's own model — the conservative direction, since the alternative is
+   * refusing a turn over a knob.
+   */
+  private resolveModelChoice(agent: AcpAgentConfig, slug: string | undefined): AcpModelChoice | undefined {
+    if (!slug) {
+      return undefined;
+    }
+    const known = this.lastProbeByAgent.get(agent.id) ?? peekAcpProbe(this.probeCacheKey(agent));
+    return acpModelChoicesFor(known?.configOptions ?? [], this.modelStanding())
+      .find(model => model.slug === slug);
   }
 
   /**
@@ -612,20 +694,35 @@ export class AcpAdapter implements ProviderAdapter {
   }
 
   /**
-   * The agent a model id names, and the effort it asks for.
+   * The agent a model id names, plus the model and effort it asks for.
    *
-   * `acp/claude#high` is one agent at one effort — the suffix is stripped before
-   * the agent lookup, or every effort variant would fall through to `agents[0]`
-   * and quietly run on the wrong agent.
+   * `acp/claude@opus#high` is one agent, one model, one effort. **Both suffixes
+   * are stripped before the agent lookup** — an id still carrying either would
+   * match no configured agent and fall through to `agents[0]`, quietly running
+   * the turn on somebody else's subscription. The model segment is separated
+   * first because it sits between the agent and the effort.
    */
-  private resolveAgent(model: string): { agent: AcpAgentConfig; effort?: AcpEffortTier } | undefined {
-    const { baseModelId, effort } = parseAcpModelVariant(model);
+  private resolveAgent(model: string): {
+    agent: AcpAgentConfig;
+    effort?: AcpEffortTier;
+    modelChoice?: AcpModelChoice;
+  } | undefined {
+    const { withoutModel, modelSlug } = splitAcpModelSegment(model);
+    const { baseModelId, effort } = parseAcpModelVariant(withoutModel);
     const wanted = baseModelId.startsWith(`${ACP_PROVIDER_ID}/`)
       ? baseModelId.slice(ACP_PROVIDER_ID.length + 1)
       : baseModelId;
     const agents = this.agents();
     const agent = agents.find(entry => entry.id === wanted) ?? agents[0];
-    return agent ? { agent, ...(effort ? { effort } : {}) } : undefined;
+    if (!agent) {
+      return undefined;
+    }
+    const modelChoice = this.resolveModelChoice(agent, modelSlug);
+    return {
+      agent,
+      ...(effort ? { effort } : {}),
+      ...(modelChoice ? { modelChoice } : {}),
+    };
   }
 
   private async handshakeOnly(agent: AcpAgentConfig): Promise<AcpProbeResult> {
@@ -693,7 +790,7 @@ export class AcpAdapter implements ProviderAdapter {
     if (!resolved) {
       throw new Error('No ACP agent is configured. Add one under atlasmind.acp.agents.');
     }
-    const { agent, effort } = resolved;
+    const { agent, effort, modelChoice } = resolved;
 
     // Two different things are called "tools", and conflating them is the trap.
     //
@@ -763,6 +860,25 @@ export class AcpAdapter implements ProviderAdapter {
       // reported rather than swallowed, because the router priced this turn at
       // this tier's multiplier — so a silent fallback would bill max effort for
       // a low-effort run, and nobody would ever find out.
+      // The model first, then the effort. Order matters against agents that
+      // reset dependent knobs when the model changes — a model switch applied
+      // *after* the effort would silently discard it, which is the same
+      // looks-like-success failure the category rule exists to prevent.
+      //
+      // Reported on the same channel as effort and for the same reason: the
+      // router priced this turn as the requested model, so falling back to the
+      // agent's own without saying so would bill an Opus turn for a Haiku run.
+      if (modelChoice) {
+        const applied = await session.setConfigOption(ACP_MODEL_CATEGORY, modelChoice.value);
+        if (!applied.ok) {
+          this.options?.onEffortNotApplied?.({
+            agentId: agent.id,
+            requested: `model ${modelChoice.name}`,
+            reason: applied.reason ?? 'unknown',
+          });
+        }
+      }
+
       if (effort) {
         const applied = await session.setConfigOption(ACP_EFFORT_CATEGORY, effort.value);
         if (!applied.ok) {

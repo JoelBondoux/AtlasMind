@@ -935,35 +935,62 @@ describe('ACP_PROVIDER_BRIDGES — the subscription offer on a pay-per-token car
 });
 
 describe('AcpAdapter — effort inside a subscription', () => {
-  it('offers one routed model per effort tier the agent listed, after a probe', async () => {
+  it('offers one routed model per model and effort the agent listed, after a probe', async () => {
     const { factory } = configurableAgent();
     const adapter = new AcpAdapter({ agents: [AGENT], spawnProcess: factory });
 
     // Before probing there is one row: the agent's own default. A variant
     // offered before the agent has said it supports one would route a turn to
-    // an effort it never agreed to.
+    // a model or effort it never agreed to.
     expect((await adapter.discoverModels()).map(m => m.id)).toEqual(['acp/fake']);
 
     await adapter.healthCheck();
 
+    // Both knobs live on the same session, so the cross product is what lets the
+    // router ask for the deep model at low effort. Every model comes before any
+    // effort variant, so a long lineup truncates efforts rather than models.
     const models = await adapter.discoverModels();
-    expect(models.map(m => m.id)).toEqual(['acp/fake', 'acp/fake#low', 'acp/fake#high']);
+    expect(models.map(m => m.id)).toEqual([
+      'acp/fake',
+      'acp/fake@opus', 'acp/fake@haiku',
+      'acp/fake@opus#low', 'acp/fake@haiku#low',
+      'acp/fake@opus#high', 'acp/fake@haiku#high',
+    ]);
   });
 
-  it('gives each tier the depth and quota cost the router already reasons about', async () => {
+  it('gives each combination the depth and quota cost the router already reasons about', async () => {
     const { factory } = configurableAgent();
     const adapter = new AcpAdapter({ agents: [AGENT], spawnProcess: factory });
     await adapter.healthCheck();
 
     const models = await adapter.discoverModels();
-    const low = models.find(m => m.id === 'acp/fake#low')!;
-    const high = models.find(m => m.id === 'acp/fake#high')!;
+    const byId = (id: string) => models.find(m => m.id === id)!;
 
-    expect(low.reasoningDepth).toBeLessThan(high.reasoningDepth!);
-    expect(low.premiumRequestMultiplier).toBeLessThan(high.premiumRequestMultiplier!);
+    // Effort still grades within one model.
+    expect(byId('acp/fake@opus#low').premiumRequestMultiplier)
+      .toBeLessThan(byId('acp/fake@opus#high').premiumRequestMultiplier!);
+    // And the model grades across efforts, so the cheapest combination is the
+    // light model at low effort — the property the budget gate depends on.
+    expect(byId('acp/fake@haiku#low').premiumRequestMultiplier)
+      .toBeLessThan(byId('acp/fake@opus#high').premiumRequestMultiplier!);
+    // Depth is the greater of the two knobs: a light model cannot be made deep
+    // by asking harder, and a deep model at low effort is still the deep model.
+    expect(byId('acp/fake@opus#low').reasoningDepth).toBe(5);
+
     // The base row carries neither: it is whatever the agent chose, and
     // asserting a depth for it would be inventing one.
-    expect(models.find(m => m.id === 'acp/fake')!.reasoningDepth).toBeUndefined();
+    expect(byId('acp/fake').reasoningDepth).toBeUndefined();
+  });
+
+  it('names the model and its standing, including when the standing is unknown', async () => {
+    // A row nobody ranked must not look like one somebody did.
+    const { factory } = configurableAgent();
+    const adapter = new AcpAdapter({ agents: [AGENT], spawnProcess: factory });
+    await adapter.healthCheck();
+
+    const models = await adapter.discoverModels();
+    expect(models.find(m => m.id === 'acp/fake@opus')!.name).toContain('deep');
+    expect(models.find(m => m.id === 'acp/fake@haiku')!.name).toContain('light');
   });
 
   it('sets the requested effort before prompting', async () => {
@@ -976,6 +1003,63 @@ describe('AcpAdapter — effort inside a subscription', () => {
     const written = agents[0]!.written.map(f => f['method']);
     // Order matters: an effort set after the prompt would have changed nothing.
     expect(written.indexOf('session/set_config_option')).toBeLessThan(written.indexOf('session/prompt'));
+  });
+
+  it('sets the requested model before prompting', async () => {
+    const { factory, agents, state } = configurableAgent();
+    const adapter = new AcpAdapter({ agents: [AGENT], spawnProcess: factory });
+    await adapter.healthCheck();
+
+    await adapter.complete(request({ model: 'acp/fake@haiku' }));
+
+    expect(state['model']).toBe('haiku');
+    const written = agents.at(-1)!.written.map(f => f['method']);
+    expect(written.indexOf('session/set_config_option')).toBeLessThan(written.indexOf('session/prompt'));
+  });
+
+  it('sets the model before the effort', async () => {
+    // Against an agent that resets dependent knobs when the model changes, a
+    // model applied *after* the effort would silently discard it — the same
+    // looks-like-success failure the category rule exists to prevent.
+    const { factory, agents, state } = configurableAgent();
+    const adapter = new AcpAdapter({ agents: [AGENT], spawnProcess: factory });
+    await adapter.healthCheck();
+
+    await adapter.complete(request({ model: 'acp/fake@haiku#high' }));
+
+    expect(state['model']).toBe('haiku');
+    expect(state['effort']).toBe('high');
+    const values = agents.at(-1)!.written
+      .filter(f => f['method'] === 'session/set_config_option')
+      .map(f => JSON.stringify((f['params'] as Record<string, unknown>) ?? {}));
+    expect(values[0]).toContain('haiku');
+    expect(values[1]).toContain('high');
+  });
+
+  it('runs on the named agent rather than falling through to the first', async () => {
+    // Both suffixes have to come off before the agent lookup. An id still
+    // carrying either matches no configured agent, and the fallback would run
+    // the turn on somebody else's subscription.
+    const { factory, state } = configurableAgent();
+    const adapter = new AcpAdapter({
+      agents: [{ id: 'other', command: 'other-acp' }, AGENT],
+      spawnProcess: factory,
+    });
+    await adapter.healthCheck();
+
+    await adapter.complete(request({ model: 'acp/fake@haiku#high' }));
+    expect(state['model']).toBe('haiku');
+  });
+
+  it('leaves the model alone when the slug names nothing the agent offers', async () => {
+    // The conservative direction: the turn runs at the agent's own model rather
+    // than being refused over a knob.
+    const { factory, state } = configurableAgent();
+    const adapter = new AcpAdapter({ agents: [AGENT], spawnProcess: factory });
+    await adapter.healthCheck();
+
+    await adapter.complete(request({ model: 'acp/fake@nonexistent' }));
+    expect(state['model']).toBe('opus');
   });
 
   it('matches the effort knob by category even when the agent names it differently', async () => {

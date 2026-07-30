@@ -6,6 +6,24 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.218.0 — The models inside a subscription
+
+The same session response that advertises effort also advertises the plan's *models* — Opus, Sonnet, Haiku on Claude; Luna, Terra, Sol on ChatGPT — and AtlasMind was discarding that half. Each is now a routed model, and the two knobs compose: `acp/claude@opus#high`. The orchestrator can send a throwaway rename to the light model and a refactor to the deep one, inside the plan you already pay for.
+
+**The list is detected, never assumed.** Nothing declares which models your plan has — vendors ship faster than AtlasMind releases, and a built-in roster would hide a model you are paying for.
+
+**Where a model sits cannot be detected**: the wire carries a name and a description, not a capability rating. Standing comes from a declared rule — your `atlasmind.acp.modelStanding` setting, then a short table of naming conventions we will stand behind (Haiku / Sonnet / Opus), then the agent's own description — and every choice publishes which rule decided.
+
+**Unknown standing is routable, never dropped.** A model matching no rule is fully selectable but never *preferred* on capability, because a guessed ranking misroutes silently. Luna, Terra and Sol are currently unknown — they read as moon/earth/sun, which is etymology rather than a vendor statement. Declare them and the router uses them fully:
+
+```json
+"atlasmind.acp.modelStanding": { "Luna": "light", "Terra": "balanced", "Sol": "deep" }
+```
+
+Composition is two more declared rules: depth is the **greater** of model and effort (asking harder does not deepen a light model), and cost **multiplies** (both spend your plan).
+
+---
+
 ## v0.217.0 — Effort levels inside a subscription
 
 An ACP subscription presented to the router as **one model**, running at whatever the agent defaulted to. The agents were already advertising more than that on every session — `session/new` returns a `configOptions` array carrying a `thought_level` knob — and the adapter kept the session id and discarded the rest.

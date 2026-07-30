@@ -327,6 +327,28 @@ Two different things are reported, and conflating them made every ACP completion
 
 Because ACP models are subscription-backed, they are priced at zero per token; the router's subscription handling, not the adapter, is what stops that from winning budget mode by default. Which subscription is a per-model question — see [Scope: one provider can front several plans](#scope-one-provider-can-front-several-plans).
 
+### Which model, not just how hard it thinks
+
+The same `configOptions` array carries a `model` category, and it was being parsed and discarded. `codex-acp` offers `gpt-5.6-luna` / `gpt-5.6-terra` / `gpt-5.6-sol`; `claude-agent-acp` offers `opus[1m]` / `sonnet` / `haiku` / … . So a plan presented to the router as one model at N effort levels when it is really M models at N effort levels, and the orchestrator could never send a throwaway rename to the light model and a refactor to the deep one.
+
+**The model list is detected, never declared.** Nothing in `acpModels.ts` names a model that must exist. Vendors ship models faster than AtlasMind ships releases, so a hardcoded roster would be wrong within weeks and wrong in the worst direction — a model you are paying for, invisible to the router. Whatever the installed agent offers today is what appears.
+
+**What cannot be detected is a model's standing.** The wire format carries `value`, `name` and `description` — no capability field, no ordering guarantee. Where a model sits relative to its siblings is therefore assigned by a declared rule, in precedence order:
+
+1. **`atlasmind.acp.modelStanding`** — what you declared, keyed on the display name or the wire value.
+2. **A short table of naming conventions** this build is willing to stand behind (Anthropic's Haiku / Sonnet / Opus tiering). Deliberately short: every entry is a claim about a vendor's lineup, and a wrong one misroutes every turn. Generic words like `pro`, `max` and `turbo` are absent — they mean opposite things across vendors, and `max` also names an effort level.
+3. **Keywords in the agent's own description** of that model. Weaker than a convention, because marketing copy is not a specification — but it is the vendor describing this exact model, which beats anything this file could infer about a name it has never seen.
+
+Every choice records which rule decided, published as `ACP_MODEL_RULE_NOTE` on the provider card, the same convention the tech-debt register uses.
+
+**Unknown standing is routable, never dropped.** This inverts `acpEffortTiersFor`, which drops effort values it does not recognise, and the difference is deliberate: an unrecognised *effort* value has no depth or cost the router can reason about, so a row for it would be unscoreable, while an unrecognised *model* is a real working model whose only unknown is its rank. Dropping it would hide capacity you pay for — and hide it precisely for the newest model, the one most likely to be worth using. It routes, it is selectable, it simply carries no `reasoningDepth` and a neutral multiplier, so it is never *preferred* on a number nobody stands behind.
+
+At the time of writing, `luna` / `terra` / `sol` fall through to unknown. They sit in an obvious size order if you read them as moon/earth/sun — but that is etymology, not a vendor statement, and a wrong ranking sends a refactor to the small model without anybody finding out. Declare them in `atlasmind.acp.modelStanding` and the router uses them fully.
+
+**Model and effort compose into one routed id** — `acp/claude@opus#high` — because both are knobs on the same session and the combination is what a subscription user actually wants. Two declared rules govern the composition: **depth is the greater of the two** (a light model cannot be made deep by asking harder; a deep model at low effort is still the deep model), and **cost multiplies** (both spend the plan). Rows are capped per agent and ordered so truncation costs every effort before it costs any model — a long lineup still exposes every model.
+
+On the execute path the model is set **before** the effort. Against an agent that resets dependent knobs when the model changes, the other order would silently discard the effort — the same looks-like-success failure the category rule exists to prevent. A model that cannot be applied does not fail the turn, and is reported on the same channel as a failed effort, for the same reason: the router priced the turn as that model.
+
 ### Effort is a routed model, set through `session/set_config_option`
 
 **There is no `session/set_model` in ACP v1.** The spec's session-setup page notes that a `session/new` response *MAY* carry model or configuration state, and the mechanism for changing it is `session/set_config_option` — verified against the published schema at `ACP_SPEC_VERIFIED_AT` and against live `codex-acp` 1.1.7 and `claude-agent-acp` 0.63.0, both of which implement it and echo the full option set back.

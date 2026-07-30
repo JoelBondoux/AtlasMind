@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.218.0] - 2026-07-30
+
+### Added
+- **The models inside an ACP subscription are now routable, not just the effort levels.** The same `configOptions` array that carries `thought_level` also carries a `model` category, and it was being parsed and thrown away — so a Claude Max or ChatGPT plan presented to the router as *one* model at N effort levels when it is really *M* models at N effort levels. `claude-agent-acp` offers Opus / Sonnet / Haiku / …, `codex-acp` offers Luna / Terra / Sol; each is now a routed model id, and model and effort compose: `acp/claude@opus#high`.
+
+  **The model list is detected, never declared.** Nothing in `acpModels.ts` names a model that must exist. Vendors ship models faster than AtlasMind ships releases, so a hardcoded roster would be wrong within weeks and wrong in the worst direction — a model you are paying for, invisible to the router. Whatever your installed agent offers today is what appears.
+
+  **What cannot be detected is a model's standing**, because the wire format carries a name and a description but no capability field. Standing therefore comes from a declared rule, in precedence order: your new `atlasmind.acp.modelStanding` setting, then a deliberately short table of naming conventions this build will stand behind (Anthropic's Haiku / Sonnet / Opus tiering — generic words like `pro`, `max` and `turbo` are excluded, since they mean opposite things across vendors and `max` also names an effort level), then keywords in the agent's own description of that model. Every choice publishes which rule decided, on the provider card, the same convention the tech-debt register uses.
+
+  **Unknown standing is routable, never dropped** — deliberately inverting `acpEffortTiersFor`, which discards effort values it does not recognise. An unrecognised *effort* has no depth or cost the router could score; an unrecognised *model* is a real, working model whose only unknown is its rank, and dropping it would hide capacity you pay for, precisely for the newest model. It routes and is selectable; it simply carries no `reasoningDepth` and a neutral multiplier, so it is never *preferred* on a number nobody stands behind.
+
+  Luna, Terra and Sol currently fall through to unknown. They sit in an obvious order if you read them as moon/earth/sun — but that is etymology, not a vendor statement, and a wrong ranking sends a refactor to the small model without anybody finding out. Declare them and the router uses them fully.
+
+  **Composition is two more declared rules:** depth is the **greater** of the model's and the effort's (a light model cannot be made deep by asking harder; a deep model at low effort is still the deep model), and cost **multiplies** (both spend the plan). Rows are capped per agent and ordered so truncation costs every effort before it costs any model. On the execute path the model is set **before** the effort — against an agent that resets dependent knobs when the model changes, the other order would silently discard the effort.
+
+- **`atlasmind.acp.modelStanding`** — where each model sits when AtlasMind cannot tell, keyed on display name or wire value: `{ "Luna": "light", "Terra": "balanced", "Sol": "deep" }`. Values are `light`, `balanced`, `deep` or `unknown`; anything else is ignored rather than guessed at. A declaration also beats the built-in naming table, so you can correct one as well as fill a gap.
+
+- **`src/providers/acpModels.ts`** — the pure, `vscode`-free detection and ranking, with the id round-trip, the precedence order and the unknown-is-routable property unit-tested.
+
+### Fixed
+- An ACP model id carrying a model segment (`acp/claude@opus#high`) is split before the agent lookup. An id still carrying it matches no configured agent and falls through to `agents[0]` — a turn quietly running on somebody else's subscription.
+
 ## [0.217.0] - 2026-07-30
 
 ### Added

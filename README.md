@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.217.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.218.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,9 +68,15 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.217.0
+## What's new in 0.218.0
 
 Since the last Marketplace publication, **v0.214.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **The models inside a subscription, not just the effort levels.** The same session response that advertises effort also advertises the plan's *models* — Opus, Sonnet, Haiku and whatever else your Claude plan carries; Luna, Terra and Sol on ChatGPT — and AtlasMind was discarding that half. Each is now a routable model, and the two knobs compose: `acp/claude@opus#high`. The orchestrator can send a throwaway rename to the light model and a refactor to the deep one, inside the plan you already pay for.
+
+  **The list is detected, never assumed.** Nothing in AtlasMind declares which models your plan has — vendors ship faster than we release, and a built-in roster would hide a model you are paying for. Whatever your agent offers today is what appears, once it has been probed.
+
+  **Where a model *sits* is a different question, and the protocol cannot answer it** — there is a name and a description on the wire, but no capability rating. So standing comes from a declared rule: your `atlasmind.acp.modelStanding` setting first, then a short table of naming conventions we will stand behind, then the agent's own description. A model matching none of them is offered as **unknown** — fully routable and selectable, but never *preferred* on capability, because a guessed ranking would misroute every turn without telling you. Luna, Terra and Sol are currently unknown: they read as moon/earth/sun, which is etymology rather than anything OpenAI has stated. Tell AtlasMind where they sit and it uses them fully.
 
 - **Effort levels inside a subscription.** An ACP subscription used to present to the router as a single model running at whatever the agent defaulted to. The agents were already advertising more on every session — a `thought_level` option with tiers from `low` to `max` (Codex adds `ultra`) — and AtlasMind was discarding it along with the rest of the session response.
 
