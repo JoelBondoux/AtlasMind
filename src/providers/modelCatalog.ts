@@ -1584,7 +1584,6 @@ const NVIDIA_CATALOG: CatalogEntry[] = [
 
 const PROVIDER_CATALOGS: Record<string, CatalogEntry[]> = {
   anthropic: ANTHROPIC_CATALOG,
-  'claude-cli': ANTHROPIC_CATALOG,
   openai: OPENAI_CATALOG,
   azure: AZURE_OPENAI_CATALOG,
   google: GOOGLE_CATALOG,
@@ -1743,7 +1742,6 @@ export function getComparableCloudReference(localModelId: string): ComparableClo
 
 const PROVIDER_INFO_URLS: Record<string, string> = {
   anthropic: 'https://docs.anthropic.com/en/docs/about-claude/models/overview',
-  'claude-cli': 'https://code.claude.com/docs/en/cli-reference',
   openai: 'https://developers.openai.com/api/docs/models',
   azure: 'https://learn.microsoft.com/azure/ai-services/openai/concepts/models',
   google: 'https://ai.google.dev/gemini-api/docs/models',

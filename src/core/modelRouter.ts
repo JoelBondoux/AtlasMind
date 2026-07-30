@@ -60,7 +60,7 @@ const ACTIVE_SUBSCRIPTION_BONUS = 0.3;
  * listed here.
  */
 const CACHE_CAPABLE_PROVIDERS = new Set<string>([
-  'anthropic', 'claude-cli', 'openai', 'azure', 'deepseek', 'google', 'copilot',
+  'anthropic', 'openai', 'azure', 'deepseek', 'google', 'copilot',
 ]);
 /**
  * Conservative cache-read discount applied to input price when a model is
@@ -79,7 +79,6 @@ const DEFAULT_CACHE_READ_FACTOR = 0.25;
  */
 const PROVIDER_CACHE_READ_FACTOR: Record<string, number> = {
   anthropic: 0.1,
-  'claude-cli': 0.1,
   openai: 0.5,
   azure: 0.5,
   copilot: 0.5,
@@ -193,6 +192,8 @@ type ModelFailureState = {
 export class ModelRouter {
   private providers = new Map<string, ProviderConfig>();
   private providerHealth = new Map<string, boolean>();
+  /** Model id → the subscription that model is billed against. See {@link setModelSubscriptionQuota}. */
+  private modelSubscriptionQuotas = new Map<string, SubscriptionQuota>();
   private modelPreferences = new Map<string, ModelPreferenceStats>();
   private executionOutcomes = new Map<string, ModelOutcomeState>();
   private struggleSignals = new Map<string, ModelStruggleState>();
@@ -220,6 +221,104 @@ export class ModelRouter {
   /** Get current subscription quota for a provider, if any. */
   getSubscriptionQuota(providerId: string): SubscriptionQuota | undefined {
     return this.providers.get(providerId)?.subscriptionQuota;
+  }
+
+  /**
+   * A subscription quota scoped to one model rather than to its provider.
+   *
+   * Every other subscription provider is one provider in front of one plan, so
+   * keying the quota by provider id was the same thing as keying it by the
+   * subscription. ACP is not: `acp` is one provider id in front of *several
+   * unrelated subscriptions* — `acp/claude` is billed against a Claude plan and
+   * `acp/codex` against a ChatGPT one, bought separately, priced differently and
+   * exhausted independently. A single `acp` quota cannot describe both, and the
+   * failure is silent in the worst direction: the second plan configured
+   * overwrites the first, so the router prices Codex turns against Claude Max's
+   * cost-per-unit and depletes one plan's allowance by running the other.
+   *
+   * So the scope is the *model*, which for ACP is exactly one agent and
+   * therefore exactly one subscription. Provider-level quotas are untouched —
+   * {@link subscriptionQuotaForModel} falls back to them — so Copilot keeps the
+   * behaviour it has, and only a provider that actually fronts more than one
+   * plan pays the cost of saying which.
+   */
+  setModelSubscriptionQuota(modelId: string, quota: SubscriptionQuota): void {
+    this.modelSubscriptionQuotas.set(modelId, quota);
+  }
+
+  /** The model-scoped quota only — never the provider's. Undefined when unset. */
+  getModelSubscriptionQuota(modelId: string): SubscriptionQuota | undefined {
+    return this.modelSubscriptionQuotas.get(modelId);
+  }
+
+  /** Forget a model-scoped quota, so the provider's applies again. */
+  clearModelSubscriptionQuota(modelId: string): void {
+    this.modelSubscriptionQuotas.delete(modelId);
+  }
+
+  /** Every model-scoped quota, for persistence. */
+  listModelSubscriptionQuotas(): ReadonlyMap<string, SubscriptionQuota> {
+    return this.modelSubscriptionQuotas;
+  }
+
+  /**
+   * The quota that governs this model: its own if one is set, otherwise its
+   * provider's. This is what every pricing, scoring and gating path must use —
+   * reading `provider.subscriptionQuota` directly is what made a multi-plan
+   * provider report one plan's numbers for all of them.
+   */
+  subscriptionQuotaForModel(modelId: string): SubscriptionQuota | undefined {
+    const scoped = this.modelSubscriptionQuotas.get(modelId);
+    if (scoped) {
+      return scoped;
+    }
+    // `acp/claude#high` is the same subscription as `acp/claude` — a variant is
+    // a different *effort*, not a different plan. Without this, adding effort
+    // variants would silently detach every configured ACP plan: the user's
+    // Claude Max entry sits on `acp/claude` while every turn routes to a
+    // variant, so the plan would appear configured and never once be consulted.
+    const base = baseModelIdOf(modelId);
+    if (base !== modelId) {
+      const baseQuota = this.modelSubscriptionQuotas.get(base);
+      if (baseQuota) {
+        return baseQuota;
+      }
+    }
+    const providerId = this.getModelInfo(modelId)?.provider;
+    return providerId ? this.providers.get(providerId)?.subscriptionQuota : undefined;
+  }
+
+  /**
+   * Spend `units` against whichever quota governs `modelId`, and say what is
+   * left. Returns undefined when no quota is configured — an unmeasured plan is
+   * not a depleted one.
+   *
+   * The scope decision lives here rather than at the call site so a turn can
+   * never be *priced* against the model's plan and *deducted* from the
+   * provider's, which is the shape the bug took when both were spelled out
+   * separately.
+   */
+  consumeSubscriptionUnits(
+    modelId: string,
+    units: number,
+  ): { scope: string; remainingRequests: number; totalRequests: number } | undefined {
+    // Spend against the same key `subscriptionQuotaForModel` reads, variant
+    // included — a turn priced against the base plan must be deducted from it.
+    const scopeKey = this.modelSubscriptionQuotas.has(modelId) ? modelId : baseModelIdOf(modelId);
+    const scoped = this.modelSubscriptionQuotas.get(scopeKey);
+    if (scoped) {
+      const remainingRequests = Math.max(0, scoped.remainingRequests - units);
+      this.modelSubscriptionQuotas.set(scopeKey, { ...scoped, remainingRequests });
+      return { scope: scopeKey, remainingRequests, totalRequests: scoped.totalRequests };
+    }
+    const providerId = this.getModelInfo(modelId)?.provider;
+    const providerQuota = providerId ? this.providers.get(providerId)?.subscriptionQuota : undefined;
+    if (!providerId || !providerQuota) {
+      return undefined;
+    }
+    const remainingRequests = Math.max(0, providerQuota.remainingRequests - units);
+    this.updateSubscriptionQuota(providerId, { ...providerQuota, remainingRequests });
+    return { scope: providerId, remainingRequests, totalRequests: providerQuota.totalRequests };
   }
 
   setProviderHealth(providerId: string, healthy: boolean): void {
@@ -687,9 +786,10 @@ export class ModelRouter {
         const provider = this.providers.get(model.provider);
         const pricing = provider?.pricingModel ?? 'pay-per-token';
         // Exhausted subscription → treat as pay-per-token for slot allocation.
+        const quota = this.subscriptionQuotaForModel(model.id);
         const effectivePricing = (pricing === 'subscription' &&
-          provider?.subscriptionQuota &&
-          provider.subscriptionQuota.remainingRequests <= 0)
+          quota &&
+          quota.remainingRequests <= 0)
           ? 'pay-per-token' as const
           : pricing;
         return {
@@ -896,7 +996,7 @@ export class ModelRouter {
     if (provider?.pricingModel !== 'subscription') {
       return 0;
     }
-    const quota = provider.subscriptionQuota;
+    const quota = this.subscriptionQuotaForModel(model.id);
     const hasQuota = !quota || quota.remainingRequests > 0;
     return hasQuota ? ACTIVE_SUBSCRIPTION_BONUS : 0;
   }
@@ -1025,7 +1125,7 @@ export class ModelRouter {
     }
 
     // If subscription quota is configured, check remaining.
-    const quota = provider?.subscriptionQuota;
+    const quota = this.subscriptionQuotaForModel(model.id);
     if (quota) {
       const quotaFraction = quota.totalRequests > 0
         ? quota.remainingRequests / quota.totalRequests
@@ -1147,7 +1247,7 @@ export class ModelRouter {
       return true;
     }
     if (provider?.pricingModel === 'subscription') {
-      const quota = provider.subscriptionQuota;
+      const quota = this.subscriptionQuotaForModel(model.id);
       const hasQuota = !quota || quota.remainingRequests > 0;
       if (hasQuota) {
         const multiplier = model.premiumRequestMultiplier ?? 1;
@@ -1297,4 +1397,38 @@ function isBuiltinLocalEchoModel(model: ModelInfo): boolean {
 function getReasoningDepth(model: ModelInfo): number {
   if (model.reasoningDepth !== undefined) return model.reasoningDepth;
   return model.capabilities.includes('reasoning') ? 2 : 0;
+}
+
+/**
+ * A model id with any variant suffix removed: `acp/claude#high` → `acp/claude`.
+ *
+ * A variant is the *same model on the same plan*, asked to work harder — so
+ * anything keyed to the subscription (quota, spend) belongs to the base id,
+ * while anything keyed to the effort (depth, multiplier, scoring) belongs to the
+ * variant. The separator is declared in `acpEffort.ts`; it is inlined here
+ * rather than imported because the router must not depend on a provider module.
+ */
+/**
+ * The model id a variant is billed against.
+ *
+ * AtlasMind has two variant separators, and **both name a choice inside one
+ * subscription rather than a different subscription**: `#high` is an effort
+ * (`acpEffort.ts`, `ACP_VARIANT_SEPARATOR`) and `@opus` is a model within the
+ * same plan (`acpModels.ts`, `ACP_MODEL_SEPARATOR`). `acp/claude@opus#high` is
+ * therefore billed against the same Claude plan as `acp/claude`.
+ *
+ * Stripping only `#` was enough until model variants existed, and the failure it
+ * caused afterwards is silent in the direction that costs money: ACP quotas are
+ * *model-scoped* (the user's Claude Max entry sits on `acp/claude`, because one
+ * `acp` provider fronts several unrelated plans), so an unstripped `@opus` found
+ * no quota, fell through to a provider-level quota ACP deliberately does not
+ * have, and every model-variant turn then looked like an unmetered plan — the
+ * preference bonus kept applying after the quota was spent, and nothing
+ * decremented the plan those turns were actually billed to.
+ *
+ * The earliest separator wins, so order between them never matters.
+ */
+function baseModelIdOf(modelId: string): string {
+  const cuts = [modelId.indexOf('@'), modelId.indexOf('#')].filter(index => index >= 0);
+  return cuts.length === 0 ? modelId : modelId.slice(0, Math.min(...cuts));
 }

@@ -6,6 +6,84 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.218.1 — Every variant bills the plan it actually used
+
+ACP subscription quotas are *model-scoped*: one `acp` provider fronts several unrelated plans, so your Claude Max entry sits on `acp/claude`. The plan lookup stripped only the `#effort` suffix, so the `@model` segment introduced in v0.218.0 left `acp/claude@opus#high` resolving to a key no plan is stored under — and it fell through to a provider-level quota ACP deliberately does not have.
+
+Silent, and in the direction that costs money: every model-variant turn looked like an *unmetered* plan. The "already paid for" preference kept applying after the quota was spent, and nothing decremented the plan those turns were billed to. Both separators now strip, because each names a choice *inside* one subscription rather than a different one.
+
+**Also confirmed:** an ACP plan is weighed exactly as Copilot and Claude CLI are. Subscription capacity is advanced over pay-per-token by a general preference, and by a larger one on maintenance turns that pairs with a penalty for metered models — both keyed on the provider's pricing model rather than a list of provider names, so the equivalence holds by construction. A test now pins it.
+
+---
+
+## v0.219.0 — The Claude Code CLI provider is removed
+
+It was a chat-only bridge that shelled out to `claude --print`: no streaming, a ~26,000-character prompt ceiling imposed by the OS argv limit, and no tool use. The ACP provider superseded it on every axis — the same subscription, with streaming, no prompt ceiling, images, and now real model *and* effort selection — so keeping it meant two routes to one Claude plan, one of them strictly worse and quietly lossy.
+
+**Nothing breaks on upgrade.** If you pinned `claude-cli/opus` in `atlasmind.planningModelId` or `atlasmind.synthesisModelId`, the id is now unknown and those settings do what they already promised: fall back to normal routing. A subscription quota saved under the old provider is never consulted, and spending against it is inert rather than an error.
+
+**To keep using your Claude plan**, configure an ACP agent — Model Providers → Anthropic → *"Use my Claude subscription"*, or run `/acp` for the walkthrough. You get the same plan with streaming, the full prompt, and per-model routing.
+
+---
+
+## v0.218.0 — The models inside a subscription
+
+The same session response that advertises effort also advertises the plan's *models* — Opus, Sonnet, Haiku on Claude; Luna, Terra, Sol on ChatGPT — and AtlasMind was discarding that half. Each is now a routed model, and the two knobs compose: `acp/claude@opus#high`. The orchestrator can send a throwaway rename to the light model and a refactor to the deep one, inside the plan you already pay for.
+
+**The list is detected, never assumed.** Nothing declares which models your plan has — vendors ship faster than AtlasMind releases, and a built-in roster would hide a model you are paying for.
+
+**Where a model sits cannot be detected**: the wire carries a name and a description, not a capability rating. Standing comes from a declared rule — your `atlasmind.acp.modelStanding` setting, then a short table of naming conventions we will stand behind (Haiku / Sonnet / Opus), then the agent's own description — and every choice publishes which rule decided.
+
+**Unknown standing is routable, never dropped.** A model matching no rule is fully selectable but never *preferred* on capability, because a guessed ranking misroutes silently. Luna, Terra and Sol are currently unknown — they read as moon/earth/sun, which is etymology rather than a vendor statement. Declare them and the router uses them fully:
+
+```json
+"atlasmind.acp.modelStanding": { "Luna": "light", "Terra": "balanced", "Sol": "deep" }
+```
+
+Composition is two more declared rules: depth is the **greater** of model and effort (asking harder does not deepen a light model), and cost **multiplies** (both spend your plan).
+
+---
+
+## v0.217.0 — Effort levels inside a subscription
+
+An ACP subscription presented to the router as **one model**, running at whatever the agent defaulted to. The agents were already advertising more than that on every session — `session/new` returns a `configOptions` array carrying a `thought_level` knob — and the adapter kept the session id and discarded the rest.
+
+Each effort level your agent actually offers is now a routed model: `acp/claude#high`, `acp/codex#max`, alongside the plain row that still means *the agent's own default*. Each tier carries a reasoning depth and a quota cost, so the budget mode you already set expresses the gradient — **cheap** reaches `low`, **balanced** reaches `high`, **expensive** reaches the top — through machinery the router already had rather than anything ACP-specific.
+
+**Set through `session/set_config_option`, because there is no `session/set_model`.** The mechanism was read from the published v1 schema and confirmed against live `codex-acp` 1.1.7 and `claude-agent-acp` 0.63.0. The two agents name the knob differently — `reasoning_effort` and `effort` — but both label it `category: "thought_level"`, so the category is what AtlasMind matches on. Keying on the id would have worked against one agent and silently done nothing against the other, which looks exactly like success because the turn still completes.
+
+**AtlasMind will not touch the agent's permission mode.** The same list that offers effort also offers `bypassPermissions` and `agent-full-access`. Only the model and the effort can ever be set, so a routing decision can never widen what an agent is allowed to do — and Codex's "fast mode" (*1.5x speed, increased usage*) is excluded too, because spending your plan faster is your decision.
+
+**The cost of a tier is a declared rule.** No vendor publishes what a max-effort turn costs against a plan, so the multipliers are AtlasMind's own stated assumption, printed on the provider card the way the debt register prints the rule that graded an entry. And a tier that cannot be applied does not fail the turn — it runs at the default and says so, because it was priced at the tier you asked for.
+
+---
+
+## v0.216.0 — ACP works, and a plan says whose
+
+An installed, signed-in ACP agent was reported as **⚠ ACP — agent not responding** by the Models tree, while the provider panel showed the same agent as **Ready** on the same screen, and the router refused to route to it either way.
+
+**The cause was one missing branch.** The "is this provider configured?" check had no case for `acp`, so it fell through to reading `atlasmind.provider.acp.apiKey` — a key that does not exist and never will, since the whole point of ACP is to drive an agent you have already signed in to. Every refresh marked ACP unconfigured, which skipped model discovery *and* set provider health to false. The tree then reported that flag as a verdict on the agent. It also explains why only the seeded `acp/claude` ever appeared: a configured `codex-acp` had no model row because discovery never ran.
+
+**Four related faults went with it.** Every configured agent is now probed rather than only the first, so a broken agent no longer condemns a working one and a vendor row no longer reports another vendor's agent. An agent nobody has contacted shows **not checked yet** rather than *not responding* — a verdict requires having asked. The startup budget is no longer smaller than the probe it contains: an ACP probe spawns a process per agent and opens a session, about nine seconds for two agents, against a ten-second timeout whose expiry marked the provider unhealthy for the rest of the session. And the long-lived routed adapter re-reads the agent list instead of snapshotting it at activation, so an agent added later is visible without a window reload.
+
+**A subscription plan can now belong to an agent.** *Configure plan* on the ACP card opened straight onto "Enter monthly cost" with no subject — a question with no correct answer, because `acp` fronts several unrelated subscriptions: your Claude plan pays for `acp/claude` and your ChatGPT plan for `acp/codex`. Whatever figure you typed landed on the provider, so configuring the second plan overwrote the first, and the router then priced every ACP turn against one plan while depleting the other.
+
+The flow now opens on **"Which subscription are you configuring?"**, offers each vendor's real tiers — Claude Pro / Max 5× / Max 20×, ChatGPT Plus / Pro, Google AI Pro / Ultra — and titles every step with the agent it is about. The card lists one row per agent, and each plan is spent only by the model it pays for. Providers that front exactly one plan are unaffected.
+
+---
+
+## v0.215.0 — The header says what version is where
+
+The Project Dashboard header carried two pills: a *guessed* production branch and whatever branch was checked out. That answers "which branch am I on?" — while the project already models the real answer on the Delivery page, as an ordered pipeline of stages each naming the branch whose committed version represents it. The header ignored it, so adding a Staging stage changed nothing there.
+
+The strip is now **one pill per stage, in pipeline order**, derived from the same stage views the Delivery page renders — so a stage added there appears in the header without a second definition of what a stage is, and the two surfaces cannot report different versions. AtlasMind's own pipeline reads **Local · Staging `develop` · Production `main`**.
+
+**The working tree gets a pill of its own.** It is the only reading taken from `package.json` on disk rather than from git, and therefore the only one that can be ahead of every branch — so it says `working tree` rather than borrowing a branch name, and is marked when the tree is dirty, which is exactly when it differs from the rest of the strip.
+
+**A version is never invented.** A stage whose branch does not exist yet says so rather than borrowing a plausible number, because a version shown against an environment nobody deployed to claims a deployment that never happened. Pills are capped with the remainder stated, and a project with no pipeline configured still gets the original git-derived pair — labelled so a guessed production branch is not given the authority of a declared stage.
+
+---
+
 ## v0.214.0 — The Overview says what needs a person
 
 A *Needs you* band sits above the stat grid and gathers, from the pages that already know, what is failing, shut or past due: failing tests, a red pipeline, blocked memory writes, overdue follow-ups, release gates not passing, blocked promotion paths, high-severity debt, open risk findings, documents due review, stale issues. Every card routes to the page that owns the fact.

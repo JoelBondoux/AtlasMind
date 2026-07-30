@@ -46,7 +46,7 @@
 │                   │  Adapters   │                              │
 │                   │             │                              │
 │                   │ Anthropic   │                              │
-│                   │ Claude CLI  │                              │
+│                   │ ACP Agents  │                              │
 │                   │ OpenAI      │                              │
 │                   │ Google      │                              │
 │                   │ Mistral     │                              │
@@ -63,7 +63,7 @@
 2. `extension.ts` → `activate()` runs:
   - Creates core services: `CostTracker`, `AgentRegistry`, `SkillsRegistry`, `ModelRouter`, `TaskProfiler`, `MemoryManager`, `ToolWebhookDispatcher`.
     - Creates `VoiceManager` for browser-based voice panel orchestration and optional ElevenLabs audio delivery. It also owns a `HostSpeechSynthesizer` (`src/voice/hostSpeechSynthesizer.ts`) that drives the OS's built-in speech engine (Windows SAPI via PowerShell, macOS `say`, Linux `espeak-ng`) on-device when `atlasmind.voice.hostSpeechEnabled` is set; TTS backend priority is ElevenLabs → OS host engine → Web Speech API. For speech-to-text it owns a `LocalTranscriber` (`src/voice/localTranscriber.ts`) that runs a local `whisper-cli` on webview-captured WAV audio; the model (and, on Windows x64, the binary) are SHA-256-verified downloads provisioned on first use, and audio never leaves the machine. STT engine selection (`atlasmind.voice.sttEngine`) is `auto` | `webspeech` | `local`.
-  - Creates `ProviderRegistry` and registers provider adapters, including the Claude CLI Beta bridge.
+  - Creates `ProviderRegistry` and registers provider adapters, including the ACP subscription bridge.
    - Instantiates the `Orchestrator` with all services injected.
    - Bundles services into `AtlasMindContext`.
    - Calls `registerChatParticipant()`, `registerCommands()`, `registerTreeViews()`.
@@ -110,6 +110,8 @@ Utility helpers that build the prompt for Atlas-generated custom skill drafts, n
 Maintains a map of `ProviderConfig` objects plus provider health state. `selectModel()` accepts `RoutingConstraints`, an optional model whitelist, and an optional `TaskProfile`. It filters by required capabilities, task-profile gates, and provider health before scoring the remaining models using budget mode, speed mode, capability proxies, and task fit. `getModelInfo()` exposes pricing metadata for orchestration cost accounting.
 
 The router carries two learned, decaying routing channels (both gated by `feedbackRoutingWeight`): a positive **outcome bias** (EWMA of graded execution quality, in `executionOutcomes`) and a **struggle memory** (`struggleSignals`) — a persistent, task-signature-keyed de-weight for models that repeatedly fail a *kind* of task. Normal orchestrator grades incorporate expected tool use, tool success/failure counts, verification, TDD status, incomplete-delivery signals, and the final recovered response; clean text is no longer automatically a perfect execution outcome. The explicit Model Comparison harness intentionally retains its coarse completion-integrity grade and optional judge. `recordModelStruggle()` folds a severity-weighted, decaying increment (kinds: timeout, empty, tool-call-as-text, error-finish, user-correction) keyed by `phase|modality|reasoning|requiresTools`; `scoreModel()` subtracts the decayed penalty, and `selectBestModel()` applies a **tier-escape** (re-opening candidacy one budget tier higher and re-ranking) when the top pick is a chronic struggler, so a capable model can take over the task kind a cheap model keeps failing. `recoverModelStruggle()` halves the penalty on a clean turn; `getStruggleSignals()`/`setStruggleSignals()` snapshot/restore for persistence (`globalState` key `atlasmind.modelStruggleSignals`); `getStruggleSummary()` exposes active de-weights for the Model Comparison panel hint.
+
+**Subscription quotas may be scoped to a model rather than to a provider.** For every provider but one, the provider *is* the subscription, so keying by provider id says the same thing; `acp` is one provider id in front of several unrelated plans (`acp/claude` on a Claude subscription, `acp/codex` on a ChatGPT one). `setModelSubscriptionQuota()` / `getModelSubscriptionQuota()` / `listModelSubscriptionQuotas()` hold those, and **`subscriptionQuotaForModel()` is the single accessor** every pricing, scoring and budget-gating path uses — reading `provider.subscriptionQuota` directly is what made a multi-plan provider report one plan's numbers for all of them. `consumeSubscriptionUnits(modelId, units)` owns the scope decision and returns the scope it spent, so a turn cannot be priced against one subscription and deducted from another. Providers fronting exactly one plan fall back to the provider-level quota unchanged. Persistence keys both kinds in one record: provider ids never contain a slash, model ids always do.
 
 Key behaviors added in 0.73.0–0.73.1:
 - **Deprecation filter**: models with a `deprecatedAt` date in the past are auto-excluded from candidates.
@@ -545,6 +547,22 @@ The reported list is capped, with the remainder stated. Above the cap it stops b
 
 **Storage is the caller's, and it must be per-developer.** `OBSERVED_SNAPSHOT_NOTE` states this in the module so it cannot be got wrong quietly: `project_memory/` is git-tracked on purpose, so a baseline kept there would mean "when did *anybody* last look", would appear as an uncommitted change every time the dashboard opened, and would conflict between two people looking on the same day. The dashboard keeps it in `workspaceState` beside the delivery review's `reviewedAt`, and holds the computed delta for the session — advancing the baseline on every render would empty the delta from the second render onwards, so the surface would work exactly once and then quietly report nothing forever.
 
+### VersionStrip (`src/core/versionStrip.ts`)
+
+The version pills in the Project Dashboard header. They were two, derived from git alone: a production branch found by walking a candidate list, and whatever branch happened to be checked out. That answers *which branch am I on?* — but the header is asked *what version is where*, and the project already models that on the Delivery page as an ordered pipeline of stages, each carrying a `branchRef` naming the branch whose committed version represents it. The header ignored it entirely, so adding a Staging stage changed nothing, and a project with four environments still showed two pills, one of which was a branch name.
+
+Deriving the strip from that pipeline — from the same `DashboardStageView`s the Delivery page renders, not a second collection pass — means the two surfaces cannot report different versions, and a stage declared once appears in both.
+
+Four rules, all of them about not claiming to know a version.
+
+**A stage whose branch does not exist has no version.** Not the working copy's, not `—` presented as a value: it reports that the branch has not been created. A plausible version shown against an environment nobody has deployed to claims a deployment that never happened.
+
+**The working tree is a different claim from a branch.** The local stage carries no `branchRef` by design, and its version comes from `package.json` on disk — making it the only pill that can be ahead of what is committed. It reads `working tree` rather than borrowing a branch name, and carries whether the tree is dirty, because a clean local pill that merely repeats the staging version is the one case where it adds nothing to the header.
+
+**Ordered by rank, capped, with the remainder stated.** Rank is the pipeline's own order; ties break on name so two stages at the same rank cannot swap places between renders. The overflow routes to the Delivery page rather than being dropped, since a header that silently lost the last stage would read as a project that does not have one.
+
+**Never empty, and a guess is not presented as a declaration.** A project with no pipeline configured falls back to the original git-derived pair so the header keeps working before anyone opens the Delivery page — but the strip reports `source: 'branches'` for that case, because the production branch there is found by heuristic and should not wear the same shape as a stage somebody declared.
+
 ### AttentionFeed (`src/core/attentionFeed.ts`)
 
 What needs a person, gathered from every dashboard page onto the Overview. `ObservedDelta` answers *what changed?*; this answers *what is wrong or due right now*, which the Overview previously did not answer at all — it opened with nine permanently-populated stat cards ("43% coverage", "8 workflows"), and nothing on the page distinguished a project with three failing tests and a blocked release gate from one with neither.
@@ -718,7 +736,7 @@ That linkage lets the chat panel nest autonomous runs under their parent session
 
 ### ProviderRegistry (`src/providers/index.ts`)
 
-In-memory map of provider adapters implementing `ProviderAdapter`. The orchestrator resolves adapters by provider id (for example `anthropic`, `claude-cli`, and `local`) before executing completions.
+In-memory map of provider adapters implementing `ProviderAdapter`. The orchestrator resolves adapters by provider id (for example `anthropic`, `acp`, and `local`) before executing completions.
 
 The local model advisor reads its release-aware recommendation catalog from `src/providers/localModelRecommendationRegistry.ts`, which supports a validated workspace override file at `.atlasmind/local-model-recommendations.json` and falls back to built-in defaults when the override is missing or invalid. Each recommendation card offers one-click install into **Ollama** (via the streaming `/api/pull` API — surfaced as live progress in a shared output channel and a cancellable notification, with a daemon-reachability preflight — translating `hf:owner/repo` candidates to the `hf.co/owner/repo` pull syntax) and **LM Studio** (via `lms get <model> --yes` run as a direct child process). Both stream into the shared **"AtlasMind: Local Model Install"** output channel. Cards whose model is already present in a local runtime — matched on a normalized identity key (`localModelMatchKey`) so HuggingFace- and Ollama-style ids reconcile — show an installed badge instead of install buttons.
 
@@ -979,13 +997,14 @@ extension.ts
         │     └── skills/gitApplyPatch.ts
         └── providers/index.ts
               ├── providers/anthropic.ts
-              ├── providers/claude-cli.ts
               ├── providers/copilot.ts
               ├── providers/acp.ts
               │     ├── providers/acpProtocol.ts     (wire framing, pure)
               │     ├── providers/acpLaunch.ts       (command → spawnable invocation, pure)
               │     ├── providers/acpPermission.ts   (authorization policy, pure)
-              │     └── providers/acpInstaller.ts    (install planning, pure)
+              │     ├── providers/acpInstaller.ts    (install planning, pure)
+              │     └── providers/acpEffort.ts       (effort tiers + settable-config allowlist, pure)
+              │     └── providers/acpModels.ts       (detected model list + declared standing, pure)
               └── providers/localModelRecommendationRegistry.ts
 
 tests/core/

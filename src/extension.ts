@@ -40,7 +40,7 @@ import type { ProjectDirectorManager } from './core/projectDirectorManager.js';
 import type { DocumentsManager } from './core/documentsManager.js';
 import type { RiskOversightManager } from './core/riskOversightManager.js';
 import type { MissionRegistry } from './core/missionRegistry.js';
-import { getConfiguredLocalEndpoints, type ProviderRegistry } from './providers/index.js';
+import { ACP_PROBE_TIMEOUT_MS, getConfiguredLocalEndpoints, type ProviderRegistry } from './providers/index.js';
 import { getModelInfoUrl, getProviderInfoUrl, lookupCatalog } from './providers/modelCatalog.js';
 import { inferContextWindow, inferCapabilities, inferSpecialistDomains, inferPricing } from './providers/modelMetadataInference.js';
 import {
@@ -570,7 +570,7 @@ async function persistModelAvailabilityState(
 function restorePersistedQuotas(globalState: vscode.Memento, modelRouter: ModelRouter): void {
   const stored = globalState.get<Record<string, unknown>>(SUBSCRIPTION_QUOTA_STORAGE_KEY, {});
   const now = new Date().toISOString();
-  for (const [providerId, raw] of Object.entries(stored)) {
+  for (const [scope, raw] of Object.entries(stored)) {
     if (
       typeof raw !== 'object' || raw === null ||
       typeof (raw as Record<string, unknown>)['totalRequests'] !== 'number' ||
@@ -579,15 +579,37 @@ function restorePersistedQuotas(globalState: vscode.Memento, modelRouter: ModelR
       continue;
     }
     const persisted = raw as { totalRequests: number; remainingRequests: number; resetsAt?: string; costPerRequestUnit?: number };
-    const existing = modelRouter.getSubscriptionQuota(providerId);
+    // A model-scoped key (see `setModelSubscriptionQuota`) is the *only* record
+    // of that plan — nothing seeds it from provider defaults the way a
+    // provider-level quota is seeded — so it is restored whole rather than
+    // merged onto an existing one, which for these would always be absent.
+    if (isModelScopedQuotaKey(scope)) {
+      const isReset = persisted.resetsAt !== undefined && persisted.resetsAt <= now;
+      modelRouter.setModelSubscriptionQuota(scope, {
+        ...persisted,
+        remainingRequests: isReset ? persisted.totalRequests : persisted.remainingRequests,
+      });
+      continue;
+    }
+    const existing = modelRouter.getSubscriptionQuota(scope);
     if (!existing) {
       continue;
     }
     // If the billing period has rolled over, treat quota as fully refreshed.
     const isReset = persisted.resetsAt !== undefined && persisted.resetsAt <= now;
     const remainingRequests = isReset ? existing.totalRequests : persisted.remainingRequests;
-    modelRouter.updateSubscriptionQuota(providerId, { ...existing, remainingRequests });
+    modelRouter.updateSubscriptionQuota(scope, { ...existing, remainingRequests });
   }
+}
+
+/**
+ * Model ids are `provider/model`; provider ids never contain a slash. That is
+ * what keeps one storage record able to hold both kinds of key without a
+ * version bump — and what stops a provider-level quota being restored into the
+ * model-scoped map, where nothing would ever read it.
+ */
+function isModelScopedQuotaKey(key: string): boolean {
+  return key.includes('/');
 }
 
 function persistQuotas(globalState: vscode.Memento, modelRouter: ModelRouter): void {
@@ -597,6 +619,9 @@ function persistQuotas(globalState: vscode.Memento, modelRouter: ModelRouter): v
     if (quota) {
       snapshot[provider.id] = quota;
     }
+  }
+  for (const [modelId, quota] of modelRouter.listModelSubscriptionQuotas()) {
+    snapshot[modelId] = quota;
   }
   void globalState.update(SUBSCRIPTION_QUOTA_STORAGE_KEY, snapshot);
 }
@@ -1664,7 +1689,6 @@ async function bootstrapAtlasMind(
       registerTreeViews: treeViewsModule.registerTreeViews,
       AnthropicAdapter: providersModule.AnthropicAdapter,
       BedrockAdapter: providersModule.BedrockAdapter,
-      ClaudeCliAdapter: providersModule.ClaudeCliAdapter,
       AcpAdapter: providersModule.AcpAdapter,
       parseAcpAgentSettings: providersModule.parseAcpAgentSettings,
       acpToolRisk: providersModule.acpToolRisk,
@@ -1858,13 +1882,22 @@ async function bootstrapAtlasMind(
         getEndpoints: () => vscode.workspace.getConfiguration('atlasmind').get<unknown>('localOpenAiEndpoints'),
         getBaseUrl: () => vscode.workspace.getConfiguration('atlasmind').get<string>('localOpenAiBaseUrl'),
       }),
-      new startupModules.ClaudeCliAdapter(),
       // ACP agents are user-authored and deny-by-default: with no configured
       // agent the adapter reports no models and never spawns anything.
       new startupModules.AcpAdapter({
-        agents: startupModules.parseAcpAgentSettings(
+        // Read on every use, not captured once. This adapter lives as long as
+        // the extension host, so a snapshot here meant an agent added to
+        // settings after activation was invisible to routing and to the health
+        // check until a window reload — while every other ACP surface, which
+        // builds its own adapter per call, already knew about it.
+        agents: () => startupModules.parseAcpAgentSettings(
           vscode.workspace.getConfiguration('atlasmind').get<unknown>('acp.agents'),
         ),
+        // Where the user says each model sits when AtlasMind cannot tell. Read
+        // per use for the same reason `agents` is: teaching it about a model
+        // shipped this morning must not need a window reload.
+        modelStanding: () => vscode.workspace.getConfiguration('atlasmind')
+          .get<Record<string, string>>('acp.modelStanding') ?? {},
         ...(workspaceRootPath ? { cwd: workspaceRootPath } : {}),
         clientVersion: context.extension?.packageJSON?.version ?? '0.0.0',
         // Delegated execution is never delegated authorization: the agent runs
@@ -1877,6 +1910,15 @@ async function bootstrapAtlasMind(
         onToolEvent: event => {
           outputChannel.appendLine(
             `[acp] ${event.isUpdate ? 'tool update' : 'tool call'} (${event.status}): ${startupModules.describeAcpToolCall(event)}`,
+          );
+        },
+        // Said out loud rather than absorbed: the router priced this turn at the
+        // requested tier's multiplier, so a silent fallback to the agent's
+        // default would bill high effort for a low-effort run.
+        onEffortNotApplied: event => {
+          outputChannel.appendLine(
+            `[acp] ${event.agentId}: could not set "${event.requested}" effort — ${event.reason}. `
+            + 'The turn ran at the agent\'s own default.',
           );
         },
       }),
@@ -2128,19 +2170,25 @@ async function bootstrapAtlasMind(
     // Wire up quota tracking: persist on every decrement and warn when
     // a provider transitions into overflow or approaches exhaustion.
     const quotaOverflowWarned = new Set<string>();
-    quotaUpdatedRef = (providerId: string, remainingRequests: number, totalRequests: number) => {
+    // `scope` is a provider id for a provider that fronts one plan, and a model
+    // id for one that fronts several — see `setModelSubscriptionQuota`. It is
+    // resolved to a name here rather than assumed to be a provider, because
+    // "acp/codex subscription quota exhausted" would name the plan the user
+    // configured under a string they never typed.
+    quotaUpdatedRef = (scope: string, remainingRequests: number, totalRequests: number) => {
       persistQuotas(context.globalState, modelRouter);
       modelsRefresh.fire();
+      const label = modelRouter.getProviderConfig(scope)?.displayName
+        ?? modelRouter.getModelInfo(scope)?.name
+        ?? scope;
       const pct = totalRequests > 0 ? remainingRequests / totalRequests : 0;
-      if (remainingRequests <= 0 && !quotaOverflowWarned.has(providerId)) {
-        quotaOverflowWarned.add(providerId);
-        const label = modelRouter.getProviderConfig(providerId)?.displayName ?? providerId;
+      if (remainingRequests <= 0 && !quotaOverflowWarned.has(scope)) {
+        quotaOverflowWarned.add(scope);
         void vscode.window.showWarningMessage(
           `${label} subscription quota exhausted — further requests are billed at pay-per-token rates.`,
         );
-      } else if (pct <= 0.1 && pct > 0 && !quotaOverflowWarned.has(`${providerId}-low`)) {
-        quotaOverflowWarned.add(`${providerId}-low`);
-        const label = modelRouter.getProviderConfig(providerId)?.displayName ?? providerId;
+      } else if (pct <= 0.1 && pct > 0 && !quotaOverflowWarned.has(`${scope}-low`)) {
+        quotaOverflowWarned.add(`${scope}-low`);
         void vscode.window.showInformationMessage(
           `${label} subscription quota below 10% — ${remainingRequests} of ${totalRequests} requests remaining.`,
         );
@@ -2493,9 +2541,25 @@ async function bootstrapAtlasMind(
         if (providerId === 'copilot') {
           return true;
         }
-        if (providerId === 'claude-cli') {
-          const adapter = providerRegistry.get('claude-cli');
-          return Boolean(adapter && await adapter.healthCheck());
+        if (providerId === 'acp') {
+          // ACP is keyless by construction: the whole point is to drive an agent
+          // the user has already signed in to, so there is no
+          // `atlasmind.provider.acp.apiKey` and there never will be. Falling
+          // through to the secret lookup below therefore reported ACP as
+          // *unconfigured* on every refresh, which skipped discovery and — the
+          // part that was actually visible — set provider health to false. The
+          // Models tree then read that flag and said "agent not responding"
+          // about an agent it had never contacted, while the provider panel,
+          // which probes directly, showed the same agents as ready. The router
+          // meanwhile excluded ACP from every candidate list, so the models were
+          // on screen and unreachable.
+          //
+          // What "configured" means here is the same thing it means for `local`:
+          // is there anything to talk to. That is an agent in settings.
+          const { parseAcpAgentSettings } = await import('./providers/acp.js');
+          return parseAcpAgentSettings(
+            vscode.workspace.getConfiguration('atlasmind').get<unknown>('acp.agents'),
+          ).length > 0;
         }
         if (providerId === 'local') {
           return startupModules.getConfiguredLocalEndpoints({
@@ -3456,13 +3520,6 @@ async function updateProviderStatusBar(
       continue;
     }
     try {
-      if (adapter.providerId === 'claude-cli') {
-        if (await adapter.healthCheck()) {
-          configured++;
-          healthy++;
-        }
-        continue;
-      }
       if (adapter.providerId === 'local') {
         const configuredEndpoints = getConfiguredLocalEndpoints({
           getEndpoints: () => vscode.workspace.getConfiguration('atlasmind').get<unknown>('localOpenAiEndpoints'),
@@ -3583,6 +3640,31 @@ export function deactivate(): void {
 
 /** Per-provider timeout for startup model discovery, so one slow provider can't stall the rest. */
 const STARTUP_PROVIDER_DISCOVERY_TIMEOUT_MS = 10_000;
+
+/**
+ * ACP's budget, which cannot be the same number.
+ *
+ * Every other provider's health check is an HTTP round trip. ACP's spawns a
+ * process per configured agent and asks each to open a session, because that is
+ * the only question whose answer means "signed in" — measured at ~7s for
+ * `claude-agent-acp` and ~4s for `codex-acp` on a warm machine, before the
+ * contention of extension activation. The adapter allows
+ * {@link ACP_PROBE_TIMEOUT_MS} per probe, so a 10s enclosing budget guaranteed
+ * the timeout fired first on a perfectly healthy install — and the timeout's
+ * handler sets provider health to false. Nothing re-probes afterwards, so a
+ * startup blip became a permanent "agent not responding".
+ *
+ * Derived from the adapter's own ceiling rather than restated, because the bug
+ * was precisely two numbers in two files drifting past each other. The probes
+ * run concurrently, so the headroom is for one slow agent plus the surrounding
+ * discovery work, not for their sum.
+ */
+const ACP_DISCOVERY_TIMEOUT_MS = ACP_PROBE_TIMEOUT_MS * 2 + 5_000;
+
+/** How long this provider's discovery may take before it is abandoned. */
+function providerDiscoveryTimeoutMs(providerId: string): number {
+  return providerId === 'acp' ? ACP_DISCOVERY_TIMEOUT_MS : STARTUP_PROVIDER_DISCOVERY_TIMEOUT_MS;
+}
 
 /**
  * Delay before the activation-time workspace memory freshness scan runs. The scan
@@ -3739,17 +3821,18 @@ export async function refreshProviderModelsCatalog(
   // loop — ~24 providers' multi-second health checks summed to nearly a minute of the
   // `[providers]` startup stream; concurrency collapses that to roughly the slowest
   // single provider (capped at the timeout).
-  const results = await Promise.all(providers.map(provider =>
-    withTimeout(
+  const results = await Promise.all(providers.map(provider => {
+    const budgetMs = providerDiscoveryTimeoutMs(provider.id);
+    return withTimeout(
       processProvider(provider),
-      STARTUP_PROVIDER_DISCOVERY_TIMEOUT_MS,
+      budgetMs,
       () => {
         modelRouter.setProviderHealth(provider.id, false);
-        outputChannel?.appendLine(`[providers] ${provider.id}: discovery exceeded ${STARTUP_PROVIDER_DISCOVERY_TIMEOUT_MS}ms; keeping existing models and deprioritizing until the next refresh.`);
+        outputChannel?.appendLine(`[providers] ${provider.id}: discovery exceeded ${budgetMs}ms; keeping existing models and deprioritizing until the next refresh.`);
         return { updated: false, modelEntries: provider.models.length };
       },
-    ),
-  ));
+    );
+  }));
 
   for (const result of results) {
     if (result.updated) {
@@ -3982,7 +4065,11 @@ export function inferModelMetadata(
   // and latency class, so the router falls back to heuristics — collapsing genuine
   // depth-3 reasoners (Opus, DeepSeek R1, Nemotron Ultra) to depth 2 and under-
   // ranking them for high-reasoning tasks.
-  const reasoningDepth = catalogEntry?.reasoningDepth;
+  // Catalog first, because it is the curated answer for every model that has
+  // one. The hint is the fallback for models the catalog cannot know about —
+  // an ACP effort variant's depth is a property of the tier the agent offered
+  // on this session, not of a model name anybody could enumerate in advance.
+  const reasoningDepth = catalogEntry?.reasoningDepth ?? hint?.reasoningDepth;
   const latencyClass = catalogEntry?.latencyClass;
   // Cache capability is dynamic — providers change model capabilities over time.
   // Prefer the runtime discovery hint and live pricing scrape over the static

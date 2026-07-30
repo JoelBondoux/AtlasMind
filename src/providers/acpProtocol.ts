@@ -382,6 +382,110 @@ export function parseSessionId(result: Record<string, unknown>): string {
   return clampText(result['sessionId'], MAX_ID);
 }
 
+/**
+ * A knob the agent says it will let the client turn, and the values it accepts.
+ *
+ * `session/new` and `session/load` MAY return `configOptions`; `session/set_config_option`
+ * sets one and returns the full set back. Verified against the v1 schema at
+ * {@link ACP_SPEC_VERIFIED_AT} and against live `codex-acp` 1.1.7 and
+ * `claude-agent-acp` 0.63.0, both of which implement it.
+ *
+ * **`category` is the portable identity, not `id`.** The same knob is called
+ * `reasoning_effort` by Codex and `effort` by Claude Agent, but both label it
+ * `category: "thought_level"`. Matching on `id` would work against exactly one
+ * agent and silently do nothing against the other — which is the failure mode
+ * that looks like the feature working.
+ */
+export interface AcpConfigOption {
+  id: string;
+  name: string;
+  description?: string;
+  /** The portable meaning: `model`, `thought_level`, `mode`, `model_config`, … */
+  category?: string;
+  type: string;
+  currentValue: string;
+  options: Array<{ value: string; name: string; description?: string }>;
+}
+
+const MAX_CONFIG_OPTIONS = 32;
+const MAX_CONFIG_VALUES = 64;
+
+/**
+ * Read `configOptions` off a `session/new` / `session/load` / `session/set_config_option`
+ * result. Untrusted input from a third-party process: never throws, drops
+ * anything unreadable, and caps both dimensions rather than trusting the count.
+ *
+ * Only `select` options are kept. A boolean option has a different set request
+ * shape (`type: "boolean"` plus `value: bool`), and nothing here needs one — so
+ * rather than build a half-supported path, they are dropped and cannot be set.
+ */
+export function parseSessionConfigOptions(result: Record<string, unknown>): AcpConfigOption[] {
+  const raw = result['configOptions'];
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const out: AcpConfigOption[] = [];
+  for (const entry of raw.slice(0, MAX_CONFIG_OPTIONS)) {
+    const record = asRecord(entry);
+    const id = clampText(record['id'], MAX_ID);
+    const type = clampText(record['type'], 40);
+    if (!id || type !== 'select') {
+      continue;
+    }
+    const values = Array.isArray(record['options']) ? record['options'] : [];
+    const options = values.slice(0, MAX_CONFIG_VALUES).flatMap(value => {
+      const option = asRecord(value);
+      const optionValue = clampText(option['value'], MAX_ID);
+      if (!optionValue) {
+        return [];
+      }
+      const description = clampText(option['description'], 300);
+      return [{
+        value: optionValue,
+        name: clampText(option['name'], 120) || optionValue,
+        ...(description ? { description } : {}),
+      }];
+    });
+    if (options.length === 0) {
+      continue;
+    }
+    const category = clampText(record['category'], 60);
+    const description = clampText(record['description'], 300);
+    out.push({
+      id,
+      name: clampText(record['name'], 120) || id,
+      ...(description ? { description } : {}),
+      ...(category ? { category } : {}),
+      type,
+      currentValue: clampText(record['currentValue'], MAX_ID),
+      options,
+    });
+  }
+  return out;
+}
+
+/**
+ * Set one config option.
+ *
+ * The `value_id` variant of `SetSessionConfigOptionRequest` — a bare `value`
+ * string alongside `configId` — which is what a `select` option takes. Confirmed
+ * applied by both live agents (the response echoes the full option set with the
+ * new `currentValue`).
+ */
+export function buildSetConfigOptionRequest(
+  id: number,
+  sessionId: string,
+  configId: string,
+  value: string,
+): JsonRpcRequest {
+  return {
+    jsonrpc: '2.0',
+    id,
+    method: 'session/set_config_option',
+    params: { sessionId, configId, value },
+  };
+}
+
 /** The turn outcomes the spec defines for `session/prompt`. */
 export const ACP_STOP_REASONS = ['end_turn', 'max_tokens', 'max_turn_requests', 'refusal', 'cancelled'] as const;
 export type AcpStopReason = (typeof ACP_STOP_REASONS)[number];

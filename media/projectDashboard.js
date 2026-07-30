@@ -1901,24 +1901,52 @@
     `;
   }
 
+  /**
+   * The header's version pills — what version is where, one per delivery stage.
+   *
+   * Previously two hardcoded pills: a detected production branch and whatever
+   * branch was checked out. That answered "which branch am I on?" while the
+   * project already modelled the real answer on the Delivery page, so adding a
+   * Staging stage there changed nothing here and the working tree — the one
+   * reading that can be ahead of every branch — had no pill of its own.
+   *
+   * A pill with no version renders the reason instead. Substituting a plausible
+   * one would claim a deployment nobody made.
+   */
   function renderVersionStrip(snapshot) {
-    const pills = [];
-
-    if (snapshot.versions?.production && snapshot.versions.production.branch !== snapshot.versions.current.branch) {
-      pills.push(renderVersionPill('Production', snapshot.versions.production.branch, snapshot.versions.production.version));
+    const strip = snapshot.versionStrip;
+    if (!strip || strip.pills.length === 0) {
+      return '';
     }
 
-    const currentLabel = snapshot.versions?.current?.isProduction ? 'Production' : 'Current';
-    pills.push(renderVersionPill(currentLabel, snapshot.versions.current.branch, snapshot.versions.current.version));
+    const pills = strip.pills.map(pill => renderVersionPill(pill));
+    if (strip.droppedByCap > 0) {
+      // Never a silent truncation: a header that dropped the last stage would
+      // read as a project that does not have one.
+      pills.push(`
+        <button type="button" class="dashboard-version-pill dashboard-version-pill-more" data-action="page" data-payload="delivery"
+          title="Open the Delivery page to see every stage">
+          +${escapeHtml(String(strip.droppedByCap))} more
+        </button>
+      `);
+    }
     return pills.join('');
   }
 
-  function renderVersionPill(label, branch, version) {
+  function renderVersionPill(pill) {
+    const classes = ['dashboard-version-pill'];
+    if (pill.isCurrent) { classes.push('dashboard-version-pill-current'); }
+    if (pill.isWorkingTree) { classes.push('dashboard-version-pill-local'); }
+    // A version we could not read is shown as the reason, not as a blank and
+    // never as another stage's number.
+    const value = pill.version
+      ? `<span>v${escapeHtml(pill.version)}</span>`
+      : '<span class="dashboard-version-pill-muted">no version</span>';
     return `
-      <span class="dashboard-version-pill">
-        <strong>${escapeHtml(label)}</strong>
-        <span class="dashboard-version-pill-muted">${escapeHtml(branch)}</span>
-        <span>v${escapeHtml(version)}</span>
+      <span class="${classes.join(' ')}"${pill.note ? ` title="${escapeAttr(pill.note)}"` : ''}>
+        <strong>${escapeHtml(pill.label)}</strong>
+        <span class="dashboard-version-pill-muted">${escapeHtml(pill.ref)}</span>
+        ${value}${pill.isDirty ? '<span class="dashboard-version-pill-dirty" aria-label="uncommitted changes">•</span>' : ''}
       </span>
     `;
   }

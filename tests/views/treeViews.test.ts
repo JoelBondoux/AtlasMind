@@ -81,6 +81,28 @@ describe('resolveAcpBridgeState — the row must not claim a route the router wi
     expect(resolveAcpBridgeState(ready)).toBe('ready');
   });
 
+  it('separates "not checked yet" from "not responding"', () => {
+    // The bug this pins: `acp` is one provider id in front of several agents,
+    // and the row read a provider-wide health flag. A discovery pass that never
+    // reached the agent — because ACP was misreported as unconfigured, or
+    // because the probe overran its budget — left that flag false, and the row
+    // announced "agent not responding" about a process nobody had spawned. A
+    // verdict requires having asked.
+    expect(resolveAcpBridgeState({ ...ready, healthy: false, probed: true })).toBe('unhealthy');
+    expect(resolveAcpBridgeState({ ...ready, healthy: false, probed: false })).toBe('unverified');
+  });
+
+  it('leaves an unmeasured pass alone', () => {
+    // Health defaults to healthy before the first check, so downgrading an
+    // unmeasured *pass* would put a question mark on every agent at startup.
+    // Only an unmeasured failure is the claim that cannot be supported.
+    expect(resolveAcpBridgeState({ ...ready, healthy: true, probed: false })).toBe('ready');
+  });
+
+  it('treats an omitted `probed` as measured, so existing callers keep their verdict', () => {
+    expect(resolveAcpBridgeState({ ...ready, healthy: false })).toBe('unhealthy');
+  });
+
   it('separates "no model discovered yet" from "model disabled"', () => {
     // They look identical and mean opposite things: only `acp/claude` is seeded,
     // so a freshly configured Codex agent has no model row until discovery runs.

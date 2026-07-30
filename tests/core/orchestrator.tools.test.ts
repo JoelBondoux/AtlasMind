@@ -1110,15 +1110,15 @@ describe('Orchestrator agentic loop', () => {
 
   it('broadens built-in agent model routing for short command-style tool requests when pinned models cannot call tools', async () => {
     const textOnlyPinnedProvider: ProviderAdapter = {
-      providerId: 'claude-cli',
+      providerId: 'acp',
       complete: vi.fn().mockResolvedValue({
         content: 'I cannot run tools here.',
-        model: 'claude-cli/opus',
+        model: 'acp/claude@opus',
         inputTokens: 8,
         outputTokens: 6,
         finishReason: 'stop',
       }),
-      listModels: vi.fn().mockResolvedValue(['claude-cli/opus']),
+      listModels: vi.fn().mockResolvedValue(['acp/claude@opus']),
       healthCheck: vi.fn().mockResolvedValue(true),
     };
 
@@ -1172,7 +1172,7 @@ describe('Orchestrator agentic loop', () => {
           systemPrompt: 'You are a backend engineer.',
           skills: [],
           builtIn: true,
-          allowedModels: ['claude-cli/opus'],
+          allowedModels: ['acp/claude@opus'],
         },
       ],
       undefined,
@@ -1184,12 +1184,12 @@ describe('Orchestrator agentic loop', () => {
         modelCapabilities: ['chat', 'code'],
         extraProviders: [
           {
-            providerId: 'claude-cli',
+            providerId: 'acp',
             adapter: textOnlyPinnedProvider,
             models: [
               {
-                id: 'claude-cli/opus',
-                name: 'Claude Code CLI Opus',
+                id: 'acp/claude@opus',
+                name: 'Claude via ACP (Opus)',
                 contextWindow: 200000,
                 inputPricePer1k: 0,
                 outputPricePer1k: 0,
@@ -1229,7 +1229,7 @@ describe('Orchestrator agentic loop', () => {
       systemPrompt: 'You are a backend engineer.',
       skills: [],
       builtIn: true,
-      allowedModels: ['claude-cli/opus'],
+      allowedModels: ['acp/claude@opus'],
     });
 
     expect(textOnlyPinnedProvider.complete).not.toHaveBeenCalled();

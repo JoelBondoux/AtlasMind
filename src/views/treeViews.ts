@@ -15,7 +15,7 @@ import {
 } from '../core/workflowAutomation.js';
 import { SSOT_FOLDERS } from '../types.js';
 import type { AgentDefinition, ArdDiscoveredResource, ArdDiscoveryEndpoint, McpServerState, MemoryEntry, ProjectRunRecord, ProviderConfig, SkillDefinition, SkillScanResult } from '../types.js';
-import { ACP_PROVIDER_ID, findAcpBridge, parseAcpAgentSettings } from '../providers/acp.js';
+import { ACP_PROVIDER_ID, findAcpBridge, parseAcpAgentSettings, peekAcpAgentProbe } from '../providers/acp.js';
 import { countOverdueFollowUps, deriveFollowUpUrgency, resolveTeamMode } from '../core/projectDirectorManager.js';
 import { assessPipelinePromotions } from '../core/promotionReadiness.js';
 import type { SessionConversationSummary, SessionFolderSummary } from '../chat/sessionConversation.js';
@@ -1706,8 +1706,19 @@ export class AcpBridgeTreeItem extends vscode.TreeItem {
   }
 }
 
-/** Which of the conditions routing needs is currently unmet, if any. */
-export type AcpBridgeState = 'not-set-up' | 'provider-off' | 'not-discovered' | 'model-disabled' | 'unhealthy' | 'ready';
+/**
+ * Which of the conditions routing needs is currently unmet, if any.
+ *
+ * `unverified` is separate from `unhealthy` for the same reason `not-discovered`
+ * is separate from `model-disabled`: an agent nobody has contacted yet and an
+ * agent that answered badly look identical from here and mean opposite things.
+ * Reporting the first as the second is how a working `claude-agent-acp` came to
+ * be labelled "agent not responding" — a verdict on a process that was never
+ * spawned.
+ */
+export type AcpBridgeState =
+  | 'not-set-up' | 'provider-off' | 'not-discovered' | 'model-disabled'
+  | 'unverified' | 'unhealthy' | 'ready';
 
 /**
  * Built on demand rather than as a module constant.
@@ -1727,6 +1738,9 @@ function acpBridgeIcon(state: AcpBridgeState): vscode.ThemeIcon {
     case 'provider-off':
     case 'model-disabled':
       return new vscode.ThemeIcon('circle-slash', new vscode.ThemeColor('testing.iconQueued'));
+    // Not a warning colour: nothing is known to be wrong, only unchecked.
+    case 'unverified':
+      return new vscode.ThemeIcon('question', new vscode.ThemeColor('descriptionForeground'));
     case 'unhealthy':
       return new vscode.ThemeIcon('warning', new vscode.ThemeColor('testing.iconFailed'));
     case 'ready':
@@ -1918,12 +1932,22 @@ class ModelsTreeProvider implements vscode.TreeDataProvider<ModelsTreeNode> {
       // and a healthy provider. A tick that reflected only `model.enabled`
       // promised a route the router would never take — which is exactly how an
       // ACP entry sat there looking active while every prompt went elsewhere.
+      // This agent's own answer, not the provider's. `acp` is one provider in
+      // front of several agents, so a provider-wide health flag made the
+      // Anthropic row report whatever the *first* configured agent said — and
+      // an agent never probed at all is reported as unchecked rather than as
+      // failing, because "not responding" about a process nobody spawned is the
+      // wrong end of the guess.
+      const probe = peekAcpAgentProbe(bridge.agentId);
       const state = resolveAcpBridgeState({
         configured,
         providerEnabled,
         modelCount: models.length,
         modelEnabled: models.some(model => model.enabled),
-        healthy: isProviderHealthy(this.atlas, ACP_PROVIDER_ID),
+        healthy: probe
+          ? probe.installed && probe.authenticated
+          : isProviderHealthy(this.atlas, ACP_PROVIDER_ID),
+        probed: probe !== undefined,
       });
       if (configured) {
         bridged.add(bridge.agentId);
@@ -1934,7 +1958,7 @@ class ModelsTreeProvider implements vscode.TreeDataProvider<ModelsTreeNode> {
         bridge.agentId,
         `${row.label as string} — ${bridge.subscriptionName}`,
         describeAcpBridgeState(state),
-        describeAcpBridgeTooltip(row.label as string, bridge, state),
+        describeAcpBridgeTooltip(row.label as string, bridge, state, probe?.message),
         state,
         configured && models.length > 0
           ? vscode.TreeItemCollapsibleState.Collapsed
@@ -1972,6 +1996,13 @@ export function resolveAcpBridgeState(input: {
   modelCount: number;
   modelEnabled: boolean;
   healthy: boolean;
+  /**
+   * Whether `healthy` is an answer from *this* agent or an inherited guess.
+   * Omitted means "yes, it was measured" — the shape every existing caller and
+   * test already assumes, so the default cannot silently turn a real verdict
+   * into `unverified`.
+   */
+  probed?: boolean;
 }): AcpBridgeState {
   if (!input.configured) {
     return 'not-set-up';
@@ -1985,6 +2016,13 @@ export function resolveAcpBridgeState(input: {
   if (!input.modelEnabled) {
     return 'model-disabled';
   }
+  // Only an unmeasured *failure* is downgraded to `unverified`. An unmeasured
+  // pass stays `ready`, because health defaults to healthy until a check says
+  // otherwise — reporting the optimistic default as a question mark would put
+  // every agent behind a warning on a cold start.
+  if (!input.healthy && input.probed === false) {
+    return 'unverified';
+  }
   return input.healthy ? 'ready' : 'unhealthy';
 }
 
@@ -1995,6 +2033,7 @@ export function describeAcpBridgeState(state: AcpBridgeState): string {
     case 'provider-off': return '(ACP — provider off)';
     case 'not-discovered': return '(ACP — refresh to finish)';
     case 'model-disabled': return '(ACP — model disabled)';
+    case 'unverified': return '(ACP — not checked yet)';
     case 'unhealthy': return '(⚠ ACP — agent not responding)';
     case 'ready': return '(ACP)';
   }
@@ -2011,6 +2050,11 @@ function describeAcpBridgeTooltip(
   vendorLabel: string,
   bridge: { command: string; subscriptionName: string },
   state: AcpBridgeState,
+  /**
+   * What the agent itself said, when it said anything. The generic advice below
+   * lists the two usual causes; this replaces guessing with the reported one.
+   */
+  healthDetail?: string,
 ): string {
   switch (state) {
     case 'not-set-up':
@@ -2026,10 +2070,16 @@ function describeAcpBridgeTooltip(
     case 'model-disabled':
       return `${bridge.command} is ready, but its model is disabled, so the router will skip it.\n\n`
         + 'Enable it from the model row beneath this one.';
+    case 'unverified':
+      return `${bridge.command} is configured and enabled, but AtlasMind has not managed to check it yet, `
+        + 'so nothing here is a verdict on the agent.\n\n'
+        + 'Refresh the models to run the check. It spawns the agent and opens a session, which takes a few seconds.';
     case 'unhealthy':
       return `${bridge.command} is configured and enabled, but its last health check failed, so the router is skipping it.\n\n`
-        + 'The usual causes are the command not being on PATH, or the agent not being signed in. '
-        + 'Run it once in a terminal to see which.';
+        + (healthDetail
+          ? `The agent reported: ${healthDetail}`
+          : 'The usual causes are the command not being on PATH, or the agent not being signed in. '
+            + 'Run it once in a terminal to see which.');
     case 'ready':
       return `Reach ${vendorLabel} models through your ${bridge.subscriptionName} over ACP, instead of paying per token.\n`
         + `Command: ${bridge.command}`;

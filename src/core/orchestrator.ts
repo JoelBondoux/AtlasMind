@@ -66,7 +66,6 @@ const MAX_MODEL_ESCALATION_ATTEMPTS = 1;
 const MIN_ITERATIONS_BEFORE_ESCALATION = 2;
 const FAILED_TOOL_CALLS_BEFORE_ESCALATION = 2;
 const TOTAL_TOOL_CALLS_BEFORE_ESCALATION = 6;
-const CLAUDE_CLI_PROVIDER_TIMEOUT_MS = 120_000;
 const WORKSPACE_INVESTIGATION_PATTERN = /\b(bug|issue|broken|broke|fix|failing|fails|failure|error|regression|not working|doesn't work|isn't working|too tall|too wide|hidden|missing|dropdown|sidebar|panel|layout|scroll|scrolled|overflow|wrong response|instead of working|responding with|ollama|localhost|default port|returning a response|responding on|reachable|listening on|running on|port\s+\d{2,5}|127\.0\.0\.1|voice settings|speech settings|audio settings|settings page|settings panel|project structure|current structure|current architecture|native os|platform-specific|cross-platform|security|secure|security gap|gap analysis|threat model|threat modeling|vulnerability|runtime boundaries|runtime boundary|attack surface|auth review|authorization review|secret handling|hardening|owasp)\b/i;
 const DIRECT_ACTION_BIAS_PATTERN = /\b(add|create|edit|delete|remove|mark|save|append|insert|finish|complete|follow\s+through|fix|patch|repair|resolve|implement|update|change|modify|correct|adjust|rewrite|refactor|debug|troubleshoot|check|verify|repro(?:duce)?|wire(?:\s+in)?|hook(?:\s+up)?|integrat(?:e|ion)|support|enable|disable|configure|connect|broken|not working|commit|push|pull|fetch|merge|rebase|cherry-pick|stash|branch|checkout|reset|amend|build|compile|transpile|bundle|lint|format|test|install|uninstall|upgrade|generate|scaffold|init(?:ialis?e)?|migrate|seed|deploy|release|publish|bump|watch|clean|rebuild|run|execute)\b/i;
 const COMMAND_STYLE_TOOL_ACTION_PATTERN = /^\s*(?:please\s+)?(?:start|stop|pause|resume|run|create|open|list|show|query|mark|export|set|delete|remove|rename|move|merge|enable|disable|commit|push|pull|fetch|rebase|cherry-pick|stash|checkout|reset|amend|build|compile|transpile|bundle|lint|format|test|install|uninstall|upgrade|add|generate|scaffold|init|migrate|seed|deploy|publish|bump|watch|clean|rebuild|execute|fix|patch|release)\b/i;
@@ -1761,14 +1760,11 @@ export class Orchestrator {
     ) {
       const modelInfo = this.router.getModelInfo(billedModel);
       const premiumUnits = modelInfo?.premiumRequestMultiplier ?? 1;
-      const existingQuota = this.router.getSubscriptionQuota(finalCost.providerId);
-      if (existingQuota) {
-        const newRemaining = Math.max(0, existingQuota.remainingRequests - premiumUnits);
-        this.router.updateSubscriptionQuota(finalCost.providerId, {
-          ...existingQuota,
-          remainingRequests: newRemaining,
-        });
-        this.onQuotaUpdated?.(finalCost.providerId, newRemaining, existingQuota.totalRequests);
+      // The router decides which plan this model is billed against, so a turn
+      // can never be priced against one subscription and deducted from another.
+      const spent = this.router.consumeSubscriptionUnits(billedModel, premiumUnits);
+      if (spent) {
+        this.onQuotaUpdated?.(spent.scope, spent.remainingRequests, spent.totalRequests);
       }
     }
 
@@ -3977,7 +3973,10 @@ export class Orchestrator {
       };
     }
 
-    const quota = provider.subscriptionQuota;
+    // Scoped to the model, not the provider: an ACP turn on `acp/codex` must be
+    // priced against the ChatGPT plan that pays for it, not against whichever
+    // plan happened to be configured last. See `setModelSubscriptionQuota`.
+    const quota = this.router.subscriptionQuotaForModel(modelInfo.id);
     const premiumUnits = modelInfo.premiumRequestMultiplier ?? 1;
     const subscriptionValueUsd = (quota?.costPerRequestUnit ?? 0) * premiumUnits;
     const includedDisplayCostUsd = subscriptionValueUsd > 0 ? subscriptionValueUsd : listedCostUsd;
@@ -4752,11 +4751,7 @@ function buildProviderFallbackRoutingConstraints(constraints: RoutingConstraints
   };
 }
 
-function getProviderTimeoutMs(providerId: string, defaultTimeoutMs: number): number {
-  if (providerId === 'claude-cli') {
-    return Math.max(defaultTimeoutMs, CLAUDE_CLI_PROVIDER_TIMEOUT_MS);
-  }
-
+function getProviderTimeoutMs(_providerId: string, defaultTimeoutMs: number): number {
   return defaultTimeoutMs;
 }
 

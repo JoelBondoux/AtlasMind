@@ -6,6 +6,116 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.219.0] - 2026-07-30
+
+### Removed
+- **The Claude Code CLI provider (`claude-cli`) is gone.** It was a chat-only bridge that shelled out to `claude --print`: it could not stream, it truncated prompts against the OS argv ceiling at roughly 26,000 characters, and it advertised no tool use. The ACP provider superseded it on every axis — the same subscription, with streaming, no prompt ceiling, image support, and now real model *and* effort selection — so keeping it meant two routes to one Claude plan, one of them strictly worse and quietly lossy.
+
+  Removed with it: `src/providers/claude-cli.ts`, the `claude-cli` member of `ProviderId`, its provider registration and catalog alias, its subscription tier table (superseded by the per-agent ACP tiers, which also carry Claude Pro), its entry in the CLI host's provider list, its provider profile, its bespoke 120-second timeout, its prompt-cache factor, and the Privacy page's special case that borrowed the periodic health signal because `isProviderConfigured` spawned the binary twice per render.
+
+  **Nothing breaks on upgrade, and that is asserted rather than assumed.** A workspace that pinned `claude-cli/opus` in `atlasmind.planningModelId` or `atlasmind.synthesisModelId` now holds an unknown id, which those settings already documented as falling back to normal routing; a subscription quota persisted under the old provider id resolves to nothing and spending against it is inert rather than throwing. `tests/core/removedProviderDegradation.test.ts` covers all four paths. To keep using a Claude subscription, configure an ACP agent — Model Providers → Anthropic → *"Use my Claude subscription"*, or `/acp`.
+
+### Changed
+- `docsIntegrity` no longer requires changelogs to cite source files that still exist. A changelog names files as they were at that version, so holding it to the current tree would mean every deletion forces a rewrite of history — and the entry would then describe something other than what shipped. Current documents are still held to the check.
+
+## [0.218.1] - 2026-07-30
+
+### Fixed
+- **An ACP model variant was billed against no plan at all.** ACP subscription quotas are *model-scoped* — one `acp` provider fronts several unrelated plans, so a Claude Max entry sits on `acp/claude` — and `baseModelIdOf` stripped only the `#effort` suffix. The `@model` segment added in v0.218.0 therefore left `acp/claude@opus#high` resolving to `acp/claude@opus`, which no plan is keyed on, so the lookup fell through to a provider-level quota ACP deliberately does not have.
+
+  The failure was silent in the direction that costs money: every model-variant turn looked like an *unmetered* plan. The "already paid for" preference kept applying after the quota was spent, and nothing decremented the plan those turns were actually billed to — so a Claude Max allowance could be consumed without the remaining count ever moving. Both variant separators now strip, since each names a choice *inside* one subscription rather than a different subscription.
+
+### Notes
+- Confirmed and pinned: **ACP subscription capacity is weighed exactly as Copilot and Claude CLI are.** Both preference paths — the general `ACTIVE_SUBSCRIPTION_BONUS` and the larger maintenance-phase bonus, which pairs with a penalty for pay-per-token — key on the provider's `pricingModel`, never on a provider id list, so the equivalence holds by construction rather than by enumeration. A test now asserts it against someone later reaching for an allowlist. The prompt-caching provider lists are not a gap: they discount *metered* input pricing, which a zero-priced subscription does not have.
+
+## [0.218.0] - 2026-07-30
+
+### Added
+- **The models inside an ACP subscription are now routable, not just the effort levels.** The same `configOptions` array that carries `thought_level` also carries a `model` category, and it was being parsed and thrown away — so a Claude Max or ChatGPT plan presented to the router as *one* model at N effort levels when it is really *M* models at N effort levels. `claude-agent-acp` offers Opus / Sonnet / Haiku / …, `codex-acp` offers Luna / Terra / Sol; each is now a routed model id, and model and effort compose: `acp/claude@opus#high`.
+
+  **The model list is detected, never declared.** Nothing in `acpModels.ts` names a model that must exist. Vendors ship models faster than AtlasMind ships releases, so a hardcoded roster would be wrong within weeks and wrong in the worst direction — a model you are paying for, invisible to the router. Whatever your installed agent offers today is what appears.
+
+  **What cannot be detected is a model's standing**, because the wire format carries a name and a description but no capability field. Standing therefore comes from a declared rule, in precedence order: your new `atlasmind.acp.modelStanding` setting, then a deliberately short table of naming conventions this build will stand behind (Anthropic's Haiku / Sonnet / Opus tiering — generic words like `pro`, `max` and `turbo` are excluded, since they mean opposite things across vendors and `max` also names an effort level), then keywords in the agent's own description of that model. Every choice publishes which rule decided, on the provider card, the same convention the tech-debt register uses.
+
+  **Unknown standing is routable, never dropped** — deliberately inverting `acpEffortTiersFor`, which discards effort values it does not recognise. An unrecognised *effort* has no depth or cost the router could score; an unrecognised *model* is a real, working model whose only unknown is its rank, and dropping it would hide capacity you pay for, precisely for the newest model. It routes and is selectable; it simply carries no `reasoningDepth` and a neutral multiplier, so it is never *preferred* on a number nobody stands behind.
+
+  Luna, Terra and Sol currently fall through to unknown. They sit in an obvious order if you read them as moon/earth/sun — but that is etymology, not a vendor statement, and a wrong ranking sends a refactor to the small model without anybody finding out. Declare them and the router uses them fully.
+
+  **Composition is two more declared rules:** depth is the **greater** of the model's and the effort's (a light model cannot be made deep by asking harder; a deep model at low effort is still the deep model), and cost **multiplies** (both spend the plan). Rows are capped per agent and ordered so truncation costs every effort before it costs any model. On the execute path the model is set **before** the effort — against an agent that resets dependent knobs when the model changes, the other order would silently discard the effort.
+
+- **`atlasmind.acp.modelStanding`** — where each model sits when AtlasMind cannot tell, keyed on display name or wire value: `{ "Luna": "light", "Terra": "balanced", "Sol": "deep" }`. Values are `light`, `balanced`, `deep` or `unknown`; anything else is ignored rather than guessed at. A declaration also beats the built-in naming table, so you can correct one as well as fill a gap.
+
+- **`src/providers/acpModels.ts`** — the pure, `vscode`-free detection and ranking, with the id round-trip, the precedence order and the unknown-is-routable property unit-tested.
+
+### Fixed
+- An ACP model id carrying a model segment (`acp/claude@opus#high`) is split before the agent lookup. An id still carrying it matches no configured agent and falls through to `agents[0]` — a turn quietly running on somebody else's subscription.
+
+## [0.217.0] - 2026-07-30
+
+### Added
+- **Effort levels inside an ACP subscription.** AtlasMind selected nothing within an ACP plan: `discoverModels()` returned exactly one model per agent, so a Claude Max subscription presented to the router as a single fixed-depth model and every turn ran at whatever the agent happened to default to. Meanwhile the agents were *already telling us* what they could do, on every single session, and the adapter was discarding it — `newSession` kept `sessionId` and dropped the rest of the response.
+
+  Verified against the published v1 schema and against live `codex-acp` 1.1.7 and `claude-agent-acp` 0.63.0: `session/new` returns a `configOptions` array, and `session/set_config_option` sets one and echoes the full set back. Both agents carry a `thought_level` knob — Codex offers `low` through `ultra`, Claude Agent `low` through `max`. **There is no `session/set_model` in the spec**; `session/set_config_option` is the mechanism, which is why this is wired through config options rather than a model-selection call.
+
+  Each effort level the agent actually lists becomes a routed model — `acp/claude#high`, `acp/codex#max` — carrying a `reasoningDepth` and a `premiumRequestMultiplier`. Both feed machinery the router already has, so the gradient falls out of existing task-fit scoring and the existing budget gate rather than needing a parallel mechanism: `cheap` reaches `low`, `balanced` reaches `high`, `expensive` reaches the top. The un-suffixed row remains, and is the agent's own default.
+
+- **`src/providers/acpEffort.ts`** — the pure model behind it, with three rules that each close a way the feature could be worse than not having it:
+
+  - **`category` is the identity, never `id`.** Codex names the knob `reasoning_effort`; Claude Agent names it `effort`. Both label it `category: "thought_level"`. Matching on `id` would work against exactly one agent and silently do nothing against the other — and a silent no-op is indistinguishable from success, because the turn still completes, just at the wrong effort.
+  - **Only `model` and `thought_level` may ever be set.** The same `configOptions` array carries the agent's **permission** mode, whose values include `agent-full-access` (Codex) and `bypassPermissions` (Claude Agent). A settings channel able to set those would route around `toolApprovalManager` entirely rather than through it, so the allowlist is deny-by-default and the refusal lives at the one place a set request is built. `model_config` — Codex's "fast mode", *1.5x speed, increased usage* — is excluded too: spending more of somebody's subscription is their decision, not a routing optimisation.
+  - **The quota cost of a tier is a declared rule, not vendor data.** No vendor publishes what a `max`-effort turn costs against a plan's allowance, so the multipliers are AtlasMind's own stated assumption — published on the provider card, exactly as the tech-debt register publishes the table that graded an entry.
+
+  Applied is **confirmed, not assumed**: the response echoes the option set back, so an agent that accepts the request and ignores it is distinguishable from one that applied it. A tier that cannot be set does **not** fail the turn — a turn at the default effort produced an answer, and aborting over a knob would turn a degraded turn into no turn — but it is reported to the output channel rather than swallowed, because the router priced that turn at the requested tier's multiplier and a silent fallback would bill high effort for a low-effort run.
+
+### Changed
+- **A model id may now carry a variant suffix, and quota resolution strips it.** `acp/claude#high` is the same subscription as `acp/claude` — a variant is a different *effort*, not a different plan. Without this, adding effort variants would have silently detached every ACP plan configured in v0.216.0: the entry sits on `acp/claude` while every turn routes to a variant, so the plan would read as configured and never once be consulted. Anything keyed to the subscription (quota, spend) resolves to the base id; anything keyed to the effort (depth, multiplier, scoring) stays on the variant. An explicitly set variant quota still wins.
+- `DiscoveredModel` gains `reasoningDepth`, so an adapter can report a depth the static catalog cannot know — an effort tier is a property of what the agent offered on this session, not of a model name anybody could enumerate in advance. The catalog still wins wherever it has an answer.
+- The ACP adapter keeps a per-instance record of what it last learned about each agent, alongside the shared TTL probe cache. The shared cache is deliberately bypassed whenever a process factory is injected, so relying on it alone would have made effort variants work in production and be untestable — which is the same as being unverified.
+
+## [0.216.0] - 2026-07-30
+
+### Fixed
+- **ACP was reported as unconfigured on every refresh, and the Models tree turned that into "agent not responding".** `isProviderConfigured` had no `acp` branch, so it fell through to reading the `atlasmind.provider.acp.apiKey` secret — a key that does not exist and never will, since the entire point of ACP is to drive an agent the user has already signed in to. Every discovery pass therefore skipped ACP and set its provider health to **false**.
+
+  The consequences compounded in the way that made this hard to place. The tree read that flag and announced *⚠ ACP — agent not responding* about an agent it had never contacted, while the provider panel, which probes directly, showed the same agents as **Ready** on the same screen. The router meanwhile excluded ACP from every candidate list, so the models sat there looking active and unreachable. And discovery being skipped is why only the seeded `acp/claude` ever appeared — a configured `codex-acp` had no model row at all.
+
+  "Configured" now means the same thing it means for local endpoints: is there anything to talk to. That is an agent in `atlasmind.acp.agents`.
+
+- **The health check probed the first agent and reported its answer as the provider's.** Order in a settings array is not a statement about which subscription matters, so a broken first agent condemned a working second one, and a working first agent vouched for a second that was never contacted. Every configured agent is now probed — concurrently — and the provider is healthy when any of them can be used.
+
+- **A vendor row now reports the agent it names.** With `acp` fronting several agents, the per-vendor rows all read one provider-wide health flag, so the *Anthropic — Claude subscription* row was showing whatever the first configured agent said. Each row reads its own agent's last probe.
+
+- **An agent nobody has contacted is no longer reported as failing.** A new `unverified` state distinguishes *not checked yet* from *checked and broken* — the same distinction `not-discovered` already draws against `model-disabled`. "Not responding" is a verdict, and a verdict requires having asked. Where the agent did answer, its own message replaces the generic two-causes advice in the tooltip.
+
+- **The startup budget was smaller than the probe it contained.** Discovery allowed 10s per provider while the ACP adapter allowed 20s per agent — and an ACP probe is not an HTTP ping: it spawns a process per agent and opens a session, which is the only question whose answer means "signed in". Measured on this machine at ~7s for `claude-agent-acp` and ~4s for `codex-acp`, before the contention of extension activation; two agents together take **9.2s**. So the enclosing timeout fired first on a perfectly healthy install, and its handler sets provider health to false — with nothing re-probing afterwards, a startup blip became permanent. ACP now gets a budget **derived from the adapter's own ceiling** rather than restated as a second number in a second file, which is exactly how the two drifted past each other.
+
+- **The routed ACP adapter snapshotted its agent list at activation.** It lives as long as the extension host, so an agent added to settings afterwards was invisible to routing and to the health check until a window reload — while every other ACP surface, which builds a throwaway adapter per call, already listed it. It now re-reads the setting on use.
+
+### Changed
+- **A subscription plan can now belong to an agent rather than to a provider, and the ACP plan flow asks which.** `$ Configure ACP Agents (subscription) plan` opened straight onto *"Enter monthly cost"* with no subject. That question has no correct answer: `acp` is one provider id in front of **several unrelated subscriptions** — `acp/claude` is billed against a Claude plan and `acp/codex` against a ChatGPT plan, bought separately and priced differently. Whatever figure was typed landed on the `acp` provider, so configuring the second plan overwrote the first, and the router then priced every ACP turn against one plan's cost-per-unit while depleting that plan's allowance by running the other.
+
+  The flow now names the plan at every step: with more than one agent configured it opens on *"Which subscription are you configuring?"*, listing each agent with its current allowance, and every dialog after it is titled with that agent. Real tiers are offered per vendor — Claude Pro / Max 5× / Max 20×, ChatGPT Plus / Pro, Google AI Pro / Ultra — instead of only *Custom…*. The button no longer names the protocol, because nobody sells a subscription to a protocol.
+
+  Underneath, `ModelRouter` gains model-scoped quotas. Pricing, scoring, budget gating and the post-turn decrement all resolve the plan through one accessor, so a turn can never be priced against one subscription and deducted from another; providers that front exactly one plan fall back to the provider-level quota and behave exactly as before. The provider card lists one row per configured agent, since a single "AI credits" line under a card naming two agents could only ever describe one of them.
+
+- The quota-exhaustion warning resolves its subject rather than assuming a provider, so it names the plan the user configured instead of a model id they never typed.
+
+## [0.215.0] - 2026-07-30
+
+### Changed
+- **The dashboard header shows what version is where, one pill per delivery stage.** It previously carried two: a *guessed* production branch (`detectProductionBranchRef` walks a candidate list) and whatever branch was checked out. That answers "which branch am I on?", while the project already models the real answer on the Delivery page as an ordered pipeline of stages, each naming the branch whose committed version represents it. The header ignored it — so adding a Staging stage changed nothing there, and a project with four environments still showed two pills, one of them a branch name.
+
+  The strip is now derived from the same stage views the Delivery page renders, in pipeline order, so a stage added there appears in the header without a second definition of what a stage is and the two surfaces cannot report different versions. AtlasMind's own pipeline renders as **Local · Staging `develop` · Production `main`**.
+
+  **The working tree gets a pill of its own.** It is the one reading taken from `package.json` on disk rather than from git, and therefore the only one that can be ahead of every branch — so it says `working tree` rather than borrowing a branch name, and carries a marker when the tree is dirty, which is precisely the condition under which it differs from everything else in the strip.
+
+  **A version is never invented.** A stage whose branch does not exist yet reports that instead of borrowing a plausible number — a version shown against an environment nobody has deployed to claims a deployment that never happened. The pipeline's `—` placeholder is treated as unknown rather than as a value. Pills are capped with the remainder stated and routed to the Delivery page, and a project with no pipeline configured still gets the original git-derived pair, labelled so a guessed production branch is not presented with the authority of a declared stage.
+
+- **`src/core/versionStrip.ts`** — the pure, `vscode`-free derivation, with the ordering, unknown-version and fallback rules unit-tested.
+
+### Fixed
+- The README's "since the last Marketplace publication" baseline now reads **v0.214.0**, and the list beneath it describes only what source adds over that published build. `docsIntegrity` caught the staleness the moment v0.214.0 was tagged.
+
 ## [0.214.0] - 2026-07-30
 
 ### Added

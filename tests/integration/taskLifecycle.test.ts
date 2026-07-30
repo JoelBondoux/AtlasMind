@@ -247,15 +247,15 @@ describe('Integration: task lifecycle', () => {
 
   it('uses a preferred text-only provider when implicit tool requirements would otherwise fall back to local echo', async () => {
     const claudeProvider: ProviderAdapter = {
-      providerId: 'claude-cli',
+      providerId: 'acp',
       complete: vi.fn().mockResolvedValue({
         content: 'Claude answered directly.',
-        model: 'claude-cli/claude-sonnet-4',
+        model: 'acp/claude',
         inputTokens: 120,
         outputTokens: 24,
         finishReason: 'stop',
       }),
-      listModels: vi.fn().mockResolvedValue(['claude-cli/claude-sonnet-4']),
+      listModels: vi.fn().mockResolvedValue(['acp/claude']),
       healthCheck: vi.fn().mockResolvedValue(true),
     };
     const localProvider = makeMockProvider([{
@@ -292,14 +292,14 @@ describe('Integration: task lifecycle', () => {
 
     const modelRouter = new ModelRouter();
     modelRouter.registerProvider({
-      id: 'claude-cli',
-      displayName: 'Claude Code CLI (chat only)',
+      id: 'acp',
+      displayName: 'ACP Agents (subscription)',
       apiKeySettingKey: '',
       enabled: true,
       pricingModel: 'subscription',
       models: [{
-        id: 'claude-cli/claude-sonnet-4',
-        provider: 'claude-cli',
+        id: 'acp/claude',
+        provider: 'acp',
         name: 'Claude Sonnet 4',
         contextWindow: 200000,
         inputPricePer1k: 0,
@@ -349,12 +349,12 @@ describe('Integration: task lifecycle', () => {
       id: 'task-claude-text-only-fallback',
       userMessage: 'Reply with the single word OK',
       context: {},
-      constraints: { preferredProvider: 'claude-cli', budgetMode: 'balanced', speedMode: 'balanced' },
+      constraints: { preferredProvider: 'acp', budgetMode: 'balanced', speedMode: 'balanced' },
       timestamp: new Date().toISOString(),
     }, defaultAgent);
 
     expect(result.response).toBe('Claude answered directly.');
-    expect(result.modelUsed).toContain('claude-cli/claude-sonnet-4');
+    expect(result.modelUsed).toContain('acp/claude');
     expect(claudeProvider.complete).toHaveBeenCalledTimes(1);
     expect(localProvider.complete).not.toHaveBeenCalled();
   });

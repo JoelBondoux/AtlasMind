@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { subscriptionButtonLabel } from '../../src/views/modelProviderPanel';
 
 /**
  * The routes that have to be *visible*, not merely contributed.
@@ -120,7 +121,16 @@ describe('provider copy that names a settings page routes to it', () => {
   it('names the provider in the plan button', () => {
     // Three subscription providers can be on screen at once, and every one of
     // these buttons read "$ Configure plan".
-    expect(source).toMatch(/\$ Configure \$\{escapeHtml\(options\.displayName\)\} plan/);
+    expect(subscriptionButtonLabel('copilot', 'GitHub Copilot')).toBe('$ Configure GitHub Copilot plan');
+  });
+
+  it('does not name ACP after the protocol, because the plan belongs to an agent', () => {
+    // "$ Configure ACP Agents (subscription) plan" named a thing nobody sells.
+    // The agents behind `acp` are billed against separate subscriptions, so the
+    // button promises a plan and the flow's first step asks which agent's.
+    const label = subscriptionButtonLabel('acp', 'ACP Agents (subscription)');
+    expect(label).toBe('$ Configure agent plan');
+    expect(label).not.toContain('ACP Agents (subscription)');
   });
 
   it('renders the copy through the linking renderer, not raw escapeHtml', () => {

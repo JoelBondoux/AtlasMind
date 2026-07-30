@@ -75,7 +75,7 @@ Examples:
 - Screenshot or image tasks require `vision`.
 - Tool-enabled agents require `function_calling`.
 - Terse command-style MCP actions now prefer a real local function-calling model first when the local provider exposes one, which keeps simple tool turns off billed providers whenever a suitable local model is available.
-- When no healthy model satisfies those implicit tool requirements, AtlasMind retries the turn without tool use before it allows the built-in `local/echo-1` fallback, so text-only providers such as Claude Code CLI (chat only) can still answer normal chat requests.
+- When no healthy model satisfies those implicit tool requirements, AtlasMind retries the turn without tool use before it allows the built-in `local/echo-1` fallback, so text-only providers can still answer normal chat requests.
 - Code-heavy tasks prefer models with `code` support even when `code` is not a hard requirement.
 - Freeform chat requests that mention supported workspace image paths are upgraded to vision requests, and the `/vision` chat command can explicitly attach selected workspace images to compatible provider adapters.
 - Important thread-based follow-up prompts such as "based on the chat thread" or other high-stakes carry-forward requests are profiled more aggressively so AtlasMind can escalate away from weak local models on later turns.
@@ -209,8 +209,6 @@ Notes:
 
 When a tool round returns only failures, denials, validation errors, or no-op responses, AtlasMind now treats those tool results as authoritative and surfaces the failed tool summary instead of accepting a contradictory success narration from the model.
 
-Claude Code CLI (chat only) also uses a compact bridge prompt during execution. AtlasMind trims bulky memory and live-evidence sections before forwarding the routed system prompt to the local Claude CLI process, and it grants that provider a longer timeout budget than the generic provider default so ordinary chat turns can complete reliably. Because this bridge runs in constrained print mode, AtlasMind now keeps Claude Code CLI (chat only) out of the `function_calling` candidate pool even if the upstream Claude model family supports tool use elsewhere.
-
 ### Catalog Refresh And Health
 
 Atlas now refreshes provider model catalogs at startup and when the user clicks
@@ -244,8 +242,7 @@ current budget/speed settings and inferred task profile.
 | Provider | ID | Discovery source | Notes |
 |---|---|---|---|
 | Anthropic (Claude) | `anthropic` | Runtime discovery via adapter `discoverModels()` / `listModels()` | Seeded with one fallback model until refresh completes |
-| ACP Agents (subscription) | `acp` | User-authored agent list (`atlasmind.acp.agents`); models are `acp/<id>` | Drives any Agent Client Protocol agent (`claude-agent-acp`, `codex-acp`, `gemini --acp`, `copilot --acp`, `qwen --acp`, …) over JSON-RPC on stdio, reusing that vendor's subscription. Unlike the `claude-cli` bridge it **streams**, has **no ~26,000-character prompt ceiling** (prompts travel over stdio, not argv), and sends **images** when the agent declares `promptCapabilities.image`. A completion source by default — no MCP pass-through, permission requests refused. With `atlasmind.acp.toolsEnabled` the agent runs its own tools, each authorized through `ToolApprovalManager`; `allow_always` is never selected and a missing gate denies. Declares `vision` once a handshake reports image support, and never `function_calling` — ACP cannot carry AtlasMind's own tool schemas. Seeded disabled; AtlasMind never installs an agent unattended. See [ACP agents](#acp-agents) below for the launch, authentication and usage details |
-| Claude Code CLI (chat only) *(superseded)* | `claude-cli` | Adapter-managed alias list validated through local `claude auth status` | Reuses a locally installed Claude CLI login in constrained print mode, starts with `claude-cli/sonnet` until refresh confirms the CLI is ready, strips pseudo-tool markup from print responses, and surfaces a clear provider error when the CLI returns JSON without assistant text. **Superseded by the ACP provider**, which streams, has no argv prompt ceiling, and has now been driven end to end against real `claude-agent-acp` and `codex-acp` binaries; retained as a fallback |
+| ACP Agents (subscription) | `acp` | User-authored agent list (`atlasmind.acp.agents`); models are `acp/<id>` | Drives any Agent Client Protocol agent (`claude-agent-acp`, `codex-acp`, `gemini --acp`, `copilot --acp`, `qwen --acp`, …) over JSON-RPC on stdio, reusing that vendor's subscription. Unlike the argv-based CLI bridge it replaced it **streams**, has **no ~26,000-character prompt ceiling** (prompts travel over stdio, not argv), and sends **images** when the agent declares `promptCapabilities.image`. A completion source by default — no MCP pass-through, permission requests refused. With `atlasmind.acp.toolsEnabled` the agent runs its own tools, each authorized through `ToolApprovalManager`; `allow_always` is never selected and a missing gate denies. Declares `vision` once a handshake reports image support, and never `function_calling` — ACP cannot carry AtlasMind's own tool schemas. Seeded disabled; AtlasMind never installs an agent unattended. See [ACP agents](#acp-agents) below for the launch, authentication and usage details |
 | OpenAI | `openai` | Runtime discovery via `/models` through the OpenAI-compatible adapter | Seeded with one fallback model until refresh completes |
 | Google (Gemini) | `google` | Runtime discovery via AI Studio OpenAI-compatible `/models` endpoint | Seeded with one fallback model until refresh completes |
 | Azure OpenAI | `azure` | Deployment list comes from `atlasmind.azureOpenAiDeployments`; execution uses a resource-specific Azure endpoint with `api-key` auth | Starts empty until you configure an endpoint and at least one deployment |
@@ -325,7 +322,108 @@ Two different things are reported, and conflating them made every ACP completion
 - **`usage_update`** (a `session/update` notification) carries `{ used, size, cost? }` — the *cumulative* context token count and the context-window size. It is a progress bar, not a bill, and is never charged as input tokens; doing so would re-bill the whole conversation on every message.
 - **The `session/prompt` result** carries `usage.inputTokens` / `usage.outputTokens` for the turn. This field is not in the published `PromptResponse` schema, but it is the only place a real per-turn count appears and every current agent sends it in the same shape. Absent or unusable counts report **zero** rather than an estimate, and nothing is derived from `totalTokens` — splitting a total into input and output would be arithmetic nobody measured.
 
-Because ACP models are subscription-backed, they are priced at zero per token; the router's subscription handling, not the adapter, is what stops that from winning budget mode by default.
+Because ACP models are subscription-backed, they are priced at zero per token; the router's subscription handling, not the adapter, is what stops that from winning budget mode by default. Which subscription is a per-model question — see [Scope: one provider can front several plans](#scope-one-provider-can-front-several-plans).
+
+### Subscription capacity is advanced over metered tokens
+
+Subscription providers — Copilot and ACP alike — are preferred over pay-per-token for ordinary work, because the capacity is already bought. Two scores do it, and **both key on the provider's `pricingModel`, never on a list of provider ids**, so a new subscription provider inherits the behaviour without being enumerated anywhere:
+
+- `ACTIVE_SUBSCRIPTION_BONUS` (+0.3) on every turn where the plan has quota left. Modest by design: it breaks ties toward the subscription without overriding a capability need, and it vanishes once the quota is spent, at which point the provider is effectively pay-per-token.
+- On **maintenance** turns the gap widens — a subscription bonus paired with a penalty for pay-per-token — so background housekeeping never burns metered tokens.
+
+Prompt-caching discounts are keyed per provider and ACP is absent from those lists, which is correct rather than an omission: they reduce *metered* input pricing, and a subscription model is priced at zero per token.
+
+**Quota scope is where this gets subtle.** Every other subscription provider is one provider in front of one plan, so a provider-level quota is right. ACP is not: `acp` fronts several unrelated subscriptions, so its quotas are **model-scoped** — the Claude Max entry sits on `acp/claude`, the ChatGPT one on `acp/codex`. `subscriptionQuotaForModel` resolves scoped first, then the base id, then the provider.
+
+That base-id step is load-bearing. Both variant separators name a choice *inside* one subscription — `#high` is an effort, `@opus` is a model on the same plan — so `acp/claude@opus#high` must resolve to the `acp/claude` plan. When it did not (v0.218.0, fixed in v0.218.1), the failure was silent and expensive: the lookup fell through to a provider-level quota ACP does not have, so every variant turn looked unmetered — the preference bonus kept applying past exhaustion and nothing decremented the plan being billed.
+
+### Which model, not just how hard it thinks
+
+The same `configOptions` array carries a `model` category, and it was being parsed and discarded. `codex-acp` offers `gpt-5.6-luna` / `gpt-5.6-terra` / `gpt-5.6-sol`; `claude-agent-acp` offers `opus[1m]` / `sonnet` / `haiku` / … . So a plan presented to the router as one model at N effort levels when it is really M models at N effort levels, and the orchestrator could never send a throwaway rename to the light model and a refactor to the deep one.
+
+**The model list is detected, never declared.** Nothing in `acpModels.ts` names a model that must exist. Vendors ship models faster than AtlasMind ships releases, so a hardcoded roster would be wrong within weeks and wrong in the worst direction — a model you are paying for, invisible to the router. Whatever the installed agent offers today is what appears.
+
+**What cannot be detected is a model's standing.** The wire format carries `value`, `name` and `description` — no capability field, no ordering guarantee. Where a model sits relative to its siblings is therefore assigned by a declared rule, in precedence order:
+
+1. **`atlasmind.acp.modelStanding`** — what you declared, keyed on the display name or the wire value.
+2. **A short table of naming conventions** this build is willing to stand behind (Anthropic's Haiku / Sonnet / Opus tiering). Deliberately short: every entry is a claim about a vendor's lineup, and a wrong one misroutes every turn. Generic words like `pro`, `max` and `turbo` are absent — they mean opposite things across vendors, and `max` also names an effort level.
+3. **Keywords in the agent's own description** of that model. Weaker than a convention, because marketing copy is not a specification — but it is the vendor describing this exact model, which beats anything this file could infer about a name it has never seen.
+
+Every choice records which rule decided, published as `ACP_MODEL_RULE_NOTE` on the provider card, the same convention the tech-debt register uses.
+
+**Unknown standing is routable, never dropped.** This inverts `acpEffortTiersFor`, which drops effort values it does not recognise, and the difference is deliberate: an unrecognised *effort* value has no depth or cost the router can reason about, so a row for it would be unscoreable, while an unrecognised *model* is a real working model whose only unknown is its rank. Dropping it would hide capacity you pay for — and hide it precisely for the newest model, the one most likely to be worth using. It routes, it is selectable, it simply carries no `reasoningDepth` and a neutral multiplier, so it is never *preferred* on a number nobody stands behind.
+
+At the time of writing, `luna` / `terra` / `sol` fall through to unknown. They sit in an obvious size order if you read them as moon/earth/sun — but that is etymology, not a vendor statement, and a wrong ranking sends a refactor to the small model without anybody finding out. Declare them in `atlasmind.acp.modelStanding` and the router uses them fully.
+
+**Model and effort compose into one routed id** — `acp/claude@opus#high` — because both are knobs on the same session and the combination is what a subscription user actually wants. Two declared rules govern the composition: **depth is the greater of the two** (a light model cannot be made deep by asking harder; a deep model at low effort is still the deep model), and **cost multiplies** (both spend the plan). Rows are capped per agent and ordered so truncation costs every effort before it costs any model — a long lineup still exposes every model.
+
+On the execute path the model is set **before** the effort. Against an agent that resets dependent knobs when the model changes, the other order would silently discard the effort — the same looks-like-success failure the category rule exists to prevent. A model that cannot be applied does not fail the turn, and is reported on the same channel as a failed effort, for the same reason: the router priced the turn as that model.
+
+### Effort is a routed model, set through `session/set_config_option`
+
+**There is no `session/set_model` in ACP v1.** The spec's session-setup page notes that a `session/new` response *MAY* carry model or configuration state, and the mechanism for changing it is `session/set_config_option` — verified against the published schema at `ACP_SPEC_VERIFIED_AT` and against live `codex-acp` 1.1.7 and `claude-agent-acp` 0.63.0, both of which implement it and echo the full option set back.
+
+`session/new` returns `configOptions`. Both agents carry one whose **category** is `thought_level`:
+
+| Agent | Option id | Values |
+|---|---|---|
+| `codex-acp` | `reasoning_effort` | `low` `medium` `high` `xhigh` `max` `ultra` |
+| `claude-agent-acp` | `effort` | `default` `low` `medium` `high` `xhigh` `max` |
+
+**The id differs; the category does not.** Matching on `id` would work against exactly one agent and silently no-op against the other — a failure indistinguishable from success, because the turn still completes, just at the wrong effort. `acpEffort.ts` therefore matches on `category` everywhere.
+
+Each tier the agent lists becomes a routed model id with a `#` variant suffix — `acp/claude#high` — carrying:
+
+- **`reasoningDepth`**, which the router's `scoreTaskFit` already uses, so a high-reasoning task prefers a higher tier without any ACP-specific scoring;
+- **`premiumRequestMultiplier`**, which `matchesBudgetGate` already reads, so `cheap` (≤1) reaches `low`/`medium`, `balanced` (≤2) reaches `high`, and `auto`/`expensive` reach the top.
+
+The un-suffixed row remains and means "the agent's own default" — it carries neither annotation, because asserting a depth for a setting nobody chose would be inventing one. Variants appear only **after** the agent has been probed, for the same reason `vision` does: `discoverModels` runs on every tree render and must not spawn.
+
+`default` is deliberately not a tier — it is the base row, and emitting it as a variant would create a second model id meaning the same run.
+
+#### What may be set, and what may never be
+
+`ACP_SETTABLE_CONFIG_CATEGORIES` is an allowlist holding exactly `model` and `thought_level`. It is deny-by-default, and the refusal lives in `AcpSession.setConfigOption` — the one place a set request is built — rather than at each call site.
+
+The reason is that the same `configOptions` array carries the agent's **permission** mode:
+
+| Agent | Category `mode` includes |
+|---|---|
+| `codex-acp` | `read-only`, `agent`, **`agent-full-access`** |
+| `claude-agent-acp` | `default`, `acceptEdits`, `plan`, **`bypassPermissions`** |
+
+A config channel able to set those would route around `toolApprovalManager` rather than through it — a privilege escalation wearing the clothes of a routing optimisation. A test asserts no `mode` change and no value matching `bypass`/`full-access` is ever written to the wire.
+
+`model_config` — Codex's "fast mode", described by the agent as *"1.5x speed, increased usage"* — is excluded for a different reason: spending more of the user's subscription is their decision.
+
+#### The cost of a tier is a declared rule
+
+No vendor publishes what a `max`-effort turn costs against a plan's allowance. The multipliers in `ACP_EFFORT_TIERS` are therefore **AtlasMind's own stated assumption**, published as `ACP_EFFORT_RULE_NOTE` on the provider card — the same convention the tech-debt register uses when it prints the rule that graded an entry. They are what makes the gradient arguable rather than merely trusted.
+
+#### Applied is confirmed, not assumed
+
+`session/set_config_option` returns the full option set with the new `currentValue`, so an agent that accepts the request and ignores it is distinguishable from one that applied it. A tier that cannot be set does **not** fail the turn — a turn at the default effort produced an answer, and aborting over a knob would turn a degraded turn into no turn — but it is reported through `onEffortNotApplied` to the output channel, because the router priced that turn at the requested tier's multiplier and a silent fallback would bill high effort for a low-effort run.
+
+#### Variants and subscription plans
+
+A variant is a different *effort*, not a different plan, so `acp/claude#high` bills to whatever plan is configured on `acp/claude`. See [Scope: one provider can front several plans](#scope-one-provider-can-front-several-plans) — `subscriptionQuotaForModel` and `consumeSubscriptionUnits` strip the suffix when no exact match exists. Without that, adding variants would have silently detached every configured ACP plan: the entry sits on the base id while every turn routes to a variant.
+
+**Model *family* is deliberately not enumerated.** Codex advertises 7 families × 6 efforts = 33 `availableModels`; turning that cross product into routed rows would flood the tree with models the router has no basis to choose between. Effort is the axis it can reason about; family stays at the agent's own setting.
+
+### Health is per agent, and a verdict requires having asked
+
+`acp` is one provider id in front of *n* agents, which breaks two assumptions the rest of the provider machinery makes.
+
+- **`healthCheck()` probes every configured agent, concurrently, and is healthy when any can be used.** It used to probe `agents[0]` and report that answer as the provider's — wrong in both directions once more than one agent is configured: a broken first agent condemned a working second one, and a working first agent vouched for a second that was never contacted. Order in a settings array is not a statement about which subscription matters.
+- **Per-vendor surfaces read `peekAcpAgentProbe(agentId)`**, the last thing *that* agent said, rather than the provider-wide health flag. Otherwise the *Anthropic — Claude subscription* row reports whatever `codex-acp` said.
+- **Never probed is not the same as probed and failing.** An agent with no recorded probe renders as `unverified` ("not checked yet"), not `unhealthy` ("agent not responding"). Announcing a failure for a process nobody spawned is the misreport this distinction exists to prevent — the same distinction `not-discovered` draws against `model-disabled`.
+
+Two configuration properties follow from the probe being expensive:
+
+- **ACP is "configured" when an agent is in `atlasmind.acp.agents`** — never by an API key. It is keyless by construction, so falling through to a secret lookup reported it unconfigured on every refresh, which skipped discovery *and* set provider health to false.
+- **The enclosing discovery budget is derived from `ACP_PROBE_TIMEOUT_MS`, not restated.** An ACP probe spawns a process per agent and opens a session — roughly 9s for two agents on a warm machine, against a 10s per-provider startup budget whose expiry marks the provider unhealthy with nothing to re-probe afterwards. Two numbers in two files is exactly how they drifted past each other.
+
+The long-lived routed adapter takes its agent list as a **getter**, not an array: it is constructed once at activation, so a snapshot left an agent added later invisible to routing until a window reload, while every throwaway adapter built per panel click already saw it.
 
 ## Specialist And Future Providers
 
@@ -442,7 +540,7 @@ Some routed providers intentionally mix discovery modes:
 - Amazon Bedrock uses a dedicated adapter because Bedrock requires SigV4 request signing, a canonical request path that preserves the configured raw model ID, and Bedrock-specific payload/response mapping.
 - Providers with specialist auth or non-chat modalities stay out of the routed table until they have a dedicated adapter path.
 
-AtlasMind now also reuses the same routed-provider layer from a Node CLI host. Host-neutral adapters (`anthropic`, `claude-cli`, `openai-compatible`, and the shared `local` adapter from `src/providers/registry.ts`) read credentials through a small secret abstraction: in VS Code that resolves to `SecretStorage`, and in the CLI it resolves from environment variables such as `ATLASMIND_PROVIDER_OPENAI_APIKEY`, `ATLASMIND_PROVIDER_ANTHROPIC_APIKEY`, `ATLASMIND_AZURE_OPENAI_ENDPOINT`, `ATLASMIND_AZURE_OPENAI_DEPLOYMENTS`, and `ATLASMIND_LOCAL_OPENAI_BASE_URL`. Claude Code CLI (chat only) relies on the local Claude CLI auth state instead of an AtlasMind-managed API key, explicitly requests plain-text print-mode replies with tools disabled, strips embedded pseudo-tool XML from successful results, and now fails fast when the CLI returns a JSON envelope without assistant text. Copilot remains extension-only because it depends on the VS Code Language Model API, and Bedrock remains on the dedicated extension-host configuration path.
+AtlasMind now also reuses the same routed-provider layer from a Node CLI host. Host-neutral adapters (`anthropic`, `openai-compatible`, and the shared `local` adapter from `src/providers/registry.ts`) read credentials through a small secret abstraction: in VS Code that resolves to `SecretStorage`, and in the CLI it resolves from environment variables such as `ATLASMIND_PROVIDER_OPENAI_APIKEY`, `ATLASMIND_PROVIDER_ANTHROPIC_APIKEY`, `ATLASMIND_AZURE_OPENAI_ENDPOINT`, `ATLASMIND_AZURE_OPENAI_DEPLOYMENTS`, and `ATLASMIND_LOCAL_OPENAI_BASE_URL`., explicitly requests plain-text print-mode replies with tools disabled, strips embedded pseudo-tool XML from successful results, and now fails fast when the CLI returns a JSON envelope without assistant text. Copilot remains extension-only because it depends on the VS Code Language Model API, and Bedrock remains on the dedicated extension-host configuration path.
 
 For **Copilot models**, the catalog searches _all_ provider catalogs since Copilot
 surfaces upstream models (GPT-4o, Claude Sonnet 4, etc.) under its own namespace.
@@ -476,7 +574,7 @@ Each registered provider carries a `pricingModel` field:
 
 | Pricing Model | Description | Examples |
 |---|---|---|
-| `subscription` | Tokens included in a subscription plan — effectively free to the user | GitHub Copilot, Claude Code CLI (chat only), ACP Agents |
+| `subscription` | Tokens included in a subscription plan — effectively free to the user | GitHub Copilot, ACP Agents |
 | `free` | No cost at all (local inference, free-tier APIs) | Local/Ollama |
 | `pay-per-token` | Billed per token consumed via an API key | Anthropic, OpenAI, Google, Mistral, DeepSeek, z.ai |
 
@@ -487,7 +585,7 @@ Each registered provider carries a `pricingModel` field:
 - **Outcome-driven bias** (Direction 2): a bounded nudge (`scoreOutcomeBias`, ±`OUTCOME_BIAS_MAX`) from each model's **decayed execution-outcome EWMA**. After every turn the orchestrator records a graded quality score (`gradeExecutionQuality`: error = 0, empty = 0.2, truncated = 0.6, clean = 1.0) via `recordExecutionOutcome`, maintained as an EWMA separate from the manual thumbs-feedback channel. The bias is gated by a minimum sample count (`MIN_OUTCOME_SAMPLES`, so a single run cannot swing routing) and scaled by the `feedbackRoutingWeight` control (0 disables it). Because it is clamped, a model that performs poorly is nudged down but never starved. Outcomes persist across sessions (`atlasmind.executionOutcomes`, via the `onModelOutcomeRecorded` hook) and are restored on activation. The **`AtlasMind: Compare Models on a Prompt`** command (`modelEvalHarness.ts`) runs one prompt across selected models, ranks them by graded quality and cost, and records the graded outcomes into this channel — so an explicit benchmark also calibrates routing. The recorded outcome is always the coarse **completion grade** (`gradeExecutionQuality`), regardless of an optional answer-quality **judge** score (0–100, `buildModelJudgePrompt`/`parseModelJudgeVerdicts`) shown in the panel — the judge drives the table ranking/sort but does not feed routing, keeping the calibration signal consistent with normal turns. Outcomes are tracked **per reasoning tier** as well as in aggregate: each run updates both the bare `modelId` aggregate and a `modelId::low|medium|high` bucket, and `scoreOutcomeBias` prefers the bucket matching the current task's reasoning tier (falling back to the aggregate when that bucket is sparse), so a model that is strong at high-reasoning work but weak at mechanical tasks is biased per context.
 - **Evidence-backed normal-turn grading (0.143.0)** supersedes the coarse clean = 1.0 description above for orchestrated work. The orchestrator grades what the user actually receives after recovery together with expected tool use, successful and failed tool-call counts, post-write verification, TDD status, and incomplete-delivery signals. Hard errors remain 0, empty responses 0.2, and truncated responses 0.6; a clean text response starts at 0.8, successful verified execution can reach 1.0, and failed verification or blocked/incomplete work is capped lower. The explicit Model Comparison harness has no workspace execution artifacts and therefore intentionally retains the coarse completion-integrity grade plus its optional answer-quality judge.
 - **Active-subscription nudge**: A subscription provider with quota remaining receives a small, general preference bonus (`ACTIVE_SUBSCRIPTION_BONUS`) on **all** task phases — not only on `maintenance` tasks — because its capacity is already paid for ("essentially free" until quota is exhausted). The nudge is modest (it breaks ties toward the subscription without overriding capability or quality needs) and is **quota-aware**: it disappears once the subscription is depleted, at which point the provider is treated as pay-per-token. This complements the older `maintenance`-only `SUBSCRIPTION_MAINTENANCE_BONUS`.
-- **Cache-aware input cost**: On iterative/threaded turns a large, stable prefix (system/identity prompt + SSOT memory bundle + tool definitions) is reused and can be served from the provider's prompt cache at a reduced rate. `RoutingConstraints.cacheablePrefixRatio` (0..1) declares the cacheable share of a turn's input — the orchestrator estimates it via `estimateCacheablePrefixRatio(stablePrefixTokens, volatileTokens)` from the carried session/native context vs. the new user message, capped at `MAX_CACHEABLE_PREFIX_RATIO` (0.9) so a perfect cache hit is never assumed. When the ratio is > 0, `effectiveCostPer1k` prices the cacheable share at the model's cache-read rate for cache-capable models, lowering their projected cost and favouring them for repeat-context work. Single-shot turns (ratio 0) are unaffected. The cache-read price is `cachedInputPricePer1k` when known, else `inputPricePer1k ×` a per-provider factor from `PROVIDER_CACHE_READ_FACTOR` (Anthropic/Claude CLI 0.1×, OpenAI/Azure/Copilot 0.5×, DeepSeek/Google 0.25×), falling back to `DEFAULT_CACHE_READ_FACTOR` (0.25×) for unlisted providers. These factors are a bootstrap baseline only — a dynamic `cachedInputPricePer1k` reported by discovery or the pricing sync overrides them.
+- **Cache-aware input cost**: On iterative/threaded turns a large, stable prefix (system/identity prompt + SSOT memory bundle + tool definitions) is reused and can be served from the provider's prompt cache at a reduced rate. `RoutingConstraints.cacheablePrefixRatio` (0..1) declares the cacheable share of a turn's input — the orchestrator estimates it via `estimateCacheablePrefixRatio(stablePrefixTokens, volatileTokens)` from the carried session/native context vs. the new user message, capped at `MAX_CACHEABLE_PREFIX_RATIO` (0.9) so a perfect cache hit is never assumed. When the ratio is > 0, `effectiveCostPer1k` prices the cacheable share at the model's cache-read rate for cache-capable models, lowering their projected cost and favouring them for repeat-context work. Single-shot turns (ratio 0) are unaffected. The cache-read price is `cachedInputPricePer1k` when known, else `inputPricePer1k ×` a per-provider factor from `PROVIDER_CACHE_READ_FACTOR` (Anthropic 0.1×, OpenAI/Azure/Copilot 0.5×, DeepSeek/Google 0.25×), falling back to `DEFAULT_CACHE_READ_FACTOR` (0.25×) for unlisted providers. These factors are a bootstrap baseline only — a dynamic `cachedInputPricePer1k` reported by discovery or the pricing sync overrides them.
   - **Dynamic capability**: cache support tracks provider changes. `ModelInfo.supportsPromptCaching` is authoritative and is sourced with **discovery hint → live pricing sync → catalog** precedence (an explicit `false` overrides), so when a provider gains or drops caching it is reflected on the next refresh. The `CACHE_CAPABLE_PROVIDERS` set is only a bootstrap fallback for models not yet annotated by a dynamic source.
   - **Measured savings**: adapters read the cached-input-token count from provider usage (`CompletionResponse.cachedInputTokens` — Anthropic `cache_read_input_tokens`, OpenAI `prompt_tokens_details.cached_tokens`, DeepSeek `prompt_cache_hit_tokens`). The orchestrator values the avoided spend with `ModelRouter.cacheReadPricePer1k(model)` and records it as `CostRecord.cacheSavingsUsd`; the Cost Dashboard surfaces the aggregate **Cache Savings** alongside cached-token volume. Reported as avoided spend (not subtracted from recorded cost), mirroring compression savings.
   - **Estimated local-model savings**: the Cost Dashboard filters genuine local-provider usage, groups tokens by exact local model id, and calls `getComparableCloudReference()` for one catalog-backed comparison per model. Advertised parameter counts map ≤8B to the budget tier, 9–64B to mid-tier, and ≥65B to premium; recognizable reasoning/large markers use premium, coder/vision/instruct markers use mid-tier, and unknown models conservatively default to mid-tier. Per-model avoided costs are then summed. This is a potential-cost estimate, not a recorded discount.
@@ -518,6 +616,26 @@ interface SubscriptionQuota {
 | Remaining > 30% | Zero effective cost (simple path) or `costPerRequestUnit × multiplier` (when set) |
 | Remaining 1–30% | **Conservation threshold**: effective cost blends linearly toward listed API price as quota depletes. At 0% remaining, effective cost equals listed price. |
 | Remaining = 0 | **Exhausted**: model is scored at full listed API price and falls through to normal budget-tier gating (no bypass). |
+
+#### Scope: one provider can front several plans
+
+For every provider but one, the provider *is* the subscription, and keying the quota by provider id says the same thing. `acp` is the exception: it is one provider id in front of several unrelated subscriptions — `acp/claude` is billed against a Claude plan, `acp/codex` against a ChatGPT plan, bought separately and priced differently. A single `acp` quota cannot describe both, and the failure is silent in the worst direction: the second plan configured overwrites the first, so the router prices Codex turns against Claude Max's cost-per-unit and depletes one plan's allowance by running the other.
+
+So a quota may also be scoped to a **model**, which for ACP is exactly one agent and therefore exactly one subscription:
+
+```typescript
+router.setModelSubscriptionQuota('acp/codex', chatgptPlusQuota);
+router.subscriptionQuotaForModel('acp/codex');  // the scoped plan
+router.subscriptionQuotaForModel('copilot/gpt-4o');  // falls back to the provider's
+```
+
+Three rules hold this together:
+
+- **`subscriptionQuotaForModel` is the only accessor pricing, scoring and budget gating use.** Reading `provider.subscriptionQuota` directly is what made a multi-plan provider report one plan's numbers for all of them.
+- **`consumeSubscriptionUnits(modelId, units)` owns the scope decision**, so a turn can never be *priced* against the model's plan and *deducted* from the provider's. It returns the scope it spent, which the exhaustion warning resolves to a name rather than assuming a provider id.
+- **Provider-level quotas are untouched.** Copilot behaves exactly as before; only a provider that actually fronts more than one plan pays the cost of saying which.
+
+The `$ Configure agent plan` control on the ACP card asks which agent's subscription is being described before it asks anything about the plan, and offers that vendor's real tiers (Claude Pro / Max 5× / Max 20×, ChatGPT Plus / Pro, Google AI Pro / Ultra). Storage is keyed on the model id; provider ids never contain a slash, which is what lets one persisted record hold both kinds of key.
 
 ### Premium Request Multiplier
 

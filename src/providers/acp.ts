@@ -2,15 +2,16 @@
  * ACP provider adapter — subscription-backed completion capacity over the
  * Agent Client Protocol.
  *
- * This is Tier 1 of `project_memory/roadmap/acp-integration.md`: ACP replaces
- * `claude-cli` as the Claude-subscription path with strictly more capability and
- * **no new security surface**. What it buys over the argv bridge:
+ * This is Tier 1 of `project_memory/roadmap/acp-integration.md`. It superseded
+ * the `claude-cli` argv bridge (removed in v0.219.0) as the Claude-subscription
+ * path, with strictly more capability and **no new security surface**. What it
+ * bought over that bridge is why it is shaped this way:
  *
- * - **Streaming.** `session/update` text chunks map to `onTextChunk`;
- *   `claude-cli` cannot stream at all.
+ * - **Streaming.** `session/update` text chunks map to `onTextChunk`; the argv
+ *   bridge could not stream at all.
  * - **No 26k prompt ceiling.** Prompts travel as JSON-RPC over stdio rather than
- *   in argv, so `CLAUDE_CLI_TOTAL_PROMPT_BUDGET` and the truncation constants
- *   simply do not apply. A long context arrives intact instead of silently cut.
+ *   in argv, so the argv length limit and its truncation constants simply do not
+ *   apply. A long context arrives intact instead of silently cut.
  * - **Images.** Sent as ACP `image` content blocks when the agent's
  *   `promptCapabilities.image` says it accepts them — and dropped with a note
  *   when it does not, rather than sent hopefully.
@@ -26,7 +27,7 @@
  *
  * The launch command is **user-authored** (`atlasmind.acp.agents`). Nothing here
  * installs, downloads, or `npx`-fetches an agent: the adapter probes for a
- * binary the user already has, exactly as `probeClaudeCli` does.
+ * binary the user already has.
  *
  * Wire framing lives in {@link ./acpProtocol.ts}, verified against the published
  * spec. The child process is injected via {@link AcpProcessFactory} — the
@@ -53,10 +54,13 @@ import {
   parseAcpFrame,
   parseInitializeResult,
   parsePermissionRequest,
+  parseSessionConfigOptions,
   parseSessionId,
   parseSessionUpdate,
+  buildSetConfigOptionRequest,
   parseStopReason,
   toFinishReason,
+  type AcpConfigOption,
   type AcpInitializeResult,
   type AcpMcpServer,
   type AcpPermissionRequest,
@@ -64,12 +68,42 @@ import {
   type AcpToolCall,
 } from './acpProtocol.js';
 import { resolveAcpPermission } from './acpPermission.js';
+import {
+  ACP_EFFORT_CATEGORY,
+  acpEffortTiersFor,
+  buildAcpModelVariantId,
+  isSettableAcpConfigCategory,
+  parseAcpModelVariant,
+  type AcpEffortTier,
+} from './acpEffort.js';
+import {
+  ACP_MODEL_CATEGORY,
+  acpModelChoicesFor,
+  acpModelRows,
+  buildAcpModelId,
+  composeAcpVariant,
+  describeAcpModelStanding,
+  splitAcpModelSegment,
+  type AcpModelChoice,
+} from './acpModels.js';
 
 export const ACP_PROVIDER_ID = 'acp';
 export const ACP_SETUP_URL = 'https://agentclientprotocol.com/get-started/agents';
 
 const DEFAULT_TIMEOUT_MS = 180_000;
-const PROBE_TIMEOUT_MS = 20_000;
+
+/**
+ * How long a single agent's probe may take.
+ *
+ * Exported because any budget that *encloses* a probe has to be larger than it,
+ * and that relationship was previously two unrelated numbers in two files: the
+ * startup discovery pass allowed 10s per provider while this allowed 20s per
+ * agent, so on a healthy install the enclosing timeout always fired first and
+ * its handler marked the provider unhealthy. Callers derive their budget from
+ * this constant rather than restating one.
+ */
+export const ACP_PROBE_TIMEOUT_MS = 20_000;
+const PROBE_TIMEOUT_MS = ACP_PROBE_TIMEOUT_MS;
 const ACP_PROBE_TTL_MS = 10_000;
 
 /**
@@ -307,6 +341,16 @@ export interface AcpProbeResult {
   supportsImages?: boolean;
   /** `promptCapabilities.audio`. Reported for diagnostics; nothing sends audio. */
   supportsAudio?: boolean;
+  /**
+   * The knobs this agent offered on the probe's session.
+   *
+   * Captured for the same reason `supportsImages` is: it is a fact about the
+   * *installed build*, learned by asking, and `discoverModels` runs on every
+   * tree render and must not spawn. The probe already opens a session to answer
+   * "signed in?", so the effort levels arrive on a round trip already being
+   * paid for — they were simply being thrown away.
+   */
+  configOptions?: AcpConfigOption[];
 }
 
 /**
@@ -343,9 +387,40 @@ interface AcpTurnResult {
 export class AcpAdapter implements ProviderAdapter {
   readonly providerId = ACP_PROVIDER_ID;
 
+  /**
+   * What *this* adapter last learned about each agent, by agent id.
+   *
+   * Distinct from the module-level TTL cache on purpose. That cache exists so
+   * separate adapter instances do not each spawn a process for the same agent,
+   * and it is deliberately bypassed whenever a process factory is injected —
+   * shared state that outlived a test would leak between them. But
+   * `discoverModels` needs the probe's findings to offer effort variants, and
+   * with the shared cache bypassed it would see nothing and offer none: the
+   * feature would work in production and be untestable, which is the same as
+   * being unverified.
+   *
+   * An instance memo has neither problem. It is not shared, so it cannot leak;
+   * and it is the honest scope anyway — what this adapter found out.
+   */
+  private readonly lastProbeByAgent = new Map<string, AcpProbeResult>();
+
   constructor(
     private readonly options?: {
-      agents?: AcpAgentConfig[];
+      /**
+       * The configured agents, or a getter for them.
+       *
+       * A getter is the shape the long-lived routed adapter needs. It is
+       * constructed once at activation, so an array here is a snapshot of
+       * `atlasmind.acp.agents` as it read at that moment — and adding an agent
+       * afterwards left the adapter that actually answers prompts blind to it
+       * until the window was reloaded, while the provider panel (which builds a
+       * throwaway adapter per click) reported the new agent as ready. Two
+       * surfaces disagreeing about which agents exist is exactly the confusion
+       * this provider keeps producing.
+       *
+       * Tests and one-shot probes pass an array, which still means "these".
+       */
+      agents?: AcpAgentConfig[] | (() => AcpAgentConfig[]);
       cwd?: string;
       timeoutMs?: number;
       clientVersion?: string;
@@ -372,6 +447,21 @@ export class AcpAdapter implements ProviderAdapter {
        * rather than one that acts unsupervised.
        */
       permissionPolicy?: AcpPermissionPolicy;
+      /**
+       * Called when a requested effort tier could not be applied and the turn is
+       * proceeding at the agent's default. Not an error channel — the turn
+       * succeeds — but the run was cheaper than it was billed as, and that is
+       * worth saying out loud rather than absorbing.
+       */
+      onEffortNotApplied?: (event: { agentId: string; requested: string; reason: string }) => void;
+      /**
+       * The user's `atlasmind.acp.modelStanding` declarations.
+       *
+       * A function for the same reason `agents` is: settings change while the
+       * extension host is alive, and a value captured at construction would go
+       * stale the moment somebody teaches AtlasMind where a new model sits.
+       */
+      modelStanding?: () => Record<string, string>;
       onToolEvent?: AcpToolEventListener;
     },
   ) {}
@@ -408,37 +498,152 @@ export class AcpAdapter implements ProviderAdapter {
    * must not be routed here — see the refusal in {@link run}.
    */
   async discoverModels(): Promise<DiscoveredModel[]> {
-    return this.agents().map(agent => {
-      const known = peekAcpProbe(this.probeCacheKey(agent));
-      return {
-        id: `${ACP_PROVIDER_ID}/${agent.id}`,
-        name: agent.label ?? agent.id,
+    return this.agents().flatMap(agent => {
+      const known = this.lastProbeByAgent.get(agent.id) ?? peekAcpProbe(this.probeCacheKey(agent));
+      const baseModelId = `${ACP_PROVIDER_ID}/${agent.id}`;
+      const label = agent.label ?? agent.id;
+      const capabilities: DiscoveredModel['capabilities'] = known?.supportsImages
+        ? ['chat', 'code', 'reasoning', 'vision']
+        : ['chat', 'code', 'reasoning'];
+
+      const base: DiscoveredModel = {
+        id: baseModelId,
+        name: label,
         // Subscription-backed: priced at zero per token, which is *why* the router
         // must not let it win budget mode by default — that gate lives in
         // modelRouter's subscription handling, not here.
         inputPricePer1k: 0,
         outputPricePer1k: 0,
-        capabilities: known?.supportsImages
-          ? ['chat', 'code', 'reasoning', 'vision']
-          : ['chat', 'code', 'reasoning'],
+        capabilities,
       };
+
+      // One row per effort level the agent actually offers. Read from the cached
+      // probe for the same reason `vision` is: this runs on every render of every
+      // surface that lists models, and a process per render is not a price a
+      // capability list should cost. Before the agent has been probed there is
+      // one row — the agent's own default — which is the conservative direction:
+      // a variant wrongly offered would route a turn to an effort the agent never
+      // agreed to, while one wrongly withheld merely runs at the default.
+      const tiers = acpEffortTiersFor(known?.configOptions ?? []);
+      // The models this agent offers *today*, read from the same probe. Nothing
+      // here names a model that must exist: a hardcoded roster would be wrong
+      // within weeks and wrong in the worst direction — a model the user is
+      // paying for, invisible to the router.
+      const models = acpModelChoicesFor(known?.configOptions ?? [], this.modelStanding());
+
+      // With no model knob the agent keeps its original shape: one base row plus
+      // an effort ladder. Adding an empty model dimension would rename every
+      // existing row for no gain and invalidate anyone's pinned model id.
+      if (models.length === 0) {
+        return [
+          base,
+          ...tiers.map(tier => ({
+            id: buildAcpModelVariantId(baseModelId, tier),
+            name: `${label} (${tier.label} effort)`,
+            inputPricePer1k: 0,
+            outputPricePer1k: 0,
+            capabilities,
+            // What the router already knows how to reason about. `reasoningDepth`
+            // drives task-fit scoring and `premiumRequestMultiplier` drives the
+            // budget gate, so the effort gradient falls out of existing machinery
+            // rather than needing a parallel one. Both come from a declared table
+            // — `ACP_EFFORT_RULE_NOTE`, published on the provider card.
+            reasoningDepth: tier.reasoningDepth,
+            premiumRequestMultiplier: tier.premiumRequestMultiplier,
+          })),
+        ];
+      }
+
+      // Model × effort, capped and ordered so truncation costs every *effort*
+      // before it costs any *model*. Both dimensions are real knobs on the same
+      // session, so the cross product is what lets the router ask for the deep
+      // model at low effort — a combination neither dimension can express alone.
+      return [
+        base,
+        ...acpModelRows(models, tiers).map(({ model, effort }) => {
+          const composed = composeAcpVariant(model, effort);
+          const modelId = buildAcpModelId(baseModelId, model);
+          return {
+            id: effort ? buildAcpModelVariantId(modelId, effort) : modelId,
+            // The agent's own name for the model, plus the standing that decided
+            // its routing weight — including when that standing is unknown, so a
+            // row nobody ranked does not look like one somebody did.
+            name: effort
+              ? `${label} · ${model.name} (${effort.label} effort)`
+              : `${label} · ${model.name} (${describeAcpModelStanding(model.standing)})`,
+            inputPricePer1k: 0,
+            outputPricePer1k: 0,
+            capabilities,
+            ...composed,
+          };
+        }),
+      ];
     });
   }
 
-  async healthCheck(): Promise<boolean> {
-    const agents = this.agents();
-    if (agents.length === 0) {
-      return false;
+  /** The user's declared model standings; a throwing getter degrades to none. */
+  private modelStanding(): Record<string, string> {
+    try {
+      const declared = this.options?.modelStanding?.();
+      return declared && typeof declared === 'object' ? declared : {};
+    } catch {
+      return {};
     }
-    const probe = await this.probe(agents[0]!);
-    return probe.installed && probe.authenticated;
+  }
+
+  /**
+   * The model choice a slug names, for the agent that offers it.
+   *
+   * Resolved against the cached probe rather than a fresh session: this runs on
+   * the execute path, where a spawn to re-read a list we already have would add
+   * seconds to every turn. An unknown slug yields nothing and the turn runs on
+   * the agent's own model — the conservative direction, since the alternative is
+   * refusing a turn over a knob.
+   */
+  private resolveModelChoice(agent: AcpAgentConfig, slug: string | undefined): AcpModelChoice | undefined {
+    if (!slug) {
+      return undefined;
+    }
+    const known = this.lastProbeByAgent.get(agent.id) ?? peekAcpProbe(this.probeCacheKey(agent));
+    return acpModelChoicesFor(known?.configOptions ?? [], this.modelStanding())
+      .find(model => model.slug === slug);
+  }
+
+  /**
+   * Healthy when **any** configured agent can be used.
+   *
+   * This used to probe `agents[0]` and report its answer as the provider's,
+   * which is wrong in both directions once more than one agent is configured:
+   * a broken first agent condemned a working second one, and a working first
+   * agent vouched for a second that was never contacted. Order in a settings
+   * array is not a statement about which subscription matters.
+   *
+   * `probeAll` is what the per-agent surfaces read, so the vendor rows can say
+   * which agent is actually answering instead of inheriting this one flag.
+   */
+  async healthCheck(): Promise<boolean> {
+    const results = await this.probeAll();
+    return results.some(entry => entry.result.installed && entry.result.authenticated);
+  }
+
+  /**
+   * Probe every configured agent, concurrently.
+   *
+   * Concurrent because these are serial seconds otherwise — a `session/new`
+   * round trip is several seconds per agent, and the startup discovery budget
+   * this runs inside is finite. Two agents probed in sequence overran it, the
+   * timeout marked the provider unhealthy, and nothing re-probed afterwards.
+   */
+  async probeAll(): Promise<Array<{ agent: AcpAgentConfig; result: AcpProbeResult }>> {
+    const agents = this.agents();
+    return Promise.all(agents.map(async agent => ({ agent, result: await this.probe(agent) })));
   }
 
   /**
    * Handshake with an agent to find out whether it is installed, speaks our
    * protocol version, and is logged in.
    *
-   * Mirrors `probeClaudeCli`: TTL-cached, because read-only callers (the Models
+   * TTL-cached, because read-only callers (the Models
    * tree, the Project Dashboard, the provider panel) re-probe on every render,
    * and each probe here spawns a process.
    */
@@ -463,8 +668,11 @@ export class AcpAdapter implements ProviderAdapter {
     }
 
     const result = await this.handshakeOnly(target);
+    // Always recorded on the instance; only shared when caching is on.
+    this.lastProbeByAgent.set(target.id, result);
     if (cacheable) {
       acpProbeCache.set(cacheKey, { at: Date.now(), result });
+      acpAgentProbes.set(target.id, { at: Date.now(), result });
     }
     return result;
   }
@@ -474,13 +682,48 @@ export class AcpAdapter implements ProviderAdapter {
   }
 
   private agents(): AcpAgentConfig[] {
-    return (this.options?.agents ?? []).filter(agent => agent && agent.id && agent.command);
+    const configured = this.options?.agents;
+    // A throwing getter must not take down a health check or a turn: it degrades
+    // to "no agents", which is the same thing an unconfigured install reports.
+    let resolved: AcpAgentConfig[];
+    try {
+      resolved = typeof configured === 'function' ? configured() : (configured ?? []);
+    } catch {
+      resolved = [];
+    }
+    return (Array.isArray(resolved) ? resolved : []).filter(agent => agent && agent.id && agent.command);
   }
 
-  private resolveAgent(model: string): AcpAgentConfig | undefined {
-    const wanted = model.startsWith(`${ACP_PROVIDER_ID}/`) ? model.slice(ACP_PROVIDER_ID.length + 1) : model;
+  /**
+   * The agent a model id names, plus the model and effort it asks for.
+   *
+   * `acp/claude@opus#high` is one agent, one model, one effort. **Both suffixes
+   * are stripped before the agent lookup** — an id still carrying either would
+   * match no configured agent and fall through to `agents[0]`, quietly running
+   * the turn on somebody else's subscription. The model segment is separated
+   * first because it sits between the agent and the effort.
+   */
+  private resolveAgent(model: string): {
+    agent: AcpAgentConfig;
+    effort?: AcpEffortTier;
+    modelChoice?: AcpModelChoice;
+  } | undefined {
+    const { withoutModel, modelSlug } = splitAcpModelSegment(model);
+    const { baseModelId, effort } = parseAcpModelVariant(withoutModel);
+    const wanted = baseModelId.startsWith(`${ACP_PROVIDER_ID}/`)
+      ? baseModelId.slice(ACP_PROVIDER_ID.length + 1)
+      : baseModelId;
     const agents = this.agents();
-    return agents.find(agent => agent.id === wanted) ?? agents[0];
+    const agent = agents.find(entry => entry.id === wanted) ?? agents[0];
+    if (!agent) {
+      return undefined;
+    }
+    const modelChoice = this.resolveModelChoice(agent, modelSlug);
+    return {
+      agent,
+      ...(effort ? { effort } : {}),
+      ...(modelChoice ? { modelChoice } : {}),
+    };
   }
 
   private async handshakeOnly(agent: AcpAgentConfig): Promise<AcpProbeResult> {
@@ -517,6 +760,10 @@ export class AcpAdapter implements ProviderAdapter {
         command: agent.command,
         supportsImages: initialized.supportsImages,
         supportsAudio: initialized.supportsAudio,
+        // Only meaningful when a session actually opened — `canCreateSession`
+        // is what populates them, and an agent that refused has told us nothing
+        // about what it would have let us configure.
+        ...(authenticated.ok ? { configOptions: session.getConfigOptions() } : {}),
         ...(authenticated.ok
           ? {}
           : { message: authenticated.authRequired
@@ -540,10 +787,11 @@ export class AcpAdapter implements ProviderAdapter {
   }
 
   private async run(request: CompletionRequest, onTextChunk: ((chunk: string) => void) | undefined): Promise<CompletionResponse> {
-    const agent = this.resolveAgent(request.model);
-    if (!agent) {
+    const resolved = this.resolveAgent(request.model);
+    if (!resolved) {
       throw new Error('No ACP agent is configured. Add one under atlasmind.acp.agents.');
     }
+    const { agent, effort, modelChoice } = resolved;
 
     // Two different things are called "tools", and conflating them is the trap.
     //
@@ -604,6 +852,45 @@ export class AcpAdapter implements ProviderAdapter {
         }
         throw error;
       }
+
+      // Ask for the effort this model id names, before the prompt goes out.
+      //
+      // A failure here does **not** fail the turn: the agent answers at its own
+      // default, which is a worse answer than requested but still an answer, and
+      // aborting over a knob would turn a degraded turn into no turn. It is
+      // reported rather than swallowed, because the router priced this turn at
+      // this tier's multiplier — so a silent fallback would bill max effort for
+      // a low-effort run, and nobody would ever find out.
+      // The model first, then the effort. Order matters against agents that
+      // reset dependent knobs when the model changes — a model switch applied
+      // *after* the effort would silently discard it, which is the same
+      // looks-like-success failure the category rule exists to prevent.
+      //
+      // Reported on the same channel as effort and for the same reason: the
+      // router priced this turn as the requested model, so falling back to the
+      // agent's own without saying so would bill an Opus turn for a Haiku run.
+      if (modelChoice) {
+        const applied = await session.setConfigOption(ACP_MODEL_CATEGORY, modelChoice.value);
+        if (!applied.ok) {
+          this.options?.onEffortNotApplied?.({
+            agentId: agent.id,
+            requested: `model ${modelChoice.name}`,
+            reason: applied.reason ?? 'unknown',
+          });
+        }
+      }
+
+      if (effort) {
+        const applied = await session.setConfigOption(ACP_EFFORT_CATEGORY, effort.value);
+        if (!applied.ok) {
+          this.options?.onEffortNotApplied?.({
+            agentId: agent.id,
+            requested: effort.value,
+            reason: applied.reason ?? 'unknown',
+          });
+        }
+      }
+
       const turn = await session.prompt(buildPromptBlocks(request, initialized), onTextChunk, request.signal);
       return {
         content: turn.text,
@@ -641,9 +928,39 @@ function peekAcpProbe(cacheKey: string): AcpProbeResult | undefined {
   return cached && Date.now() - cached.at < ACP_PROBE_TTL_MS ? cached.result : undefined;
 }
 
+/**
+ * The last probe of each agent, by agent id.
+ *
+ * Deliberately a second map rather than a lookup into {@link acpProbeCache},
+ * whose key is `command|args|cwd` — a synchronous caller like a tree row knows
+ * the agent id and nothing else, and reconstructing that key from a workspace
+ * cwd it may not have would fail silently by returning "never probed".
+ *
+ * Held **without a TTL**, unlike the probe cache. The two answer different
+ * questions: the probe cache asks "may I skip spawning a process right now?",
+ * where staleness costs a wrong capability list for ten seconds; this asks
+ * "what is the last thing this agent told us?", where expiring the answer means
+ * a tree row reporting *unknown* every ten seconds for an agent that is working
+ * fine. The last known answer is the honest one until a newer one arrives.
+ */
+const acpAgentProbes = new Map<string, { at: number; result: AcpProbeResult }>();
+
+/**
+ * What this agent said last time it was asked, without asking again.
+ *
+ * Returns `undefined` for an agent that has never been probed — which callers
+ * must render as *not yet checked*, not as *failing*. Saying an agent is not
+ * responding before contacting it is the misreport this whole path exists to
+ * stop.
+ */
+export function peekAcpAgentProbe(agentId: string): AcpProbeResult | undefined {
+  return acpAgentProbes.get(agentId)?.result;
+}
+
 /** Exported for tests: clears the probe TTL cache. */
 export function resetAcpProbeCache(): void {
   acpProbeCache.clear();
+  acpAgentProbes.clear();
 }
 
 /**
@@ -652,8 +969,8 @@ export function resetAcpProbeCache(): void {
  * The whole conversation goes in one prompt because this tier does not reuse
  * sessions — the spec's own ecosystem notes warn that session resume is not
  * universally supported, so designing around it would be building on sand.
- * Crucially there is **no character budget**: the argv ceiling that forced
- * `claude-cli` to truncate does not exist over stdio.
+ * Crucially there is **no character budget**: the argv ceiling that forced the
+ * old CLI bridge to truncate does not exist over stdio.
  */
 export function buildPromptBlocks(request: CompletionRequest, agent: Pick<AcpInitializeResult, 'supportsImages'>): AcpPromptBlock[] {
   const blocks: AcpPromptBlock[] = [];
@@ -703,6 +1020,7 @@ class AcpSession {
   private buffer = '';
   private stderr = '';
   private sessionId = '';
+  private configOptions: AcpConfigOption[] = [];
   private exited: { code: number | null; signal: string | null } | undefined;
   private disposed = false;
   private readonly pending = new Map<number, { resolve: (result: Record<string, unknown>) => void; reject: (error: Error) => void }>();
@@ -748,6 +1066,58 @@ class AcpSession {
     this.sessionId = parseSessionId(result);
     if (!this.sessionId) {
       throw new Error('The ACP agent did not return a session id.');
+    }
+    // Kept, not discarded. These are the knobs the agent will let us turn, and
+    // which id names each one differs per agent — so the set request cannot be
+    // built without them.
+    this.configOptions = parseSessionConfigOptions(result);
+  }
+
+  /** What this session said it would let us configure. Empty until `newSession`. */
+  getConfigOptions(): AcpConfigOption[] {
+    return this.configOptions;
+  }
+
+  /**
+   * Set one config option, refusing any category outside the allowlist.
+   *
+   * The refusal is the point rather than a formality: the same `configOptions`
+   * array carries the agent's **permission** mode, whose values include
+   * `agent-full-access` and `bypassPermissions`. A method that could set those
+   * would route around `toolApprovalManager` entirely — so the check lives here,
+   * at the one place a set request is built, rather than at each caller.
+   *
+   * Reports rather than throws. A turn that ran at the agent's default effort
+   * produced an answer; a turn aborted over a knob did not.
+   */
+  async setConfigOption(category: string, value: string): Promise<{ ok: boolean; reason?: string }> {
+    if (!isSettableAcpConfigCategory(category)) {
+      return { ok: false, reason: `AtlasMind does not set ACP config options in the "${category}" category.` };
+    }
+    if (!this.sessionId) {
+      return { ok: false, reason: 'No ACP session is open.' };
+    }
+    const option = this.configOptions.find(entry => entry.category === category);
+    if (!option) {
+      return { ok: false, reason: `This agent offers no "${category}" option.` };
+    }
+    if (!option.options.some(entry => entry.value === value)) {
+      return { ok: false, reason: `This agent does not offer "${value}" for "${category}".` };
+    }
+    try {
+      const result = await this.request(
+        buildSetConfigOptionRequest(this.nextId, this.sessionId, option.id, value),
+      );
+      // The response echoes the full set back, so the new value is *confirmed*
+      // rather than assumed. An agent that accepted the request and ignored it
+      // would otherwise be indistinguishable from one that applied it.
+      this.configOptions = parseSessionConfigOptions(result);
+      const applied = this.configOptions.find(entry => entry.id === option.id);
+      return applied?.currentValue === value
+        ? { ok: true }
+        : { ok: false, reason: `The agent reported "${applied?.currentValue ?? 'nothing'}" after being asked for "${value}".` };
+    } catch (error) {
+      return { ok: false, reason: error instanceof Error ? error.message : String(error) };
     }
   }
 

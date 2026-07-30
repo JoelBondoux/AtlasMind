@@ -1,19 +1,21 @@
 import * as vscode from 'vscode';
 import type { AtlasMindContext } from '../extension.js';
-import type { ProviderId } from '../types.js';
+import type { ProviderId, SubscriptionQuota } from '../types.js';
 import {
   BEDROCK_ACCESS_KEY_SECRET,
   BEDROCK_MODEL_IDS_SETTING,
   BEDROCK_REGION_SETTING,
   BEDROCK_SECRET_KEY_SECRET,
   BEDROCK_SESSION_TOKEN_SECRET,
-  CLAUDE_CLI_SETUP_URL,
   getConfiguredBedrockModelIds,
   getConfiguredBedrockRegion,
   getConfiguredLocalEndpoints,
-  probeClaudeCli,
   ACP_SETUP_URL,
   ACP_PROVIDER_BRIDGES,
+  ACP_PROVIDER_ID,
+  ACP_EFFORT_RULE_NOTE,
+  ACP_MODEL_RULE_NOTE,
+  parseAcpAgentSettings,
 } from '../providers/index.js';
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
 import { PANEL_NAV_JS } from './panelNav.js';
@@ -32,7 +34,6 @@ const COPILOT_MULTIPLIER_SYNC_STORAGE_KEY = 'atlasmind.copilotMultiplierSync';
 export const PROVIDER_IDS: readonly ProviderId[] = [
   // First-party model providers
   'acp',
-  'claude-cli',
   'anthropic',
   'openai',
   'google',
@@ -659,9 +660,6 @@ export class ModelProviderPanel {
           : `Configured, not usable: ${agents[0]!.command}`;
       return { displayName: 'ACP Agents (subscription)', badge, failureBadge };
     }
-    if (providerId === 'claude-cli') {
-      return { displayName: 'Claude Code CLI (chat only)', badge: configured ? 'Chat only: local CLI ready' : 'Chat only: install CLI + sign in', failureBadge };
-    }
     if (providerId === 'copilot') {
       return { displayName: 'GitHub Copilot', badge: 'uses VS Code sign-in', failureBadge };
     }
@@ -767,7 +765,13 @@ function renderProviderCard(options: {
             // once and every one of these buttons read "$ Configure plan". The
             // quick pick it opens has always titled itself with the provider —
             // so the button was the only step that did not say what it acted on.
-            ? `<button type="button" class="action-secondary" data-subscription-provider="${options.providerId}" title="${escapeHtml(`Set your ${options.displayName} plan tier and monthly allowance.`)}">$ Configure ${escapeHtml(options.displayName)} plan</button>`
+            //
+            // ACP is the exception, and naming it after the provider made it
+            // *less* true rather than more: "Configure ACP Agents (subscription)
+            // plan" names a protocol, and there is no such plan to configure.
+            // The subscription belongs to an agent, so the button says a plan is
+            // being picked and the flow's first step asks which.
+            ? `<button type="button" class="action-secondary" data-subscription-provider="${options.providerId}" title="${escapeHtml(subscriptionButtonTooltip(options.providerId, options.displayName))}">${escapeHtml(subscriptionButtonLabel(options.providerId, options.displayName))}</button>`
             : ''}
           ${renderSubscriptionOffer(options.providerId)}
         </div>
@@ -849,15 +853,26 @@ const SETTINGS_PAGE_LINKS: ReadonlyArray<readonly [string, string]> = [
 ];
 
 function isSubscriptionProvider(providerId: ProviderId): boolean {
-  return providerId === 'copilot' || providerId === 'claude-cli' || providerId === 'acp';
+  return providerId === 'copilot' || providerId === 'acp';
+}
+
+/** The button's words: the provider's name, unless the provider is not the plan. */
+export function subscriptionButtonLabel(providerId: ProviderId, displayName: string): string {
+  return providerId === ACP_PROVIDER_ID
+    ? '$ Configure agent plan'
+    : `$ Configure ${displayName} plan`;
+}
+
+function subscriptionButtonTooltip(providerId: ProviderId, displayName: string): string {
+  return providerId === ACP_PROVIDER_ID
+    ? 'Set the plan behind one of your ACP agents. Each agent is billed against its own subscription — Claude and ChatGPT are bought separately — so this asks which one first.'
+    : `Set your ${displayName} plan tier and monthly allowance.`;
 }
 
 function getProviderMetaLabel(providerId: ProviderId): string {
   switch (providerId) {
     case 'acp':
       return 'Agent Client Protocol';
-    case 'claude-cli':
-      return 'Beta session bridge';
     case 'copilot':
       return 'Session-backed';
     case 'local':
@@ -874,8 +889,6 @@ function getProviderNotes(providerId: ProviderId): string {
   switch (providerId) {
     case 'acp':
       return 'Drives an agent you have installed (claude-agent-acp, codex-acp, …) over the Agent Client Protocol, so its subscription becomes routable capacity. Streams and has no prompt-length ceiling. By default the agent answers but cannot act — no MCP servers are passed through and any permission it requests is refused; turn on "Let subscription agents act" under Settings → Safety to change that. AtlasMind never installs an agent for you.';
-    case 'claude-cli':
-      return 'Chat-only bridge that reuses an installed Claude Code CLI login in constrained print mode, so AtlasMind remains the orchestrator and tool executor. Superseded by the ACP provider, which streams and has no ~26,000-character prompt limit — kept until ACP has been proven against a real agent binary.';
     case 'copilot':
       return 'Reuses your signed-in VS Code Copilot session instead of storing a separate AtlasMind API key.';
     case 'local':
@@ -932,28 +945,56 @@ const COPILOT_TIERS: SubscriptionTier[] = [
   { label: 'Copilot Enterprise', description: 'Org-pooled AI credits — $39/seat/month (enter org total)',           totalRequests: 3900,  monthlyCostUsd: 39 },
 ];
 
-const CLAUDE_CLI_TIERS: SubscriptionTier[] = [
-  { label: 'Claude Max 5×',  description: '5× usage of Claude.ai Pro — $100/month',  totalRequests: 225,  monthlyCostUsd: 100 },
-  { label: 'Claude Max 20×', description: '20× usage of Claude.ai Pro — $200/month', totalRequests: 900,  monthlyCostUsd: 200 },
-];
+/**
+ * Plans per ACP agent, because ACP is not one subscription.
+ *
+ * Every other entry in this file maps a provider to the plans that provider
+ * sells. `acp` maps to a *protocol*, and nobody sells a protocol subscription:
+ * the plan behind `acp/claude` is a Claude plan and the one behind `acp/codex`
+ * is a ChatGPT plan. Keying the tiers by agent is what lets the flow ask which
+ * plan is being described, instead of asking for a monthly figure with no
+ * subject and attaching it to whichever ACP model the router happened to pick.
+ *
+ * Units are *messages included per period*, the only figure these vendors
+ * publish and the same convention {@link COPILOT_TIERS} already uses. They
+ * are approximations of a usage allowance that flexes with load, which is why
+ * the flow keeps asking for the remaining count rather than deriving it — and
+ * why "Custom…" stays available for anyone whose plan is not listed.
+ */
+const ACP_AGENT_TIERS: Record<string, SubscriptionTier[]> = {
+  claude: [
+    { label: 'Claude Pro',     description: 'Claude.ai Pro — $20/month',              totalRequests: 45,   monthlyCostUsd: 20 },
+    { label: 'Claude Max 5×',  description: '5× usage of Claude.ai Pro — $100/month',  totalRequests: 225,  monthlyCostUsd: 100 },
+    { label: 'Claude Max 20×', description: '20× usage of Claude.ai Pro — $200/month', totalRequests: 900,  monthlyCostUsd: 200 },
+  ],
+  codex: [
+    { label: 'ChatGPT Plus', description: 'ChatGPT Plus — $20/month',       totalRequests: 150,  monthlyCostUsd: 20 },
+    { label: 'ChatGPT Pro',  description: 'ChatGPT Pro — $200/month',       totalRequests: 1500, monthlyCostUsd: 200 },
+  ],
+  gemini: [
+    { label: 'Google AI Pro',   description: 'Google AI Pro — $20/month',    totalRequests: 100,  monthlyCostUsd: 20 },
+    { label: 'Google AI Ultra', description: 'Google AI Ultra — $250/month', totalRequests: 500,  monthlyCostUsd: 250 },
+  ],
+  copilot: COPILOT_TIERS,
+};
 
 function getSubscriptionTiers(providerId: ProviderId): SubscriptionTier[] {
   if (providerId === 'copilot') return COPILOT_TIERS;
-  if (providerId === 'claude-cli') return CLAUDE_CLI_TIERS;
   return [];
 }
 
+/** The plans for one ACP agent, or none when this build knows of no vendor for it. */
+function getAcpAgentTiers(agentId: string): SubscriptionTier[] {
+  return ACP_AGENT_TIERS[agentId] ?? [];
+}
+
 function getSubscriptionDetailsHtml(providerId: ProviderId, atlas: AtlasMindContext): string {
+  if (providerId === ACP_PROVIDER_ID) {
+    return getAcpSubscriptionDetailsHtml(atlas);
+  }
   const quota = atlas.modelRouter?.getSubscriptionQuota?.(providerId);
   if (!quota) {
-    return `
-      <div class="provider-detail-list">
-        <p class="provider-detail-label">Subscription plan</p>
-        <!-- Named the control rather than showing "$(credit-card)": codicon
-             syntax is interpreted by tree items, the status bar and QuickPicks,
-             but not in webview HTML, where it rendered as literal text. -->
-        <p class="provider-detail-empty">No plan configured — use <strong>Configure plan</strong> to set your tier.</p>
-      </div>`;
+    return renderNoPlanHtml('Configure plan');
   }
 
   const pct = quota.totalRequests > 0
@@ -983,7 +1024,185 @@ function getSubscriptionDetailsHtml(providerId: ProviderId, atlas: AtlasMindCont
 }
 
 /**
- * Interactive flow for configuring a subscription provider's plan tier.
+ * One row per configured ACP agent, because one row could only ever be wrong.
+ *
+ * The card used to read the `acp` provider quota and print a single "AI credits"
+ * line. With two agents configured that line described whichever plan was
+ * entered last while sitting under a card listing both — so the panel showed a
+ * Claude allowance next to a Codex agent and gave no way to tell which.
+ *
+ * An agent with no plan set is listed as such rather than omitted: absent from
+ * the list reads as "not configured for ACP at all", which is a different
+ * problem with a different fix.
+ */
+function getAcpSubscriptionDetailsHtml(atlas: AtlasMindContext): string {
+  const agents = parseAcpAgentSettings(
+    vscode.workspace.getConfiguration('atlasmind').get<unknown>('acp.agents'),
+  );
+  if (agents.length === 0) {
+    return renderNoPlanHtml('Configure agent plan');
+  }
+  const rows = agents.map(agent => ({
+    label: agent.label ?? agent.id,
+    quota: atlas.modelRouter?.getModelSubscriptionQuota?.(`${ACP_PROVIDER_ID}/${agent.id}`),
+  }));
+  if (rows.every(row => !row.quota)) {
+    return renderNoPlanHtml('Configure agent plan');
+  }
+
+  const items = rows.map(row => {
+    if (!row.quota) {
+      // Listed, not omitted: absent from the list reads as "this agent is not
+      // set up for ACP", which is a different problem with a different fix.
+      return `
+        <li>
+          <strong>${escapeHtml(row.label)}</strong>
+          <span>No plan set</span>
+        </li>`;
+    }
+    const quota = row.quota;
+    const pct = quota.totalRequests > 0
+      ? Math.round((quota.remainingRequests / quota.totalRequests) * 100)
+      : 0;
+    const costPerUnit = quota.costPerRequestUnit !== undefined
+      ? `${formatCost(quota.costPerRequestUnit, 4)}/unit`
+      : 'not set';
+    const resetInfo = quota.resetsAt
+      ? `Resets ${new Date(quota.resetsAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
+      : '';
+    return `
+      <li>
+        <strong>${escapeHtml(row.label)}</strong>
+        <span>${escapeHtml(String(quota.remainingRequests))} / ${escapeHtml(String(quota.totalRequests))} remaining (${pct}%) · ${escapeHtml(costPerUnit)}${resetInfo ? ' · ' + escapeHtml(resetInfo) : ''}</span>
+      </li>`;
+  }).join('');
+
+  // The effort tiers' quota cost is AtlasMind's own stated assumption, not a
+  // published vendor figure. Publishing the rule next to the numbers it produced
+  // is what makes it arguable rather than merely trusted — the same reason the
+  // debt register prints the rule that graded an entry.
+  const effortNote = rows.some(row => row.quota)
+    ? `<p class="provider-detail-empty">${escapeHtml(ACP_EFFORT_RULE_NOTE)}</p>`
+      // And the same for models: which models exist is detected, but where each
+      // one *sits* is a declared rule, so the rule travels with the rows it
+      // ranked rather than living only in a settings description nobody opens.
+      + `<p class="provider-detail-empty">${escapeHtml(ACP_MODEL_RULE_NOTE)}</p>`
+    : '';
+
+  return `
+    <div class="provider-detail-list">
+      <p class="provider-detail-label">Subscription plans</p>
+      <ul>${items}</ul>
+      ${effortNote}
+    </div>`;
+}
+
+/** @param actionLabel the button this text tells the user to press, spelled as the button spells it. */
+function renderNoPlanHtml(actionLabel: string): string {
+  return `
+    <div class="provider-detail-list">
+      <p class="provider-detail-label">Subscription plan</p>
+      <!-- Named the control rather than showing "$(credit-card)": codicon
+           syntax is interpreted by tree items, the status bar and QuickPicks,
+           but not in webview HTML, where it rendered as literal text. -->
+      <p class="provider-detail-empty">No plan configured — use <strong>${escapeHtml(actionLabel)}</strong> to set your tier.</p>
+    </div>`;
+}
+
+/**
+ * Which subscription the flow is about to describe.
+ *
+ * Introduced because "which" was previously not a question the flow asked. It
+ * took a provider id, and for every provider but one that *was* the
+ * subscription. For `acp` it was not: the flow opened on "Enter monthly cost"
+ * with no subject, and whatever figure was typed landed on the `acp` provider —
+ * so configuring a Claude Max plan and then a ChatGPT Plus plan left one number
+ * describing both, and the router priced every ACP turn against it.
+ */
+interface SubscriptionScope {
+  /** Storage key: a provider id, or a model id when the provider fronts several plans. */
+  key: string;
+  /** What the dialogs call it. Names the *plan*, not the protocol. */
+  label: string;
+  tiers: SubscriptionTier[];
+  read: () => SubscriptionQuota | undefined;
+  write: (quota: SubscriptionQuota) => void;
+}
+
+/**
+ * Resolve the scope, asking the user only when there is genuinely a choice.
+ *
+ * Returns undefined when the user cancels, or when ACP has no agent configured
+ * — there is no plan to describe before there is an agent to spend it, and
+ * inventing an `acp` quota for a provider with nothing behind it would be a
+ * number attached to nothing.
+ */
+async function resolveSubscriptionScope(
+  atlas: AtlasMindContext,
+  providerId: ProviderId,
+): Promise<SubscriptionScope | undefined> {
+  const providerLabel = atlas.modelRouter.listProviders().find(p => p.id === providerId)?.displayName ?? providerId;
+
+  if (providerId !== ACP_PROVIDER_ID) {
+    return {
+      key: providerId,
+      label: providerLabel,
+      tiers: getSubscriptionTiers(providerId),
+      read: () => atlas.modelRouter.getSubscriptionQuota(providerId),
+      write: quota => atlas.modelRouter.updateSubscriptionQuota(providerId, quota),
+    };
+  }
+
+  const agents = parseAcpAgentSettings(
+    vscode.workspace.getConfiguration('atlasmind').get<unknown>('acp.agents'),
+  );
+  if (agents.length === 0) {
+    void vscode.window.showInformationMessage(
+      'No ACP agent is configured yet, so there is no subscription to describe. Choose an agent first — the plan is a property of that agent\'s subscription, not of ACP.',
+    );
+    return undefined;
+  }
+
+  // One agent needs no picker: every dialog that follows is titled with its
+  // name, which is the thing that was missing.
+  let agent = agents[0]!;
+  if (agents.length > 1) {
+    type AgentItem = vscode.QuickPickItem & { agentId: string };
+    const picked = await vscode.window.showQuickPick<AgentItem>(
+      agents.map(entry => {
+        const quota = atlas.modelRouter.getModelSubscriptionQuota?.(`${ACP_PROVIDER_ID}/${entry.id}`);
+        return {
+          label: entry.label ?? entry.id,
+          description: entry.command,
+          detail: quota
+            ? `Currently ${quota.remainingRequests} / ${quota.totalRequests} remaining`
+            : 'No plan set',
+          agentId: entry.id,
+        };
+      }),
+      {
+        title: 'ACP: Which subscription are you configuring?',
+        placeHolder: 'Each agent is billed against its own plan — Claude and ChatGPT are bought separately',
+      },
+    );
+    if (!picked) {
+      return undefined;
+    }
+    agent = agents.find(entry => entry.id === picked.agentId) ?? agent;
+  }
+
+  const modelId = `${ACP_PROVIDER_ID}/${agent.id}`;
+  return {
+    key: modelId,
+    label: agent.label ?? agent.id,
+    tiers: getAcpAgentTiers(agent.id),
+    read: () => atlas.modelRouter.getModelSubscriptionQuota?.(modelId),
+    write: quota => atlas.modelRouter.setModelSubscriptionQuota(modelId, quota),
+  };
+}
+
+/**
+ * Interactive flow for configuring a subscription plan's tier.
  * Exposed so the `atlasmind.models.configureSubscription` command can call it
  * directly without opening the webview panel first.
  */
@@ -992,8 +1211,12 @@ export async function configureSubscription(
   atlas: AtlasMindContext,
   providerId: ProviderId,
 ): Promise<void> {
-  const tiers = getSubscriptionTiers(providerId);
-  const providerLabel = atlas.modelRouter.listProviders().find(p => p.id === providerId)?.displayName ?? providerId;
+  const scope = await resolveSubscriptionScope(atlas, providerId);
+  if (!scope) {
+    return;
+  }
+  const tiers = scope.tiers;
+  const providerLabel = scope.label;
 
   type TierItem = vscode.QuickPickItem & { tier?: SubscriptionTier; custom?: true };
 
@@ -1006,7 +1229,7 @@ export async function configureSubscription(
     { label: 'Custom…', description: 'Enter monthly cost and request total manually', custom: true },
   ];
 
-  const existing = atlas.modelRouter.getSubscriptionQuota(providerId);
+  const existing = scope.read();
   if (existing) {
     const currentTier = tiers.find(t => t.totalRequests === existing.totalRequests);
     if (currentTier) {
@@ -1093,11 +1316,13 @@ export async function configureSubscription(
     resetsAt: resetsAtInput ? new Date(resetsAtInput + 'T00:00:00').toISOString() : undefined,
   };
 
-  atlas.modelRouter.updateSubscriptionQuota(providerId, quota);
+  scope.write(quota);
 
-  // Persist immediately
+  // Persist immediately, under the same key the router stores it against — a
+  // scoped plan written to the provider's key would be restored into a slot
+  // nothing reads, and would silently vanish on the next restart.
   const stored = context.globalState.get<Record<string, unknown>>('atlasmind.subscriptionQuota', {});
-  await context.globalState.update('atlasmind.subscriptionQuota', { ...stored, [providerId]: quota });
+  await context.globalState.update('atlasmind.subscriptionQuota', { ...stored, [scope.key]: quota });
 
   vscode.window.showInformationMessage(
     `${providerLabel} subscription configured: ${remainingRequests} / ${totalRequests} AI credits remaining` +
@@ -1112,39 +1337,6 @@ export async function configureProvider(
 ): Promise<void> {
   if (provider === 'acp') {
     await configureAcpProvider(atlas);
-    return;
-  }
-
-  if (provider === 'claude-cli') {
-    const probe = await probeClaudeCli();
-    if (!probe.installed) {
-      const selection = await vscode.window.showWarningMessage(
-        'Claude Code CLI (chat only) is not installed. Install Claude, sign in, then retry this provider.',
-        'Open Setup Docs',
-      );
-      if (selection === 'Open Setup Docs') {
-        await vscode.env.openExternal(vscode.Uri.parse(CLAUDE_CLI_SETUP_URL));
-      }
-      return;
-    }
-
-    if (!probe.authenticated) {
-      const selection = await vscode.window.showWarningMessage(
-        'Claude Code CLI (chat only) is installed but not signed in. Run "claude auth login" in a terminal, then retry this provider.',
-        'Open Setup Docs',
-      );
-      if (selection === 'Open Setup Docs') {
-        await vscode.env.openExternal(vscode.Uri.parse(CLAUDE_CLI_SETUP_URL));
-      }
-      return;
-    }
-
-    const summary = await atlas.refreshProviderModels(true);
-    await atlas.refreshProviderHealth();
-    atlas.modelsRefresh.fire();
-    vscode.window.showInformationMessage(
-      `Claude Code CLI (chat only) is ready for AtlasMind. Refreshed ${summary.providersUpdated} provider(s) and ${summary.modelsAvailable} model entries.`,
-    );
     return;
   }
 
@@ -1532,10 +1724,6 @@ export async function isProviderConfigured(
     const probe = await new AcpAdapter({ agents }).probe().catch(() => undefined);
     return Boolean(probe?.installed && probe.authenticated);
   }
-  if (provider === 'claude-cli') {
-    const probe = await probeClaudeCli();
-    return probe.installed && probe.authenticated;
-  }
   if (provider === 'copilot') {
     return true;
   }
@@ -1565,7 +1753,7 @@ export function getProviderSecretKey(provider: ProviderId): string {
 
 export function requiresApiKey(provider: ProviderId): boolean {
   // ACP reuses the agent's own vendor login, so AtlasMind stores no key for it.
-  return provider !== 'claude-cli' && provider !== 'copilot' && provider !== 'local'
+  return provider !== 'copilot' && provider !== 'local'
     && provider !== 'azure' && provider !== 'bedrock' && provider !== 'acp';
 }
 
@@ -1573,8 +1761,6 @@ export function getProviderDisplayName(provider: ProviderId): string {
   switch (provider) {
     case 'acp':
       return 'ACP Agents (subscription)';
-    case 'claude-cli':
-      return 'Claude Code CLI (chat only)';
     case 'anthropic':
       return 'Anthropic (Claude)';
     case 'openai':
@@ -1627,9 +1813,6 @@ export function getProviderDisplayName(provider: ProviderId): string {
 }
 
 export function getProviderActionLabel(provider: ProviderId): string {
-  if (provider === 'claude-cli') {
-    return 'Enable Beta';
-  }
   if (provider === 'copilot') {
     return 'Use Session';
   }
