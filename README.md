@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.229.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.230.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,9 +68,21 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.229.0
+## What's new in 0.230.0
 
 Since the last Marketplace publication, **v0.219.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **ACP no longer boots a coding-agent process tree for every answer.** The routed adapter keeps a successful session alive for up to 30 idle minutes and sends only the exact transcript suffix the remote session has not seen. Reuse is refused on a branch/edit, agent or cwd change, model/effort change, MCP or isolation change, launch-mode change, instruction/settings-file change, exit, or idle expiry. Identical concurrent calls share one in-flight prompt, and a 15-second result ledger absorbs transport-style retries — an uncertain prompt is never sent twice.
+
+- **Windows console pop-ups are now an informed choice made before the first ACP probe.** Ordinary launching remains the compatibility-first default and may briefly show terminals created by an agent or MCP server. The new **ACP: Hide Console Windows** checkbox instead uses a bundled 120 KB native launcher to put the agent and its descendants on a dedicated private Windows desktop, preserving JSON-RPC stdio without a shell. Missing, modified, or blocked helpers fail visibly; AtlasMind never falls back behind your back.
+
+  While this opt-in path has a routed session alive, the VS Code status bar says **ACP private desktop: _n_**. Click it to open Models & Providers. It provides visible, in-editor evidence of the selected launch mode without another native window, a focus change, or a suggestion that the desktop is a sandbox.
+
+- **ACP setup uses plain language and its Settings link works.** The provider card now says that AtlasMind can use the Claude Code or Codex agent already installed and signed in on your computer; it does not need another AtlasMind API key. Its **Settings → Safety** link opens the switch that lets an agent act, one approval at a time.
+
+- **The test baseline now includes property and mutation checks.** `fast-check` keeps a real property test in the normal Vitest suite, while `npm run test:mutation` runs the slower Stryker check over AtlasMind's criticality, tool-policy, and agent-registry decisions.
+
+- **The EDR trade-off is part of setup, not buried in release notes.** Microsoft Defender exposes processes on hidden desktops because hVNC malware uses the same Windows primitive. AtlasMind does not switch to or remotely control the desktop, pins the helper by SHA-256, passes only stdin/stdout/stderr, and keeps the feature off until selected — but enterprise endpoint security may still flag or block it. The v0.230.0 helper PE is not Authenticode-signed; the hash pin proves AtlasMind received its expected bytes, not Windows publisher reputation.
 
 - **The ideation board is a staged workspace now, not one long page.** Frame → Scaffold → Shape → Decide is a control: pick a stage and only that stage renders. The board still leads, and each stage reports where your board actually is rather than which tab you are reading. An empty board offers starter frames derived from what your project looks like — a game and a command-line tool no longer open the same blank canvas — and every seeded card is a question rather than an answer. The card-kind picker finally says what a kind commits to: choosing **problem** puts "Fix: …" on the roadmap and **risk** puts "Mitigate: …", which was true from the day the board shipped and written down only in the source.
 
@@ -227,7 +239,7 @@ Type these in the AtlasMind chat panel as `/<command>`, or in the VS Code chat v
 | `/director` | Review stakeholders, team, responsibilities, assignments, and follow-ups |
 | `/buzz` | Walk through Buzz setup: what is done, what is left, and what to click next |
 | `/setup` | List every setup guide and how far along each one is |
-| `/acp` | Walk through ACP agent setup: name it, install it, sign in, enable it, prove it answers |
+| `/acp` | Walk through ACP setup: name it, choose Windows console behaviour, install it, sign in, enable it, prove it answers |
 | `/followups` | Group open follow-ups by urgency |
 | `/research` | What research scans found outside this repository, what is due, and what has never been asked |
 | `/ship [routine]` | Run the default or named project routine from project memory |
@@ -251,6 +263,7 @@ Open the Command Palette with `Ctrl+Shift+P`.
 | `AtlasMind: Focus Chat View` | Return focus to the sidebar chat |
 | `AtlasMind: Open Settings Panel` | Open the multi-page AtlasMind settings workspace |
 | `AtlasMind: Manage Model Providers` | Connect providers, credentials, and quotas |
+| `AtlasMind: Choose ACP Console Window Behaviour` | Choose ordinary Windows launching or the opt-in private desktop before ACP starts |
 | `AtlasMind: Manage Agents` | Search agents and edit grouped agent definitions |
 | `AtlasMind: Open Personality Profile` | Configure global and project-specific working preferences |
 | `AtlasMind: Bootstrap Project` | Create SSOT memory for a new project |
@@ -306,6 +319,8 @@ AtlasMind's main settings are available in its Settings panel and under `atlasmi
 | `buzz.inboundEnabled` | `false` | Hold a read-only subscription to a Buzz relay |
 | `buzz.autoCreateFollowUps` | `false` | Record derived Buzz follow-ups into git-tracked project memory |
 | `buzz.agentBindings` | `{}` | Route a Buzz identity's work to an AtlasMind agent (edited per person on Dashboard → Director) |
+| `acp.toolsEnabled` | `false` | **Let subscription agents act**: allow their own tools one approval at a time |
+| `acp.hideConsoleWindows` | `false` | Windows only: keep ACP descendants on a private desktop so consoles cannot pop up or steal focus; may be flagged by EDR |
 
 See the [Configuration Reference](docs/configuration.md) or [wiki Configuration](wiki/Configuration.md) for every setting, accepted value, security implication, and provider-specific option.
 
@@ -320,6 +335,7 @@ The README keeps the map short; implementation details and data flows belong in 
 | `src/core/` | Orchestration, routing, planning, safety and security registers, cost, and project services |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Provider adapters, catalogs, health, and local-model discovery |
+| `native/acp-private-desktop/` | Auditable Rust source for the optional Windows private-desktop launcher; the pinned release binary ships under `media/bin/` |
 | `src/skills/` | Built-in tools and skill handlers |
 | `src/memory/` | SSOT retrieval, scanning, redaction, and persistence |
 | `src/chat/` | Chat participant and shared interaction protocol |

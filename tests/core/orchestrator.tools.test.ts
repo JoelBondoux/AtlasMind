@@ -2228,6 +2228,71 @@ describe('Orchestrator agentic loop', () => {
     expect(result.response).toBe('Recovered after retry.');
   });
 
+  it('never blindly retries an uncertain ACP prompt and gives it a stable task identity', async () => {
+    const local = makeMockProvider([{
+      content: 'Recovered through a different provider.',
+      model: 'local/echo-1',
+      inputTokens: 4,
+      outputTokens: 5,
+      finishReason: 'stop',
+    }]);
+    const acp: ProviderAdapter = {
+      providerId: 'acp',
+      complete: vi.fn(async () => {
+        const error = new Error('ACP transport temporarily unavailable');
+        (error as Error & { status?: number }).status = 503;
+        throw error;
+      }),
+      listModels: vi.fn().mockResolvedValue(['acp/fake']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+    const orchestrator = makeOrchestrator(
+      local,
+      [],
+      makeSkillContext(),
+      undefined,
+      [],
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        extraProviders: [{
+          providerId: 'acp',
+          adapter: acp,
+          models: [{
+            id: 'acp/fake',
+            name: 'ACP Fake',
+            contextWindow: 32_000,
+            inputPricePer1k: 0,
+            outputPricePer1k: 0,
+            capabilities: ['chat', 'code'],
+          }],
+        }],
+      },
+    );
+
+    await orchestrator.processTask({
+      id: 'task-acp-no-duplicate',
+      userMessage: 'hello',
+      context: {},
+      constraints: {
+        budget: 'balanced',
+        speed: 'balanced',
+        preferredModel: 'acp/fake',
+      },
+      timestamp: new Date().toISOString(),
+    });
+
+    const executionCalls = (acp.complete as ReturnType<typeof vi.fn>).mock.calls
+      .map(call => call[0] as CompletionRequest)
+      .filter(call => call.requestId === 'task-acp-no-duplicate:tool-round:0');
+    expect(executionCalls).toHaveLength(1);
+    const sent = executionCalls[0]!;
+    expect(sent.requestId).toBe('task-acp-no-duplicate:tool-round:0');
+  });
+
   it('does not retry provider timeouts that would otherwise leave the chat UI waiting', async () => {
     const provider: ProviderAdapter = {
       providerId: 'local',

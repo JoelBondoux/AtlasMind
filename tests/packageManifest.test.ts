@@ -38,6 +38,8 @@ type ManifestConfigurationProperty = {
   default?: unknown;
   minimum?: number;
   maximum?: number;
+  description?: string;
+  markdownDescription?: string;
 };
 
 describe('package manifest', () => {
@@ -67,6 +69,12 @@ describe('package manifest', () => {
     expect(readme).toContain(`## What's new in ${manifest.version}`);
     expect(readme).not.toContain('| Feature | AtlasMind | Copilot');
     expect(readme).not.toContain('wiki/Comparison.md');
+  });
+
+  it('uses the ACP panel’s wording in the native Settings search entry', () => {
+    const property = manifest.contributes?.configuration?.properties?.['atlasmind.acp.toolsEnabled'] as ManifestConfigurationProperty | undefined;
+    expect(property?.description).toContain('Let subscription agents act');
+    expect(property?.markdownDescription).toContain('Let subscription agents act');
   });
 
   it('keeps the wiki comparison page and navigation removed', () => {

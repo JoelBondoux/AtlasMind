@@ -5,6 +5,7 @@ tests/**
 # Exclude docs and repo metadata not required at runtime
 .github/**
 docs/**
+native/**
 .vscode/**
 wiki/**
 project_memory*/**

@@ -264,6 +264,273 @@ describe('AcpAdapter — a full turn', () => {
   });
 });
 
+describe('AcpAdapter — live-session reuse without duplicate prompts', () => {
+  it('keeps one process and sends only the transcript suffix on the next turn', async () => {
+    const { factory, agents } = scriptedAgent();
+    const adapter = new AcpAdapter({
+      agents: [AGENT],
+      spawnProcess: factory,
+      keepAlive: true,
+      settingsStamp: () => 'stable',
+    });
+
+    const first = await adapter.complete(request());
+    await adapter.complete(request({
+      messages: [
+        { role: 'user', content: 'Say hello' },
+        { role: 'assistant', content: first.content },
+        { role: 'user', content: 'Now say goodbye' },
+      ],
+    }));
+
+    expect(agents).toHaveLength(1);
+    const prompts = agents[0]!.written.filter(frame => frame['method'] === 'session/prompt');
+    expect(prompts).toHaveLength(2);
+    const secondBlocks = (prompts[1]!['params'] as { prompt: Array<{ text?: string }> }).prompt;
+    expect(secondBlocks[0]!.text).toContain('Now say goodbye');
+    expect(secondBlocks[0]!.text).not.toContain('Say hello');
+    expect(secondBlocks[0]!.text).not.toContain(first.content);
+    expect(agents[0]!.killed).toBe(false);
+
+    await adapter.shutdown();
+    expect(agents[0]!.killed).toBe(true);
+  });
+
+  it('opens a new session for an edited or branched transcript', async () => {
+    const { factory, agents } = scriptedAgent();
+    const adapter = new AcpAdapter({
+      agents: [AGENT],
+      spawnProcess: factory,
+      keepAlive: true,
+      settingsStamp: () => 'stable',
+    });
+
+    await adapter.complete(request());
+    await adapter.complete(request({ messages: [{ role: 'user', content: 'A different branch' }] }));
+
+    expect(agents).toHaveLength(2);
+    await adapter.shutdown();
+  });
+
+  it('coalesces concurrent duplicates and briefly replays a completed retry', async () => {
+    const { factory, agents } = scriptedAgent();
+    const adapter = new AcpAdapter({
+      agents: [AGENT],
+      spawnProcess: factory,
+      keepAlive: true,
+      settingsStamp: () => 'stable',
+    });
+    const seen: string[] = [];
+
+    const [first, duplicate] = await Promise.all([
+      adapter.streamComplete(request({ requestId: 'task-1:turn-1' }), chunk => seen.push(chunk)),
+      adapter.complete(request({ requestId: 'task-1:turn-1' })),
+    ]);
+    const replay = await adapter.complete(request({ requestId: 'task-1:turn-1' }));
+
+    expect(duplicate).toEqual(first);
+    expect(replay).toEqual(first);
+    expect(seen.join('')).toBe('Hello world');
+    expect(agents).toHaveLength(1);
+    expect(agents[0]!.written.filter(frame => frame['method'] === 'session/prompt')).toHaveLength(1);
+    await adapter.shutdown();
+  });
+
+  it('does not merge independent requests merely because their words match', async () => {
+    const { factory, agents } = scriptedAgent();
+    const adapter = new AcpAdapter({
+      agents: [AGENT],
+      spawnProcess: factory,
+      keepAlive: true,
+      settingsStamp: () => 'stable',
+    });
+
+    await adapter.complete(request({ requestId: 'chat-a:turn-1' }));
+    await adapter.complete(request({ requestId: 'chat-b:turn-1' }));
+
+    expect(agents).toHaveLength(2);
+    expect(agents[0]!.written.filter(frame => frame['method'] === 'session/prompt')).toHaveLength(1);
+    expect(agents[1]!.written.filter(frame => frame['method'] === 'session/prompt')).toHaveLength(1);
+    await adapter.shutdown();
+  });
+
+  it('reports the count of active private-desktop sessions without exposing session details', async () => {
+    const { factory } = scriptedAgent();
+    const summaries: Array<{ total: number; ordinary: number; privateDesktop: number }> = [];
+    const adapter = new AcpAdapter({
+      agents: [AGENT],
+      spawnProcess: factory,
+      keepAlive: true,
+      hideConsoleWindows: true,
+      settingsStamp: () => 'stable',
+      onLiveSessionChange: summary => summaries.push(summary),
+    });
+
+    await adapter.complete(request());
+    expect(summaries).toContainEqual({ total: 1, ordinary: 0, privateDesktop: 1 });
+
+    await adapter.shutdown();
+    expect(summaries.at(-1)).toEqual({ total: 0, ordinary: 0, privateDesktop: 0 });
+  });
+
+  it('refuses every spawn until the Windows console-mode choice is recorded', async () => {
+    const { factory, agents } = scriptedAgent();
+    const adapter = new AcpAdapter({
+      agents: [AGENT],
+      spawnProcess: factory,
+      consoleModeChosen: false,
+    });
+
+    await expect(adapter.complete(request())).rejects.toThrow(/Choose ACP Console Window Behaviour/i);
+    expect(agents).toHaveLength(0);
+  });
+
+  it('cancels and discards an uncertain live prompt when its attempt is aborted', async () => {
+    const controller = new AbortController();
+    const agents: FakeAgent[] = [];
+    const factory: AcpProcessFactory = () => {
+      const agent = new FakeAgent((self, frame) => {
+        const id = frame['id'];
+        if (frame['method'] === 'initialize') {
+          self.emitFrame({ jsonrpc: '2.0', id, result: INITIALIZE_OK });
+        } else if (frame['method'] === 'session/new') {
+          self.emitFrame({ jsonrpc: '2.0', id, result: { sessionId: 'sess_abort' } });
+        } else if (frame['method'] === 'session/prompt') {
+          // Abort only after the prompt crossed the fake pipe. No prompt result
+          // follows, reproducing the timeout race this test protects.
+          controller.abort();
+        }
+      });
+      agents.push(agent);
+      return agent;
+    };
+    const adapter = new AcpAdapter({
+      agents: [AGENT],
+      spawnProcess: factory,
+      keepAlive: true,
+      settingsStamp: () => 'stable',
+    });
+
+    await expect(adapter.complete(request({ signal: controller.signal })))
+      .rejects.toMatchObject({ name: 'AbortError' });
+    expect(agents).toHaveLength(1);
+    expect(agents[0]!.method('session/cancel')).toBeDefined();
+    expect(agents[0]!.killed).toBe(true);
+    await adapter.shutdown();
+  });
+
+  it('tears down immediately when an attempt is aborted during the ACP handshake', async () => {
+    for (const keepAlive of [false, true]) {
+      const controller = new AbortController();
+      const agents: FakeAgent[] = [];
+      const factory: AcpProcessFactory = () => {
+        const agent = new FakeAgent((_self, frame) => {
+          if (frame['method'] === 'initialize') {
+            // No initialize response follows. Disposal must reject the pending
+            // JSON-RPC call itself rather than waiting for its long timeout.
+            controller.abort();
+          }
+        });
+        agents.push(agent);
+        return agent;
+      };
+      const adapter = new AcpAdapter({
+        agents: [AGENT],
+        spawnProcess: factory,
+        keepAlive,
+        settingsStamp: () => 'stable',
+      });
+
+      await expect(adapter.complete(request({ signal: controller.signal })))
+        .rejects.toMatchObject({ name: 'AbortError' });
+      expect(agents).toHaveLength(1);
+      expect(agents[0]!.written.map(frame => frame['method'])).toEqual(['initialize']);
+      expect(agents[0]!.killed).toBe(true);
+      await adapter.shutdown();
+    }
+  });
+
+  it('does not send a prompt after an attempt is aborted while applying session config', async () => {
+    const controller = new AbortController();
+    const agents: FakeAgent[] = [];
+    const factory: AcpProcessFactory = () => {
+      const agent = new FakeAgent((self, frame) => {
+        const id = frame['id'];
+        if (frame['method'] === 'initialize') {
+          self.emitFrame({ jsonrpc: '2.0', id, result: INITIALIZE_OK });
+        } else if (frame['method'] === 'session/new') {
+          self.emitFrame({
+            jsonrpc: '2.0',
+            id,
+            result: {
+              sessionId: 'sess_config_abort',
+              configOptions: [{
+                id: 'effort',
+                name: 'Effort',
+                category: 'thought_level',
+                type: 'select',
+                currentValue: 'default',
+                options: [{ value: 'default', name: 'Default' }, { value: 'high', name: 'High' }],
+              }],
+            },
+          });
+        } else if (frame['method'] === 'session/set_config_option') {
+          controller.abort();
+        }
+      });
+      agents.push(agent);
+      return agent;
+    };
+    const adapter = new AcpAdapter({
+      agents: [AGENT],
+      spawnProcess: factory,
+      keepAlive: true,
+      settingsStamp: () => 'stable',
+    });
+
+    await expect(adapter.complete(request({ model: 'acp/fake#high', signal: controller.signal })))
+      .rejects.toMatchObject({ name: 'AbortError' });
+    expect(agents[0]!.method('session/set_config_option')).toBeDefined();
+    expect(agents[0]!.method('session/prompt')).toBeUndefined();
+    expect(agents[0]!.killed).toBe(true);
+    await adapter.shutdown();
+  });
+
+  it('invalidates a live process when startup settings or launch mode change', async () => {
+    const { factory, agents } = scriptedAgent();
+    let stamp = 'one';
+    let hidden = false;
+    const launchModes: Array<boolean | undefined> = [];
+    const recordingFactory: AcpProcessFactory = (agent, cwd, options) => {
+      launchModes.push(options?.privateDesktop);
+      return factory(agent, cwd, options);
+    };
+    const adapter = new AcpAdapter({
+      agents: [AGENT],
+      spawnProcess: recordingFactory,
+      keepAlive: true,
+      settingsStamp: () => stamp,
+      hideConsoleWindows: () => hidden,
+    });
+
+    const first = await adapter.complete(request());
+    stamp = 'two';
+    hidden = true;
+    await adapter.complete(request({
+      messages: [
+        { role: 'user', content: 'Say hello' },
+        { role: 'assistant', content: first.content },
+        { role: 'user', content: 'Continue' },
+      ],
+    }));
+
+    expect(agents).toHaveLength(2);
+    expect(launchModes).toEqual([false, true]);
+    expect(agents[0]!.killed).toBe(true);
+    await adapter.shutdown();
+  });
+});
+
 describe('AcpAdapter — restricted mode is the security boundary', () => {
   it('declares no filesystem and no terminal capability, and no MCP servers', async () => {
     const { factory, agents } = scriptedAgent();
@@ -710,6 +977,21 @@ describe('AcpAdapter — discovery and probing', () => {
     expect(probe).toMatchObject({ installed: true, authenticated: false });
     expect(probe.message).toMatch(/could not open a session/);
     expect(probe.message).not.toMatch(/sign in/i);
+  });
+
+  it('single-flights concurrent probes so one UI refresh creates one process tree', async () => {
+    const { factory, agents } = scriptedAgent();
+    const adapter = new AcpAdapter({ agents: [AGENT], spawnProcess: factory });
+
+    const [first, second, third] = await Promise.all([
+      adapter.probe(),
+      adapter.probe(),
+      adapter.probe(),
+    ]);
+
+    expect(first).toEqual(second);
+    expect(second).toEqual(third);
+    expect(agents).toHaveLength(1);
   });
 
   it('says what to do when nothing is configured at all', async () => {

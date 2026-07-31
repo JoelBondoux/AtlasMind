@@ -14,6 +14,9 @@ const BASE: AcpSessionFingerprint = {
   command: 'claude-agent-acp',
   args: [],
   cwd: '/work',
+  launchMode: 'ordinary',
+  modelValue: undefined,
+  effortValue: undefined,
   mcpServerNames: [],
   isolatedSettings: true,
   settingsStamp: 'stamp-1',
@@ -51,6 +54,9 @@ describe('reusing a live agent session', () => {
     expect(reuseBlockedBecause(BASE, { ...BASE, command: 'other' }, HEALTHY, LIMITS)).toBe('agent-changed');
     expect(reuseBlockedBecause(BASE, { ...BASE, args: ['--acp'] }, HEALTHY, LIMITS)).toBe('agent-changed');
     expect(reuseBlockedBecause(BASE, { ...BASE, cwd: '/elsewhere' }, HEALTHY, LIMITS)).toBe('cwd-changed');
+    expect(reuseBlockedBecause(BASE, { ...BASE, launchMode: 'private-desktop' }, HEALTHY, LIMITS)).toBe('launch-mode-changed');
+    expect(reuseBlockedBecause(BASE, { ...BASE, modelValue: 'opus' }, HEALTHY, LIMITS)).toBe('configuration-changed');
+    expect(reuseBlockedBecause(BASE, { ...BASE, effortValue: 'high' }, HEALTHY, LIMITS)).toBe('configuration-changed');
     expect(reuseBlockedBecause(BASE, { ...BASE, mcpServerNames: ['docs'] }, HEALTHY, LIMITS)).toBe('mcp-servers-changed');
     expect(reuseBlockedBecause(BASE, BASE, { exited: false, idleMs: 60_000 }, LIMITS)).toBe('idle-expired');
     expect(reuseBlockedBecause(BASE, BASE, { exited: true, idleMs: 0 }, LIMITS)).toBe('agent-exited');

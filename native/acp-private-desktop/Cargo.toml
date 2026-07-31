@@ -1,0 +1,12 @@
+[package]
+name = "atlasmind-acp-private-desktop"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

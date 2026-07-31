@@ -176,3 +176,191 @@ The GitHub Wiki is published from the `wiki/` directory. When any docs-level cha
 | `wiki/Comparison.md` | Feature comparison table |
 | `wiki/Changelog.md` | `CHANGELOG.md` highlights |
 | `wiki/_Sidebar.md` | Wiki navigation sidebar |
+
+<!-- atlasmind:testing-protocols:start -->
+## Testing Protocols (managed by AtlasMind)
+
+> Auto-generated from `project_memory/index/testing-config.json`. Do not edit by hand —
+> changes are overwritten on the next sync. Update the matrix in the AtlasMind Settings → Testing page instead.
+
+This project enforces **13** testing methodologies. When writing or verifying tests, follow the applicable protocols below and report the checks, assertions, or verification artifacts you produced before concluding.
+
+### TDD
+
+- **What:** Test-Driven Development — red-green-refactor loop
+- **When to apply:** Any project where correctness matters and requirements can be expressed as assertions before the code is written. Especially valuable for greenfield features and critical business logic.
+- **Key tools:** Jest, Vitest, Mocha, pytest, JUnit, RSpec, Go testing
+- **Primary owner:** Test Developer
+
+### BDD
+
+- **What:** Behavior-Driven Development — Gherkin / Given-When-Then specs
+- **When to apply:** Projects with a non-technical product owner or QA team who needs to co-author acceptance criteria. Works best when requirements arrive as user stories.
+- **Key tools:** Cucumber, SpecFlow, Behave, Gherkin, Codecept, Playwright BDD plugin
+- **Primary owner:** Test Developer
+
+### ATDD
+
+- **What:** Acceptance Test-Driven Development — customer-facing criteria first
+- **When to apply:** When the delivery team works directly from customer acceptance criteria. Bridges the gap between BDD storytelling and executable acceptance tests.
+- **Key tools:** Robot Framework, FitNesse, Cucumber, SpecFlow, Gauge
+- **Primary owner:** Test Developer
+
+### Unit Testing
+
+- **What:** Isolated function and class-level tests
+- **When to apply:** All projects. Start here. Fast, cheap, and gives precise regression signals. Should be the largest layer of your test pyramid.
+- **Key tools:** Jest, Vitest, Mocha, pytest, JUnit, NUnit, xUnit, Go testing, Minitest
+- **Primary owner:** Test Developer
+
+### Mutation Testing
+
+- **What:** Fault injection to measure suite kill-rate (Stryker, Pitest)
+- **When to apply:** Mature suites where you want to measure test quality, not just quantity. Excellent for libraries and shared utilities where coverage alone is misleading.
+- **Key tools:** Stryker Mutator (JS/TS/C#), Pitest (Java/Kotlin), mutmut (Python), Infection (PHP)
+- **Primary owner:** Test Developer
+
+### Property-Based
+
+- **What:** Generative input testing (fast-check, Hypothesis)
+- **When to apply:** Pure functions, parsers, data transformers, and algorithmic code. Generates hundreds of random inputs to find edge cases no human would enumerate.
+- **Key tools:** fast-check (JS/TS), Hypothesis (Python), QuickCheck (Haskell/Erlang), jqwik (Java), gopter (Go)
+- **Primary owner:** Test Developer
+
+### Continuous / Shift-Left
+
+- **What:** Automated testing embedded throughout CI/CD — tests run on every commit, earliest possible feedback
+- **When to apply:** Any project with a CI/CD pipeline. Essential for teams delivering frequent releases or practising trunk-based development. Shift-left means pushing tests earlier: linting, type checks, and unit tests on pre-commit; integration and E2E on PR; performance and security on merge.
+- **Key tools:** GitHub Actions, GitLab CI, Jenkins, CircleCI, Azure DevOps, Buildkite, Husky / pre-commit hooks, Test Impact Analysis (Vitest, Jest)
+- **Primary owner:** Test Developer
+
+### White-Box
+
+- **What:** Structure-aware testing — code paths, branches, and conditions guided by internal knowledge
+- **When to apply:** Security-sensitive modules, complex algorithms, and codebases where path or branch coverage is a compliance requirement (DO-178C, IEC 61508). Augments unit tests with precise coverage metrics to identify dead code and untested logic.
+- **Key tools:** Istanbul / nyc (JS/TS), coverage.py, JaCoCo (Java/Kotlin), gcov / lcov (C/C++), LLVM coverage, SonarQube, Codecov, Coveralls
+- **Primary owner:** Test Developer
+
+### End-to-End
+
+- **What:** Full user-flow simulation (Playwright, Cypress, etc.)
+- **When to apply:** Web and mobile applications with critical user journeys (checkout, login, onboarding). High confidence at the cost of speed.
+- **Key tools:** Playwright, Cypress, Puppeteer, WebdriverIO, Detox (mobile), Appium
+- **Primary owner:** Test Developer
+
+### Contract
+
+- **What:** Consumer-driven API contract verification (Pact)
+- **When to apply:** Microservice architectures where multiple teams own their own services. Consumers write the contract; providers verify it — eliminating integration environment dependency.
+- **Key tools:** Pact (JS, Java, Go, .NET, Ruby, Python), Spring Cloud Contract, Dredd
+- **Primary owner:** Test Developer
+
+### Model-Based (MBT)
+
+- **What:** Derive test cases from formal system models — state machines, UML diagrams, decision tables
+- **When to apply:** Complex systems with many state transitions: embedded software, protocol implementations, workflow engines, and telecom or automotive stacks. MBT generates optimised test suites that cover the model more completely than hand-authored cases.
+- **Key tools:** GraphWalker, TestOptimal, Conformiq, MBTsuite, Selenium + custom state model wrappers
+- **Primary owner:** Test Developer
+
+### Performance
+
+- **What:** Load, stress, and latency benchmarks (k6, Artillery, JMeter)
+- **When to apply:** APIs, real-time systems, or any application with SLA targets. Run before a major release or infrastructure change to validate throughput and latency under load.
+- **Key tools:** k6, Artillery, Apache JMeter, Gatling, Locust, autocannon, wrk
+- **Primary owner:** Test Developer
+
+### Security
+
+- **What:** SAST / DAST and dependency vulnerability scanning
+- **When to apply:** Any application handling authentication, payments, PII, or sensitive data. Should be part of CI for all production software.
+- **Key tools:** Snyk, OWASP ZAP, Semgrep, Trivy, CodeQL, Dependabot, npm audit, OWASP Dependency-Check
+- **Primary owner:** Test Developer
+
+<!-- atlasmind:source-digest:47711aebd82c3099 -->
+<!-- atlasmind:testing-protocols:end -->
+
+<!-- atlasmind:debt-markers:start -->
+## Technical debt markers
+
+When you leave temporary code, a shortcut, or a deferred decision behind, mark it with a
+comment beginning with one of these. AtlasMind scans for them and records each one with its
+file, its line, and the rule that graded it — anything marked another way is invisible, and an
+empty register then reads as "no debt" rather than "not detected".
+
+- `TODO:` — something absent. Graded low.
+- `FIXME:` — something wrong. Graded medium.
+- `HACK:` / `XXX:` — works, but not the way it should. Graded medium.
+
+The marker must be the first word of the comment: `// TODO: replace this` is recorded,
+`// a TODO for later` is not. A marker mentioning a credential, a token or sanitising is
+graded high whichever word you used.
+
+<!-- atlasmind:debt-markers:end -->
+
+<!-- atlasmind:workflow:start -->
+## GitHub workflow (managed by AtlasMind)
+
+> Auto-generated from `project_memory/operations/workflow.json`. Do not edit by hand —
+> changes are overwritten on the next sync. Edit the workflow file, or the Workflow page.
+
+This repository follows a declared GitHub workflow. It is recorded in
+`project_memory/operations/workflow.json` and is the authority for the rules below —
+if this block and that file disagree, the file wins and this block is stale.
+
+These rules apply to **you**, whichever tool you are. AtlasMind cannot gate a process it
+does not run, so nothing here is enforced by machinery on your side: it is enforced by you
+reading it. Where a rule and convenience conflict, follow the rule and say that you did.
+
+### Branches
+
+- Integration branch (normal push target): `develop`
+- Release branch: `main`
+- **Protected — never push directly:** `main`, `master`, `production`, `prod`, `release`, `stable`, `development`. Reach these through a reviewed pull request only.
+- New branches: `<type>/<issue>-<slug>`, at most 60 characters, type from `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `perf`.
+
+### How far you may go, by stage
+
+The operator's ceiling is `auto`. A stage asking for more than that gets the ceiling, and the levels below already have it applied — they are what is actually permitted.
+
+| Stage | Permitted | What that means for you |
+|---|---|---|
+| Planning & issue intake | `observe` | Report what you find. Do not create, modify or close anything. |
+| Branch creation & naming | `observe` | Report what you find. Do not create, modify or close anything. |
+| Local development | `observe` | Report what you find. Do not create, modify or close anything. |
+| Pull requests & review | `observe` | Report what you find. Do not create, modify or close anything. |
+| CI & failure analysis | `observe` | Report what you find. Do not create, modify or close anything. |
+| Release | `observe` | Report what you find. Do not create, modify or close anything. |
+
+### Evidence a stage requires
+
+Two different things, which must not stand in for each other: a **check** is a person saying
+"I looked", and a **status check** is a machine saying "it passed". Do not report one as the other.
+
+- **Planning & issue intake**
+  - Human checks: _Acceptance criteria written_
+- **Pull requests & review**
+  - Human checks: _Self-reviewed the diff_, _Linked to an issue_, _Version bumped and changelog written_
+  - CI that must be green: `CI`
+- **CI & failure analysis**
+  - CI that must be green: `CI`
+- **Release**
+  - Human checks: _Changelog entry written_, _Version bumped_, _README banner matches package.json_
+  - CI that must be green: `CI`
+
+### Labels
+
+Use **only** these. A label that does not exist is *created* on the repository as a side
+effect of applying it, so inventing one changes the project's taxonomy without asking.
+Pick at most one from each category.
+
+- **type:** `bug`, `enhancement`, `documentation`, `security`, `dependencies`, `workflow`
+
+### Testing
+
+Testing requirements are **not** duplicated here. They live in
+`project_memory/index/testing-config.json` and are described in the testing-protocols block
+of this same file. Follow those.
+
+
+<!-- atlasmind:source-digest:22fb7e16dd0950ff -->
+<!-- atlasmind:workflow:end -->

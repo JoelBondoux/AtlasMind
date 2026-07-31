@@ -6,6 +6,65 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.230.0 — Quiet ACP sessions, without hiding the trade-off
+
+The testing baseline now includes a real `fast-check` property test in the normal
+Vitest suite and a separate `npm run test:mutation` command. The committed
+Stryker configuration starts with the criticality, tool-policy and agent-registry
+modules — decisions where a test that merely executes a line is not enough.
+
+ACP no longer throws a coding-agent process tree away after every answer. A
+successful conversation stays live for 30 idle minutes, and the next turn sends
+only the exact transcript suffix the remote session has not already seen.
+Branches, edits, model/effort changes, MCP or isolation changes, Windows launch
+mode changes, startup instruction changes, exits and idle expiry all open a
+fresh session. Concurrent setup, health and panel probes now share one one-shot
+process instead of racing to start several identical trees.
+
+Duplicate delivery is guarded separately: one stable task identity follows an
+orchestrator tool round, concurrent calls for that identity share one
+`session/prompt`, and a 15-second result ledger absorbs its immediate retry
+without merging independent chats that happen to contain the same words. ACP is
+exempt from the generic transient-provider retry loop, so an uncertain prompt
+is never automatically sent again. That protects subscription allowance and
+prevents an acting agent from being asked to perform the same work twice.
+
+On Windows, setup now asks *before the first probe*: accept ordinary launching
+and the possibility of brief terminal pop-ups, or tick **ACP: Hide Console
+Windows**. The opt-in path uses a source-visible, dependency-free, SHA-256-pinned
+native helper to put the agent and descendants on a dedicated private desktop,
+with no shell and only stdio inherited. It never switches to or controls that
+desktop, and a missing/changed/blocked helper fails rather than falling back.
+The guided choice is written to User settings so setup does not dirty the
+repository; a workspace may still override it explicitly. The configuration
+schema's default does not count as a choice, so startup discovery and direct
+routed turns cannot launch an older configured agent first.
+
+The warning is intentional: hidden desktops are also used by hVNC malware, and
+Microsoft Defender exposes them for threat hunting. A managed-device EDR may
+flag the legitimate helper. The feature therefore remains off until selected,
+and the private desktop is documented as a visibility control — never a
+sandbox or permission boundary. The SHA pin verifies the bytes AtlasMind expects
+but is not Authenticode; the v0.230.0 helper itself is unsigned, so an enterprise
+may require its own signature or allow-rule.
+
+While a private-desktop routed session is alive, AtlasMind also shows **ACP private
+desktop: _n_** in VS Code's status bar. Click it to open Models & Providers. This
+is intentionally in-editor rather than a taskbar/notification-area icon: taskbar
+buttons represent windows on the active desktop, a tray icon can be hidden in
+overflow and neither changes the EDR signal. The indicator is visible evidence of
+the selected launch mode, never a claim that the desktop is a sandbox.
+
+**Settings are now one click from the AtlasMind Chat title bar.** The gear takes
+the fifth visible title-bar slot; the contextual project-memory action remains
+in the overflow menu. Native VS Code Settings search now recognizes the exact
+panel wording, **Let subscription agents act**, for `atlasmind.acp.toolsEnabled`.
+The ACP card's matching Safety link now passes its allowed page id through the
+webview boundary correctly, and its description begins with the plain-language
+fact: use an installed Claude Code or Codex agent and its existing subscription.
+
+---
+
 ## v0.229.0 — Groundwork for keeping the agent alive
 
 AtlasMind throws the ACP agent away after every answer, so every question pays a fresh ten-second startup. Measured: opening a session costs about 9.7 seconds, while a second question on a session that is already open costs 1.7. Keeping one alive is worth roughly **13 seconds down to 2 per answer** — and it turns the console-window flurry from once-per-answer into once-per-lifetime.

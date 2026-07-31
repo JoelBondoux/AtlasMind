@@ -521,6 +521,34 @@ AtlasMind can connect to any [Model Context Protocol](https://modelcontextprotoc
 
 MCP skills are registered in `SkillsRegistry` when a server connects and automatically marked as scan-passed (external process; trust is delegated to the server operator by the user who explicitly configured the connection). They can be individually disabled from the Skills view.
 
+### ACP process lifetime does not widen ACP authority
+
+The routed ACP adapter may keep a successful agent session alive for 30 idle
+minutes, but every permission request in every turn still traverses the same
+`session/request_permission` policy. A live process does not retain an
+AtlasMind-side approval: `allow_always` is never selected, and a missing or
+throwing policy still denies. Enabling tools, changing the MCP allowlist, or
+crossing between completion-only isolation and delegated execution invalidates
+the session before another prompt is sent.
+
+Conversation reuse is exact, not inferred. AtlasMind records the outer
+transcript and sends only a suffix after proving the record is a byte-for-byte
+message prefix of the next request. A branch or edited instruction gets another
+session. A stable task identity lets concurrent calls for the same tool round
+share one `session/prompt` without merging separate chats whose words happen to
+match. ACP bypasses the generic transient-provider retry loop, so a failure
+after a prompt may have crossed stdio is never automatically resent. The outer
+provider timeout aborts the ACP attempt, sends `session/cancel`, and tears down
+the uncertain session. This matters for tools as much as cost — duplicating a
+prompt to an agent that may act can duplicate the requested operation even
+though each individual permission remains gated.
+
+On Windows, `atlasmind.acp.hideConsoleWindows` changes where the process tree's
+windows may appear, not what the process may do. The private desktop is neither
+a sandbox nor an authorization boundary; the agent retains the same user-level
+filesystem/network access. It is opt-in and disclosed because hidden desktops
+are also used by hVNC malware and can attract Defender/EDR detection.
+
 **Workspace-path defaulting**: Before dispatch, `McpClient.callTool` (`applyMcpWorkspacePathDefaults`) fills repo/working-directory parameters the model omitted with the current workspace folder, keyed off the tool's input schema. This prevents failures such as GitKraken `git_status` rejecting a call with "repoPath is required". Only string-typed, currently-empty params whose name denotes a repo/working path (`repoPath`, `projectPath`, `cwd`, `workingDirectory`, …) are defaulted; a bare `path`/`file` argument is untouched and explicit caller values are preserved.
 
 **Transport options**:

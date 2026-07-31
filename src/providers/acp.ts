@@ -36,8 +36,18 @@
  */
 
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import type { CompletionRequest, CompletionResponse, DiscoveredModel, ProviderAdapter } from './adapter.js';
+import { createHash } from 'node:crypto';
+import { statSync } from 'node:fs';
+import { homedir } from 'node:os';
+import * as path from 'node:path';
+import type { ChatMessage, CompletionRequest, CompletionResponse, DiscoveredModel, ProviderAdapter } from './adapter.js';
 import { createAcpLaunchProbe, resolveAcpLaunch } from './acpLaunch.js';
+import {
+  ACP_HOST_DEFAULTS,
+  reuseBlockedBecause,
+  type AcpSessionFingerprint,
+} from './acpHostPolicy.js';
+import { wrapAcpLaunchForPrivateDesktop } from './acpWindowsLauncher.js';
 import {
   ACP_ERROR_AUTH_REQUIRED,
   ACP_PERMISSION_METHOD,
@@ -108,6 +118,12 @@ const PROBE_TIMEOUT_MS = ACP_PROBE_TIMEOUT_MS;
 
 /** How long a `session/close` may take before teardown stops waiting for it. */
 const SESSION_CLOSE_TIMEOUT_MS = 2_000;
+
+/** A completed identical call is replayable only long enough to absorb a retry. */
+const ACP_DUPLICATE_REPLAY_MS = 15_000;
+
+/** Bound parallel conversations so a long-lived adapter cannot grow a process farm. */
+const ACP_MAX_LIVE_SESSIONS = 4;
 
 /**
  * How long a probe's answer is reused.
@@ -406,7 +422,16 @@ export interface AcpProcessHandle {
   readonly pid?: number | undefined;
 }
 
-export type AcpProcessFactory = (config: AcpAgentConfig, cwd: string | undefined) => AcpProcessHandle;
+export interface AcpProcessLaunchOptions {
+  /** Windows only: start the entire descendant tree on a private desktop. */
+  privateDesktop?: boolean;
+}
+
+export type AcpProcessFactory = (
+  config: AcpAgentConfig,
+  cwd: string | undefined,
+  options?: AcpProcessLaunchOptions,
+) => AcpProcessHandle;
 
 interface AcpTurnResult {
   text: string;
@@ -416,8 +441,42 @@ interface AcpTurnResult {
   agentName?: string;
 }
 
+interface AcpLiveSession {
+  session: AcpSession;
+  initialized: AcpInitializeResult;
+  fingerprint: AcpSessionFingerprint;
+  /** The exact transcript the remote session now contains. */
+  transcript: ChatMessage[];
+  lastUsedAt: number;
+  busy: boolean;
+}
+
+/**
+ * The only live-session detail the VS Code shell needs to disclose its
+ * private-desktop state. No command, transcript, PID, or child-process detail
+ * crosses this boundary: the indicator is evidence that the user-selected
+ * launch mode is active, not a process inspector.
+ */
+export interface AcpLiveSessionSummary {
+  total: number;
+  ordinary: number;
+  privateDesktop: number;
+}
+
+interface AcpInFlightCompletion {
+  promise: Promise<CompletionResponse>;
+  listeners: Set<(chunk: string) => void>;
+  streamedText: string;
+}
+
 export class AcpAdapter implements ProviderAdapter {
   readonly providerId = ACP_PROVIDER_ID;
+  private readonly liveSessions: AcpLiveSession[] = [];
+  private readonly inFlight = new Map<string, AcpInFlightCompletion>();
+  private readonly completed = new Map<string, { at: number; response: CompletionResponse }>();
+  private readonly probeInFlight = new Map<string, Promise<AcpProbeResult>>();
+  private reapTimer: NodeJS.Timeout | undefined;
+  private disposed = false;
 
   /**
    * What *this* adapter last learned about each agent, by agent id.
@@ -458,6 +517,32 @@ export class AcpAdapter implements ProviderAdapter {
       clientVersion?: string;
       spawnProcess?: AcpProcessFactory;
       /**
+       * Keep successful ACP sessions alive between turns.
+       *
+       * The routed adapter enables this. One-shot setup/probe adapters leave it
+       * off, so a temporary object can never strand an authenticated process.
+       */
+      keepAlive?: boolean;
+      /**
+       * Windows-only console suppression. A getter makes a Settings checkbox
+       * take effect on the next launch without reloading VS Code.
+       */
+      hideConsoleWindows?: boolean | (() => boolean);
+      /**
+       * Whether the Windows launch-mode question has been answered.
+       *
+       * Omitted means the embedding caller owns that decision (tests and
+       * one-shot library use remain compatible). The routed VS Code adapter
+       * supplies a live getter, so no ACP process can slip through activation
+       * or a direct turn before setup has explained the visible/private choice.
+       */
+      consoleModeChosen?: boolean | (() => boolean);
+      /**
+       * Override the files/config stamp used to invalidate a live session.
+       * Primarily for deterministic tests.
+       */
+      settingsStamp?: (agent: AcpAgentConfig, mcpServers: AcpMcpServer[]) => string;
+      /**
        * MCP servers to hand the agent at `session/new`.
        *
        * Absent, or returning nothing, means the agent gets none — the default.
@@ -495,18 +580,29 @@ export class AcpAdapter implements ProviderAdapter {
        */
       modelStanding?: () => Record<string, string>;
       onToolEvent?: AcpToolEventListener;
+      /**
+       * Lets the VS Code shell show that an opted-in private desktop is active.
+       * Kept to counts so this notification cannot become an alternate channel
+       * for agent output, command lines, or workspace data.
+       */
+      onLiveSessionChange?: (summary: AcpLiveSessionSummary) => void;
     },
-  ) {}
+  ) {
+    if (options?.keepAlive) {
+      this.reapTimer = setInterval(() => { void this.reapIdleSessions(); }, ACP_HOST_DEFAULTS.supervisionIntervalMs);
+      this.reapTimer.unref?.();
+    }
+  }
 
   async complete(request: CompletionRequest): Promise<CompletionResponse> {
-    return this.run(request, undefined);
+    return this.coalesceRun(request, undefined);
   }
 
   async streamComplete(
     request: CompletionRequest,
     onTextChunk: (chunk: string) => void,
   ): Promise<CompletionResponse> {
-    return this.run(request, onTextChunk);
+    return this.coalesceRun(request, onTextChunk);
   }
 
   async listModels(): Promise<string[]> {
@@ -699,7 +795,33 @@ export class AcpAdapter implements ProviderAdapter {
       }
     }
 
-    const result = await this.handshakeOnly(target);
+    // A panel refresh, tree refresh and activation refresh can all ask the same
+    // question at once. The TTL prevents serial repeats; this single-flight
+    // prevents the concurrent case from launching several identical process
+    // trees (and several identical sets of console windows).
+    let pending = this.probeInFlight.get(cacheKey);
+    if (!pending && cacheable) {
+      pending = acpProbeInFlight.get(cacheKey);
+    }
+    if (!pending) {
+      pending = this.handshakeOnly(target);
+      this.probeInFlight.set(cacheKey, pending);
+      if (cacheable) {
+        acpProbeInFlight.set(cacheKey, pending);
+      }
+    }
+
+    let result: AcpProbeResult;
+    try {
+      result = await pending;
+    } finally {
+      if (this.probeInFlight.get(cacheKey) === pending) {
+        this.probeInFlight.delete(cacheKey);
+      }
+      if (cacheable && acpProbeInFlight.get(cacheKey) === pending) {
+        acpProbeInFlight.delete(cacheKey);
+      }
+    }
     // Always recorded on the instance; only shared when caching is on.
     this.lastProbeByAgent.set(target.id, result);
     if (cacheable) {
@@ -710,7 +832,10 @@ export class AcpAdapter implements ProviderAdapter {
   }
 
   private probeCacheKey(agent: AcpAgentConfig): string {
-    return `${agent.command}|${(agent.args ?? []).join(' ')}|${this.options?.cwd ?? ''}`;
+    const environment = Object.entries(agent.env ?? {})
+      .sort(([left], [right]) => left.localeCompare(right));
+    return `${agent.command}|${JSON.stringify(agent.args ?? [])}|${this.options?.cwd ?? ''}`
+      + `|private-desktop:${this.hideConsoleWindows()}|env:${JSON.stringify(environment)}`;
   }
 
   private agents(): AcpAgentConfig[] {
@@ -825,7 +950,404 @@ export class AcpAdapter implements ProviderAdapter {
     }
   }
 
-  private async run(request: CompletionRequest, onTextChunk: ((chunk: string) => void) | undefined): Promise<CompletionResponse> {
+  /**
+   * One logical completion reaches the ACP agent at most once.
+   *
+   * Two callers presenting the same request while it is running attach to the
+   * same promise and stream. A retry arriving just after completion receives
+   * the recorded result during a short replay window. Failures are deliberately
+   * not recorded and, most importantly, are never retried here: once a
+   * `session/prompt` may have crossed the pipe, uncertainty must not become a
+   * second paid prompt.
+   */
+  private async coalesceRun(
+    request: CompletionRequest,
+    onTextChunk: ((chunk: string) => void) | undefined,
+  ): Promise<CompletionResponse> {
+    if (this.disposed) {
+      throw new Error('The ACP adapter has been disposed.');
+    }
+    throwIfAcpAborted(request.signal);
+    // Refuse before consulting the duplicate ledger. Otherwise a tool-bearing
+    // request identical to an already-running text request could attach to it
+    // and bypass the ACP tool boundary merely because `tools` is not part of
+    // the paid-prompt identity.
+    this.refuseAtlasMindTools(request);
+
+    const resolvedForKey = this.resolveAgent(request.model);
+    const serversForKey = this.mcpServers();
+    const executionEpoch = resolvedForKey
+      ? JSON.stringify({
+        agent: resolvedForKey.agent,
+        cwd: this.options?.cwd,
+        privateDesktop: this.hideConsoleWindows(),
+        settingsStamp: this.settingsStamp(resolvedForKey.agent, serversForKey),
+        mcpServers: serversForKey,
+      })
+      : 'unconfigured';
+    const key = acpCompletionKey(request, executionEpoch);
+    const now = Date.now();
+    for (const [completedKey, entry] of this.completed) {
+      if (now - entry.at > ACP_DUPLICATE_REPLAY_MS) {
+        this.completed.delete(completedKey);
+      }
+    }
+    const recent = this.completed.get(key);
+    if (recent) {
+      if (onTextChunk && recent.response.content) {
+        onTextChunk(recent.response.content);
+      }
+      return recent.response;
+    }
+
+    const existing = this.inFlight.get(key);
+    if (existing) {
+      if (onTextChunk) {
+        if (existing.streamedText) {
+          onTextChunk(existing.streamedText);
+        }
+        existing.listeners.add(onTextChunk);
+      }
+      return existing.promise.finally(() => {
+        if (onTextChunk) {
+          existing.listeners.delete(onTextChunk);
+        }
+      });
+    }
+
+    const flight: AcpInFlightCompletion = {
+      promise: Promise.resolve(undefined as never),
+      listeners: new Set(onTextChunk ? [onTextChunk] : []),
+      streamedText: '',
+    };
+    const relay = (chunk: string) => {
+      flight.streamedText += chunk;
+      for (const listener of flight.listeners) {
+        try {
+          listener(chunk);
+        } catch {
+          // A view that stopped listening must not abort the paid agent turn.
+        }
+      }
+    };
+    flight.promise = (this.options?.keepAlive
+      ? this.runReusable(request, relay)
+      : this.runSingleUse(request, relay))
+      .then(response => {
+        this.completed.set(key, { at: Date.now(), response });
+        return response;
+      })
+      .finally(() => {
+        this.inFlight.delete(key);
+        flight.listeners.clear();
+      });
+    this.inFlight.set(key, flight);
+    return flight.promise;
+  }
+
+  /**
+   * Run on a live session when its launch/security fingerprint and transcript
+   * both still match.
+   *
+   * Transcript matching is what prevents the subtle duplicate: a reused ACP
+   * session already remembers every prior prompt and answer, so sending
+   * AtlasMind's full chat history again would make the agent see it twice. The
+   * cached transcript must be an exact prefix of the new request; only the
+   * suffix is sent. A branch, edit, or changed system instruction opens a new
+   * session instead of guessing which part the agent remembers.
+   */
+  private async runReusable(
+    request: CompletionRequest,
+    onTextChunk: ((chunk: string) => void) | undefined,
+  ): Promise<CompletionResponse> {
+    const resolved = this.resolveAgent(request.model);
+    if (!resolved) {
+      throw new Error('No ACP agent is configured. Add one under atlasmind.acp.agents.');
+    }
+    const { agent, effort, modelChoice } = resolved;
+    this.refuseAtlasMindTools(request);
+
+    const mcpServers = this.mcpServers();
+    const privateDesktop = this.hideConsoleWindows();
+    const wanted: AcpSessionFingerprint = {
+      agentId: agent.id,
+      command: agent.command,
+      args: [...(agent.args ?? [])],
+      cwd: this.options?.cwd,
+      launchMode: privateDesktop ? 'private-desktop' : 'ordinary',
+      modelValue: modelChoice?.value,
+      effortValue: effort?.value,
+      mcpServerNames: mcpServers.map(server => server.name).sort(),
+      isolatedSettings: mcpServers.length === 0,
+      settingsStamp: this.settingsStamp(agent, mcpServers),
+    };
+
+    await this.discardInvalidSessions(wanted);
+    let live = this.liveSessions
+      .filter(entry => !entry.busy && !reuseBlockedBecause(
+        entry.fingerprint,
+        wanted,
+        { exited: entry.session.hasExited(), idleMs: Date.now() - entry.lastUsedAt },
+        { maxIdleMs: ACP_HOST_DEFAULTS.sessionMaxIdleMs },
+      ))
+      .filter(entry => transcriptSuffix(entry.transcript, request.messages) !== undefined)
+      .sort((a, b) => b.transcript.length - a.transcript.length)[0];
+
+    if (!live) {
+      await this.makeRoomForLiveSession();
+      live = await this.createLiveSession(agent, mcpServers, wanted, privateDesktop, request.signal);
+      this.liveSessions.push(live);
+      this.notifyLiveSessionChange();
+    }
+
+    const suffix = transcriptSuffix(live.transcript, request.messages);
+    if (!suffix || suffix.length === 0) {
+      // An exact completed request should have been served by the duplicate
+      // ledger. Reaching this point means there is no new user input to send,
+      // and inventing one would be worse than refusing it.
+      throw new Error('AtlasMind refused to send an empty or already-completed prompt to the live ACP session.');
+    }
+
+    live.busy = true;
+    const abortBeforePrompt = () => live?.session.dispose(createAcpAbortError());
+    request.signal?.addEventListener('abort', abortBeforePrompt, { once: true });
+    try {
+      throwIfAcpAborted(request.signal);
+      await this.applyRequestedConfig(live.session, agent, modelChoice, effort);
+      // `prompt` owns cancellation once a prompt may cross the pipe: it sends
+      // session/cancel before the session is discarded. Until then, killing the
+      // process is the only way to interrupt initialize/new/config immediately.
+      request.signal?.removeEventListener('abort', abortBeforePrompt);
+      const turn = await live.session.prompt(
+        buildPromptBlocks({ ...request, messages: suffix }, live.initialized),
+        onTextChunk,
+        request.signal,
+      );
+      const response: CompletionResponse = {
+        content: turn.text,
+        model: request.model,
+        inputTokens: turn.inputTokens,
+        outputTokens: turn.outputTokens,
+        finishReason: turn.finishReason,
+      };
+      live.transcript = [
+        ...cloneTranscript(request.messages),
+        { role: 'assistant', content: response.content },
+      ];
+      return response;
+    } catch (error) {
+      // Never retry an uncertain prompt. This session is discarded so a later,
+      // genuinely new request cannot inherit context whose last turn is unknown.
+      await this.removeLiveSession(live);
+      throw error;
+    } finally {
+      request.signal?.removeEventListener('abort', abortBeforePrompt);
+      live.busy = false;
+      live.lastUsedAt = Date.now();
+    }
+  }
+
+  private async createLiveSession(
+    agent: AcpAgentConfig,
+    mcpServers: AcpMcpServer[],
+    fingerprint: AcpSessionFingerprint,
+    privateDesktop: boolean,
+    signal: AbortSignal | undefined,
+  ): Promise<AcpLiveSession> {
+    throwIfAcpAborted(signal);
+    const session = new AcpSession(
+      agent,
+      this.spawnFactory(),
+      this.options?.cwd,
+      this.clientVersion(),
+      this.options?.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+      this.options?.permissionPolicy,
+      this.options?.onToolEvent,
+      { privateDesktop },
+    );
+    const abortBeforeReady = () => session.dispose(createAcpAbortError());
+    signal?.addEventListener('abort', abortBeforeReady, { once: true });
+    try {
+      throwIfAcpAborted(signal);
+      const initialized = await session.initialize();
+      if (!initialized.compatible) {
+        throw new Error(`${agent.command} speaks ACP version ${initialized.protocolVersion}, but AtlasMind speaks ${ACP_PROTOCOL_VERSION}.`);
+      }
+      try {
+        await session.newSession(mcpServers, { isolateAgentSettings: mcpServers.length === 0 });
+      } catch (error) {
+        if (error instanceof AcpAuthRequiredError) {
+          throw new Error(
+            `${agent.command} needs you to sign in before it will answer. Run it once in a terminal and follow its own login`
+            + `${initialized.authMethods.length > 0 ? ` (${initialized.authMethods.join(', ')})` : ''}. AtlasMind never handles that credential.`,
+          );
+        }
+        throw error;
+      }
+      throwIfAcpAborted(signal);
+      return {
+        session,
+        initialized,
+        fingerprint,
+        transcript: [],
+        lastUsedAt: Date.now(),
+        busy: false,
+      };
+    } catch (error) {
+      await session.closeSession();
+      session.dispose();
+      throw error;
+    } finally {
+      signal?.removeEventListener('abort', abortBeforeReady);
+    }
+  }
+
+  private async applyRequestedConfig(
+    session: AcpSession,
+    agent: AcpAgentConfig,
+    modelChoice: AcpModelChoice | undefined,
+    effort: AcpEffortTier | undefined,
+  ): Promise<void> {
+    if (modelChoice) {
+      const applied = await session.setConfigOption(ACP_MODEL_CATEGORY, modelChoice.value);
+      if (!applied.ok) {
+        this.options?.onEffortNotApplied?.({
+          agentId: agent.id,
+          requested: `model ${modelChoice.name}`,
+          reason: applied.reason ?? 'unknown',
+        });
+      }
+    }
+    if (effort) {
+      const applied = await session.setConfigOption(ACP_EFFORT_CATEGORY, effort.value);
+      if (!applied.ok) {
+        this.options?.onEffortNotApplied?.({
+          agentId: agent.id,
+          requested: effort.value,
+          reason: applied.reason ?? 'unknown',
+        });
+      }
+    }
+  }
+
+  private refuseAtlasMindTools(request: CompletionRequest): void {
+    if (request.tools && request.tools.length > 0) {
+      throw new Error('ACP agents cannot run AtlasMind\'s own tool definitions — the protocol has no way to pass them in. The agent executes its own tools instead, gated by approval. Route function-calling tasks to a provider that supports them.');
+    }
+  }
+
+  private mcpServers(): AcpMcpServer[] {
+    try {
+      return this.options?.getMcpServers?.() ?? [];
+    } catch {
+      return [];
+    }
+  }
+
+  private hideConsoleWindows(): boolean {
+    try {
+      const configured = this.options?.hideConsoleWindows;
+      return (typeof configured === 'function' ? configured() : configured) === true;
+    } catch {
+      // A broken setting getter must not silently opt into a hidden launch.
+      return false;
+    }
+  }
+
+  private settingsStamp(agent: AcpAgentConfig, mcpServers: AcpMcpServer[]): string {
+    try {
+      return this.options?.settingsStamp?.(agent, mcpServers)
+        ?? defaultAcpSettingsStamp(this.options?.cwd, agent, mcpServers);
+    } catch {
+      // A changing sentinel prevents reuse when AtlasMind cannot prove the
+      // settings are unchanged. Safe, with the cost of one extra startup.
+      return `unreadable-${Date.now()}`;
+    }
+  }
+
+  private async discardInvalidSessions(wanted: AcpSessionFingerprint): Promise<void> {
+    const invalid = this.liveSessions.filter(entry =>
+      entry.fingerprint.agentId === wanted.agentId
+      && reuseBlockedBecause(
+        entry.fingerprint,
+        wanted,
+        { exited: entry.session.hasExited(), idleMs: Date.now() - entry.lastUsedAt },
+        { maxIdleMs: ACP_HOST_DEFAULTS.sessionMaxIdleMs },
+      ) !== undefined);
+    await Promise.all(invalid.map(entry => this.removeLiveSession(entry)));
+  }
+
+  private async makeRoomForLiveSession(): Promise<void> {
+    if (this.liveSessions.length < ACP_MAX_LIVE_SESSIONS) {
+      return;
+    }
+    const oldest = this.liveSessions
+      .filter(entry => !entry.busy)
+      .sort((a, b) => a.lastUsedAt - b.lastUsedAt)[0];
+    if (!oldest) {
+      throw new Error(`AtlasMind already has ${ACP_MAX_LIVE_SESSIONS} ACP conversations running. Wait for one to finish before starting another.`);
+    }
+    await this.removeLiveSession(oldest);
+  }
+
+  private async removeLiveSession(entry: AcpLiveSession): Promise<void> {
+    const index = this.liveSessions.indexOf(entry);
+    if (index >= 0) {
+      this.liveSessions.splice(index, 1);
+      this.notifyLiveSessionChange();
+    }
+    await entry.session.closeSession();
+    entry.session.dispose();
+  }
+
+  private notifyLiveSessionChange(): void {
+    try {
+      const privateDesktop = this.liveSessions
+        .filter(entry => entry.fingerprint.launchMode === 'private-desktop')
+        .length;
+      this.options?.onLiveSessionChange?.({
+        total: this.liveSessions.length,
+        ordinary: this.liveSessions.length - privateDesktop,
+        privateDesktop,
+      });
+    } catch {
+      // A visual disclosure must never destabilize an authenticated session.
+    }
+  }
+
+  private async reapIdleSessions(): Promise<void> {
+    const now = Date.now();
+    const expired = this.liveSessions.filter(entry =>
+      !entry.busy && (entry.session.hasExited()
+        || now - entry.lastUsedAt >= ACP_HOST_DEFAULTS.sessionMaxIdleMs));
+    await Promise.all(expired.map(entry => this.removeLiveSession(entry)));
+  }
+
+  async shutdown(): Promise<void> {
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
+    if (this.reapTimer) {
+      clearInterval(this.reapTimer);
+      this.reapTimer = undefined;
+    }
+    const live = this.liveSessions.splice(0);
+    this.notifyLiveSessionChange();
+    await Promise.all(live.map(async entry => {
+      await entry.session.closeSession();
+      entry.session.dispose();
+    }));
+    this.inFlight.clear();
+    this.completed.clear();
+  }
+
+  dispose(): void {
+    void this.shutdown();
+  }
+
+  private async runSingleUse(request: CompletionRequest, onTextChunk: ((chunk: string) => void) | undefined): Promise<CompletionResponse> {
+    throwIfAcpAborted(request.signal);
     const resolved = this.resolveAgent(request.model);
     if (!resolved) {
       throw new Error('No ACP agent is configured. Add one under atlasmind.acp.agents.');
@@ -844,9 +1366,7 @@ export class AcpAdapter implements ProviderAdapter {
     // one at a time through `session/request_permission`. That is the
     // Orchestrator standing down and delegating, not nesting its loop inside
     // another one.
-    if (request.tools && request.tools.length > 0) {
-      throw new Error('ACP agents cannot run AtlasMind\'s own tool definitions — the protocol has no way to pass them in. The agent executes its own tools instead, gated by approval. Route function-calling tasks to a provider that supports them.');
-    }
+    this.refuseAtlasMindTools(request);
 
     const session = new AcpSession(
       agent,
@@ -856,8 +1376,12 @@ export class AcpAdapter implements ProviderAdapter {
       this.options?.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       this.options?.permissionPolicy,
       this.options?.onToolEvent,
+      { privateDesktop: this.hideConsoleWindows() },
     );
+    const abortBeforePrompt = () => session.dispose(createAcpAbortError());
+    request.signal?.addEventListener('abort', abortBeforePrompt, { once: true });
     try {
+      throwIfAcpAborted(request.signal);
       const initialized = await session.initialize();
       if (!initialized.compatible) {
         throw new Error(`${agent.command} speaks ACP version ${initialized.protocolVersion}, but AtlasMind speaks ${ACP_PROTOCOL_VERSION}.`);
@@ -871,12 +1395,7 @@ export class AcpAdapter implements ProviderAdapter {
       // A getter that throws must not silently become "no servers" — but it also
       // must not take down a turn, so it degrades to the deny-by-default empty
       // list, which is the same thing an unconfigured install sends.
-      let mcpServers: AcpMcpServer[] = [];
-      try {
-        mcpServers = this.options?.getMcpServers?.() ?? [];
-      } catch {
-        mcpServers = [];
-      }
+      const mcpServers = this.mcpServers();
       try {
         // Isolate the agent from the machine's own settings **only** while it
         // is a completion source. `mcpServers` is empty exactly when delegated
@@ -914,28 +1433,9 @@ export class AcpAdapter implements ProviderAdapter {
       // Reported on the same channel as effort and for the same reason: the
       // router priced this turn as the requested model, so falling back to the
       // agent's own without saying so would bill an Opus turn for a Haiku run.
-      if (modelChoice) {
-        const applied = await session.setConfigOption(ACP_MODEL_CATEGORY, modelChoice.value);
-        if (!applied.ok) {
-          this.options?.onEffortNotApplied?.({
-            agentId: agent.id,
-            requested: `model ${modelChoice.name}`,
-            reason: applied.reason ?? 'unknown',
-          });
-        }
-      }
+      await this.applyRequestedConfig(session, agent, modelChoice, effort);
 
-      if (effort) {
-        const applied = await session.setConfigOption(ACP_EFFORT_CATEGORY, effort.value);
-        if (!applied.ok) {
-          this.options?.onEffortNotApplied?.({
-            agentId: agent.id,
-            requested: effort.value,
-            reason: applied.reason ?? 'unknown',
-          });
-        }
-      }
-
+      request.signal?.removeEventListener('abort', abortBeforePrompt);
       const turn = await session.prompt(buildPromptBlocks(request, initialized), onTextChunk, request.signal);
       return {
         content: turn.text,
@@ -945,6 +1445,7 @@ export class AcpAdapter implements ProviderAdapter {
         finishReason: turn.finishReason,
       };
     } finally {
+      request.signal?.removeEventListener('abort', abortBeforePrompt);
       await session.closeSession();
       session.dispose();
     }
@@ -955,11 +1456,34 @@ export class AcpAdapter implements ProviderAdapter {
   }
 
   private spawnFactory(): AcpProcessFactory {
-    return this.options?.spawnProcess ?? defaultAcpProcessFactory;
+    const spawnProcess = this.options?.spawnProcess ?? defaultAcpProcessFactory;
+    return (config, cwd, options) => {
+      if (!this.consoleModeChosen()) {
+        throw new Error(
+          'AtlasMind has not started the ACP agent. On Windows, choose whether ACP terminal windows remain visible '
+          + 'or run on a private desktop with “AtlasMind: Choose ACP Console Window Behaviour”, then try again.',
+        );
+      }
+      return spawnProcess(config, cwd, options);
+    };
+  }
+
+  private consoleModeChosen(): boolean {
+    const configured = this.options?.consoleModeChosen;
+    if (configured === undefined) {
+      return true;
+    }
+    try {
+      return (typeof configured === 'function' ? configured() : configured) === true;
+    } catch {
+      // A setting reader that failed did not establish consent to launch.
+      return false;
+    }
   }
 }
 
 const acpProbeCache = new Map<string, { at: number; result: AcpProbeResult }>();
+const acpProbeInFlight = new Map<string, Promise<AcpProbeResult>>();
 
 /**
  * Read a cached probe without triggering one.
@@ -1009,14 +1533,129 @@ export function resetAcpProbeCache(): void {
   acpAgentProbes.clear();
 }
 
+function acpCompletionKey(request: CompletionRequest, executionEpoch: string): string {
+  const stable = {
+    // A task id makes "retry" distinct from two users independently asking the
+    // same words. Without one, use a new nonce: callers that cannot identify a
+    // logical turn have not supplied enough evidence to suppress it.
+    requestId: request.requestId ?? createHash('sha256')
+      .update(`${Date.now()}:${Math.random()}`)
+      .digest('hex'),
+    model: request.model,
+    messages: request.messages.map(messageIdentity),
+    maxTokens: request.maxTokens,
+    temperature: request.temperature,
+    stop: request.stop,
+    executionEpoch,
+  };
+  return createHash('sha256').update(JSON.stringify(stable)).digest('hex');
+}
+
+function messageIdentity(message: ChatMessage): Record<string, unknown> {
+  return {
+    role: message.role,
+    content: message.content,
+    images: (message.images ?? []).map(image => ({
+      mimeType: image.mimeType,
+      dataBase64: image.dataBase64,
+    })),
+    toolCallId: message.toolCallId,
+    toolName: message.toolName,
+    toolCalls: (message.toolCalls ?? []).map(call => ({
+      id: call.id,
+      name: call.name,
+      arguments: call.arguments,
+      thoughtSignature: call.thoughtSignature,
+    })),
+  };
+}
+
+function cloneTranscript(messages: readonly ChatMessage[]): ChatMessage[] {
+  return messages.map(message => ({
+    role: message.role,
+    content: message.content,
+    ...(message.images ? { images: message.images.map(image => ({ ...image })) } : {}),
+    ...(message.toolCallId ? { toolCallId: message.toolCallId } : {}),
+    ...(message.toolName ? { toolName: message.toolName } : {}),
+    ...(message.toolCalls
+      ? { toolCalls: message.toolCalls.map(call => ({
+        ...call,
+        arguments: { ...call.arguments },
+      })) }
+      : {}),
+  }));
+}
+
+/** Return only what a live remote conversation has not seen yet. */
+function transcriptSuffix(
+  remoteTranscript: readonly ChatMessage[],
+  requestedTranscript: readonly ChatMessage[],
+): ChatMessage[] | undefined {
+  if (remoteTranscript.length > requestedTranscript.length) {
+    return undefined;
+  }
+  for (let index = 0; index < remoteTranscript.length; index += 1) {
+    if (JSON.stringify(messageIdentity(remoteTranscript[index]!))
+      !== JSON.stringify(messageIdentity(requestedTranscript[index]!))) {
+      return undefined;
+    }
+  }
+  return cloneTranscript(requestedTranscript.slice(remoteTranscript.length));
+}
+
+/**
+ * Fingerprint the files a long-lived coding agent commonly reads at startup.
+ *
+ * The list is intentionally conservative across Claude and Codex. Reading an
+ * extra mtime only causes a restart; omitting a real instruction source could
+ * make a session keep following text the user has changed. File contents never
+ * leave the machine or enter the stamp — path, size, and mtime are sufficient
+ * to answer "did this change underneath the session?"
+ */
+function defaultAcpSettingsStamp(
+  cwd: string | undefined,
+  agent: AcpAgentConfig,
+  mcpServers: AcpMcpServer[],
+): string {
+  const roots = [cwd, homedir()].filter((entry): entry is string => Boolean(entry));
+  const relativeFiles = [
+    'AGENTS.md',
+    'CLAUDE.md',
+    path.join('.claude', 'settings.json'),
+    path.join('.claude', 'settings.local.json'),
+    path.join('.codex', 'config.toml'),
+  ];
+  const files = roots.flatMap(root => relativeFiles.map(relative => path.resolve(root, relative)));
+  const states = files.map(file => {
+    try {
+      const stat = statSync(file);
+      return [file, stat.size, stat.mtimeMs];
+    } catch {
+      return [file, 'missing'];
+    }
+  });
+  const environment = Object.entries(agent.env ?? {}).sort(([left], [right]) => left.localeCompare(right));
+  const servers = [...mcpServers]
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .map(server => ({
+      name: server.name,
+      command: server.command,
+      args: server.args,
+      env: server.env,
+    }));
+  return createHash('sha256')
+    .update(JSON.stringify({ states, environment, servers }))
+    .digest('hex');
+}
+
 /**
  * Turn AtlasMind's chat messages into ACP content blocks.
  *
- * The whole conversation goes in one prompt because this tier does not reuse
- * sessions — the spec's own ecosystem notes warn that session resume is not
- * universally supported, so designing around it would be building on sand.
- * Crucially there is **no character budget**: the argv ceiling that forced the
- * old CLI bridge to truncate does not exist over stdio.
+ * A new session receives the whole conversation. A safely reusable session
+ * receives only the exact suffix it has not seen; the caller performs that
+ * prefix check before reaching here. Crucially there is **no character budget**:
+ * the argv ceiling that forced the old CLI bridge to truncate does not exist
+ * over stdio.
  */
 export function buildPromptBlocks(request: CompletionRequest, agent: Pick<AcpInitializeResult, 'supportsImages'>): AcpPromptBlock[] {
   const blocks: AcpPromptBlock[] = [];
@@ -1054,11 +1693,24 @@ export function buildPromptBlocks(request: CompletionRequest, agent: Pick<AcpIni
   return blocks;
 }
 
+function createAcpAbortError(): Error {
+  const error = new Error('The ACP prompt was cancelled.');
+  error.name = 'AbortError';
+  return error;
+}
+
+function throwIfAcpAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw createAcpAbortError();
+  }
+}
+
 /**
- * One prompt turn against one agent process.
+ * One ACP conversation against one agent process.
  *
  * Owns the JSON-RPC id counter, the pending-request table, and the stdout
- * framing buffer. A session is single-use: spawn, handshake, prompt, dispose.
+ * framing buffer. It can serve sequential prompt turns, but never concurrent
+ * ones; the adapter owns serialization and transcript validation.
  */
 class AcpSession {
   private readonly process: AcpProcessHandle;
@@ -1086,8 +1738,9 @@ class AcpSession {
     private readonly timeoutMs: number,
     private readonly permissionPolicy?: AcpPermissionPolicy,
     private readonly onToolEvent?: AcpToolEventListener,
+    launchOptions?: AcpProcessLaunchOptions,
   ) {
-    this.process = spawnProcess(agent, cwd);
+    this.process = spawnProcess(agent, cwd, launchOptions);
     this.processPid = this.process.pid;
     this.process.onStdout(chunk => this.ingest(chunk));
     // stderr is diagnostic only — kept bounded so a chatty agent cannot grow
@@ -1101,6 +1754,10 @@ class AcpSession {
       }
       this.pending.clear();
     });
+  }
+
+  hasExited(): boolean {
+    return Boolean(this.exited || this.disposed);
   }
 
   async initialize(): Promise<AcpInitializeResult> {
@@ -1207,15 +1864,29 @@ class AcpSession {
     this.onText = onTextChunk;
     this.text = '';
 
+    let rejectAbort: ((reason: Error) => void) | undefined;
+    let promptStarted = false;
+    const aborted = new Promise<never>((_, reject) => {
+      rejectAbort = reject;
+    });
     const abort = () => {
-      if (this.sessionId) {
+      if (promptStarted && this.sessionId) {
         this.send(buildSessionCancelNotification(this.sessionId));
       }
+      rejectAbort?.(createAcpAbortError());
     };
     signal?.addEventListener('abort', abort, { once: true });
 
     try {
-      const result = await this.request(buildSessionPromptRequest(this.nextId, this.sessionId, blocks));
+      if (signal?.aborted) {
+        abort();
+        return await aborted;
+      }
+      promptStarted = true;
+      const result = await Promise.race([
+        this.request(buildSessionPromptRequest(this.nextId, this.sessionId, blocks)),
+        aborted,
+      ]);
       const stop = parseStopReason(result);
       // Token counts come off the prompt **result**, which is where every agent
       // actually reports them. The `usage_update` notification carries context
@@ -1267,11 +1938,14 @@ class AcpSession {
     }
   }
 
-  dispose(): void {
+  dispose(reason = new Error('The ACP session was closed.')): void {
     if (this.disposed) {
       return;
     }
     this.disposed = true;
+    for (const [, entry] of this.pending) {
+      entry.reject(reason);
+    }
     this.pending.clear();
     if (!this.exited) {
       try {
@@ -1537,13 +2211,21 @@ export class AcpAuthRequiredError extends Error {
  * a user who has — so the resolution failure carries a written explanation
  * instead.
  */
-const defaultAcpProcessFactory: AcpProcessFactory = (config, cwd) => {
+const defaultAcpProcessFactory: AcpProcessFactory = (config, cwd, options) => {
   const launch = resolveAcpLaunch(config, createAcpLaunchProbe());
   if (launch.status === 'unresolved') {
     throw new Error(launch.reason);
   }
+  const wrapped = wrapAcpLaunchForPrivateDesktop(
+    launch.command,
+    launch.args,
+    options?.privateDesktop === true,
+  );
+  if (wrapped.status === 'unavailable') {
+    throw new Error(wrapped.reason);
+  }
 
-  const child: ChildProcessWithoutNullStreams = spawn(launch.command, launch.args, {
+  const child: ChildProcessWithoutNullStreams = spawn(wrapped.command, wrapped.args, {
     cwd,
     windowsHide: true,
     shell: false,

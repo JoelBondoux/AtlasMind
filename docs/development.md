@@ -78,6 +78,7 @@ npm run lint
 ```bash
 npm run test
 npm run test:coverage
+npm run test:mutation
 npm run test:providers:local-recommendations
 ```
 
@@ -107,7 +108,10 @@ AtlasMind/
 │   ├── github-workflow.md GitHub process standards
 │   └── development.md    This file
 ├── media/
-│   └── icon.svg          Activity bar icon
+│   ├── icon.svg          Activity bar icon
+│   └── bin/atlasmind-acp-private-desktop.exe  SHA-256-pinned Windows ACP launcher
+├── native/
+│   └── acp-private-desktop/  Dependency-free Rust source for that launcher
 ├── src/                  TypeScript source
 │   ├── extension.ts      Entry point
 │   ├── commands.ts       Command handlers
@@ -118,7 +122,7 @@ AtlasMind/
 │   ├── mcp/              MCP client/registry plus bundled Buzz CLI communications bridge/server
 │   ├── ard/              Agentic Resource Discovery: `ardClient.ts`, `ardRegistry.ts`, `ardInstaller.ts`, `ardCatalogExporter.ts`
 │   ├── memory/           SSOT memory manager
-│   ├── providers/        LLM provider adapters (for example `anthropic.ts`, `copilot.ts`); also `acp.ts` + `acpProtocol.ts` + `acpLaunch.ts` + `acpPermission.ts` + `acpInstaller.ts` + `acpEffort.ts` + `acpHostPolicy.ts` (Agent Client Protocol), `copilotMultiplierSync.ts`, `localModelSync.ts`, and `localModelRecommendationRegistry.ts`
+│   ├── providers/        LLM provider adapters (for example `anthropic.ts`, `copilot.ts`); also `acp.ts` + `acpProtocol.ts` + `acpLaunch.ts` + `acpWindowsLauncher.ts` + `acpPermission.ts` + `acpInstaller.ts` + `acpEffort.ts` + `acpHostPolicy.ts` (Agent Client Protocol), `copilotMultiplierSync.ts`, `localModelSync.ts`, and `localModelRecommendationRegistry.ts`
 │   ├── skills/           Built-in skill handlers (for example `dockerCli.ts`, `terminalRun.ts`, `gitApplyPatch.ts`)
 │   ├── views/            Webview panels and tree views (including `personalityProfilePanel.ts`, `modelComparisonPanel.ts`, `missionControlPanel.ts`, `websiteStudioPanel.ts`); the chat panel's slash handling is `chatSlashRouting.ts` (pure router) + `chatStreamCollector.ts` (replays the participant's handlers into memory)
 │   ├── voice/            TTS/STT: `voiceManager.ts` bridge, `hostSpeechSynthesizer.ts` (OS TTS), `localTranscriber.ts` (on-device Whisper STT)
@@ -133,6 +137,20 @@ AtlasMind/
 
 - **User Environment Tracking**: On activation, AtlasMind detects and stores each user's OS, hardware, shell, and editor in a private, user-scoped location (VS Code SecretStorage). This is never shared with other users or the workspace. Multiple environments per user are supported.
 ```
+
+### Rebuilding the Windows ACP launcher
+
+The release helper is checked in because Marketplace packaging runs on Linux while the helper must be a Windows PE executable. It is intentionally dependency-free Rust and 120 KB in the current release.
+
+On Windows with Rust 1.97 or later:
+
+```powershell
+cargo build --locked --release --manifest-path native/acp-private-desktop/Cargo.toml
+Copy-Item native/acp-private-desktop/target/release/atlasmind-acp-private-desktop.exe media/bin/atlasmind-acp-private-desktop.exe
+Get-FileHash media/bin/atlasmind-acp-private-desktop.exe -Algorithm SHA256
+```
+
+Update `ACP_PRIVATE_DESKTOP_HELPER_SHA256` in `src/providers/acpWindowsLauncher.ts` to that exact lowercase hash, then run `npx vitest run tests/providers/acpWindowsLauncher.test.ts`. That test refuses a source build whose shipped binary and pinned hash differ. Review the Rust source and the resulting binary together; the helper is security-sensitive even though its feature is opt-in.
 
 ## TypeScript Conventions
 
@@ -174,7 +192,7 @@ All dynamic text in webviews must be HTML-escaped using the `escapeHtml()` utili
 
 Do not use inline JavaScript handlers such as `onclick`. Put script content in the shared shell and protect it with a generated nonce.
 
-Communication between webview and extension uses `vscode.postMessage()` / `onDidReceiveMessage()`. Treat all incoming messages as untrusted and validate them before changing state or touching secrets.
+Communication between webview and extension uses `vscode.postMessage()` / `onDidReceiveMessage()`. Treat all incoming messages as untrusted and validate them before changing state or touching secrets. The native AtlasMind Chat view reserves its fifth visible title-bar action for the Settings cog; contextual project-memory maintenance remains in the `…` overflow so the general configuration route is never hidden. Provider-card Settings shortcuts likewise send a named page id, which the host maps through a fixed allowlist; a card never chooses a command to run.
 
 The shared Atlas chat webview now also hosts live tool-approval cards, so approval-response messages must be validated with the same strict message guards as prompt submission, voting, attachment flows, and the composer history shortcuts that recall recent submitted prompts from persisted webview state. Prompt attachments now keep a lightweight extension-host metadata record per user turn so the chat transcript can render clickable screenshot thumbnails while later same-session follow-ups still receive the prior image context even after the composer has cleared. Its circular toolbar and composer icon buttons now rely on explicit inline-flex centering plus block SVG layout so the shipped glyphs stay optically centered across the different chat-panel controls, detached chat-panel navigation into the Project Run Dashboard and the main sidebar chat view now lives in the VS Code editor title-bar action row instead of the in-panel circular button group, the transcript renderer now parses fenced code blocks before generic paragraph splitting, also splits mixed markdown heading-plus-list sections into separate structural blocks so bullets do not collapse into title-like text, assistant reasoning and work-log metadata now live inside compact disclosure cards with a separate footer utility row for votes and run links, and choice-oriented assistant replies now expose selectable option toggles plus an explicit Proceed button inline in that footer so operators can confirm the next path before Atlas continues. Automatic composer focus restoration is now guarded as well, so background state refreshes only return focus when the operator is still actively working inside the shared chat surface instead of stealing the editor cursor after a panel update. The transcript header role and model badges now share the same compact height and font sizing while staying visually subdued, the Thinking Summary disclosure uses a lighter contrast treatment against the surrounding message bubble, and long-answer transcript typography now uses slightly looser paragraph rhythm, calmer heading weight, tighter list indentation, and softer blockquote styling so dense technical replies stay readable without feeling oversized. The composer info affordance now opens a structured hint panel with titled bullet lists that adapt between idle, busy, and run-inspector guidance while also deriving context-aware tips from live chat state such as pending approvals, pending review, attachments, suggested follow-ups, and the latest user prompt.
 
@@ -268,6 +286,7 @@ Scaffolding is non-destructive and will not overwrite existing files.
 - Test files must live under `tests/` and end in `.test.ts` — anything else is silently not run.
 - Baseline unit tests currently cover core services (`ModelRouter`, `CostTracker`).
 - Coverage reports are generated via `npm run test:coverage`.
+- Mutation testing is available through `npm run test:mutation`; the committed Stryker configuration starts with the safety-critical criticality, tool-policy, and agent-registry modules. It is deliberately a separate, slower check rather than part of the normal test command.
 - CI runs compile, lint, test, and coverage on push and pull requests to **`main` and `develop`**, and on manual `workflow_dispatch`.
 
 ## Security Reporting

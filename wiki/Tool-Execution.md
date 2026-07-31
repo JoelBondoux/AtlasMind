@@ -177,6 +177,29 @@ An agent reached over the [Agent Client Protocol](https://agentclientprotocol.co
 - **MCP servers are shared only by explicit allowlist** (`atlasmind.acp.mcpServers`, empty by default), and two kinds are held back even when listed: servers whose credentials live in SecretStorage (forwarding would copy a key given to AtlasMind into another vendor's process) and HTTP/SSE servers, whose headers carry bearer tokens.
 - **`fs` and `terminal` client capabilities stay `false`.** They do not sandbox the agent — a coding agent has its own file and shell access — they only decide whether AtlasMind *proxies* the I/O. The permission gate is where the authority lives.
 
+### Keeping the process alive does not keep an approval alive
+
+ACP sessions can now remain live for 30 idle minutes, which removes repeated
+agent boot and console churn. That changes process lifetime only:
+
+- every operation still arrives through `session/request_permission`;
+- AtlasMind still selects at most an allow-once option and never `allow_always`;
+- changing the MCP list or switching between completion-only isolation and
+  delegated execution invalidates the session before the next prompt;
+- a private Windows desktop hides UI only — it is not a sandbox and grants or
+  removes no filesystem, network, or command authority.
+
+Prompt delivery is at-most-once within the adapter. The orchestrator assigns a
+stable identity to each tool round; exact concurrent calls for that identity
+join one in-flight request and a short completed-result ledger absorbs its
+retry, while separate chats with identical text stay separate. ACP also bypasses
+the generic transient-provider retry loop: an error after `session/prompt` may
+have crossed stdio is never automatically resent. An outer provider timeout
+aborts the attempt, sends `session/cancel`, and discards the session so it cannot
+keep acting behind a fallback response. This is a safety rule, not just billing
+hygiene: an agent allowed to act could otherwise perform the same requested
+operation twice, each time behind a separately valid approval.
+
 Tool calls the agent announces (`tool_call`, `tool_call_update`) are surfaced rather than dropped, so what ran is visible after the fact as well as before it.
 
 ## Resource discovery is pre-invocation, not execution

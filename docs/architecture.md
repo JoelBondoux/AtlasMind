@@ -69,7 +69,7 @@
    - Calls `registerChatParticipant()`, `registerCommands()`, `registerTreeViews()`.
 3. The `@atlas` chat participant and sidebar views are now available.
 
-The AtlasMind sidebar now starts with a compact Quick Links webview row that sits under the container title and exposes icon-only shortcuts for the Project Dashboard, Ideation board, Run Center, Cost Dashboard, Model Providers, and Settings before the embedded Chat view and the collapsed operational tree views. Assistant transcript metadata now carries not only routed-model and thinking-summary details but also learned-from-friction timeline notes, which lets both the dedicated chat panel and the native sidebar chat surface when Atlas has shifted into direct recovery after operator frustration. Project-run offers are another validated metadata shape: interactive chat renders a **Start run / Save for later / Cancel** card, the host resolves each action once, and saving delegates preview creation to Project Run Center; Autopilot is the only mode allowed to auto-start. During an active request, the composer status also derives the current model from the host-provided `streamingModels` state and appends it to progress text; a failover updates that label without trusting model text supplied by the browser.
+The AtlasMind sidebar now starts with a compact Quick Links webview row that sits under the container title and exposes icon-only shortcuts for the Project Dashboard, Ideation board, Run Center, Cost Dashboard, Model Providers, and Settings before the embedded Chat view and the collapsed operational tree views. The native Chat title bar separately reserves its fifth visible action for the Settings cog; the contextual project-memory action remains in VS Code's overflow menu, preserving the five-inline-action ceiling without hiding configuration. Assistant transcript metadata now carries not only routed-model and thinking-summary details but also learned-from-friction timeline notes, which lets both the dedicated chat panel and the native sidebar chat surface when Atlas has shifted into direct recovery after operator frustration. Project-run offers are another validated metadata shape: interactive chat renders a **Start run / Save for later / Cancel** card, the host resolves each action once, and saving delegates preview creation to Project Run Center; Autopilot is the only mode allowed to auto-start. During an active request, the composer status also derives the current model from the host-provided `streamingModels` state and appends it to progress text; a failover updates that label without trusting model text supplied by the browser.
 
 AtlasMind's Voice panel is currently a webview-first specialist surface. It uses the Web Speech API for in-panel STT and fallback TTS, can route optional ElevenLabs audio through a selectable HTML audio sink when the runtime supports it, and stores preferred microphone and speaker ids for future native backends. There is not yet a host-side OS-native speech adapter.
 
@@ -120,6 +120,19 @@ Key behaviors added in 0.73.0–0.73.1:
 - **Smooth context gradients**: context-window score penalties in `scoreTaskFit` interpolate linearly rather than applying binary cliff penalties, so future large-context models are not penalised.
 - **Outcome feedback loop**: `recordModelOutcome(modelId, success)` accumulates fractional preference votes from completed tasks, feeding real execution results back into future routing decisions.
 - **Named scoring constants**: all previously undocumented magic numbers in `scoreModel`, `scorePreferenceBias`, and `scoreTaskFit` are extracted to named constants in `src/constants.ts`.
+
+### ACP live-session host (`src/providers/acp.ts`)
+
+The extension-scoped routed `AcpAdapter` is also the owner of reusable ACP conversations. A successful session remains alive for at most 30 idle minutes; temporary setup/probe adapters are explicitly one-shot so dropping a short-lived object cannot strand an authenticated agent. Reuse requires two independent proofs:
+
+1. `acpHostPolicy.ts` compares the launch/security fingerprint — agent executable and argv, cwd, model/effort, MCP names, completion-only isolation, Windows launch mode, startup-settings stamp, exit state, and idle age.
+2. The recorded client transcript must be an exact prefix of the new request. Only the unseen suffix is sent because the remote ACP session already holds the prefix. Edited history and branches create another session.
+
+Identical concurrent completions join one in-flight prompt; successful identical retries are replayed for 15 seconds. An error after a prompt may have crossed stdio is never retried, and the uncertain session is discarded. The adapter holds at most four parallel conversations and closes them during extension deactivation.
+
+`acpWindowsLauncher.ts` is the TypeScript integrity/selection boundary for the opt-in Windows private-desktop path. It verifies the checked-in helper under `media/bin/`, then places the already-resolved executable behind it without introducing a shell. The auditable helper source is `native/acp-private-desktop/`: it creates a desktop with the minimum `DESKTOP_CREATEWINDOW` access, uses `STARTUPINFOEX`/`PROC_THREAD_ATTRIBUTE_HANDLE_LIST` to inherit only stdio, starts the child with `CREATE_NO_WINDOW`, waits, and forwards the exit code. It never switches desktops. The feature is off by default because hidden desktops are a Defender-visible hVNC technique and may trigger enterprise EDR.
+
+The adapter exposes only aggregate live-session counts by launch mode to `extension.ts`; while any routed private-desktop session exists, the extension renders that count in VS Code's status bar and links it to **Models & Providers**. No process id, prompt text, or new capability crosses that boundary, and the indicator remains a disclosure of window placement rather than a security claim.
 
 ### SecretRedactor (`src/utils/secretRedactor.ts`)
 
@@ -1057,12 +1070,16 @@ extension.ts
               ├── providers/acp.ts
               │     ├── providers/acpProtocol.ts     (wire framing, pure)
               │     ├── providers/acpLaunch.ts       (command → spawnable invocation, pure)
+              │     ├── providers/acpWindowsLauncher.ts (private-desktop selection + binary integrity)
               │     ├── providers/acpPermission.ts   (authorization policy, pure)
               │     ├── providers/acpInstaller.ts    (install planning, pure)
               │     ├── providers/acpEffort.ts       (effort tiers + settable-config allowlist, pure)
-              │     └── providers/acpHostPolicy.ts   (long-lived host: reuse, auth, lifetime; pure)
+              │     ├── providers/acpHostPolicy.ts   (long-lived host: reuse, auth, lifetime; pure)
               │     └── providers/acpModels.ts       (detected model list + declared standing, pure)
               └── providers/localModelRecommendationRegistry.ts
+
+native/acp-private-desktop/
+  └── src/main.rs                    (Windows private-desktop process helper)
 
 tests/core/
   ├── modelRouter.test.ts

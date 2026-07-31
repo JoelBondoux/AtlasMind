@@ -1698,6 +1698,7 @@ async function bootstrapAtlasMind(
       BedrockAdapter: providersModule.BedrockAdapter,
       AcpAdapter: providersModule.AcpAdapter,
       parseAcpAgentSettings: providersModule.parseAcpAgentSettings,
+      isAcpConsoleModeChosen: providersModule.isAcpConsoleModeChosen,
       acpToolRisk: providersModule.acpToolRisk,
       describeAcpToolCall: providersModule.describeAcpToolCall,
       selectAcpMcpServers: providersModule.selectAcpMcpServers,
@@ -1897,6 +1898,26 @@ async function bootstrapAtlasMind(
     // running unsupervised.
     let acpAuthorize: ((request: import('./providers/acpProtocol.js').AcpPermissionRequest) => Promise<boolean>) | undefined;
     let acpMcpServers: () => import('./providers/acpProtocol.js').AcpMcpServer[] = () => [];
+    // A private Windows desktop cannot have a meaningful taskbar button on the
+    // user's input desktop. Instead, disclose the real state in VS Code itself
+    // while it is active: present, clickable, and never focus-stealing.
+    const acpPrivateDesktopStatusBar = vscode.window.createStatusBarItem(
+      vscode.StatusBarAlignment.Right,
+      51,
+    );
+    acpPrivateDesktopStatusBar.command = 'atlasmind.openModelProviders';
+    context.subscriptions.push(acpPrivateDesktopStatusBar);
+    const updateAcpPrivateDesktopStatusBar = (summary: { privateDesktop: number }) => {
+      if (summary.privateDesktop <= 0) {
+        acpPrivateDesktopStatusBar.hide();
+        return;
+      }
+      const count = summary.privateDesktop;
+      acpPrivateDesktopStatusBar.text = `$(eye-closed) ACP private desktop: ${count}`;
+      acpPrivateDesktopStatusBar.tooltip = `${count} active ACP session${count === 1 ? '' : 's'} runs on a private Windows desktop. `
+        + 'This changes window visibility, not process permissions. Click to open Models & Providers.';
+      acpPrivateDesktopStatusBar.show();
+    };
 
     const providerAdapters = [
       new startupModules.LocalEchoAdapter({
@@ -1907,6 +1928,21 @@ async function bootstrapAtlasMind(
       // ACP agents are user-authored and deny-by-default: with no configured
       // agent the adapter reports no models and never spawns anything.
       new startupModules.AcpAdapter({
+        // The routed adapter is the ACP host for this VS Code window. A live
+        // session is reused only while its transcript and launch/security
+        // fingerprint still match; setup probes use separate one-shot adapters.
+        keepAlive: true,
+        consoleModeChosen: () => {
+          const inspected = vscode.workspace.getConfiguration('atlasmind')
+            .inspect<boolean>('acp.hideConsoleWindows');
+          return startupModules.isAcpConsoleModeChosen(process.platform, [
+            inspected?.workspaceFolderValue,
+            inspected?.workspaceValue,
+            inspected?.globalValue,
+          ]);
+        },
+        hideConsoleWindows: () => vscode.workspace.getConfiguration('atlasmind')
+          .get<boolean>('acp.hideConsoleWindows', false),
         // Read on every use, not captured once. This adapter lives as long as
         // the extension host, so a snapshot here meant an agent added to
         // settings after activation was invisible to routing and to the health
@@ -1943,6 +1979,7 @@ async function bootstrapAtlasMind(
             + 'The turn ran at the agent\'s own default.',
           );
         },
+        onLiveSessionChange: updateAcpPrivateDesktopStatusBar,
       }),
       new startupModules.AnthropicAdapter(context.secrets),
       new startupModules.CopilotAdapter(),
@@ -2055,6 +2092,10 @@ async function bootstrapAtlasMind(
         context.secrets,
       ),
     ];
+    const routedAcpAdapter = providerAdapters.find(adapter => adapter.providerId === 'acp');
+    if (routedAcpAdapter && 'dispose' in routedAcpAdapter && typeof routedAcpAdapter.dispose === 'function') {
+      context.subscriptions.push({ dispose: () => routedAcpAdapter.dispose() });
+    }
 
     const toolApprovalManager = new ToolApprovalManager();
     const toolApprovalGate = async (taskId: string, toolName: string, args: Record<string, unknown>) => {
@@ -2578,9 +2619,21 @@ async function bootstrapAtlasMind(
           //
           // What "configured" means here is the same thing it means for `local`:
           // is there anything to talk to. That is an agent in settings.
-          const { parseAcpAgentSettings } = await import('./providers/acp.js');
+          const [{ parseAcpAgentSettings }, { isAcpConsoleModeChosen }] = await Promise.all([
+            import('./providers/acp.js'),
+            import('./providers/acpWindowsLauncher.js'),
+          ]);
+          const configuration = vscode.workspace.getConfiguration('atlasmind');
+          const inspected = configuration.inspect<boolean>('acp.hideConsoleWindows');
+          if (!isAcpConsoleModeChosen(process.platform, [
+            inspected?.workspaceFolderValue,
+            inspected?.workspaceValue,
+            inspected?.globalValue,
+          ])) {
+            return false;
+          }
           return parseAcpAgentSettings(
-            vscode.workspace.getConfiguration('atlasmind').get<unknown>('acp.agents'),
+            configuration.get<unknown>('acp.agents'),
           ).length > 0;
         }
         if (providerId === 'local') {
@@ -3560,6 +3613,15 @@ async function bootstrapAtlasMind(
       atlasContext.modelRouter.setFeedbackWeight(getConfiguredFeedbackRoutingWeight());
     }
     if (event.affectsConfiguration('atlasmind.localOpenAiEndpoints') || event.affectsConfiguration('atlasmind.localOpenAiBaseUrl')) {
+      atlasContext.refreshProviderModels(true).then(() => {
+        atlasContext!.modelsRefresh.fire();
+      }).catch(() => {});
+    }
+    if (event.affectsConfiguration('atlasmind.acp.hideConsoleWindows')) {
+      // The first explicit value turns a previously gated provider into a
+      // configured one; a later change also alters the launch fingerprint.
+      // Refresh from the same setting event so choosing through Settings or the
+      // command palette does not leave ACP marked unhealthy until a reload.
       atlasContext.refreshProviderModels(true).then(() => {
         atlasContext!.modelsRefresh.fire();
       }).catch(() => {});

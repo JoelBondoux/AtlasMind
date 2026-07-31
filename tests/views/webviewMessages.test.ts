@@ -269,6 +269,7 @@ describe('isModelProviderMessage', () => {
     expect(isModelProviderMessage({ type: 'refreshModels' })).toBe(true);
     expect(isModelProviderMessage({ type: 'openSpecialistIntegrations' })).toBe(true);
     expect(isModelProviderMessage({ type: 'openSettings' })).toBe(true);
+    expect(isModelProviderMessage({ type: 'openSettingsPage', payload: 'safety' })).toBe(true);
   });
 
   it('rejects null and primitives', () => {
@@ -288,6 +289,12 @@ describe('isModelProviderMessage', () => {
   it('rejects saveApiKey with invalid provider', () => {
     expect(isModelProviderMessage({ type: 'saveApiKey', payload: 'unknown-provider' })).toBe(false);
     expect(isModelProviderMessage({ type: 'saveApiKey', payload: 123 })).toBe(false);
+  });
+
+  it('rejects an unrecognised or inherited settings-page id', () => {
+    expect(isModelProviderMessage({ type: 'openSettingsPage', payload: 'missing' })).toBe(false);
+    expect(isModelProviderMessage({ type: 'openSettingsPage', payload: 'toString' })).toBe(false);
+    expect(isModelProviderMessage({ type: 'openSettingsPage', payload: 123 })).toBe(false);
   });
 });
 

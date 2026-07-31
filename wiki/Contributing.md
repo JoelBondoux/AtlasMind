@@ -35,6 +35,7 @@ The extension builds two targets: the Node desktop build (`out/extension.js`) an
 ```bash
 npm test             # Run all Vitest tests
 npm run test:coverage # Run the CI coverage gate locally
+npm run test:mutation # Run the slower Stryker mutation suite
 npm run test:providers:local-recommendations # Focused registry override/fallback coverage
 npm run monitor:integrations # Generate the curated integration drift report
 npm run monitor:integrations:audit # Enforce monitoring coverage for new third-party surfaces
@@ -86,6 +87,7 @@ The checked-in `.gitignore` keeps `project_memory_old/` out of source control, w
 | `src/core/`      | Core services (orchestrator, agents, skills, router, planner) |
 | `src/chat/`      | Chat participant and slash commands                           |
 | `src/providers/` | LLM provider adapters                                         |
+| `native/acp-private-desktop/` | Auditable Rust source for the optional Windows ACP private-desktop launcher; the release PE is SHA-256-pinned under `media/bin/` |
 | `src/skills/`    | Built-in skill implementations                                |
 | `src/memory/`    | Memory manager and scanner                                    |
 | `src/mcp/`       | MCP client and server registry                                |

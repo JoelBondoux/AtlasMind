@@ -16,6 +16,8 @@ import {
   ACP_EFFORT_RULE_NOTE,
   ACP_MODEL_RULE_NOTE,
   parseAcpAgentSettings,
+  isAcpConsoleModeChosen,
+  resetAcpProbeCache,
 } from '../providers/index.js';
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
 import { PANEL_NAV_JS } from './panelNav.js';
@@ -166,6 +168,9 @@ export class ModelProviderPanel {
       }
       case 'refreshModels':
         {
+          // "Refresh" is explicit user intent, unlike the many render-time
+          // callers that should share the five-minute ACP answer.
+          resetAcpProbeCache();
           const summary = await this.atlas.refreshProviderModels();
           await this.atlas.refreshProviderHealth();
           vscode.window.showInformationMessage(
@@ -181,10 +186,10 @@ export class ModelProviderPanel {
       case 'openSettingsPage': {
         // Looked up, never constructed. Building a command id from a webview
         // string would let the webview choose the command that runs.
-        const command = SETTINGS_PAGE_COMMANDS[message.payload];
-        if (command) {
-          await vscode.commands.executeCommand(command);
+        if (!isSettingsPageId(message.payload)) {
+          return;
         }
+        await vscode.commands.executeCommand(SETTINGS_PAGE_COMMANDS[message.payload]);
         return;
       }
 
@@ -707,6 +712,10 @@ export function isModelProviderMessage(value: unknown): value is ModelProviderMe
     return true;
   }
 
+  if (message.type === 'openSettingsPage') {
+    return isSettingsPageId(message.payload);
+  }
+
   if (message.type === 'useSubscriptionForProvider') {
     return typeof message.payload === 'string' && PROVIDER_IDS.includes(message.payload as ProviderId);
   }
@@ -845,6 +854,11 @@ const SETTINGS_PAGE_COMMANDS: Readonly<Record<string, string>> = {
   project: 'atlasmind.openSettingsProject',
 };
 
+function isSettingsPageId(value: unknown): value is keyof typeof SETTINGS_PAGE_COMMANDS {
+  return typeof value === 'string'
+    && Object.prototype.hasOwnProperty.call(SETTINGS_PAGE_COMMANDS, value);
+}
+
 const SETTINGS_PAGE_LINKS: ReadonlyArray<readonly [string, string]> = [
   ['Settings → Safety', 'safety'],
   ['Settings → Models', 'models'],
@@ -872,7 +886,7 @@ function subscriptionButtonTooltip(providerId: ProviderId, displayName: string):
 function getProviderMetaLabel(providerId: ProviderId): string {
   switch (providerId) {
     case 'acp':
-      return 'Agent Client Protocol';
+      return 'Use your existing subscription';
     case 'copilot':
       return 'Session-backed';
     case 'local':
@@ -888,7 +902,7 @@ function getProviderMetaLabel(providerId: ProviderId): string {
 function getProviderNotes(providerId: ProviderId): string {
   switch (providerId) {
     case 'acp':
-      return 'Drives an agent you have installed (claude-agent-acp, codex-acp, …) over the Agent Client Protocol, so its subscription becomes routable capacity. Streams and has no prompt-length ceiling. By default the agent answers but cannot act — no MCP servers are passed through and any permission it requests is refused; turn on "Let subscription agents act" under Settings → Safety to change that. AtlasMind never installs an agent for you.';
+      return 'Use the Claude Code or Codex agent already installed on your computer, with its existing subscription — no separate AtlasMind API key is needed. It can answer questions, explain code, and help you plan. To let it change files, run commands, or use connected tools, choose “Let subscription agents act” in Settings → Safety. AtlasMind shows each action for your approval. AtlasMind never installs or signs in to an agent for you.';
     case 'copilot':
       return 'Reuses your signed-in VS Code Copilot session instead of storing a separate AtlasMind API key.';
     case 'local':
@@ -1441,9 +1455,13 @@ export async function useSubscriptionForProvider(atlas: AtlasMindContext, provid
     command: bridge.command,
     ...(bridge.args.length > 0 ? { args: [...bridge.args] } : {}),
   };
+  if (!await chooseAcpConsoleMode(false)) {
+    return;
+  }
   const probe = await new AcpAdapter({
     agents: [candidate],
     ...(workspaceRoot ? { cwd: workspaceRoot } : {}),
+    hideConsoleWindows: configuration.get<boolean>('acp.hideConsoleWindows', false),
   }).probe().catch(() => undefined);
 
   // Not installed — the expected first answer, and the reason this button
@@ -1502,6 +1520,69 @@ export async function useSubscriptionForProvider(atlas: AtlasMindContext, provid
       : `\`acp/${bridge.agentId}\` is configured and enabled, but its first health check did not pass, so the router will skip it for now. `
         + `Run \`${bridge.command}\` once in a terminal to see what it reports.`,
   );
+}
+
+/**
+ * Ask the Windows-only launch question in words that describe the consequence.
+ *
+ * `force=false` makes this a setup step: an explicit workspace/user value means
+ * the user has already answered and is not asked again. `force=true` is the
+ * command-palette/settings action and always offers the choice.
+ */
+export async function chooseAcpConsoleMode(force = true): Promise<boolean> {
+  if (process.platform !== 'win32') {
+    return true;
+  }
+
+  const configuration = vscode.workspace.getConfiguration('atlasmind');
+  const inspected = configuration.inspect<boolean>('acp.hideConsoleWindows');
+  const explicitlyChosen = isAcpConsoleModeChosen(process.platform, [
+    inspected?.workspaceFolderValue,
+    inspected?.workspaceValue,
+    inspected?.globalValue,
+  ]);
+  if (!force && explicitlyChosen) {
+    return true;
+  }
+
+  type ConsoleModeItem = vscode.QuickPickItem & { hide: boolean };
+  const picked = await vscode.window.showQuickPick<ConsoleModeItem>([
+    {
+      label: 'Keep ACP terminal windows visible',
+      description: 'Safest compatibility (recommended)',
+      detail: 'An ACP agent may briefly open black terminal windows while it starts. AtlasMind reuses the live session, so this should happen far less often. No unusual Windows desktop technique is used.',
+      hide: false,
+    },
+    {
+      label: 'Hide ACP windows on a private desktop',
+      description: 'No focus-stealing terminal pop-ups',
+      detail: 'AtlasMind starts the agent and its descendants on a dedicated, non-visible Windows desktop. Hidden desktops are also used by some malware, so corporate EDR may flag or block this even though AtlasMind never switches to or remotely controls the desktop.',
+      hide: true,
+    },
+  ], {
+    title: 'How should AtlasMind start ACP agents on Windows?',
+    placeHolder: 'This affects ACP agent processes only; you can change it later in Settings',
+    ignoreFocusOut: true,
+  });
+  if (!picked) {
+    return false;
+  }
+
+  await configuration.update(
+    'acp.hideConsoleWindows',
+    picked.hide,
+    // This is a machine/EDR preference, not a repository policy. Recording the
+    // guided choice in User settings also avoids dirtying `.vscode/settings.json`
+    // merely because somebody completed setup; a workspace remains free to
+    // override it explicitly through the normal Settings UI.
+    vscode.ConfigurationTarget.Global,
+  );
+  void vscode.window.showInformationMessage(
+    picked.hide
+      ? 'ACP console windows will be kept on a private Windows desktop. If endpoint security blocks the launcher, uncheck “ACP: Hide Console Windows” in Settings.'
+      : 'ACP agents will use ordinary Windows launching. Their own child processes may briefly show terminal windows during startup.',
+  );
+  return true;
 }
 
 /**
@@ -1675,6 +1756,10 @@ async function configureAcpProvider(atlas: AtlasMindContext): Promise<void> {
     id = command.replace(/[^a-zA-Z0-9-]/g, '').toLowerCase().slice(0, 32) || 'agent';
   }
 
+  if (!await chooseAcpConsoleMode(false)) {
+    return;
+  }
+
   const configuration = vscode.workspace.getConfiguration('atlasmind');
   const existing = parseAcpAgentSettings(configuration.get<unknown>('acp.agents'));
   const next = [
@@ -1688,6 +1773,7 @@ async function configureAcpProvider(atlas: AtlasMindContext): Promise<void> {
   const probe = await new AcpAdapter({
     agents: next,
     ...(workspaceRoot ? { cwd: workspaceRoot } : {}),
+    hideConsoleWindows: configuration.get<boolean>('acp.hideConsoleWindows', false),
   }).probe().catch(() => undefined);
 
   if (!probe?.installed) {
@@ -1717,11 +1803,23 @@ export async function isProviderConfigured(
     // Configured means an agent is named *and* actually usable — a command that
     // is not installed would otherwise read as a working provider.
     const { AcpAdapter, parseAcpAgentSettings } = await import('../providers/acp.js');
-    const agents = parseAcpAgentSettings(vscode.workspace.getConfiguration('atlasmind').get<unknown>('acp.agents'));
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    const agents = parseAcpAgentSettings(configuration.get<unknown>('acp.agents'));
     if (agents.length === 0) {
       return false;
     }
-    const probe = await new AcpAdapter({ agents }).probe().catch(() => undefined);
+    const inspected = configuration.inspect<boolean>('acp.hideConsoleWindows');
+    if (!isAcpConsoleModeChosen(process.platform, [
+      inspected?.workspaceFolderValue,
+      inspected?.workspaceValue,
+      inspected?.globalValue,
+    ])) {
+      return false;
+    }
+    const probe = await new AcpAdapter({
+      agents,
+      hideConsoleWindows: configuration.get<boolean>('acp.hideConsoleWindows', false),
+    }).probe().catch(() => undefined);
     return Boolean(probe?.installed && probe.authenticated);
   }
   if (provider === 'copilot') {

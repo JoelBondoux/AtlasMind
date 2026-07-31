@@ -6,6 +6,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.230.0] - 2026-07-31
+
+### Added
+- **A runnable testing baseline for the highest-risk decisions.** The regular Vitest suite now includes a `fast-check` property-test example, and `npm run test:mutation` runs the committed Stryker configuration against task criticality, tool approval policy, and agent-registry scoring. The mutation runner remains separate from normal tests because it deliberately makes hundreds of altered copies of the code and is materially slower.
+
+- **An explicit Windows ACP console choice, before the first process starts.** `/acp`, the subscription buttons and **Choose Agent** now ask whether ACP agents should use ordinary Windows launching or a dedicated private desktop. Ordinary is the compatibility-first default and explains that an agent or its MCP servers may briefly show black terminal windows during startup. The other choice writes the new `atlasmind.acp.hideConsoleWindows` checkbox and explains the trade-off in the picker itself: hidden desktops are also an hVNC malware technique, so Microsoft Defender or corporate EDR may flag or block a legitimate use. The guided choice is saved at User scope because this is a machine/EDR preference and completing setup must not dirty the repository; an explicit workspace value can still override it. The schema's default `false` is not treated as an answer: activation-time discovery, provider-panel checks and direct routed turns all refuse to spawn on Windows until a workspace or user value proves the choice was made.
+
+- **A small, auditable private-desktop launcher.** `native/acp-private-desktop/src/main.rs` builds the dependency-free 120 KB Windows helper shipped as `media/bin/atlasmind-acp-private-desktop.exe`; `src/providers/acpWindowsLauncher.ts` is its selection and integrity boundary.
+
+  The helper receives an executable AtlasMind already resolved plus its argv — never a shell command. It creates a private desktop with the minimum `DESKTOP_CREATEWINDOW` access, assigns it through `STARTUPINFO.lpDesktop`, starts the real agent with `CREATE_NO_WINDOW`, and uses `STARTUPINFOEX` / `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` so stdin, stdout and stderr are the only inherited handles. It never switches to, captures, or remotely controls that desktop. The agent's descendants inherit it, so a console they allocate cannot appear on the user's input desktop or steal focus.
+
+  The release PE is pinned by SHA-256 and the test suite verifies the shipped file against the source constant. That pin is an AtlasMind integrity check, not Authenticode or reputation: the v0.230.0 PE is not Authenticode-signed, so managed environments may require an organisational signature or allow-rule. A missing, changed or EDR-blocked helper fails with an actionable message naming the checkbox to clear; AtlasMind never silently falls back to a focus-stealing launch mode the user did not choose. The Rust source is excluded from the VSIX while the pinned PE remains under `media/`.
+
+- **`AtlasMind: Choose ACP Console Window Behaviour`.** A command-palette route back to the same two-choice disclosure. Dismissing it stores nothing, and neither choice enables the provider or grants an agent permission.
+
+- **Visible in-editor evidence of private-desktop use.** While one or more routed ACP sessions use the opt-in private desktop, VS Code's status bar shows `ACP private desktop: <count>` and opens **Models & Providers** when clicked. It is deliberately an indicator, not a taskbar or notification-area icon: it stays in the application that owns the sessions, does not create another native window or take focus, and does not misrepresent a visibility choice as a permission boundary.
+
+### Changed
+- **Settings are now visible from the AtlasMind Chat title bar.** The Settings cog occupies the fifth inline title-bar slot instead of living only under `…`; the contextual **Update Project Memory** / **Import Project** action remains available from that overflow. The native VS Code entry for `atlasmind.acp.toolsEnabled` now begins with the same **Let subscription agents act** wording used by the AtlasMind Settings panel, so that phrase finds the setting in the Settings search box. The matching link on the ACP provider card now reaches Safety as intended, backed by a page-id allowlist rather than trusting a webview-provided command, and the card speaks in plain language about using an installed Claude Code or Codex subscription.
+
+- **ACP conversations are live sessions now.** The routed adapter keeps a successful session for up to 30 idle minutes instead of booting and discarding the whole coding-agent process tree for every answer. It holds at most four parallel conversations and closes them on extension deactivation; temporary setup/probe adapters stay one-shot, so a short-lived object can never strand an authenticated process.
+
+  Reuse is deliberately stricter than “same agent.” `acpHostPolicy.ts` now includes Windows launch mode and model/effort in the fingerprint alongside executable/argv, cwd, MCP list, completion-only isolation, startup-settings stamp, exit and idle state. Workspace/user `AGENTS.md`, `CLAUDE.md`, Claude settings and Codex config file size/mtime are stamped; agent environment and the complete MCP launch configurations are hashed with them. Any change replaces the live session before another prompt.
+
+  Concurrent health/setup/panel probes are single-flighted as well as TTL-cached. Three surfaces asking the same question together now share one one-shot process tree instead of creating three, and the Windows launch mode is part of the cache key so changing the checkbox genuinely exercises the newly selected path.
+
+- **A reused ACP session receives only conversation history it has not seen.** The adapter records the exact outer transcript after a successful answer. That transcript must be an exact message-for-message prefix of the next request; only the suffix is encoded as ACP prompt blocks. An edit, branch or changed system instruction opens another session rather than heuristically reconciling two histories. This is the conversation-history half that v0.229.0 correctly identified as load-bearing: sending the full transcript to a session that already remembers it duplicates the user's prompts and the agent's answers.
+
+- **The v0.229 host policy is applied inside the extension host first.** This delivers reuse across AtlasMind chat sessions in one VS Code window without introducing a second authenticated IPC protocol for permission prompts and streams. The named-pipe/token/owner-lifetime policy remains the boundary for any future cross-window daemon; this release does not pretend an external host exists.
+
+### Security
+- **One logical completion reaches an ACP agent at most once inside the adapter.** The orchestrator gives each tool round a stable task identity, so an identical concurrent call or timeout race joins one in-flight promise and stream without merging two independent chats whose words happen to match. A successful retry with the same identity arriving within 15 seconds receives the recorded result, with the execution epoch (agent, cwd, settings, MCP configuration and launch mode) included in its key so a configuration change cannot replay stale output. ACP is also exempt from the generic transient-provider retry loop: once `session/prompt` may have crossed stdio, uncertainty is terminal for that attempt. The outer provider deadline now aborts the ACP attempt, sends `session/cancel`, and discards the session instead of returning while the old agent continues running and streaming late output. This prevents both double subscription spend and duplicated delegated operations.
+
+- **A private desktop is explicitly not a sandbox.** The docs and setup copy state that it changes where windows appear, not the child process's authority. The ACP permission path remains allow-once, fail-closed, and is re-evaluated for every operation even while the process stays alive. Switching MCP/isolation/tool mode invalidates the session.
+
+### Fixed
+- Replaced literal NUL bytes in `acpHostPolicy.ts` with the readable `\u0000` separator escape, so source search no longer classifies the policy file as binary.
+
 ## [0.229.0] - 2026-07-31
 
 ### Added

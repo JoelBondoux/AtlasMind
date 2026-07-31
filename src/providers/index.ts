@@ -11,6 +11,7 @@ export { acpToolRisk, chooseAllowOption, chooseDenyOption, describeAcpToolCall, 
 export { ACP_EFFORT_CATEGORY, ACP_EFFORT_RULE_NOTE, ACP_EFFORT_TIERS, ACP_SETTABLE_CONFIG_CATEGORIES, ACP_VARIANT_SEPARATOR, acpEffortTiersFor, buildAcpModelVariantId, findAcpEffortTier, isSettableAcpConfigCategory, parseAcpModelVariant, type AcpEffortTier } from './acpEffort.js';
 export { ACP_MAX_MODEL_ROWS_PER_AGENT, ACP_MODEL_CATEGORY, ACP_MODEL_RULE_NOTE, ACP_MODEL_SEPARATOR, acpModelChoicesFor, acpModelRows, buildAcpModelId, composeAcpVariant, describeAcpModelStanding, splitAcpModelSegment, type AcpModelChoice, type AcpModelStanding } from './acpModels.js';
 export { ACP_PERMISSION_METHOD, ACP_TOOL_KINDS, ACP_TOOL_CALL_STATUSES, type AcpMcpServer, type AcpPermissionOption, type AcpPermissionRequest, type AcpToolCall, type AcpToolKind } from './acpProtocol.js';
+export { ACP_HIDE_CONSOLE_SETTING, isAcpConsoleModeChosen } from './acpWindowsLauncher.js';
 export { CopilotAdapter } from './copilot.js';
 export { OpenAiCompatibleAdapter } from './openai-compatible.js';
 export { OpenRouterAdapter } from './openrouter.js';

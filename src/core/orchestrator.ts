@@ -409,6 +409,7 @@ interface CostEstimate {
 }
 
 type ProviderCompletionRequest = {
+  requestId?: string;
   model: string;
   messages: ChatMessage[];
   tools: ToolDefinition[];
@@ -2404,6 +2405,7 @@ export class Orchestrator {
         : DEFAULT_CHAT_MAX_TOKENS;
       const clampedMaxTokens = Math.min(DEFAULT_CHAT_MAX_TOKENS, safeMaxTokens);
       completion = await this.completeUntilStop(provider, {
+        requestId: `${context.taskId}:tool-round:${i}`,
         model,
         messages,
         tools,
@@ -3034,11 +3036,18 @@ export class Orchestrator {
     onTextChunk?: (chunk: string) => void,
   ): Promise<CompletionResponse> {
     const timeoutMs = getProviderTimeoutMs(provider.providerId, this.cfg.providerTimeoutMs);
-    for (let attempt = 0; attempt <= MAX_PROVIDER_RETRIES; attempt += 1) {
+    // An ACP prompt is stateful and can continue running after a transport
+    // timeout. Retrying it on a fresh session can spend twice and execute tools
+    // twice, so uncertainty is terminal for this attempt. The adapter still
+    // coalesces a duplicate caller carrying the same `requestId` while the
+    // original promise is in flight.
+    const maxRetries = provider.providerId === 'acp' ? 0 : MAX_PROVIDER_RETRIES;
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+      const scoped = createProviderAttemptRequest(request, provider.providerId === 'acp');
       try {
         const execute = onTextChunk && provider.streamComplete
-          ? provider.streamComplete(request, onTextChunk)
-          : provider.complete(request);
+          ? provider.streamComplete(scoped.request, onTextChunk)
+          : provider.complete(scoped.request);
         return await withTimeout(
           execute,
           timeoutMs,
@@ -3046,7 +3055,7 @@ export class Orchestrator {
         );
       } catch (err) {
         const transient = isTransientProviderError(err);
-        if (!transient || attempt >= MAX_PROVIDER_RETRIES) {
+        if (!transient || attempt >= maxRetries) {
           throw err;
         }
         // Respect Retry-After header when the provider signals a back-off delay.
@@ -3055,6 +3064,8 @@ export class Orchestrator {
           ? retryAfterMs
           : PROVIDER_RETRY_BASE_DELAY_MS * (2 ** attempt);
         await sleep(delay);
+      } finally {
+        scoped.dispose();
       }
     }
 
@@ -3067,16 +3078,18 @@ export class Orchestrator {
     onTextChunk: (chunk: string) => void,
   ): Promise<CompletionResponse> {
     const timeoutMs = getProviderTimeoutMs(provider.providerId, this.cfg.providerTimeoutMs);
-    for (let attempt = 0; attempt <= MAX_PROVIDER_RETRIES; attempt += 1) {
+    const maxRetries = provider.providerId === 'acp' ? 0 : MAX_PROVIDER_RETRIES;
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+      const scoped = createProviderAttemptRequest(request, provider.providerId === 'acp');
       try {
         return await withTimeout(
-          provider.streamComplete!(request, onTextChunk),
+          provider.streamComplete!(scoped.request, onTextChunk),
           timeoutMs,
           `Provider timed out after ${timeoutMs}ms.`,
         );
       } catch (err) {
         const transient = isTransientProviderError(err);
-        if (!transient || attempt >= MAX_PROVIDER_RETRIES) {
+        if (!transient || attempt >= maxRetries) {
           throw err;
         }
         const retryAfterMs = (err as Record<string, unknown>)['retryAfterMs'];
@@ -3084,6 +3097,8 @@ export class Orchestrator {
           ? retryAfterMs
           : PROVIDER_RETRY_BASE_DELAY_MS * (2 ** attempt);
         await sleep(delay);
+      } finally {
+        scoped.dispose();
       }
     }
 
@@ -5870,6 +5885,40 @@ async function withTimeout<T>(
       getTimerGlobals().clearTimeout(timeoutHandle);
     }
   }
+}
+
+/**
+ * Give a stateful provider an attempt-scoped cancellation signal.
+ *
+ * `withTimeout` cannot stop the promise it races. For ordinary stateless HTTP
+ * providers that is existing adapter territory; for ACP it is unsafe because a
+ * timed-out prompt can keep acting while the orchestrator fails over. Disposing
+ * this scope aborts ACP on timeout, error, or success (a post-success abort is a
+ * no-op because the adapter has already removed its listener).
+ */
+function createProviderAttemptRequest(
+  request: ProviderCompletionRequest,
+  abortOnDispose: boolean,
+): { request: ProviderCompletionRequest; dispose(): void } {
+  if (!abortOnDispose) {
+    return { request, dispose: () => {} };
+  }
+
+  const controller = new AbortController();
+  const forwardAbort = () => controller.abort();
+  if (request.signal?.aborted) {
+    controller.abort();
+  } else {
+    request.signal?.addEventListener('abort', forwardAbort, { once: true });
+  }
+
+  return {
+    request: { ...request, signal: controller.signal },
+    dispose: () => {
+      request.signal?.removeEventListener('abort', forwardAbort);
+      controller.abort();
+    },
+  };
 }
 
 function getTimerGlobals(): { setTimeout(callback: () => void, ms: number): unknown; clearTimeout(handle: unknown): void } {

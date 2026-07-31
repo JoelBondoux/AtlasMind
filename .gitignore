@@ -3,6 +3,7 @@ node_modules/
 *.vsix
 .vscode-test/
 coverage/
+.stryker-tmp/
 # Written by every `vitest run` so the Testing dashboard has a verdict to read.
 # Local evidence of a local run — never committed, or the dashboard would report
 # whoever last pushed rather than the state of this working copy.

@@ -2121,10 +2121,24 @@ export async function collectAcpSetupSteps(atlas: AtlasMindContext): Promise<imp
   const cfg = vscode.workspace.getConfiguration('atlasmind');
   const agents = parseAcpAgentSettings(cfg.get<unknown>('acp.agents'));
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const consoleSetting = cfg.inspect<boolean>('acp.hideConsoleWindows');
+  const { isAcpConsoleModeChosen } = await import('../providers/acpWindowsLauncher.js');
+  const consoleModeChosen = isAcpConsoleModeChosen(process.platform, [
+    consoleSetting?.workspaceFolderValue,
+    consoleSetting?.workspaceValue,
+    consoleSetting?.globalValue,
+  ]);
+  const hideConsoleWindows = cfg.get<boolean>('acp.hideConsoleWindows', false);
 
   let probe: { installed: boolean; authenticated: boolean; protocolVersion?: number; message?: string } | undefined;
-  if (agents.length > 0) {
-    const adapter = new AcpAdapter({ agents, ...(workspaceRoot ? { cwd: workspaceRoot } : {}) });
+  // On Windows the setup guide must explain the launch choices *before* a probe
+  // starts the process tree whose windows are in question.
+  if (agents.length > 0 && (process.platform !== 'win32' || consoleModeChosen)) {
+    const adapter = new AcpAdapter({
+      agents,
+      ...(workspaceRoot ? { cwd: workspaceRoot } : {}),
+      hideConsoleWindows,
+    });
     probe = await adapter.probe().catch(() => undefined);
   }
 
@@ -2133,6 +2147,9 @@ export async function collectAcpSetupSteps(atlas: AtlasMindContext): Promise<imp
 
   return buildAcpSetupPlan({
     configuredAgents: agents.map(agent => ({ id: agent.id, command: agent.command, ...(agent.label ? { label: agent.label } : {}) })),
+    platform: process.platform,
+    consoleModeChosen,
+    hideConsoleWindows,
     ...(probe ? { installed: probe.installed, authenticated: probe.authenticated } : {}),
     ...(probe?.protocolVersion !== undefined ? { protocolVersion: probe.protocolVersion } : {}),
     ...(probe?.message ? { probeMessage: probe.message } : {}),

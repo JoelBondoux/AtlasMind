@@ -27,6 +27,9 @@ const SUGGESTIONS: AcpAgentSuggestion[] = VERIFIED_ACP_AGENTS.map(agent => ({
 
 const state = (over: Partial<AcpSetupState> = {}): AcpSetupState => ({
   configuredAgents: [],
+  platform: 'linux',
+  consoleModeChosen: false,
+  hideConsoleWindows: false,
   clientProtocolVersion: 1,
   providerEnabled: false,
   hasCompletedATurn: false,
@@ -41,6 +44,7 @@ describe('buildAcpSetupPlan — ordering follows how things actually fail', () =
   it('starts by asking for an agent, with everything after it blocked', () => {
     const steps = buildAcpSetupPlan(state());
     expect(statusOf(steps, 'agent')).toBe('todo');
+    expect(statusOf(steps, 'console')).toBe('blocked');
     expect(statusOf(steps, 'installed')).toBe('blocked');
     expect(statusOf(steps, 'authenticated')).toBe('blocked');
     expect(statusOf(steps, 'provider')).toBe('blocked');
@@ -52,6 +56,36 @@ describe('buildAcpSetupPlan — ordering follows how things actually fail', () =
     const steps = buildAcpSetupPlan(state({ configuredAgents: [AGENT], installed: false }));
     expect(statusOf(steps, 'agent')).toBe('done');
     expect(nextSetupStep(steps, ACP_SETUP_GUIDE.stepIds)?.id).toBe('installed');
+  });
+
+  it('asks the Windows launch question before it probes installation', () => {
+    const steps = buildAcpSetupPlan(state({
+      platform: 'win32',
+      configuredAgents: [AGENT],
+    }));
+    expect(statusOf(steps, 'console')).toBe('todo');
+    expect(statusOf(steps, 'installed')).toBe('blocked');
+    expect(nextSetupStep(steps, ACP_SETUP_GUIDE.stepIds)?.id).toBe('console');
+    expect(JSON.stringify(steps.find(step => step.id === 'console'))).toMatch(/EDR|hidden desktops/i);
+  });
+
+  it('records both Windows choices as explicit and describes the consequence', () => {
+    const visible = buildAcpSetupPlan(state({
+      platform: 'win32',
+      configuredAgents: [AGENT],
+      consoleModeChosen: true,
+      hideConsoleWindows: false,
+    }));
+    expect(statusOf(visible, 'console')).toBe('done');
+    expect(visible.find(step => step.id === 'console')?.detail).toMatch(/ordinary|briefly show/i);
+
+    const hidden = buildAcpSetupPlan(state({
+      platform: 'win32',
+      configuredAgents: [AGENT],
+      consoleModeChosen: true,
+      hideConsoleWindows: true,
+    }));
+    expect(hidden.find(step => step.id === 'console')?.detail).toMatch(/private Windows desktop/i);
   });
 
   it('asks for a sign-in once the binary is there', () => {
@@ -81,7 +115,7 @@ describe('buildAcpSetupPlan — ordering follows how things actually fail', () =
       configuredAgents: [AGENT], installed: true, authenticated: true, providerEnabled: true, hasCompletedATurn: true,
     }));
     expect(nextSetupStep(steps, ACP_SETUP_GUIDE.stepIds)).toBeUndefined();
-    expect(summarizeSetupProgress(steps, ACP_SETUP_GUIDE.stepIds)).toMatchObject({ done: 5, total: 5, finished: true });
+    expect(summarizeSetupProgress(steps, ACP_SETUP_GUIDE.stepIds)).toMatchObject({ done: 6, total: 6, finished: true });
   });
 });
 

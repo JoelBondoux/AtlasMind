@@ -627,6 +627,26 @@ describe('panel refresh flows', () => {
     });
   });
 
+  it('opens Safety from the allowed ACP settings link', async () => {
+    ModelProviderPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+        secrets: { get: vi.fn().mockResolvedValue(undefined) },
+      } as never,
+      {
+        refreshProviderModels: vi.fn().mockResolvedValue({ providersUpdated: 0, modelsAvailable: 0 }),
+        refreshProviderHealth: vi.fn().mockResolvedValue(undefined),
+        modelsRefresh: { fire: vi.fn(), event: vi.fn(() => ({ dispose: () => undefined })) },
+        modelRouter: { getProviderFailureSummary: vi.fn().mockReturnValue(new Map()) },
+      } as never,
+    );
+
+    await flushMicrotasks();
+    await mocks.state.webviewMessageHandler?.({ type: 'openSettingsPage', payload: 'safety' });
+
+    expect(mocks.executeCommand).toHaveBeenCalledWith('atlasmind.openSettingsSafety');
+  });
+
   it('reports Send when idle and Steer when the selected session is busy', async () => {
 
     ChatPanel.createOrShow(

@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.229.0",
+  "version": "0.230.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -395,6 +395,12 @@
         "icon": "$(plug)"
       },
       {
+        "command": "atlasmind.acp.chooseConsoleMode",
+        "title": "AtlasMind: Choose ACP Console Window Behaviour",
+        "category": "AtlasMind",
+        "icon": "$(window)"
+      },
+      {
         "command": "atlasmind.models.refreshProvider",
         "title": "Refresh Available Models",
         "icon": "$(refresh)"
@@ -581,17 +587,17 @@
         {
           "command": "atlasmind.updateProjectMemory",
           "when": "view == atlasmind.chatView && atlasmind.ssotPresent",
-          "group": "navigation@5"
+          "group": "5_memory@1"
         },
         {
           "command": "atlasmind.importProject",
           "when": "view == atlasmind.chatView && !atlasmind.ssotPresent && config.atlasmind.showImportProjectAction",
-          "group": "navigation@5"
+          "group": "5_memory@1"
         },
         {
           "command": "atlasmind.openSettings",
           "when": "view == atlasmind.chatView",
-          "group": "4_config@1"
+          "group": "navigation@5"
         },
         {
           "command": "atlasmind.openProjectDashboard",
@@ -1280,6 +1286,12 @@
           },
           "description": "Map a Buzz identity (npub or 64-character hex) to an AtlasMind agent id, so inbound work from that Buzz agent lands with the right specialist.",
           "markdownDescription": "Assign specific **AtlasMind agents** to specific **Buzz agents**.\n\nMaps a Buzz identity to an AtlasMind agent id, so inbound work from that identity is attributed to the right specialist — a Buzz build-bot's messages can land with your DevOps agent instead of arriving unattributed.\n\n```json\n{\n  \"npub1abc…\": \"devops-engineer\",\n  \"7e7e9c42…\": \"security-specialist\"\n}\n```\n\nKeys accept an `npub…` or a 64-character hex key (the bech32 checksum is validated, so a mistyped npub is rejected rather than binding to the wrong identity; an `nsec` secret key is refused). An unbound identity simply stays unassigned — AtlasMind never guesses an agent.\n\nThis is a **local routing preference only**. Buzz still owns the keypair, the directory, and the authorship ledger."
+        },
+        "atlasmind.acp.hideConsoleWindows": {
+          "type": "boolean",
+          "default": false,
+          "description": "Windows only: keep ACP agent console windows on a private desktop so they cannot pop up or steal focus. Off by default.",
+          "markdownDescription": "**Windows only, off by default.** Keep an ACP agent and the child processes it launches on a dedicated, non-visible Windows desktop. This prevents black console windows from appearing or taking keyboard/mouse focus.\n\nWith this unchecked, AtlasMind uses ordinary process launching. The first ACP start — and any restart after settings change or 30 minutes idle — may briefly show terminal windows created by the agent or its MCP servers. AtlasMind reuses a safe live session, so it no longer starts that process tree for every answer.\n\nWith this checked, AtlasMind uses a bundled, SHA-256-pinned native launcher. It creates a private desktop, passes through only stdin/stdout/stderr, starts the already-resolved agent command without a shell, and never switches to or remotely controls that desktop. If the helper is missing, modified, or blocked, the ACP launch fails visibly; AtlasMind does not silently fall back.\n\n**Security software note:** hidden desktops are also used by hVNC malware. Microsoft Defender exposes and hunts processes on them for that reason, so enterprise EDR may flag this legitimate use. The hash pin checks AtlasMind's expected bytes; it is not an Authenticode signature, and this helper is not Authenticode-signed in v0.230.0. Leave this unchecked where policy forbids it, or if your security team has not approved the launcher."
         },
         "atlasmind.acp.modelStanding": {
           "type": "object",
@@ -2087,8 +2099,8 @@
         "atlasmind.acp.toolsEnabled": {
           "type": "boolean",
           "default": false,
-          "description": "Allow ACP agents (Claude subscription, Codex/ChatGPT subscription) to run their own tools, asking your approval for each operation. Off by default: agents answer questions but cannot act.",
-          "markdownDescription": "**Off by default.** Lets an ACP agent — a Claude or ChatGPT subscription driven over the [Agent Client Protocol](https://agentclientprotocol.com) — actually *do* things: edit files, run commands, search, fetch.\n\nEvery operation still needs your approval. When the agent asks, AtlasMind shows what it wants to do and waits; nothing runs unless you allow it.\n\nTwo things worth knowing before turning this on:\n\n- **The work happens inside the agent's process, not inside AtlasMind.** AtlasMind decides *whether* each operation may proceed, and shows you what ran, but the agent performs it with whatever access it already has.\n- **AtlasMind never grants a permanent permission.** Where an agent offers \"always allow\", AtlasMind declines it and answers \"allow once\" instead — a standing grant would live in the agent's own state, where you could not find or revoke it.\n\nWith this off, agents still work for chat, code, and reasoning; they simply cannot act. See also `#atlasmind.acp.mcpServers#`."
+          "description": "Let subscription agents act — allow ACP agents (Claude subscription, Codex/ChatGPT subscription) to run their own tools, asking your approval for each operation. Off by default: agents answer questions but cannot act.",
+          "markdownDescription": "**Let subscription agents act.** **Off by default.** Lets an ACP agent — a Claude or ChatGPT subscription driven over the [Agent Client Protocol](https://agentclientprotocol.com) — actually *do* things: edit files, run commands, search, fetch.\n\nEvery operation still needs your approval. When the agent asks, AtlasMind shows what it wants to do and waits; nothing runs unless you allow it.\n\nTwo things worth knowing before turning this on:\n\n- **The work happens inside the agent's process, not inside AtlasMind.** AtlasMind decides *whether* each operation may proceed, and shows you what ran, but the agent performs it with whatever access it already has.\n- **AtlasMind never grants a permanent permission.** Where an agent offers \"always allow\", AtlasMind declines it and answers \"allow once\" instead — a standing grant would live in the agent's own state, where you could not find or revoke it.\n\nWith this off, agents still work for chat, code, and reasoning; they simply cannot act. See also `#atlasmind.acp.mcpServers#`."
         },
         "atlasmind.acp.mcpServers": {
           "type": "array",
@@ -2232,6 +2244,7 @@
     "test:providers:local-recommendations": "vitest run tests/providers/localModelRecommendationRegistry.test.ts --reporter=dot",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:mutation": "stryker run stryker.config.json",
     "package": "vsce package",
     "package:vsix": "npx @vscode/vsce package",
     "publish:pre-release": "npx @vscode/vsce publish --pre-release",
@@ -2240,6 +2253,9 @@
     "tag:release": "node .github/scripts/tag-release.mjs"
   },
   "devDependencies": {
+    "@stryker-mutator/core": "^9.6.1",
+    "@stryker-mutator/typescript-checker": "^9.6.1",
+    "@stryker-mutator/vitest-runner": "^9.6.1",
     "@types/node": "^26.1.2",
     "@types/vscode": "^1.120.0",
     "@types/ws": "^8.18.1",
@@ -2250,6 +2266,7 @@
     "@vscode/vsce": "^3.9.2",
     "esbuild": "^0.28.1",
     "eslint": "^10.8.0",
+    "fast-check": "^4.9.0",
     "husky": "^9.1.7",
     "typescript": "^6.0.3",
     "vitest": "^4.1.2"

@@ -201,6 +201,38 @@ See [[Remote Control]] for the full model.
 - **Agentic Resource Discovery (ARD)** treats every fetched manifest and `/search` response as untrusted: strict schema validation (`urn:ai:` identifiers, the spec's value-or-reference exclusivity, byte/entry caps). Discovered and referral URLs must be **HTTPS** and are screened against private/loopback/link-local hosts (same SSRF guard as `web-fetch`); `http`/localhost is only permitted for finders the user explicitly marked insecure with `atlasmind.ard.allowInsecureEndpoints`. Federation and nested-catalog expansion are **depth-bounded** to prevent referral loops. Agent Finders ship **disabled** (no outbound discovery until opt-in). The relevance score is surfaced as informational only and **must not** be read as a trust or safety rating; `trustManifest` metadata is shown read-only and is not cryptographically verified. Nothing auto-installs — discovered MCP servers land disabled behind the existing MCP trust gate, and the `discover-resources` skill is read-only. Catalog export redacts system prompts, secrets, and MCP `env`. See [[Resource Discovery]].
 - **Buzz live communications** are doubly gated: the global `buzz.enabled` setting, remote-relay consent/TLS policy, the connected MCP server, the Project Director's per-project `outboundEnabled`, and a per-send modal confirmation. The bundled bridge accepts only a CLI whose required command/flag surface matches the pinned v0.4.26 contract, invokes it directly without a shell, passes message bodies over stdin, validates UUID/event/pubkey inputs, caps duration/output, and redacts the private key/NIP-OA grant. Buzz developer shell/file tools are deliberately outside the connector.
 
+### 8a. ACP private-desktop boundary
+
+`atlasmind.acp.hideConsoleWindows` is a Windows UX control, not a sandbox. When
+selected, a bundled native helper creates a private desktop and starts the
+already-resolved ACP executable there so descendant console windows cannot
+reach the user's input desktop. The child still runs as the same user with the
+same filesystem and network access.
+
+The dual-use risk is explicit. Hidden VNC malware uses private desktops for
+covert interactive processes, and [Microsoft Defender for Endpoint exposes a
+`DesktopName` field](https://techcommunity.microsoft.com/blog/microsoftdefenderatpblog/detect-suspicious-processes-running-on-hidden-desktops/4072322)
+so defenders can hunt that behaviour. AtlasMind therefore:
+
+- leaves the feature off until the user selects it, and asks before the first
+  ACP probe;
+- never switches to, captures, or remotely controls the created desktop;
+- keeps the helper dependency-free and source-visible under
+  `native/acp-private-desktop/`;
+- gives its desktop handle only the required `DESKTOP_CREATEWINDOW` access;
+- passes an already-resolved executable and argv with no shell;
+- uses `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` to inherit only stdin/stdout/stderr;
+- pins the shipped PE by SHA-256 and refuses missing or changed binaries;
+- fails visibly if EDR blocks the helper, without silently falling back to a
+  focus-stealing visible launch.
+
+These controls make the intent auditable; they cannot guarantee an enterprise
+heuristic will accept the technique. The SHA-256 pin is an AtlasMind integrity
+check, not an Authenticode signature or a reputation signal; the v0.230.0 helper
+PE is not Authenticode-signed. Managed environments should leave the checkbox
+off unless their security team approves it, and may require an organisation
+signature or a hash/publisher allow-rule before deployment.
+
 ### 9. Model Output Validation
 
 - LLM responses are treated as **untrusted input**
@@ -247,6 +279,8 @@ The Mission Loop (`/loop` and Mission Control) is autonomous, so it is bounded o
 | Credential exposure | SecretStorage + MemoryScanner write-gate + SecretRedactor dispatch-time scan |
 | Path traversal | Workspace-root sandboxing on all file ops |
 | Shell injection | execFile (no shell) + allow-list + operator blocking |
+| ACP prompt replay / duplicated delegated work | Stable per-tool-round identity + exact transcript-prefix reuse + in-flight single-flight + short completed-result ledger + exclusion from generic retries + outer-timeout `session/cancel` and teardown after an uncertain `session/prompt` |
+| Hidden-desktop dual use / EDR detection | Off-by-default disclosed choice + source-visible SHA-256-pinned helper + no desktop switching/control + minimal handle inheritance + visible failure, with ordinary launch available |
 | SSRF via web-fetch | IP range blocking + metadata endpoint blocking |
 | SSRF / malicious manifests via ARD discovery | HTTPS enforcement + private-host screening + schema validation + depth-bounded federation + opt-in finders + disabled-by-default installs |
 | XSS in webviews | CSP + nonces + escapeHtml |

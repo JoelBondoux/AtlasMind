@@ -115,7 +115,7 @@ See [docs/github-workflow.md](docs/github-workflow.md) for branch, PR, issue, an
 Reference implementation:
 - `src/providers/anthropic.ts` demonstrates host-neutral secret-store credential lookup, retry handling for `429`/`5xx`, and usage token parsing.
 - `src/providers/bedrock.ts` demonstrates a dedicated provider path for AWS SigV4 signing, canonical request-path handling, and Bedrock-specific request/response mapping.
-- `src/providers/acp.ts` demonstrates a host-neutral, subprocess-backed provider that validates local install and the agent's own auth state before routing AtlasMind requests over JSON-RPC on stdio, including untrusted-frame handling that never throws, capability sanitization so a completion-only bridge is not advertised as `function_calling` capable, and a permission path that fails closed rather than answering a request it has no policy for.
+- `src/providers/acp.ts` demonstrates a host-neutral, subprocess-backed provider that validates local install and the agent's own auth state before routing AtlasMind requests over JSON-RPC on stdio, including exact transcript-suffix reuse, duplicate-call coalescing, no retry after an uncertain prompt, untrusted-frame handling that never throws, capability sanitization so a completion-only bridge is not advertised as `function_calling` capable, and a permission path that fails closed rather than answering a request it has no policy for. Its optional Windows helper is selected and hash-verified by `acpWindowsLauncher.ts`; review `native/acp-private-desktop/src/main.rs` and the checked-in PE together when either changes.
 - `src/providers/copilot.ts` demonstrates VS Code Language Model API integration for GitHub Copilot-backed execution, with access intentionally deferred until the user explicitly activates the Copilot provider and discovery merged across the Copilot/GitHub LM vendor aliases used by newer preview rollouts.
 - `src/providers/openai-compatible.ts` demonstrates a reusable adapter pattern for OpenAI-compatible APIs (OpenAI, Azure OpenAI, Gemini-compatible endpoint, DeepSeek, Mistral, z.ai, xAI, Cohere compatibility, Hugging Face Inference, NVIDIA NIM, and Perplexity-style custom paths/static catalogs), including provider-specific request compatibility such as modern OpenAI token fields, `developer` system-role mapping, omission of unsupported parameters for fixed-temperature model families, and normalization of upstream model IDs into AtlasMind's internal `provider/model` format.
 - `src/providers/registry.ts` contains the host-neutral provider registry and configurable local provider path for OpenAI-compatible local runtimes such as Ollama or LM Studio.
@@ -137,6 +137,14 @@ Minimum validation for provider work:
 - Add or update adapter-level tests in `tests/providers/`.
 - Add routing or orchestrator regression coverage when the change affects failover, health, pricing, or capability selection.
 - Update `.github/integration-monitor.json` when the new provider introduces a third-party dependency or monitoring obligation.
+
+For the Windows ACP private-desktop helper, rebuild with the pinned Rust source,
+copy the release PE to `media/bin/atlasmind-acp-private-desktop.exe`, update
+`ACP_PRIVATE_DESKTOP_HELPER_SHA256`, and run
+`tests/providers/acpWindowsLauncher.test.ts`. The helper must remain a standalone
+process rather than an in-process native addon: a native failure must not crash
+VS Code's extension host. Do not add a silent ordinary-launch fallback — an EDR
+block is a result the user needs to see.
 
 ## Debugging Orchestration And Concurrency
 

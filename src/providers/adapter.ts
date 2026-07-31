@@ -41,6 +41,14 @@ export interface ChatMessage {
 // ── Request / Response ───────────────────────────────────────────
 
 export interface CompletionRequest {
+  /**
+   * Stable identity for one logical provider turn.
+   *
+   * Adapters may use this to attach a retry to work already in flight instead
+   * of paying for or executing the same prompt twice. Callers that do not
+   * retry may omit it; it is never sent to the model.
+   */
+  requestId?: string;
   model: string;
   messages: ChatMessage[];
   maxTokens?: number;
