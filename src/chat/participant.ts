@@ -40,6 +40,8 @@ import {
 import { mergeImageAttachments, resolveInlineImageAttachments, resolvePickedImageAttachments } from './imageAttachments.js';
 import { ATLAS_SLASH_COMMANDS } from '../views/chatSlashRouting.js';
 import { detectGovernedAction } from '../core/workflowChatGuard.js';
+import { assessIdeationReadiness } from '../core/ideationReadiness.js';
+import { extractItemGates, parseRoadmapGates, stripRoadmapGatesBlock } from '../core/roadmapGates.js';
 import {
   applyManagedInstructionBlock,
   detectedWritebackTools,
@@ -860,6 +862,7 @@ export async function runDeterministicSlashCommand(
     case 'setup': await handleSetupCommand(argument, stream, atlas, token); return true;
     case 'followups': await handleFollowUpsCommand(stream, atlas); return true;
     case 'research': await handleResearchCommand(argument, stream, atlas); return true;
+    case 'ideate': await handleIdeateCommand(stream); return true;
     case 'ship': await handleShipCommand(argument, stream, atlas); return true;
     case 'sync-instructions': await handleSyncInstructionsCommand(argument, stream, atlas); return true;
     case 'voice': await handleVoiceCommand(stream); return true;
@@ -2476,6 +2479,290 @@ async function handleFollowUpsCommand(
   }
   stream.markdown(out.join('\n'));
   stream.button({ command: 'atlasmind.openProjectDirector', title: 'Open Project Director' });
+}
+
+const IDEATION_COMMAND_MAX_FILE_BYTES = 512 * 1024;
+const IDEATION_COMMAND_MAX_CARDS = 48;
+const IDEATION_COMMAND_MAX_CONNECTIONS = 96;
+const IDEATION_BOARD_DEFAULT_FILE = 'atlas-ideation-board.json';
+const IDEATION_WORKSPACE_REGISTRY_FILE = 'atlas-ideation-workspaces.json';
+const IDEATION_ROADMAP_ITEMS_START = '<!-- atlasmind:roadmap-items:start -->';
+const IDEATION_ROADMAP_ITEMS_END = '<!-- atlasmind:roadmap-items:end -->';
+
+interface IdeationCommandBoard {
+  workspaceTitle: string;
+  exists: boolean;
+  omittedCardCount: number;
+  omittedConnectionCount: number;
+  cards: Array<{
+    id: string;
+    kind: string;
+    title: string;
+    archived?: boolean;
+    derived?: { roadmapText: string; roadmapNormalized: string; derivedAt: string };
+  }>;
+  connections: Array<{
+    fromCardId: string;
+    toCardId: string;
+    relation: 'supports' | 'causal' | 'dependency' | 'contradiction' | 'opportunity';
+  }>;
+}
+
+/**
+ * `/ideate` — a read-only stage-0 status check and two routes back into the
+ * work. It deliberately reads the persisted board instead of running a model,
+ * scan, or board mutation: opening a status command must not change the thing
+ * it is describing.
+ */
+async function handleIdeateCommand(stream: vscode.ChatResponseStream): Promise<void> {
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!workspaceRoot) {
+    stream.markdown('### Ideation\n\nOpen a workspace folder to inspect the active ideation board.');
+    stream.button({ command: 'atlasmind.openProjectIdeation', title: 'Open canvas' });
+    return;
+  }
+
+  const ssotSegments = ideationCommandSsotSegments(
+    vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', DEFAULT_SSOT_PATH),
+  );
+  if (!ssotSegments) {
+    stream.markdown([
+      '### Ideation',
+      '',
+      'The configured SSOT path cannot be read safely, so AtlasMind did not inspect an ideation file outside this workspace.',
+    ].join('\n'));
+    stream.button({ command: 'workbench.action.openSettings', title: 'Open SSOT path setting', arguments: ['atlasmind.ssotPath'] });
+    return;
+  }
+
+  const ideasRoot = path.join(workspaceRoot, ...ssotSegments, 'ideas');
+  const roadmapPath = path.join(workspaceRoot, ...ssotSegments, 'roadmap', 'improvement-plan.md');
+  const [board, roadmapMarkdown] = await Promise.all([
+    readIdeationCommandBoard(ideasRoot),
+    readIdeationCommandText(roadmapPath),
+  ]);
+  const readiness = assessIdeationReadiness({
+    cards: board.cards,
+    connections: board.connections,
+    roadmapItems: extractIdeationCommandRoadmapItems(roadmapMarkdown ?? ''),
+  });
+  const realized = readiness.observations.find(observation => observation.id === 'reaching-backlog')?.count ?? 0;
+  const out: string[] = [
+    '### Ideation',
+    '',
+    `**${escapeMd(readiness.summary)}**`,
+    '',
+    '**Board state**',
+    '',
+    `- Active cards: ${readiness.activeCards}`,
+    `- Evidence cards: ${readiness.evidenceCards}`,
+    `- Not yet work: ${readiness.unrealized}`,
+    `- Became roadmap work: ${realized}`,
+    `- Unresolved contradictions: ${readiness.contradictions}`,
+    '',
+  ];
+
+  if (!board.exists) {
+    out.push('_No saved active board was found; the reading above is an unstarted board, not a clean one._', '');
+  } else {
+    out.push(`_Active workspace: ${escapeMd(board.workspaceTitle)}._`, '');
+  }
+  if (board.omittedCardCount > 0 || board.omittedConnectionCount > 0) {
+    out.push(
+      `_This reading used the first ${IDEATION_COMMAND_MAX_CARDS} cards and ${IDEATION_COMMAND_MAX_CONNECTIONS} connections `
+      + `from an oversized board; ${board.omittedCardCount} card${board.omittedCardCount === 1 ? '' : 's'} and `
+      + `${board.omittedConnectionCount} connection${board.omittedConnectionCount === 1 ? '' : 's'} were not included._`,
+      '',
+    );
+  }
+
+  // The readiness module ranks observations by consequence and has a bounded
+  // rule table, so every observation can be shown rather than silently capped.
+  out.push('**Needs attention**', '');
+  if (readiness.observations.length === 0) {
+    out.push('- No readiness observations are available yet.', '');
+  } else {
+    for (const observation of readiness.observations) {
+      out.push(`- \`${observation.tone}\` ${escapeMd(observation.label)} — ${escapeMd(observation.detail)}`);
+    }
+    out.push('');
+  }
+
+  out.push('_This command only reads the board and roadmap. It does not run a scan or change either file._');
+  stream.markdown(out.join('\n'));
+  stream.button({ command: 'atlasmind.openProjectDashboard', title: 'Open ideation overview', arguments: ['ideation'] });
+  stream.button({ command: 'atlasmind.openProjectIdeation', title: 'Open canvas' });
+}
+
+function ideationCommandSsotSegments(value: string | undefined): string[] | undefined {
+  const normalized = normalizeSsotPathForLookup(value);
+  const segments = normalized.split('/').filter(Boolean);
+  return segments.length > 0 && segments.every(segment => /^[A-Za-z0-9._-]+$/.test(segment) && segment !== '.' && segment !== '..')
+    ? segments
+    : undefined;
+}
+
+async function readIdeationCommandBoard(ideasRoot: string): Promise<IdeationCommandBoard> {
+  const registry = await readIdeationCommandJson(path.join(ideasRoot, IDEATION_WORKSPACE_REGISTRY_FILE));
+  let boardFile = IDEATION_BOARD_DEFAULT_FILE;
+  let workspaceTitle = 'Primary ideation';
+  if (isIdeationCommandRecord(registry)) {
+    const activeWorkspaceId = ideationCommandText(registry['activeWorkspaceId'], 80);
+    const workspaces = Array.isArray(registry['workspaces'])
+      ? registry['workspaces'].filter(isIdeationCommandRecord)
+      : [];
+    const activeWorkspace = workspaces.find(workspace => ideationCommandText(workspace['id'], 80) === activeWorkspaceId)
+      ?? workspaces[0];
+    if (activeWorkspace) {
+      const candidateFile = ideationCommandText(activeWorkspace['boardFile'], 140);
+      if (isSafeIdeationCommandBoardFile(candidateFile)) {
+        boardFile = candidateFile;
+      }
+      workspaceTitle = ideationCommandText(activeWorkspace['title'], 80) || workspaceTitle;
+    }
+  }
+
+  const rawBoard = await readIdeationCommandJson(path.join(ideasRoot, boardFile));
+  if (!isIdeationCommandRecord(rawBoard)) {
+    return { workspaceTitle, exists: false, omittedCardCount: 0, omittedConnectionCount: 0, cards: [], connections: [] };
+  }
+
+  const rawCards = Array.isArray(rawBoard['cards']) ? rawBoard['cards'] : [];
+  const rawConnections = Array.isArray(rawBoard['connections']) ? rawBoard['connections'] : [];
+  const cards = rawCards
+    .slice(0, IDEATION_COMMAND_MAX_CARDS)
+    .flatMap(item => {
+      if (!isIdeationCommandRecord(item)) {
+        return [];
+      }
+      const id = ideationCommandText(item['id'], 160);
+      const title = ideationCommandText(item['title'], 160);
+      if (!isSafeIdeationCommandId(id) || !title) {
+        return [];
+      }
+      const derived = isIdeationCommandRecord(item['derived'])
+        ? ideationCommandDerivedRecord(item['derived'])
+        : undefined;
+      return [{
+        id,
+        kind: ideationCommandText(item['kind'], 40) || 'unknown',
+        title,
+        ...(ideationCommandText(item['archivedAt'], 64) ? { archived: true } : {}),
+        ...(derived ? { derived } : {}),
+      }];
+    });
+  const connections = rawConnections
+    .slice(0, IDEATION_COMMAND_MAX_CONNECTIONS)
+    .flatMap(item => {
+      if (!isIdeationCommandRecord(item)) {
+        return [];
+      }
+      const fromCardId = ideationCommandText(item['fromCardId'], 160);
+      const toCardId = ideationCommandText(item['toCardId'], 160);
+      const relation = item['relation'];
+      if (!isSafeIdeationCommandId(fromCardId) || !isSafeIdeationCommandId(toCardId)
+        || !isIdeationCommandRelation(relation)) {
+        return [];
+      }
+      return [{ fromCardId, toCardId, relation }];
+    });
+  return {
+    workspaceTitle,
+    exists: true,
+    omittedCardCount: Math.max(0, rawCards.length - IDEATION_COMMAND_MAX_CARDS),
+    omittedConnectionCount: Math.max(0, rawConnections.length - IDEATION_COMMAND_MAX_CONNECTIONS),
+    cards,
+    connections,
+  };
+}
+
+async function readIdeationCommandJson(filePath: string): Promise<unknown | undefined> {
+  const text = await readIdeationCommandText(filePath);
+  if (text === undefined) {
+    return undefined;
+  }
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+async function readIdeationCommandText(filePath: string): Promise<string | undefined> {
+  try {
+    const metadata = await fs.lstat(filePath);
+    if (!metadata.isFile() || metadata.size > IDEATION_COMMAND_MAX_FILE_BYTES) {
+      return undefined;
+    }
+    return await fs.readFile(filePath, 'utf-8');
+  } catch {
+    return undefined;
+  }
+}
+
+function extractIdeationCommandRoadmapItems(markdown: string): Array<{ id: string; text: string; completed: boolean }> {
+  const withoutGateBlock = stripRoadmapGatesBlock(markdown);
+  const start = withoutGateBlock.indexOf(IDEATION_ROADMAP_ITEMS_START);
+  const end = withoutGateBlock.indexOf(IDEATION_ROADMAP_ITEMS_END);
+  const region = start >= 0 && end > start
+    ? withoutGateBlock.slice(start + IDEATION_ROADMAP_ITEMS_START.length, end)
+    : withoutGateBlock;
+  let gates: ReturnType<typeof parseRoadmapGates> = [];
+  try {
+    gates = parseRoadmapGates(markdown);
+  } catch {
+    // A malformed gate declaration must not stop `/ideate` reporting the board.
+  }
+  const seen = new Set<string>();
+  const items = [...region.matchAll(/^\s*(?:[-*]|\d+\.)\s+(.+?)\s*$/gm)]
+    .flatMap(match => {
+      const raw = ideationCommandText(match[1], 320);
+      if (!raw) {
+        return [];
+      }
+      const completed = /^(?:✅|\[x\])/i.test(raw);
+      const withoutCheckbox = raw.replace(/^(?:✅|\[(?:x| )\])\s*/i, '').trim();
+      const text = ideationCommandText(extractItemGates(withoutCheckbox, gates).text, 300);
+      const key = text.toLowerCase().replace(/\s+/g, ' ').replace(/[.\s]+$/, '').trim();
+      if (!text || seen.has(key)) {
+        return [];
+      }
+      seen.add(key);
+      return [{ text, completed }];
+    });
+  return items.map((item, index) => ({ id: `roadmap-${index + 1}`, ...item }));
+}
+
+function ideationCommandDerivedRecord(value: Record<string, unknown>): { roadmapText: string; roadmapNormalized: string; derivedAt: string } | undefined {
+  const roadmapText = ideationCommandText(value['roadmapText'], 300);
+  const roadmapNormalized = ideationCommandText(value['roadmapNormalized'], 300);
+  const derivedAt = ideationCommandText(value['derivedAt'], 64);
+  return roadmapText && roadmapNormalized && derivedAt ? { roadmapText, roadmapNormalized, derivedAt } : undefined;
+}
+
+function isIdeationCommandRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function ideationCommandText(value: unknown, limit: number): string {
+  return typeof value === 'string'
+    ? value.replace(/[\u0000-\u001F\u007F]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, limit)
+    : '';
+}
+
+function isSafeIdeationCommandId(value: string): boolean {
+  return /^[A-Za-z0-9._:-]{1,160}$/.test(value);
+}
+
+function isIdeationCommandRelation(
+  value: unknown,
+): value is IdeationCommandBoard['connections'][number]['relation'] {
+  return value === 'supports' || value === 'causal' || value === 'dependency'
+    || value === 'contradiction' || value === 'opportunity';
+}
+
+function isSafeIdeationCommandBoardFile(value: string): boolean {
+  return value === path.basename(value) && /^[A-Za-z0-9][A-Za-z0-9._-]{0,120}\.json$/.test(value);
 }
 
 /**
@@ -4638,6 +4925,12 @@ export function buildFollowups(
       return [
         { prompt: '/research due', label: 'What is due' },
         { prompt: '/research all', label: 'Every scan' },
+      ];
+
+    case 'ideate':
+      return [
+        { prompt: '/ideate', label: 'Refresh board status' },
+        { prompt: '/research', label: 'Review outside research' },
       ];
 
     case 'ship':

@@ -3205,6 +3205,61 @@ describe('panel refresh flows', () => {
     expect(mocks.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'navigate' }));
   });
 
+  it('writes a dashboard evidence seed only through the canvas and returns to the ideation overview', async () => {
+    const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'atlasmind-ideation-evidence-'));
+    mocks.state.workspaceFolders = [{ uri: { fsPath: tempRoot, path: tempRoot } }];
+
+    ProjectIdeationPanel.createOrShow(
+      {
+        extensionUri: { fsPath: '/ext', path: '/ext' },
+      } as never,
+      {
+        projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        memoryRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
+        sessionConversation: {
+          buildContext: vi.fn().mockReturnValue(''),
+          onDidChange: vi.fn(() => ({ dispose: () => undefined })),
+          recordTurn: vi.fn(),
+        },
+        orchestrator: { processTask: vi.fn() },
+        voiceManager: { speak: vi.fn() },
+      } as never,
+    );
+
+    const panel = ProjectIdeationPanel.currentPanel as unknown as {
+      applyOpenTarget(target: { evidence: { sourceLabel: string; title: string; detail: string } }): Promise<void>;
+      handleMessage(message: unknown): Promise<void>;
+    };
+    await panel.applyOpenTarget({
+      evidence: {
+        sourceLabel: 'Security review',
+        title: 'Validate the token boundary',
+        detail: 'The review found an unbounded token path.',
+      },
+    });
+
+    const boardPath = path.join(tempRoot, 'project_memory', 'ideas', 'atlas-ideation-board.json');
+    const board = JSON.parse(readFileSync(boardPath, 'utf-8')) as {
+      cards: Array<{ title: string; body: string; kind: string; author: string; tags: string[] }>;
+      connections: unknown[];
+    };
+    expect(board.cards).toEqual([expect.objectContaining({
+      title: 'Validate the token boundary',
+      body: 'The review found an unbounded token path.',
+      kind: 'evidence',
+      author: 'atlas',
+      tags: expect.arrayContaining(['existing-evidence', 'security-review']),
+    })]);
+    expect(board.connections).toEqual([]);
+
+    mocks.executeCommand.mockClear();
+    await panel.handleMessage({ type: 'openIdeationDashboard' });
+    expect(mocks.executeCommand).toHaveBeenCalledWith('atlasmind.openProjectDashboard', 'ideation');
+
+    mocks.state.workspaceFolders = undefined;
+    removeTempDir(tempRoot);
+  });
+
   it('creates, switches, and deletes named ideation workspaces from the dedicated panel', async () => {
     const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'atlasmind-ideation-workspaces-'));
     mocks.state.workspaceFolders = [{ uri: { fsPath: tempRoot, path: tempRoot } }];

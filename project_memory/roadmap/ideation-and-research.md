@@ -2,7 +2,7 @@
 
 > **Status:** C0 **shipped v0.225.0**. C1 **shipped v0.225.0 + v0.227.0** except C1.4 and C1.6.
 > C3, C4 and C5 **shipped v0.225.0 + v0.226.0** as far as the engine goes; what remains of each is
-> surface, listed under *What is left* below. C2 not started.
+> surface, listed under *What is left* below. C2 **shipped v0.233.0**.
 > **Owner:** AtlasMind core. **Created:** 2026-07-30. **Baseline:** v0.224.1.
 > This is the SSOT implementation plan. Its normative specification is
 > [`docs/ideation-and-research.md`](../../docs/ideation-and-research.md) — **C0 and the pure engine
@@ -241,7 +241,7 @@ No research. Ships value alone and is the phase the user feels first.
 **Exit:** a first-time user can open the board, pick a template, understand what a card kind commits
 to, and reach the backlog — without reading a guide.
 
-### C2 — Ideation becomes a Project Dashboard page
+### C2 — Ideation becomes a Project Dashboard page — **shipped v0.233.0**
 
 **Entry:** C1 shipped.
 
@@ -370,10 +370,8 @@ against the parts that did not.
 |---|---|---|
 | Audit the four scored card fields — confidence, evidence strength, risk, cost to validate | C1.4 | Each is a slider with a per-kind default and no reader anybody can point at. The audit's outcome is *wire it or remove it*, and both answers are a behaviour change that deserves its own review rather than riding along with a layout commit. |
 | Keyboard card and link creation, plus an ARIA list view of the board | C1.6 | The canvas is a custom drag surface. A genuine non-pointer path through it is a piece of work, not a pass over the markup, and shipping a half-one would be worse than the honest gap. |
-| The Ideation dashboard page | C2 | The snapshot it needs is already collected (`collectResearchSnapshot`, `readiness`), and the `ideation` page id is still reserved with no tab behind it. This is the largest remaining piece. |
-| Finding → evidence card, with provenance rendered both ways | C3.2, C3.3 | The register records `derivedCardId` and the board records `derived`; nothing yet writes the first from a finding. Small, and best done alongside C2 so it has a surface to live on. |
+| Finding → evidence card, with provenance rendered both ways | C3.2, C3.3 | The internal-register bridge in C2 deliberately does not claim external-research provenance. A research finding still needs its `sourceFindingId`, citation media, and bidirectional rendering before that chain is defensible. |
 | The automation-ladder UI and the spend projection shown before `auto` | C5.3, C5.4 | The ladder is enforced (`min(master, per-scan)`, cap stops runs) and editable in settings. What is missing is the screen that shows a projected monthly cost *before* somebody switches a scan to `auto`, which the spec requires and settings.json cannot provide. |
-| `/ideate` | C2.4 | Belongs with the dashboard page it would link to. |
 
 Two open questions from the kickoff have been decided in the code and are recorded here so the
 decision is not re-litigated from the module headers:

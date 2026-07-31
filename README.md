@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.232.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.233.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,9 +68,11 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.232.0
+## What's new in 0.233.0
 
 Since the last Marketplace publication, **v0.219.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Ideation now has a dashboard home.** **Project Dashboard → Where we stand → Ideation** shows what is on the active board, what has not reached work, what is currently on the roadmap, and any unresolved contradiction. It reads the existing Gap Analysis, Security Review, Risk, Tech Debt, and Testing Coverage registers and offers each open record as an evidence card without launching a scan. The dashboard resolves the selected record again before opening the canvas; the canvas owns the write and leaves the new card unconnected until you decide what it supports. **Open canvas** works in both directions, and `/ideate` gives the same model-free board reading in chat.
 
 - **A single button can work through the enabled testing posture.** **Fix activated testing** on the Testing Dashboard gives AtlasMind the current policy coverage and failed-report evidence, then asks it to inspect, repair, and re-run the existing relevant tests. You confirm before it starts and every tool call follows normal approvals. It will not manufacture green by disabling or weakening tests, skipping cases, lowering thresholds, altering runner setup, or treating an unavailable test environment as a pass.
 
@@ -228,7 +230,7 @@ Project Dashboard → **Workflow** is the guided eight-stage workflow: ideation,
 
 ### Keep the project organised
 
-Project Dashboard brings roadmap, issues, documents, delivery stages, privacy, risk, stakeholders, assignments, and follow-ups into one operational surface.
+Project Dashboard brings ideation, roadmap, issues, documents, delivery stages, privacy, risk, stakeholders, assignments, and follow-ups into one operational surface.
 
 ---
 
@@ -253,6 +255,7 @@ Type these in the AtlasMind chat panel as `/<command>`, or in the VS Code chat v
 | `/setup` | List every setup guide and how far along each one is |
 | `/acp` | Walk through ACP setup: name it, choose Windows console behaviour, install it, sign in, enable it, prove it answers |
 | `/followups` | Group open follow-ups by urgency |
+| `/ideate` | Read active-board state, what needs attention, and open the overview or canvas |
 | `/research` | What research scans found outside this repository, what is due, and what has never been asked |
 | `/ship [routine]` | Run the default or named project routine from project memory |
 | `/sync-instructions` | Reconcile and mirror supported AI instruction files |

@@ -262,7 +262,8 @@ import {
   parseRiskFindings,
   sanitizeRiskFindings,
 } from '../core/riskOversightManager.js';
-import type { DataPrivacyActivityEvent, DataPrivacySensitivity, DeliveryConfig, DeploymentStage, PromotionPath, PromotionHistoryEntry, ProjectDirectorConfig, ProjectRunRecord, DocumentCadence, RiskDomain, RiskFinding, RiskOversightConfig, RiskOversightHistoryEntry, RiskStatus } from '../types.js';
+import { openSecurityFindings, readSecurityReviewConfig } from '../core/securityReviewManager.js';
+import type { DataPrivacyActivityEvent, DataPrivacySensitivity, DeliveryConfig, DeploymentStage, PromotionPath, PromotionHistoryEntry, ProjectDirectorConfig, ProjectRunRecord, DocumentCadence, RiskDomain, RiskFinding, RiskOversightConfig, RiskOversightHistoryEntry, RiskStatus, SecurityFinding } from '../types.js';
 
 const execFileAsync = promisify(execFile);
 const PROJECT_DASHBOARD_VIEW_TYPE = 'atlasmind.projectDashboard';
@@ -338,6 +339,7 @@ const ALLOWED_DASHBOARD_COMMANDS = new Set([
   'atlasmind.openModelProviders',
   'atlasmind.openCostDashboard',
   'atlasmind.openProjectRunCenter',
+  'atlasmind.openProjectIdeation',
   'atlasmind.openSettings',
   'atlasmind.openSettingsProject',
   'atlasmind.openSettingsSafety',
@@ -439,6 +441,8 @@ type ProjectDashboardMessage =
   | { type: 'attachIdeationImages' }
   | { type: 'clearIdeationImages' }
   | { type: 'saveIdeationBoard'; payload: IdeationBoardPayload }
+  /** The host re-derives the candidate before opening the canvas with it. */
+  | { type: 'addIdeationEvidence'; payload: string }
   | { type: 'saveRoadmap'; payload: DashboardRoadmapSavePayload }
   | { type: 'createRoadmapGate' }
   | { type: 'deleteRoadmapGate'; payload: string }
@@ -567,10 +571,10 @@ interface DashboardStat {
  * mechanically coupled — the webview normalises any unknown id back to
  * `overview` rather than trusting it.
  *
- * `ideation` is deliberately last and has no tab: ideation is a separate panel,
- * and this id exists only so prompts raised there route to
- * `openIdeationPromptInChat`. It used to be indistinguishable from a real page,
- * so `createOrShow(..., 'ideation')` type-checked and rendered a blank dashboard.
+ * `ideation` is also a real stage-0 page. It keeps its separate canvas, but the
+ * dashboard answers the distinct question of what is on the board, what has
+ * reached the roadmap, and which existing register records are worth bringing
+ * into the conversation.
  */
 const DASHBOARD_PAGE_IDS = [
   'overview', 'score', 'gapAnalysis', 'workflow', 'roadmap', 'issues', 'pullRequests', 'director',
@@ -637,6 +641,8 @@ interface IdeationCardRecord {
   imageSources: string[];
   /** What this card became, for showing a roadmap item's origin. */
   derived?: { roadmapText: string; roadmapNormalized: string; derivedAt: string; issueNumber?: number };
+  /** Archived cards do not count as live board state. */
+  archivedAt?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -720,6 +726,27 @@ interface DashboardIdeationAttachment {
   mimeType: string;
 }
 
+type IdeationEvidenceSource = 'gap-analysis' | 'security-review' | 'risk-oversight' | 'tech-debt' | 'testing-coverage';
+
+/**
+ * An existing record the user may deliberately bring into the ideation board.
+ *
+ * This is a view model, not a second register: its text is rebuilt from the
+ * owning source whenever the dashboard refreshes, and the webview returns only
+ * its opaque id. The host resolves that id against a fresh snapshot before it
+ * opens the canvas, so a compromised or stale webview cannot manufacture a
+ * card from arbitrary text.
+ */
+interface DashboardIdeationEvidence {
+  id: string;
+  source: IdeationEvidenceSource;
+  sourceLabel: string;
+  title: string;
+  detail: string;
+  pageTarget: 'gapAnalysis' | 'security' | 'risk' | 'debt' | 'testing';
+  tone: 'accent' | 'good' | 'warn' | 'critical' | 'neutral';
+}
+
 interface DashboardIdeationSnapshot {
   boardPath: string;
   summaryPath: string;
@@ -734,6 +761,10 @@ interface DashboardIdeationSnapshot {
   updatedRelative: string;
   /** What the board can and cannot defend. A reading, never a gate. */
   readiness: IdeationReadiness;
+  /** Current roadmap items whose origin is still a live card on this board. */
+  realizedWorkCount: number;
+  /** Evidence already held by another AtlasMind register. No scan is run here. */
+  availableEvidence: DashboardIdeationEvidence[];
   /**
    * Research scan state, and `undefined` when research is switched off.
    *
@@ -2028,6 +2059,139 @@ function collectResearchSnapshot(atlas: AtlasMindContext): DashboardResearchSnap
   };
 }
 
+/**
+ * Evidence already held by AtlasMind's own registers, shaped for stage 0.
+ *
+ * This deliberately does not scan, infer, or ask a model anything. A second
+ * security or debt scanner inside Ideation would eventually disagree with the
+ * page that owns the question; the dashboard merely offers the records that
+ * already exist as cards the user can choose to bring into the board.
+ */
+function collectIdeationEvidence(input: {
+  gapItems: readonly DashboardGapAnalysisItem[];
+  securityFindings: readonly SecurityFinding[];
+  riskFindings: readonly RiskFinding[];
+  debtEntries: readonly DebtEntry[];
+  testing: TestingDashboardSnapshot;
+}): DashboardIdeationEvidence[] {
+  const entries: DashboardIdeationEvidence[] = [];
+  const usedIds = new Set<string>();
+  const clean = (value: string, limit: number): string => value
+    .replace(/[\u0000-\u001F\u007F]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, limit);
+  const nextId = (source: IdeationEvidenceSource, rawId: string, index: number): string => {
+    const token = clean(rawId, 120).replace(/[^A-Za-z0-9._:-]/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '')
+      || `item-${index + 1}`;
+    const base = `${source}:${token}`;
+    let id = base;
+    let duplicate = 2;
+    while (usedIds.has(id)) {
+      id = `${base}-${duplicate}`;
+      duplicate += 1;
+    }
+    usedIds.add(id);
+    return id;
+  };
+  const add = (
+    source: IdeationEvidenceSource,
+    sourceLabel: string,
+    rawId: string,
+    title: string,
+    detail: string,
+    pageTarget: DashboardIdeationEvidence['pageTarget'],
+    tone: DashboardIdeationEvidence['tone'],
+  ): void => {
+    const cleanTitle = clean(title, 100);
+    const cleanDetail = clean(detail, 360);
+    if (!cleanTitle || !cleanDetail) {
+      return;
+    }
+    entries.push({
+      id: nextId(source, rawId || cleanTitle, entries.length),
+      source,
+      sourceLabel,
+      title: cleanTitle,
+      detail: cleanDetail,
+      pageTarget,
+      tone,
+    });
+  };
+
+  for (const item of input.gapItems) {
+    if (item.resolved || item.type === 'praise') {
+      continue;
+    }
+    add(
+      'gap-analysis',
+      'Gap analysis',
+      item.id,
+      item.text,
+      `${item.priority} ${item.category} ${item.type}: ${item.text}`,
+      'gapAnalysis',
+      item.priority === 'P1' ? 'critical' : item.priority === 'P2' ? 'warn' : 'accent',
+    );
+  }
+
+  for (const finding of input.securityFindings) {
+    add(
+      'security-review',
+      'Security review',
+      finding.id,
+      finding.title,
+      `${finding.severity} security finding: ${finding.detail}${finding.recommendation ? ` Next: ${finding.recommendation}` : ''}`,
+      'security',
+      finding.severity === 'critical' ? 'critical' : finding.severity === 'high' ? 'warn' : 'accent',
+    );
+  }
+
+  for (const finding of input.riskFindings) {
+    add(
+      'risk-oversight',
+      'Risk oversight',
+      finding.id,
+      finding.title,
+      `${finding.domain} risk (${finding.likelihood} likelihood, ${finding.impact} impact): ${finding.detail}${finding.recommendation ? ` Next: ${finding.recommendation}` : ''}`,
+      'risk',
+      finding.impact === 'high' ? 'warn' : 'accent',
+    );
+  }
+
+  for (const entry of input.debtEntries) {
+    if (entry.status !== 'open') {
+      continue;
+    }
+    add(
+      'tech-debt',
+      'Tech debt',
+      entry.id,
+      entry.title,
+      `${entry.severity} ${entry.domain} debt at ${entry.evidencePath}${entry.evidenceLine === undefined ? '' : `:${entry.evidenceLine}`}. Rule: ${entry.rule}.`,
+      'debt',
+      entry.severity === 'high' ? 'critical' : entry.severity === 'medium' ? 'warn' : 'accent',
+    );
+  }
+
+  for (const row of input.testing.policyCoverage?.rows ?? []) {
+    const needsEvidence = row.status === 'missing' || row.status === 'tooling-only' || row.failedCount > 0;
+    if (!needsEvidence) {
+      continue;
+    }
+    add(
+      'testing-coverage',
+      'Testing coverage',
+      row.id,
+      `${row.label}: ${row.statusLabel}`,
+      `${row.detail}${row.failedCount > 0 ? ` ${row.failedCount} failing case${row.failedCount === 1 ? '' : 's'} in the latest report.` : ''}`,
+      'testing',
+      row.failedCount > 0 || row.status === 'missing' ? 'warn' : 'accent',
+    );
+  }
+
+  return entries;
+}
+
 async function collectGapAnalysisSnapshot(workspaceRoot: string | undefined, ssotPath: string, fallbackItems: DashboardGapAnalysisItem[] = []): Promise<DashboardGapAnalysisSnapshot> {
   if (!workspaceRoot) {
     return { completed: false, items: sortGapAnalysisItems(fallbackItems), lastRun: null };
@@ -2495,6 +2659,9 @@ export class ProjectDashboardPanel {
       case 'saveIdeationBoard':
         await this.saveIdeationBoard(message.payload);
         return;
+      case 'addIdeationEvidence':
+        await this.addIdeationEvidence(message.payload);
+        return;
       case 'saveRoadmap':
         await this.saveRoadmap(message.payload);
         return;
@@ -2941,6 +3108,48 @@ export class ProjectDashboardPanel {
     });
     await persistIdeationBoard(workspaceRoot, ssotPath, nextBoard, activeWorkspace);
     await touchActiveIdeationWorkspace(workspaceRoot, ssotPath, activeWorkspace.id, nextBoard.updatedAt);
+  }
+
+  /**
+   * Open the canvas with one evidence card from a register that was just read.
+   *
+   * The webview supplies only an opaque id. We rebuild the dashboard snapshot
+   * and look it up before invoking the canvas, so the page cannot turn a
+   * crafted message into a card containing arbitrary text. The canvas owns the
+   * write because it is the only board writer that preserves every current card
+   * field; the dashboard's older, intentionally narrower read model must never
+   * round-trip and erase media, tags, or card scores.
+   */
+  private async addIdeationEvidence(evidenceId: string): Promise<void> {
+    const snapshot = await collectDashboardSnapshot(
+      this.atlas,
+      this.ideationAttachments,
+      this.issuesState,
+      this.pullRequestsState,
+      this.ciState,
+      this.releaseState,
+      this.workflowConfig,
+      this.auditLedger,
+      { register: this.debtManager.get(), scanning: this.debtScanning },
+      this.reviewCommentsState,
+      this.taxonomyState,
+    );
+    const evidence = snapshot.ideation.availableEvidence.find(candidate => candidate.id === evidenceId);
+    if (!evidence) {
+      await this.postMessage({
+        type: 'ideationStatus',
+        payload: 'That evidence record changed before it could be added. Refresh the Ideation page and choose it again.',
+      });
+      return;
+    }
+
+    await vscode.commands.executeCommand('atlasmind.openProjectIdeation', {
+      evidence: {
+        sourceLabel: evidence.sourceLabel,
+        title: evidence.title,
+        detail: evidence.detail,
+      },
+    });
   }
 
   private async saveRoadmap(payload: DashboardRoadmapSavePayload): Promise<void> {
@@ -6003,6 +6212,14 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     return isIdeationBoardPayload(candidate['payload']);
   }
 
+  // The webview names only a host-built record. Its contents are always
+  // re-derived immediately before the canvas is opened, rather than trusting
+  // the page to pass through a title or body to a persisted card.
+  if (candidate['type'] === 'addIdeationEvidence') {
+    return typeof candidate['payload'] === 'string'
+      && /^(?:gap-analysis|security-review|risk-oversight|tech-debt|testing-coverage):[A-Za-z0-9._:-]{1,140}$/.test(candidate['payload']);
+  }
+
   if (candidate['type'] === 'saveRoadmap') {
     return isDashboardRoadmapSavePayload(candidate['payload']);
   }
@@ -7067,6 +7284,35 @@ async function collectDashboardSnapshot(
   });
   const researchSnapshot = collectResearchSnapshot(atlas);
   const gapAnalysis = await collectGapAnalysisSnapshot(workspaceRoot, ssotPath, heuristicGapItems);
+  // Stage 0 reads the registers that already own these questions. It does not
+  // start a security review, risk analysis, debt scan, or test discovery just
+  // because someone opened the Ideation page.
+  const securityReview = workspaceRoot ? readSecurityReviewConfig(workspaceRoot) : undefined;
+  const securityFindings = securityReview ? openSecurityFindings(securityReview) : [];
+  const roadmapWithIdeation = withIdeationOrigins(roadmapSnapshot, ideationBoard);
+  const ideationReadiness = assessIdeationReadiness({
+    cards: ideationBoard.cards.map(card => ({
+      id: card.id,
+      kind: card.kind,
+      title: card.title,
+      ...(card.archivedAt ? { archived: true } : {}),
+      ...(card.derived ? { derived: card.derived } : {}),
+    })),
+    connections: ideationBoard.connections.map(connection => ({
+      fromCardId: connection.fromCardId,
+      toCardId: connection.toCardId,
+      relation: connection.relation,
+    })),
+    roadmapItems: roadmapWithIdeation.items.map(item => ({ id: item.id, text: item.text, completed: item.completed })),
+  });
+  const ideationEvidence = collectIdeationEvidence({
+    gapItems: gapAnalysis.items,
+    securityFindings,
+    riskFindings: riskSnapshot.findings.filter(finding => finding.status === 'open'),
+    debtEntries: debt?.register.entries ?? [],
+    testing: testingSnapshot,
+  });
+  const realizedWorkCount = roadmapWithIdeation.items.filter(item => item.origin !== undefined).length;
 
   // Named rather than returned directly so the attention feed can be derived
   // from the finished snapshot — reading the same fields the pages render is
@@ -7167,7 +7413,7 @@ async function collectDashboardSnapshot(
       blockedEntries,
       delta: ssotDelta,
     },
-    roadmap: withIdeationOrigins(roadmapSnapshot, ideationBoard),
+    roadmap: roadmapWithIdeation,
     taxonomy: {
       loaded: taxonomy !== undefined,
       labels: taxonomy?.labels ?? [],
@@ -7299,20 +7545,9 @@ async function collectDashboardSnapshot(
       imageAttachments: ideationAttachments.map(attachment => ({ source: attachment.source, mimeType: attachment.mimeType })),
       updatedAt: ideationBoard.updatedAt,
       updatedRelative: formatRelativeDate(ideationBoard.updatedAt),
-      readiness: assessIdeationReadiness({
-        cards: ideationBoard.cards.map(card => ({
-          id: card.id,
-          kind: card.kind,
-          title: card.title,
-          ...(card.derived ? { derived: card.derived } : {}),
-        })),
-        connections: ideationBoard.connections.map(connection => ({
-          fromCardId: connection.fromCardId,
-          toCardId: connection.toCardId,
-          relation: connection.relation,
-        })),
-        roadmapItems: roadmapSnapshot.items.map(item => ({ id: item.id, text: item.text, completed: item.completed })),
-      }),
+      readiness: ideationReadiness,
+      realizedWorkCount,
+      availableEvidence: ideationEvidence,
       ...(researchSnapshot ? { research: researchSnapshot } : {}),
     },
     gapAnalysis,
@@ -11509,6 +11744,9 @@ function sanitizeIdeationCard(card: IdeationCardRecord): IdeationCardRecord {
     ...(card.derived !== undefined && typeof card.derived.roadmapText === 'string'
       && card.derived.roadmapText.trim() !== ''
       ? { derived: card.derived }
+      : {}),
+    ...(typeof card.archivedAt === 'string' && card.archivedAt.trim() !== ''
+      ? { archivedAt: normalizeIso(card.archivedAt) }
       : {}),
     createdAt: normalizeIso(card.createdAt),
     updatedAt: normalizeIso(card.updatedAt),

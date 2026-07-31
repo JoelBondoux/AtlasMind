@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.232.0",
+  "version": "0.233.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -124,6 +124,10 @@
           {
             "name": "research",
             "description": "What research scans have found about the world outside this repository, what is due, and what has never been asked"
+          },
+          {
+            "name": "ideate",
+            "description": "Board state, what needs attention, and links to the Ideation overview and canvas"
           },
           {
             "name": "ship",

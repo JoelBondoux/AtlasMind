@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.233.0] - 2026-07-31
+
+### Added
+- **Ideation is now a first-class Project Dashboard page.** The new **Where we stand → Ideation** tab reports active board state, cards still unrealized, current roadmap origins, contradictions, and the readiness rules that explain what needs attention. It reads the existing Gap Analysis, Security Review, Risk, Tech Debt, and Testing Coverage registers as available evidence, so opening the page starts no scan and spends no model budget.
+- **Evidence crosses from the dashboard to the canvas through a narrow, validated bridge.** The webview sends only an opaque record id; the host rebuilds the snapshot before resolving it, then the dedicated canvas creates the card. This prevents a stale or compromised dashboard from manufacturing persisted card text, preserves the full board schema, and leaves the imported evidence unconnected until a person decides what it supports.
+- **`/ideate` gives the same stage-0 reading in chat.** It reads the active board and current roadmap only, reports board state and every ranked readiness observation, then offers direct links to the Ideation overview and canvas. It never scans, invokes a model, or changes either file.
+
 ## [0.232.0] - 2026-07-31
 
 ### Added

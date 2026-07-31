@@ -89,6 +89,22 @@ Ranked by consequence:
 **It blocks nothing.** A release gate exists because a release cannot be undone; a board can always
 be edited, so a gate would be theatre with a cost. An empty board reads *unexamined* — never clear.
 
+### The dashboard overview
+
+**Project Dashboard → Where we stand → Ideation** is the stage-0 overview; the dedicated panel is
+still the canvas. The overview shows active cards, cards that have not become work, current roadmap
+origins, unresolved contradictions, and every readiness observation with the rule that produced it.
+
+It also lists open records from Gap Analysis, Security Review, Risk Oversight, Tech Debt, and
+Testing Coverage as **available evidence**. It does not run any scanner or model call. Choosing
+**Add evidence card** sends only the record's opaque id back to the host, which re-reads the current
+snapshot before handing a bounded seed to the canvas. The canvas makes the write and deliberately
+does not connect the new card: deciding what evidence supports remains a human judgement.
+
+**Open canvas** links the overview to the board, and **Ideation overview** in the canvas links back.
+`/ideate` reports the same board state and needs-attention reading in chat, with buttons for both
+surfaces; it is read-only.
+
 ---
 
 ## Research scans

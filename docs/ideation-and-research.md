@@ -314,9 +314,17 @@ Ten properties a reviewer can check, rather than principles to bear in mind.
 The research register is the inbound half. The board is where the evidence lands, and it is
 specified by three properties that were missing when it was only a whiteboard.
 
-**A stage, not a scratchpad.** Ideation is reachable as a Project Dashboard page as well as the
-full-screen canvas. The page is the stage — what is on the board, what is unrealized, what became
-work, what is contradicted, what research is due. The canvas is the canvas.
+**A stage, not a scratchpad.** Ideation is reachable as **Project Dashboard → Where we stand →
+Ideation** as well as the full-screen canvas. The page is the stage — what is on the board, what is
+unrealized, what currently has a roadmap origin, and what is contradicted. The canvas is the canvas.
+
+The page also offers *available evidence* from the five internal owners named in §1: Gap Analysis,
+Security Review, Risk Oversight, Tech Debt, and Testing Coverage. It does not run a second scanner,
+ask a model, or make a claim of its own. The webview supplies only an opaque record id; the host
+rebuilds the snapshot and resolves that id before opening the canvas, which is the sole board writer.
+The imported card is deliberately left unconnected: a record existing in a register does not by
+itself prove which board claim it supports. **Open canvas** is the one deliberate link in both
+directions. `/ideate` gives the same read-only state and readiness reading in chat.
 
 **The vocabulary is published at the point of choosing.** `KIND_PREFIX` in `ideationDerivation.ts`
 decides that a `problem` becomes `Fix: …` on the roadmap and a `risk` becomes `Mitigate: …`. That

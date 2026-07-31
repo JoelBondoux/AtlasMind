@@ -333,3 +333,17 @@ uses the standard release channel.
 The manifest is marked with `"preview": false`, `npm run publish:release`
 publishes the default stable listing, and `npm run publish:pre-release` remains
 available only if you intentionally need a prerelease build later.
+
+## Ideation dashboard implementation
+
+**Project Dashboard → Where we stand → Ideation** is a stage-0 overview, not a second canvas. Its
+snapshot combines the active ideation board, the current roadmap, and five existing evidence
+owners: Gap Analysis, Security Review, Risk Oversight, Tech Debt, and Testing Coverage. Refreshing
+the tab does not run a scanner or model call.
+
+The webview's `addIdeationEvidence` message carries only a strict opaque id. The dashboard host
+rebuilds the snapshot and resolves the id again before it opens `ProjectIdeationPanel` with a
+bounded seed. The canvas is still the sole board writer; it creates an unconnected `evidence` card
+so the bridge cannot discard fields the dashboard does not own or invent what the evidence supports.
+`tests/views/dashboardNav.test.ts` pins the tab/panel rendering contract and
+`tests/views/webviewMessages.test.ts` pins both message validators.

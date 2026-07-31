@@ -1375,11 +1375,13 @@ export function registerCommands(
       });
     }),
 
-    vscode.commands.registerCommand('atlasmind.openProjectDashboard', async () => {
+    vscode.commands.registerCommand('atlasmind.openProjectDashboard', async (target?: unknown) => {
       const atlas = requireAtlas();
       if (!atlas) { return; }
       const { ProjectDashboardPanel } = await import('./views/projectDashboardPanel.js');
-      ProjectDashboardPanel.createOrShow(atlas.extensionContext, atlas);
+      // Commands are an extension boundary too: only a known dashboard page can
+      // influence navigation, and the panel still normalises it defensively.
+      ProjectDashboardPanel.createOrShow(atlas.extensionContext, atlas, target === 'ideation' ? 'ideation' : undefined);
     }),
     vscode.commands.registerCommand('atlasmind.openProjectDirector', async () => {
       const atlas = requireAtlas();

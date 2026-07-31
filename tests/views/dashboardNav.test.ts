@@ -89,13 +89,20 @@ describe('dashboard nav definition', () => {
     }
   });
 
-  it('keeps "ideation" out of the nav while remaining a valid prompt origin', () => {
-    // Ideation is a separate panel. It must stay valid for prompt attribution
-    // (it routes to openIdeationPromptInChat) but must never be a tab: an
-    // unrenderable activePage leaves every section inactive and blanks the page.
-    expect(navPages).not.toContain('ideation');
+  it('puts ideation under Where we stand and keeps it a valid prompt origin', () => {
+    // The dashboard is the stage-0 overview; the dedicated panel remains the
+    // canvas. Both paths rely on the same page id, so it must be a genuine tab
+    // as well as a valid sourcePage for an Ask Atlas prompt.
+    expect(navPages).toContain('ideation');
+    expect(groups.find(group => group.id === 'stand')?.pages).toContain('ideation');
     expect(normalizeDashboardPromptRequest({ prompt: 'x', sourcePage: 'ideation' }))
       .toEqual({ prompt: 'x', sourcePage: 'ideation' });
+  });
+
+  it('renders the stage-0 evidence bridge without making the dashboard a board writer', () => {
+    expect(WEBVIEW_SCRIPT).toContain('function renderIdeation(snapshot)');
+    expect(WEBVIEW_SCRIPT).toContain("type: 'addIdeationEvidence'");
+    expect(WEBVIEW_SCRIPT).toContain('data-action="ideation-evidence"');
   });
 
   it('normalises an unknown activePage back to overview in the webview', () => {

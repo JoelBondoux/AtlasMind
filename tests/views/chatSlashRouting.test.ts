@@ -25,6 +25,7 @@ describe('routePanelPrompt — a slash command never reaches a model by accident
 
   it('routes a deterministic command to a replay, with its argument', () => {
     expect(routePanelPrompt('/acp')).toEqual({ kind: 'replay', command: 'acp', argument: '', raw: '/acp' });
+    expect(routePanelPrompt('/ideate')).toEqual({ kind: 'replay', command: 'ideate', argument: '', raw: '/ideate' });
     expect(routePanelPrompt('/memory  what did we decide about auth  ')).toEqual({
       kind: 'replay',
       command: 'memory',

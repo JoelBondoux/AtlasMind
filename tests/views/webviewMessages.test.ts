@@ -457,6 +457,7 @@ describe('isProjectIdeationMessage', () => {
   it('accepts valid ideation panel messages', () => {
     expect(isProjectIdeationMessage({ type: 'ready' })).toBe(true);
     expect(isProjectIdeationMessage({ type: 'refresh' })).toBe(true);
+    expect(isProjectIdeationMessage({ type: 'openIdeationDashboard' })).toBe(true);
     expect(isProjectIdeationMessage({ type: 'openCommand', payload: 'atlasmind.openProjectDashboard' })).toBe(true);
     expect(isProjectIdeationMessage({ type: 'openFile', payload: 'project_memory/ideas/atlas-ideation-board.md' })).toBe(true);
     expect(isProjectIdeationMessage({ type: 'createIdeationWorkspace' })).toBe(true);
@@ -668,6 +669,7 @@ describe('isProjectDashboardMessage', () => {
     expect(isProjectDashboardMessage({ type: 'openSession', payload: 'chat-1' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'attachIdeationImages' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'clearIdeationImages' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'addIdeationEvidence', payload: 'gap-analysis:gap-1' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'runGapAnalysis' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'fixActivatedTesting' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'addressGap', payload: 'gap-1' })).toBe(true);
@@ -723,6 +725,9 @@ describe('isProjectDashboardMessage', () => {
     expect(isProjectDashboardMessage({ type: 'runIdeationLoop', payload: { prompt: '' } })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'fixActivatedTestin' })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'saveIdeationBoard', payload: { cards: 'nope', connections: [] } })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'addIdeationEvidence', payload: '' })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'addIdeationEvidence', payload: 'not-a-source:record-1' })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'addIdeationEvidence', payload: 42 })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'addressGap', payload: '' })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'resolveGapItem', payload: '' })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'resolveGapGroup', payload: '' })).toBe(false);

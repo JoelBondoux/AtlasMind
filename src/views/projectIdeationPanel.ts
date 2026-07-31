@@ -262,6 +262,14 @@ interface PromptAttachmentRecord {
 export interface ProjectIdeationOpenTarget {
   importRunId?: string;
   feedbackMode?: 'origin' | 'new-thread';
+  /** A host-resolved dashboard record to turn into one evidence card. */
+  evidence?: { sourceLabel: string; title: string; detail: string };
+}
+
+interface IdeationEvidenceSeed {
+  sourceLabel: string;
+  title: string;
+  detail: string;
 }
 
 type IdeationImportItem =
@@ -281,6 +289,7 @@ interface IngestCanvasMediaPayload {
 type ProjectIdeationMessage =
   | { type: 'ready' }
   | { type: 'refresh' }
+  | { type: 'openIdeationDashboard' }
   | { type: 'openCommand'; payload: string }
   | { type: 'openFile'; payload: string }
   | { type: 'createIdeationWorkspace' }
@@ -404,6 +413,11 @@ export class ProjectIdeationPanel {
   }
 
   private async applyOpenTarget(target?: ProjectIdeationOpenTarget): Promise<void> {
+    const evidence = sanitizeIdeationEvidenceSeed(target?.evidence);
+    if (evidence) {
+      await this.addEvidenceSeed(evidence);
+      return;
+    }
     if (target?.importRunId) {
       if (target.feedbackMode === 'new-thread') {
         const configuration = vscode.workspace.getConfiguration('atlasmind');
@@ -436,6 +450,9 @@ export class ProjectIdeationPanel {
       case 'ready':
       case 'refresh':
         await this.syncState();
+        return;
+      case 'openIdeationDashboard':
+        await vscode.commands.executeCommand('atlasmind.openProjectDashboard', 'ideation');
         return;
       case 'openCommand':
         if (ALLOWED_IDEATION_COMMANDS.has(message.payload)) {
@@ -1007,6 +1024,64 @@ export class ProjectIdeationPanel {
     await this.syncState();
   }
 
+  /**
+   * Add one record deliberately selected on the Ideation dashboard.
+   *
+   * The dashboard passes a fresh, host-resolved seed rather than owning a
+   * second board writer. This panel keeps all card fields current and leaves
+   * the new evidence unconnected: claiming that it supports a particular
+   * problem is a judgement the user should make on the canvas, not one an
+   * import shortcut is allowed to invent.
+   */
+  private async addEvidenceSeed(seed: IdeationEvidenceSeed): Promise<void> {
+    const { workspaceRoot, ssotPath, registry, workspace, board } = await this.loadCurrentIdeationContext();
+    if (!workspaceRoot) {
+      await this.postMessage({ type: 'ideationStatus', payload: 'Open a workspace folder before adding evidence to the board.' });
+      await this.syncState();
+      return;
+    }
+    if (board.cards.length >= MAX_IDEATION_CARDS) {
+      await this.postMessage({ type: 'ideationStatus', payload: `This board already has the maximum of ${MAX_IDEATION_CARDS} cards.` });
+      await this.syncState();
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const focusCard = board.cards.find(card => card.id === board.focusCardId) ?? board.cards.at(-1);
+    const position = findAvailableIdeationPosition(board.cards, (focusCard?.x ?? 0) + 260, (focusCard?.y ?? 0) + 72);
+    const sourceTag = clampText(seed.sourceLabel.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''), 24) || 'existing-evidence';
+    const newCard: IdeationCardRecord = {
+      id: createIdeationId('card'),
+      title: seed.title,
+      body: seed.detail,
+      kind: 'evidence',
+      author: 'atlas',
+      x: position.x,
+      y: position.y,
+      color: 'storm',
+      imageSources: [],
+      media: [],
+      tags: ['existing-evidence', sourceTag],
+      confidence: 65,
+      evidenceStrength: 70,
+      riskScore: 20,
+      costToValidate: 10,
+      syncTargets: [],
+      revision: 1,
+      createdAt: now,
+      updatedAt: now,
+    };
+    board.cards.push(newCard);
+    board.focusCardId = newCard.id;
+    board.updatedAt = now;
+    await this.persistWorkspaceBoard(workspaceRoot, ssotPath, registry, workspace, board);
+    await this.postMessage({
+      type: 'ideationStatus',
+      payload: `Added an evidence card from ${seed.sourceLabel}. Link it to a claim before treating it as support.`,
+    });
+    await this.syncState();
+  }
+
   private async promoteCardToProjectRun(cardId: string): Promise<void> {
     const { ssotPath, workspace, board } = await this.loadCurrentIdeationContext();
     const card = board.cards.find(item => item.id === cardId);
@@ -1533,7 +1608,7 @@ export class ProjectIdeationPanel {
             </div>
             <div class="ideation-topbar-actions">
               <button id="ideation-refresh" class="dashboard-button dashboard-button-ghost" type="button">Refresh</button>
-              <button id="open-project-dashboard" class="dashboard-button dashboard-button-ghost" type="button">Project Dashboard</button>
+              <button id="open-project-dashboard" class="dashboard-button dashboard-button-ghost" type="button">Ideation overview</button>
               <button id="open-run-center" class="dashboard-button dashboard-button-ghost" type="button">Project Run Center</button>
             </div>
           </div>
@@ -1553,7 +1628,7 @@ export function isProjectIdeationMessage(message: unknown): message is ProjectId
   }
 
   const candidate = message as Record<string, unknown>;
-  if (candidate['type'] === 'ready' || candidate['type'] === 'refresh' || candidate['type'] === 'clearPromptAttachments' || candidate['type'] === 'createIdeationWorkspace') {
+  if (candidate['type'] === 'ready' || candidate['type'] === 'refresh' || candidate['type'] === 'openIdeationDashboard' || candidate['type'] === 'clearPromptAttachments' || candidate['type'] === 'createIdeationWorkspace') {
     return true;
   }
   if ((candidate['type'] === 'openCommand' || candidate['type'] === 'openFile') && typeof candidate['payload'] === 'string') {
@@ -1597,6 +1672,20 @@ export function isProjectIdeationMessage(message: unknown): message is ProjectId
     return true;
   }
   return false;
+}
+
+function sanitizeIdeationEvidenceSeed(value: unknown): IdeationEvidenceSeed | undefined {
+  if (typeof value !== 'object' || value === null) {
+    return undefined;
+  }
+  const candidate = value as Record<string, unknown>;
+  if (typeof candidate['sourceLabel'] !== 'string' || typeof candidate['title'] !== 'string' || typeof candidate['detail'] !== 'string') {
+    return undefined;
+  }
+  const sourceLabel = clampText(candidate['sourceLabel'], 48);
+  const title = clampText(candidate['title'], 80);
+  const detail = clampText(candidate['detail'], 320);
+  return sourceLabel && title && detail ? { sourceLabel, title, detail } : undefined;
 }
 
 function isIdeationRunPayload(value: unknown): value is IdeationRunPayload {

@@ -65,7 +65,7 @@
   };
 
   refreshButton?.addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
-  openDashboardButton?.addEventListener('click', () => vscode.postMessage({ type: 'openCommand', payload: 'atlasmind.openProjectDashboard' }));
+  openDashboardButton?.addEventListener('click', () => vscode.postMessage({ type: 'openIdeationDashboard' }));
   openRunCenterButton?.addEventListener('click', () => vscode.postMessage({ type: 'openCommand', payload: 'atlasmind.openProjectRunCenter' }));
 
   window.addEventListener('message', event => {

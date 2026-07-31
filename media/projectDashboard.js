@@ -52,6 +52,7 @@
         ['overview', 'Overview'],
         ['score', 'Score'],
         ['gapAnalysis', 'Gap Analysis'],
+        ['ideation', 'Ideation'],
       ],
     },
     {
@@ -124,9 +125,8 @@
   const DEFAULT_PAGE = 'overview';
 
   // `activePage` arrives from click payloads and from host `navigate` messages.
-  // 'ideation' is a valid DashboardPageId for prompt attribution but has no
-  // page here (it is a separate panel), so an unvalidated id could leave every
-  // section inactive and render a blank dashboard.
+  // It is normalised here rather than trusted: an unrecognised value must not
+  // leave every section inactive and render a blank dashboard.
   function normalizePageId(value) {
     return NAV_PAGE_IDS.indexOf(value) === -1 ? DEFAULT_PAGE : value;
   }
@@ -437,6 +437,15 @@
         resetScrollAfterRender = true;
       }
       render();
+      return;
+    }
+    if (action === 'ideation-evidence') {
+      // The payload is an opaque id from the just-rendered snapshot. The host
+      // re-derives it before it hands anything to the canvas, so this page
+      // cannot manufacture an evidence card from arbitrary text.
+      if (payload) {
+        vscode.postMessage({ type: 'addIdeationEvidence', payload });
+      }
       return;
     }
     if (action === 'timescale') {
@@ -1373,13 +1382,21 @@
     if (!methodologyId || !state.snapshot) {
       return;
     }
-    const config = state.snapshot.testing && state.snapshot.testing.projectTestingConfig;
-    const baseMethodologies = METHODOLOGY_DEFS.map(def => {
+    const testing = state.snapshot.testing;
+    const config = testing && testing.projectTestingConfig;
+    // The catalogue arrives in the host snapshot so this write path uses the
+    // same definitions, labels, and future additions as the renderer and
+    // Settings. A webview-local copy would quietly fall behind.
+    const baseMethodologies = getMethodologyDefinitions(testing).map(def => {
       const existing = config && config.methodologies ? config.methodologies.find(m => m.id === def.id) : undefined;
       return existing ? { ...existing } : { id: def.id, enabled: def.id === 'tdd' || def.id === 'unit' };
     });
     const updated = baseMethodologies.map(m => m.id === methodologyId ? { ...m, enabled: target.checked } : m);
-    const newConfig = { version: 1, updatedAt: new Date().toISOString(), methodologies: updated };
+    const newConfig = {
+      version: config && config.version === 2 ? 2 : 1,
+      updatedAt: new Date().toISOString(),
+      methodologies: updated,
+    };
     // Optimistically update local snapshot so re-renders stay consistent without a full refresh.
     if (state.snapshot.testing) {
       state.snapshot.testing.projectTestingConfig = newConfig;
@@ -1706,6 +1723,7 @@
         ${renderOverview(snapshot)}
         ${renderScore(snapshot)}
         ${renderGapAnalysis(snapshot)}
+        ${renderIdeation(snapshot)}
         ${renderWorkflow(snapshot)}
         ${renderRoadmap(snapshot)}
         ${renderIssues(snapshot)}
@@ -1811,6 +1829,16 @@
       set('gapAnalysis', open.length, p1 > 0 ? 'critical' : 'warn',
         `${open.length} open gap${open.length === 1 ? '' : 's'}${p1 > 0 ? `, ${p1} at P1` : ''}`);
     }
+
+    const ideation = snapshot.ideation;
+    const ideationObservations = ideation && ideation.readiness && Array.isArray(ideation.readiness.observations)
+      ? ideation.readiness.observations
+      : [];
+    const ideationAttention = ideationObservations.filter(observation =>
+      observation && (observation.tone === 'blocking' || observation.tone === 'weak' || observation.tone === 'unassessed'));
+    const ideationContradictions = ideation && ideation.readiness ? Number(ideation.readiness.contradictions) || 0 : 0;
+    set('ideation', ideationAttention.length, ideationContradictions > 0 ? 'critical' : 'warn',
+      `${ideationAttention.length} board concern${ideationAttention.length === 1 ? '' : 's'}${ideationContradictions > 0 ? `, ${ideationContradictions} contradiction${ideationContradictions === 1 ? '' : 's'}` : ''}`);
 
     if (snapshot.risk && snapshot.risk.openCount > 0) {
       set('risk', snapshot.risk.openCount, 'warn',
@@ -2202,6 +2230,107 @@
             </div>
           </article>
         </div>
+      </section>
+    `;
+  }
+
+  function renderIdeation(snapshot) {
+    const ideation = snapshot.ideation || {};
+    const readiness = ideation.readiness || {
+      activeCards: 0,
+      evidenceCards: 0,
+      unrealized: 0,
+      contradictions: 0,
+      state: 'unexamined',
+      summary: 'The ideation board has not been assessed yet.',
+      observations: [],
+    };
+    const observations = Array.isArray(readiness.observations) ? readiness.observations : [];
+    const evidence = Array.isArray(ideation.availableEvidence) ? ideation.availableEvidence : [];
+    const onRoadmap = Number(ideation.realizedWorkCount) || 0;
+    const stateLabel = readiness.state === 'argued'
+      ? 'Argument recorded'
+      : readiness.state === 'developing'
+        ? 'Still developing'
+        : 'Not yet started';
+    const stateTone = readiness.state === 'argued'
+      ? 'good'
+      : 'warn';
+    const observationTagClass = tone => (
+      tone === 'blocking' ? 'tag-critical'
+        : tone === 'good' ? 'tag-good'
+          : 'tag-warn'
+    );
+    const evidenceTagClass = tone => (
+      tone === 'critical' ? 'tag-critical'
+        : tone === 'warn' ? 'tag-warn'
+          : tone === 'good' ? 'tag-good'
+            : ''
+    );
+
+    return `
+      ${pageSectionOpen('ideation')}
+        ${renderPageIntro({
+          kicker: 'Stage 0 — Ideation',
+          title: 'Turn board notes into work you can defend',
+          summary: readiness.summary || 'Read the board, bring in evidence already held by AtlasMind, then continue the conversation on the canvas.',
+          chips: [
+            { label: stateLabel, tone: stateTone },
+            { label: `${Number(readiness.activeCards) || 0} active cards`, tone: 'accent' },
+            { label: `${onRoadmap} on roadmap`, tone: onRoadmap > 0 ? 'good' : 'warn' },
+          ],
+          action: { command: 'atlasmind.openProjectIdeation', hint: 'Open the canvas' },
+          actionLabel: 'Open canvas',
+        })}
+        <div class="panel-grid">
+          <article class="panel-card">
+            <p class="section-kicker">Board state</p>
+            <h3>What is on the board</h3>
+            <div class="metric-pills">
+              ${renderMetricPill('On board', String(Number(readiness.activeCards) || 0), { tone: (Number(readiness.activeCards) || 0) > 0 ? 'accent' : 'warn' })}
+              ${renderMetricPill('Not yet work', String(Number(readiness.unrealized) || 0), { tone: (Number(readiness.unrealized) || 0) > 0 ? 'warn' : 'good' })}
+              ${renderMetricPill('On roadmap', String(onRoadmap), { tone: onRoadmap > 0 ? 'good' : 'warn' })}
+              ${renderMetricPill('Contradictions', String(Number(readiness.contradictions) || 0), { tone: (Number(readiness.contradictions) || 0) > 0 ? 'critical' : 'good' })}
+            </div>
+            <div class="stat-detail">${escapeHtml(readiness.summary || '')}</div>
+          </article>
+          <article class="panel-card">
+            <p class="section-kicker">Needs attention</p>
+            <h3>What the board cannot yet defend</h3>
+            <div class="stack-list">
+              ${observations.length > 0 ? observations.map(observation => `
+                <div class="recent-item">
+                  <div class="row-head">
+                    <strong>${escapeHtml(observation.label || 'Board observation')}</strong>
+                    <span class="tag ${observationTagClass(observation.tone)}">${escapeHtml(observation.tone || 'needs review')}</span>
+                  </div>
+                  <div class="list-meta">${escapeHtml(observation.detail || '')}</div>
+                  <div class="stat-detail">Rule: ${escapeHtml(observation.rule || 'No rule recorded.')}</div>
+                </div>
+              `).join('') : '<div class="dashboard-empty">No readiness observations are available yet.</div>'}
+            </div>
+          </article>
+        </div>
+        <article class="panel-card">
+          <p class="section-kicker">Existing evidence</p>
+          <h3>Bring project evidence into the board</h3>
+          <div class="stat-detail">These records come from the registers that already own them. Adding one opens the canvas and creates an evidence card; it never starts a new scan.</div>
+          <div class="stack-list">
+            ${evidence.length > 0 ? evidence.map(item => `
+              <div class="recent-item">
+                <div class="row-head">
+                  <strong>${escapeHtml(item.title || 'Existing evidence')}</strong>
+                  <span class="tag ${evidenceTagClass(item.tone)}">${escapeHtml(item.sourceLabel || 'AtlasMind')}</span>
+                </div>
+                <div class="list-meta">${escapeHtml(item.detail || '')}</div>
+                <div class="tag-row">
+                  <button type="button" class="action-link primary" data-action="ideation-evidence" data-payload="${escapeAttr(item.id || '')}">Add evidence card</button>
+                  <button type="button" class="action-link" data-action="page" data-payload="${escapeAttr(item.pageTarget || 'overview')}">View source</button>
+                </div>
+              </div>
+            `).join('') : '<div class="dashboard-empty">No unresolved register evidence is available right now. This page did not run a scan to reach that result.</div>'}
+          </div>
+        </article>
       </section>
     `;
   }

@@ -462,6 +462,22 @@ All shared interfaces live in `src/types.ts`. Key types include:
 | `McpServerConfig` | Server ID, transport type, command/args or URL |
 | `SkillExecutionContext` | All workspace APIs injected into skill handlers |
 
+## Dashboard stage-0 ideation
+
+`ProjectDashboardPanel` now renders **Ideation** under **Where we stand**. It reuses the active
+board, its `assessIdeationReadiness` result, and the current roadmap to report active cards,
+unrealized work, live roadmap origins, and contradictions. This is a real `DASHBOARD_PAGE_IDS`
+page, not only a prompt-origin id; `dashboardNav.test.ts` keeps the nav and panel list aligned.
+
+The page also reads open Gap Analysis, Security Review, Risk Oversight, Tech Debt, and Testing
+Coverage records as *available evidence*. It never runs a second internal scan. The webview may
+send only a validated opaque evidence id; the host rebuilds the snapshot, resolves the candidate
+again, and opens the dedicated Ideation panel with a bounded seed. `ProjectIdeationPanel` remains
+the only board writer and creates an unconnected evidence card, so neither a tampered dashboard
+message nor the narrower dashboard card view can invent content, a relationship, or erase fields.
+`/ideate` uses the same read-only board/roadmap reading and provides links to the overview and
+canvas.
+
 ## Security Boundaries
 
 ```text

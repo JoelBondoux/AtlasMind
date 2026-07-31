@@ -6,6 +6,14 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.233.0 — Ideation has a home on the dashboard
+
+**Ideation is now visible as stage 0 in Project Dashboard → Where we stand.** The overview reports what is on the active board, what has not yet become work, which live roadmap items still carry a board origin, and unresolved contradictions. Its readiness observations publish the rule that produced each concern, so an empty board reads as unstarted rather than clean.
+
+**Existing project evidence can enter the board without another scan.** Open Gap Analysis, Security Review, Risk, Tech Debt, and Testing Coverage records are offered as evidence cards. The dashboard sends only an opaque id, re-resolves it host-side, and hands the actual write to the canvas, which preserves the complete board record and does not invent a supporting connection.
+
+**`/ideate` reads the same state without changing it.** It reports the board and needs-attention reading, then offers the dashboard overview and canvas. It runs no scan and invokes no model.
+
 ## v0.232.0 — Testing guidance, first tests, and a green repair loop
 
 **The Testing Dashboard can now fix the activated strategy as one coherent task.** Its **Fix activated testing** button is host-confirmed and passes the current enabled-policy coverage, existing scripts, and report failures to the normal approval-gated Atlas task. The agent must inspect before it changes anything, runs only relevant existing test commands, and re-verifies the affected surfaces. It cannot achieve a false green result by disabling or skipping tests, weakening assertions, lowering thresholds, changing runner configuration, adding dependencies, or declaring a missing environment successful.
