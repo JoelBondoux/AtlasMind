@@ -6,6 +6,13 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.230.1 — Keep mutation sandboxes out of the VSIX
+
+VSIX packaging now excludes Stryker's local `.stryker-tmp/` sandbox, the
+separate `test/`, `e2e/`, and `performance/` directories, and the mutation
+configuration itself. A local mutation run therefore cannot turn thousands of
+disposable test files into extension payload.
+
 ## v0.230.0 — Quiet ACP sessions, without hiding the trade-off
 
 The testing baseline now includes a real `fast-check` property test in the normal

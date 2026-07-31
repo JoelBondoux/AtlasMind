@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.230.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.230.1</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,9 +68,11 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.230.0
+## What's new in 0.230.1
 
 Since the last Marketplace publication, **v0.219.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **The packaged extension now excludes mutation-test sandboxes and all test-only directories.** A local Stryker run can create thousands of temporary files; they remain local rather than inflating a VSIX built from the same workspace.
 
 - **ACP no longer boots a coding-agent process tree for every answer.** The routed adapter keeps a successful session alive for up to 30 idle minutes and sends only the exact transcript suffix the remote session has not seen. Reuse is refused on a branch/edit, agent or cwd change, model/effort change, MCP or isolation change, launch-mode change, instruction/settings-file change, exit, or idle expiry. Identical concurrent calls share one in-flight prompt, and a 15-second result ledger absorbs transport-style retries — an uncertain prompt is never sent twice.
 

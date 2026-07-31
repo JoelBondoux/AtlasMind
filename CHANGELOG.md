@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.230.1] - 2026-07-31
+
+### Fixed
+- **VSIX packaging excludes local mutation-test sandboxes and test-only directories.** `.vscodeignore` now removes `.stryker-tmp/`, the separate `test/`, `e2e/`, and `performance/` trees, plus the Stryker configuration, so a package built after mutation testing cannot accidentally include disposable source copies.
+
 ## [0.230.0] - 2026-07-31
 
 ### Added
