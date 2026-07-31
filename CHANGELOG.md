@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.233.2] - 2026-07-31
+
+### Fixed
+- **Whole-project assessments now route as the broad reasoning tasks they are.** Short prompts such as “give me an honest assessment of my project so far” receive a deterministic high-reasoning floor, even when the optional classifier underestimates them. Among otherwise adequate candidates, AtlasMind now prefers real local or active subscription-backed capacity over a pay-per-token model whose only advantage is a small speed-score lead; weak local models still cannot displace a capable reasoner for review, planning, or synthesis.
+- **A zero-output model turn can no longer masquerade as “Answered from context.”** Empty completions now carry an explicit failure summary and recovery question, with **Retry** (using available local or subscription-backed capacity) and **Provider status** reply chips. The Chat webview refuses its old generic thought-summary fallback, and both custom and native chat surfaces receive the recovery choices.
+
 ## [0.233.1] - 2026-07-31
 
 ### Fixed

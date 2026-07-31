@@ -54,6 +54,16 @@ const SUBSCRIPTION_MAINTENANCE_BONUS = 0.5;
  */
 const ACTIVE_SUBSCRIPTION_BONUS = 0.3;
 /**
+ * Stronger preference for capacity whose marginal token cost is already zero:
+ * a real local/free model, or an active subscription with allowance remaining.
+ *
+ * This is deliberately conditional on task adequacy. A tiny local chat model
+ * must not displace a capable paid reasoner for architecture or planning merely
+ * because it is free, but an adequate local/subscription model should not lose
+ * an ordinary turn to a fast pay-per-token model by a few tenths of a point.
+ */
+const ZERO_MARGINAL_COST_ADEQUACY_BONUS = 1.25;
+/**
  * Providers that support prompt caching (a stable prompt prefix is billed at a
  * reduced cache-read rate on subsequent turns). A model is treated as
  * cache-capable if its `supportsPromptCaching` flag is set or its provider is
@@ -953,10 +963,11 @@ export class ModelRouter {
 
     const localBonus = this.scoreLocalPreference(model, taskProfile);
     const subscriptionBonus = this.scoreActiveSubscriptionPreference(model);
+    const zeroMarginalCostBonus = this.scoreZeroMarginalCostAdequacy(model, taskProfile);
     const outcomeBias = this.scoreOutcomeBias(model.id, taskProfile);
     const strugglePenalty = this.scoreStrugglePenalty(model.id, taskProfile);
 
-    return (cheapness * budgetWeight) + (speedProxy * speedWeight) + (qualityProxy * qualityWeight) + taskFit + healthWeight + preferenceBias + localBonus + subscriptionBonus + outcomeBias - strugglePenalty;
+    return (cheapness * budgetWeight) + (speedProxy * speedWeight) + (qualityProxy * qualityWeight) + taskFit + healthWeight + preferenceBias + localBonus + subscriptionBonus + zeroMarginalCostBonus + outcomeBias - strugglePenalty;
   }
 
   /**
@@ -999,6 +1010,33 @@ export class ModelRouter {
     const quota = this.subscriptionQuotaForModel(model.id);
     const hasQuota = !quota || quota.remainingRequests > 0;
     return hasQuota ? ACTIVE_SUBSCRIPTION_BONUS : 0;
+  }
+
+  /**
+   * Prefer already-paid-for capacity when it is capable enough for this task.
+   * Required capabilities have already been enforced by `getCandidateModels`;
+   * this additional reasoning floor prevents "free" from becoming a quality
+   * override on broad review, planning, and synthesis work.
+   */
+  private scoreZeroMarginalCostAdequacy(model: ModelInfo, taskProfile?: TaskProfile): number {
+    const provider = this.providers.get(model.provider);
+    const pricing = provider?.pricingModel ?? 'pay-per-token';
+    const isRealFreeModel = pricing === 'free' && !isBuiltinLocalEchoModel(model);
+    const quota = pricing === 'subscription' ? this.subscriptionQuotaForModel(model.id) : undefined;
+    const isActiveSubscription = pricing === 'subscription' && (!quota || quota.remainingRequests > 0);
+
+    if (!isRealFreeModel && !isActiveSubscription) {
+      return 0;
+    }
+
+    const needsReasoningDepth = taskProfile?.reasoning === 'high'
+      || taskProfile?.phase === 'planning'
+      || taskProfile?.phase === 'synthesis';
+    if (needsReasoningDepth && getReasoningDepth(model) < 2) {
+      return 0;
+    }
+
+    return ZERO_MARGINAL_COST_ADEQUACY_BONUS;
   }
 
   private scoreLocalPreference(model: ModelInfo, taskProfile?: TaskProfile): number {

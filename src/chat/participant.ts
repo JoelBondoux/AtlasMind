@@ -684,7 +684,9 @@ async function handleNativeChatRequest(
   return {
     metadata: {
       command: request.command ?? 'freeform',
-      ...(assistantMeta.suggestedFollowups ? { suggestedFollowups: assistantMeta.suggestedFollowups } : {}),
+      ...((assistantMeta.suggestedFollowups ?? assistantMeta.quickReplies)
+        ? { suggestedFollowups: assistantMeta.suggestedFollowups ?? assistantMeta.quickReplies }
+        : {}),
     },
   };
 }
@@ -3575,6 +3577,9 @@ export function ensureAssistantVisibleResponse(
 
   const followupQuestion = metadata?.followupQuestion?.trim();
   if (followupQuestion) {
+    if (metadata?.quickReplies?.length) {
+      return `${followupQuestion}\n\nChoose an option below, or type a different response.`;
+    }
     return `${followupQuestion}\n\nSay "Proceed" to continue, or pick a follow-up option below.`;
   }
 
@@ -3920,15 +3925,20 @@ export function buildQuickReplyPayload(responseText: string | undefined): Webvie
 
 export function buildAssistantResponseMetadata(
   prompt: string,
-  result: Pick<TaskResult, 'agentId' | 'modelUsed' | 'costUsd' | 'inputTokens' | 'outputTokens' | 'artifacts' | 'contextCompressionSavingsUsd' | 'iterationLimitHit' | 'suggestedIterationLimit' | 'suggestedToolCallsPerTurnLimit'>,
+  result: Pick<TaskResult, 'agentId' | 'modelUsed' | 'costUsd' | 'inputTokens' | 'outputTokens' | 'artifacts' | 'autoDisabledProvider' | 'contextCompressionSavingsUsd' | 'iterationLimitHit' | 'suggestedIterationLimit' | 'suggestedToolCallsPerTurnLimit'>,
   options?: { hasSessionContext?: boolean; imageAttachments?: TaskImageAttachment[]; routingContext?: Record<string, unknown>; policies?: SessionPolicySnapshot[]; responseText?: string },
 ): SessionTranscriptMetadata {
   const toolCallCount = result.artifacts?.toolCallCount ?? 0;
   const toolCalls = result.artifacts?.toolCalls ?? [];
+  const responseWasEmpty = options?.responseText !== undefined && options.responseText.trim().length === 0;
 
   // Build a concise, action-oriented summary line.
   let summary: string;
-  if (toolCallCount > 0) {
+  if (responseWasEmpty) {
+    summary = result.autoDisabledProvider
+      ? `${result.autoDisabledProvider.displayName} stopped before returning an answer.`
+      : 'No usable answer was returned.';
+  } else if (toolCallCount > 0) {
     const actionSummary = toolCalls.length > 0 ? summarizeToolActionsForDisplay(toolCalls) : '';
     summary = actionSummary
       ? `Used ${toolCallCount} tool call${toolCallCount === 1 ? '' : 's'} — ${actionSummary}.`
@@ -3943,6 +3953,14 @@ export function buildAssistantResponseMetadata(
   if (toolCallCount > 0) {
     const actionDetail = toolCalls.length > 0 ? ` — ${summarizeToolActionsForDisplay(toolCalls)}` : '';
     bullets.push(`${toolCallCount} tool call${toolCallCount === 1 ? '' : 's'}${actionDetail}.`);
+  }
+
+  if (result.autoDisabledProvider) {
+    bullets.push(
+      result.autoDisabledProvider.failoverModelUsed
+        ? `${result.autoDisabledProvider.displayName} was paused; failover attempted with ${result.autoDisabledProvider.failoverModelUsed}.`
+        : `${result.autoDisabledProvider.displayName} was paused and no fallback model completed the request.`,
+    );
   }
 
   // Context factors
@@ -3985,12 +4003,34 @@ export function buildAssistantResponseMetadata(
   // Cost/token detail — kept last; concise so it doesn't dominate the summary
   bullets.push(`${formatCost(result.costUsd, 4)} · ${result.inputTokens.toLocaleString()} in / ${result.outputTokens.toLocaleString()} out`);
 
-  const suggestedFollowups = buildSuggestedExecutionFollowups(prompt, options?.routingContext ?? {});
+  const suggestedFollowups = responseWasEmpty
+    ? undefined
+    : buildSuggestedExecutionFollowups(prompt, options?.routingContext ?? {});
   const timelineNotes = buildTimelineNotes(options?.routingContext ?? {});
+
+  const emptyResponseRecovery = responseWasEmpty
+    ? {
+      followupQuestion: result.autoDisabledProvider
+        ? `${result.autoDisabledProvider.displayName} returned no answer. What should Atlas do next?`
+        : 'The model returned no usable answer. What should Atlas do next?',
+      quickReplies: [
+        {
+          label: result.autoDisabledProvider ? 'Retry elsewhere' : 'Retry',
+          prompt: 'Retry my previous request using available local or subscription-backed capacity. If no eligible model is available, explain why.',
+          description: 'Retry without selecting the failed pay-per-token route.',
+        },
+        {
+          label: 'Provider status',
+          prompt: 'Show which model providers are currently eligible and explain why the previous request failed.',
+          description: 'Review routing eligibility and the provider failure.',
+        },
+      ],
+    } satisfies Pick<SessionTranscriptMetadata, 'followupQuestion' | 'quickReplies'>
+    : undefined;
 
   // Detect quick-reply opportunities from the response text. These take lower
   // priority than the explicit suggestedFollowups (fix/explain/autonomous choices).
-  const responseQuickReplies = !suggestedFollowups && options?.responseText
+  const responseQuickReplies = !emptyResponseRecovery && !suggestedFollowups && options?.responseText
     ? detectResponseQuickReplies(options.responseText)
     : undefined;
 
@@ -4003,7 +4043,9 @@ export function buildAssistantResponseMetadata(
       : {}),
     ...(options?.policies?.length ? { policies: options.policies.map(policy => ({ ...policy })) } : {}),
     ...(timelineNotes.length ? { timelineNotes } : {}),
-    ...(suggestedFollowups
+    ...(emptyResponseRecovery
+      ? emptyResponseRecovery
+      : suggestedFollowups
       ? {
         followupQuestion: FOLLOWUP_FIX_QUESTION,
         suggestedFollowups,

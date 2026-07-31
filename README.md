@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.233.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.233.2</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,9 +68,11 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.233.1
+## What's new in 0.233.2
 
 Since the last Marketplace publication, **v0.219.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Project assessments now use the capacity you already have, and empty answers fail visibly.** Whole-project review prompts receive a high-reasoning profile instead of being mistaken for trivial chat. Adequate local or subscription-backed models are preferred over a metered provider that is merely a little faster. If every recovery attempt still produces no answer, Chat says that directly and offers **Retry** and **Provider status** chips instead of claiming it answered from context or asking you to type “Proceed.”
 
 - **Ideation now has a dashboard home.** **Project Dashboard → Where we stand → Ideation** shows what is on the active board, what has not reached work, what is currently on the roadmap, and any unresolved contradiction. It reads the existing Gap Analysis, Security Review, Risk, Tech Debt, and Testing Coverage registers and offers each open record as an evidence card without launching a scan. The dashboard resolves the selected record again before opening the canvas; the canvas owns the write and leaves the new card unconnected until you decide what it supports. **Open canvas** works in both directions, and `/ideate` gives the same model-free board reading in chat.
 

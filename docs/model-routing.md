@@ -16,7 +16,7 @@ AtlasMind can also perform one bounded escalation during execution when the curr
 
 **Correction turns are never downgraded.** When the user's message disputes or corrects the assistant's previous answer (`isUserCorrectionTurn` — e.g. "that's not correct", "no, that's wrong", "you got it wrong", "are you sure?", "re-check that"), AtlasMind treats the turn as high-stakes: it forces the task profile to **high** reasoning, prefers a reasoning-capable model, and escalates the routing budget/speed (`budgetForCorrection`: `cheap → balanced`, otherwise `→ expensive`; speed `→ considered`). This prevents a pushback against a wrong answer from being silently routed to the cheapest/local model — the failure mode where a flaky local model returned an empty completion when challenged.
 
-**Empty completions trigger escalation, not a blank turn.** If the selected model returns a completion with no usable content (zero output tokens / blank text and no tool calls), AtlasMind no longer re-prompts the *same* model (a weak/flaky local model tends to return empty again). Instead the self-recovery path records the empty result as a model failure (so routing avoids it this session) and retries on an **escalated, reasoning-class model** via `selectEscalatedModel`, falling back to the original model only when nothing better is available. An empty answer is treated as a failure to recover from, never surfaced as the assistant's reply.
+**Empty completions trigger escalation, not a blank turn.** If the selected model returns a completion with no usable content (zero output tokens / blank text and no tool calls), AtlasMind no longer re-prompts the *same* model (a weak/flaky local model tends to return empty again). Instead the self-recovery path records the empty result as a model failure (so routing avoids it this session) and retries on an **escalated, reasoning-class model** via `selectEscalatedModel`, falling back to the original model only when nothing better is available. If bounded recovery still cannot produce an answer, transcript metadata records **No usable answer was returned** and exposes **Retry** plus **Provider status** choices; zero output is never relabelled as “Answered from context.”
 
 For action-oriented workspace requests, AtlasMind also distinguishes between evidence-gathering and follow-through. Prompts that ask Atlas to wire, integrate, configure, support, add, update, fix, or otherwise implement behavior are now biased more aggressively toward direct execution, and after successful read-only evidence gathering AtlasMind issues one stronger follow-through reprompt before accepting a summary-only answer. Verification-style follow-ups such as asking whether a change actually happened now also trigger a repository-backed check, and investigation stalling like “I need to check” is treated as a retry signal rather than an acceptable final answer.
 
@@ -80,6 +80,7 @@ Examples:
 - Freeform chat requests that mention supported workspace image paths are upgraded to vision requests, and the `/vision` chat command can explicitly attach selected workspace images to compatible provider adapters.
 - Important thread-based follow-up prompts such as "based on the chat thread" or other high-stakes carry-forward requests are profiled more aggressively so AtlasMind can escalate away from weak local models on later turns.
 - Open-ended triage/advisory prompts ("what should we work on next?", "is there anything incomplete?", "what would you recommend?") are profiled as **high** reasoning. They look short but require whole-project reasoning, so without this they fell through to `low` and were routed to the cheapest (often sub-10B) model. Mechanical follow-ups (e.g. "commit") remain low/medium.
+- Whole-project assessment/evaluation/review prompts (for example, "give me an honest assessment of my project so far") also have a deterministic **high**-reasoning floor. This floor is applied after classification, so an optional classifier cannot downgrade a broad workspace synthesis merely because the request is short.
 
 ## Specialist Intent Routing
 
@@ -132,6 +133,7 @@ Specialist routing has **no override setting**. `atlasmind.specialistRoutingOver
      + taskFit(profile, model)
      + healthBonus(provider)
      + feedbackBias(model)
+     + zeroMarginalCostAdequacy(model, profile)
      + outcomeBias(model, reasoningTier)        // decaying EWMA of execution quality
      − strugglePenalty(model, taskSignature)    // persistent, decaying de-weight
 8. Struggle tier-escape: if the top pick has repeatedly struggled on THIS task
@@ -194,7 +196,7 @@ Notes:
 - Stale failure records (older than `MODEL_FAILURE_TTL_MS` = 5 min) are cleared automatically so transient errors don't permanently suppress providers.
 - Subscription models pass the `balanced` budget gate only when `premiumRequestMultiplier ≤ 2`; high-premium models (Opus-tier, 3×) are excluded from `balanced` mode to avoid silent credit over-spend.
 - Under `auto` budget with a high-reasoning task, all price tiers (including cheap) remain candidates; scoring penalises models with low `reasoningDepth` instead of hard-gating them out, so capable local reasoners (e.g. DeepSeek R1) can win when they outscore cloud alternatives.
-- Cheapness is intentionally normalized so free or subscription-backed models stay attractive without automatically overruling stronger reasoning and task-fit signals in balanced routing, but `cheap` mode now gives effective cost a much stronger score multiplier inside its eligible pool.
+- Cheapness is intentionally normalized so free or subscription-backed models stay attractive without automatically overruling stronger reasoning and task-fit signals in balanced routing. An additional bounded zero-marginal-cost adequacy bonus lets a real local model or active subscription win an ordinary near-tie over pay-per-token capacity; on review, planning, or synthesis it applies only when the candidate has sufficient reasoning depth. `cheap` mode still gives effective cost a much stronger score multiplier inside its eligible pool.
 - `fast` mode likewise gives speed a much stronger score multiplier after the fast-tier gate has been applied.
 - `feedbackBias` is intentionally capped and smoothed so a few votes can nudge future routing without overpowering hard gates or the core budget/speed/task-fit score.
 - `atlasmind.feedbackRoutingWeight` scales that bounded `feedbackBias` multiplier without changing the stored vote history. Setting it to `0` disables feedback-weighted routing while preserving dashboard analytics and transcript votes.

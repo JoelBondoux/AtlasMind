@@ -1694,10 +1694,14 @@ describe('panel refresh flows', () => {
 
     expect(updateMessage).toHaveBeenLastCalledWith(
       'assistant-1',
-      expect.stringMatching(/continue|proceed|paused/i),
+      expect.stringMatching(/no usable answer|choose an option/i),
       'chat-1',
       expect.objectContaining({
         modelUsed: 'copilot/openai-o3-mini',
+        quickReplies: expect.arrayContaining([
+          expect.objectContaining({ label: 'Retry' }),
+          expect.objectContaining({ label: 'Provider status' }),
+        ]),
       }),
     );
   });

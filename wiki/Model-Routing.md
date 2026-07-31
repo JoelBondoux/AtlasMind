@@ -31,7 +31,9 @@ AtlasMind can also perform one bounded escalation during execution when the curr
 
 **Correction turns are never downgraded.** When the user disputes or corrects the assistant's previous answer ("that's not correct", "no, that's wrong", "you got it wrong", "are you sure?", "re-check that"), the turn is treated as high-stakes: high reasoning, reasoning-capable model preferred, and an escalated budget/speed. A pushback against a wrong answer is never silently routed to the cheapest/local model.
 
-**Empty completions trigger escalation, not a blank turn.** If a model returns no usable content (zero output tokens, no tool calls), AtlasMind does not re-prompt the same (often flaky/local) model — it records the empty result as a failure and retries on an escalated, reasoning-class model, surfacing a real answer instead of a blank reply.
+**Empty completions trigger escalation, not a blank turn.** If a model returns no usable content (zero output tokens, no tool calls), AtlasMind does not re-prompt the same (often flaky/local) model — it records the empty result as a failure and retries on an escalated, reasoning-class model. If bounded recovery still yields nothing, the transcript says so and offers **Retry** and **Provider status** choices; it never converts zero output into “Answered from context.”
+
+**Whole-project assessments are high-reasoning work even when the sentence is short.** Assessment, evaluation, review, and “where does this project stand?” prompts receive a deterministic high-reasoning floor that an optional classifier cannot lower. Among capable candidates, a bounded adequacy bonus prefers real local or active subscription-backed capacity over pay-per-token capacity that is only marginally faster; review, planning, and synthesis candidates must still meet a reasoning-depth floor.
 
 For action-oriented workspace requests, AtlasMind also distinguishes between evidence-gathering and follow-through. Prompts that ask Atlas to wire, integrate, configure, support, add, update, fix, or otherwise implement behavior are now biased more aggressively toward direct execution, and after successful read-only evidence gathering AtlasMind issues one stronger follow-through reprompt before accepting a summary-only answer. Verification-style follow-ups such as asking whether a change actually happened now also trigger a repository-backed check, and investigation stalling like “I need to check” is treated as a retry signal rather than an acceptable final answer.
 
@@ -341,7 +343,7 @@ Each candidate is scored using:
 ```
 score = (cheapness × budgetWeight) + (speedProxy × speedWeight)
       + (qualityProxy × qualityWeight) + taskFit + healthBonus + feedbackBias
-      + outcomeBias − strugglePenalty
+      + zeroMarginalCostAdequacy + outcomeBias − strugglePenalty
 ```
 
 | Factor | How it's computed |
@@ -352,6 +354,7 @@ score = (cheapness × budgetWeight) + (speedProxy × speedWeight)
 | **Task fit** | Bonus for matching preferred capabilities and task phase |
 | **Health bonus** | +1.25 for healthy providers, 0 for unhealthy |
 | **Feedback bias** | Small capped adjustment derived from stored thumbs up/down history for that exact `modelUsed` id |
+| **Zero-marginal-cost adequacy** | Bounded bonus for a real local/free model or active subscription with capacity remaining; broad review, planning, and synthesis require reasoning depth ≥ 2 before the bonus applies |
 | **Outcome bias** | Decaying EWMA of graded execution quality, bucketed per reasoning tier — nudges toward models that perform well |
 | **Struggle penalty** | Persistent, decaying **de-weight** for a model that repeatedly fails *this kind of task* — see [Model-Struggle Memory](#model-struggle-memory) |
 

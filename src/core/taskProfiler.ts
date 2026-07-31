@@ -30,6 +30,26 @@ const OPEN_ENDED_ADVISORY_HINTS = new RegExp(
   'i',
 );
 
+/**
+ * Whole-project assessments are broad review tasks even when their wording is
+ * short. "Give me an honest assessment of my project so far" previously missed
+ * both `assess` (because "assessment" has no word boundary after "assess") and
+ * the next-work advisory patterns, so the deterministic profile — and an
+ * occasionally over-confident classifier — labelled it low reasoning.
+ *
+ * Keep this separate from the general medium `assess` cue: assessing one named
+ * value can be narrow, while judging a project/repository "overall" necessarily
+ * asks the model to synthesize evidence across the workspace.
+ */
+const PROJECT_WIDE_ASSESSMENT_HINTS = new RegExp(
+  [
+    /\b(?:(?:honest|candid|critical|overall|current)\s+)?(?:assessment|evaluation|review|appraisal)\s+of\s+(?:(?:my|our|the|this)\s+)?(?:project|workspace|repo(?:sitory)?|codebase)(?:\s+(?:so\s+far|overall|as\s+(?:it|things)\s+stand))?\b/.source,
+    /\b(?:assess|evaluate|review)\s+(?:(?:my|our|the|this)\s+)?(?:project|workspace|repo(?:sitory)?|codebase)(?:\s+(?:so\s+far|overall|as\s+a\s+whole|as\s+(?:it|things)\s+stand))\b/.source,
+    /\bwhere\s+(?:(?:does|do|is|are)\s+)?(?:(?:my|our|the|this)\s+)?(?:project|workspace|repo(?:sitory)?|codebase)\s+stands?\b/.source,
+  ].join('|'),
+  'i',
+);
+
 const CONTEXTUAL_FOLLOWUP_HINTS = /\b(based\s+on\s+(this|the|our)\s+(chat|thread|conversation|discussion)|from\s+(this|the|our)\s+(chat|thread|conversation|discussion)|using\s+(this|the|our)\s+(chat|thread|conversation|discussion)|given\s+(this|the|our)\s+(chat|thread|conversation|discussion)|given\s+the\s+above|based\s+on\s+the\s+above|from\s+the\s+above|earlier\s+in\s+(the\s+)?(chat|thread|conversation)|previous\s+messages|prior\s+messages|conversation\s+so\s+far|thread\s+so\s+far)\b/i;
 
 // Mechanical git/build operations that stay low-reasoning regardless of prior conversation
@@ -58,7 +78,12 @@ export class TaskProfiler {
     const hasSessionContext = sessionContextText.trim().length > 0;
     const reasoning: TaskReasoning = (input.phase === 'planning' || input.phase === 'synthesis')
       ? 'high'
-      : classification?.reasoning ?? inferReasoning(combinedText, input.userMessage, sessionContextText, input.phase, modality, hasSessionContext);
+      // This is a deterministic floor, not a replacement for classification.
+      // A whole-project review cannot become a low-reasoning turn merely because
+      // the classifier saw a short sentence.
+      : PROJECT_WIDE_ASSESSMENT_HINTS.test(input.userMessage)
+        ? 'high'
+        : classification?.reasoning ?? inferReasoning(combinedText, input.userMessage, sessionContextText, input.phase, modality, hasSessionContext);
     const requiredCapabilities = new Set<ModelCapability>();
     const preferredCapabilities = new Set<ModelCapability>(['chat']);
 

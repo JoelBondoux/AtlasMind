@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.233.2 — Honest routing and honest empty states
+
+**Whole-project assessment prompts now carry a high-reasoning floor.** AtlasMind no longer treats a short request for an overall project assessment as low-effort chat, and adequate local or active subscription-backed capacity wins over a pay-per-token route whose only edge is a small speed-score difference. Capability still comes first for broad review, planning, and synthesis.
+
+**An empty completion is reported as an empty completion.** The transcript no longer turns zero output into “Answered from context.” If bounded recovery cannot produce an answer, Chat asks what to do next and renders **Retry** and **Provider status** chips; the retry explicitly prefers available local or subscription-backed capacity.
+
 ## v0.233.1 — Activated-testing repair is visible
 
 **A testing repair no longer goes quiet after confirmation.** The Testing Dashboard now keeps an indeterminate activity indicator and a concise sequence of actual routing and approved-tool updates while the normal approval-gated task runs. It retains a completed or failed outcome with the reported output, and it never labels completion green without fresh test evidence.
