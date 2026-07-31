@@ -13,8 +13,6 @@ import {
   ACP_SETUP_URL,
   ACP_PROVIDER_BRIDGES,
   ACP_PROVIDER_ID,
-  ACP_EFFORT_RULE_NOTE,
-  ACP_MODEL_RULE_NOTE,
   parseAcpAgentSettings,
   isAcpConsoleModeChosen,
   resetAcpProbeCache,
@@ -32,6 +30,10 @@ import { formatCost } from '../core/currencyFormatter.js';
 const AZURE_OPENAI_ENDPOINT_SETTING = 'azureOpenAiEndpoint';
 const AZURE_OPENAI_DEPLOYMENTS_SETTING = 'azureOpenAiDeployments';
 const COPILOT_MULTIPLIER_SYNC_STORAGE_KEY = 'atlasmind.copilotMultiplierSync';
+/** User-facing labels only — ACP does not disclose a subscription tier or balance. */
+const ACP_SUBSCRIPTION_PLAN_STORAGE_KEY = 'atlasmind.acpSubscriptionPlans';
+const SUBSCRIPTION_QUOTA_STORAGE_KEY = 'atlasmind.subscriptionQuota';
+const MAX_ACP_PLAN_LABEL_LENGTH = 160;
 
 export const PROVIDER_IDS: readonly ProviderId[] = [
   // First-party model providers
@@ -214,7 +216,7 @@ export class ModelProviderPanel {
         detailsHtml: providerId === 'local'
           ? getLocalEndpointDetailsHtml()
           : isSubscriptionProvider(providerId)
-            ? getSubscriptionDetailsHtml(providerId, this.atlas)
+            ? getSubscriptionDetailsHtml(providerId, this.context, this.atlas)
             : undefined,
       });
     }));
@@ -879,7 +881,7 @@ export function subscriptionButtonLabel(providerId: ProviderId, displayName: str
 
 function subscriptionButtonTooltip(providerId: ProviderId, displayName: string): string {
   return providerId === ACP_PROVIDER_ID
-    ? 'Set the plan behind one of your ACP agents. Each agent is billed against its own subscription — Claude and ChatGPT are bought separately — so this asks which one first.'
+    ? 'Record the subscription behind one of your configured ACP agents. The list is taken from your current ACP configuration, so Gemini and custom agents appear when configured.'
     : `Set your ${displayName} plan tier and monthly allowance.`;
 }
 
@@ -959,52 +961,43 @@ const COPILOT_TIERS: SubscriptionTier[] = [
   { label: 'Copilot Enterprise', description: 'Org-pooled AI credits — $39/seat/month (enter org total)',           totalRequests: 3900,  monthlyCostUsd: 39 },
 ];
 
-/**
- * Plans per ACP agent, because ACP is not one subscription.
- *
- * Every other entry in this file maps a provider to the plans that provider
- * sells. `acp` maps to a *protocol*, and nobody sells a protocol subscription:
- * the plan behind `acp/claude` is a Claude plan and the one behind `acp/codex`
- * is a ChatGPT plan. Keying the tiers by agent is what lets the flow ask which
- * plan is being described, instead of asking for a monthly figure with no
- * subject and attaching it to whichever ACP model the router happened to pick.
- *
- * Units are *messages included per period*, the only figure these vendors
- * publish and the same convention {@link COPILOT_TIERS} already uses. They
- * are approximations of a usage allowance that flexes with load, which is why
- * the flow keeps asking for the remaining count rather than deriving it — and
- * why "Custom…" stays available for anyone whose plan is not listed.
- */
-const ACP_AGENT_TIERS: Record<string, SubscriptionTier[]> = {
-  claude: [
-    { label: 'Claude Pro',     description: 'Claude.ai Pro — $20/month',              totalRequests: 45,   monthlyCostUsd: 20 },
-    { label: 'Claude Max 5×',  description: '5× usage of Claude.ai Pro — $100/month',  totalRequests: 225,  monthlyCostUsd: 100 },
-    { label: 'Claude Max 20×', description: '20× usage of Claude.ai Pro — $200/month', totalRequests: 900,  monthlyCostUsd: 200 },
-  ],
-  codex: [
-    { label: 'ChatGPT Plus', description: 'ChatGPT Plus — $20/month',       totalRequests: 150,  monthlyCostUsd: 20 },
-    { label: 'ChatGPT Pro',  description: 'ChatGPT Pro — $200/month',       totalRequests: 1500, monthlyCostUsd: 200 },
-  ],
-  gemini: [
-    { label: 'Google AI Pro',   description: 'Google AI Pro — $20/month',    totalRequests: 100,  monthlyCostUsd: 20 },
-    { label: 'Google AI Ultra', description: 'Google AI Ultra — $250/month', totalRequests: 500,  monthlyCostUsd: 250 },
-  ],
-  copilot: COPILOT_TIERS,
-};
-
 function getSubscriptionTiers(providerId: ProviderId): SubscriptionTier[] {
   if (providerId === 'copilot') return COPILOT_TIERS;
   return [];
 }
 
-/** The plans for one ACP agent, or none when this build knows of no vendor for it. */
-function getAcpAgentTiers(agentId: string): SubscriptionTier[] {
-  return ACP_AGENT_TIERS[agentId] ?? [];
+/**
+ * ACP intentionally stores a label, not an allowance. The protocol can say
+ * which agent and models are present; it cannot attest to the user's account
+ * tier, remaining use, or how a vendor will charge the next prompt. Treating a
+ * guessed message count as a balance made the router stop using subscriptions
+ * that were still available.
+ */
+function getAcpSubscriptionPlanLabels(globalState: vscode.Memento): Readonly<Record<string, string>> {
+  const raw = globalState.get<unknown>(ACP_SUBSCRIPTION_PLAN_STORAGE_KEY, {});
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    return {};
+  }
+  const labels: Record<string, string> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!/^acp\/[a-z0-9-]{1,32}$/.test(key) || typeof value !== 'string') {
+      continue;
+    }
+    const label = value.trim().slice(0, MAX_ACP_PLAN_LABEL_LENGTH);
+    if (label) {
+      labels[key] = label;
+    }
+  }
+  return labels;
 }
 
-function getSubscriptionDetailsHtml(providerId: ProviderId, atlas: AtlasMindContext): string {
+function getSubscriptionDetailsHtml(
+  providerId: ProviderId,
+  context: vscode.ExtensionContext,
+  atlas: AtlasMindContext,
+): string {
   if (providerId === ACP_PROVIDER_ID) {
-    return getAcpSubscriptionDetailsHtml(atlas);
+    return getAcpSubscriptionDetailsHtml(context, atlas);
   }
   const quota = atlas.modelRouter?.getSubscriptionQuota?.(providerId);
   if (!quota) {
@@ -1040,74 +1033,54 @@ function getSubscriptionDetailsHtml(providerId: ProviderId, atlas: AtlasMindCont
 /**
  * One row per configured ACP agent, because one row could only ever be wrong.
  *
- * The card used to read the `acp` provider quota and print a single "AI credits"
- * line. With two agents configured that line described whichever plan was
- * entered last while sitting under a card listing both — so the panel showed a
- * Claude allowance next to a Codex agent and gave no way to tell which.
+ * The card derives its rows from `atlasmind.acp.agents`, rather than from a
+ * vendor table. This is why Gemini and a self-installed ACP agent appear as
+ * soon as the user has configured them — no extension release needs to learn a
+ * new vendor plan first.
  *
  * An agent with no plan set is listed as such rather than omitted: absent from
  * the list reads as "not configured for ACP at all", which is a different
  * problem with a different fix.
  */
-function getAcpSubscriptionDetailsHtml(atlas: AtlasMindContext): string {
+function getAcpSubscriptionDetailsHtml(context: vscode.ExtensionContext, _atlas: AtlasMindContext): string {
   const agents = parseAcpAgentSettings(
     vscode.workspace.getConfiguration('atlasmind').get<unknown>('acp.agents'),
   );
   if (agents.length === 0) {
     return renderNoPlanHtml('Configure agent plan');
   }
+  const planLabels = getAcpSubscriptionPlanLabels(context.globalState);
   const rows = agents.map(agent => ({
     label: agent.label ?? agent.id,
-    quota: atlas.modelRouter?.getModelSubscriptionQuota?.(`${ACP_PROVIDER_ID}/${agent.id}`),
+    modelId: `${ACP_PROVIDER_ID}/${agent.id}`,
+    plan: planLabels[`${ACP_PROVIDER_ID}/${agent.id}`],
   }));
-  if (rows.every(row => !row.quota)) {
+  if (rows.every(row => !row.plan)) {
     return renderNoPlanHtml('Configure agent plan');
   }
 
   const items = rows.map(row => {
-    if (!row.quota) {
+    if (!row.plan) {
       // Listed, not omitted: absent from the list reads as "this agent is not
       // set up for ACP", which is a different problem with a different fix.
       return `
         <li>
           <strong>${escapeHtml(row.label)}</strong>
-          <span>No plan set</span>
+          <span>Plan not recorded</span>
         </li>`;
     }
-    const quota = row.quota;
-    const pct = quota.totalRequests > 0
-      ? Math.round((quota.remainingRequests / quota.totalRequests) * 100)
-      : 0;
-    const costPerUnit = quota.costPerRequestUnit !== undefined
-      ? `${formatCost(quota.costPerRequestUnit, 4)}/unit`
-      : 'not set';
-    const resetInfo = quota.resetsAt
-      ? `Resets ${new Date(quota.resetsAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
-      : '';
     return `
       <li>
         <strong>${escapeHtml(row.label)}</strong>
-        <span>${escapeHtml(String(quota.remainingRequests))} / ${escapeHtml(String(quota.totalRequests))} remaining (${pct}%) · ${escapeHtml(costPerUnit)}${resetInfo ? ' · ' + escapeHtml(resetInfo) : ''}</span>
+        <span>${escapeHtml(row.plan)}</span>
       </li>`;
   }).join('');
-
-  // The effort tiers' quota cost is AtlasMind's own stated assumption, not a
-  // published vendor figure. Publishing the rule next to the numbers it produced
-  // is what makes it arguable rather than merely trusted — the same reason the
-  // debt register prints the rule that graded an entry.
-  const effortNote = rows.some(row => row.quota)
-    ? `<p class="provider-detail-empty">${escapeHtml(ACP_EFFORT_RULE_NOTE)}</p>`
-      // And the same for models: which models exist is detected, but where each
-      // one *sits* is a declared rule, so the rule travels with the rows it
-      // ranked rather than living only in a settings description nobody opens.
-      + `<p class="provider-detail-empty">${escapeHtml(ACP_MODEL_RULE_NOTE)}</p>`
-    : '';
 
   return `
     <div class="provider-detail-list">
       <p class="provider-detail-label">Subscription plans</p>
       <ul>${items}</ul>
-      ${effortNote}
+      <p class="provider-detail-empty">ACP discovers your configured agents and their available models, but does not expose an account plan or a trustworthy remaining balance. AtlasMind records the plan name only; it never estimates or decrements subscription credits.</p>
     </div>`;
 }
 
@@ -1119,20 +1092,11 @@ function renderNoPlanHtml(actionLabel: string): string {
       <!-- Named the control rather than showing "$(credit-card)": codicon
            syntax is interpreted by tree items, the status bar and QuickPicks,
            but not in webview HTML, where it rendered as literal text. -->
-      <p class="provider-detail-empty">No plan configured — use <strong>${escapeHtml(actionLabel)}</strong> to set your tier.</p>
+      <p class="provider-detail-empty">No plan recorded — use <strong>${escapeHtml(actionLabel)}</strong> to name your subscription.</p>
     </div>`;
 }
 
-/**
- * Which subscription the flow is about to describe.
- *
- * Introduced because "which" was previously not a question the flow asked. It
- * took a provider id, and for every provider but one that *was* the
- * subscription. For `acp` it was not: the flow opened on "Enter monthly cost"
- * with no subject, and whatever figure was typed landed on the `acp` provider —
- * so configuring a Claude Max plan and then a ChatGPT Plus plan left one number
- * describing both, and the router priced every ACP turn against it.
- */
+/** A quota-tracked subscription provider. ACP plans deliberately are not quotas. */
 interface SubscriptionScope {
   /** Storage key: a provider id, or a model id when the provider fronts several plans. */
   key: string;
@@ -1146,57 +1110,67 @@ interface SubscriptionScope {
 /**
  * Resolve the scope, asking the user only when there is genuinely a choice.
  *
- * Returns undefined when the user cancels, or when ACP has no agent configured
- * — there is no plan to describe before there is an agent to spend it, and
- * inventing an `acp` quota for a provider with nothing behind it would be a
- * number attached to nothing.
+ * Returns undefined when the user cancels. This is only for providers that
+ * publish a quantity AtlasMind can track (currently GitHub Copilot).
  */
 async function resolveSubscriptionScope(
   atlas: AtlasMindContext,
   providerId: ProviderId,
 ): Promise<SubscriptionScope | undefined> {
   const providerLabel = atlas.modelRouter.listProviders().find(p => p.id === providerId)?.displayName ?? providerId;
+  return {
+    key: providerId,
+    label: providerLabel,
+    tiers: getSubscriptionTiers(providerId),
+    read: () => atlas.modelRouter.getSubscriptionQuota(providerId),
+    write: quota => atlas.modelRouter.updateSubscriptionQuota(providerId, quota),
+  };
+}
 
-  if (providerId !== ACP_PROVIDER_ID) {
-    return {
-      key: providerId,
-      label: providerLabel,
-      tiers: getSubscriptionTiers(providerId),
-      read: () => atlas.modelRouter.getSubscriptionQuota(providerId),
-      write: quota => atlas.modelRouter.updateSubscriptionQuota(providerId, quota),
-    };
-  }
+interface AcpSubscriptionPlanScope {
+  /** The ACP model base id the configured agent owns. */
+  key: string;
+  /** A user-facing agent label, never a vendor guessed from its command. */
+  label: string;
+  existingPlan?: string;
+}
 
+/**
+ * ACP has no subscription-plan discovery endpoint. Its safe dynamic source is
+ * the configured agent list: it includes Gemini and user-installed agents as
+ * soon as they are in `atlasmind.acp.agents`, without treating remote metadata
+ * as executable configuration.
+ */
+async function resolveAcpSubscriptionPlanScope(
+  context: vscode.ExtensionContext,
+): Promise<AcpSubscriptionPlanScope | undefined> {
   const agents = parseAcpAgentSettings(
     vscode.workspace.getConfiguration('atlasmind').get<unknown>('acp.agents'),
   );
   if (agents.length === 0) {
     void vscode.window.showInformationMessage(
-      'No ACP agent is configured yet, so there is no subscription to describe. Choose an agent first — the plan is a property of that agent\'s subscription, not of ACP.',
+      'No ACP agent is configured yet. Add the agent you use first, then record the name of its subscription plan.',
     );
     return undefined;
   }
 
-  // One agent needs no picker: every dialog that follows is titled with its
-  // name, which is the thing that was missing.
+  const planLabels = getAcpSubscriptionPlanLabels(context.globalState);
   let agent = agents[0]!;
   if (agents.length > 1) {
     type AgentItem = vscode.QuickPickItem & { agentId: string };
     const picked = await vscode.window.showQuickPick<AgentItem>(
       agents.map(entry => {
-        const quota = atlas.modelRouter.getModelSubscriptionQuota?.(`${ACP_PROVIDER_ID}/${entry.id}`);
+        const key = `${ACP_PROVIDER_ID}/${entry.id}`;
         return {
           label: entry.label ?? entry.id,
           description: entry.command,
-          detail: quota
-            ? `Currently ${quota.remainingRequests} / ${quota.totalRequests} remaining`
-            : 'No plan set',
+          detail: planLabels[key] ?? 'Plan not recorded',
           agentId: entry.id,
         };
       }),
       {
-        title: 'ACP: Which subscription are you configuring?',
-        placeHolder: 'Each agent is billed against its own plan — Claude and ChatGPT are bought separately',
+        title: 'ACP: Which agent subscription are you recording?',
+        placeHolder: 'This list comes from your configured ACP agents, including Gemini and custom agents',
       },
     );
     if (!picked) {
@@ -1205,14 +1179,64 @@ async function resolveSubscriptionScope(
     agent = agents.find(entry => entry.id === picked.agentId) ?? agent;
   }
 
-  const modelId = `${ACP_PROVIDER_ID}/${agent.id}`;
+  const key = `${ACP_PROVIDER_ID}/${agent.id}`;
   return {
-    key: modelId,
+    key,
     label: agent.label ?? agent.id,
-    tiers: getAcpAgentTiers(agent.id),
-    read: () => atlas.modelRouter.getModelSubscriptionQuota?.(modelId),
-    write: quota => atlas.modelRouter.setModelSubscriptionQuota(modelId, quota),
+    existingPlan: planLabels[key],
   };
+}
+
+/** Remove historical guessed ACP quota state; it is neither observable nor safe to route on. */
+async function removeLegacyAcpQuotaState(context: vscode.ExtensionContext, atlas: AtlasMindContext): Promise<void> {
+  atlas.modelRouter.clearSubscriptionQuota(ACP_PROVIDER_ID);
+  for (const [modelId] of atlas.modelRouter.listModelSubscriptionQuotas()) {
+    if (modelId.startsWith(`${ACP_PROVIDER_ID}/`)) {
+      atlas.modelRouter.clearModelSubscriptionQuota(modelId);
+    }
+  }
+
+  const stored = context.globalState.get<unknown>(SUBSCRIPTION_QUOTA_STORAGE_KEY, {});
+  if (typeof stored !== 'object' || stored === null || Array.isArray(stored)) {
+    return;
+  }
+  const retained = Object.fromEntries(
+    Object.entries(stored as Record<string, unknown>)
+      .filter(([key]) => key !== ACP_PROVIDER_ID && !key.startsWith(`${ACP_PROVIDER_ID}/`)),
+  );
+  await context.globalState.update(SUBSCRIPTION_QUOTA_STORAGE_KEY, retained);
+}
+
+async function configureAcpSubscriptionPlan(
+  context: vscode.ExtensionContext,
+  atlas: AtlasMindContext,
+): Promise<void> {
+  const scope = await resolveAcpSubscriptionPlanScope(context);
+  if (!scope) {
+    return;
+  }
+
+  const plan = await vscode.window.showInputBox({
+    title: `${scope.label}: Subscription plan`,
+    prompt: 'Enter the plan name shown by this service (for example, “ChatGPT Pro (5×)”). ACP does not expose a plan or remaining allowance to AtlasMind.',
+    value: scope.existingPlan ?? '',
+    validateInput: value => value.trim()
+      ? undefined
+      : 'Enter the plan name shown by your subscription service',
+  });
+  if (plan === undefined) {
+    return;
+  }
+
+  const labels = getAcpSubscriptionPlanLabels(context.globalState);
+  await context.globalState.update(ACP_SUBSCRIPTION_PLAN_STORAGE_KEY, {
+    ...labels,
+    [scope.key]: plan.trim().slice(0, MAX_ACP_PLAN_LABEL_LENGTH),
+  });
+  await removeLegacyAcpQuotaState(context, atlas);
+  vscode.window.showInformationMessage(
+    `${scope.label} subscription recorded as “${plan.trim()}”. AtlasMind uses the agent's own availability and does not track or decrement subscription credits.`,
+  );
 }
 
 /**
@@ -1225,6 +1249,10 @@ export async function configureSubscription(
   atlas: AtlasMindContext,
   providerId: ProviderId,
 ): Promise<void> {
+  if (providerId === ACP_PROVIDER_ID) {
+    await configureAcpSubscriptionPlan(context, atlas);
+    return;
+  }
   const scope = await resolveSubscriptionScope(atlas, providerId);
   if (!scope) {
     return;

@@ -6,6 +6,26 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.232.0 — Testing guidance, first tests, and a green repair loop
+
+**The Testing Dashboard can now fix the activated strategy as one coherent task.** Its **Fix activated testing** button is host-confirmed and passes the current enabled-policy coverage, existing scripts, and report failures to the normal approval-gated Atlas task. The agent must inspect before it changes anything, runs only relevant existing test commands, and re-verifies the affected surfaces. It cannot achieve a false green result by disabling or skipping tests, weakening assertions, lowering thresholds, changing runner configuration, adding dependencies, or declaring a missing environment successful.
+
+**The testing dashboard now explains the protocols, rather than merely naming them.** It receives Settings' shared methodology catalogue, so each enabled approach has the same plain-English description, when-to-use guidance, familiar tools, and trade-offs wherever a developer meets it. There is no labels-only dashboard copy to become stale.
+
+**Scaffolding now carries a strategy into action with a deliberately narrow safety envelope.** Once the operator confirms the existing non-destructive scaffold, AtlasMind syncs its testing instructions into instruction files that already exist. If — and only if — it finds an existing Vitest or Jest runner and a small exported source module, it starts one ordinary approval-gated authoring task for a focused first test. The agent must inspect before writing, may not add dependencies, change a manifest, or edit production code, and makes no change when the candidate has no stable behaviour worth testing.
+
+## v0.230.2 — ACP plans without fictional credit balances
+
+**Configure Agent Plan** now reads the current `atlasmind.acp.agents` list, so
+Gemini and self-installed ACP agents appear as soon as they are configured. ACP
+does not report an account tier or a trustworthy remaining allowance, so the
+flow stores only the plan name the user enters—such as `ChatGPT Pro (5×)`—and
+never asks for, estimates, decrements, or routes on credits. Old guessed ACP
+quota records are retired. Copilot keeps its separate credit-tracking flow.
+
+The Safety & Verification permission that lets ACP agents use their own tools
+now saves to workspace settings, so returning to the page preserves the choice.
+
 ## v0.230.1 — Keep mutation sandboxes out of the VSIX
 
 VSIX packaging now excludes Stryker's local `.stryker-tmp/` sandbox, the

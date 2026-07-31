@@ -362,20 +362,18 @@ Two different things are reported, and conflating them made every ACP completion
 - **`usage_update`** (a `session/update` notification) carries `{ used, size, cost? }` — the *cumulative* context token count and the context-window size. It is a progress bar, not a bill, and is never charged as input tokens; doing so would re-bill the whole conversation on every message.
 - **The `session/prompt` result** carries `usage.inputTokens` / `usage.outputTokens` for the turn. This field is not in the published `PromptResponse` schema, but it is the only place a real per-turn count appears and every current agent sends it in the same shape. Absent or unusable counts report **zero** rather than an estimate, and nothing is derived from `totalTokens` — splitting a total into input and output would be arithmetic nobody measured.
 
-Because ACP models are subscription-backed, they are priced at zero per token; the router's subscription handling, not the adapter, is what stops that from winning budget mode by default. Which subscription is a per-model question — see [Scope: one provider can front several plans](#scope-one-provider-can-front-several-plans).
+Because ACP models are subscription-backed, they are priced at zero per token; the router's subscription handling, not the adapter, is what stops that from winning budget mode by default. ACP itself does **not** disclose an account tier or remaining allowance, so its plan label is display-only and never participates in quota gating or usage accounting.
 
 ### Subscription capacity is advanced over metered tokens
 
-Subscription providers — Copilot and ACP alike — are preferred over pay-per-token for ordinary work, because the capacity is already bought. Two scores do it, and **both key on the provider's `pricingModel`, never on a list of provider ids**, so a new subscription provider inherits the behaviour without being enumerated anywhere:
+Subscription providers are preferred over pay-per-token for ordinary work, because the capacity is already bought. The preference keys on the provider's `pricingModel`, never on a list of provider ids, so a new subscription provider inherits it without being enumerated anywhere. Only a provider that exposes an **authoritative** allowance, such as Copilot, receives quota-specific treatment:
 
 - `ACTIVE_SUBSCRIPTION_BONUS` (+0.3) on every turn where the plan has quota left. Modest by design: it breaks ties toward the subscription without overriding a capability need, and it vanishes once the quota is spent, at which point the provider is effectively pay-per-token.
 - On **maintenance** turns the gap widens — a subscription bonus paired with a penalty for pay-per-token — so background housekeeping never burns metered tokens.
 
 Prompt-caching discounts are keyed per provider and ACP is absent from those lists, which is correct rather than an omission: they reduce *metered* input pricing, and a subscription model is priced at zero per token.
 
-**Quota scope is where this gets subtle.** Every other subscription provider is one provider in front of one plan, so a provider-level quota is right. ACP is not: `acp` fronts several unrelated subscriptions, so its quotas are **model-scoped** — the Claude Max entry sits on `acp/claude`, the ChatGPT one on `acp/codex`. `subscriptionQuotaForModel` resolves scoped first, then the base id, then the provider.
-
-That base-id step is load-bearing. Both variant separators name a choice *inside* one subscription — `#high` is an effort, `@opus` is a model on the same plan — so `acp/claude@opus#high` must resolve to the `acp/claude` plan. When it did not (v0.218.0, fixed in v0.218.1), the failure was silent and expensive: the lookup fell through to a provider-level quota ACP does not have, so every variant turn looked unmetered — the preference bonus kept applying past exhaustion and nothing decremented the plan being billed.
+**ACP is deliberately unmetered by AtlasMind.** The installed agent can report its identity, models, effort options, and prompt token counts; ACP has no standard subscription-tier or balance field. A manually entered count cannot stay truthful as plans, limits, promotions, and shared account use change, so AtlasMind does not create a quota for `acp` or `acp/<agent>`. A configured plan label is purely a reminder of the subscription behind that agent.
 
 ### Which model, not just how hard it thinks
 
@@ -436,17 +434,17 @@ A config channel able to set those would route around `toolApprovalManager` rath
 
 `model_config` — Codex's "fast mode", described by the agent as *"1.5x speed, increased usage"* — is excluded for a different reason: spending more of the user's subscription is their decision.
 
-#### The cost of a tier is a declared rule
+#### Relative effort is a declared routing rule
 
-No vendor publishes what a `max`-effort turn costs against a plan's allowance. The multipliers in `ACP_EFFORT_TIERS` are therefore **AtlasMind's own stated assumption**, published as `ACP_EFFORT_RULE_NOTE` on the provider card — the same convention the tech-debt register uses when it prints the rule that graded an entry. They are what makes the gradient arguable rather than merely trusted.
+No vendor publishes how a `max`-effort turn consumes an ACP subscription. The multipliers in `ACP_EFFORT_TIERS` are therefore **AtlasMind's own relative routing rule**, not a usage estimate or balance calculation. They make the effort gradient explainable without claiming to know what remains on the account.
 
 #### Applied is confirmed, not assumed
 
-`session/set_config_option` returns the full option set with the new `currentValue`, so an agent that accepts the request and ignores it is distinguishable from one that applied it. A tier that cannot be set does **not** fail the turn — a turn at the default effort produced an answer, and aborting over a knob would turn a degraded turn into no turn — but it is reported through `onEffortNotApplied` to the output channel, because the router priced that turn at the requested tier's multiplier and a silent fallback would bill high effort for a low-effort run.
+`session/set_config_option` returns the full option set with the new `currentValue`, so an agent that accepts the request and ignores it is distinguishable from one that applied it. A tier that cannot be set does **not** fail the turn — a turn at the default effort produced an answer, and aborting over a knob would turn a degraded turn into no turn — but it is reported through `onEffortNotApplied` to the output channel because the routing preference used the requested effort while the agent used its default.
 
-#### Variants and subscription plans
+#### Variants and subscription labels
 
-A variant is a different *effort*, not a different plan, so `acp/claude#high` bills to whatever plan is configured on `acp/claude`. See [Scope: one provider can front several plans](#scope-one-provider-can-front-several-plans) — `subscriptionQuotaForModel` and `consumeSubscriptionUnits` strip the suffix when no exact match exists. Without that, adding variants would have silently detached every configured ACP plan: the entry sits on the base id while every turn routes to a variant.
+A variant is a different *effort*, not another subscription. `acp/claude#high` and `acp/claude` therefore display the same user-recorded plan label, but neither creates a quota or a balance decrement.
 
 **Model *family* is deliberately not enumerated.** Codex advertises 7 families × 6 efforts = 33 `availableModels`; turning that cross product into routed rows would flood the tree with models the router has no basis to choose between. Effort is the axis it can reason about; family stays at the agent's own setting.
 
@@ -657,25 +655,11 @@ interface SubscriptionQuota {
 | Remaining 1–30% | **Conservation threshold**: effective cost blends linearly toward listed API price as quota depletes. At 0% remaining, effective cost equals listed price. |
 | Remaining = 0 | **Exhausted**: model is scored at full listed API price and falls through to normal budget-tier gating (no bypass). |
 
-#### Scope: one provider can front several plans
+#### Scope: authoritative quotas only
 
-For every provider but one, the provider *is* the subscription, and keying the quota by provider id says the same thing. `acp` is the exception: it is one provider id in front of several unrelated subscriptions — `acp/claude` is billed against a Claude plan, `acp/codex` against a ChatGPT plan, bought separately and priced differently. A single `acp` quota cannot describe both, and the failure is silent in the worst direction: the second plan configured overwrites the first, so the router prices Codex turns against Claude Max's cost-per-unit and depletes one plan's allowance by running the other.
+`subscriptionQuotaForModel` still supports a provider that exposes an authoritative per-model allowance, falling back to the provider-level record where appropriate. This is not used for ACP. On activation AtlasMind retires legacy `acp` quota records rather than carrying an old manual estimate into a new session.
 
-So a quota may also be scoped to a **model**, which for ACP is exactly one agent and therefore exactly one subscription:
-
-```typescript
-router.setModelSubscriptionQuota('acp/codex', chatgptPlusQuota);
-router.subscriptionQuotaForModel('acp/codex');  // the scoped plan
-router.subscriptionQuotaForModel('copilot/gpt-4o');  // falls back to the provider's
-```
-
-Three rules hold this together:
-
-- **`subscriptionQuotaForModel` is the only accessor pricing, scoring and budget gating use.** Reading `provider.subscriptionQuota` directly is what made a multi-plan provider report one plan's numbers for all of them.
-- **`consumeSubscriptionUnits(modelId, units)` owns the scope decision**, so a turn can never be *priced* against the model's plan and *deducted* from the provider's. It returns the scope it spent, which the exhaustion warning resolves to a name rather than assuming a provider id.
-- **Provider-level quotas are untouched.** Copilot behaves exactly as before; only a provider that actually fronts more than one plan pays the cost of saying which.
-
-The `$ Configure agent plan` control on the ACP card asks which agent's subscription is being described before it asks anything about the plan, and offers that vendor's real tiers (Claude Pro / Max 5× / Max 20×, ChatGPT Plus / Pro, Google AI Pro / Ultra). Storage is keyed on the model id; provider ids never contain a slash, which is what lets one persisted record hold both kinds of key.
+The `$ Configure agent plan` control reads `atlasmind.acp.agents` live. It lists every currently configured agent—including Gemini and self-installed clients—then records the plan name the user enters. It never offers a vendor-tier table or asks for credits, a reset date, request totals, or a cost per unit: the ACP protocol cannot validate any of those values.
 
 ### Premium Request Multiplier
 
@@ -698,12 +682,7 @@ This lets the router **prefer 1× models over 3× models** within the same subsc
 
 ### Cross-Subscription Comparison
 
-When `costPerRequestUnit` is set, different subscriptions can be compared directly:
-
-- **GitHub Copilot Pro**: `costPerRequestUnit ≈ $0.033` → Opus 4 at 3× = $0.099/call
-- **Claude Code subscription**: `costPerRequestUnit ≈ $0.05` → Opus 4 at 1× = $0.05/call
-
-The router would prefer the Claude Code subscription for Opus 4 tasks because the effective per-request cost is lower, even though the base subscription rate is higher.
+AtlasMind compares an effective subscription cost only where the provider exposes a billing unit that can be tracked, such as Copilot. ACP account plans are not converted into a made-up per-request price: the agent is recorded as subscription-backed, while the account's actual usage limit remains owned by the service.
 
 ### Seed-Only Default Providers
 

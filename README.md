@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.230.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.232.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,9 +68,19 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.230.1
+## What's new in 0.232.0
 
 Since the last Marketplace publication, **v0.219.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **A single button can work through the enabled testing posture.** **Fix activated testing** on the Testing Dashboard gives AtlasMind the current policy coverage and failed-report evidence, then asks it to inspect, repair, and re-run the existing relevant tests. You confirm before it starts and every tool call follows normal approvals. It will not manufacture green by disabling or weakening tests, skipping cases, lowering thresholds, altering runner setup, or treating an unavailable test environment as a pass.
+
+- **Testing guidance now appears where you use it.** The Project Dashboard's Testing page shows the same plain-English protocol descriptions as Settings — what each approach is for, when to use it, familiar tools, and its trade-offs — from one shared catalogue rather than a second, shortened copy.
+
+- **Scaffold Testing Framework can begin the first real test.** It still creates only missing starter files and never alters manifests. It now also synchronises the chosen testing guidance into existing AI-agent instruction files and, if the project already has Vitest or Jest plus a small exported source candidate, asks AtlasMind to author one focused code-specific test. That task follows the normal approval rules, inspects the source first, and makes no dependency or production-code change; if it cannot establish a stable behaviour, it makes no test change at all.
+
+- **ACP subscription plans now follow your installed configuration, not a stale vendor table.** Configure Agent Plan lists every agent in `atlasmind.acp.agents`—including Gemini and custom ACP clients—and records the plan name you enter. ACP does not expose a trustworthy tier or remaining allowance, so AtlasMind no longer asks for, estimates, decrements, or routes on subscription credits. Copilot’s separate credit flow is unchanged.
+
+- **ACP tool permission now stays set.** The Safety & Verification checkbox that lets ACP agents use their own tools is saved to your workspace and remains selected when you return to Settings.
 
 - **The packaged extension now excludes mutation-test sandboxes and all test-only directories.** A local Stryker run can create thousands of temporary files; they remain local rather than inflating a VSIX built from the same workspace.
 
@@ -285,7 +295,7 @@ Open the Command Palette with `Ctrl+Shift+P`.
 | `AtlasMind: Tool Webhooks` | Configure guarded outbound tool-event webhooks |
 | `AtlasMind: Open Voice Panel` | Configure TTS and STT interaction |
 | `AtlasMind: Open Vision Panel` | Ask multimodal questions about workspace images |
-| `AtlasMind: Scaffold Testing Framework` | Create a stack-aware testing starter |
+| `AtlasMind: Scaffold Testing Framework` | Create a stack-aware starter, sync existing AI instructions, and safely start one first-test task when the project is ready |
 | `AtlasMind: Sync Testing Protocols to AI Agents` | Mirror enabled testing protocols into supported instruction files |
 | `AtlasMind: Toggle Keep Computer Awake` | Opt into an AC-aware wake lock for long-running activity |
 | `AtlasMind: Set Buzz Agent Key` | Store or remove the Buzz agent key in the OS secret store (empty value removes it) |

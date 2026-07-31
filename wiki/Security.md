@@ -26,6 +26,10 @@ AtlasMind is designed with a **safety-first** principle: the extension defaults 
 
 **Managed-block writers.** The outbound testing-protocol sync (`src/utils/testingProtocolSync.ts`) and the framework scaffolder (`src/core/testingScaffolder.ts`) are strictly non-destructive. The protocol sync only writes to instruction files that *already exist*, only ever replaces its own delimited block (`<!-- atlasmind:testing-protocols:start -->` … `:end -->`) while preserving all surrounding content, skips JSON-config files (which cannot host a markdown block), and routes every path through the shared `isSafeRelativePath` / `resolveRelativePath` traversal guard. The scaffolder creates starter files only when absent (never overwriting), never mutates `package.json`, and is modal-confirmed before running.
 
+**First-test authoring remains an agent action, not a scaffolder shortcut.** A source-file nomination is deliberately conservative and does not grant permission to change it. Only after the user confirms the scaffold does Settings synchronise existing instruction files and, when an already-installed Vitest/Jest runner and a small named export are present, ask an agent to inspect one candidate under the usual Orchestrator and per-tool approval boundaries. The prompt forbids dependency, manifest, and production-source changes and permits a no-change outcome, so an uncertain target is not turned into speculative coverage.
+
+**A green dashboard is not permission to hide a failing test.** **Fix activated testing** is modal-confirmed, derives its test evidence in the extension host, and sends it to a normal approval-gated task with project text fenced as reported data. The task may run existing relevant tests and make focused repairs, but it is forbidden from changing dependencies, manifests, runner configuration, coverage thresholds, policy enablement, skips, assertions, or external services to make the result look green. Environment prerequisites that are unavailable remain explicit blockers.
+
 ### 3. Webview Security
 
 - All webview panels use a strict **Content Security Policy (CSP)**

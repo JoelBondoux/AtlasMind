@@ -192,7 +192,7 @@ type ModelFailureState = {
 export class ModelRouter {
   private providers = new Map<string, ProviderConfig>();
   private providerHealth = new Map<string, boolean>();
-  /** Model id → the subscription that model is billed against. See {@link setModelSubscriptionQuota}. */
+  /** Model id → an explicitly observed subscription quota. Never a guessed allowance. */
   private modelSubscriptionQuotas = new Map<string, SubscriptionQuota>();
   private modelPreferences = new Map<string, ModelPreferenceStats>();
   private executionOutcomes = new Map<string, ModelOutcomeState>();
@@ -218,6 +218,16 @@ export class ModelRouter {
     }
   }
 
+  /** Remove a provider-level quota when it is no longer an honest routing signal. */
+  clearSubscriptionQuota(providerId: string): void {
+    const provider = this.providers.get(providerId);
+    if (!provider || provider.subscriptionQuota === undefined) {
+      return;
+    }
+    const { subscriptionQuota: _removed, ...withoutQuota } = provider;
+    this.providers.set(providerId, withoutQuota);
+  }
+
   /** Get current subscription quota for a provider, if any. */
   getSubscriptionQuota(providerId: string): SubscriptionQuota | undefined {
     return this.providers.get(providerId)?.subscriptionQuota;
@@ -226,21 +236,13 @@ export class ModelRouter {
   /**
    * A subscription quota scoped to one model rather than to its provider.
    *
-   * Every other subscription provider is one provider in front of one plan, so
-   * keying the quota by provider id was the same thing as keying it by the
-   * subscription. ACP is not: `acp` is one provider id in front of *several
-   * unrelated subscriptions* — `acp/claude` is billed against a Claude plan and
-   * `acp/codex` against a ChatGPT one, bought separately, priced differently and
-   * exhausted independently. A single `acp` quota cannot describe both, and the
-   * failure is silent in the worst direction: the second plan configured
-   * overwrites the first, so the router prices Codex turns against Claude Max's
-   * cost-per-unit and depletes one plan's allowance by running the other.
+   * A provider can expose an authoritative allowance per model while still
+   * registering one provider id. That is the narrow case this map represents.
    *
-   * So the scope is the *model*, which for ACP is exactly one agent and
-   * therefore exactly one subscription. Provider-level quotas are untouched —
-   * {@link subscriptionQuotaForModel} falls back to them — so Copilot keeps the
-   * behaviour it has, and only a provider that actually fronts more than one
-   * plan pays the cost of saying which.
+   * ACP is deliberately not such a case: its protocol does not disclose an
+   * account tier or remaining balance, so AtlasMind records an ACP plan name for
+   * display only and never writes a guessed quota here. Provider-level quotas
+   * remain available for sources such as Copilot that do publish one.
    */
   setModelSubscriptionQuota(modelId: string, quota: SubscriptionQuota): void {
     this.modelSubscriptionQuotas.set(modelId, quota);
@@ -272,11 +274,9 @@ export class ModelRouter {
     if (scoped) {
       return scoped;
     }
-    // `acp/claude#high` is the same subscription as `acp/claude` — a variant is
-    // a different *effort*, not a different plan. Without this, adding effort
-    // variants would silently detach every configured ACP plan: the user's
-    // Claude Max entry sits on `acp/claude` while every turn routes to a
-    // variant, so the plan would appear configured and never once be consulted.
+    // A model variant may share a base model's observed allowance. ACP variants
+    // currently have no tracked allowance, but the normalization still makes a
+    // future authoritative per-model source behave consistently.
     const base = baseModelIdOf(modelId);
     if (base !== modelId) {
       const baseQuota = this.modelSubscriptionQuotas.get(base);
@@ -1403,28 +1403,19 @@ function getReasoningDepth(model: ModelInfo): number {
  * A model id with any variant suffix removed: `acp/claude#high` → `acp/claude`.
  *
  * A variant is the *same model on the same plan*, asked to work harder — so
- * anything keyed to the subscription (quota, spend) belongs to the base id,
- * while anything keyed to the effort (depth, multiplier, scoring) belongs to the
+ * anything keyed to an authoritative model quota belongs to the base id, while
+ * anything keyed to the effort (depth, multiplier, scoring) belongs to the
  * variant. The separator is declared in `acpEffort.ts`; it is inlined here
  * rather than imported because the router must not depend on a provider module.
  */
 /**
  * The model id a variant is billed against.
  *
- * AtlasMind has two variant separators, and **both name a choice inside one
- * subscription rather than a different subscription**: `#high` is an effort
- * (`acpEffort.ts`, `ACP_VARIANT_SEPARATOR`) and `@opus` is a model within the
- * same plan (`acpModels.ts`, `ACP_MODEL_SEPARATOR`). `acp/claude@opus#high` is
- * therefore billed against the same Claude plan as `acp/claude`.
- *
- * Stripping only `#` was enough until model variants existed, and the failure it
- * caused afterwards is silent in the direction that costs money: ACP quotas are
- * *model-scoped* (the user's Claude Max entry sits on `acp/claude`, because one
- * `acp` provider fronts several unrelated plans), so an unstripped `@opus` found
- * no quota, fell through to a provider-level quota ACP deliberately does not
- * have, and every model-variant turn then looked like an unmetered plan — the
- * preference bonus kept applying after the quota was spent, and nothing
- * decremented the plan those turns were actually billed to.
+ * AtlasMind has two variant separators: `#high` is an effort
+ * (`acpEffort.ts`, `ACP_VARIANT_SEPARATOR`) and `@opus` is a model choice
+ * (`acpModels.ts`, `ACP_MODEL_SEPARATOR`). Both sit beneath the same agent, so
+ * an authoritative base-model quota, where a provider offers one, also governs
+ * its variants. ACP does not expose such quotas and is not manually metered.
  *
  * The earliest separator wins, so order between them never matters.
  */

@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.232.0] - 2026-07-31
+
+### Added
+- **Testing guidance follows you into the dashboard.** The Project Dashboard's Testing page now receives the same shared methodology catalogue as Settings, including each protocol's plain-English description, when to use it, common tools, and trade-offs. It no longer keeps a labels-only copy that can drift from the configuration screen.
+- **Scaffolding can start meaningful coverage, not only lay out templates.** After the operator confirms the non-destructive scaffold, AtlasMind syncs the enabled testing instructions into existing agent-instruction files and, only when it finds an existing Vitest or Jest runner plus a small exported source module, starts one normal approval-gated task to author a focused first test. The task inspects the target first, makes no dependency, manifest, or production-source change, and leaves the workspace untouched when no stable behaviour can be established.
+- **Fix activated testing brings the whole declared test posture into one repair task.** The Testing Dashboard now offers a confirmation-gated action that gives an agent host-derived policy coverage and report evidence, lets it run only existing relevant test commands through normal tool approvals, and asks it to fix the smallest correct cause before re-verifying. It cannot turn a dashboard green by disabling, skipping, weakening, or hiding tests, lowering thresholds, changing runner configuration, adding dependencies, or treating an unavailable environment as a pass.
+
+### Changed
+- **ACP plans are now live configuration labels, not a hard-coded vendor catalogue.** **Configure Agent Plan** reads the current `atlasmind.acp.agents` entries, so Gemini and custom agents appear when configured. It asks only for the subscription name shown by the service (for example, `ChatGPT Pro (5×)`), and no longer asks for a made-up monthly allowance, remaining credits, reset date, or cost per unit. ACP does not expose any of those fields through its protocol, so AtlasMind never estimates or decrements them. Legacy guessed ACP quota records are retired on activation; GitHub Copilot’s independently observable credit tracking is unaffected.
+
+### Fixed
+- **The Safety & Verification ACP tool permission now persists.** The checkbox's message is accepted by the webview boundary and saved at Workspace scope, so reopening Settings reflects the choice you made.
+
 ## [0.230.1] - 2026-07-31
 
 ### Fixed

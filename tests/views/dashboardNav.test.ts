@@ -106,6 +106,21 @@ describe('dashboard nav definition', () => {
   });
 });
 
+describe('testing methodology guidance', () => {
+  it('uses the shared Settings catalogue instead of a labels-only dashboard copy', () => {
+    expect(WEBVIEW_SCRIPT).toContain('testing.methodologyDefinitions');
+    expect(WEBVIEW_SCRIPT).toContain('methodology-dashboard-description');
+    expect(WEBVIEW_SCRIPT).toContain('When to use it and the trade-offs');
+    expect(WEBVIEW_SCRIPT).not.toContain('const METHODOLOGY_DEFS = [');
+  });
+
+  it('offers a host-confirmed repair action for every activated test surface', () => {
+    expect(WEBVIEW_SCRIPT).toContain('Fix activated testing');
+    expect(WEBVIEW_SCRIPT).toContain("type: 'fixActivatedTesting'");
+    expect(WEBVIEW_SCRIPT).toContain('normal tool approvals');
+  });
+});
+
 describe('dashboard motion safety', () => {
   it('honours prefers-reduced-motion in both CSS and script', () => {
     const panel = readFileSync(

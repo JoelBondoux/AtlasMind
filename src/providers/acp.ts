@@ -674,8 +674,8 @@ export class AcpAdapter implements ProviderAdapter {
             // What the router already knows how to reason about. `reasoningDepth`
             // drives task-fit scoring and `premiumRequestMultiplier` drives the
             // budget gate, so the effort gradient falls out of existing machinery
-            // rather than needing a parallel one. Both come from a declared table
-            // — `ACP_EFFORT_RULE_NOTE`, published on the provider card.
+            // rather than needing a parallel one. Its relative intensity is a
+            // declared routing rule, not a balance or vendor usage estimate.
             reasoningDepth: tier.reasoningDepth,
             premiumRequestMultiplier: tier.premiumRequestMultiplier,
           })),

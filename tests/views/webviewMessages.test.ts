@@ -67,6 +67,8 @@ describe('isSettingsMessage', () => {
     expect(isSettingsMessage({ type: 'setToolApprovalMode', payload: 'ask-on-write' })).toBe(true);
     expect(isSettingsMessage({ type: 'setAllowTerminalWrite', payload: true })).toBe(true);
     expect(isSettingsMessage({ type: 'setAllowTerminalWrite', payload: false })).toBe(true);
+    expect(isSettingsMessage({ type: 'setAcpToolsEnabled', payload: true })).toBe(true);
+    expect(isSettingsMessage({ type: 'setAcpToolsEnabled', payload: false })).toBe(true);
     expect(isSettingsMessage({ type: 'setAutoVerifyAfterWrite', payload: true })).toBe(true);
     expect(isSettingsMessage({ type: 'setAutoVerifyScripts', payload: 'test, lint' })).toBe(true);
   });
@@ -186,6 +188,7 @@ describe('isSettingsMessage', () => {
   it('rejects invalid tool approval payloads', () => {
     expect(isSettingsMessage({ type: 'setToolApprovalMode', payload: 'let-it-rip' })).toBe(false);
     expect(isSettingsMessage({ type: 'setAllowTerminalWrite', payload: 'yes' })).toBe(false);
+    expect(isSettingsMessage({ type: 'setAcpToolsEnabled', payload: 'yes' })).toBe(false);
     expect(isSettingsMessage({ type: 'setAutoVerifyAfterWrite', payload: 'true' })).toBe(false);
   });
 
@@ -666,6 +669,7 @@ describe('isProjectDashboardMessage', () => {
     expect(isProjectDashboardMessage({ type: 'attachIdeationImages' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'clearIdeationImages' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'runGapAnalysis' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'fixActivatedTesting' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'addressGap', payload: 'gap-1' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'resolveGapItem', payload: 'gap-1' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'resolveGapGroup', payload: 'P1' })).toBe(true);
@@ -717,6 +721,7 @@ describe('isProjectDashboardMessage', () => {
     expect(isProjectDashboardMessage({ type: 'openPrompt', payload: { prompt: '', sourcePage: 'ideation' } })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'openFile', payload: 42 })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'runIdeationLoop', payload: { prompt: '' } })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'fixActivatedTestin' })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'saveIdeationBoard', payload: { cards: 'nope', connections: [] } })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'addressGap', payload: '' })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'resolveGapItem', payload: '' })).toBe(false);

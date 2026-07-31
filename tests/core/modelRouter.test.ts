@@ -537,6 +537,17 @@ describe('ModelRouter', () => {
     expect(retrieved).toEqual(quota);
   });
 
+  it('can retire a stale provider quota without changing the provider registration', () => {
+    const router = new ModelRouter();
+    registerProviders(router);
+    router.updateSubscriptionQuota('copilot', { totalRequests: 10, remainingRequests: 0 });
+
+    router.clearSubscriptionQuota('copilot');
+
+    expect(router.getSubscriptionQuota('copilot')).toBeUndefined();
+    expect(router.getProviderConfig('copilot')).toBeDefined();
+  });
+
   it('getSubscriptionQuota returns undefined for non-existent provider', () => {
     const router = new ModelRouter();
     registerProviders(router);

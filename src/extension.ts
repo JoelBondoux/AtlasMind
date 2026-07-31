@@ -41,7 +41,7 @@ import type { DocumentsManager } from './core/documentsManager.js';
 import type { RiskOversightManager } from './core/riskOversightManager.js';
 import type { ResearchRegisterManager } from './core/researchRegister.js';
 import type { MissionRegistry } from './core/missionRegistry.js';
-import { ACP_PROBE_TIMEOUT_MS, getConfiguredLocalEndpoints, type ProviderRegistry } from './providers/index.js';
+import { ACP_PROBE_TIMEOUT_MS, ACP_PROVIDER_ID, getConfiguredLocalEndpoints, type ProviderRegistry } from './providers/index.js';
 import { getModelInfoUrl, getProviderInfoUrl, lookupCatalog } from './providers/modelCatalog.js';
 import { inferContextWindow, inferCapabilities, inferSpecialistDomains, inferPricing } from './providers/modelMetadataInference.js';
 import {
@@ -575,7 +575,16 @@ async function persistModelAvailabilityState(
 function restorePersistedQuotas(globalState: vscode.Memento, modelRouter: ModelRouter): void {
   const stored = globalState.get<Record<string, unknown>>(SUBSCRIPTION_QUOTA_STORAGE_KEY, {});
   const now = new Date().toISOString();
+  let retiredAcpQuota = false;
   for (const [scope, raw] of Object.entries(stored)) {
+    // ACP deliberately no longer restores manually estimated allowances. The
+    // protocol identifies agents and models but does not disclose a plan or a
+    // trustworthy balance; treating old guesses as live capacity can suppress a
+    // working subscription. Keep only its user-facing plan label elsewhere.
+    if (scope === ACP_PROVIDER_ID || scope.startsWith(`${ACP_PROVIDER_ID}/`)) {
+      retiredAcpQuota = true;
+      continue;
+    }
     if (
       typeof raw !== 'object' || raw === null ||
       typeof (raw as Record<string, unknown>)['totalRequests'] !== 'number' ||
@@ -605,6 +614,12 @@ function restorePersistedQuotas(globalState: vscode.Memento, modelRouter: ModelR
     const remainingRequests = isReset ? existing.totalRequests : persisted.remainingRequests;
     modelRouter.updateSubscriptionQuota(scope, { ...existing, remainingRequests });
   }
+  if (retiredAcpQuota) {
+    const retained = Object.fromEntries(
+      Object.entries(stored).filter(([scope]) => scope !== ACP_PROVIDER_ID && !scope.startsWith(`${ACP_PROVIDER_ID}/`)),
+    );
+    void globalState.update(SUBSCRIPTION_QUOTA_STORAGE_KEY, retained);
+  }
 }
 
 /**
@@ -620,12 +635,18 @@ function isModelScopedQuotaKey(key: string): boolean {
 function persistQuotas(globalState: vscode.Memento, modelRouter: ModelRouter): void {
   const snapshot: Record<string, unknown> = {};
   for (const provider of modelRouter.listProviders()) {
+    if (provider.id === ACP_PROVIDER_ID) {
+      continue;
+    }
     const quota = modelRouter.getSubscriptionQuota(provider.id);
     if (quota) {
       snapshot[provider.id] = quota;
     }
   }
   for (const [modelId, quota] of modelRouter.listModelSubscriptionQuotas()) {
+    if (modelId.startsWith(`${ACP_PROVIDER_ID}/`)) {
+      continue;
+    }
     snapshot[modelId] = quota;
   }
   void globalState.update(SUBSCRIPTION_QUOTA_STORAGE_KEY, snapshot);
@@ -2233,11 +2254,9 @@ async function bootstrapAtlasMind(
     // Wire up quota tracking: persist on every decrement and warn when
     // a provider transitions into overflow or approaches exhaustion.
     const quotaOverflowWarned = new Set<string>();
-    // `scope` is a provider id for a provider that fronts one plan, and a model
-    // id for one that fronts several — see `setModelSubscriptionQuota`. It is
-    // resolved to a name here rather than assumed to be a provider, because
-    // "acp/codex subscription quota exhausted" would name the plan the user
-    // configured under a string they never typed.
+    // `scope` may be a provider id or an authoritative model-scoped quota. It
+    // is resolved to a name here rather than assumed to be a provider. ACP is
+    // deliberately absent: it has no tracked quota to warn about.
     quotaUpdatedRef = (scope: string, remainingRequests: number, totalRequests: number) => {
       persistQuotas(context.globalState, modelRouter);
       modelsRefresh.fire();

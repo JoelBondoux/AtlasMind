@@ -11,10 +11,10 @@ import { RECOMMENDED_MCP_SERVERS, getRecommendedMcpStarterDetails } from '../con
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
 import { scanAiInstructionFiles, syncAiInstructionFiles } from '../utils/aiInstructionSync.js';
 import { syncTestingProtocols, readWorkflowGuidanceInput } from '../utils/testingProtocolSync.js';
-import { scaffoldTestingFramework } from '../core/testingScaffolder.js';
+import { scaffoldTestingFramework, type FirstTestCandidate } from '../core/testingScaffolder.js';
 import { readProjectTestingConfig, TESTING_CONFIG_SSOT_PATH } from '../core/testingConfigLoader.js';
 import { IMMUTABLE_GUARDRAILS } from '../core/orchestrator.js';
-import type { ArdDiscoveredResource, ArdDiscoveryEndpoint } from '../types.js';
+import type { ArdDiscoveredResource, ArdDiscoveryEndpoint, ProjectTestingConfig } from '../types.js';
 import { getDisplayCurrency, getExchangeRate } from '../core/currencyFormatter.js';
 import { isLocalSyncStale, LOCAL_MODEL_SYNC_CACHE_KEY, syncLocalModels, type LocalModelSyncResult } from '../providers/localModelSync.js';
 import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
@@ -165,6 +165,12 @@ export interface TestingDashboardSnapshot {
   projectTestingConfig: import('../types.js').ProjectTestingConfig | undefined;
   /** Agents available for methodology assignment. */
   availableAgentSummaries: Array<{ id: string; name: string }>;
+  /**
+   * The shared methodology catalogue, carried to the Project Dashboard so it
+   * can explain a protocol with the same wording as Settings rather than keep
+   * a second, labels-only copy that inevitably drifts.
+   */
+  methodologyDefinitions: import('../types.js').TestingMethodologyDefinition[];
   /**
    * The evidence `policyCoverage` was derived from.
    *
@@ -340,6 +346,32 @@ type SettingsMessage =
   | { type: 'ardRemoveFinder'; payload: { id: string } }
   | { type: 'ardAddFinder'; payload: { name: string; url: string; kind: string; insecure: boolean } }
   | { type: 'ardExportCatalog' };
+
+/**
+ * A deliberately bounded first-test brief. It names evidence AtlasMind
+ * observed, rather than claiming that an arbitrary example test is coverage.
+ * The test-authoring agent can decline without changing files if the candidate
+ * is not a stable, observable behaviour after inspection.
+ */
+export function buildFirstTestAuthoringPrompt(
+  candidate: FirstTestCandidate,
+  config: ProjectTestingConfig,
+): string {
+  const enabledLabels = config.methodologies
+    .filter(methodology => methodology.enabled)
+    .map(methodology => TESTING_METHODOLOGY_DEFINITIONS.find(definition => definition.id === methodology.id)?.label ?? methodology.id);
+  const protocols = enabledLabels.length > 0 ? enabledLabels.join(', ') : 'the project default testing policy';
+  return [
+    'Author exactly one focused, codebase-specific first automated test after AtlasMind scaffolds the testing strategy.',
+    '',
+    `The project already exposes ${candidate.exportedSymbol} from \`${candidate.sourcePath}\` and has ${candidate.testRunner} configured.`,
+    `Follow the enabled testing protocols: ${protocols}. The same protocols have just been synchronised into the detected AI instruction files.`,
+    '',
+    'First inspect that source module and the existing test conventions. Write one smallest meaningful test for an observed, stable behaviour of that module only if it can run in the existing test setup.',
+    'Do not count a generic scaffold sample as project coverage. Do not install dependencies, edit package manifests or runner configuration, change production source, make network calls, or add a speculative test.',
+    'If the target has no clear, stable, safely testable behaviour, make no file changes and explain why. Respect every AtlasMind approval request before writing or running anything.',
+  ].join('\n');
+}
 
 /**
  * Settings webview panel – budget/speed modes plus /project execution controls.
@@ -1388,8 +1420,11 @@ export class SettingsPanel {
       return;
     }
     const confirm = await vscode.window.showInformationMessage(
-      'Scaffold the testing framework for the enabled methodologies? This creates starter config and test files (existing files are never overwritten) plus a managed strategy playbook.',
-      { modal: true },
+      'Scaffold the testing framework for the enabled methodologies? This creates starter files only where absent, refreshes the managed strategy playbook, and syncs the enabled protocols into existing AI instruction files.',
+      {
+        modal: true,
+        detail: 'If the project already has Vitest or Jest and AtlasMind finds a small exported source target, it will also ask an Atlas agent to author one focused test. The agent must inspect the code first, will not install dependencies or change production code, and normal tool approvals still apply.',
+      },
       'Scaffold',
     );
     if (confirm !== 'Scaffold') {
@@ -1397,8 +1432,20 @@ export class SettingsPanel {
     }
     try {
       const result = await scaffoldTestingFramework(workspaceRoot, config);
+      const protocolSync = await syncTestingProtocols(
+        workspaceRoot,
+        config,
+        this.atlasContext?.agentRegistry?.listAgents() ?? [],
+        parseCustomDebtMarkers(
+          vscode.workspace.getConfiguration('atlasmind').get<string[]>('debt.markers', []),
+        ),
+        readWorkflowGuidanceInput(workspaceRoot),
+      );
+      const firstTestSummary = result.firstTestCandidate
+        ? await this.authorFirstScaffoldTest(result.firstTestCandidate, config)
+        : 'No codebase-specific first-test task was started: AtlasMind needs an existing Vitest or Jest runner and a small exported source module before it can safely nominate one.';
       if (result.success) {
-        void vscode.window.showInformationMessage(result.summary);
+        void vscode.window.showInformationMessage(`${result.summary} ${protocolSync.summary} ${firstTestSummary}`);
       } else {
         void vscode.window.showWarningMessage(result.summary);
       }
@@ -1406,6 +1453,44 @@ export class SettingsPanel {
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
       void vscode.window.showErrorMessage(`Failed to scaffold testing framework: ${detail}`);
+    }
+  }
+
+  /**
+   * Turn a source candidate into one actual project test, rather than claiming
+   * a generic sample proves anything. The candidate is deliberately narrow and
+   * the agent is explicitly allowed to decline: syntactic exports are not proof
+   * of a stable, observable behaviour. This call happens only after the
+   * scaffold confirmation and the outbound instruction sync.
+   */
+  private async authorFirstScaffoldTest(
+    candidate: FirstTestCandidate,
+    config: ProjectTestingConfig,
+  ): Promise<string> {
+    if (!this.atlasContext) {
+      return 'The strategy and AI instruction files were prepared, but no live Atlas task runner is available to author the first test.';
+    }
+    const status = vscode.window.setStatusBarMessage(
+      `AtlasMind is assessing ${candidate.sourcePath} for the first focused test…`,
+    );
+    try {
+      const result = await this.atlasContext.orchestrator.processTask({
+        id: `testing-scaffold-first-test-${Date.now()}`,
+        userMessage: buildFirstTestAuthoringPrompt(candidate, config),
+        context: {
+          testingScaffold: true,
+          firstTestCandidate: candidate,
+          testingMethodologies: config.methodologies.filter(methodology => methodology.enabled).map(methodology => methodology.id),
+        },
+        constraints: { budget: 'auto', speed: 'balanced' },
+        timestamp: new Date().toISOString(),
+      });
+      return `First-test task completed with ${result.agentId}; refresh the Testing Dashboard to review the result.`;
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return `The first-test task could not run (${detail}); the strategy and agent instructions are still ready.`;
+    } finally {
+      status.dispose();
     }
   }
 
@@ -5520,11 +5605,11 @@ function renderTestingPage(snapshot: TestingDashboardSnapshot, isActive: boolean
               <div class="button-stack top-gap">
                 <button id="saveTestingStrategy" type="button">Save Testing Strategy</button>
                 <button id="autoAssessTestingConfig" type="button" class="secondary-button" title="Scan the project and automatically recommend testing methodologies based on the tech stack and dependencies">Auto-assess project</button>
-                <button id="scaffoldTestingFramework" type="button" class="secondary-button" title="Construct a stack-aware starter framework (config + example tests + strategy playbook) for the enabled methodologies. Existing files are never overwritten.">Scaffold framework</button>
+                <button id="scaffoldTestingFramework" type="button" class="secondary-button" title="Construct a stack-aware starter framework and strategy playbook, sync existing AI instruction files, then ask AtlasMind to author one real test only when a supported runner and a safe source candidate already exist. Existing files are never overwritten.">Scaffold framework</button>
                 <button id="syncTestingProtocols" type="button" class="secondary-button" title="Write the enabled protocols into detected AI agent instruction files (CLAUDE.md, copilot-instructions.md, AGENTS.md, etc.) so external agents enact the same strategy.">Sync to AI agents</button>
                 <button id="refreshTestingInventory" type="button" class="secondary-button">Refresh inventory</button>
               </div>
-              <p class="info-note top-gap">Saved configuration is written to <strong>project_memory/index/testing-config.json</strong> and is read by Atlas agents when planning test tasks. <strong>Sync to AI agents</strong> mirrors the enabled protocols into external agent instruction files; saving also syncs automatically.</p>
+              <p class="info-note top-gap">Saved configuration is written to <strong>project_memory/index/testing-config.json</strong> and is read by Atlas agents when planning test tasks. <strong>Sync to AI agents</strong> mirrors the enabled protocols into external agent instruction files; saving and scaffolding also sync automatically. Scaffolding may ask AtlasMind to write one focused test only after it finds an existing Vitest/Jest runner and a small exported source target; it never invents a test target or installs tooling.</p>
             </article>
 
             <div class="page-grid two-up">
@@ -5849,6 +5934,7 @@ export function collectTestingDashboardSnapshot(
       verificationScripts,
       projectTestingConfig: undefined,
       availableAgentSummaries,
+      methodologyDefinitions: TESTING_METHODOLOGY_DEFINITIONS,
       policyCoverage: deriveTestingPolicyCoverage({
         enabledMethodologies: [],
         testFiles: [],
@@ -6004,6 +6090,7 @@ export function collectTestingDashboardSnapshot(
     verificationScripts,
     projectTestingConfig,
     availableAgentSummaries,
+    methodologyDefinitions: TESTING_METHODOLOGY_DEFINITIONS,
     policyCoverage,
   };
 }
@@ -6430,6 +6517,10 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
   }
 
   if (message.type === 'setAllowTerminalWrite') {
+    return typeof message.payload === 'boolean';
+  }
+
+  if (message.type === 'setAcpToolsEnabled') {
     return typeof message.payload === 'boolean';
   }
 

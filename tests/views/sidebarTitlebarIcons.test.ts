@@ -132,6 +132,16 @@ describe('the subscription plan action', () => {
       .find(entry => entry.command === 'atlasmind.models.configureSubscription');
     expect(palette?.when).toBe('false');
   });
+
+  it('does not carry a hard-coded ACP vendor-plan catalogue', () => {
+    const source = readFileSync(path.join(process.cwd(), 'src', 'views', 'modelProviderPanel.ts'), 'utf8');
+    // ACP can discover configured agents and offered models, but not account
+    // tiers or balances. A baked plan list made a new ChatGPT 5× tier invisible
+    // until an AtlasMind release and omitted any user-installed agent.
+    expect(source).toContain('parseAcpAgentSettings');
+    expect(source).toContain('ACP_SUBSCRIPTION_PLAN_STORAGE_KEY');
+    expect(source).not.toContain('ACP_AGENT_TIERS');
+  });
 });
 
 describe('provider copy that names a settings page routes to it', () => {

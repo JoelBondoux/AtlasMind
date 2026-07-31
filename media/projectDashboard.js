@@ -834,6 +834,13 @@
       vscode.postMessage({ type: 'reconcileTestingPolicy' });
       return;
     }
+    if (action === 'fix-activated-testing') {
+      // The host rebuilds the evidence from its current snapshot and confirms
+      // the task before it can use an agent. No browser-provided target, test
+      // command, or policy selection crosses this boundary.
+      vscode.postMessage({ type: 'fixActivatedTesting' });
+      return;
+    }
     if (action === 'open-debt-evidence') {
       vscode.postMessage({ type: 'openDebtEvidence', payload: { id: payload } });
       return;
@@ -2820,8 +2827,9 @@
         </div>
         <div class="stat-detail">${escapeHtml(coverage.summary)}</div>
         <div class="tag-row" style="margin-top:8px">
+          <button type="button" class="action-link primary" data-action="fix-activated-testing" title="Inspect and repair the enabled test surfaces through AtlasMind's normal approval flow">Fix activated testing…</button>
           <button type="button" class="action-link" data-action="reconcile-testing">Reconcile with the repository…</button>
-          <span class="list-meta">Compares what is declared with what is actually here, and proposes the changes. Nothing is written until you confirm the exact lines.</span>
+          <span class="list-meta">Fix runs only after confirmation and normal tool approvals. Reconcile compares the declared policy with what is actually here and proposes any configuration changes.</span>
         </div>
         ${reportLine}
         <div class="panel-grid" style="margin-top:12px">
@@ -2862,7 +2870,10 @@
     `;
   }
 
-  const METHODOLOGY_DEFS = [
+  // This is only a compatibility fallback for a snapshot produced by an older
+  // extension host. Current snapshots carry the shared catalogue from
+  // `types.ts`, including the explanatory copy Settings already shows.
+  const METHODOLOGY_FALLBACK_DEFS = [
     { id: 'tdd',              label: 'TDD',                     category: 'design-time' },
     { id: 'bdd',              label: 'BDD',                     category: 'design-time' },
     { id: 'atdd',             label: 'ATDD',                    category: 'design-time' },
@@ -2896,8 +2907,16 @@
     { key: 'exploratory',    label: 'Exploratory' },
   ];
 
+  function getMethodologyDefinitions(testing) {
+    const definitions = Array.isArray(testing && testing.methodologyDefinitions)
+      ? testing.methodologyDefinitions.filter(def => def && typeof def.id === 'string' && typeof def.label === 'string')
+      : [];
+    return definitions.length > 0 ? definitions : METHODOLOGY_FALLBACK_DEFS;
+  }
+
   function renderMethodologyStrategy(testing) {
     const config = testing.projectTestingConfig;
+    const definitions = getMethodologyDefinitions(testing);
     const enabledIds = new Set(
       config ? config.methodologies.filter(m => m.enabled).map(m => m.id) : ['tdd', 'unit'],
     );
@@ -2905,7 +2924,7 @@
 
     const categoryGroups = METHODOLOGY_CATEGORIES.map(cat => ({
       ...cat,
-      items: METHODOLOGY_DEFS.filter(d => d.category === cat.key),
+      items: definitions.filter(d => d.category === cat.key),
     }));
 
     const rows = categoryGroups.map(cat => `
@@ -2914,12 +2933,25 @@
       </tr>
       ${cat.items.map(def => {
         const isEnabled = enabledIds.has(def.id);
+        const description = typeof def.description === 'string' ? def.description : '';
+        const whenToUse = typeof def.whenToUse === 'string' ? def.whenToUse : '';
+        const keyTools = typeof def.keyTools === 'string' ? def.keyTools : '';
+        const tradeoffs = typeof def.tradeoffs === 'string' ? def.tradeoffs : '';
+        const details = whenToUse || keyTools || tradeoffs ? `
+          <details class="methodology-dashboard-guidance">
+            <summary>When to use it and the trade-offs</summary>
+            ${whenToUse ? `<div><strong>When to use:</strong> ${escapeHtml(whenToUse)}</div>` : ''}
+            ${keyTools ? `<div><strong>Common tools:</strong> ${escapeHtml(keyTools)}</div>` : ''}
+            ${tradeoffs ? `<div><strong>Trade-offs:</strong> ${escapeHtml(tradeoffs)}</div>` : ''}
+          </details>` : '';
         return `<tr>
           <td class="methodology-name-cell">
             <label class="methodology-toggle-label">
               <input type="checkbox" class="dashboard-methodology-cb" data-methodology-id="${escapeAttr(def.id)}" ${isEnabled ? 'checked' : ''} />
               ${escapeHtml(def.label)}
             </label>
+            ${description ? `<div class="methodology-dashboard-description">${escapeHtml(description)}</div>` : ''}
+            ${details}
           </td>
           <td><span class="tag ${isEnabled ? 'tag-good' : ''}">${isEnabled ? 'Active' : 'Off'}</span></td>
         </tr>`;
@@ -2933,9 +2965,9 @@
             <p class="section-kicker">Methodology configuration</p>
             <h3>Testing Strategy</h3>
           </div>
-          <span class="tag tag-good">${escapeHtml(String(enabledCount))} / ${escapeHtml(String(METHODOLOGY_DEFS.length))} active</span>
+          <span class="tag tag-good">${escapeHtml(String(enabledCount))} / ${escapeHtml(String(definitions.length))} active</span>
         </div>
-        <div class="stat-detail" style="margin-bottom:12px">Toggle methodologies to enable or disable them. Changes are saved immediately to <code>project_memory/index/testing-config.json</code>. Use <strong>Open Testing Strategy</strong> for agent assignments, model overrides, and detailed notes.</div>
+        <div class="stat-detail" style="margin-bottom:12px">Toggle methodologies to enable or disable them. The descriptions and guidance below are the same shared protocol catalogue as Settings. Changes are saved immediately to <code>project_memory/index/testing-config.json</code>. Use <strong>Open Testing Strategy</strong> for agent assignments, model overrides, and project notes.</div>
         <table class="methodology-dashboard-table">
           <tbody>
             ${rows}

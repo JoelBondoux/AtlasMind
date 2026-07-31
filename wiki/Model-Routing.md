@@ -121,13 +121,11 @@ AtlasMind opens a real session instead. The reserved ACP error `-32000` means a 
 - **`usage_update`** carries `{ used, size, cost? }` — cumulative context occupancy and window size. A progress bar, not a bill, and never charged as input tokens: doing so would re-bill the whole conversation on every message.
 - **The prompt result** carries the turn's `inputTokens` / `outputTokens`. Missing counts are reported as **zero** rather than estimated, and nothing is derived from a total.
 
-ACP models are priced at zero per token because the subscription already paid. The router's subscription handling, not the adapter, is what keeps that from automatically winning budget mode.
+ACP models are priced at zero per token because the subscription already paid. ACP does not report an account tier or trustworthy remaining allowance, so a recorded plan name is display-only and never becomes a quota gate or credit counter.
 
 ### Subscription capacity comes first
 
-Capacity you have already paid for is preferred over metered tokens — Copilot and ACP are treated identically, because the preference keys on *how a provider is priced*, not on its name. There is a general nudge on every turn while quota remains, and a bigger one on background maintenance work (paired with a penalty for pay-per-token), so housekeeping never spends metered tokens. Once a plan's quota is exhausted the nudge disappears and the provider is treated as pay-per-token, which is what it has become.
-
-One thing worth knowing if you run more than one plan through ACP: your quotas are stored **per model**, not per provider, because `acp` fronts several unrelated subscriptions — your Claude plan on `acp/claude`, your ChatGPT one on `acp/codex`. Effort and model variants (`acp/claude@opus#high`) bill against the base plan, so the remaining count moves however you routed.
+Capacity you have already paid for is preferred over metered tokens — Copilot and ACP are treated as subscription-backed because the preference keys on *how a provider is priced*, not on its name. Quota-specific scoring applies only to a source with an authoritative allowance, such as Copilot. ACP intentionally carries no manual quota: its protocol identifies agents and models but has no standard account-tier or balance field.
 
 ### The models inside the subscription
 
@@ -162,23 +160,19 @@ Each effort level your agent actually offers is now a routed model:
 | `claude-agent-acp` | `low` `medium` `high` `xhigh` `max` |
 | `codex-acp` | `low` `medium` `high` `xhigh` `max` `ultra` |
 
-They appear as `acp/claude#high`, `acp/codex#max`, and so on, alongside the plain `acp/claude` row — which still means *the agent's own default*. Each tier carries a reasoning depth and a quota cost, so the budget mode you already set expresses the gradient: **cheap** reaches `low`, **balanced** reaches `high`, **auto/expensive** reach the top. Variants show up once the agent has been probed — refresh the models if you have just added one.
+They appear as `acp/claude#high`, `acp/codex#max`, and so on, alongside the plain `acp/claude` row — which still means *the agent's own default*. Each tier carries a reasoning depth and a declared relative routing intensity, so the budget mode you already set expresses the gradient: **cheap** reaches `low`, **balanced** reaches `high`, **auto/expensive** reach the top. Variants show up once the agent has been probed — refresh the models if you have just added one.
 
 **AtlasMind will not touch your agent's permission mode.** The same list that offers effort also offers `bypassPermissions` (Claude Agent) and `agent-full-access` (Codex). Only two things can ever be set — the model and the effort — so a routing decision can never widen what an agent is allowed to do. Codex's "fast mode" (*1.5x speed, increased usage*) is excluded as well: spending your plan faster is your call, not a routing optimisation.
 
-**The quota cost of each tier is our assumption, not a vendor figure.** No vendor publishes what a max-effort turn costs against a plan, so the numbers are AtlasMind's own stated rule and the provider card says so. If your remaining count drifts, correct it on the plan.
+**The relative intensity of each tier is our routing rule, not a vendor usage figure.** No vendor publishes what a max-effort turn costs against a plan, so AtlasMind does not display, estimate, or decrement a remaining count.
 
 If a tier cannot be applied, the turn still runs at the agent's default rather than failing — and the ACP output channel says so, because it was priced at the tier you asked for.
 
 ### Which subscription — because `acp` fronts several
 
-Every other subscription provider is one provider in front of one plan. `acp` is not: your Claude plan pays for `acp/claude` and your ChatGPT plan pays for `acp/codex`, bought separately and priced differently. So a plan is configured **per agent**, not per provider.
+`acp` fronts several unrelated subscriptions, so a plan is recorded **per configured agent**, not per protocol provider.
 
-**Configure agent plan** on the ACP card opens on *"Which subscription are you configuring?"* when more than one agent is set up, lists each agent with its current allowance, and titles every step after it with that agent. Each vendor's real tiers are offered — Claude Pro / Max 5× / Max 20×, ChatGPT Plus / Pro, Google AI Pro / Ultra — with *Custom…* still available for anything unlisted. The card shows one row per agent.
-
-The plan you configure is the one that gets spent: pricing, budget gating and the post-turn decrement all resolve through the same accessor, so a Codex turn can never be charged to your Claude allowance. Providers that front exactly one plan (Copilot) are unaffected.
-
-Before v0.216.0 the button opened directly on "Enter monthly cost" with no subject, and whatever you typed landed on the provider — so configuring a second plan overwrote the first.
+**Configure agent plan** opens on the agents currently named in `atlasmind.acp.agents`; Gemini and a self-installed ACP agent therefore appear without waiting for an AtlasMind release. After selecting the agent, enter the plan name the service shows—such as `ChatGPT Pro (5×)`. ACP does not expose a tier catalogue, request total, remaining usage, reset date, or cost per unit, so the flow neither asks for nor invents any of those values. The card shows one label per agent. Copilot's separate observable-credit flow is unaffected.
 
 ### Why checking an ACP agent is expensive
 

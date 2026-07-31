@@ -260,6 +260,10 @@ AtlasMind's red-to-green TDD gate is intended for implementation work that chang
 
 Two testing-strategy actions write to the workspace under a non-destructive contract. The **framework scaffolder** (`scaffoldTestingFramework`) creates starter config/test files only when absent, never overwrites, never mutates `package.json`, and is modal-confirmed. The **outbound protocol sync** (`syncTestingProtocols`) only replaces its own delimited managed block in instruction files that already exist, preserving surrounding content and routing every path through the shared traversal guard. Neither requires the per-tool approval gate because they cannot overwrite arbitrary content, but both are surfaced explicitly in the UI before running.
 
+That confirmed scaffold can then start one first-test authoring task, but only after the protocol sync and only when a bounded detector found an existing Vitest/Jest runner plus a small source module with a named export. The detector grants no write authority: the normal Orchestrator and tool-approval gates remain in force. The task is limited to inspecting the candidate and, only if its behaviour is stable enough to test, writing one focused test. It is told not to install dependencies, change a manifest, or edit production source; no candidate or no runner means no task, and an unsuitable candidate means no test change.
+
+The Testing Dashboard's **Fix activated testing** action is also a single, modal-confirmed agent task — not an invisible command runner. The host derives its enabled methodologies, coverage, current scripts, and failure report; the webview supplies no target or command. It may use existing relevant commands through the normal approval gate, but cannot change dependencies, manifests, runner configuration, thresholds, test enablement, skips, or assertions merely to obtain green output. A missing browser, credential, service, or other environment prerequisite remains a reported blocker, never a pass.
+
 ---
 
 ## Post-Write Verification
