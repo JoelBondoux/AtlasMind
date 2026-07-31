@@ -1059,7 +1059,8 @@ extension.ts
               │     ├── providers/acpLaunch.ts       (command → spawnable invocation, pure)
               │     ├── providers/acpPermission.ts   (authorization policy, pure)
               │     ├── providers/acpInstaller.ts    (install planning, pure)
-              │     └── providers/acpEffort.ts       (effort tiers + settable-config allowlist, pure)
+              │     ├── providers/acpEffort.ts       (effort tiers + settable-config allowlist, pure)
+              │     └── providers/acpHostPolicy.ts   (long-lived host: reuse, auth, lifetime; pure)
               │     └── providers/acpModels.ts       (detected model list + declared standing, pure)
               └── providers/localModelRecommendationRegistry.ts
 

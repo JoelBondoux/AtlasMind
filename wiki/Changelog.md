@@ -6,6 +6,16 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.229.0 — Groundwork for keeping the agent alive
+
+AtlasMind throws the ACP agent away after every answer, so every question pays a fresh ten-second startup. Measured: opening a session costs about 9.7 seconds, while a second question on a session that is already open costs 1.7. Keeping one alive is worth roughly **13 seconds down to 2 per answer** — and it turns the console-window flurry from once-per-answer into once-per-lifetime.
+
+This release lands the rules such a host has to obey, before the host itself. A background process holding a signed-in Claude session can spend your subscription and, with *Let subscription agents act* enabled, run commands — a different kind of exposure from an agent that exists for a few seconds. So the rules are settled and tested first: only this machine's user can reach it, a missing token authorizes nothing, a reused session must still match the conditions it was created under (including which side of the act/don't-act line it was started on), and the host outlives one editor window but never all of them.
+
+Nothing is wired up yet — this is the part worth getting right before there is a process to get it wrong in.
+
+---
+
 ## v0.228.1 — Clearing the working tree
 
 Commits work products an earlier session left uncommitted: the first ATDD artifacts, four agent definitions, and a refresh of the SSOT memory files. No behaviour changes — it puts the repository in a known state before the ACP daemon work begins.

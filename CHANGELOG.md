@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.229.0] - 2026-07-31
+
+### Added
+- **`src/providers/acpHostPolicy.ts`** — the rules a long-lived ACP host must obey, landed ahead of the host itself so the decisions that would be dangerous to get wrong are settled where they can be tested rather than inside the process that spawns things. Pure, `vscode`-free, process-free, unit-tested.
+
+  The host exists because AtlasMind discards the agent after every answer. Measured: `session/new` costs ~9.7s and a second prompt on a live session costs ~1.7s, so every turn pays a ten-second boot to save nothing. Keeping one alive is worth roughly **13s → 2s per answer**, and collapses the console-window flurry from once-per-answer to once-per-lifetime.
+
+  Four rules carry the safety story, because a host holding an authenticated Claude session can spend the user's money and — with delegated execution on — run commands, which is a materially different exposure from an agent that lives for the length of one answer:
+
+  - **Reuse is only safe while the conditions the session was created under still hold.** `reuseBlockedBecause` names *which* condition broke rather than returning a boolean, ordered root-cause-first so an exited agent is never reported as an expired idle timer. The load-bearing case is `isolation-changed`: a turn that may act must never inherit a session created with the user's settings withheld, nor the reverse — the reuse-side half of the isolation rule added in v0.228.0. A changed `CLAUDE.md` or MCP config also invalidates, because a live session is running on whatever those said when it started.
+  - **The transport is the access control.** `isLoopbackOnlyEndpoint` accepts named pipes and unix sockets and refuses everything network-shaped, loopback included — a TCP endpoint is reachable by every process and every user on the machine, and there is no "but it is only localhost" exception.
+  - **A weak or absent token authorizes nothing.** `isAuthorizedRequest` refuses when the expectation itself is missing or under `ACP_HOST_TOKEN_MIN_LENGTH`, since "no token configured" is the one case where every request would otherwise look valid.
+  - **The host outlives one editor window but not all of them.** `shouldHostExit` stops on either no owners left or a long idle, each covering the other's blind spot — the second is for an owner that died without unregistering, which would otherwise keep Claude Code running after the user closed VS Code.
+
+  Defaults state their own reasoning: a session expires sooner than the host holding it, supervision runs far more often than anything expires, and the host is bounded rather than immortal — "forever" is how a background process becomes something nobody remembers agreeing to.
+
+  No caller yet. The host process, its IPC, and the conversation-history change that session reuse forces are the next steps.
+
 ## [0.228.1] - 2026-07-31
 
 ### Changed
