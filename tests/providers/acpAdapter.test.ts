@@ -1163,3 +1163,167 @@ describe('AcpAdapter — effort inside a subscription', () => {
     expect((await adapter.discoverModels()).map(m => m.id)).toEqual(['acp/fake']);
   });
 });
+
+describe('AcpAdapter — session teardown', () => {
+  /**
+   * A probe does not just handshake: it opens a session, because that is the
+   * only honest test of "signed in". On a real coding agent that session starts
+   * the agent's whole runtime — measured here, `claude-agent-acp` launches the
+   * user's entire configured MCP fleet inside it, several members via `cmd.exe`,
+   * each of which makes Windows allocate a `conhost.exe` that flashes on screen.
+   * Killing our direct child orphans that tree; asking the agent to close the
+   * session lets it reap its own.
+   */
+  function closableAgent(options?: { advertiseClose?: boolean }) {
+    const advertise = options?.advertiseClose !== false;
+    const agents: FakeAgent[] = [];
+    const factory: AcpProcessFactory = () => {
+      const agent = new FakeAgent((self, frame) => {
+        const id = frame['id'];
+        switch (frame['method']) {
+          case 'initialize':
+            self.emitFrame({ jsonrpc: '2.0', id, result: {
+              ...INITIALIZE_OK,
+              agentCapabilities: {
+                promptCapabilities: { image: true },
+                ...(advertise ? { sessionCapabilities: { close: {} } } : {}),
+              },
+            } });
+            return;
+          case 'session/new':
+            self.emitFrame({ jsonrpc: '2.0', id, result: { sessionId: 'sess_1' } });
+            return;
+          case 'session/close':
+            self.emitFrame({ jsonrpc: '2.0', id, result: {} });
+            return;
+          case 'session/prompt':
+            self.emitFrame({ jsonrpc: '2.0', id, result: { stopReason: 'end_turn' } });
+            return;
+          default:
+            return;
+        }
+      });
+      agents.push(agent);
+      return agent;
+    };
+    return { factory, agents };
+  }
+
+  it('closes the probe session instead of only killing the process', async () => {
+    const { factory, agents } = closableAgent();
+    await new AcpAdapter({ agents: [AGENT], spawnProcess: factory }).healthCheck();
+
+    const close = agents[0]!.method('session/close');
+    expect(close).toBeDefined();
+    expect((close!['params'] as Record<string, unknown>)['sessionId']).toBe('sess_1');
+  });
+
+  it('closes the session after a completed turn', async () => {
+    const { factory, agents } = closableAgent();
+    await new AcpAdapter({ agents: [AGENT], spawnProcess: factory }).complete(request());
+
+    const written = agents[0]!.written.map(f => f['method']);
+    expect(written.indexOf('session/close')).toBeGreaterThan(written.indexOf('session/prompt'));
+  });
+
+  it('sends no close to an agent that never offered one', async () => {
+    // `sessionCapabilities.close` is optional. A request an agent never
+    // advertised is noise it may answer with an error.
+    const { factory, agents } = closableAgent({ advertiseClose: false });
+    await new AcpAdapter({ agents: [AGENT], spawnProcess: factory }).healthCheck();
+
+    expect(agents[0]!.method('session/close')).toBeUndefined();
+  });
+
+  it('still tears down when the close is refused', async () => {
+    // Best-effort: the process is going away regardless, and the one thing worse
+    // than an unclosed session is a hang while closing one.
+    const agents: FakeAgent[] = [];
+    const factory: AcpProcessFactory = () => {
+      const agent = new FakeAgent((self, frame) => {
+        const id = frame['id'];
+        if (frame['method'] === 'initialize') {
+          self.emitFrame({ jsonrpc: '2.0', id, result: {
+            ...INITIALIZE_OK,
+            agentCapabilities: { promptCapabilities: { image: true }, sessionCapabilities: { close: {} } },
+          } });
+        } else if (frame['method'] === 'session/new') {
+          self.emitFrame({ jsonrpc: '2.0', id, result: { sessionId: 'sess_1' } });
+        } else if (frame['method'] === 'session/close') {
+          self.emitFrame({ jsonrpc: '2.0', id, error: { code: -32601, message: 'no' } });
+        }
+      });
+      agents.push(agent);
+      return agent;
+    };
+
+    const probe = await new AcpAdapter({ agents: [AGENT], spawnProcess: factory }).probe();
+
+    expect(probe.authenticated).toBe(true);
+    expect(agents[0]!.killed).toBe(true);
+  });
+});
+
+describe('AcpAdapter — isolating the agent from the machine\'s own settings', () => {
+  /**
+   * `claude-agent-acp` hardcodes `settingSources: ["user","project","local"]`
+   * and then spreads `_meta.claudeCode.options` over it, so a client can turn
+   * them off. Those sources are where the user's own MCP fleet comes from:
+   * measured on a real machine, isolating drops the session from 19 descendant
+   * processes to 3, and from six flashing console windows on Windows to two.
+   */
+  function metaOf(agent: FakeAgent): Record<string, unknown> | undefined {
+    const frame = agent.method('session/new');
+    const params = (frame?.['params'] ?? {}) as Record<string, unknown>;
+    return params['_meta'] as Record<string, unknown> | undefined;
+  }
+
+  function settingSourcesOf(agent: FakeAgent): unknown {
+    const meta = metaOf(agent) as { claudeCode?: { options?: { settingSources?: unknown } } } | undefined;
+    return meta?.claudeCode?.options?.settingSources;
+  }
+
+  it('isolates a completion-only turn', async () => {
+    const { factory, agents } = scriptedAgent();
+    await new AcpAdapter({ agents: [AGENT], spawnProcess: factory }).complete(request());
+
+    expect(settingSourcesOf(agents[0]!)).toEqual([]);
+  });
+
+  it('does NOT isolate once the agent may act', async () => {
+    // The setting sources carry more than MCP — the project's CLAUDE.md,
+    // permission defaults, custom subagents. Withholding those from an agent
+    // that is allowed to act takes away context it needs; withholding them
+    // from one that can only write text takes away nothing.
+    const { factory, agents } = scriptedAgent();
+    await new AcpAdapter({
+      agents: [AGENT],
+      spawnProcess: factory,
+      getMcpServers: () => [{ name: 'docs', command: 'npx', args: ['-y', 'server'], env: [] }],
+    }).complete(request());
+
+    expect(metaOf(agents[0]!)).toBeUndefined();
+  });
+
+  it('always isolates the probe, which is the call that runs most often', async () => {
+    const { factory, agents } = scriptedAgent();
+    await new AcpAdapter({ agents: [AGENT], spawnProcess: factory }).healthCheck();
+
+    expect(settingSourcesOf(agents[0]!)).toEqual([]);
+  });
+
+  it('sends a shape the agent can ignore without breaking', async () => {
+    // `_meta` is ACP's extensibility field, and this key is Anthropic's vendor
+    // extension rather than spec. An agent that ignores it must still get a
+    // valid `session/new` — verified live against codex-acp, pinned here.
+    const { factory, agents } = scriptedAgent();
+    await new AcpAdapter({ agents: [AGENT], spawnProcess: factory }).complete(request());
+
+    const params = (agents[0]!.method('session/new')!['params'] ?? {}) as Record<string, unknown>;
+    expect(params['cwd']).toBeDefined();
+    expect(params['mcpServers']).toEqual([]);
+    // The extension lives under _meta only — never alongside the spec fields.
+    expect(params['settingSources']).toBeUndefined();
+    expect(params['claudeCode']).toBeUndefined();
+  });
+});

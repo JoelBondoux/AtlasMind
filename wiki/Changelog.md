@@ -6,6 +6,18 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.228.0 — Console windows during model discovery
+
+Checking an ACP agent means opening a session, because that is the only honest test of "signed in". What that actually starts had been underestimated: on Windows, `claude-agent-acp` launches **your entire configured MCP fleet** inside the session — a GitKraken CLI, an `npx @azure/mcp` tree, a `contrast-checker-mcp` tree, several through `cmd.exe` — and `codex-acp` starts an `app-server` plus a REPL host. Each `cmd.exe` makes Windows allocate a `conhost.exe`, which is a console window that flashes on screen.
+
+AtlasMind's own spawn has always been `windowsHide: true`, but that governs the process it starts, not what *that* process starts. The window was never suppressible from here, so the lever is frequency.
+
+The probe answer was cached for **ten seconds** — a number sized for a handshake, not for booting two agent runtimes — while a dozen call sites refresh the provider catalog whenever you open a panel or change a setting. It is five minutes now, and the session is explicitly closed rather than merely killed so the agent reaps its own children instead of orphaning them. Only visible since v0.217.0, which is when ACP started being probed at all.
+
+If you want fewer still, the lever is the MCP servers configured in the agent itself — those are what the session starts.
+
+---
+
 ## v0.218.1 — Every variant bills the plan it actually used
 
 ACP subscription quotas are *model-scoped*: one `acp` provider fronts several unrelated plans, so your Claude Max entry sits on `acp/claude`. The plan lookup stripped only the `#effort` suffix, so the `@model` segment introduced in v0.218.0 left `acp/claude@opus#high` resolving to a key no plan is stored under — and it fell through to a provider-level quota ACP deliberately does not have.

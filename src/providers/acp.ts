@@ -35,7 +35,7 @@
  * without spawning anything.
  */
 
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import type { CompletionRequest, CompletionResponse, DiscoveredModel, ProviderAdapter } from './adapter.js';
 import { createAcpLaunchProbe, resolveAcpLaunch } from './acpLaunch.js';
 import {
@@ -47,6 +47,7 @@ import {
   buildPermissionCancelledResponse,
   buildPermissionSelectedResponse,
   buildSessionCancelNotification,
+  buildSessionCloseRequest,
   buildSessionNewRequest,
   buildSessionPromptRequest,
   drainFrames,
@@ -104,7 +105,30 @@ const DEFAULT_TIMEOUT_MS = 180_000;
  */
 export const ACP_PROBE_TIMEOUT_MS = 20_000;
 const PROBE_TIMEOUT_MS = ACP_PROBE_TIMEOUT_MS;
-const ACP_PROBE_TTL_MS = 10_000;
+
+/** How long a `session/close` may take before teardown stops waiting for it. */
+const SESSION_CLOSE_TIMEOUT_MS = 2_000;
+
+/**
+ * How long a probe's answer is reused.
+ *
+ * Was 10 seconds, which was sized for the cost of a handshake. The probe is not
+ * a handshake — it opens a **session**, because that is the only honest test of
+ * "signed in", and a session on a coding agent starts the agent's entire
+ * runtime. Measured here: `claude-agent-acp` launches the user's whole
+ * configured MCP fleet inside it (a GitKraken CLI, an `npx @azure/mcp` tree, a
+ * `contrast-checker-mcp` tree, several via `cmd.exe`), and `codex-acp` starts an
+ * `app-server` plus a REPL host. On Windows each `cmd.exe` makes the OS allocate
+ * a `conhost.exe`, which is a console window that appears and vanishes.
+ *
+ * With a dozen call sites that refresh the provider catalog — opening a panel,
+ * changing a setting, adding an agent — a ten-second TTL meant re-launching that
+ * tree over and over. So the TTL is sized for what a miss actually costs rather
+ * than for how fresh the answer could theoretically be. What it buys is a
+ * staleness window on "is this agent signed in?", which changes on the order of
+ * days; explicit refreshes still bypass it via {@link resetAcpProbeCache}.
+ */
+const ACP_PROBE_TTL_MS = 5 * 60_000;
 
 /**
  * Agents whose ACP launch command is **declared in the ACP registry**.
@@ -372,6 +396,14 @@ export interface AcpProcessHandle {
   onStderr(listener: (chunk: string) => void): void;
   onExit(listener: (code: number | null, signal: string | null) => void): void;
   kill(): void;
+  /**
+   * The OS process id, when there is a real process behind this handle.
+   *
+   * Optional because a fake in a test has no pid — and because the Windows
+   * tree-kill backstop is the only thing that needs one, so requiring it would
+   * make every test double carry a field for a code path it never reaches.
+   */
+  readonly pid?: number | undefined;
 }
 
 export type AcpProcessFactory = (config: AcpAgentConfig, cwd: string | undefined) => AcpProcessHandle;
@@ -751,7 +783,10 @@ export class AcpAdapter implements ProviderAdapter {
       // round-trip on a probe that is already TTL-cached. What it buys is worth
       // more than the round-trip: the probe now reports that the agent can
       // actually be used, rather than that it started.
-      const authenticated = await session.canCreateSession();
+      // The probe is only ever a completion-capability check, so it isolates
+      // unconditionally: nothing it does needs the machine's settings, and it
+      // is the call that runs most often.
+      const authenticated = await session.canCreateSession({ isolateAgentSettings: true });
       return {
         installed: true,
         authenticated: authenticated.ok,
@@ -782,6 +817,10 @@ export class AcpAdapter implements ProviderAdapter {
           : `${agent.command} could not be started: ${message.slice(0, 300)}`,
       };
     } finally {
+      // The probe's session is thrown away immediately, and what it started is
+      // not small — closing it first lets the agent reap its own tree instead
+      // of leaving it orphaned when we kill the parent.
+      await session?.closeSession();
       session?.dispose();
     }
   }
@@ -839,7 +878,13 @@ export class AcpAdapter implements ProviderAdapter {
         mcpServers = [];
       }
       try {
-        await session.newSession(mcpServers);
+        // Isolate the agent from the machine's own settings **only** while it
+        // is a completion source. `mcpServers` is empty exactly when delegated
+        // execution is off (the getter returns [] unless `acp.toolsEnabled`),
+        // so it is the honest signal for which mode this turn is in — and it
+        // keeps the decision next to the thing it is about rather than reading
+        // a setting from inside the adapter.
+        await session.newSession(mcpServers, { isolateAgentSettings: mcpServers.length === 0 });
       } catch (error) {
         // A login the user has to perform is not the same failure as a broken
         // agent, and saying so is the difference between an actionable message
@@ -900,6 +945,7 @@ export class AcpAdapter implements ProviderAdapter {
         finishReason: turn.finishReason,
       };
     } finally {
+      await session.closeSession();
       session.dispose();
     }
   }
@@ -1021,6 +1067,9 @@ class AcpSession {
   private stderr = '';
   private sessionId = '';
   private configOptions: AcpConfigOption[] = [];
+  /** Set from the handshake; a close sent to an agent that never offered one is noise. */
+  private supportsClose = false;
+  private readonly processPid: number | undefined;
   private exited: { code: number | null; signal: string | null } | undefined;
   private disposed = false;
   private readonly pending = new Map<number, { resolve: (result: Record<string, unknown>) => void; reject: (error: Error) => void }>();
@@ -1039,6 +1088,7 @@ class AcpSession {
     private readonly onToolEvent?: AcpToolEventListener,
   ) {
     this.process = spawnProcess(agent, cwd);
+    this.processPid = this.process.pid;
     this.process.onStdout(chunk => this.ingest(chunk));
     // stderr is diagnostic only — kept bounded so a chatty agent cannot grow
     // the heap, and surfaced only when something actually fails.
@@ -1055,14 +1105,16 @@ class AcpSession {
 
   async initialize(): Promise<AcpInitializeResult> {
     const result = await this.request(buildInitializeRequest(this.nextId, this.clientVersion));
-    return parseInitializeResult(result);
+    const parsed = parseInitializeResult(result);
+    this.supportsClose = parsed.supportsSessionClose;
+    return parsed;
   }
 
-  async newSession(mcpServers: AcpMcpServer[]): Promise<void> {
+  async newSession(mcpServers: AcpMcpServer[], options?: { isolateAgentSettings?: boolean }): Promise<void> {
     // The spec requires an absolute cwd. Falling back to the process cwd is
     // correct and observable; inventing a path would not be.
     const cwd = this.cwd ?? process.cwd();
-    const result = await this.request(buildSessionNewRequest(this.nextId, cwd, mcpServers));
+    const result = await this.request(buildSessionNewRequest(this.nextId, cwd, mcpServers, options));
     this.sessionId = parseSessionId(result);
     if (!this.sessionId) {
       throw new Error('The ACP agent did not return a session id.');
@@ -1131,9 +1183,9 @@ class AcpSession {
    * a crashed agent reported as an authentication problem sends the user to a
    * login screen that will not help.
    */
-  async canCreateSession(): Promise<{ ok: boolean; authRequired: boolean; message: string }> {
+  async canCreateSession(options?: { isolateAgentSettings?: boolean }): Promise<{ ok: boolean; authRequired: boolean; message: string }> {
     try {
-      await this.newSession([]);
+      await this.newSession([], options);
       return { ok: true, authRequired: false, message: '' };
     } catch (error) {
       if (error instanceof AcpAuthRequiredError) {
@@ -1184,6 +1236,37 @@ class AcpSession {
     }
   }
 
+  /**
+   * Ask the agent to close the session, then let the caller dispose.
+   *
+   * Sent before the kill because a `session/new` on a coding agent is not a
+   * lightweight object. Measured on this machine: `claude-agent-acp` starts the
+   * user's entire configured MCP fleet inside the session — `gk.exe mcp`, an
+   * `npx @azure/mcp` tree, a `contrast-checker-mcp` tree, several of them via
+   * `cmd.exe`, each of which makes Windows allocate a `conhost.exe`.
+   * `codex-acp` starts an `app-server` plus a REPL host. Killing our direct
+   * child orphans all of that to be reaped by the OS.
+   *
+   * Best-effort by construction: bounded by its own short timeout and never
+   * throwing, because this runs on the teardown path where the only thing worse
+   * than an unclosed session is a hang while closing one.
+   */
+  async closeSession(): Promise<void> {
+    if (!this.sessionId || this.disposed || this.exited || !this.supportsClose) {
+      return;
+    }
+    const sessionId = this.sessionId;
+    this.sessionId = '';
+    try {
+      await Promise.race([
+        this.request(buildSessionCloseRequest(this.nextId, sessionId)),
+        new Promise(resolve => setTimeout(resolve, SESSION_CLOSE_TIMEOUT_MS)),
+      ]);
+    } catch {
+      // The process is going away regardless.
+    }
+  }
+
   dispose(): void {
     if (this.disposed) {
       return;
@@ -1196,6 +1279,38 @@ class AcpSession {
       } catch {
         // Already gone.
       }
+      this.killProcessTree();
+    }
+  }
+
+  /**
+   * On Windows, make sure the agent's *children* die too.
+   *
+   * `child.kill()` signals one process. POSIX callers can reach a whole tree
+   * through the process group, but Windows has no group concept — so an agent
+   * that shelled out (and this one shells out a lot) leaves its descendants
+   * running after we kill it. `session/close` normally unwinds them first;
+   * this is the backstop for when it does not, because an agent that never
+   * advertised `close`, or failed it, would otherwise leak a process tree per
+   * turn. `taskkill /T` walks the tree, `/F` because a graceful signal is not
+   * a thing it can send.
+   *
+   * Fire-and-forget and never throws: every caller is already on a
+   * "make it dead" path, where a process that is *already* gone is success.
+   * The approach is the one `acp-patchbay` arrived at independently.
+   */
+  private killProcessTree(): void {
+    if (process.platform !== 'win32') {
+      return;
+    }
+    const pid = this.processPid;
+    if (pid === undefined) {
+      return;
+    }
+    try {
+      execFile('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true }, () => { /* already gone is success */ });
+    } catch {
+      // Nothing left to do on a teardown path.
     }
   }
 
@@ -1438,6 +1553,7 @@ const defaultAcpProcessFactory: AcpProcessFactory = (config, cwd) => {
   child.stdout.setEncoding('utf8');
   child.stderr.setEncoding('utf8');
   return {
+    pid: child.pid,
     writeLine: line => { child.stdin.write(line); },
     onStdout: listener => { child.stdout.on('data', listener); },
     onStderr: listener => { child.stderr.on('data', listener); },

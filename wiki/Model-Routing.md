@@ -180,6 +180,18 @@ The plan you configure is the one that gets spent: pricing, budget gating and th
 
 Before v0.216.0 the button opened directly on "Enter monthly cost" with no subject, and whatever you typed landed on the provider — so configuring a second plan overwrote the first.
 
+### Why checking an ACP agent is expensive
+
+Checking whether an agent is usable means opening a session, because that is the only honest test of "signed in" — and a session on a coding agent starts its whole runtime. On Windows you may briefly see console windows appear and vanish: `claude-agent-acp` launches every MCP server *you* have configured in Claude Code inside that session, and some of those start through `cmd.exe`, which makes Windows allocate a console host.
+
+Those windows belong to processes AtlasMind never starts directly, so they cannot be hidden from here — the agent's children are the agent's business. What AtlasMind controls is how often it asks. The answer is cached for five minutes, so opening a panel or changing a setting reuses it rather than relaunching the tree, and the session is explicitly closed rather than merely killed so the agent can tear its own children down.
+
+**As of v0.228.0 most of them are gone.** When AtlasMind is only using the agent to *write* an answer, it now asks the agent not to load your machine's own settings — which is where your MCP servers come from. On this machine that took the session from 19 background processes to 3, and from six windows to two. The two that remain belong to the agent itself.
+
+The moment you switch on **Let subscription agents act**, that isolation is dropped: an agent that may actually run commands is one you want your own `CLAUDE.md`, permission defaults and MCP servers to reach. So the quiet version is the read-only version, by design.
+
+If you want fewer still in that mode, trimming the MCP servers configured in the agent itself is the lever — that is what is being started.
+
 ### When a row says an agent is not responding
 
 Health is tracked **per agent**, so the *Anthropic — Claude subscription* row reports `claude-agent-acp` and nothing else. Every configured agent is probed, concurrently, and the provider counts as healthy when any of them can be used — a broken agent no longer condemns a working one.

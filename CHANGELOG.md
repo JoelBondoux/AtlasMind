@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.228.0] - 2026-07-31
+
+### Fixed
+- **Console windows flashing on screen during model discovery.** An ACP probe is not a handshake — it opens a **session**, because that is the only honest test of "signed in". What was not appreciated is what a session on a coding agent actually starts. Measured on Windows: `claude-agent-acp` launches the user's entire configured MCP fleet inside it — a GitKraken CLI, an `npx @azure/mcp` tree, a `contrast-checker-mcp` tree, several of them via `cmd.exe` — and `codex-acp` starts an `app-server` plus a REPL host. Every `cmd.exe` makes Windows allocate a `conhost.exe`, and a `conhost.exe` is a console window that appears and vanishes.
+
+  The adapter's own `spawn` has always been `windowsHide: true, shell: false`; that covers the process AtlasMind starts and does not propagate to what *that* process starts. So the window could never have been suppressed from here — the fix is to stop re-launching the tree.
+
+  **The probe TTL was 10 seconds**, a number sized for the cost of a handshake. With a dozen call sites that refresh the provider catalog — opening a panel, changing a setting, adding an agent — that meant relaunching two full agent runtimes over and over. It is now five minutes, sized for what a cache miss actually costs rather than for how fresh the answer could theoretically be. What that trades away is staleness on "is this agent signed in?", which changes on the order of days, and an explicit refresh still bypasses it.
+
+  This only became visible in v0.217.0, which is when ACP started being probed at all — before that it was misreported as unconfigured and discovery was skipped entirely.
+
+- **A probe session is now closed, not just killed.** Both live agents advertise `sessionCapabilities.close`, and `session/close` is sent before the process is killed so the agent reaps its own subprocess tree rather than leaving it orphaned to the OS. Best-effort by construction — bounded by its own short timeout and never throwing — because on a teardown path the only thing worse than an unclosed session is a hang while closing one. A close is never sent to an agent that did not advertise one.
+
+- **The agent's children are killed too, on Windows.** `child.kill()` signals one process; POSIX callers reach a whole tree through the process group, but Windows has no group concept, so an agent that shelled out left its descendants running. `session/close` normally unwinds them first — this is the backstop for an agent that never advertised `close`, or failed it, which would otherwise leak a process tree per turn. `taskkill /T /F`, fire-and-forget, never throwing. The same conclusion `acp-patchbay` reached independently.
+
+### Changed
+- **A completion-only ACP turn no longer loads the machine's own agent settings.** `claude-agent-acp` hardcodes `settingSources: ["user","project","local"]` and then spreads `_meta.claudeCode.options` over it, so a client can turn them off. Those sources are where the user's own MCP fleet comes from — so a session that exists only to write a paragraph was starting a GitHub CLI, an `npx @azure/mcp` tree and a `contrast-checker-mcp` tree inside itself. **Measured on a real machine: 19 descendant processes drop to 3, and six flashing console windows drop to two.**
+
+  This also closes a gap between what the adapter documented and what it did. Restricted mode is described as *"initialised with no filesystem capability, no terminal capability, and an empty `mcpServers` list — a completion source, not an executor."* The empty list was honoured, but the agent loaded its own fleet regardless, so the guarantee was narrower than the comment claimed.
+
+  **Deliberately not sent when delegated execution is on.** The setting sources carry more than MCP — the project's `CLAUDE.md`, permission defaults, custom subagents — and an agent that may actually act is one the user wants their own instructions to reach. Restricting a completion source to nothing but the prompt is the conservative reading; restricting an executor is taking away context it needs. The signal is the MCP list itself, which is empty exactly when `acp.toolsEnabled` is off, so the decision sits next to the thing it is about rather than reading a setting from inside the adapter.
+
+  `_meta` is ACP's extensibility field and this key is Anthropic's **vendor extension, not the spec** — read out of the installed build rather than a published contract, so it carries its own `ACP_CLAUDE_META_VERIFIED_VERSION` rather than riding on `ACP_SPEC_VERIFIED_AT`. It degrades safely in both directions: an agent that ignores it behaves exactly as before, and `codex-acp` was verified to accept the unknown key without error.
+
+  Two things this is **not**. It does not make anything faster — `session/new` measured 9.3s with the fleet and 9.7s without, so the ten-second startup is Claude Code booting itself, not the MCP servers. And it does not reach zero windows: two remain, from `claude.exe` itself.
+
 ## [0.227.1] - 2026-07-31
 
 ### Changed

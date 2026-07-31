@@ -315,6 +315,22 @@ The spec's real signal is the reserved error code **`-32000` (authentication req
 
 The probe is TTL-cached, so the extra round-trip is paid rarely, and it buys a stronger claim: that the agent *can be used*, not merely that it started.
 
+**A session is far more expensive than a handshake, and the TTL is sized for that.** `session/new` on a coding agent starts the agent's whole runtime, not a lightweight object: measured on Windows, `claude-agent-acp` launches the user's entire configured MCP fleet inside the session (a GitKraken CLI, an `npx @azure/mcp` tree, a `contrast-checker-mcp` tree, several via `cmd.exe`) and `codex-acp` starts an `app-server` plus a REPL host. Each `cmd.exe` causes Windows to allocate a `conhost.exe` — a console window that flashes on screen.
+
+The adapter spawns with `windowsHide: true, shell: false`, but that governs only the process AtlasMind starts; it does not propagate to grandchildren, so the window cannot be suppressed from here. The lever is frequency, not visibility. `ACP_PROBE_TTL_MS` is therefore **five minutes**, not the ten seconds it was when the cost was assumed to be a handshake — with a dozen provider-refresh call sites, a short TTL relaunched the whole tree repeatedly. The staleness that buys back is on "is this agent signed in?", which changes on the order of days; `resetAcpProbeCache()` bypasses it for an explicit refresh.
+
+The probe also sends **`session/close`** before killing the process, when the agent advertises `sessionCapabilities.close`, so the agent reaps its own tree instead of leaving it orphaned. Best-effort and separately timed out: on a teardown path, a hang while closing is worse than an unclosed session. On Windows a `taskkill /T /F` backstop follows, because `child.kill()` signals one process and Windows has no process group for a caller to reach the rest through.
+
+#### Isolating a completion-only session
+
+A session that exists only to produce text does not need the machine's agent settings — and loading them is what starts the user's whole MCP fleet inside it. `buildSessionNewRequest` therefore sends `_meta.claudeCode.options.settingSources = []` when, and only when, the MCP list is empty:
+
+- **The MCP list is the signal.** `getMcpServers` returns `[]` unless `acp.toolsEnabled` is on, so an empty list means "completion source" exactly. The decision sits next to the thing it is about rather than reading a setting from inside the adapter.
+- **Never sent when delegated execution is on.** Setting sources carry the project's `CLAUDE.md`, permission defaults and custom subagents. Withholding those from an agent that may act removes context it needs; withholding them from one that can only write text removes nothing.
+- **A vendor extension, not the spec.** `_meta` is ACP's extensibility field; this key is Anthropic's, read out of the installed build rather than a published contract. It carries `ACP_CLAUDE_META_VERIFIED_VERSION` rather than riding on `ACP_SPEC_VERIFIED_AT`, and degrades safely both ways — an agent that ignores it behaves as before, and `codex-acp` accepts the unknown key without error.
+
+Measured effect on Windows: 19 descendant processes → 3, six console windows → two. It does **not** make anything faster (`session/new` is ~9.5s either way — that is Claude Code booting, not the MCP servers), and it does not reach zero windows; the remainder belong to `claude.exe`.
+
 ### Token counts come off the prompt result
 
 Two different things are reported, and conflating them made every ACP completion look free:
