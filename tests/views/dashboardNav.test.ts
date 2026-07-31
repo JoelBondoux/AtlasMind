@@ -126,6 +126,17 @@ describe('testing methodology guidance', () => {
     expect(WEBVIEW_SCRIPT).toContain("type: 'fixActivatedTesting'");
     expect(WEBVIEW_SCRIPT).toContain('normal tool approvals');
   });
+
+  it('keeps activated-testing repair observable and hands the retained result to Chat safely', () => {
+    expect(WEBVIEW_SCRIPT).toContain('testingFixStarted');
+    expect(WEBVIEW_SCRIPT).toContain('testingFixProgress');
+    expect(WEBVIEW_SCRIPT).toContain('testingFixFinished');
+    expect(WEBVIEW_SCRIPT).toContain('testing-fix-progress');
+    expect(WEBVIEW_SCRIPT).toContain('View reported task output');
+    expect(WEBVIEW_SCRIPT).toContain("type: 'openTestingFixChat'");
+    expect(WEBVIEW_SCRIPT).toContain("vscode.postMessage({ type: 'openTestingFixChat' });");
+    expect(WEBVIEW_SCRIPT).toContain('it is not sent automatically');
+  });
 });
 
 describe('dashboard motion safety', () => {

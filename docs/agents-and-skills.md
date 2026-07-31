@@ -152,6 +152,8 @@ The **Auto-assess project** button scans the workspace — package.json dependen
 
 #### Project Dashboard — Testing page
 
+An activated-testing repair remains one normal approval-gated task, but its lifecycle is now visible in the page: the host reports when routing begins, streams concise real orchestration/tool updates, and stores the final report or failure. The indicator is intentionally indeterminate because tool approval and test duration cannot support an honest percentage. A terminal task result is not a green claim; the current test evidence remains the source of truth. **Open result in Atlas Chat** sends no browser-supplied transcript: it opens the host-retained, redacted report as a reviewable fenced draft that the user may inspect or edit before sending.
+
 The **Project Dashboard → Testing** page includes a methodology toggle matrix with immediate save. Toggling a methodology writes directly to `project_memory/index/testing-config.json`. Each protocol has the same shared plain-English description, *When to use*, *Key tools*, and *Trade-offs* as Settings rather than a labels-only dashboard copy. Its **Fix activated testing** action gives the normal approval-gated Atlas task the host-derived enabled-policy coverage and report failures, so it can inspect, repair, and re-run the existing relevant test surfaces without inventing a command or silently weakening a test. An **Open Testing Strategy →** link navigates to the Settings Panel for agent assignment and model overrides.
 
 #### Agent Testing Roles

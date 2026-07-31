@@ -478,6 +478,10 @@ message nor the narrower dashboard card view can invent content, a relationship,
 `/ideate` uses the same read-only board/roadmap reading and provides links to the overview and
 canvas.
 
+## Testing repair activity
+
+The Testing dashboard's activated-policy repair path is an explicit extension-host lifecycle, not a fire-and-forget button: it sends started, bounded real-progress, and terminal-result messages to the webview. The webview renders an indeterminate activity bar while the routed task and its approvals are in flight, retains the reported output or error, and labels a successful return as a task result rather than a green test verdict. Its Chat action names no output in the browser message; the host retains, redacts, and fences the result as reported agent data in a reviewable draft before opening Atlas Chat.
+
 ## Security Boundaries
 
 ```text

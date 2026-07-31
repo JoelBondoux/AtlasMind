@@ -266,6 +266,8 @@ The Testing Dashboard's **Fix activated testing** action is also a single, modal
 
 ---
 
+The activated-testing repair remains observable without widening its authority. The host streams bounded status updates from routing and approved tool work into the Testing panel, where an indeterminate activity control says work is in progress without fabricating a percentage. The final result remains separate from test evidence, so a returned task can never be represented as green by UI wording alone. The Chat handoff is a no-payload browser request: only the host-held, redacted result is put in a fenced, reviewable draft, and it is never submitted automatically.
+
 ## Post-Write Verification
 
 When `atlasmind.autoVerifyAfterWrite` is `true` (default):

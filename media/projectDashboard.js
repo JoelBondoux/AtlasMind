@@ -177,6 +177,16 @@
     gapStatus: '',
     riskBusy: false,
     riskStatus: '',
+    // The host owns every entry in this activity record. Keeping it separate
+    // from the snapshot means an evidence refresh cannot erase the task the
+    // user just started or its terminal outcome.
+    testingFix: {
+      running: false,
+      runId: '',
+      current: '',
+      updates: [],
+      result: null,
+    },
     /** '' = all, otherwise a domain id, a status, or a `likelihood:impact` matrix cell. */
     riskFilter: '',
     activeDetails: {
@@ -345,6 +355,57 @@
     if (message.type === 'riskStatus') {
       state.riskStatus = typeof message.payload === 'string' ? message.payload : '';
       announce(state.riskStatus);
+      render();
+      return;
+    }
+
+    if (message.type === 'testingFixStarted') {
+      const update = normalizeTestingFixUpdate(message.payload);
+      if (!update) {
+        return;
+      }
+      state.testingFix = {
+        running: true,
+        runId: update.runId,
+        current: update.message,
+        updates: [update],
+        result: null,
+      };
+      announce(update.message);
+      render();
+      return;
+    }
+
+    if (message.type === 'testingFixProgress') {
+      const update = normalizeTestingFixUpdate(message.payload);
+      if (!update || (state.testingFix.runId && state.testingFix.runId !== update.runId)) {
+        return;
+      }
+      state.testingFix = {
+        ...state.testingFix,
+        running: true,
+        runId: update.runId,
+        current: update.message,
+        updates: [...state.testingFix.updates, update].slice(-8),
+      };
+      announce(update.message);
+      render();
+      return;
+    }
+
+    if (message.type === 'testingFixFinished') {
+      const result = normalizeTestingFixResult(message.payload);
+      if (!result || (state.testingFix.runId && state.testingFix.runId !== result.runId)) {
+        return;
+      }
+      state.testingFix = {
+        ...state.testingFix,
+        running: false,
+        runId: result.runId,
+        current: result.summary,
+        result,
+      };
+      announce(result.summary);
       render();
       return;
     }
@@ -848,6 +909,12 @@
       // the task before it can use an agent. No browser-provided target, test
       // command, or policy selection crosses this boundary.
       vscode.postMessage({ type: 'fixActivatedTesting' });
+      return;
+    }
+    if (action === 'testing-fix-chat') {
+      // The webview sends no transcript or error text. The extension host
+      // retains, sanitizes, and fences the real result before opening Chat.
+      vscode.postMessage({ type: 'openTestingFixChat' });
       return;
     }
     if (action === 'open-debt-evidence') {
@@ -2881,6 +2948,105 @@
     return chips;
   }
 
+  // The host already strips controls and redacts likely credentials; these
+  // parsers remain defensive because extension-host messages are still a
+  // boundary and a malformed payload should never blank the Testing page.
+  function boundedTestingFixText(value, limit, preserveLines = false) {
+    if (typeof value !== 'string') {
+      return '';
+    }
+    const cleaned = value
+      .replace(/\r\n?/g, '\n')
+      .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+      .trim();
+    return (preserveLines ? cleaned : cleaned.replace(/\s+/g, ' ')).slice(0, limit);
+  }
+
+  function normalizeTestingFixUpdate(payload) {
+    if (!payload || typeof payload !== 'object') {
+      return null;
+    }
+    const runId = boundedTestingFixText(payload.runId, 120);
+    const message = boundedTestingFixText(payload.message, 360);
+    if (!runId || !message) {
+      return null;
+    }
+    return {
+      runId,
+      message,
+      at: boundedTestingFixText(payload.at, 80),
+    };
+  }
+
+  function normalizeTestingFixResult(payload) {
+    if (!payload || typeof payload !== 'object') {
+      return null;
+    }
+    const runId = boundedTestingFixText(payload.runId, 120);
+    const summary = boundedTestingFixText(payload.summary, 440);
+    if (!runId || !summary) {
+      return null;
+    }
+    return {
+      runId,
+      outcome: payload.outcome === 'failed' ? 'failed' : 'completed',
+      summary,
+      output: boundedTestingFixText(payload.output, 12000, true),
+      completedAt: boundedTestingFixText(payload.completedAt, 80),
+      agentId: boundedTestingFixText(payload.agentId, 140),
+    };
+  }
+
+  function renderTestingFixActivity() {
+    const fix = state.testingFix;
+    if (!fix || (!fix.running && !fix.current && !fix.result)) {
+      return '';
+    }
+
+    const result = fix.result;
+    const tone = fix.running ? 'running' : result && result.outcome === 'failed' ? 'failed' : 'completed';
+    const label = fix.running
+      ? 'Repair running'
+      : result && result.outcome === 'failed'
+        ? 'Repair task failed'
+        : 'Task finished — review evidence';
+    const tagTone = fix.running ? 'tag-warn' : result && result.outcome === 'failed' ? 'tag-critical' : 'tag-warn';
+    const updates = Array.isArray(fix.updates) ? fix.updates.slice(-8) : [];
+    const updatesHtml = updates.length > 0
+      ? `<ul class="testing-fix-update-list">${updates.map(update => `<li>${escapeHtml(update.message)}</li>`).join('')}</ul>`
+      : '';
+    const outputHtml = result && result.output
+      ? `<details class="testing-fix-output">
+          <summary>View reported task output</summary>
+          <pre>${escapeHtml(result.output)}</pre>
+        </details>`
+      : '';
+    const resultMeta = result && result.agentId
+      ? `<span class="list-meta">Reported by ${escapeHtml(result.agentId)}</span>`
+      : '';
+    const chatAction = result
+      ? `<div class="tag-row testing-fix-actions">
+          <button type="button" class="action-link" data-action="testing-fix-chat">Open result in Atlas Chat</button>
+          <span class="list-meta">Opens a reviewable draft; it is not sent automatically.</span>
+        </div>`
+      : '';
+
+    return `
+      <section class="testing-fix-activity ${tone}" aria-label="Activated-testing repair status">
+        <div class="testing-fix-heading">
+          <strong>Activated-testing repair</strong>
+          <span class="tag ${tagTone}">${label}</span>
+        </div>
+        <p class="testing-fix-current" role="status" aria-live="polite">${escapeHtml(fix.current || 'AtlasMind is preparing the repair task.')}</p>
+        ${fix.running ? '<progress class="testing-fix-progress" aria-label="AtlasMind repair activity in progress"></progress>' : ''}
+        ${updatesHtml}
+        ${resultMeta}
+        ${outputHtml}
+        ${chatAction}
+      </section>
+    `;
+  }
+
   // ── Per-policy coverage board ────────────────────────────────────
   // Answers, for every policy the project switched on: is anything testing it,
   // and is any of it failing? Deliberately distinguishes "no tests" from "no
@@ -2895,6 +3061,7 @@
     const report = coverage.report;
     const failingRows = rows.filter(row => row.failedCount > 0);
     const gapRows = rows.filter(row => row.status === 'missing' || row.status === 'tooling-only');
+    const fixRunning = Boolean(state.testingFix && state.testingFix.running);
 
     const reportLine = report
       ? `
@@ -2956,10 +3123,11 @@
         </div>
         <div class="stat-detail">${escapeHtml(coverage.summary)}</div>
         <div class="tag-row" style="margin-top:8px">
-          <button type="button" class="action-link primary" data-action="fix-activated-testing" title="Inspect and repair the enabled test surfaces through AtlasMind's normal approval flow">Fix activated testing…</button>
-          <button type="button" class="action-link" data-action="reconcile-testing">Reconcile with the repository…</button>
-          <span class="list-meta">Fix runs only after confirmation and normal tool approvals. Reconcile compares the declared policy with what is actually here and proposes any configuration changes.</span>
+          <button type="button" class="action-link primary" data-action="fix-activated-testing"${fixRunning ? ' disabled' : ''} title="Inspect and repair the enabled test surfaces through AtlasMind's normal approval flow">${fixRunning ? 'Repairing activated testing…' : 'Fix activated testing…'}</button>
+          <button type="button" class="action-link" data-action="reconcile-testing"${fixRunning ? ' disabled' : ''}>Reconcile with the repository…</button>
+          <span class="list-meta">Fix runs only after confirmation and normal tool approvals; routed activity and its final report appear below. Reconcile compares the declared policy with what is actually here and proposes any configuration changes.</span>
         </div>
+        ${renderTestingFixActivity()}
         ${reportLine}
         <div class="panel-grid" style="margin-top:12px">
           ${renderDistributionBar('policy-coverage', [

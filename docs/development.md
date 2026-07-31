@@ -173,6 +173,10 @@ Update `ACP_PRIVATE_DESKTOP_HELPER_SHA256` in `src/providers/acpWindowsLauncher.
 
 ## Webview Development
 
+### Long-running dashboard operations
+
+When a dashboard action delegates work to the Orchestrator, make the lifecycle visible in the panel as well as in VS Code notifications. The activated-testing repair flow is the reference: the extension host sends a started event, concise real routing and approved-tool updates, and one terminal completed or failed result. The webview uses an indeterminate progress control while work is active rather than inventing a percentage, preserves the reported output for review, and distinguishes “task completed” from “tests are green.” Any Chat handoff is host-owned: the browser asks only to open the latest retained result, and Chat receives a redacted, fenced draft that the operator can review before sending.
+
 Webview panels use `getWebviewHtmlShell()` from `src/views/webviewUtils.ts` for consistent styling.
 
 The Website Studio follows the same extension-host/webview split. `websiteStudioPanel.ts` renders and collects the six dashboard pages, including the fixed Develop → Staging → Production hosting cards, but every incoming message is checked by `isWebsiteStudioMessage()` and every data payload is passed through `sanitizeWebsiteWorkspace()` in `websiteWorkspaceManager.ts` before persistence. Treat all displayed policy fields as presentation only: the host reconstructs canonical environment names, access policies, hosting restrictions, and Production protection; `assessWebsiteHostingEnvironments()` then validates loopback/HTTPS/password-reference/review-subdomain readiness. Credential inputs are references with an explicit provider prefix, never password values. Keep platform deployment and n8n execution out of the webview: it may record readiness and non-secret references, while real production actions must continue through a separately reviewed/approved host-side path. Tests live in `tests/core/websiteWorkspaceManager.test.ts` and `tests/views/websiteStudioPanel.test.ts`.

@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.233.1 — Activated-testing repair is visible
+
+**A testing repair no longer goes quiet after confirmation.** The Testing Dashboard now keeps an indeterminate activity indicator and a concise sequence of actual routing and approved-tool updates while the normal approval-gated task runs. It retains a completed or failed outcome with the reported output, and it never labels completion green without fresh test evidence.
+
+**The result can move safely into Atlas Chat.** **Open result in Atlas Chat** opens a reviewable draft rather than sending anything automatically. AtlasMind redacts likely secrets and fences the captured report as untrusted agent output, so Chat is asked to verify it against workspace evidence before taking another action.
+
 ## v0.233.0 — Ideation has a home on the dashboard
 
 **Ideation is now visible as stage 0 in Project Dashboard → Where we stand.** The overview reports what is on the active board, what has not yet become work, which live roadmap items still carry a board origin, and unresolved contradictions. Its readiness observations publish the rule that produced each concern, so an empty board reads as unstarted rather than clean.

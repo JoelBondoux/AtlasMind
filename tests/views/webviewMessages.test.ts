@@ -672,6 +672,7 @@ describe('isProjectDashboardMessage', () => {
     expect(isProjectDashboardMessage({ type: 'addIdeationEvidence', payload: 'gap-analysis:gap-1' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'runGapAnalysis' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'fixActivatedTesting' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'openTestingFixChat' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'addressGap', payload: 'gap-1' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'resolveGapItem', payload: 'gap-1' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'resolveGapGroup', payload: 'P1' })).toBe(true);

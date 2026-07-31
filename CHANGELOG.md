@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.233.1] - 2026-07-31
+
+### Fixed
+- **Activated-testing repair is now observable from start to finish.** After the host-confirmed task begins, the Testing Dashboard shows an indeterminate activity indicator plus real orchestrator routing and approved-tool updates, then retains a clear completed or failed outcome with the reported task output. Completion never claims the suite is green on its own; test evidence still has to establish that.
+- **Repair output can be reviewed in Atlas Chat without a copy/paste detour.** The dashboard opens the host-retained result as a new, reviewable Chat draft. It redacts likely secrets, fences the report as untrusted data rather than instructions, and never submits the follow-up automatically.
+
 ## [0.233.0] - 2026-07-31
 
 ### Added
