@@ -24,8 +24,8 @@ AtlasMind can also perform one bounded escalation during execution when the curr
 <!-- atlasmind-import
 entry-path: architecture/model-routing.md
 generator-version: 2
-generated-at: 2026-07-28T12:06:49.103Z
+generated-at: 2026-07-31T03:25:06.200Z
 source-paths: docs/model-routing.md
-source-fingerprint: f3076239
+source-fingerprint: 95601890
 body-fingerprint: 59de9e31
 -->

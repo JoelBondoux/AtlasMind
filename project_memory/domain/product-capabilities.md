@@ -33,8 +33,8 @@ See the [Configuration Reference](docs/configuration.md) or [wiki Configuration]
 <!-- atlasmind-import
 entry-path: domain/product-capabilities.md
 generator-version: 2
-generated-at: 2026-07-28T12:06:49.103Z
+generated-at: 2026-07-31T03:25:06.200Z
 source-paths: README.md | package.json
-source-fingerprint: fe4c08af
+source-fingerprint: 56732bae
 body-fingerprint: c7a85900
 -->

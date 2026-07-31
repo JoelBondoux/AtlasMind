@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.228.1] - 2026-07-31
+
+### Changed
+- Committed work products left uncommitted by an earlier session: the first ATDD artifacts (`test/bdd/features/task-routing.feature` plus the `tests/features/` acceptance tests), four agent definitions, and a refresh of the SSOT memory files. No source behaviour changes — this clears the working tree so the ACP daemon work starts from a known state.
+
 ## [0.228.0] - 2026-07-31
 
 ### Fixed

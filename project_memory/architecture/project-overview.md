@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.171.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.227.2</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -36,7 +36,11 @@ Use a focused chat turn for a small fix, `/project` for a coordinated delivery p
 
 ### Bring the models you already trust
 
-Connect cloud providers, subscription-backed models, or local OpenAI-compatible runtimes such as Ollama and LM Studio. AtlasMind routes by task fit, capability, health, budget, speed, and observed outcomes.
+Connect cloud providers, local OpenAI-compatible runtimes such as Ollama and LM Studio, or **the subscription you already pay for** — a Claude, ChatGPT, Gemini, Copilot or Qwen plan becomes routable capacity over the Agent Client Protocol, with no per-token cost. AtlasMind routes by task fit, capability, health, budget, speed, and observed outcomes.
+
+### Work the way your repository already works
+
+An opt-in guided GitHub workflow runs from an idea on the ideation board through issues, branches, pull requests, review, CI, release, and the debt you chose to defer. You decide how far AtlasMind may go at each stage — observe, draft, propose, or act — and the ceiling is yours to lower at any time. The workflow itself is a **committed file**, so a change to how your team works arrives as a diff with a reviewer rather than a habit nobody wrote down.
 
 ### Keep your project's brain
 
@@ -48,7 +52,7 @@ Project Dashboard, Project Run Center, Cost Dashboard, Mission Control, Website 
 
 ### Grow the team around the project
 
-Start with 18 built-in agents and 43 built-in skills. Add custom agents, assign models and testing responsibilities, connect MCP servers, or discover new agentic resources when the project needs more.
+Start with 21 built-in agents and 43 built-in skills. Add custom agents, assign models and testing responsibilities, connect MCP servers, or discover new agentic resources when the project needs more.
 
 ---
 
@@ -64,62 +68,68 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.171.1
+## What's new in 0.227.2
 
-Since the last Marketplace publication, **v0.145.3**, source builds have added:
+Since the last Marketplace publication, **v0.219.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
 
-- **Every setup process now works the way the Buzz one does.** `/acp` walks you through ACP setup a step at a time — name an agent, install it, sign in, enable the provider, and then **prove a completion actually comes back**, because configured and working are different things the settings screen cannot tell apart. `/setup` lists every guide with how far along it is, so a feature that needs configuring is discoverable before you hit the failure it causes. The two guides share their mechanics rather than resembling each other, so they cannot drift — and neither installs or enables anything for you: every button opens the screen where you decide.
-- **Use your Claude or Codex subscription as routable capacity.** AtlasMind can now drive coding agents over the [Agent Client Protocol](https://agentclientprotocol.com) — the emerging standard that is to coding agents what LSP is to language servers. Point it at an agent you have installed (`claude-agent-acp`, `codex-acp`) and its subscription becomes another model the router can choose. It replaces the old Claude CLI bridge on every axis that mattered: replies **stream** instead of arriving in one lump, the **~26,000-character prompt ceiling is gone** (prompts travel over a pipe, not a command line, so long context arrives intact rather than silently truncated), and **images** are sent when the agent accepts them. Agents run with no filesystem, no terminal, and no tools — they answer, they do not act — and if one asks for permission to do something, AtlasMind refuses rather than granting it. Nothing is installed for you, and nothing is enabled until you name a command yourself.
-- **Your issue tracker, inside the dashboard.** A new **Issues** tab reads the repository's GitHub issues: what is open, what nobody has picked up, and what has gone quiet for a month, with charts by label and assignee. You can comment, close, reopen, or open a new issue without leaving the editor — each one shown to you in full and confirmed before it is sent, because a tracker is public. **Work on it with Atlas** hands the issue to chat as a *report to check*, explicitly not as instructions, since an issue is written by whoever filed it.
-- **The dashboard opens with charts of who did the work and how far each release has to go.** A donut of **commits by contributor** (click a name to scope the commit timeline to that person), a **route to release** ring for whichever gate the Roadmap card is showing, and a bar of **outstanding objectives by release gate** — so the first screen answers who, what is left, and how far, not just how busy the repo has been. Everything is drawn from git history and the roadmap you already keep: no new scan, no model call, and author names only.
-- **When Atlas asks a question, you can answer it with one tap — everywhere.** One-tap reply pills existed only in the main Chat panel, which made them look like a feature of that panel rather than of Atlas asking. The Ideation panel and the Vision panel now show them too: click **Yes**, or the option you want, and it runs. Where a question has no clean options you still get the text box rather than invented buttons, which is exactly how chat has always behaved.
-- **The roadmap plans more than one release.** MVP was the only milestone the Roadmap tab could track, which stops being useful the day you ship it. You can now declare your own **release gates** — a public beta, v1.0, v2 — and switch the "Road to…" card between them; each shows its own progress, milestone track, best route, and plan-with-Atlas prompt. An item can sit on more than one release. Gates are stored as readable markdown in the roadmap file, so they diff and review like the backlog does, and removing a gate removes a *label*, never any work.
-- **The Testing tab says which policies are actually tested — and what's failing.** A **Policy coverage** board gives every methodology you switched on its own card: does anything in the tree test it, is its tooling merely installed with nothing written yet, how many of its cases are skipped, and which of its tests failed in the newest test report. Practices that leave no file behind — exploratory, black-box, V-model — are labelled as practices instead of being counted as gaps, because a panel that flags everything gets ignored. And when your project has never written a test report, the page says it has **no verdict** and shows the command that would produce one, rather than displaying a reassuring "0 failing" that nothing measured. It never runs your tests to find out.
-- **A document shelf creates its folder.** Adding a shelf on the Documents tab now makes the folder it names, so you can design a filing system before the files exist instead of describing one against folders that aren't there. Shelves still pointing at a missing folder get a **Create folder** button. It only ever creates: a folder that already exists is left alone, and a file sitting where the shelf points is reported rather than touched.
-- **One person, several ways to reach them.** The Director's Add / Edit person form now holds as many communication channels as someone actually has — email *and* Slack *and* Buzz — rather than the one it used to allow. The first is the preferred channel; the rest sit under it, added and removed without losing anything else you have typed. The roster's data model always stored a list; only the editor insisted on one.
-- **Bind a Buzz identity to more than one agent.** The AtlasMind agent picker is a checklist, because a colleague who raises both API defects and design feedback belongs to two specialists and being made to choose throws away something you know. The first ticked owns the work — a follow-up has exactly one owner — and the rest are recorded as also-relevant rather than picked between by inference.
-- **An observed Buzz identity you can actually recognise.** The picker used to offer three rows reading `dcbe44bf896f… (no published name) · seen in 1 channel`, which is a list nobody can choose from knowingly. Most Buzz identities publish no profile, so the evidence now comes from behaviour instead: what they last said, how much they have said, and when.
-- **The walkthrough says where the Buzz desktop app fits.** Proving a message arrives is the one step that needs it — AtlasMind can read Buzz but cannot post, so the test message has to come from somewhere — and it now says so, with the download link and the warning that the app and AtlasMind must share a relay.
-- **Fetch your Buzz channels instead of copying ids by hand.** A **Fetch my channels** button on Settings → Buzz asks the Buzz CLI which channels your key can actually see, and offers them as a ticklist with the ones you already watch pre-ticked. A channel id that quietly does not match the channel you posted in is the most common reason a correctly configured subscription receives nothing — and it is undiagnosable from inside AtlasMind, because the wrong id, the wrong relay, and a quiet day look identical. Nothing is written unless you tick and confirm, and a channel you watch that the relay did not list is kept rather than silently dropped.
-- **The Buzz walkthrough now finishes the job.** It used to stop at "subscribed", which is the point where every remaining problem looks identical: a wrong channel id, a wrong relay, and a quiet Tuesday all present as a connection that receives nothing. Two steps follow it now. **Prove one message arrives** — post in Buzz, run `/buzz read`, and see it — with the two things that actually go wrong named and fixed on the spot. Then **put the Buzz people in the Director roster**, so what arrives reaches an agent instead of sitting unassigned. Neither is required for the subscription to work, so neither is reported as a fault; they are simply things nobody was ever told to do.
-- **MCP servers are visible in Settings.** A new **Settings → MCP Servers** page lists every server with its live connection status, tool count, and any error, and lets you enable, connect, or disconnect each one — so you can see what AtlasMind can actually reach without opening a separate panel. Adding and editing servers stays in the dedicated manager, which the page links to.
-- **Buzz setup is a walkthrough, not a wall of text.** `/buzz` takes you one step at a time, asks whether you are running Buzz locally or connecting to a hosted relay, and then shows only that path — with the exact terminal commands written out and a button that loads them into a terminal ready to run (it never presses Enter for you). It covers the Buzz desktop app and the MCP bridge too, and opens in AtlasMind's own chat rather than Copilot's.
-- **A blocked run no longer looks like a hung one.** When a tool approval is waiting and the AtlasMind panel is not on screen, the panel comes forward and a notification names what needs an answer — because the approval bar lives in that panel, and you might be in VS Code's own chat, an editor, or another window. It stays quiet when the panel is already visible.
-- **DM people from chat, and let agents talk to each other.** `/buzz dm <name> <message>` messages someone straight from your Director roster. And `atlasmind.buzz.autonomousReplies` (off by default) lets an AtlasMind agent hold a loop with a Buzz agent without a dialog per message — scoped only to identities you explicitly bound to an agent, rate-capped per recipient, and still confirming for anyone unbound, who is treated as a person.
-- **Talk to Buzz from AtlasMind chat.** `/buzz read` shows the conversation with real names and emoji reactions; `/buzz send <message>` replies through the guarded bridge. Confirmation now fires where it earns its place — anything AtlasMind drafted, any recipient it picked, and the first message to anyone in a session — rather than on every message you type yourself, because a dialog you always click through protects nothing.
-- **The Buzz setup guide reads Buzz's own docs.** Rather than hand-written instructions that go stale every time Buzz ships, `/buzz` quotes the current Buzz README for the parts outside AtlasMind — running a relay, installing the CLI, setting a key — with a source link and how recently it was read. Assessing *your* setup stays a deterministic check; only claims about Buzz are fetched, and anything quoted is clearly somebody else's text that AtlasMind will not run for you.
-- **A "Guide me through Buzz setup" button** on Settings → Buzz opens the walkthrough in chat, now with real how-to for the parts outside AtlasMind — including that a local relay is something *you* have to run (normally via Docker), since a valid `localhost` URL is not the same as a relay actually listening.
-- **`/buzz` sets Buzz up with you.** Ask `@atlas /buzz` and AtlasMind reads your actual configuration and tells you what is done, what is left, and what to click next — with a button for each gap. It will not switch anything on for you: every Buzz gate is off by default so that enabling it stays your call, and each button opens the relevant screen rather than changing state behind you. AtlasMind can now also tell you whether the Buzz CLI is installed, instead of letting you find out when a send fails.
-- **Pick a Buzz handle instead of pasting one.** Adding a person on the Director tab now offers the Buzz identities AtlasMind has actually seen, by the name each one published for itself — and your own identity, derived from the key already in secure storage. Nothing is ever guessed from a person's name: every option is a key that arrived on the wire, because a fabricated key would belong to somebody else.
-- **Buzz is configurable by clicking.** A new **Settings → Buzz** page surfaces every Buzz switch — enable it, point it at a relay, allow a remote one, subscribe to inbound, choose channels, and decide whether follow-ups are recorded — with each nested switch shown dimmed while its parent is off, so the three gates read as the three gates they are. And in **Project Dashboard → Director**, adding or editing a person with a `buzz` channel now offers an **AtlasMind agent** picker, so you can say "route their messages to this specialist" while adding them rather than by hand-editing settings JSON.
-- **Buzz activity can become AtlasMind work.** Switch on inbound and AtlasMind holds a live, read-only subscription to your Buzz relay, turning channel activity into follow-ups with a pointer back to the thread. You can also **assign AtlasMind agents to specific Buzz agents**, so work from a known Buzz bot lands with the right specialist. Three separate opt-ins gate it — enabling Buzz, subscribing, and recording — because project memory is committed to your repository.
-- **Buzz inbound can now authenticate.** AtlasMind signs the NIP-42 challenge a real Buzz relay demands, so a live subscription is possible at all — a relay refuses to serve one otherwise. The signing library is tiny (170 KB, no dependencies of its own) and is loaded only the first time a signature is needed, so if you never use Buzz it costs you nothing. Your agent key stays in the OS secret store, is checksum-validated so a mistyped key fails loudly instead of signing as someone else, and never reaches a log or an error message.
-- **Hosted Buzz workspaces are handled safely.** A Buzz relay doesn't have to be local. Connecting to a **remote** one now requires an encrypted connection — plaintext to a hosted relay would expose colleagues' messages in transit — matching the rule the outbound path already applied.
-- **Reading Buzz activity back in.** AtlasMind can now hold a live subscription to a Buzz relay: it authenticates, subscribes, keeps itself genuinely in contact (a wake lock can't save a dropped socket, so there's a keep-alive with backoff reconnect), and turns activity into follow-ups. External conversations are **derived, never mirrored** — a message becomes a follow-up with a pointer back to the thread, never the message body, because project memory is committed to your repository and a mirrored channel would put colleagues' chat in your git history. The subscription is **read-only by construction**: it can never publish to Buzz. Authentication and the message contract are now verified against a real Buzz relay; what remains before it is switched on is the wiring — an opt-in toggle and follow-up persistence.
-- **Buzz can now send for real through the guarded connector path.** A bundled communication-only MCP bridge wraps the pinned official Buzz CLI for channel posts, thread reads, and DMs; it stores the agent key in SecretStorage, passes message bodies over stdin, enforces local/remote relay policy, and keeps Buzz traffic from being misrouted through Slack or Teams.
-- **Workspace memory stays out of source and release archives.** Git ignores the local memory backup, while VSIX packaging excludes every `project_memory*` directory before Marketplace publication.
-- **Model refreshes now remove what providers removed.** Successful empty catalogs prune stale entries, and provider-confirmed deprecated or missing models cannot be resurrected by a later stale refresh.
-- **Assessment handoffs are actionable.** Proposed autonomous work ends with a chat card offering **Start run**, **Save for later**, or **Cancel**; only Autopilot may auto-start a proposal.
-- **Reasoning plans now hand off to tooling models.** Non-synthesis project steps are grounded with live workspace evidence skills, and a model that says its tools are disabled is rerouted instead of being counted as a successful executor.
-- **Execution limits end with a decision, not an inert warning.** When a chat or project run reaches its tool cap, AtlasMind asks whether to use the suggested limit for this run, save it permanently, or keep the partial result; the one-run choice restores the prior setting afterward.
-- **Local savings are visible at a glance.** The Cost Dashboard’s Efficiency summary now includes the estimated cloud spend avoided by local-model requests, backed by the detailed per-model comparison.
-- **Security reviews can be recorded consistently.** A new service provides the persistence, audit history, freshness, and scoring foundation for reviews of secrets, runtime boundaries, dependencies, and permissions.
-- **Review evidence is handled defensively.** Malformed model output is ignored safely, cited paths cannot escape the workspace, and unresolved findings cannot be silently marked closed. This release supplies the data layer for future dashboard wiring; it does not add an automated vulnerability scanner or a release gate.
+- **The ideation board is a staged workspace now, not one long page.** Frame → Scaffold → Shape → Decide is a control: pick a stage and only that stage renders. The board still leads, and each stage reports where your board actually is rather than which tab you are reading. An empty board offers starter frames derived from what your project looks like — a game and a command-line tool no longer open the same blank canvas — and every seeded card is a question rather than an answer. The card-kind picker finally says what a kind commits to: choosing **problem** puts "Fix: …" on the roadmap and **risk** puts "Mitigate: …", which was true from the day the board shipped and written down only in the source.
+
+- **Ideation can learn something you did not already type into it.** Seven research scans — competition, customers, technology, feature gaps, market, funding, regulation — ask questions about the world outside your repository and record what they find as evidence the board can use. Gap, security, risk, debt and testing are deliberately *not* among them: AtlasMind already answers those, and a second answer would eventually contradict the first.
+
+  **Every finding carries a source, or it is not a finding.** A model asked about a market will answer, fluently and plausibly, and that answer filed into your project memory is indistinguishable from research six weeks later. An uncited claim is recorded as a *question to research* and never counted as evidence. With no way to search at all, a scan reports that it could not look — it does not report that it found nothing.
+
+- **Scans become due; running one stays your decision.** Each scan has a cadence, and AtlasMind tells you when the world has had time to move. Six weeks away produces one due scan, not six. The research digest then answers three questions in order — what changed outside, what it means for what you are building, and what is *still* unassessed — deterministically, with no model writing any of it. See [the specification](docs/ideation-and-research.md).
+
+- **An empty ideation board is a starting point now.** Eleven starter frames derived from your project's shape, so a game and a command-line tool do not open the same blank canvas, with every seeded card phrased as a question rather than an answer. Plus a readiness reading that says what the board cannot defend — unresolved contradictions first, then problems with nothing behind them, and cards that never reached the backlog. A record, never a gate.
+
+- **Reconcile the testing policy with what is actually in the repository.** A testing matrix drifts one way: enabling a methodology takes a click, noticing months later that it never produced anything takes somebody deliberately looking. **Reconcile with the repository** on the Testing page compares the two and proposes a change for each disagreement - drop what was declared and never started, keep what has tooling underway, adopt what the project practises but never declared. Nothing is written until you approve the exact lines, and dropping is a first-class outcome: a declaration the project has outgrown is a stale statement, not work you failed to do.
+
+- **Every write to the testing matrix now reaches the AI tools that read it.** Three places could change the matrix and only one of them synced. Turning a methodology off from the Project Dashboard left `CLAUDE.md`, `AGENTS.md` and `.github/copilot-instructions.md` still instructing every external agent to follow it - the config said one thing and the tools reading it said another, with nothing on screen to suggest they had diverged. All three go through one path now.
+
+- **Auto-assess proposes rather than decides.** It used to arrive with every match pre-ticked, which is how a single click could enable thirteen methodologies - mutation, contract, model-based and end-to-end testing on a project with none of them - and leave eight permanent gaps that nobody read as gaps. Only methodologies the repository can already show evidence or tooling for arrive ticked. The rest are still offered, one keystroke away, labelled as what they are: an intention rather than a fact.
+
+- **Testing is worth points, and an unevidenced policy costs them.** The project score had eight components and 127 points, and testing was not one of them — so a project with fourteen declared methodologies and evidence for none scored *better* than one that declared nothing, because neither carried a testing number and the first looked more organised everywhere else. There is now a **Testing evidence** component worth 15: ten for the share of enabled methodologies that have evidence, five for having a test report at all. A project with nothing declared scores zero and is told the points are unclaimed, not that it has failed — nobody has looked, which is different from looking and finding it broken.
+
+  The recommendation says *close or retire*. A declaration the project has outgrown is a legitimate thing to withdraw; it is not a failure you must fix by writing tests for it.
+
+- **A release now checks the standard the project set itself.** The release gates covered the changelog, the notes, the version, the tag, the tree, and CI — everything except whether the release meets the testing policy the project declared. A **Declared testing policy met** gate joins them: a failing test fails it, an enabled methodology with no evidence fails it, and coverage that was never gathered reports `unknown`. `unknown` is not a pass, because a published version can never be replaced and *"we did not check"* must stay distinguishable from *"we checked and it was fine"*.
+
+- **A methodology can now hold work back, and only if you say so.** AtlasMind's one real enforcement — the gate that refuses non-test writes until a failing test has been seen — never read the testing matrix at all. It fired on the task's role and wording, so a project that had switched TDD *off* still got the gate, and the thirteen methodologies it had switched *on* got no gate whatsoever. The config governs it now.
+
+  Blocking is **opt-in per methodology**, not a project-wide switch. Enabling a methodology is a statement of intent and should stay safe to make; turning one into a gate changes how every task in the project runs, and that is a decision worth taking one methodology at a time. You can declare fourteen methodologies as the standard you hold yourself to and block on only the one or two you are willing to stop work over. Where AtlasMind cannot read your config at all, the gate stays on: dropping a safety behaviour because a file would not parse is the wrong direction to fail in.
+
+- **A testing config written by a newer AtlasMind is no longer treated as no config at all.** The reader hard-gated on `version === 1`, so a future file read as `undefined` — which every writer in the project takes as licence to persist a fresh default over the top. For a document whose entire content is *which methodologies are on*, that is a silent way to switch a project's testing policy off. It now goes through the same migration ladder as every other persisted document, which keeps *corrupt* (safe to replace) and *newer* (never safe to replace) apart. The two byte-identical copies of that reader, and the three hand-written copies of the file path, are down to one each.
+
+- **A testing methodology you enable is now stated to the agent writing the code.** This is the fix for the failure that started all of this: a project could carry fourteen enabled methodologies, believe them in force, and have tests written for none of them. The policy was never wrong — it was never *shown* to anyone who could act on it. Testing policy reached a prompt through one channel, and that channel required the task to already be classified as testing, or the subtask's own text to already contain a testing word. So the turns implementing features — the only turns that could have written the tests — were exactly the ones told nothing.
+
+  Every turn that could change behaviour now carries the **whole** enabled set, phrased as an obligation rather than a description: a change is not finished until it carries the evidence its policy names, and an agent that cannot produce that evidence must say so and say why. A project that has declared no policy is told nothing at all, because generic advice nobody asked for is how a prompt block becomes something agents learn to skim. Practices such as V-Model and Exploratory are named as context but never requested as files — asking for an artifact they cannot produce invites an invented one.
+
+- **The Testing page can finally report a verdict, because a report now exists.** AtlasMind reads pass/fail from a report your project wrote and never runs your tests to find out — a deliberate boundary. But nothing in this repository ever wrote one, so on its own project the Testing page had shown *"No test report"* since the day it shipped. Every `vitest run` now writes `test-results/junit.xml`, and the pre-commit hook already runs the full suite, so the verdict on screen is never older than your last commit. It is gitignored: it is evidence of *your* run, not of whoever last pushed.
+
+- **A green pipeline no longer reads as a gap.** The `continuous` testing policy had no file markers at all, so a project running its whole suite on every push capped at *"No tests yet"* permanently — a gap it had no way to close. Continuous testing leaves behind a pipeline definition and nothing else, so for this policy the configuration *is* the artifact. Only the pipeline file counts: a `npm run watch` for a bundler matches the same policy's script patterns, and a false *"Tested"* is the one reading this page must never produce.
+
+- **Five test files that had never run once.** Three sat in `src/`, one in a `test/` directory the runner does not look at, and one used a `.spec.ts` suffix the glob does not match. They are now inside the suite — and two of them failed on arrival, having been written against behaviour the code no longer has. A test file that silently does not execute is worse than no test file, because its presence reads as coverage.
+
+- **The Testing page stopped inventing its own denominator.** The badge said *"13 / 14 active"* while the table beneath it listed 23 rows, and both setup pickers offered *"the full list of 14 methodologies"* — the registry grew to 23 and four pieces of copy were never updated. Reading *13 / 14* you would conclude the project has nearly everything switched on, when it has just over half. The count is derived from the registry now, and a test refuses a literal.
 
 ---
 
 ## What is included
 
-- **Multi-agent orchestration** — debugger, frontend and backend engineers, reviewer, security specialist, testing, documentation, performance, DevOps, dependency, SEO, UX, and ethics/legal/commercial oversight.
-- **Outcome-aware model routing** — configurable provider choice with budget, speed, capability, health, feedback, and task-profile signals.
+- **Multi-agent orchestration** — debugger, frontend and backend engineers, reviewer, security specialist, testing, documentation, performance, DevOps, dependency, SEO, UX, and ethics/legal/commercial oversight. Agents can hand a question to a better-placed specialist, and a handoff transfers the question without widening the caller's permissions.
+- **Outcome-aware model routing** — cloud providers, local runtimes, or a Claude/ChatGPT/Gemini/Copilot/Qwen **subscription** used as capacity, chosen by budget, speed, capability, health, feedback, and task-profile signals.
+- **A guided GitHub workflow** — ideation, issues, branches, pull requests, review, pipeline, release, and tech debt, each with its own automation level from *observe* to *act*. Specialised by your project's shape and traits, and written to a file your team owns.
+- **Ideation that reaches the backlog** — cards become roadmap items carrying the connections that argued for them, and a roadmap item becomes a GitHub issue draft with labels drawn only from your repository's real taxonomy.
+- **A tech-debt register** — deferred work found by scanning your own markers, graded by a **published rule table** rather than a model's opinion, with entries that transition instead of disappearing. Any entry can be handed to an agent as a proposal, never a mandate.
+- **Delivery measurement** — deployment frequency, lead time, change failure rate, and time to restore, each computed from a declared rule you can read, alongside release gates and notes taken verbatim from your changelog.
 - **Project planning and Mission Control** — dependency-aware subtasks, previews, checkpoints, resumable runs, and goal evaluation inside a closed operating envelope.
-- **Long-term project memory** — structured SSOT files, security-scanned writes, secret redaction, and source-backed retrieval.
+- **Long-term project memory** — structured SSOT files, security-scanned writes, secret redaction, source-backed retrieval, and a migration path so a newer format is never overwritten by an older build.
 - **Agent and skill workspaces** — create custom agents, define completion criteria, assign tools and models, scan custom skills, and extend through MCP.
 - **Testing strategy** — 23 configurable methodologies with per-agent ownership, model overrides, project notes, scaffolding, and protocol sync to other AI tools.
-- **Project operations** — roadmap, delivery, privacy, risk, documents, stakeholders, assignments, and follow-ups in one project dashboard.
+- **Project operations** — roadmap, delivery, privacy, risk, documents, stakeholders, assignments, and follow-ups in one project dashboard, with each page linking through to the GitHub page it is about.
 - **Website Studio** — move a client site from intake through sitemap, wireframes, UI system, platform readiness, and a protected Develop → Staging → Production path.
-- **Voice, vision, and remote workflows** — local or hosted speech options, multimodal image analysis, and opt-in remote control.
-- **Transparent cost and quality signals** — per-session and per-model spend, model comparison, feedback, verification evidence, and routing outcomes.
+- **Voice, vision, and remote workflows** — local or hosted speech options, multimodal image analysis, opt-in remote control, and a keep-awake lock so a long run is not killed by system sleep.
+- **Transparent cost and quality signals** — per-session and per-model spend in your own currency, model comparison, feedback, verification evidence, and routing outcomes.
 
 ---
 
@@ -188,6 +198,10 @@ Open Project Ideation to build a visual decision board, explore constraints and 
 
 Website Studio connects client intake, information architecture, design review, platform readiness, and delivery planning. See the [Website Studio guide](docs/website-studio.md).
 
+### Follow a professional GitHub workflow — and learn it
+
+Project Dashboard → **Workflow** is the guided eight-stage workflow: ideation, issue intake, branch naming, development, pull requests and review, CI, release, and the tech debt you chose to defer — with an automation layer above them all. Every stage and step carries a **?** explaining why it exists, how to do it, and what people usually get wrong — so it works as a teaching surface for someone learning professional practice, not only as a checklist for someone who already knows it. It adapts to the testing protocols your project has enabled, and charts delivery health alongside the guidance. See the [workflow specification](docs/guided-github-workflow.md).
+
 ### Keep the project organised
 
 Project Dashboard brings roadmap, issues, documents, delivery stages, privacy, risk, stakeholders, assignments, and follow-ups into one operational surface.
@@ -196,7 +210,7 @@ Project Dashboard brings roadmap, issues, documents, delivery stages, privacy, r
 
 ## Chat Slash Commands
 
-Use these in AtlasMind chat as `@atlas /<command>`.
+Type these in the AtlasMind chat panel as `/<command>`, or in the VS Code chat view as `@atlas /<command>`. Both surfaces run the same handlers, so they cannot answer differently.
 
 | Command | Outcome |
 |---|---|
@@ -215,6 +229,7 @@ Use these in AtlasMind chat as `@atlas /<command>`.
 | `/setup` | List every setup guide and how far along each one is |
 | `/acp` | Walk through ACP agent setup: name it, install it, sign in, enable it, prove it answers |
 | `/followups` | Group open follow-ups by urgency |
+| `/research` | What research scans found outside this repository, what is due, and what has never been asked |
 | `/ship [routine]` | Run the default or named project routine from project memory |
 | `/sync-instructions` | Reconcile and mirror supported AI instruction files |
 | `/voice` | Open the Voice Panel |
@@ -232,6 +247,7 @@ Open the Command Palette with `Ctrl+Shift+P`.
 |---|---|
 | `AtlasMind: Getting Started` | Open the guided onboarding walkthrough |
 | `AtlasMind: Open Chat Panel` | Open the larger detached Atlas chat |
+| `AtlasMind: Open a Setup Guide` | Start a setup walkthrough (`acp`, `buzz`) in a fresh chat session |
 | `AtlasMind: Focus Chat View` | Return focus to the sidebar chat |
 | `AtlasMind: Open Settings Panel` | Open the multi-page AtlasMind settings workspace |
 | `AtlasMind: Manage Model Providers` | Connect providers, credentials, and quotas |
@@ -259,6 +275,9 @@ Open the Command Palette with `Ctrl+Shift+P`.
 | `AtlasMind: Toggle Keep Computer Awake` | Opt into an AC-aware wake lock for long-running activity |
 | `AtlasMind: Set Buzz Agent Key` | Store or remove the Buzz agent key in the OS secret store (empty value removes it) |
 | `AtlasMind: Fetch My Buzz Channels` | Ask the Buzz CLI which channels your key can see, and tick the ones to watch. Writes nothing unless you confirm |
+| `AtlasMind: Run a Research Scan` | Ask one research question about the world outside this repository. Confirms first, naming the scan, the source and the cost |
+| `AtlasMind: Open the Research Register` | The findings, their sources, and the rule that graded each |
+| `AtlasMind: Open the Research Digest` | What changed outside, what it means, and what is still unassessed |
 
 Settings-specific, sidebar, remote-control, and resource-action commands are listed in [Chat Commands](wiki/Chat-Commands.md) and [Remote Control](docs/remote-control.md).
 
@@ -298,13 +317,54 @@ The README keeps the map short; implementation details and data flows belong in 
 
 | Path | Responsibility |
 |---|---|
-| `src/co
+| `src/core/` | Orchestration, routing, planning, safety and security registers, cost, and project services |
+| `src/runtime/` | Built-in agents and runtime composition |
+| `src/providers/` | Provider adapters, catalogs, health, and local-model discovery |
+| `src/skills/` | Built-in tools and skill handlers |
+| `src/memory/` | SSOT retrieval, scanning, redaction, and persistence |
+| `src/chat/` | Chat participant and shared interaction protocol |
+| `src/views/` | Settings, dashboards, editors, and sidebar surfaces |
+| `src/mcp/` and `src/ard/` | MCP connectivity—including the bundled Buzz communications bridge—and Agentic Resource Discovery |
+| `src/voice/` and `src/remote/` | Voice backends and opt-in remote control |
+| `tests/` | Unit, integration, webview, security, and regression coverage |
+| `docs/` and `wiki/` | Developer architecture and user-facing guides |
+
+Start with [Architecture](docs/architecture.md), [Development](docs/development.md), and [Agents & Skills](docs/agents-and-skills.md) for the detailed service map.
+
+---
+
+## Technical documentation
+
+- [Getting Started](wiki/Getting-Started.md)
+- [Architecture](docs/architecture.md)
+- [The Guided GitHub Workflow](docs/guided-github-workflow.md)
+- [Agents & Skills](docs/agents-and-skills.md)
+- [Model Routing](docs/model-routing.md)
+- [Configuration Reference](docs/configuration.md)
+- [SSOT Memory](docs/ssot-memory.md)
+- [Website Studio](docs/website-studio.md)
+- [Remote Control](docs/remote-control.md)
+- [Security](wiki/Security.md)
+- [Tool Execution](wiki/Tool-Execution.md)
+- [Development Guide](docs/development.md)
+- [Roadmap](docs/roadmap.md)
+- [CLI Usage](wiki/CLI.md)
+
+---
+
+## Open source and support
+
+AtlasMind is open source under the permissive MIT License. There are no feature-gated commercial editions.
+
+Contributions are welcome—see [CONTRIBUTING.md](CONTRIBUTING.md). If AtlasMind saves you time, [funding and sponsorship](wiki/Funding-and-Sponsorship.md) help sustain its development.
+
+MIT License — see [LICENSE](LICENSE).
 
 <!-- atlasmind-import
 entry-path: architecture/project-overview.md
 generator-version: 2
-generated-at: 2026-07-28T12:06:49.103Z
+generated-at: 2026-07-31T03:25:06.200Z
 source-paths: README.md
-source-fingerprint: 6d1b5cf4
-body-fingerprint: 7b7f3b06
+source-fingerprint: 718e0986
+body-fingerprint: 123a7e3e
 -->

@@ -31,13 +31,13 @@
     "atlasmind.projectApprovalFileThreshold": 20,
     "atlasmind.acp.agents": [
         {
-            "id": "claude",
-            "command": "claude-agent-acp",
+            "id": "codex",
+            "command": "codex-acp",
             "args": []
         },
         {
-            "id": "codex",
-            "command": "codex-acp"
+            "id": "claude",
+            "command": "claude-agent-acp"
         }
     ]
 }

@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.228.1 — Clearing the working tree
+
+Commits work products an earlier session left uncommitted: the first ATDD artifacts, four agent definitions, and a refresh of the SSOT memory files. No behaviour changes — it puts the repository in a known state before the ACP daemon work begins.
+
+---
+
 ## v0.228.0 — Console windows during model discovery
 
 Checking an ACP agent means opening a session, because that is the only honest test of "signed in". What that actually starts had been underestimated: on Windows, `claude-agent-acp` launches **your entire configured MCP fleet** inside the session — a GitKraken CLI, an `npx @azure/mcp` tree, a `contrast-checker-mcp` tree, several through `cmd.exe` — and `codex-acp` starts an `app-server` plus a REPL host. Each `cmd.exe` makes Windows allocate a `conhost.exe`, which is a console window that flashes on screen.
