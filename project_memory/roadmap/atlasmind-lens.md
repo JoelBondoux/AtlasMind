@@ -41,7 +41,7 @@ Exit criteria:
 - symbol-role filtering preserves matching descendants and their structural ancestors;
 - focused Explain, impact, and test-review actions prepare drafts without auto-submitting.
 
-### Phase 2 — Entrypoint Journey and Execution Flow Explorer
+### Phase 2 — Entrypoint Journey and Execution Flow Explorer (in progress, v0.238.0)
 
 Visualize a selected journey from an HTTP route, UI event, background job, CLI command, message, or test entrypoint. Distinguish:
 
@@ -50,6 +50,8 @@ Visualize a selected journey from an HTTP route, UI event, background job, CLI c
 - **inferred flow** where AtlasMind can only establish a likely connection.
 
 Developers can set a bounded scenario—request parameters, feature flags, environment, authenticated role, or test case—and compare branches. The view must not claim that a static call graph proves runtime behaviour.
+
+The first prototype starts from a language-service symbol selected in Code Explorer. It combines VS Code call hierarchy and references into a host-normalized **possible flow**, opens as an editor webview, and supports exact source and Ask Atlas actions on each node. It is intentionally not yet a framework-route detector, scenario evaluator, or runtime trace.
 
 ### Phase 3 — Contract Map and Schema Wiring Review
 
@@ -114,11 +116,11 @@ Turn a branch or pull request into a reviewable story: intent, changed component
 - [x] Add exact source navigation and reviewable Ask Atlas drafts.
 - [x] Add multi-root-aware workspace identity to source targets.
 - [x] Add symbol kind/filter controls and target actions beyond Ask Atlas.
-- [ ] Add reference and call-hierarchy adapters with evidence labels.
-- [ ] Prototype the editor-hosted journey graph on one entrypoint type.
+- [x] Add reference and call-hierarchy adapters with evidence labels.
+- [x] Prototype the editor-hosted journey graph on one entrypoint type.
 - [ ] Define the normalized contract/schema source model and explicit mapping file.
 - [ ] Add fixtures for renamed, transformed, dropped, incompatible, and unverifiable fields.
-- [ ] Establish graph performance budgets and accessibility acceptance tests.
+- [x] Establish graph performance budgets and accessibility acceptance tests.
 
 ## Out of scope for the foundation
 

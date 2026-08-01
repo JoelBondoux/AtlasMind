@@ -2223,6 +2223,42 @@ export interface LensVisualTarget {
   evidence: LensEvidence;
 }
 
+/** Whether a Lens graph represents static possibility, observed execution, or an explicit inference. */
+export type LensGraphMode = 'possible' | 'observed' | 'inferred';
+
+export type LensGraphNodeRole = 'entrypoint' | 'caller' | 'callee' | 'reference';
+
+export type LensGraphRelation = 'calls' | 'references';
+
+export interface LensGraphNode {
+  id: string;
+  target: LensVisualTarget;
+  role: LensGraphNodeRole;
+  /** Relative column used by the first journey layout. */
+  depth: number;
+}
+
+export interface LensGraphEdge {
+  id: string;
+  fromNodeId: string;
+  toNodeId: string;
+  relation: LensGraphRelation;
+  evidence: LensEvidence;
+}
+
+/** Bounded graph record shared by Lens language adapters and editor visualisations. */
+export interface LensGraph {
+  version: 1;
+  id: string;
+  label: string;
+  mode: LensGraphMode;
+  rootNodeId: string;
+  nodes: LensGraphNode[];
+  edges: LensGraphEdge[];
+  notices: string[];
+  truncated: boolean;
+}
+
 // ── Memory / SSOT ───────────────────────────────────────────────
 
 export const SSOT_FOLDERS = [

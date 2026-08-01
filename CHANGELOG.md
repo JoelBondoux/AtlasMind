@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.238.0] - 2026-08-01
+
+### Added
+
+- **Lens can trace a selected symbol into its first source-backed possible-flow journey.** **More Target Actions… → Trace possible flow** combines the active language provider's incoming calls, two bounded levels of outgoing calls, and references in an editor-hosted graph. Every relationship names its VS Code provider evidence, missing provider results remain visible as notices, and static reachability is explicitly not presented as observed execution.
+- **The journey remains useful outside a visual graph.** Nodes open their exact source or create an editable Ask Atlas draft, and a textual relationship list provides a keyboard- and screen-reader-friendly alternative. The normalized graph contract caps a journey at 80 nodes and 160 edges and visibly marks truncated results.
+
+### Security
+
+- **Journey data crosses a versioned, normalized webview protocol.** The HTML contains no graph labels or paths; normalized graph data is posted only after the webview's ready message, rendered with DOM text nodes, and node actions send an id that the extension resolves against its host-held graph. Source navigation then revalidates the live workspace name, root index, and relative path before opening a file.
+
 ## [0.237.0] - 2026-08-01
 
 ### Added

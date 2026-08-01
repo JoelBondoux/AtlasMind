@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.238.0 — Lens traces possible code journeys
+
+**A Code Explorer symbol can now become a source-backed journey.** Choose **More Target Actions… → Trace possible flow** to combine incoming calls, two bounded outgoing-call levels, and references from the active VS Code language provider. Every wire names its evidence, missing provider results remain visible, and static reachability is explicitly not presented as runtime observation.
+
+**The graph stays bounded, accessible, and host-controlled.** Journeys stop at 80 nodes and 160 edges, include a textual relationship view, and let each node open source or prepare an editable Ask Atlas draft. The webview sends back only a node id; AtlasMind resolves it against the normalized host graph and rechecks workspace ownership before acting.
+
 ## v0.237.0 — Lens can focus and ask sharper questions
 
 **Code Explorer can filter by symbol role without flattening the code's structure.** Choose all symbols, types, callables, data, or containers from the Lens title bar. A class or namespace remains visible when one of its descendants matches, and the workspace remembers the choice.

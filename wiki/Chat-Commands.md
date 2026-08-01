@@ -351,7 +351,7 @@ These remain available inside their owning views and do not appear in the Comman
 |---------|------------------|-------------|
 | `Open Lens Target` | Selecting a Lens file or symbol | Opens the target's validated workspace URI and exact source range |
 | `Ask Atlas About This` | Lens file or symbol inline action | Opens an editable chat draft with a one-shot, source-backed target context. It never auto-submits and carries no source text or absolute path |
-| `More Target Actions…` | Lens file or symbol context menu | Offers Explain, Show impact, and Find tests as focused editable drafts over the same validated target. It never auto-submits |
+| `More Target Actions…` | Lens file or symbol context menu | Offers Explain, Show impact, and Find tests as focused editable drafts. Symbols also offer **Trace possible flow**, an editor graph of bounded call-hierarchy/reference evidence with exact source and Ask Atlas actions. Drafts never auto-submit |
 | `Show Agent Details` | Agents row inline action | Opens the selected agent's details panel |
 | `Toggle Agent Enabled` | Agents row inline action | Enables or disables the selected agent |
 | `Add Skill` | Skills view title bar or folder row | Starts a new custom skill inside the selected folder context |

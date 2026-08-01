@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.237.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.238.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,11 +68,11 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.237.0
+## What's new in 0.238.0
 
 Since the last Marketplace publication, **v0.219.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
 
-- **AtlasMind Lens now provides a complete, queryable, multi-root-safe code outline.** The collapsed **Lens — Code Explorer** follows the active file through the installed VS Code language service, opens exact source ranges, and can filter the hierarchy to types, callables, data, or containers without hiding the ancestors of matching symbols. **Ask Atlas about this** remains free-form; **More Target Actions…** adds focused Explain, impact, and test-review drafts. Every action revalidates the workspace root and relative path, never auto-submits, and carries neither source text nor an absolute path. The broader Lens roadmap covers execution journeys, schema/API wiring review, change impact, tests, data trust, state, configuration, and PR maps.
+- **AtlasMind Lens now traces source-backed possible-flow journeys.** From a Code Explorer symbol, choose **More Target Actions… → Trace possible flow** to combine incoming calls, two bounded outgoing-call levels, and references from the installed VS Code language provider. The editor-hosted graph labels its evidence and limitations, offers exact source and reviewable Ask Atlas actions on every node, and includes a textual alternative. Static reachability is never described as observed execution; graphs are capped at 80 nodes and 160 edges, and partial or truncated results say so. The existing multi-root-safe outline, symbol filters, and focused Explain/impact/test drafts remain available.
 
 - **"Installed but not signed in" now names the command that signs you in, and offers a terminal with it typed.** The message used to say to run the agent once in a terminal without naming anything — and the command on screen at that moment is the one that cannot log you in: `gemini --acp`, `copilot --acp` and `qwen --acp` all start a JSON-RPC server, and `claude-agent-acp` uses the Claude CLI's credentials. The sign-in command is recorded separately, read from each vendor's own documentation. **Open a terminal with the command** types it and stops; AtlasMind never presses Enter and never sees the credential. An agent with no documented flow is reported as such rather than handed a guess.
 
@@ -325,7 +325,7 @@ Open the Command Palette with `Ctrl+Shift+P`.
 
 Settings-specific, sidebar, remote-control, and resource-action commands are listed in [Chat Commands](wiki/Chat-Commands.md) and [Remote Control](docs/remote-control.md).
 
-Inside **Lens — Code Explorer**, selecting a file or symbol runs the internal **Open Target** command at its exact range. The inline **Ask Atlas About This** action opens a reviewable free-form draft; **More Target Actions…** offers focused Explain, impact, and test-review drafts. These item-only commands stay out of the Command Palette, and none submits automatically.
+Inside **Lens — Code Explorer**, selecting a file or symbol runs the internal **Open Target** command at its exact range. The inline **Ask Atlas About This** action opens a reviewable free-form draft; **More Target Actions…** offers **Trace possible flow** for symbols plus focused Explain, impact, and test-review drafts. Journey nodes can open their source or prepare the same reviewable chat handoff. These item-only actions stay out of the Command Palette, and none submits automatically.
 
 ---
 
@@ -367,6 +367,7 @@ The README keeps the map short; implementation details and data flows belong in 
 |---|---|
 | `src/core/` | Orchestration, routing, planning, safety and security registers, cost, and project services |
 | `src/core/lensTarget.ts` | Host-neutral, validated visual targets shared by AtlasMind Lens surfaces and chat context |
+| `src/core/lensGraph.ts` | Versioned, bounded Lens graph normalization and evidence validation |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Provider adapters, catalogs, health, and local-model discovery |
 | `native/acp-private-desktop/` | Auditable Rust source for the optional Windows private-desktop launcher; the pinned release binary ships under `media/bin/` |
@@ -374,7 +375,9 @@ The README keeps the map short; implementation details and data flows belong in 
 | `src/memory/` | SSOT retrieval, scanning, redaction, and persistence |
 | `src/chat/` | Chat participant and shared interaction protocol |
 | `src/views/` | Settings, dashboards, editors, and sidebar surfaces |
-| `src/views/lensTreeView.ts` | Active-file Lens outline, exact source navigation, and reviewable Ask Atlas actions |
+| `src/views/lensTreeView.ts` | Active-file Lens outline, exact source navigation, and Lens action menu |
+| `src/views/lensLanguageGraph.ts` | VS Code reference and call-hierarchy adapter for static possible-flow journeys |
+| `src/views/lensJourneyPanel.ts` | Secure editor-hosted journey graph with exact source/chat actions and a text alternative |
 | `src/mcp/` and `src/ard/` | MCP connectivity—including the bundled Buzz communications bridge—and Agentic Resource Discovery |
 | `src/voice/` and `src/remote/` | Voice backends and opt-in remote control |
 | `tests/` | Unit, integration, webview, security, and regression coverage |

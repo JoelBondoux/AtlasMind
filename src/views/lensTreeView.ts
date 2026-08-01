@@ -10,6 +10,8 @@ import {
 import type { LensTargetActionId } from '../core/lensTarget.js';
 import type { LensSourceRange, LensVisualTarget, LensWorkspaceIdentity } from '../types.js';
 import { revealPreferredChatSurface } from './chatPanel.js';
+import { LensJourneyPanel } from './lensJourneyPanel.js';
+import { LensLanguageGraphAdapter } from './lensLanguageGraph.js';
 
 const LENS_VIEW_ID = 'atlasmind.lensView';
 const LENS_FILTER_STORAGE_KEY = 'atlasmind.lens.symbolFilter';
@@ -20,8 +22,10 @@ interface LensSymbolFilterOption extends vscode.QuickPickItem {
   filter: LensSymbolFilter;
 }
 
+type LensTargetMenuAction = LensTargetActionId | 'journey';
+
 interface LensTargetActionOption extends vscode.QuickPickItem {
-  action: LensTargetActionId;
+  action: LensTargetMenuAction;
 }
 
 const SYMBOL_FILTER_OPTIONS: readonly LensSymbolFilterOption[] = [
@@ -33,6 +37,7 @@ const SYMBOL_FILTER_OPTIONS: readonly LensSymbolFilterOption[] = [
 ];
 
 const TARGET_ACTION_OPTIONS: readonly LensTargetActionOption[] = [
+  { label: 'Trace possible flow', description: 'Open a bounded references and call-hierarchy journey', action: 'journey' },
   { label: 'Explain this', description: 'Draft a question about behaviour and dependencies', action: 'explain' },
   { label: 'Show impact', description: 'Draft a change-impact review with evidence labels', action: 'impact' },
   { label: 'Find tests', description: 'Draft a test and behaviour coverage review', action: 'tests' },
@@ -86,6 +91,7 @@ class LensMessageTreeItem extends vscode.TreeItem {
 export class LensTreeProvider implements vscode.TreeDataProvider<LensTreeItem | LensMessageTreeItem>, vscode.Disposable {
   private readonly changeEmitter = new vscode.EventEmitter<LensTreeItem | LensMessageTreeItem | undefined>();
   private readonly disposables: vscode.Disposable[];
+  private readonly languageGraph = new LensLanguageGraphAdapter();
   private symbolFilter: LensSymbolFilter;
 
   public readonly onDidChangeTreeData = this.changeEmitter.event;
@@ -218,11 +224,23 @@ export class LensTreeProvider implements vscode.TreeDataProvider<LensTreeItem | 
       return;
     }
 
-    const selected = await vscode.window.showQuickPick([...TARGET_ACTION_OPTIONS], {
+    const options = target.kind === 'symbol' && target.range
+      ? TARGET_ACTION_OPTIONS
+      : TARGET_ACTION_OPTIONS.filter(option => option.action !== 'journey');
+    const selected = await vscode.window.showQuickPick([...options], {
       title: `Lens actions for ${target.label}`,
-      placeHolder: 'Choose a reviewable Atlas Chat draft',
+      placeHolder: 'Choose a source-backed Lens action',
     });
     if (!selected) {
+      return;
+    }
+    if (selected.action === 'journey') {
+      try {
+        const graph = await this.languageGraph.buildPossibleFlow(target, item.uri);
+        LensJourneyPanel.createOrShow(graph);
+      } catch {
+        void vscode.window.showWarningMessage('AtlasMind Lens could not build a safe possible-flow journey for this symbol.');
+      }
       return;
     }
     await revealPreferredChatSurface({
