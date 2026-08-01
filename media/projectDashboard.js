@@ -999,6 +999,12 @@
       vscode.postMessage({ type: 'loadReviewComments', payload: { number: Number(payload) } });
       return;
     }
+    if (action === 'pr-draft-issue') {
+      // Number only. The host resolves the current sanitized PR record and
+      // derives the issue text; nothing in the browser can publish wording.
+      vscode.postMessage({ type: 'draftIssueFromPullRequest', payload: { number: Number(payload) } });
+      return;
+    }
     if (action === 'address-review-comment') {
       // Number and index in one attribute, split on the colon. Both are
       // integers and neither can contain one.
@@ -1973,6 +1979,16 @@
         `${issues.summary.openCount} open issue${issues.summary.openCount === 1 ? '' : 's'}`
         + (issues.summary.unassignedCount > 0 ? `, ${issues.summary.unassignedCount} unassigned` : '')
         + (issues.summary.staleCount > 0 ? `, ${issues.summary.staleCount} stale` : ''));
+    }
+
+    const pullRequests = snapshot.guidedWorkflow && snapshot.guidedWorkflow.pullRequests;
+    if (pullRequests) {
+      set('pullRequests', pullRequests.open,
+        pullRequests.changesRequested > 0 ? 'critical' : pullRequests.awaitingReview > 0 ? 'warn' : 'accent',
+        `${pullRequests.open} open pull request${pullRequests.open === 1 ? '' : 's'}`
+        + (pullRequests.draft > 0 ? `, ${pullRequests.draft} draft` : '')
+        + (pullRequests.awaitingReview > 0 ? `, ${pullRequests.awaitingReview} awaiting review` : '')
+        + (pullRequests.unlinked > 0 ? `, ${pullRequests.unlinked} without an issue` : ''));
     }
 
     if (snapshot.director && snapshot.director.overdueCount > 0) {
@@ -3638,16 +3654,35 @@
   }
 
   // ── Issues (the repository's tracker) ─────────────────────────────
-  // Read on demand rather than on every render: the list comes from a
-  // rate-limited network call, and refreshing it to populate a tab nobody has
-  // opened would spend the user's quota for nothing.
+  // The host refreshes this bounded GitHub snapshot once when the dashboard
+  // opens, then holds it across renders. Manual refresh remains available.
   function renderIssues(snapshot) {
     const issues = snapshot.issues || { status: 'not-loaded', detail: '', issues: [], busy: false };
+    const workflow = snapshot.guidedWorkflow || {};
+    const pullRequestRecords = Array.isArray(workflow.pullRequestRecords) ? workflow.pullRequestRecords : [];
     const list = Array.isArray(issues.issues) ? issues.issues : [];
     const summary = issues.summary || { openCount: 0, closedCount: 0, byLabel: [], byAssignee: [], unassignedCount: 0, staleCount: 0, summary: '' };
     const ready = issues.status === 'ready';
     const filter = state.issueFilter || 'open';
     const search = String(state.issueSearch || '').trim().toLowerCase();
+    const unlinkedOpenPullRequests = pullRequestRecords.filter(pr =>
+      (pr.state === 'open' || pr.state === 'draft')
+      && (!Array.isArray(pr.linkedIssues) || pr.linkedIssues.length === 0));
+    const commitsSinceTag = Number(workflow.commitsSinceTag) || 0;
+    const issueWriteCapability = (workflow.capabilities || [])
+      .find(capability => capability.id === 'atlasmind.workflow.allowIssueWrites');
+    const planningStage = workflow.workflowConfig && workflow.workflowConfig.config
+      ? (workflow.workflowConfig.config.stages || []).find(stage => stage.id === 'planning')
+      : undefined;
+    const issueIntakePosture = !workflow.enabled
+      ? 'The workflow master switch is off.'
+      : !issueWriteCapability || !issueWriteCapability.enabled
+        ? 'Issue writes are disabled.'
+        : workflow.automationLevel === 'off' || workflow.automationLevel === 'observe' || workflow.automationLevel === 'draft'
+          ? `Your automation ceiling is ${workflow.automationLevel || 'observe'}.`
+          : !planningStage || planningStage.automationLevel === 'off' || planningStage.automationLevel === 'observe' || planningStage.automationLevel === 'draft'
+            ? `The Planning & issue intake stage is ${planningStage ? planningStage.automationLevel : 'observe'}.`
+            : 'Issue drafts may be proposed, but every public post still requires review and confirmation.';
     const visible = list.filter(issue => {
       if (filter === 'open' && issue.state !== 'open') { return false; }
       if (filter === 'closed' && issue.state !== 'closed') { return false; }
@@ -3687,6 +3722,35 @@
         `}
 
         ${ready ? `
+          <article class="panel-card ${unlinkedOpenPullRequests.length > 0 || (summary.openCount === 0 && commitsSinceTag > 0) ? 'status-warn' : ''}">
+            <div class="row-head">
+              <div>
+                <p class="section-kicker">Tracking coverage</p>
+                <h3>${unlinkedOpenPullRequests.length > 0 || (summary.openCount === 0 && commitsSinceTag > 0)
+                  ? 'Work exists outside the issue tracker'
+                  : 'Issue intake is review-and-confirm'}</h3>
+              </div>
+              ${unlinkedOpenPullRequests.length > 0
+                ? `<span class="tag tag-warn">${unlinkedOpenPullRequests.length} unlinked PR${unlinkedOpenPullRequests.length === 1 ? '' : 's'}</span>`
+                : ''}
+            </div>
+            <p class="stat-detail">AtlasMind does not silently turn commits or pull requests into public issues. It prepares a draft from a roadmap item or an unlinked pull request; you review it, and a separate confirmation is the only step that posts it.</p>
+            <div class="mini-grid">
+              ${renderMetricPill('Open issues', String(summary.openCount), { tone: summary.openCount > 0 ? 'accent' : 'warn' })}
+              ${renderMetricPill('Commits since last tag', String(commitsSinceTag), { tone: commitsSinceTag > 0 ? 'accent' : 'good' })}
+              ${renderMetricPill('Open PRs without an issue', String(unlinkedOpenPullRequests.length), {
+                tone: unlinkedOpenPullRequests.length > 0 ? 'warn' : 'good',
+                action: unlinkedOpenPullRequests.length > 0 ? { page: 'pullRequests', hint: 'Review pull requests' } : undefined,
+              })}
+            </div>
+            <p class="stat-detail">${escapeHtml(issueIntakePosture)} ${summary.openCount === 0 && commitsSinceTag > 0 ? 'No single commit proves that an issue was required, but the combination is a traceability warning worth reviewing.' : ''}</p>
+            <div class="tag-row">
+              <button type="button" class="action-link primary" data-action="issues-new">Draft a new issue</button>
+              ${unlinkedOpenPullRequests.length > 0 ? '<button type="button" class="action-link" data-action="page" data-payload="pullRequests">Review unlinked PRs</button>' : ''}
+              <button type="button" class="action-link" data-action="page" data-payload="workflow">Review workflow gates</button>
+            </div>
+          </article>
+
           <div class="panel-grid">
             <article class="panel-card">
               <p class="section-kicker">${escapeHtml(issues.repoSlug || 'Repository')}</p>
@@ -3969,7 +4033,7 @@
       title: 'Pull requests and review',
       summary: metrics
         ? `${metrics.open} open, ${metrics.awaitingReview} awaiting review, ${metrics.merged} merged in the window.`
-        : 'Pull requests have not been read yet. AtlasMind fetches them on the same refresh as issues, because the GitHub API is rate-limited.',
+        : 'Pull requests have not been read yet. AtlasMind normally loads a bounded GitHub snapshot when the dashboard opens; you can retry it here.',
       chips: metrics && metrics.awaitingReview > 0
         ? [{ label: `${metrics.awaitingReview} awaiting review`, tone: 'warn' }]
         : [],
@@ -3981,7 +4045,7 @@
         <div class="dashboard-empty"><div>
           <strong>Pull requests have not been loaded</strong>
           <p class="section-copy">A pull request is where a change stops being private: the point CI runs, the point a second pair of eyes can see it, and the durable record of why the change looked right at the time. Even working alone it is worth opening one — CI is the reviewer.</p>
-          <button type="button" class="action-link" data-action="page" data-payload="issues">Open the Issues tab and refresh</button>
+          <button type="button" class="action-link primary" data-action="issues-refresh">Load GitHub activity</button>
         </div></div>
       </section>`;
     }
@@ -4014,7 +4078,8 @@
               ${(pr.linkedIssues || []).length === 0
                 // Stated rather than left out: an unlinked PR means the diff and
                 // the reasoning behind it end up in separate places.
-                ? '<span class="tag tag-warn">no linked issue</span>'
+                ? `<span class="tag tag-warn">no linked issue</span>
+                   <button type="button" class="action-link" data-action="pr-draft-issue" data-payload="${pr.number}">Draft tracking issue</button>`
                 : `<span class="tag">closes #${escapeHtml(String(pr.linkedIssues[0]))}</span>`}
               ${pr.url ? `<button type="button" class="action-link" data-action="external-url" data-payload="${escapeAttr(pr.url)}">Open on GitHub</button>` : ''}
               ${comments === undefined
@@ -4031,6 +4096,9 @@
 
     return `${pageSectionOpen('pullRequests')}
       ${intro}
+      <div class="tag-row">
+        <button type="button" class="action-link" data-action="issues-refresh">Refresh GitHub activity</button>
+      </div>
       <article class="panel-card">
         <p class="card-kicker">In flight</p>
         <div class="stack-list">${list}</div>

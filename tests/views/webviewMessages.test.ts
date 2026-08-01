@@ -696,6 +696,7 @@ describe('isProjectDashboardMessage', () => {
     expect(isProjectDashboardMessage({ type: 'openTestingFixChat' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'discussTestingPolicy', payload: { id: 'unit' } })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'discussDashboardError' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'draftIssueFromPullRequest', payload: { number: 152 } })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'addressGap', payload: 'gap-1' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'resolveGapItem', payload: 'gap-1' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'resolveGapGroup', payload: 'P1' })).toBe(true);
@@ -754,6 +755,8 @@ describe('isProjectDashboardMessage', () => {
     expect(isProjectDashboardMessage({ type: 'fixActivatedTestin' })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'discussTestingPolicy', payload: { id: 'made-up' } })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'discussTestingPolicy', payload: { id: 42 } })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'draftIssueFromPullRequest', payload: { number: 0 } })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'draftIssueFromPullRequest', payload: { number: '152' } })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'saveIdeationBoard', payload: { cards: 'nope', connections: [] } })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'addIdeationEvidence', payload: '' })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'addIdeationEvidence', payload: 'not-a-source:record-1' })).toBe(false);

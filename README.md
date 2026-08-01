@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.241.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.241.2</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,9 +68,15 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.241.0
+## What's new in 0.241.2
 
 Since the last Marketplace publication, **v0.235.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **ACP launch evidence now follows the real platform contract.** CI requires private-desktop mode when it is requested on Windows and the intentional ordinary-desktop fallback on macOS and Linux, keeping the diagnostic truthful across all three supported runner platforms.
+
+- **Project Dashboard now opens with a current, bounded GitHub reading.** Issues, pull requests, CI, releases, labels, and milestones refresh once per five-minute freshness window instead of remaining invisible until the Issues page is opened manually. The dashboard-wide Refresh action and the Pull Requests page both update that same snapshot, and Pull Requests has its own navigation badge.
+
+- **Work outside the issue tracker is visible and recoverable.** Issues reports commits since the last tag and open PRs with no linked issue, explains the current workflow/issue-write posture, and states why AtlasMind never silently turns commits into public issues. An unlinked PR can produce a deterministic, editable tracking-issue draft; posting still requires the ordinary issue-write permission and explicit confirmation.
 
 - **Skill context is selected per turn instead of inherited wholesale.** Built-in agents use a deterministic `task-scoped` policy capped at 12 relevant tools; explicit allowlists remain exact, and an advanced `all` policy must be chosen deliberately. A legacy empty skill list now admits built-in skills only—never every custom or MCP integration—and externally supplied skills must be named explicitly.
 

@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.241.2] - 2026-08-02
+
+### Fixed
+- **The ACP private-desktop evidence test now reflects the platform boundary it verifies.** Windows still requires the effective `private-desktop` mode when hidden-desktop launch is requested; macOS and Linux require the intentional `ordinary` fallback instead of failing CI for not claiming a Windows-only capability.
+
+## [0.241.1] - 2026-08-02
+
+### Added
+- **An unlinked pull request can now become a reviewable tracking-issue draft.** The Pull Requests page sends only the PR number; the extension host re-resolves the sanitized open record, derives fixed-order title/body text without a model, keeps only labels that already exist on the repository, and opens the existing issue composer. Nothing is posted until the ordinary issue-write permission and modal confirmation both permit it.
+- **Issues now shows tracking coverage instead of presenting an empty tracker without context.** The page combines open issues, commits since the latest tag, and open PRs with no linked issue, explains the effective issue-intake posture, and distinguishes a traceability warning from proof that every commit needed a ticket.
+
+### Fixed
+- **Project Dashboard no longer hides GitHub activity behind an Issues-page refresh.** The ready handshake and a later panel reveal start at most one bounded read per five-minute freshness window; the dashboard-wide Refresh button and a new Pull Requests refresh action update the same Issues/PR/CI/release/taxonomy snapshot. Pull Requests now receives its own navigation badge, so an open draft such as #152 is visible without knowing to visit another page first.
+
+### Security
+- **Opening or refreshing the dashboard remains read-only.** Automatic refresh never creates an issue, PR, comment, merge, or release. PR-derived issue text is host-authored and editable, the browser supplies only a positive PR number, stale/already-linked records are refused, and repository labels are never invented as a side effect.
+- **The patched dependency graph is verified, not merely declared.** `npm audit` reports zero vulnerabilities with `qs@6.15.2` deduplicated across the installed tree. GitHub alert #22 remains a default-branch deployment fact until this already-committed override reaches `main`; no vulnerable copy remains on `develop`.
+
 ## [0.241.0] - 2026-08-01
 
 ### Added

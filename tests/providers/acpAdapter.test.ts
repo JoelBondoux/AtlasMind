@@ -410,7 +410,7 @@ describe('AcpAdapter — live-session reuse without duplicate prompts', () => {
     expect(events).toEqual([{
       agentId: AGENT.id,
       requestedPrivateDesktop: true,
-      mode: 'private-desktop',
+      mode: process.platform === 'win32' ? 'private-desktop' : 'ordinary',
     }]);
     expect(Object.keys(events[0]!).sort()).toEqual(['agentId', 'mode', 'requestedPrivateDesktop']);
   });

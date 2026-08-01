@@ -9,6 +9,7 @@ import {
   listChangelogVersions,
   normalizeDashboardPromptRequest,
   parseGhReleaseList,
+  shouldRefreshRepositoryActivity,
 } from '../../src/views/projectDashboardPanel.ts';
 
 /**
@@ -107,11 +108,70 @@ describe('dashboard nav definition', () => {
     expect(WEBVIEW_SCRIPT).toContain('data-action="ideation-evidence"');
   });
 
+  it('badges pull requests independently from issues after GitHub activity loads', () => {
+    expect(WEBVIEW_SCRIPT).toContain("set('pullRequests', pullRequests.open");
+    expect(WEBVIEW_SCRIPT).toContain('without an issue');
+  });
+
+  it('lets Pull Requests load and refresh its own GitHub reading', () => {
+    const pullRequests = WEBVIEW_SCRIPT.slice(
+      WEBVIEW_SCRIPT.indexOf('function renderPullRequests(snapshot)'),
+      WEBVIEW_SCRIPT.indexOf('// ── Pipeline', WEBVIEW_SCRIPT.indexOf('function renderPullRequests(snapshot)')),
+    );
+    expect(pullRequests).toContain('data-action="issues-refresh"');
+    expect(pullRequests).toContain('Load GitHub activity');
+    expect(pullRequests).not.toContain('Open the Issues tab and refresh');
+  });
+
+  it('surfaces untracked work and offers a host-derived PR issue draft', () => {
+    const issues = WEBVIEW_SCRIPT.slice(
+      WEBVIEW_SCRIPT.indexOf('function renderIssues(snapshot)'),
+      WEBVIEW_SCRIPT.indexOf('function renderIssueRow(issue)'),
+    );
+    expect(issues).toContain('Work exists outside the issue tracker');
+    expect(issues).toContain('Commits since last tag');
+    expect(issues).toContain('Open PRs without an issue');
+    expect(WEBVIEW_SCRIPT).toContain("type: 'draftIssueFromPullRequest'");
+    expect(WEBVIEW_SCRIPT).toContain('data-action="pr-draft-issue"');
+  });
+
   it('normalises an unknown activePage back to overview in the webview', () => {
     // Guards the blank-dashboard failure mode: state.activePage used to be
     // assigned straight from the click payload and the host navigate message.
     expect(WEBVIEW_SCRIPT).toContain('function normalizePageId(');
     expect(WEBVIEW_SCRIPT).toMatch(/state\.activePage\s*=\s*normalizePageId\(/);
+  });
+});
+
+describe('dashboard GitHub activity freshness', () => {
+  it('starts on first open and retries only after the freshness window', () => {
+    expect(shouldRefreshRepositoryActivity({
+      running: false,
+      lastAttemptAt: 0,
+      now: 1_000,
+      ttlMs: 300,
+    })).toBe(true);
+    expect(shouldRefreshRepositoryActivity({
+      running: false,
+      lastAttemptAt: 900,
+      now: 1_000,
+      ttlMs: 300,
+    })).toBe(false);
+    expect(shouldRefreshRepositoryActivity({
+      running: false,
+      lastAttemptAt: 700,
+      now: 1_000,
+      ttlMs: 300,
+    })).toBe(true);
+  });
+
+  it('never starts a second refresh while one is running', () => {
+    expect(shouldRefreshRepositoryActivity({
+      running: true,
+      lastAttemptAt: 0,
+      now: 1_000,
+      ttlMs: 0,
+    })).toBe(false);
   });
 });
 
