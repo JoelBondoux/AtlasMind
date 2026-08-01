@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.241.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.241.2</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,9 +68,11 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.241.1
+## What's new in 0.241.2
 
 Since the last Marketplace publication, **v0.235.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **ACP launch evidence now follows the real platform contract.** CI requires private-desktop mode when it is requested on Windows and the intentional ordinary-desktop fallback on macOS and Linux, keeping the diagnostic truthful across all three supported runner platforms.
 
 - **Project Dashboard now opens with a current, bounded GitHub reading.** Issues, pull requests, CI, releases, labels, and milestones refresh once per five-minute freshness window instead of remaining invisible until the Issues page is opened manually. The dashboard-wide Refresh action and the Pull Requests page both update that same snapshot, and Pull Requests has its own navigation badge.
 

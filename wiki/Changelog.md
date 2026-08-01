@@ -6,6 +6,10 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.241.2 — Cross-platform ACP launch evidence
+
+The ACP launch-evidence test now asserts the real platform contract: a requested hidden desktop must be reported as `private-desktop` on Windows and as the explicit `ordinary` fallback on macOS and Linux. This keeps the diagnostic honest and restores the three-platform CI matrix without changing runtime launch behavior.
+
 ## v0.241.1 — GitHub work is visible when the dashboard opens
 
 Project Dashboard now loads one bounded GitHub activity snapshot on its ready handshake and refreshes it only after a five-minute freshness window. Issues, pull requests, CI, releases, labels, and milestones therefore arrive together without a hidden dependency on opening Issues first. The dashboard-wide Refresh control updates the remote-backed pages too, Pull Requests can refresh itself, and its navigation badge reports open/draft/review/unlinked work.

@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.241.2] - 2026-08-02
+
+### Fixed
+- **The ACP private-desktop evidence test now reflects the platform boundary it verifies.** Windows still requires the effective `private-desktop` mode when hidden-desktop launch is requested; macOS and Linux require the intentional `ordinary` fallback instead of failing CI for not claiming a Windows-only capability.
+
 ## [0.241.1] - 2026-08-02
 
 ### Added
