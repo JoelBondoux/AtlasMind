@@ -4,6 +4,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildDashboardBranchInventory,
   listChangelogVersions,
   normalizeDashboardPromptRequest,
   parseGhReleaseList,
@@ -110,6 +111,109 @@ describe('dashboard nav definition', () => {
     // assigned straight from the click payload and the host navigate message.
     expect(WEBVIEW_SCRIPT).toContain('function normalizePageId(');
     expect(WEBVIEW_SCRIPT).toMatch(/state\.activePage\s*=\s*normalizePageId\(/);
+  });
+});
+
+describe('dashboard branch inventory', () => {
+  const record = (fields: string[]): string => fields.join('\0');
+  const now = Date.parse('2026-08-01T12:00:00Z');
+  const refs = [
+    record([
+      'refs/heads/develop', 'develop', 'aaaaaaa', '2026-08-01T10:00:00Z', 'Joel', 'Current work',
+      'origin/develop', '[ahead 2, behind 1]', 'C:/workspace', '',
+    ]),
+    record([
+      'refs/remotes/origin/develop', 'origin/develop', 'bbbbbbb', '2026-08-01T09:00:00Z', 'Sam', 'Remote work',
+      '', '', '', '',
+    ]),
+    record([
+      'refs/heads/feat/older', 'feat/older', 'ccccccc', '2026-06-01T09:00:00Z', 'Ari', 'Older local work',
+      '', '', 'C:/worktrees/older', '',
+    ]),
+    record([
+      'refs/remotes/origin/feat/remote', 'origin/feat/remote', 'ddddddd', '2026-07-31T09:00:00Z', 'Lee', 'Remote feature',
+      '', '', '', '',
+    ]),
+    record([
+      'refs/remotes/origin/main', 'origin/main', 'eeeeeee', '2026-07-30T09:00:00Z', 'Jo', 'Release',
+      '', '', '', '',
+    ]),
+    record([
+      'refs/remotes/origin/HEAD', 'origin', 'eeeeeee', '2026-07-30T09:00:00Z', 'Jo', 'Release',
+      '', '', '', 'refs/remotes/origin/main',
+    ]),
+  ].join('\n');
+
+  it('folds a tracked local and remote ref into one logical branch', () => {
+    const inventory = buildDashboardBranchInventory(refs, 'refs/heads/feat/older', 'develop', now);
+    const develop = inventory.items.find(item => item.name === 'develop');
+
+    expect(develop).toMatchObject({
+      localRef: 'develop',
+      remoteRef: 'origin/develop',
+      current: true,
+      ahead: 2,
+      behind: 1,
+      status: 'diverged',
+    });
+    expect(inventory.items.filter(item => item.name === 'develop')).toHaveLength(1);
+    expect(inventory.divergedCount).toBe(1);
+  });
+
+  it('shows remote-only refs as bring-local candidates and identifies the default', () => {
+    const inventory = buildDashboardBranchInventory(refs, '', 'develop', now);
+    const remote = inventory.items.find(item => item.name === 'feat/remote');
+    expect(remote).toMatchObject({
+      remoteRef: 'origin/feat/remote',
+      status: 'remote-only',
+      canActivate: true,
+      activationLabel: 'Bring local',
+    });
+    expect(remote?.localRef).toBeUndefined();
+    expect(inventory.defaultBranch).toBe('main');
+    expect(inventory.items.find(item => item.name === 'main')?.default).toBe(true);
+  });
+
+  it('marks stale branches and refuses ones already checked out in another worktree', () => {
+    const inventory = buildDashboardBranchInventory(refs, 'refs/heads/feat/older', 'develop', now);
+    expect(inventory.items.find(item => item.name === 'feat/older')).toMatchObject({
+      stale: true,
+      checkedOutElsewhere: true,
+      status: 'checked-out',
+      canActivate: false,
+    });
+  });
+
+  it('does not replace a gone upstream with a same-named branch from another remote', () => {
+    const goneRefs = [
+      record([
+        'refs/heads/feat/gone', 'feat/gone', '1111111', '2026-08-01T09:00:00Z', 'Ari', 'Local',
+        'origin/feat/gone', '[gone]', '', '',
+      ]),
+      record([
+        'refs/remotes/upstream/feat/gone', 'upstream/feat/gone', '2222222', '2026-08-01T09:00:00Z', 'Lee', 'Different remote',
+        '', '', '', '',
+      ]),
+    ].join('\n');
+    const inventory = buildDashboardBranchInventory(goneRefs, '', 'develop', now);
+    const local = inventory.items.find(item => item.localRef === 'feat/gone');
+
+    expect(local).toMatchObject({ status: 'upstream-gone', upstream: 'origin/feat/gone' });
+    expect(local?.remoteRef).toBeUndefined();
+    expect(inventory.items.find(item => item.remoteRef === 'upstream/feat/gone')).toMatchObject({
+      status: 'name-conflict',
+      canActivate: false,
+    });
+  });
+
+  it('uses NUL fields so punctuation in commit text cannot shift branch metadata', () => {
+    const withPipes = record([
+      'refs/heads/feat/pipes', 'feat/pipes', 'fffffff', '2026-08-01T09:00:00Z',
+      'A | B', 'Keep | every | pipe', '', '', '', '',
+    ]);
+    const item = buildDashboardBranchInventory(withPipes, '', 'develop', now).items[0];
+    expect(item?.author).toBe('A | B');
+    expect(item?.subject).toBe('Keep | every | pipe');
   });
 });
 

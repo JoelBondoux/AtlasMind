@@ -79,6 +79,7 @@
       id: 'code',
       label: 'The code',
       pages: [
+        ['branches', 'Branches'],
         ['repo', 'Repo'],
         // CI sat as one card on Workflow while carrying the failure taxonomy —
         // the thing that most rewards a page of its own.
@@ -213,6 +214,8 @@
     // share a severity.
     debtRuleFilter: 'all',
     issueSearch: '',
+    branchSearch: '',
+    branchFilter: 'all',
     issueDraftOpen: false,
     /**
      * A derived draft waiting in the composer, or undefined.
@@ -519,6 +522,21 @@
     if (action === 'timescale') {
       state.timescale = Number(payload) || 30;
       render();
+      return;
+    }
+    if (action === 'branch-filter') {
+      state.branchFilter = payload || 'all';
+      render();
+      return;
+    }
+    if (action === 'branch-fetch') {
+      vscode.postMessage({ type: 'fetchBranches' });
+      return;
+    }
+    if (action === 'branch-activate') {
+      if (payload) {
+        vscode.postMessage({ type: 'activateBranch', payload });
+      }
       return;
     }
     if (action === 'contributor-filter') {
@@ -1437,6 +1455,10 @@
       state.issueSearch = target.value;
       render();
     }
+    if (target instanceof HTMLInputElement && target.id === 'branch-search-input') {
+      state.branchSearch = target.value;
+      render();
+    }
     if (target instanceof HTMLInputElement && target.id === 'debt-search-input') {
       state.debtSearch = target.value;
       render();
@@ -1751,6 +1773,7 @@
     let activeId = null, cursorPos = null, isTextarea = false;
     const active = document.activeElement;
     if (active && (active.id === 'test-search-input' || active.id === 'issue-search-input'
+      || active.id === 'branch-search-input'
       || active.id === 'debt-search-input'
       || (active instanceof HTMLTextAreaElement && active.hasAttribute('data-roadmap-draft')))) {
       activeId = active.id || (active.hasAttribute('data-roadmap-draft') ? 'roadmap-draft' : null);
@@ -1817,6 +1840,7 @@
         ${renderPipeline(snapshot)}
         ${renderDirector(snapshot)}
         ${renderRuntime(snapshot)}
+        ${renderBranches(snapshot)}
         ${renderRepo(snapshot)}
         ${renderTesting(snapshot)}
         ${renderDebt(snapshot)}
@@ -1842,6 +1866,7 @@
       if (activeId) {
         let el = null;
         if (activeId === 'test-search-input' || activeId === 'issue-search-input'
+          || activeId === 'branch-search-input'
           || activeId === 'debt-search-input') {
           el = document.getElementById(activeId);
         } else if (activeId === 'roadmap-draft') {
@@ -1962,6 +1987,15 @@
     if (repo) {
       const pending = (repo.staged || 0) + (repo.modified || 0) + (repo.untracked || 0);
       set('repo', pending, 'accent', `${pending} pending file change${pending === 1 ? '' : 's'}`);
+    }
+
+    const branches = snapshot.branches;
+    if (branches && Array.isArray(branches.items)) {
+      const attention = branches.items.filter(branch =>
+        branch.stale || branch.ahead > 0 || branch.behind > 0
+        || branch.status === 'upstream-gone' || branch.status === 'name-conflict').length;
+      set('branches', attention, 'warn',
+        `${attention} branch${attention === 1 ? '' : 'es'} stale, drifted, or blocked from local activation`);
     }
 
     const runtime = snapshot.runtime;
@@ -2514,6 +2548,142 @@
     `;
   }
 
+  function renderBranches(snapshot) {
+    const branches = snapshot.branches || {
+      items: [],
+      localCount: 0,
+      remoteOnlyCount: 0,
+      staleCount: 0,
+      divergedCount: 0,
+      checkedOutElsewhereCount: 0,
+    };
+    const items = Array.isArray(branches.items) ? branches.items : [];
+    const query = String(state.branchSearch || '').trim().toLowerCase();
+    const filter = state.branchFilter || 'all';
+    const filtered = items.filter(branch => {
+      if (filter === 'local' && !branch.localRef) { return false; }
+      if (filter === 'remote' && branch.localRef) { return false; }
+      if (filter === 'stale' && !branch.stale) { return false; }
+      if (filter === 'attention' && !['ahead', 'behind', 'diverged', 'upstream-gone', 'name-conflict'].includes(branch.status)
+        && !(branch.ahead > 0 || branch.behind > 0) && !branch.checkedOutElsewhere) { return false; }
+      if (filter === 'merged' && !branch.mergedIntoCurrent) { return false; }
+      if (!query) { return true; }
+      return [
+        branch.name,
+        branch.subject,
+        branch.author,
+        branch.upstream,
+        branch.remoteRef,
+        branch.hash,
+      ].some(value => String(value || '').toLowerCase().includes(query));
+    });
+    const dirty = Boolean(snapshot.repo && snapshot.repo.dirty);
+    const attentionCount = items.filter(branch =>
+      ['ahead', 'behind', 'diverged', 'upstream-gone', 'name-conflict'].includes(branch.status)
+      || branch.ahead > 0 || branch.behind > 0 || branch.checkedOutElsewhere).length;
+    const mergedCount = items.filter(branch => branch.mergedIntoCurrent).length;
+
+    return `
+      ${pageSectionOpen('branches')}
+        ${renderPageIntro({
+          kicker: 'Git branches',
+          title: 'Every branch, ready when you need it',
+          summary: `${items.length} logical branch${items.length === 1 ? '' : 'es'} across ${branches.localCount} local and ${branches.remoteOnlyCount} remote-only ref${branches.remoteOnlyCount === 1 ? '' : 's'}. Remote state is read from cached refs until you explicitly fetch. ${dirty ? 'The working tree has pending changes, so branch switching is paused.' : 'The working tree is clean, so another branch can be brought local safely.'}`,
+          chips: [
+            { label: `${branches.localCount} local`, tone: 'accent' },
+            { label: `${branches.remoteOnlyCount} remote only`, tone: branches.remoteOnlyCount ? 'accent' : undefined },
+            { label: `${branches.divergedCount} drifted`, tone: branches.divergedCount ? 'warn' : 'good' },
+            { label: `${branches.staleCount} stale`, tone: branches.staleCount ? 'warn' : 'good' },
+          ],
+        })}
+        <article class="panel-card branch-inventory-controls">
+          <div>
+            <p class="section-kicker">Branch inventory</p>
+            <h3>Find a branch</h3>
+            <p class="section-copy">Tracked local and remote refs are folded into one card. A remote-only branch creates a same-named local tracking branch when you choose <strong>Bring local</strong>.</p>
+          </div>
+          <div class="branch-control-actions">
+            <button type="button" class="action-link" data-action="branch-fetch">Fetch latest from remotes</button>
+            <button type="button" class="action-link" data-action="command" data-payload="workbench.view.scm">Open Source Control</button>
+          </div>
+          <label class="dashboard-search-label" for="branch-search-input">Search branches</label>
+          <input id="branch-search-input" class="ideation-input" type="search" value="${escapeAttr(state.branchSearch || '')}" placeholder="Name, author, commit, upstream…" autocomplete="off" />
+          <div class="segmented-control branch-filter-control" role="group" aria-label="Filter branches">
+            ${[
+              ['all', `All (${items.length})`],
+              ['local', `Local (${branches.localCount})`],
+              ['remote', `Remote only (${branches.remoteOnlyCount})`],
+              ['attention', `Needs attention (${attentionCount})`],
+              ['stale', `Stale (${branches.staleCount})`],
+              ['merged', `Merged (${mergedCount})`],
+            ].map(entry => `<button type="button" data-action="branch-filter" data-payload="${entry[0]}" class="${filter === entry[0] ? 'active' : ''}" aria-pressed="${filter === entry[0] ? 'true' : 'false'}">${escapeHtml(entry[1])}</button>`).join('')}
+          </div>
+          ${dirty ? '<div class="inline-notice warning"><strong>Switching paused.</strong> Commit, stash, or discard the current changes first. AtlasMind will not carry them onto another branch.</div>' : ''}
+        </article>
+        <div class="branch-inventory-grid">
+          ${filtered.length > 0
+            ? filtered.map(branch => renderBranchInventoryCard(branch, dirty)).join('')
+            : `<div class="dashboard-empty"><div><strong>No branches match this view</strong><p class="section-copy">${items.length === 0 ? 'No local or cached remote refs were found.' : 'Clear the search or choose another filter.'}</p></div></div>`}
+        </div>
+      </section>
+    `;
+  }
+
+  function renderBranchInventoryCard(branch, dirty) {
+    const warningStatuses = ['behind', 'diverged', 'upstream-gone', 'name-conflict'];
+    const statusClass = branch.status === 'current' || branch.status === 'synced'
+      ? 'tag-good'
+      : warningStatuses.includes(branch.status) || branch.stale
+        ? 'tag-warn'
+        : '';
+    const canActivate = Boolean(branch.canActivate) && !dirty && !branch.current;
+    const disabledReason = dirty
+      ? 'Commit, stash, or discard pending changes before switching.'
+      : branch.blocker || (branch.current ? 'This is already the current branch.' : '');
+    const location = branch.localRef
+      ? (branch.remoteRef ? `Local · ${branch.remoteRef}` : 'Local only')
+      : `Remote only · ${branch.remoteRef || 'cached ref'}`;
+    const tracking = branch.upstream
+      ? `<span class="tag mono">tracks ${escapeHtml(branch.upstream)}</span>`
+      : branch.remoteRef && branch.localRef
+        ? '<span class="tag tag-warn">remote match, not tracking</span>'
+        : '';
+
+    return `
+      <article class="panel-card branch-inventory-card${branch.current ? ' is-current' : ''}">
+        <div class="row-head branch-card-head">
+          <div>
+            <p class="section-kicker">${escapeHtml(location)}</p>
+            <h3>${escapeHtml(branch.name)}</h3>
+          </div>
+          <span class="tag ${statusClass}">${escapeHtml(branch.statusLabel)}</span>
+        </div>
+        <div class="tag-row">
+          ${branch.current ? '<span class="tag tag-good">● current</span>' : ''}
+          ${branch.default ? '<span class="tag">default</span>' : ''}
+          ${branch.protected ? '<span class="tag tag-warn">protected</span>' : ''}
+          ${branch.checkedOutElsewhere ? '<span class="tag tag-warn">another worktree</span>' : ''}
+          ${branch.mergedIntoCurrent ? '<span class="tag tag-good">merged into current</span>' : ''}
+          ${branch.stale ? `<span class="tag tag-warn">stale · ${escapeHtml(branch.lastCommitRelative)}</span>` : ''}
+        </div>
+        <p class="branch-subject">${escapeHtml(branch.subject || 'No commit subject available.')}</p>
+        <div class="branch-commit-meta">
+          <span class="mono">${escapeHtml(branch.hash || '—')}</span>
+          <span>${escapeHtml(branch.author || 'Unknown author')}</span>
+          <span>${escapeHtml(branch.lastCommitRelative || 'Unknown date')}</span>
+        </div>
+        <div class="tag-row">
+          ${tracking}
+          ${branch.ahead ? `<span class="tag">${escapeHtml(String(branch.ahead))} ahead</span>` : ''}
+          ${branch.behind ? `<span class="tag tag-warn">${escapeHtml(String(branch.behind))} behind</span>` : ''}
+        </div>
+        <div class="branch-card-actions">
+          <button type="button" class="action-link${canActivate ? ' primary' : ''}" data-action="branch-activate" data-payload="${escapeAttr(branch.id || '')}" ${canActivate ? '' : 'disabled'} title="${escapeAttr(disabledReason || `${branch.activationLabel} for immediate work`)}">${escapeHtml(branch.current ? 'Current branch' : branch.activationLabel || 'Work locally')}</button>
+        </div>
+      </article>
+    `;
+  }
+
   function renderRepo(snapshot) {
     const r = snapshot.repo;
     const changed = r.modified + r.staged + r.untracked;
@@ -2523,7 +2693,7 @@
         ${renderPageIntro({
           kicker: 'Repository',
           title: 'Working tree at a glance',
-          summary: `On ${escapeHtml(snapshot.currentBranch)} — ${r.dirty ? `${changed} file${changed === 1 ? '' : 's'} differ from HEAD` : 'the working tree is clean'}${r.behind ? `, ${r.behind} commit${r.behind === 1 ? '' : 's'} behind upstream` : ''}${r.ahead ? `, ${r.ahead} ahead` : ''}. ${r.branchCount} local branch${r.branchCount === 1 ? '' : 'es'}. Click any card to open it in Source Control.`,
+          summary: `On ${escapeHtml(snapshot.currentBranch)} — ${r.dirty ? `${changed} file${changed === 1 ? '' : 's'} differ from HEAD` : 'the working tree is clean'}${r.behind ? `, ${r.behind} commit${r.behind === 1 ? '' : 's'} behind upstream` : ''}${r.ahead ? `, ${r.ahead} ahead` : ''}. ${r.branchCount} local branch${r.branchCount === 1 ? '' : 'es'}. Open the Branches page for the complete local and remote inventory.`,
           chips: [
             { label: r.dirty ? `${changed} uncommitted` : 'Clean tree', tone: r.dirty ? 'warn' : 'good' },
             { label: r.behind ? `${r.behind} behind` : 'Up to date', tone: r.behind ? 'warn' : 'good' },
@@ -2585,7 +2755,7 @@
             <h3>Most recently touched</h3>
             <div class="stack-list">
               ${r.branches.length > 0 ? r.branches.map(branch => `
-                <button type="button" class="branch-card" data-action="command" data-payload="workbench.view.scm" title="Open Source Control">
+                <button type="button" class="branch-card" data-action="page" data-payload="branches" title="Open Branches">
                   <div class="row-head">
                     <h4>${escapeHtml(branch.name)}${branch.current ? ' <span class="tag tag-good">● current</span>' : ''}</h4>
                     <span class="list-meta">${escapeHtml(branch.lastCommitRelative)}</span>

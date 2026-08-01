@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.239.0 — Every branch is visible and ready for local work
+
+**Project Dashboard → The code → Branches now shows the whole usable branch inventory, not a capped list of recent local names.** Local and cached remote refs are folded into logical cards with current, default, protected, other-worktree, tracking, ahead/behind, merged, author, commit, and 30-day staleness signals. The page includes search plus local, remote-only, attention, stale, and merged filters. Normal dashboard refresh remains offline; **Fetch latest from remotes** is a separate explicit action.
+
+**Switch here** brings an existing local branch into the workspace. **Bring local** creates a same-named local branch tracking a remote-only ref. The browser supplies only an opaque id: AtlasMind rebuilds the live inventory before Git receives an argument, requires a clean working tree, refuses another-worktree and local-name-conflict cases, and confirms the action. Protected branches receive an additional warning so “available” never reads as “recommended for direct development.”
+
 ## v0.238.1 — Testing explanations that answer before they ask
 
 **Every Testing Policy Coverage card now opens with a complete beginner-facing answer, not a general-agent investigation.** The visible **Ask Atlas** action explains what the selected method is, what is required to practise it, the expected result, why it is useful, the live status, what AtlasMind can and cannot infer, and the safest next step.

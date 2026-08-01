@@ -276,6 +276,7 @@ const execFileAsync = promisify(execFile);
 const PROJECT_DASHBOARD_VIEW_TYPE = 'atlasmind.projectDashboard';
 const MAX_COMMITS = 10;
 const MAX_BRANCHES = 8;
+const BRANCH_STALE_DAYS = 30;
 const MAX_RECENT_FILES = 8;
 const MAX_RECENT_RUNS = 8;
 const MAX_RECENT_SESSIONS = 8;
@@ -456,6 +457,8 @@ interface TestingFixResult {
 type ProjectDashboardMessage =
   | { type: 'ready' }
   | { type: 'refresh' }
+  | { type: 'fetchBranches' }
+  | { type: 'activateBranch'; payload: string }
   | { type: 'openCommand'; payload: string }
   | { type: 'openSettingKey'; payload: string }
   | { type: 'openPrompt'; payload: string | { prompt: string; sourcePage?: DashboardPageId } }
@@ -609,7 +612,7 @@ interface DashboardStat {
  */
 const DASHBOARD_PAGE_IDS = [
   'overview', 'score', 'gapAnalysis', 'workflow', 'roadmap', 'issues', 'pullRequests', 'director',
-  'repo', 'pipeline', 'testing', 'debt', 'security', 'privacy', 'risk', 'release', 'delivery', 'documents',
+  'branches', 'repo', 'pipeline', 'testing', 'debt', 'security', 'privacy', 'risk', 'release', 'delivery', 'documents',
   'ssot', 'runtime', 'ideation',
 ] as const;
 
@@ -848,6 +851,63 @@ interface DashboardBranch {
   current: boolean;
 }
 
+type DashboardBranchStatus =
+  | 'current'
+  | 'synced'
+  | 'ahead'
+  | 'behind'
+  | 'diverged'
+  | 'untracked'
+  | 'local-only'
+  | 'remote-only'
+  | 'upstream-gone'
+  | 'checked-out'
+  | 'name-conflict';
+
+/**
+ * One logical branch shown on Dashboard → Branches.
+ *
+ * `id` is the only field sent back by the webview. The host rebuilds the
+ * inventory and resolves it before invoking git, so a stale or compromised
+ * webview never supplies a branch name or command argument.
+ */
+export interface DashboardBranchInventoryItem {
+  id: string;
+  name: string;
+  localRef?: string;
+  remoteRef?: string;
+  remoteName?: string;
+  upstream?: string;
+  current: boolean;
+  default: boolean;
+  protected: boolean;
+  checkedOutElsewhere: boolean;
+  mergedIntoCurrent: boolean;
+  stale: boolean;
+  ahead: number;
+  behind: number;
+  status: DashboardBranchStatus;
+  statusLabel: string;
+  hash: string;
+  author: string;
+  subject: string;
+  lastCommitAt: string;
+  lastCommitRelative: string;
+  canActivate: boolean;
+  activationLabel: string;
+  blocker?: string;
+}
+
+export interface DashboardBranchesSnapshot {
+  items: DashboardBranchInventoryItem[];
+  localCount: number;
+  remoteOnlyCount: number;
+  staleCount: number;
+  divergedCount: number;
+  checkedOutElsewhereCount: number;
+  defaultBranch?: string;
+}
+
 interface DashboardCommit {
   hash: string;
   shortHash: string;
@@ -874,6 +934,7 @@ interface GitSnapshot {
   untracked: number;
   dirty: boolean;
   branches: DashboardBranch[];
+  branchInventory: DashboardBranchesSnapshot;
   commits: DashboardCommit[];
   commitDates: string[];
   commitLog: DashboardCommitLogEntry[];
@@ -1647,6 +1708,8 @@ interface DashboardSnapshot {
     branches: DashboardBranch[];
     commits: DashboardCommit[];
   };
+  /** Every local and cached remote branch, with safe host-resolved activation. */
+  branches: DashboardBranchesSnapshot;
   runtime: {
     enabledAgents: number;
     totalAgents: number;
@@ -2735,6 +2798,8 @@ export class ProjectDashboardPanel {
    * feel slow for no reason.
    */
   private lastGitRemoteUrl: string | undefined;
+  /** Prevent one impatient double-click from starting two remote fetches. */
+  private branchesFetchRunning = false;
 
   private issuesState: DashboardIssuesSnapshot = {
     status: 'not-loaded',
@@ -2952,6 +3017,12 @@ export class ProjectDashboardPanel {
       case 'ready':
       case 'refresh':
         await this.syncState();
+        return;
+      case 'fetchBranches':
+        await this.handleFetchBranches();
+        return;
+      case 'activateBranch':
+        await this.handleActivateBranch(message.payload);
         return;
       case 'openPrompt':
         {
@@ -3438,6 +3509,123 @@ export class ProjectDashboardPanel {
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       await this.postMessage({ type: 'error', payload: `Dashboard refresh failed: ${detail}` });
+    }
+  }
+
+  /**
+   * Refresh remote-tracking refs only when the user explicitly asks.
+   *
+   * Opening or refreshing the dashboard stays local and model-free. A fetch is
+   * a network operation that updates refs, so it has its own plainly labelled
+   * action rather than hiding behind the general Refresh button.
+   */
+  private async handleFetchBranches(): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      void vscode.window.showWarningMessage('Open a Git workspace before refreshing branches.');
+      return;
+    }
+    if (this.branchesFetchRunning) {
+      void vscode.window.showInformationMessage('AtlasMind is already fetching branch updates.');
+      return;
+    }
+
+    this.branchesFetchRunning = true;
+    try {
+      await vscode.window.withProgress({
+        location: vscode.ProgressLocation.Notification,
+        title: 'AtlasMind: fetching branch updates',
+        cancellable: false,
+      }, async () => {
+        await runGit(workspaceRoot, ['fetch', '--all', '--prune', '--tags'], { timeoutMs: 60_000 });
+      });
+      await vscode.commands.executeCommand('git.refresh');
+      await this.syncState();
+      void vscode.window.showInformationMessage('AtlasMind refreshed the cached remote branches.');
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showErrorMessage(`AtlasMind could not fetch branch updates: ${detail}`);
+    } finally {
+      this.branchesFetchRunning = false;
+    }
+  }
+
+  /**
+   * Bring a host-resolved branch into this workspace for immediate work.
+   *
+   * The working tree must be clean. Git can carry non-conflicting edits across
+   * a switch, but doing that from a dashboard button makes it far too easy to
+   * strand unrelated work on the wrong branch. Remote-only refs get a local
+   * tracking branch with the same name; existing locals are switched directly.
+   */
+  private async handleActivateBranch(branchId: string): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      void vscode.window.showWarningMessage('Open a Git workspace before choosing a branch.');
+      return;
+    }
+
+    const live = await collectGitSnapshot(workspaceRoot);
+    const branch = live.branchInventory.items.find(item => item.id === branchId);
+    if (!branch) {
+      void vscode.window.showWarningMessage('That branch is no longer available. Refresh the Branches page and try again.');
+      await this.syncState();
+      return;
+    }
+    if (branch.current) {
+      void vscode.window.showInformationMessage(`${branch.name} is already the current branch.`);
+      return;
+    }
+    if (live.dirty) {
+      const openScm = 'Open Source Control';
+      const choice = await vscode.window.showWarningMessage(
+        `AtlasMind kept you on ${live.currentBranch}: commit, stash, or discard the pending working-tree changes before switching branches.`,
+        openScm,
+      );
+      if (choice === openScm) {
+        await vscode.commands.executeCommand('workbench.view.scm');
+      }
+      return;
+    }
+    if (!branch.canActivate) {
+      void vscode.window.showWarningMessage(branch.blocker ?? `${branch.name} cannot be brought into this workspace.`);
+      return;
+    }
+
+    const configuredProtected = this.workflowConfig.getConfig()?.branches.protected ?? [];
+    const isProtected = branch.protected || configuredProtected.some(ref =>
+      normalizeBranchRef(ref).toLowerCase() === branch.name.toLowerCase());
+    const protectedWarning = isProtected
+      ? ' This is a protected branch; prefer a feature branch for changes that will be committed.'
+      : '';
+    const action = branch.localRef ? 'Switch branch' : 'Create local branch';
+    const confirmed = await vscode.window.showWarningMessage(
+      branch.localRef
+        ? `Switch this workspace from ${live.currentBranch} to ${branch.name}?${protectedWarning}`
+        : `Create and switch to local branch ${branch.name}, tracking ${branch.remoteRef}?${protectedWarning}`,
+      { modal: true },
+      action,
+    );
+    if (confirmed !== action) {
+      return;
+    }
+
+    try {
+      if (branch.localRef) {
+        await runGit(workspaceRoot, ['switch', '--', branch.localRef]);
+      } else if (branch.remoteRef) {
+        await runGit(workspaceRoot, ['switch', '--track', '-c', branch.name, branch.remoteRef]);
+      } else {
+        void vscode.window.showWarningMessage('That branch no longer has a usable local or remote ref.');
+        return;
+      }
+      await vscode.commands.executeCommand('git.refresh');
+      await this.syncState();
+      void vscode.window.showInformationMessage(`AtlasMind is ready to work on ${branch.name}.`);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      void vscode.window.showErrorMessage(`AtlasMind could not switch to ${branch.name}: ${detail}`);
+      await this.syncState();
     }
   }
 
@@ -6510,8 +6698,16 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
   }
 
   const candidate = message as Record<string, unknown>;
-  if (candidate['type'] === 'ready' || candidate['type'] === 'refresh' || candidate['type'] === 'runGapAnalysis' || candidate['type'] === 'markDeliveryReviewed' || candidate['type'] === 'reimportDelivery' || candidate['type'] === 'seedDirectorFromRepo' || candidate['type'] === 'seedDocumentsFromRepo' || candidate['type'] === 'createRoadmapGate' || candidate['type'] === 'discussDashboardError') {
+  if (candidate['type'] === 'ready' || candidate['type'] === 'refresh' || candidate['type'] === 'fetchBranches' || candidate['type'] === 'runGapAnalysis' || candidate['type'] === 'markDeliveryReviewed' || candidate['type'] === 'reimportDelivery' || candidate['type'] === 'seedDirectorFromRepo' || candidate['type'] === 'seedDocumentsFromRepo' || candidate['type'] === 'createRoadmapGate' || candidate['type'] === 'discussDashboardError') {
     return true;
+  }
+
+  if (candidate['type'] === 'activateBranch') {
+    // Opaque inventory id only. It is resolved against a freshly collected
+    // branch list before git receives any arguments.
+    return typeof candidate['payload'] === 'string'
+      && candidate['payload'].length > 0
+      && candidate['payload'].length <= 600;
   }
 
   if (candidate['type'] === 'refreshIssues') {
@@ -7595,6 +7791,10 @@ async function collectDashboardSnapshot(
     loadIdeationBoard(workspaceRoot, ssotPath, activeIdeationWorkspace),
     collectRoadmapSnapshot(workspaceRoot, ssotPath),
   ]);
+  const branchInventory = withConfiguredProtectedBranches(
+    gitSnapshot.branchInventory,
+    workflowConfigManager?.getConfig()?.branches.protected ?? [],
+  );
   const versionSnapshot = await collectVersionSnapshot(workspaceRoot, gitSnapshot.currentBranch, packageSnapshot.version);
   const stagePipeline = await collectDeliveryStagePipeline(atlas, workspaceRoot, gitSnapshot.currentBranch, workflowSnapshot.map(workflow => workflow.name));
 
@@ -7735,8 +7935,7 @@ async function collectDashboardSnapshot(
       value: gitSnapshot.currentBranch,
       detail: `${gitSnapshot.staged + gitSnapshot.modified + gitSnapshot.untracked} pending file changes, ${gitSnapshot.ahead} ahead / ${gitSnapshot.behind} behind.`,
       tone: gitSnapshot.dirty ? 'warn' : 'good',
-      pageTarget: 'repo',
-      command: 'workbench.view.scm',
+      pageTarget: 'branches',
     },
     {
       id: 'runtime',
@@ -7885,6 +8084,7 @@ async function collectDashboardSnapshot(
       branches: gitSnapshot.branches,
       commits: gitSnapshot.commits,
     },
+    branches: branchInventory,
     runtime: {
       enabledAgents,
       totalAgents: agents.length,
@@ -8380,6 +8580,397 @@ function summarizeRunTdd(artifacts: Array<{ tddStatus?: 'verified' | 'blocked' |
   return { summary: summary.summary, tone: summary.tone };
 }
 
+interface DashboardBranchRefRecord {
+  ref: string;
+  shortRef: string;
+  hash: string;
+  committedAt: string;
+  author: string;
+  subject: string;
+  upstream?: string;
+  track: string;
+  worktreePath?: string;
+  symbolicTarget?: string;
+}
+
+/**
+ * Turn `git for-each-ref` output into the complete branch inventory.
+ *
+ * Fields are NUL-separated because commit subjects and author names may contain
+ * tabs or pipes. Git refs and commit metadata cannot contain NUL, so this is the
+ * one delimiter that cannot make a branch borrow fields from its neighbour.
+ * Exported for unit tests: this parser is the safety boundary between Git output
+ * and both the dashboard action ids and the later switch command.
+ */
+export function buildDashboardBranchInventory(
+  refOutput: string,
+  mergedOutput: string,
+  currentBranch: string,
+  now = Date.now(),
+): DashboardBranchesSnapshot {
+  const records = refOutput
+    .split(/\r?\n/)
+    .map(line => line.split('\0'))
+    .filter(fields => fields.length >= 2 && Boolean(fields[0]))
+    .map(fields => ({
+      ref: fields[0] ?? '',
+      shortRef: fields[1] ?? '',
+      hash: fields[2] ?? '',
+      committedAt: fields[3] ?? '',
+      author: fields[4] ?? '',
+      subject: fields[5] ?? '',
+      ...(fields[6] ? { upstream: fields[6] } : {}),
+      track: fields[7] ?? '',
+      ...(fields[8] ? { worktreePath: fields[8] } : {}),
+      ...(fields[9] ? { symbolicTarget: fields[9] } : {}),
+    } satisfies DashboardBranchRefRecord));
+
+  const merged = new Set(mergedOutput.split(/\r?\n/).map(ref => ref.trim()).filter(Boolean));
+  const localRecords = records.filter(record => record.ref.startsWith('refs/heads/'));
+  const remoteRecords = records.filter(record =>
+    record.ref.startsWith('refs/remotes/') && !record.ref.endsWith('/HEAD'));
+  const remoteByShortRef = new Map(remoteRecords.map(record => [record.shortRef, record]));
+  const remoteByBranchName = new Map<string, DashboardBranchRefRecord>();
+  for (const remote of remoteRecords) {
+    const name = remoteBranchName(remote.shortRef);
+    if (!remoteByBranchName.has(name)) {
+      remoteByBranchName.set(name, remote);
+    }
+  }
+  const defaultRefs = new Set(
+    records
+      .filter(record => record.ref.startsWith('refs/remotes/') && record.ref.endsWith('/HEAD'))
+      .map(record => record.symbolicTarget)
+      .filter((ref): ref is string => Boolean(ref)),
+  );
+  const defaultBranch = [...defaultRefs][0]?.replace(/^refs\/remotes\/[^/]+\//, '');
+  const consumedRemoteRefs = new Set<string>();
+  const localNames = new Set(localRecords.map(record => record.ref.slice('refs/heads/'.length)));
+  const items: DashboardBranchInventoryItem[] = [];
+
+  for (const local of localRecords) {
+    const name = local.ref.slice('refs/heads/'.length);
+    const sameNameRemote = remoteByBranchName.get(name);
+    // Once a branch declares an upstream, that relationship is authoritative.
+    // Falling back to a same-named ref on another remote would make an upstream
+    // that vanished from `origin` appear to live on (for example) `upstream`.
+    const pairedRemote = local.upstream ? remoteByShortRef.get(local.upstream) : sameNameRemote;
+    if (pairedRemote) {
+      consumedRemoteRefs.add(pairedRemote.ref);
+    }
+    const { ahead, behind, gone } = parseBranchTrack(local.track);
+    const checkedOutElsewhere = Boolean(local.worktreePath) && name !== currentBranch;
+    const current = name === currentBranch;
+    const tracked = Boolean(local.upstream) && !gone;
+    const status = branchStatus({
+      current,
+      checkedOutElsewhere,
+      gone,
+      tracked,
+      hasRemote: pairedRemote !== undefined,
+      ahead,
+      behind,
+      remoteOnly: false,
+      nameConflict: false,
+    });
+    const item = branchInventoryItem({
+      id: `local:${local.ref}`,
+      name,
+      local,
+      ...(pairedRemote ? { remote: pairedRemote } : {}),
+      current,
+      checkedOutElsewhere,
+      status,
+      ahead,
+      behind,
+      merged,
+      defaultRefs,
+      now,
+    });
+    items.push(item);
+  }
+
+  for (const remote of remoteRecords) {
+    if (consumedRemoteRefs.has(remote.ref)) {
+      continue;
+    }
+    const name = remoteBranchName(remote.shortRef);
+    const nameConflict = localNames.has(name);
+    const status = branchStatus({
+      current: false,
+      checkedOutElsewhere: false,
+      gone: false,
+      tracked: false,
+      hasRemote: true,
+      ahead: 0,
+      behind: 0,
+      remoteOnly: true,
+      nameConflict,
+    });
+    items.push(branchInventoryItem({
+      id: `remote:${remote.ref}`,
+      name,
+      remote,
+      current: false,
+      checkedOutElsewhere: false,
+      status,
+      ahead: 0,
+      behind: 0,
+      merged,
+      defaultRefs,
+      now,
+    }));
+  }
+
+  items.sort((left, right) => {
+    if (left.current !== right.current) {
+      return left.current ? -1 : 1;
+    }
+    if (left.default !== right.default) {
+      return left.default ? -1 : 1;
+    }
+    const leftTime = Date.parse(left.lastCommitAt) || 0;
+    const rightTime = Date.parse(right.lastCommitAt) || 0;
+    return rightTime - leftTime || left.name.localeCompare(right.name);
+  });
+
+  return {
+    items,
+    localCount: localRecords.length,
+    remoteOnlyCount: items.filter(item => !item.localRef && Boolean(item.remoteRef)).length,
+    staleCount: items.filter(item => item.stale).length,
+    divergedCount: items.filter(item =>
+      item.ahead > 0 || item.behind > 0 || item.status === 'upstream-gone').length,
+    checkedOutElsewhereCount: items.filter(item => item.checkedOutElsewhere).length,
+    ...(defaultBranch ? { defaultBranch } : {}),
+  };
+}
+
+function branchInventoryItem(input: {
+  id: string;
+  name: string;
+  local?: DashboardBranchRefRecord;
+  remote?: DashboardBranchRefRecord;
+  current: boolean;
+  checkedOutElsewhere: boolean;
+  status: DashboardBranchStatus;
+  ahead: number;
+  behind: number;
+  merged: ReadonlySet<string>;
+  defaultRefs: ReadonlySet<string>;
+  now: number;
+}): DashboardBranchInventoryItem {
+  const source = input.local ?? input.remote!;
+  const remoteRef = input.remote?.shortRef;
+  const isDefault = Boolean(input.remote && input.defaultRefs.has(input.remote.ref))
+    || [...input.defaultRefs].some(ref => ref.endsWith(`/${input.name}`));
+  const protectedBranch = PROTECTED_BRANCH_NAMES.has(input.name)
+    || input.name.startsWith('release/')
+    || input.name.startsWith('hotfix/');
+  const stale = isStaleBranchDate(source.committedAt, input.now);
+  const remoteOnlyNameConflict = input.status === 'name-conflict';
+  const canActivate = !input.current && !input.checkedOutElsewhere && !remoteOnlyNameConflict;
+  const blocker = input.checkedOutElsewhere
+    ? 'This branch is already checked out in another Git worktree.'
+    : remoteOnlyNameConflict
+      ? `A local branch named ${input.name} already exists for a different remote ref.`
+      : undefined;
+
+  return {
+    id: input.id,
+    name: input.name,
+    ...(input.local ? { localRef: input.name } : {}),
+    ...(remoteRef ? { remoteRef, remoteName: remoteRef.split('/')[0] } : {}),
+    ...(input.local?.upstream ? { upstream: input.local.upstream } : {}),
+    current: input.current,
+    default: isDefault,
+    protected: protectedBranch,
+    checkedOutElsewhere: input.checkedOutElsewhere,
+    mergedIntoCurrent: !input.current && (
+      (input.local ? input.merged.has(input.local.ref) : false)
+      || (input.remote ? input.merged.has(input.remote.ref) : false)
+    ),
+    stale,
+    ahead: input.ahead,
+    behind: input.behind,
+    status: input.status,
+    statusLabel: branchStatusLabel(input.status),
+    hash: source.hash,
+    author: source.author,
+    subject: source.subject,
+    lastCommitAt: source.committedAt,
+    lastCommitRelative: formatBranchRelativeDate(source.committedAt, input.now),
+    canActivate,
+    activationLabel: input.local ? 'Switch here' : 'Bring local',
+    ...(blocker ? { blocker } : {}),
+  };
+}
+
+function remoteBranchName(shortRef: string): string {
+  const slash = shortRef.indexOf('/');
+  return slash >= 0 ? shortRef.slice(slash + 1) : shortRef;
+}
+
+function parseBranchTrack(track: string): { ahead: number; behind: number; gone: boolean } {
+  const ahead = Number(/\bahead\s+(\d+)/i.exec(track)?.[1] ?? 0) || 0;
+  const behind = Number(/\bbehind\s+(\d+)/i.exec(track)?.[1] ?? 0) || 0;
+  return { ahead, behind, gone: /\bgone\b/i.test(track) };
+}
+
+function branchStatus(input: {
+  current: boolean;
+  checkedOutElsewhere: boolean;
+  gone: boolean;
+  tracked: boolean;
+  hasRemote: boolean;
+  ahead: number;
+  behind: number;
+  remoteOnly: boolean;
+  nameConflict: boolean;
+}): DashboardBranchStatus {
+  if (input.checkedOutElsewhere) {
+    return 'checked-out';
+  }
+  if (input.nameConflict) {
+    return 'name-conflict';
+  }
+  if (input.remoteOnly) {
+    return 'remote-only';
+  }
+  if (input.gone) {
+    return 'upstream-gone';
+  }
+  if (input.ahead > 0 && input.behind > 0) {
+    return 'diverged';
+  }
+  if (input.ahead > 0) {
+    return 'ahead';
+  }
+  if (input.behind > 0) {
+    return 'behind';
+  }
+  if (input.current) {
+    return 'current';
+  }
+  if (input.tracked) {
+    return 'synced';
+  }
+  return input.hasRemote ? 'untracked' : 'local-only';
+}
+
+function branchStatusLabel(status: DashboardBranchStatus): string {
+  switch (status) {
+    case 'current': return 'Current';
+    case 'synced': return 'In sync';
+    case 'ahead': return 'Ahead';
+    case 'behind': return 'Behind';
+    case 'diverged': return 'Diverged';
+    case 'untracked': return 'Not tracking';
+    case 'local-only': return 'Local only';
+    case 'remote-only': return 'Remote only';
+    case 'upstream-gone': return 'Upstream gone';
+    case 'checked-out': return 'Other worktree';
+    case 'name-conflict': return 'Local name taken';
+  }
+}
+
+function isStaleBranchDate(iso: string, now: number): boolean {
+  const committedAt = Date.parse(iso);
+  return Number.isFinite(committedAt) && (now - committedAt) >= BRANCH_STALE_DAYS * 86_400_000;
+}
+
+function formatBranchRelativeDate(iso: string, now: number): string {
+  const date = Date.parse(iso);
+  if (!Number.isFinite(date)) {
+    return 'Unknown';
+  }
+  const deltaDays = Math.max(0, Math.floor((now - date) / 86_400_000));
+  if (deltaDays === 0) {
+    return 'Today';
+  }
+  if (deltaDays === 1) {
+    return '1 day ago';
+  }
+  if (deltaDays < 30) {
+    return `${deltaDays} days ago`;
+  }
+  const months = Math.floor(deltaDays / 30);
+  if (months < 12) {
+    return months === 1 ? '1 month ago' : `${months} months ago`;
+  }
+  const years = Math.floor(months / 12);
+  return years === 1 ? '1 year ago' : `${years} years ago`;
+}
+
+async function collectDashboardBranchInventory(
+  workspaceRoot: string,
+  currentBranch: string,
+): Promise<DashboardBranchesSnapshot> {
+  try {
+    const format = [
+      '%(refname)',
+      '%(refname:short)',
+      '%(objectname:short)',
+      '%(committerdate:iso-strict)',
+      '%(authorname)',
+      '%(subject)',
+      '%(upstream:short)',
+      '%(upstream:track)',
+      '%(worktreepath)',
+      '%(symref)',
+    ].join('%00');
+    const [refOutput, mergedOutput] = await Promise.all([
+      runGit(workspaceRoot, [
+        'for-each-ref',
+        '--sort=-committerdate',
+        `--format=${format}`,
+        'refs/heads',
+        'refs/remotes',
+      ]),
+      runGit(workspaceRoot, [
+        'for-each-ref',
+        '--merged=HEAD',
+        '--format=%(refname)',
+        'refs/heads',
+        'refs/remotes',
+      ]),
+    ]);
+    return buildDashboardBranchInventory(refOutput, mergedOutput, currentBranch);
+  } catch {
+    return emptyBranchInventory();
+  }
+}
+
+function emptyBranchInventory(): DashboardBranchesSnapshot {
+  return {
+    items: [],
+    localCount: 0,
+    remoteOnlyCount: 0,
+    staleCount: 0,
+    divergedCount: 0,
+    checkedOutElsewhereCount: 0,
+  };
+}
+
+function withConfiguredProtectedBranches(
+  inventory: DashboardBranchesSnapshot,
+  configuredRefs: readonly string[],
+): DashboardBranchesSnapshot {
+  const protectedNames = new Set(
+    configuredRefs.map(ref => normalizeBranchRef(ref).trim().toLowerCase()).filter(Boolean),
+  );
+  if (protectedNames.size === 0) {
+    return inventory;
+  }
+  return {
+    ...inventory,
+    items: inventory.items.map(item =>
+      item.protected || !protectedNames.has(item.name.toLowerCase())
+        ? item
+        : { ...item, protected: true }),
+  };
+}
+
 async function collectGitSnapshot(workspaceRoot: string | undefined): Promise<GitSnapshot> {
   if (!workspaceRoot) {
     return emptyGitSnapshot();
@@ -8391,7 +8982,9 @@ async function collectGitSnapshot(workspaceRoot: string | undefined): Promise<Gi
     return emptyGitSnapshot();
   }
 
-  const remoteUrl = (await runGit(workspaceRoot, ['remote', 'get-url', 'origin'])).trim() || undefined;
+  const remoteUrl = await runGit(workspaceRoot, ['remote', 'get-url', 'origin'])
+    .then(value => value.trim() || undefined)
+    .catch(() => undefined);
   const [statusOutput, branchOutput, commitOutput] = await Promise.all([
     runGit(workspaceRoot, ['status', '--short', '--branch']),
     runGit(workspaceRoot, ['for-each-ref', '--sort=-committerdate', '--format=%(refname:short)|%(committerdate:iso8601)|%(upstream:short)|%(subject)', 'refs/heads']),
@@ -8401,6 +8994,7 @@ async function collectGitSnapshot(workspaceRoot: string | undefined): Promise<Gi
   const statusLines = statusOutput.split(/\r?\n/).filter(Boolean);
   const branchLine = statusLines[0] ?? '';
   const currentBranch = parseCurrentBranch(branchLine);
+  const branchInventory = await collectDashboardBranchInventory(workspaceRoot, currentBranch);
   const { ahead, behind } = await collectAheadBehind(workspaceRoot);
   const staged = statusLines.slice(1).filter(line => line.length >= 1 && line[0] !== ' ' && line[0] !== '?').length;
   const modified = statusLines.slice(1).filter(line => line.length >= 2 && line[1] !== ' ' && line[0] !== '?').length;
@@ -8463,6 +9057,7 @@ async function collectGitSnapshot(workspaceRoot: string | undefined): Promise<Gi
     untracked,
     dirty,
     branches,
+    branchInventory,
     commits,
     commitDates,
     commitLog,
@@ -12678,11 +13273,16 @@ async function countIssueTemplates(workspaceRoot: string | undefined): Promise<n
   }
 }
 
-async function runGit(workspaceRoot: string, args: string[]): Promise<string> {
+async function runGit(
+  workspaceRoot: string,
+  args: string[],
+  options: { timeoutMs?: number } = {},
+): Promise<string> {
   const { stdout } = await execFileAsync('git', args, {
     cwd: workspaceRoot,
     windowsHide: true,
     maxBuffer: 1024 * 1024 * 4,
+    ...(options.timeoutMs === undefined ? {} : { timeout: options.timeoutMs }),
   });
   return stdout.trim();
 }
@@ -12711,6 +13311,7 @@ function emptyGitSnapshot(): GitSnapshot {
     untracked: 0,
     dirty: false,
     branches: [],
+    branchInventory: emptyBranchInventory(),
     commits: [],
     commitDates: [],
     commitLog: [],
@@ -14277,6 +14878,111 @@ const DASHBOARD_CSS = `
   .review-card,
   .branch-card {
     cursor: pointer;
+  }
+
+  /* ── Branch inventory ────────────────────────────────────────────────
+     The Repo page keeps its small recency list; this is the full operational
+     surface, including remote-only refs and the safety state around switching. */
+  .branch-inventory-controls {
+    display: grid;
+    gap: 14px;
+    margin-bottom: 16px;
+  }
+
+  .branch-control-actions,
+  .branch-card-actions,
+  .branch-filter-control {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .dashboard-search-label {
+    margin-bottom: -8px;
+    color: var(--dash-muted);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .branch-filter-control button {
+    border-radius: 999px;
+    border: 1px solid var(--dash-border);
+    background: transparent;
+    color: var(--dash-muted);
+    padding: 6px 11px;
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+  }
+
+  .branch-filter-control button:hover,
+  .branch-filter-control button:focus-visible {
+    border-color: color-mix(in srgb, var(--dash-accent-strong) 62%, var(--dash-border));
+    color: var(--vscode-foreground);
+  }
+
+  .branch-filter-control button.active {
+    border-color: color-mix(in srgb, var(--dash-accent-strong) 76%, var(--dash-border));
+    background: color-mix(in srgb, var(--dash-accent-strong) 16%, transparent);
+    color: color-mix(in srgb, var(--dash-accent-strong) 88%, var(--vscode-foreground));
+    font-weight: 600;
+  }
+
+  .branch-inventory-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+    gap: 14px;
+  }
+
+  .branch-inventory-grid > .dashboard-empty {
+    grid-column: 1 / -1;
+  }
+
+  .branch-inventory-card {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  .branch-inventory-card.is-current {
+    border-color: color-mix(in srgb, var(--dash-good) 56%, var(--dash-border));
+    box-shadow: inset 3px 0 0 color-mix(in srgb, var(--dash-good) 82%, transparent), var(--dash-shadow);
+  }
+
+  .branch-card-head h3 {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .branch-subject {
+    margin: 2px 0 0;
+    min-height: 2.8em;
+    color: var(--vscode-foreground);
+    overflow-wrap: anywhere;
+  }
+
+  .branch-commit-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    color: var(--dash-muted);
+    font-size: 11px;
+  }
+
+  .branch-card-actions {
+    margin-top: auto;
+    padding-top: 4px;
+  }
+
+  .inline-notice.warning {
+    padding: 11px 13px;
+    border-radius: 12px;
+    border: 1px solid color-mix(in srgb, var(--dash-warn) 56%, var(--dash-border));
+    background: color-mix(in srgb, var(--dash-warn) 11%, transparent);
+    color: color-mix(in srgb, var(--dash-warn) 82%, var(--vscode-foreground));
+    font-size: 12px;
   }
 
   /* Belt and braces: if a static variant ever ends up inside a container that

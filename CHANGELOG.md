@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.239.0] - 2026-08-01
+
+### Added
+- **Project Dashboard now has a complete Branches page.** It combines local branches with cached remote-only refs, folding a tracked pair into one logical card and showing current/default/protected/worktree state, upstream tracking, ahead/behind drift, merge state, latest commit/author, 30-day staleness, search, and operational filters. Ordinary dashboard refresh remains local; **Fetch latest from remotes** is an explicit network action.
+- **Any available branch can be brought into the current workspace for immediate work.** **Switch here** activates an existing local branch, while **Bring local** creates a same-named local tracking branch from a remote-only ref.
+
+### Security
+- **Branch activation is host-authoritative and clean-tree-only.** The webview returns an opaque inventory id; the extension rebuilds live Git state and supplies the actual ref to `git switch`. Pending changes, another-worktree branches, remote/local name collisions, vanished refs, and malformed messages are refused. A modal confirmation names the workspace change, and protected branches carry an additional warning.
+- **Git metadata is parsed without delimiter ambiguity.** The inventory uses NUL-separated `for-each-ref` fields, so punctuation in author names or commit subjects cannot shift a displayed record or the id later resolved for activation.
+
 ## [0.238.1] - 2026-08-01
 
 ### Fixed

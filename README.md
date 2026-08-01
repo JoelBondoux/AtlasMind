@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.238.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.239.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,9 +68,13 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.238.1
+## What's new in 0.239.0
 
 Since the last Marketplace publication, **v0.235.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Every branch now has a dashboard home.** **Project Dashboard → The code → Branches** shows local branches and cached remote-only refs together, with current/default/protected/worktree state, upstream tracking, ahead/behind drift, merge state, last commit, author, and staleness. Search and status filters keep large repositories usable, while **Fetch latest from remotes** is explicit rather than hidden inside ordinary dashboard refresh.
+
+- **Any safe branch can be brought into the workspace for immediate work.** **Switch here** activates an existing local branch; **Bring local** creates a same-named tracking branch from a remote-only ref. AtlasMind re-resolves the branch against live Git state, requires a clean working tree, blocks branches already checked out in another worktree or remote names that would collide locally, and confirms the workspace-changing action — with an extra warning for protected branches.
 
 - **AtlasMind can now be the agent behind Buzz.** The new local `atlasmind-acp` stdio endpoint lets Buzz's existing `buzz-acp` harness drive AtlasMind's orchestrator, agent registry, model routing, SSOT memory, and approval-gated workspace tools. In the Command Palette, run **AtlasMind: Copy Buzz ACP Agent Setup**, then create a Buzz managed agent with **Provider → Custom command** and paste the copied command and comma-separated arguments.
 
@@ -262,7 +266,7 @@ Project Dashboard → **Workflow** is the guided eight-stage workflow: ideation,
 
 ### Keep the project organised
 
-Project Dashboard brings ideation, roadmap, issues, documents, delivery stages, privacy, risk, stakeholders, assignments, and follow-ups into one operational surface.
+Project Dashboard brings ideation, roadmap, issues, every local and cached remote branch, documents, delivery stages, privacy, risk, stakeholders, assignments, and follow-ups into one operational surface. On **Branches**, use **Switch here** for an existing local branch or **Bring local** for a remote-only branch; AtlasMind requires a clean tree and confirms before changing the workspace.
 
 ---
 

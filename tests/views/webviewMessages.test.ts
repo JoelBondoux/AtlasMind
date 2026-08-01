@@ -661,7 +661,7 @@ describe('isProjectDashboardMessage — risk oversight', () => {
     // page-id allowlist, so "Ask Atlas" raised from that page silently lost its
     // origin. Asserted on the normaliser because isProjectDashboardMessage returns
     // true either way — it cannot observe whether sourcePage survived.
-    for (const sourcePage of ['risk', 'privacy', 'overview', 'score', 'repo', 'runtime', 'testing', 'ssot', 'roadmap', 'gapAnalysis', 'security', 'delivery', 'director', 'documents', 'ideation']) {
+    for (const sourcePage of ['risk', 'privacy', 'overview', 'score', 'branches', 'repo', 'runtime', 'testing', 'ssot', 'roadmap', 'gapAnalysis', 'security', 'delivery', 'director', 'documents', 'ideation']) {
       expect(
         normalizeDashboardPromptRequest({ prompt: 'Look at this', sourcePage }),
         sourcePage,
@@ -679,6 +679,8 @@ describe('isProjectDashboardMessage', () => {
   it('accepts valid dashboard messages', () => {
     expect(isProjectDashboardMessage({ type: 'ready' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'refresh' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'fetchBranches' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'activateBranch', payload: 'remote:refs/remotes/origin/feat/example' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'openCommand', payload: 'atlasmind.openChatView' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'openPrompt', payload: 'Start by tightening the project vision.' })).toBe(true);
     expect(isProjectDashboardMessage({ type: 'openPrompt', payload: { prompt: 'What is the sharpest missing risk or blocker that still needs a card?', sourcePage: 'ideation' } })).toBe(true);
@@ -743,6 +745,8 @@ describe('isProjectDashboardMessage', () => {
     expect(isProjectDashboardMessage({ type: 'openPrompt', payload: '' })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'openPrompt', payload: { prompt: '', sourcePage: 'ideation' } })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'openFile', payload: 42 })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'activateBranch', payload: '' })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'activateBranch', payload: 42 })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'runIdeationLoop', payload: { prompt: '' } })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'fixActivatedTestin' })).toBe(false);
     expect(isProjectDashboardMessage({ type: 'discussTestingPolicy', payload: { id: 'made-up' } })).toBe(false);
