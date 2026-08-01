@@ -36,7 +36,7 @@ Use a focused chat turn for a small fix, `/project` for a coordinated delivery p
 
 ### Bring the models you already trust
 
-Connect cloud providers, local OpenAI-compatible runtimes such as Ollama and LM Studio, or **the subscription you already pay for** — a Claude, ChatGPT, Gemini, Copilot or Qwen plan becomes routable capacity over the Agent Client Protocol, with no per-token cost. AtlasMind routes by task fit, capability, health, budget, speed, and observed outcomes.
+Connect cloud providers, local OpenAI-compatible runtimes such as Ollama and LM Studio, or **capacity you already pay for** — a Claude, ChatGPT, Copilot or Qwen plan, or an eligible Gemini Code Assist license, becomes routable over the Agent Client Protocol with no per-token cost. AtlasMind routes by task fit, capability, health, budget, speed, and observed outcomes.
 
 ### Work the way your repository already works
 
@@ -117,7 +117,7 @@ Since the last Marketplace publication, **v0.219.0**, source builds have added t
 ## What is included
 
 - **Multi-agent orchestration** — debugger, frontend and backend engineers, reviewer, security specialist, testing, documentation, performance, DevOps, dependency, SEO, UX, and ethics/legal/commercial oversight. Agents can hand a question to a better-placed specialist, and a handoff transfers the question without widening the caller's permissions.
-- **Outcome-aware model routing** — cloud providers, local runtimes, or a Claude/ChatGPT/Gemini/Copilot/Qwen **subscription** used as capacity, chosen by budget, speed, capability, health, feedback, and task-profile signals.
+- **Outcome-aware model routing** — cloud providers, local runtimes, a Claude/ChatGPT/Copilot/Qwen subscription, or an eligible Gemini Code Assist license used as capacity, chosen by budget, speed, capability, health, feedback, and task-profile signals.
 - **A guided GitHub workflow** — ideation, issues, branches, pull requests, review, pipeline, release, and tech debt, each with its own automation level from *observe* to *act*. Specialised by your project's shape and traits, and written to a file your team owns.
 - **Ideation that reaches the backlog** — cards become roadmap items carrying the connections that argued for them, and a roadmap item becomes a GitHub issue draft with labels drawn only from your repository's real taxonomy.
 - **A tech-debt register** — deferred work found by scanning your own markers, graded by a **published rule table** rather than a model's opinion, with entries that transition instead of disappearing. Any entry can be handed to an agent as a proposal, never a mandate.

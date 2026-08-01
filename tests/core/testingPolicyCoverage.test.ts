@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildTestingPolicyLaymanGuide,
   deriveTestingPolicyCoverage,
   parseJUnitReport,
   type TestingPolicyEvidenceInput,
 } from '../../src/core/testingPolicyCoverage.ts';
+import { TESTING_METHODOLOGY_DEFINITIONS } from '../../src/types.ts';
 
 const baseInput = (over: Partial<TestingPolicyEvidenceInput> = {}): TestingPolicyEvidenceInput => ({
   enabledMethodologies: [],
@@ -251,6 +253,26 @@ describe('deriveTestingPolicyCoverage — status per enabled policy', () => {
     }));
     expect(coverage.totalSkipped).toBe(3);
     expect(coverage.summary).toContain('3 skipped');
+  });
+});
+
+describe('buildTestingPolicyLaymanGuide — informative before productive', () => {
+  it('has complete novice-facing guidance for every declared methodology', () => {
+    for (const definition of TESTING_METHODOLOGY_DEFINITIONS) {
+      const guide = buildTestingPolicyLaymanGuide(definition.id);
+      expect(guide.whatItIs.length, `${definition.id}: what it is`).toBeGreaterThan(40);
+      expect(guide.whatYouNeed.length, `${definition.id}: what is needed`).toBeGreaterThan(40);
+      expect(guide.expectedResult.length, `${definition.id}: expected result`).toBeGreaterThan(40);
+      expect(guide.whyUseIt.length, `${definition.id}: why use it`).toBeGreaterThan(40);
+      expect(guide.tradeoff.length, `${definition.id}: trade-off`).toBeGreaterThan(30);
+    }
+  });
+
+  it('explains contract testing without assuming the reader knows Pact or consumer-driven testing', () => {
+    const guide = buildTestingPolicyLaymanGuide('contract');
+    expect(guide.whatItIs).toContain('two separately built components');
+    expect(guide.whatItIs).toContain('requests and responses');
+    expect(guide.expectedResult).toContain('before deployment');
   });
 });
 

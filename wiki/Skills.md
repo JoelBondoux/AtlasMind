@@ -1,8 +1,22 @@
 # Skills
 
+## Turn-scoped capability narrowing
+
+An agent's assigned skills are its maximum authority, not a promise that every tool is offered on every turn. The Orchestrator recognizes explicit user constraints such as **read-only**, **do not edit**, **do not install packages**, and **do not run commands**. It removes disallowed schemas before routing and prompt construction, then repeats the classification immediately before execution. A model that calls an omitted or invented write/process tool receives a policy denial; the tool is not synthesized or run.
+
+Restricted tool-backed turns also exclude ACP delegated native-tool execution. AtlasMind can narrow its own function schemas but cannot impose that exact turn-local allowlist inside an external ACP agent, so routing stays on an eligible function-calling provider or returns an explicit limitation.
+
+Agent definitions use one of three policies:
+
+- `task-scoped` selects at most 12 relevant tools from the enabled eligibility pool. Empty means built-in skills only; custom/MCP skills must be named explicitly.
+- `allowlist` offers exactly the enabled skill IDs the agent names.
+- `all` deliberately offers every enabled skill, including custom/MCP capabilities installed later.
+
+Legacy definitions fail narrow: a populated list remains an allowlist and an empty list becomes task-scoped. Relevance selection uses explicit tool IDs plus request and session-follow-through signals, but never widens the agent pool or turn capability envelope.
+
 AtlasMind ships with **43 built-in skills** that agents can call during execution. You can also import custom skills or connect MCP servers for unlimited extensibility.
 
-Skill names, descriptions, and JSON Schemas are supplied to the routed model as callable tools, while the shared agent operating contract governs how they are used: execute requested actions directly, validate parameters and trust boundaries, treat results as authoritative, adapt after recoverable failures, and never claim a failed or denied call succeeded. The execution rubric then checks whether the selected tools produced enough evidence and verification to support the final answer.
+Selected skill names, descriptions, natural-language cues, and JSON Schemas are supplied once to the routed model as callable tools. They are no longer repeated as a prose catalogue in the system prompt. Schema tokens participate in context-window and memory/session budgets. ACP completion-only and delegated-native-tool calls receive no AtlasMind schemas. The shared agent operating contract governs how tools are used: execute requested actions directly, validate parameters and trust boundaries, treat results as authoritative, adapt after recoverable failures, and never claim a failed or denied call succeeded. The execution rubric then checks whether the selected tools produced enough evidence and verification to support the final answer.
 
 ## Built-in Skills
 
@@ -268,6 +282,20 @@ New to MCP? The panel leads with a **Guided Setup** wizard:
 Prefer full control? The **Advanced** tab keeps the raw transport/command/args/env form and also backs editing an existing server.
 
 ### Buzz Communications (Tier 1b)
+
+### Agent-side ACP permissions
+
+When AtlasMind is launched by an ACP client, skills still pass through
+AtlasMind's policy before execution. Safe reads follow the headless default.
+Workspace writes, subprocesses, network calls, audio, and unknown tools request
+a one-turn decision from the ACP client. The request exposes a bounded,
+secret-redacted preview and offers only **Allow once** or **Reject**;
+`allow_always` is never accepted.
+
+Client-declared MCP server commands in `session/new` are not started. Accepting
+an executable from the transport peer would turn session setup into a remote
+code-execution surface and would bypass the MCP registry's explicit
+configuration and approval path.
 
 Choose **Browse by category → Collaboration → Buzz Communications** to add AtlasMind's bundled communication-only connector. It requires official `buzz-cli` v0.4.26, a dedicated agent key, and `atlasmind.buzz.enabled`. The wizard stores `BUZZ_PRIVATE_KEY` and an optional NIP-OA `BUZZ_AUTH_TAG` in SecretStorage; the saved MCP config contains only the executable path plus non-secret, closed-template references to the Buzz relay and consent settings.
 

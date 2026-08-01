@@ -90,9 +90,10 @@ export interface AtlasRuntimePlugin {
 /**
  * Read-only skill allowlist shared by the oversight advisors.
  *
- * Every other built-in uses `skills: []`, which {@link SkillsRegistry.getSkillsForAgent}
- * expands to *all* enabled skills. The oversight advisors pin an explicit list
- * instead so they can inspect the workspace but cannot mutate it: no file
+ * Most built-ins use the explicit `task-scoped` policy. An empty eligibility
+ * list means built-in skills may be selected for the current task; it never
+ * silently admits custom or MCP skills. The oversight advisors pin an explicit
+ * allowlist instead so they can inspect the workspace but cannot mutate it: no file
  * write/edit/delete/move, no git commit/push/apply-patch, no terminal, docker,
  * npm or test execution, no memory writes, and no `http-request` (which permits
  * arbitrary methods — `web-fetch` is the read-only equivalent).
@@ -116,6 +117,33 @@ const OVERSIGHT_READONLY_SKILLS = [
   'framework-detect',
   'memory-query',
   'web-fetch',
+] as const;
+
+/**
+ * Test work needs a focused workspace surface, not every enabled skill.
+ *
+ * Keeping this list explicit prevents ordinary ATDD/TDD questions from carrying
+ * unrelated web, deployment, media, memory-write, and external-integration tool
+ * descriptions into the prompt. Turn-scoped read-only limits narrow it further.
+ */
+const TEST_DEVELOPER_SKILLS = [
+  'file-read',
+  'file-write',
+  'file-edit',
+  'directory-list',
+  'file-search',
+  'text-search',
+  'git-status',
+  'git-diff',
+  'git-log',
+  'diff-preview',
+  'diagnostics',
+  'code-symbols',
+  'framework-detect',
+  'test-run',
+  'terminal-run',
+  'workspace-observability',
+  'memory-query',
 ] as const;
 
 /**
@@ -389,7 +417,7 @@ export function createAtlasRuntime(options: AtlasRuntimeBuildOptions): AtlasRunt
   };
 }
 
-export const BUILTIN_AGENT_DEFAULTS: readonly AgentDefinition[] = [
+const BUILTIN_AGENT_DEFINITIONS: readonly AgentDefinition[] = [
     {
       id: 'default',
       name: 'Default Assistant',
@@ -913,7 +941,7 @@ export const BUILTIN_AGENT_DEFAULTS: readonly AgentDefinition[] = [
         'When running tests, report what passed, what failed, the error output for failing tests, and the coverage delta when measurable.',
         FREEFORM_TDD_POLICY.testing,
       ].join(' '),
-      skills: [],
+      skills: [...TEST_DEVELOPER_SKILLS],
       completionCriteria: {
         rubric: [
           'Match the existing test framework, naming, fixtures, assertions, and test granularity.',
@@ -1105,6 +1133,23 @@ export const BUILTIN_AGENT_DEFAULTS: readonly AgentDefinition[] = [
     },
 ];
 
+const BUILTIN_ALLOWLIST_AGENT_IDS = new Set([
+  'ethics-oversight',
+  'legal-oversight',
+  'commercial-oversight',
+  'memory-agent',
+]);
+
+/**
+ * Every shipped agent declares its skill semantics explicitly. Specialist
+ * allowlists remain complete authority ceilings; all other built-ins expose a
+ * deterministic task-sized subset from their eligible built-in pool.
+ */
+export const BUILTIN_AGENT_DEFAULTS: readonly AgentDefinition[] = BUILTIN_AGENT_DEFINITIONS.map(agent => ({
+  ...agent,
+  skillPolicy: BUILTIN_ALLOWLIST_AGENT_IDS.has(agent.id) ? 'allowlist' : 'task-scoped',
+}));
+
 export function registerBuiltInAgents(agentRegistry: AgentRegistry): void {
   for (const agent of BUILTIN_AGENT_DEFAULTS) {
     agentRegistry.register(agent);
@@ -1134,6 +1179,7 @@ export function seedDefaultProviders(modelRouter: ModelRouter): void {
           inputPricePer1k: 0,
           outputPricePer1k: 0,
           capabilities: ['chat', 'code', 'reasoning'],
+          delegatedToolExecution: true,
           enabled: true,
         },
       ],

@@ -69,7 +69,7 @@ import {
   type ProviderPricingEntry,
   type ProviderPricingSyncResult,
 } from './providers/providerPricingSync.js';
-import { syncExchangeRates } from './core/currencyFormatter.js';
+import { configureCurrencyFormatter, syncExchangeRates } from './core/currencyFormatter.js';
 import { syncLocalModels, isLocalSyncStale, LOCAL_MODEL_SYNC_CACHE_KEY, type LocalModelSyncResult } from './providers/localModelSync.js';
 import { syncLocalModelCatalog } from './providers/localModelCatalogSync.js';
 import type { DiscoveredModel } from './providers/adapter.js';
@@ -1991,6 +1991,8 @@ async function bootstrapAtlasMind(
         // Delegated execution is never delegated authorization: the agent runs
         // its own tools, but every one of them has to come back through here.
         permissionPolicy: async request => (acpAuthorize ? acpAuthorize(request) : false),
+        delegatedExecutionEnabled: () => vscode.workspace.getConfiguration('atlasmind')
+          .get<boolean>('acp.toolsEnabled', false),
         getMcpServers: () => acpMcpServers(),
         // What the agent actually did, as it does it. Approval covers what may
         // run; this is the record of what ran, which is the half you need after
@@ -2007,6 +2009,12 @@ async function bootstrapAtlasMind(
           outputChannel.appendLine(
             `[acp] ${event.agentId}: could not set "${event.requested}" effort — ${event.reason}. `
             + 'The turn ran at the agent\'s own default.',
+          );
+        },
+        onProcessLaunch: event => {
+          outputChannel.appendLine(
+            `[acp] launch boundary: ${event.agentId} started in ${event.mode} mode`
+            + `${event.requestedPrivateDesktop ? ' (private desktop requested)' : ''}.`,
           );
         },
         onLiveSessionChange: updateAcpPrivateDesktopStatusBar,
@@ -2210,6 +2218,8 @@ async function bootstrapAtlasMind(
       providerAdapters,
       toolWebhookDispatcher,
       hooks: {
+        readSetting: <T>(key: string, fallback: T) =>
+          vscode.workspace.getConfiguration('atlasmind').get<T>(key, fallback),
         toolApprovalGate,
         generatedSkillApprovalGate,
         writeCheckpointHook,
@@ -3116,6 +3126,63 @@ async function bootstrapAtlasMind(
         : 'AtlasMind will no longer keep this computer awake.');
     }),
     /**
+     * Copy a workspace-specific, credential-free Buzz custom-runtime recipe.
+     *
+     * AtlasMind cannot edit Buzz's local database and never exports VS Code
+     * secrets. The clipboard payload names only the launcher, arguments, and
+     * environment variable names the user must review in Buzz.
+     */
+    vscode.commands.registerCommand('atlasmind.buzz.copyAcpAgentSetup', async () => {
+      const folders = vscode.workspace.workspaceFolders ?? [];
+      if (folders.length === 0) {
+        void vscode.window.showWarningMessage('Open the workspace this Buzz agent should be restricted to, then try again.');
+        return;
+      }
+
+      let workspaceFolder = folders[0];
+      if (folders.length > 1) {
+        const picked = await vscode.window.showQuickPick(
+          folders.map(folder => ({
+            label: folder.name,
+            description: folder.uri.fsPath,
+            folder,
+          })),
+          {
+            title: 'Choose the workspace for the Buzz-managed AtlasMind agent',
+            placeHolder: 'The ACP process cannot leave this workspace.',
+          },
+        );
+        if (!picked) {
+          return;
+        }
+        workspaceFolder = picked.folder;
+      }
+
+      const launcherDirectory = await ensureAtlasMindCliOnTerminalPath(context);
+      if (!launcherDirectory) {
+        void vscode.window.showErrorMessage('AtlasMind could not create its ACP launcher. Rebuild or reinstall the extension and try again.');
+        return;
+      }
+
+      try {
+        const { buildBuzzAcpRuntimeSetup } = await import('./acp/buzzAcpSetup.js');
+        const setup = buildBuzzAcpRuntimeSetup({
+          workspaceRoot: workspaceFolder.uri.fsPath,
+          runtimeExecutable: process.execPath,
+          agentEntrypoint: path.join(launcherDirectory, 'atlasmind-acp-runner.js'),
+        });
+        await fs.stat(setup.buzzFields.agentCommand);
+        await fs.stat(setup.buzzFields.agentArguments[0]);
+        await vscode.env.clipboard.writeText(JSON.stringify(setup, null, 2));
+        void vscode.window.showInformationMessage(
+          'Copied the Buzz custom-agent fields. In Buzz, choose Provider → Custom command, paste the command and comma-separated arguments, and add ELECTRON_RUN_AS_NODE=1 plus one AtlasMind provider environment variable. Leave Buzz provider/model blank so AtlasMind routes them.',
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        void vscode.window.showErrorMessage(`AtlasMind could not prepare the Buzz ACP agent setup: ${message}`);
+      }
+    }),
+    /**
      * Put a setup command into a terminal, ready to run — but do not run it.
      *
      * Spoon-feeding the command is the point: someone setting Buzz up for the
@@ -3202,7 +3269,7 @@ async function bootstrapAtlasMind(
         ? '\n\n> **The connection itself is already working** — Buzz is enabled, the relay is set, your key is stored, and the subscription is on. What is left is making what arrives useful.'
         : '';
       const body = !next
-        ? '### Buzz setup — done\n\nReading Buzz is set up, a message has been seen arriving, and at least one Buzz identity is bound to an AtlasMind agent. The optional extras — recording follow-ups, the CLI, the MCP bridge, the desktop app — are choices rather than gaps.'
+        ? '### Buzz setup — done\n\nReading Buzz is set up, a message has been seen arriving, and at least one Buzz identity is bound to an AtlasMind agent. That Director binding routes work; it does not create an executable Buzz agent. For automatic replies, run **AtlasMind: Copy Buzz ACP Agent Setup** and add the copied Custom command under **Buzz Settings → Agents**. Recording follow-ups, the CLI/MCP bridge, and the desktop app remain optional.'
         : renderBuzzStepMarkdown(next, buzzStepPosition(steps, next.id)) + readyNote + bridgeNote;
 
       // Its own session. Appending to whatever thread happened to be open put a
@@ -3769,6 +3836,9 @@ async function bootstrapAtlasMind(
 }
 
 export function activate(context: vscode.ExtensionContext): void {
+  configureCurrencyFormatter(
+    () => vscode.workspace.getConfiguration('atlasmind').get<string>('displayCurrency', 'USD'),
+  );
   // Set global context key for activation state
   (globalThis as any).atlasmindActivating = true;
   // Detect and save user environment on activation
@@ -3825,6 +3895,7 @@ export async function ensureAtlasMindCliOnTerminalPath(
   outputChannel?: LogSink,
 ): Promise<string | undefined> {
   const cliEntryPath = vscode.Uri.joinPath(context.extensionUri, 'out', 'cli', 'main.js').fsPath;
+  const acpEntryPath = vscode.Uri.joinPath(context.extensionUri, 'out', 'cli', 'acpAgent.js').fsPath;
   try {
     await fs.stat(cliEntryPath);
   } catch {
@@ -3834,20 +3905,32 @@ export async function ensureAtlasMindCliOnTerminalPath(
 
   const binDir = path.join(context.globalStorageUri.fsPath, 'bin');
   await fs.mkdir(binDir, { recursive: true });
-  await writeAtlasMindCliShims(binDir, cliEntryPath, process.execPath);
+  await writeAtlasMindCliShims(binDir, 'atlasmind', cliEntryPath, process.execPath);
+  try {
+    await fs.stat(acpEntryPath);
+    await writeAtlasMindCliShims(binDir, 'atlasmind-acp', acpEntryPath, process.execPath);
+    await writeAtlasMindAcpRunner(binDir, acpEntryPath);
+  } catch {
+    outputChannel?.appendLine('[activate] cliPath did not add atlasmind-acp; ACP entrypoint is missing from the extension bundle');
+  }
 
   const pathVariable = process.platform === 'win32' ? 'Path' : 'PATH';
   context.environmentVariableCollection.description = 'AtlasMind CLI for VS Code integrated terminals';
   context.environmentVariableCollection.persistent = true;
   context.environmentVariableCollection.prepend(pathVariable, `${binDir}${path.delimiter}`);
 
-  outputChannel?.appendLine(`[activate] cliPath enabled atlasmind in new integrated terminals via ${binDir}`);
+  outputChannel?.appendLine(`[activate] cliPath enabled AtlasMind launchers in new integrated terminals via ${binDir}`);
   return binDir;
 }
 
-async function writeAtlasMindCliShims(binDir: string, cliEntryPath: string, runtimeExecutable: string): Promise<void> {
-  const shellShimPath = path.join(binDir, 'atlasmind');
-  const cmdShimPath = path.join(binDir, 'atlasmind.cmd');
+async function writeAtlasMindCliShims(
+  binDir: string,
+  launcherName: 'atlasmind' | 'atlasmind-acp',
+  cliEntryPath: string,
+  runtimeExecutable: string,
+): Promise<void> {
+  const shellShimPath = path.join(binDir, launcherName);
+  const cmdShimPath = path.join(binDir, `${launcherName}.cmd`);
 
   const shellScript = [
     '#!/usr/bin/env sh',
@@ -3867,6 +3950,23 @@ async function writeAtlasMindCliShims(binDir: string, cliEntryPath: string, runt
     fs.writeFile(cmdShimPath, cmdScript, 'utf8'),
   ]);
   await fs.chmod(shellShimPath, 0o755);
+}
+
+async function writeAtlasMindAcpRunner(binDir: string, acpEntryPath: string): Promise<void> {
+  const runnerPath = path.join(binDir, 'atlasmind-acp-runner.js');
+  const script = [
+    "'use strict';",
+    `const entry = require(${JSON.stringify(acpEntryPath)});`,
+    'void entry.runAcpAgentCli().then(',
+    '  code => { process.exitCode = code; },',
+    '  error => {',
+    "    process.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\\n`);",
+    '    process.exitCode = 1;',
+    '  },',
+    ');',
+    '',
+  ].join('\n');
+  await fs.writeFile(runnerPath, script, 'utf8');
 }
 
 function toShellSingleQuoted(value: string): string {
@@ -4354,6 +4454,7 @@ function mergeProviderModels(
           contextWindow: liveMeta?.contextWindow ?? hint?.contextWindow ?? dynamicPricing?.contextWindow ?? catalogEntry?.contextWindow ?? existing.contextWindow,
           name: liveMeta?.name ?? hint?.name ?? catalogEntry?.name ?? existing.name,
           capabilities: liveMeta?.capabilities ?? hint?.capabilities ?? catalogEntry?.capabilities ?? existing.capabilities,
+          delegatedToolExecution: hint?.delegatedToolExecution ?? existing.delegatedToolExecution,
           inputPricePer1k: hint?.inputPricePer1k ?? dynamicPricing?.inputPer1k ?? catalogEntry?.inputPricePer1k ?? existing.inputPricePer1k,
           outputPricePer1k: hint?.outputPricePer1k ?? dynamicPricing?.outputPer1k ?? catalogEntry?.outputPricePer1k ?? existing.outputPricePer1k,
           ...(resolvedMultiplier !== undefined ? { premiumRequestMultiplier: resolvedMultiplier } : {}),
@@ -4424,6 +4525,7 @@ export function inferModelMetadata(
   const name = liveMeta?.name ?? hint?.name ?? catalogEntry?.name ?? toDisplayModelName(shortId);
   const contextWindow = liveMeta?.contextWindow ?? hint?.contextWindow ?? dynamicPricing?.contextWindow ?? catalogEntry?.contextWindow ?? inferContextWindow(shortId);
   const capabilities = liveMeta?.capabilities ?? hint?.capabilities ?? catalogEntry?.capabilities ?? inferCapabilities(shortId, isLocalProvider);
+  const delegatedToolExecution = hint?.delegatedToolExecution;
   const specialistDomains = mergeSpecialistDomains(
     catalogEntry?.specialistDomains,
     hint?.specialistDomains,
@@ -4461,6 +4563,7 @@ export function inferModelMetadata(
     inputPricePer1k,
     outputPricePer1k,
     capabilities,
+    ...(delegatedToolExecution !== undefined ? { delegatedToolExecution } : {}),
     ...(specialistDomains.length > 0 ? { specialistDomains } : {}),
     enabled: true,
     ...(premiumRequestMultiplier !== undefined && premiumRequestMultiplier !== 1

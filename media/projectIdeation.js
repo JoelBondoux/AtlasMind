@@ -1831,7 +1831,7 @@
   function renderSyncTargets(syncTargets) {
     const active = new Set(syncTargets || []);
     return '<div class="ideation-sync-grid">' +
-      ['domain', 'operations', 'agents', 'knowledge-graph'].map(target => '<label class="ideation-check"><input type="checkbox" data-sync-target="' + target + '" ' + (active.has(target) ? 'checked' : '') + ' />' + escapeHtml(target) + '</label>').join('') +
+      ['domain', 'operations', 'agents', 'knowledge-graph'].map(target => '<label class="ideation-check"><input type="checkbox" data-sync-target="' + target + '" ' + (active.has(target) ? 'checked' : '') + ' /><span>' + escapeHtml(target) + '</span></label>').join('') +
       '</div>' +
       (active.size > 0
         ? '<div style="margin-top:10px"><button type="button" class="action-link dashboard-button-solid" data-action="ideation-sync-card">Sync to Memory</button></div>'

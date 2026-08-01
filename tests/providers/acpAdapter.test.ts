@@ -373,6 +373,65 @@ describe('AcpAdapter — live-session reuse without duplicate prompts', () => {
     expect(summaries.at(-1)).toEqual({ total: 0, ordinary: 0, privateDesktop: 0 });
   });
 
+  it('launches the probe on the private desktop too, not just a turn', async () => {
+    // The bug this pins: `handshakeOnly` built its session without launch
+    // options, so `wrapAcpLaunchForPrivateDesktop` saw `requested: false` and
+    // started the agent — and every console its descendants allocate — on the
+    // user's visible desktop while `hideConsoleWindows` was ticked. The probe is
+    // the most frequently launched of the three paths (any panel or tree
+    // refresh past the TTL relaunches it), so it was also the one the user saw.
+    const { factory } = scriptedAgent();
+    const launchModes: Array<boolean | undefined> = [];
+    const recordingFactory: AcpProcessFactory = (agent, cwd, options) => {
+      launchModes.push(options?.privateDesktop);
+      return factory(agent, cwd, options);
+    };
+
+    await new AcpAdapter({
+      agents: [AGENT],
+      spawnProcess: recordingFactory,
+      hideConsoleWindows: true,
+    }).probe();
+
+    expect(launchModes).toEqual([true]);
+  });
+
+  it('emits data-minimal evidence of the effective private-desktop launch boundary', async () => {
+    const { factory } = scriptedAgent();
+    const events: Array<{ agentId: string; requestedPrivateDesktop: boolean; mode: string }> = [];
+
+    await new AcpAdapter({
+      agents: [AGENT],
+      spawnProcess: factory,
+      hideConsoleWindows: true,
+      onProcessLaunch: event => events.push(event),
+    }).probe();
+
+    expect(events).toEqual([{
+      agentId: AGENT.id,
+      requestedPrivateDesktop: true,
+      mode: process.platform === 'win32' ? 'private-desktop' : 'ordinary',
+    }]);
+    expect(Object.keys(events[0]!).sort()).toEqual(['agentId', 'mode', 'requestedPrivateDesktop']);
+  });
+
+  it('leaves the probe on the ordinary desktop when the setting is off', async () => {
+    const { factory } = scriptedAgent();
+    const launchModes: Array<boolean | undefined> = [];
+    const recordingFactory: AcpProcessFactory = (agent, cwd, options) => {
+      launchModes.push(options?.privateDesktop);
+      return factory(agent, cwd, options);
+    };
+
+    await new AcpAdapter({
+      agents: [AGENT],
+      spawnProcess: recordingFactory,
+      hideConsoleWindows: false,
+    }).probe();
+
+    expect(launchModes).toEqual([false]);
+  });
+
   it('refuses every spawn until the Windows console-mode choice is recorded', async () => {
     const { factory, agents } = scriptedAgent();
     const adapter = new AcpAdapter({
@@ -526,6 +585,36 @@ describe('AcpAdapter — live-session reuse without duplicate prompts', () => {
 
     expect(agents).toHaveLength(2);
     expect(launchModes).toEqual([false, true]);
+    expect(agents[0]!.killed).toBe(true);
+    await adapter.shutdown();
+  });
+
+  it('invalidates a completion-only session when delegated execution is enabled without MCP servers', async () => {
+    const { factory, agents } = scriptedAgent();
+    let delegated = false;
+    const adapter = new AcpAdapter({
+      agents: [AGENT],
+      spawnProcess: factory,
+      keepAlive: true,
+      settingsStamp: () => 'stable',
+      delegatedExecutionEnabled: () => delegated,
+      getMcpServers: () => [],
+    });
+
+    const first = await adapter.complete(request());
+    delegated = true;
+    await adapter.complete(request({
+      messages: [
+        { role: 'user', content: 'Say hello' },
+        { role: 'assistant', content: first.content },
+        { role: 'user', content: 'Inspect the workspace now' },
+      ],
+    }));
+
+    const firstSession = agents[0]!.method('session/new')!['params'] as Record<string, unknown>;
+    const secondSession = agents[1]!.method('session/new')!['params'] as Record<string, unknown>;
+    expect(firstSession['_meta']).toBeDefined();
+    expect(secondSession['_meta']).toBeUndefined();
     expect(agents[0]!.killed).toBe(true);
     await adapter.shutdown();
   });
@@ -714,7 +803,11 @@ describe('AcpAdapter — delegated execution is never delegated authorization', 
     // The load-bearing default. A caller that enables tools but forgets the gate
     // must get an agent that cannot act, not one that acts unsupervised.
     const { factory, agents } = permissionAgent();
-    await new AcpAdapter({ agents: [AGENT], spawnProcess: factory }).complete(request());
+    await new AcpAdapter({
+      agents: [AGENT],
+      spawnProcess: factory,
+      delegatedExecutionEnabled: true,
+    }).complete(request());
 
     const reply = agents[0]!.written.find(frame => frame['id'] === 77);
     expect(reply!['error']).toBeDefined();
@@ -914,7 +1007,12 @@ describe('AcpAdapter — discovery and probing', () => {
   it('prices subscription capacity at zero per token', async () => {
     const adapter = new AcpAdapter({ agents: [AGENT], spawnProcess: scriptedAgent().factory });
     const [model] = await adapter.discoverModels();
-    expect(model).toMatchObject({ id: 'acp/fake', inputPricePer1k: 0, outputPricePer1k: 0 });
+    expect(model).toMatchObject({
+      id: 'acp/fake',
+      inputPricePer1k: 0,
+      outputPricePer1k: 0,
+      delegatedToolExecution: true,
+    });
   });
 
   it('probe reports installed + authenticated on a clean handshake', async () => {
@@ -1162,13 +1260,16 @@ describe('ACP_PROVIDER_BRIDGES — the subscription offer on a pay-per-token car
   });
 
   it('offers Gemini on the Google card, now that its invocation is published', () => {
-    // Absent until the ACP registry declared `gemini --acp`; a guessed flag
-    // would have been a button that cannot work.
+    // The registry proves the launch command, not account eligibility. Personal
+    // Google AI plans no longer authorize Gemini CLI, so the narrower enterprise
+    // entitlement must travel with the offer.
     expect(findAcpBridge('google')).toMatchObject({
       agentId: 'gemini',
       command: 'gemini',
       args: ['--acp'],
-      offerLabel: 'Use my Gemini subscription',
+      subscriptionName: 'Gemini Code Assist Standard or Enterprise license',
+      offerLabel: 'Use my Code Assist license',
+      eligibility: expect.stringMatching(/Google AI Pro and Ultra/),
     });
   });
 
@@ -1210,7 +1311,7 @@ describe('ACP_PROVIDER_BRIDGES — the subscription offer on a pay-per-token car
   it('phrases the offer in the user\'s terms, not the protocol\'s', () => {
     for (const bridge of ACP_PROVIDER_BRIDGES) {
       expect(bridge.offerLabel.toLowerCase()).not.toContain('acp');
-      expect(bridge.offerLabel.toLowerCase()).toContain('subscription');
+      expect(bridge.offerLabel.toLowerCase()).toMatch(/subscription|license/);
       expect(bridge.install.length).toBeGreaterThan(0);
     }
   });
@@ -1232,6 +1333,7 @@ describe('AcpAdapter — effort inside a subscription', () => {
     // router ask for the deep model at low effort. Every model comes before any
     // effort variant, so a long lineup truncates efforts rather than models.
     const models = await adapter.discoverModels();
+    expect(models.every(model => model.delegatedToolExecution === true)).toBe(true);
     expect(models.map(m => m.id)).toEqual([
       'acp/fake',
       'acp/fake@opus', 'acp/fake@haiku',
@@ -1582,6 +1684,21 @@ describe('AcpAdapter — isolating the agent from the machine\'s own settings', 
       agents: [AGENT],
       spawnProcess: factory,
       getMcpServers: () => [{ name: 'docs', command: 'npx', args: ['-y', 'server'], env: [] }],
+    }).complete(request());
+
+    expect(metaOf(agents[0]!)).toBeUndefined();
+  });
+
+  it('does NOT isolate delegated execution when the MCP allowlist is empty', async () => {
+    // Built-in agent tools still exist without a shared MCP server. The old
+    // `mcpServers.length === 0` proxy silently ignored acp.toolsEnabled and
+    // created a completion-only session despite the checkbox being on.
+    const { factory, agents } = scriptedAgent();
+    await new AcpAdapter({
+      agents: [AGENT],
+      spawnProcess: factory,
+      delegatedExecutionEnabled: true,
+      getMcpServers: () => [],
     }).complete(request());
 
     expect(metaOf(agents[0]!)).toBeUndefined();

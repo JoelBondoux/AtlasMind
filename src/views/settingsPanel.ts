@@ -21,6 +21,12 @@ import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
 import { deriveTestingPolicyCoverage, parseJUnitReport, type TestingPolicyCoverage, type TestingPolicyTestFile } from '../core/testingPolicyCoverage.js';
 import { parseAgentBindings } from '../core/buzzAgentBindings.js';
 import { parseCustomDebtMarkers } from '../core/debtRegister.js';
+import {
+  modelSidebarHiddenEntryKey,
+  readHiddenModelSidebarEntries,
+  restoreModelSidebarEntry,
+  type ModelSidebarHiddenEntry,
+} from './modelSidebarVisibility.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -320,6 +326,7 @@ type SettingsMessage =
   | { type: 'openAgentPanel' }
   | { type: 'openPersonalityProfile' }
   | { type: 'openModelProviders' }
+  | { type: 'restoreModelSidebarEntry'; payload: string }
   | { type: 'openSpecialistIntegrations' }
   | { type: 'openProjectRunCenter' }
   | { type: 'openCompareModels' }
@@ -794,6 +801,16 @@ export class SettingsPanel {
       case 'setDisplayCurrency':
         await configuration.update('displayCurrency', message.payload, vscode.ConfigurationTarget.Global);
         return;
+
+      case 'restoreModelSidebarEntry': {
+        const restored = await restoreModelSidebarEntry(this.extensionContext.globalState, message.payload);
+        if (restored) {
+          this.atlasContext?.modelsRefresh.fire();
+          this.initialTarget = { page: 'models', section: 'modelSidebarVisibilityCard' };
+          this.panel.webview.html = this.getHtml();
+        }
+        return;
+      }
 
       case 'setSpeedMode':
         await configuration.update('speedMode', message.payload, vscode.ConfigurationTarget.Workspace);
@@ -1974,6 +1991,70 @@ export class SettingsPanel {
     }
   }
 
+  private renderModelSidebarVisibility(): string {
+    // ExtensionContext always supplies globalState in VS Code. The fallback
+    // keeps isolated renderer tests and partial extension-host stubs honest
+    // without changing the persisted behavior in production.
+    const visibilityState = this.extensionContext.globalState;
+    const entries = visibilityState
+      ? readHiddenModelSidebarEntries(visibilityState)
+      : [];
+    if (entries.length === 0) {
+      return '<p class="model-sidebar-empty">Nothing is hidden. Every available provider and model can appear in the Models sidebar.</p>';
+    }
+
+    const providers = this.atlasContext?.modelRouter.listProviders() ?? [];
+    const describe = (entry: ModelSidebarHiddenEntry): { kind: string; label: string; detail: string } => {
+      if (entry.kind === 'provider') {
+        const provider = providers.find(candidate => candidate.id === entry.providerId);
+        return {
+          kind: 'Provider',
+          label: provider?.displayName ?? entry.providerId,
+          detail: `Provider id: ${entry.providerId}`,
+        };
+      }
+
+      if (entry.kind === 'model') {
+        const provider = providers.find(candidate => candidate.id === entry.providerId);
+        const model = provider?.models.find(candidate => candidate.id === entry.modelId);
+        return {
+          kind: 'Model',
+          label: model?.name ?? entry.modelId,
+          detail: `${provider?.displayName ?? entry.providerId} · ${entry.modelId}`,
+        };
+      }
+
+      const provider = providers.find(candidate => candidate.id === entry.vendorId);
+      return {
+        kind: 'Subscription route',
+        label: `${provider?.displayName ?? entry.vendorId} — ${entry.agentId}`,
+        detail: `ACP agent: ${entry.agentId}`,
+      };
+    };
+
+    return `
+      <div class="model-sidebar-hidden-list">
+        ${entries.map(entry => {
+          const item = describe(entry);
+          const key = modelSidebarHiddenEntryKey(entry);
+          return `
+            <div class="model-sidebar-hidden-row">
+              <div class="model-sidebar-hidden-copy">
+                <span class="model-sidebar-hidden-kind">${escapeHtml(item.kind)}</span>
+                <strong>${escapeHtml(item.label)}</strong>
+                <span class="muted-line">${escapeHtml(item.detail)}</span>
+              </div>
+              <button
+                type="button"
+                class="secondary-button model-sidebar-restore"
+                data-restore-model-sidebar-entry="${escapeHtml(key)}"
+                aria-label="Restore ${escapeHtml(item.label)} to the Models sidebar"
+              >Restore</button>
+            </div>`;
+        }).join('')}
+      </div>`;
+  }
+
   private getHtml(): string {
     const configuration = vscode.workspace.getConfiguration('atlasmind');
     const registeredAgents = this.atlasContext?.agentRegistry?.listAgents() ?? [];
@@ -2087,6 +2168,7 @@ export class SettingsPanel {
     const loopGoalAchievedConfidenceThreshold = getRangedNumber(configuration.get<number>('loop.goalAchievedConfidenceThreshold'), 0.7, 0, 1);
 
     const testingDashboard = collectTestingDashboardSnapshot(this.atlasContext);
+    const modelSidebarVisibility = this.renderModelSidebarVisibility();
 
     const initialPage = this.initialTarget?.page ?? 'overview';
     const hasExplicitInitialPage = this.initialTarget?.page !== undefined;
@@ -2127,7 +2209,7 @@ export class SettingsPanel {
           <div class="nav-group" role="presentation">
             <span class="nav-group-label" aria-hidden="true">Capabilities</span>
             <button type="button" class="nav-link ${initialPage === 'agents' ? 'active' : ''}" id="tab-agents" data-page-target="agents" data-search="agents manage agents built-in custom roles prompts instructions rubrics completion criteria global immutable guardrails safety policy skills models budget auto-update automation" role="tab" aria-selected="${initialPage === 'agents' ? 'true' : 'false'}" aria-controls="page-agents" ${initialPage === 'agents' ? '' : 'tabindex="-1"'}>Agents</button>
-            <button type="button" class="nav-link ${initialPage === 'models' ? 'active' : ''}" id="tab-models" data-page-target="models" data-search="models integrations providers local endpoint local endpoints ollama lm studio azure bedrock personality profile role tone memory posture voice vision exa specialist acp agent client protocol claude subscription chatgpt subscription codex subscription-backed claude-agent-acp codex-acp use my subscription no api key" role="tab" aria-selected="${initialPage === 'models' ? 'true' : 'false'}" aria-controls="page-models" ${initialPage === 'models' ? '' : 'tabindex="-1"'}>Models & Integrations</button>
+            <button type="button" class="nav-link ${initialPage === 'models' ? 'active' : ''}" id="tab-models" data-page-target="models" data-search="models integrations providers hidden hide restore sidebar visibility local endpoint local endpoints ollama lm studio azure bedrock personality profile role tone memory posture voice vision exa specialist acp agent client protocol claude subscription chatgpt subscription codex subscription-backed claude-agent-acp codex-acp use my subscription no api key" role="tab" aria-selected="${initialPage === 'models' ? 'true' : 'false'}" aria-controls="page-models" ${initialPage === 'models' ? '' : 'tabindex="-1"'}>Models & Integrations</button>
             <button type="button" class="nav-link ${initialPage === 'discovery' ? 'active' : ''}" id="tab-discovery" data-page-target="discovery" data-search="resource discovery ard agent finders mcp servers agents skills apis search install publish catalog manifest registry" role="tab" aria-selected="${initialPage === 'discovery' ? 'true' : 'false'}" aria-controls="page-discovery" ${initialPage === 'discovery' ? '' : 'tabindex="-1"'}>Resource Discovery</button>
             <button type="button" class="nav-link ${initialPage === 'mcp' ? 'active' : ''}" id="tab-mcp" data-page-target="mcp" data-search="mcp servers model context protocol tools connect disconnect stdio http bridge" role="tab" aria-selected="${initialPage === 'mcp' ? 'true' : 'false'}" aria-controls="page-mcp" ${initialPage === 'mcp' ? '' : 'tabindex="-1"'}>MCP Servers</button>
             <button type="button" class="nav-link ${initialPage === 'buzz' ? 'active' : ''}" id="tab-buzz" data-page-target="buzz" data-search="buzz nostr relay inbound subscription follow-ups agent bindings npub agent key channels remote relay" role="tab" aria-selected="${initialPage === 'buzz' ? 'true' : 'false'}" aria-controls="page-buzz" ${initialPage === 'buzz' ? '' : 'tabindex="-1"'}>Buzz</button>
@@ -2412,6 +2494,15 @@ export class SettingsPanel {
                 <div id="localModelRecommendationResults" class="local-model-recommendation-results" hidden></div>
               </article>
 
+
+              <article class="settings-card" id="modelSidebarVisibilityCard">
+                <div class="card-header">
+                  <p class="card-kicker">Sidebar visibility</p>
+                  <h3>Hidden providers and models</h3>
+                </div>
+                <p class="card-copy">Use the eye-closed icon on any provider, subscription route, or model row to remove visual clutter. This is a display preference only: hidden entries stay configured, enabled, and available to routing.</p>
+                ${modelSidebarVisibility}
+              </article>
 
               <article class="settings-card">
                 <div class="card-header">
@@ -3644,6 +3735,54 @@ export class SettingsPanel {
           color: var(--atlas-panel-muted);
           background: color-mix(in srgb, var(--atlas-panel-surface) 65%, transparent);
         }
+        .model-sidebar-hidden-list {
+          display: grid;
+          gap: 10px;
+          margin-top: 14px;
+        }
+        .model-sidebar-hidden-row {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 12px;
+          align-items: center;
+          justify-content: space-between;
+          min-width: 0;
+          padding: 12px 14px;
+          border: 1px solid var(--atlas-panel-border);
+          border-radius: 14px;
+          background: color-mix(in srgb, var(--atlas-panel-surface-strong) 74%, transparent);
+        }
+        .model-sidebar-hidden-copy {
+          display: grid;
+          flex: 1 1 260px;
+          gap: 3px;
+          min-width: 0;
+        }
+        .model-sidebar-hidden-copy strong {
+          overflow-wrap: break-word;
+          word-break: normal;
+        }
+        .model-sidebar-hidden-copy .muted-line {
+          overflow-wrap: anywhere;
+          word-break: break-word;
+        }
+        .model-sidebar-hidden-kind {
+          color: var(--atlas-panel-muted);
+          font-size: 0.75rem;
+          font-weight: 700;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+        }
+        .model-sidebar-restore {
+          flex: 0 0 auto;
+        }
+        .model-sidebar-empty {
+          margin: 14px 0 0;
+          padding: 12px 14px;
+          border: 1px dashed var(--atlas-panel-border);
+          border-radius: 14px;
+          color: var(--atlas-panel-muted);
+        }
         .local-model-recommendation-results {
           margin-top: 10px;
           display: grid;
@@ -4388,6 +4527,21 @@ export class SettingsPanel {
           bindCommandButton('scaffoldTestingFramework', 'scaffoldTestingFramework');
           bindCommandButton('createTestFile', 'createTestFile');
           bindCommandButton('openCoverageReport', 'openCoverageReport');
+
+          document.querySelectorAll('[data-restore-model-sidebar-entry]').forEach(element => {
+            if (!(element instanceof HTMLButtonElement)) {
+              return;
+            }
+            element.addEventListener('click', () => {
+              const entryKey = element.dataset.restoreModelSidebarEntry;
+              if (!entryKey) {
+                return;
+              }
+              element.disabled = true;
+              element.textContent = 'Restoring…';
+              vscode.postMessage({ type: 'restoreModelSidebarEntry', payload: entryKey });
+            });
+          });
 
           (function() {
             const saveBtn = document.getElementById('saveTestingStrategy');
@@ -6707,6 +6861,13 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
 
   if (message.type === 'openWorkspaceFile') {
     return isSafeWorkspaceRelativePath(message.payload);
+  }
+
+  if (message.type === 'restoreModelSidebarEntry') {
+    return typeof message.payload === 'string'
+      && message.payload.length > 0
+      && message.payload.length <= 4096
+      && !/[\u0000-\u001f\u007f]/.test(message.payload);
   }
 
   if (

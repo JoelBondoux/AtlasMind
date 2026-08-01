@@ -45,6 +45,8 @@
 - Anthropic adapters must apply the same compatibility rule for tool names. Preserve Atlas skill ids internally, sanitize provider-facing tool names only at the adapter boundary, and map returned tool calls back to the original ids before the orchestrator executes them.
 - The local provider path in `src/providers/registry.ts` now aggregates one or more labeled local endpoints under the single `local` provider id. Preserve that stable provider id when extending local routing, and encode endpoint identity into discovered local model ids instead of inventing new routed provider ids per engine.
 - ACP agents do not expose a portable subscription-plan or remaining-allowance API. Derive the available agent choices from the user's configured ACP agents, treat a plan name as a user-recorded label, and never manufacture a quota or decrement a subscription balance for routing.
+- An ACP registry entry proves a launch command, not an account entitlement. Keep vendor tier restrictions on the verified agent record and carry them into every built-in setup surface. Gemini is the concrete case: personal Google AI tiers no longer authorize Gemini CLI, while an assigned Gemini Code Assist Standard or Enterprise license does.
+- ACP native tools are a delegated execution shape, not AtlasMind function calling. Discovery may set `delegatedToolExecution`, but it must not add `function_calling`; routing needs the independent live `allowDelegatedToolExecution` constraint, the Orchestrator must pass no AtlasMind tool schemas, and the adapter must continue to refuse any request that includes them. Enabling the route never replaces the per-operation ACP permission broker.
 
 ### Commits
 - Use conventional commit messages: `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`.
@@ -116,7 +118,7 @@ See [docs/github-workflow.md](docs/github-workflow.md) for branch, PR, issue, an
 Reference implementation:
 - `src/providers/anthropic.ts` demonstrates host-neutral secret-store credential lookup, retry handling for `429`/`5xx`, and usage token parsing.
 - `src/providers/bedrock.ts` demonstrates a dedicated provider path for AWS SigV4 signing, canonical request-path handling, and Bedrock-specific request/response mapping.
-- `src/providers/acp.ts` demonstrates a host-neutral, subprocess-backed provider that validates local install and the agent's own auth state before routing AtlasMind requests over JSON-RPC on stdio, including exact transcript-suffix reuse, duplicate-call coalescing, no retry after an uncertain prompt, untrusted-frame handling that never throws, capability sanitization so a completion-only bridge is not advertised as `function_calling` capable, and a permission path that fails closed rather than answering a request it has no policy for. Its optional Windows helper is selected and hash-verified by `acpWindowsLauncher.ts`; review `native/acp-private-desktop/src/main.rs` and the checked-in PE together when either changes.
+- `src/providers/acp.ts` demonstrates a host-neutral, subprocess-backed provider that validates local install and the agent's own auth state before routing AtlasMind requests over JSON-RPC on stdio, including exact transcript-suffix reuse, duplicate-call coalescing, no retry after an uncertain prompt, untrusted-frame handling that never throws, a capability/authority split for delegated native tools, explicit refusal of AtlasMind function schemas, live setting-driven completion isolation, and a permission path that fails closed rather than answering a request it has no policy for. Its optional Windows helper is selected and hash-verified by `acpWindowsLauncher.ts`; review `native/acp-private-desktop/src/main.rs` and the checked-in PE together when either changes.
 - `src/providers/copilot.ts` demonstrates VS Code Language Model API integration for GitHub Copilot-backed execution, with access intentionally deferred until the user explicitly activates the Copilot provider and discovery merged across the Copilot/GitHub LM vendor aliases used by newer preview rollouts.
 - `src/providers/openai-compatible.ts` demonstrates a reusable adapter pattern for OpenAI-compatible APIs (OpenAI, Azure OpenAI, Gemini-compatible endpoint, DeepSeek, Mistral, z.ai, xAI, Cohere compatibility, Hugging Face Inference, NVIDIA NIM, and Perplexity-style custom paths/static catalogs), including provider-specific request compatibility such as modern OpenAI token fields, `developer` system-role mapping, omission of unsupported parameters for fixed-temperature model families, and normalization of upstream model IDs into AtlasMind's internal `provider/model` format.
 - `src/providers/registry.ts` contains the host-neutral provider registry and configurable local provider path for OpenAI-compatible local runtimes such as Ollama or LM Studio.
@@ -137,6 +139,7 @@ Minimum validation for provider work:
 
 - Add or update adapter-level tests in `tests/providers/`.
 - Add routing or orchestrator regression coverage when the change affects failover, health, pricing, or capability selection.
+- For delegated ACP tools, pin all four boundaries: disabled settings exclude ACP from tool-backed routing, enabled settings admit only models declaring delegated execution, provider requests carry no AtlasMind schemas, and missing/failed permission policies still deny native operations.
 - Update `.github/integration-monitor.json` when the new provider introduces a third-party dependency or monitoring obligation.
 
 For the Windows ACP private-desktop helper, rebuild with the pinned Rust source,
@@ -145,7 +148,10 @@ copy the release PE to `media/bin/atlasmind-acp-private-desktop.exe`, update
 `tests/providers/acpWindowsLauncher.test.ts`. The helper must remain a standalone
 process rather than an in-process native addon: a native failure must not crash
 VS Code's extension host. Do not add a silent ordinary-launch fallback — an EDR
-block is a result the user needs to see.
+block is a result the user needs to see. Preserve the create-suspended → assign
+kill-on-close Job Object → resume ordering, restricted handle list, and
+`STARTF_USESHOWWINDOW`/`SW_HIDE` flags. The Windows-only test executes the
+shipped PE around a real redirected-stdio child; a hash-only test is insufficient.
 
 ## Debugging Orchestration And Concurrency
 
@@ -156,6 +162,11 @@ Use the same boundaries the code uses:
 3. Use `diagnostics` and `workspace-observability` to capture editor-state evidence instead of guessing from the final model response alone.
 4. For race-condition or dependency-order problems, add a focused `tests/core/planner.scheduler.test.ts` or integration regression before changing scheduler behavior.
 5. For routing regressions, add coverage near `tests/core/orchestrator.tools.test.ts` or the relevant provider tests before changing heuristics.
+
+The failover invariant is three **invoked endpoints** per turn, not three model
+labels. ACP effort/model variants share an endpoint circuit, as do local models
+on one configured server. Diagnose from `TaskResult.modelAttempts`; UI selection
+previews and failed-attempt stream fragments are intentionally not reply content.
 
 AtlasMind does not yet ship a formal load-test harness. For performance-sensitive changes, repeated local execution and targeted regression tests are the current required bar.
 

@@ -181,6 +181,13 @@ export interface VerifiedAcpAgent {
   modelId: string;
   /** The npm package whose `bin` provides `command`. */
   npmPackage: string;
+  /**
+   * A vendor eligibility boundary that cannot be inferred from the executable.
+   *
+   * This travels with every built-in setup surface so a published ACP command
+   * is never presented as proof that the user's account tier may use it.
+   */
+  eligibility?: string;
 }
 
 export const VERIFIED_ACP_AGENTS: readonly VerifiedAcpAgent[] = [
@@ -207,6 +214,10 @@ export const VERIFIED_ACP_AGENTS: readonly VerifiedAcpAgent[] = [
     args: ['--acp'],
     modelId: 'acp/gemini',
     npmPackage: '@google/gemini-cli',
+    eligibility: 'Requires an assigned Gemini Code Assist Standard or Enterprise license. '
+      + 'Gemini Enterprise Standard and Plus include Code Assist Standard after separate assignment; '
+      + 'Gemini Enterprise Business and Frontline do not include it, and personal Google AI Pro and Ultra plans '
+      + 'and free individual accounts no longer authorize Gemini CLI. Use AtlasMind\'s Google API provider for metered access.',
   },
   {
     id: 'copilot',
@@ -303,8 +314,11 @@ const ACP_SIGN_IN: Readonly<Record<string, AcpSignIn>> = {
   },
   gemini: {
     command: 'gemini',
-    then: 'Choose **Sign in with Google** when it starts, or run `/auth` if it does not ask.',
-    docs: 'https://google-gemini.github.io/gemini-cli/docs/get-started/authentication.html',
+    then: 'Choose **Sign in with Google** when it starts, or run `/auth` if it does not ask. '
+      + 'This route requires an assigned Gemini Code Assist Standard or Enterprise license; '
+      + 'personal Google AI Pro, Ultra, and free individual accounts stopped working with Gemini CLI on 18 June 2026. '
+      + 'Use AtlasMind\'s Google API provider for metered access.',
+    docs: 'https://geminicli.com/docs/get-started/authentication/',
   },
   copilot: {
     command: 'copilot',
@@ -348,10 +362,10 @@ export const ACP_SIGN_IN_COMMANDS: readonly string[] = Object.values(ACP_SIGN_IN
  * offer belongs on the **Anthropic** card, phrased in those terms, rather than
  * behind a separate entry they must first know exists and then decode.
  *
- * Only vendors whose launch command is actually published appear here. Google is
- * now among them: Gemini CLI's ACP invocation was unpublished when this list was
- * written and is declared in the registry today, so the offer on the Google card
- * is a button that works rather than one that cannot.
+ * Only vendors whose launch command is actually published appear here. A
+ * published command is not enough on its own: where a vendor restricts that
+ * command to particular account tiers, the offer carries that eligibility
+ * boundary through every setup surface.
  *
  * `install` is **derived** from the agent's entry in {@link VERIFIED_ACP_AGENTS}
  * rather than written out again here. Keeping a second copy is what produced the
@@ -379,6 +393,8 @@ export interface AcpProviderBridge {
   /** Button text — the user's words, not the protocol's. */
   offerLabel: string;
   install: string;
+  /** Account-tier boundary that must be disclosed before setup starts. */
+  eligibility?: string;
 }
 
 /** Which vendor card carries which agent's offer, and in whose words. */
@@ -403,8 +419,8 @@ const ACP_BRIDGE_OFFERS: ReadonlyArray<{
   {
     providerId: 'google',
     agentId: 'gemini',
-    subscriptionName: 'Google AI Pro or Ultra subscription',
-    offerLabel: 'Use my Gemini subscription',
+    subscriptionName: 'Gemini Code Assist Standard or Enterprise license',
+    offerLabel: 'Use my Code Assist license',
   },
 ];
 
@@ -421,6 +437,7 @@ export const ACP_PROVIDER_BRIDGES: readonly AcpProviderBridge[] = ACP_BRIDGE_OFF
       subscriptionName: offer.subscriptionName,
       offerLabel: offer.offerLabel,
       install: acpInstallCommand(agent.npmPackage),
+      ...(agent.eligibility ? { eligibility: agent.eligibility } : {}),
     }]
     : [];
 });
@@ -511,11 +528,21 @@ export interface AcpProcessHandle {
    * make every test double carry a field for a code path it never reaches.
    */
   readonly pid?: number | undefined;
+  /** How the real process was launched; omitted by simple test doubles. */
+  readonly launchMode?: 'ordinary' | 'private-desktop';
+}
+
+export interface AcpProcessLaunchEvent {
+  agentId: string;
+  requestedPrivateDesktop: boolean;
+  mode: 'ordinary' | 'private-desktop';
 }
 
 export interface AcpProcessLaunchOptions {
   /** Windows only: start the entire descendant tree on a private desktop. */
   privateDesktop?: boolean;
+  /** Structured, data-minimal launch evidence for diagnostics. */
+  onLaunched?: (event: AcpProcessLaunchEvent) => void;
 }
 
 export type AcpProcessFactory = (
@@ -647,6 +674,15 @@ export class AcpAdapter implements ProviderAdapter {
        */
       getMcpServers?: () => AcpMcpServer[];
       /**
+       * Whether the user has allowed this agent to execute its own tools.
+       *
+       * Kept separate from `getMcpServers`: delegated execution may be enabled
+       * with no explicitly shared MCP server, in which case the agent still has
+       * its built-in tools and must not be launched as a completion-only,
+       * settings-isolated session. A missing or throwing getter means disabled.
+       */
+      delegatedExecutionEnabled?: boolean | (() => boolean);
+      /**
        * The authorization gate for delegated execution.
        *
        * **Omitting it is a denial, not a bypass.** With no policy, every
@@ -677,6 +713,8 @@ export class AcpAdapter implements ProviderAdapter {
        * for agent output, command lines, or workspace data.
        */
       onLiveSessionChange?: (summary: AcpLiveSessionSummary) => void;
+      /** Records the effective launch boundary without exposing command lines or PIDs. */
+      onProcessLaunch?: (event: AcpProcessLaunchEvent) => void;
     },
   ) {
     if (options?.keepAlive) {
@@ -713,8 +751,10 @@ export class AcpAdapter implements ProviderAdapter {
    * elsewhere.
    *
    * `function_calling` is deliberately never declared. ACP has no way to expose
-   * AtlasMind's own `ToolDefinition`s to the agent, so a task requiring that
-   * must not be routed here — see the refusal in {@link run}.
+   * AtlasMind's own `ToolDefinition`s to the agent. Instead,
+   * `delegatedToolExecution` identifies the distinct path where the orchestrator
+   * sends no schemas and the agent uses its own tools. The router considers that
+   * path only when the live turn carries explicit delegated-execution authority.
    */
   async discoverModels(): Promise<DiscoveredModel[]> {
     return this.agents().flatMap(agent => {
@@ -734,6 +774,10 @@ export class AcpAdapter implements ProviderAdapter {
         inputPricePer1k: 0,
         outputPricePer1k: 0,
         capabilities,
+        // Capability, not authority. The router also requires the live
+        // allowDelegatedToolExecution constraint derived from the user's
+        // acp.toolsEnabled setting before this can satisfy a tool-backed task.
+        delegatedToolExecution: true,
       };
 
       // One row per effort level the agent actually offers. Read from the cached
@@ -762,6 +806,7 @@ export class AcpAdapter implements ProviderAdapter {
             inputPricePer1k: 0,
             outputPricePer1k: 0,
             capabilities,
+            delegatedToolExecution: true,
             // What the router already knows how to reason about. `reasoningDepth`
             // drives task-fit scoring and `premiumRequestMultiplier` drives the
             // budget gate, so the effort gradient falls out of existing machinery
@@ -793,6 +838,7 @@ export class AcpAdapter implements ProviderAdapter {
             inputPricePer1k: 0,
             outputPricePer1k: 0,
             capabilities,
+            delegatedToolExecution: true,
             ...composed,
           };
         }),
@@ -977,7 +1023,29 @@ export class AcpAdapter implements ProviderAdapter {
   private async handshakeOnly(agent: AcpAgentConfig): Promise<AcpProbeResult> {
     let session: AcpSession | undefined;
     try {
-      session = new AcpSession(agent, this.spawnFactory(), this.options?.cwd, this.clientVersion(), PROBE_TIMEOUT_MS);
+      // The launch options are **not** optional here, even though a probe runs
+      // no tools and needs no permission policy. `privateDesktop` is not a
+      // session concern, it is a *launch* concern: omitting it made
+      // `wrapAcpLaunchForPrivateDesktop` take its `!requested` branch, so the
+      // probe started the agent — and every console its descendants allocate —
+      // on the user's visible desktop while the setting said otherwise. Since
+      // the probe is the most frequently launched path of the three (a TTL
+      // miss on any panel or tree refresh relaunches it), it was also the one
+      // the user saw, which is what made a ticked checkbox look ignored.
+      // `probeCacheKey` has always keyed on this value; now the spawn honours it.
+      session = new AcpSession(
+        agent,
+        this.spawnFactory(),
+        this.options?.cwd,
+        this.clientVersion(),
+        PROBE_TIMEOUT_MS,
+        undefined,
+        undefined,
+        {
+          privateDesktop: this.hideConsoleWindows(),
+          onLaunched: this.options?.onProcessLaunch,
+        },
+      );
       const initialized = await session.initialize();
       if (!initialized.compatible) {
         return {
@@ -1067,11 +1135,13 @@ export class AcpAdapter implements ProviderAdapter {
 
     const resolvedForKey = this.resolveAgent(request.model);
     const serversForKey = this.mcpServers();
+    const delegatedExecutionForKey = this.delegatedExecutionEnabled(serversForKey);
     const executionEpoch = resolvedForKey
       ? JSON.stringify({
         agent: resolvedForKey.agent,
         cwd: this.options?.cwd,
         privateDesktop: this.hideConsoleWindows(),
+        isolatedSettings: !delegatedExecutionForKey,
         settingsStamp: this.settingsStamp(resolvedForKey.agent, serversForKey),
         mcpServers: serversForKey,
       })
@@ -1159,6 +1229,7 @@ export class AcpAdapter implements ProviderAdapter {
     this.refuseAtlasMindTools(request);
 
     const mcpServers = this.mcpServers();
+    const delegatedExecution = this.delegatedExecutionEnabled(mcpServers);
     const privateDesktop = this.hideConsoleWindows();
     const wanted: AcpSessionFingerprint = {
       agentId: agent.id,
@@ -1169,7 +1240,7 @@ export class AcpAdapter implements ProviderAdapter {
       modelValue: modelChoice?.value,
       effortValue: effort?.value,
       mcpServerNames: mcpServers.map(server => server.name).sort(),
-      isolatedSettings: mcpServers.length === 0,
+      isolatedSettings: !delegatedExecution,
       settingsStamp: this.settingsStamp(agent, mcpServers),
     };
 
@@ -1254,7 +1325,10 @@ export class AcpAdapter implements ProviderAdapter {
       this.options?.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       this.options?.permissionPolicy,
       this.options?.onToolEvent,
-      { privateDesktop },
+      {
+        privateDesktop,
+        onLaunched: this.options?.onProcessLaunch,
+      },
     );
     const abortBeforeReady = () => session.dispose(createAcpAbortError());
     signal?.addEventListener('abort', abortBeforeReady, { once: true });
@@ -1265,7 +1339,7 @@ export class AcpAdapter implements ProviderAdapter {
         throw new Error(`${agent.command} speaks ACP version ${initialized.protocolVersion}, but AtlasMind speaks ${ACP_PROTOCOL_VERSION}.`);
       }
       try {
-        await session.newSession(mcpServers, { isolateAgentSettings: mcpServers.length === 0 });
+        await session.newSession(mcpServers, { isolateAgentSettings: fingerprint.isolatedSettings });
       } catch (error) {
         if (error instanceof AcpAuthRequiredError) {
           throw new Error(
@@ -1332,6 +1406,21 @@ export class AcpAdapter implements ProviderAdapter {
       return this.options?.getMcpServers?.() ?? [];
     } catch {
       return [];
+    }
+  }
+
+  private delegatedExecutionEnabled(mcpServers?: AcpMcpServer[]): boolean {
+    try {
+      const configured = this.options?.delegatedExecutionEnabled;
+      if (configured !== undefined) {
+        return (typeof configured === 'function' ? configured() : configured) === true;
+      }
+      // Backward-compatible embedding contract: callers predating the explicit
+      // flag already expressed delegated execution by supplying MCP servers.
+      return (mcpServers ?? this.mcpServers()).length > 0;
+    } catch {
+      // A broken settings boundary must keep the agent completion-only.
+      return false;
     }
   }
 
@@ -1467,7 +1556,10 @@ export class AcpAdapter implements ProviderAdapter {
       this.options?.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       this.options?.permissionPolicy,
       this.options?.onToolEvent,
-      { privateDesktop: this.hideConsoleWindows() },
+      {
+        privateDesktop: this.hideConsoleWindows(),
+        onLaunched: this.options?.onProcessLaunch,
+      },
     );
     const abortBeforePrompt = () => session.dispose(createAcpAbortError());
     request.signal?.addEventListener('abort', abortBeforePrompt, { once: true });
@@ -1487,14 +1579,13 @@ export class AcpAdapter implements ProviderAdapter {
       // must not take down a turn, so it degrades to the deny-by-default empty
       // list, which is the same thing an unconfigured install sends.
       const mcpServers = this.mcpServers();
+      const delegatedExecution = this.delegatedExecutionEnabled(mcpServers);
       try {
         // Isolate the agent from the machine's own settings **only** while it
-        // is a completion source. `mcpServers` is empty exactly when delegated
-        // execution is off (the getter returns [] unless `acp.toolsEnabled`),
-        // so it is the honest signal for which mode this turn is in — and it
-        // keeps the decision next to the thing it is about rather than reading
-        // a setting from inside the adapter.
-        await session.newSession(mcpServers, { isolateAgentSettings: mcpServers.length === 0 });
+        // is a completion source. This must read delegated-execution authority
+        // directly: an enabled agent with built-in tools may have an empty MCP
+        // allowlist, so `mcpServers.length` cannot answer whether it may act.
+        await session.newSession(mcpServers, { isolateAgentSettings: !delegatedExecution });
       } catch (error) {
         // A login the user has to perform is not the same failure as a broken
         // agent, and saying so is the difference between an actionable message
@@ -1833,6 +1924,14 @@ class AcpSession {
   ) {
     this.process = spawnProcess(agent, cwd, launchOptions);
     this.processPid = this.process.pid;
+    launchOptions?.onLaunched?.({
+      agentId: agent.id,
+      requestedPrivateDesktop: launchOptions.privateDesktop === true,
+      mode: this.process.launchMode
+        ?? (launchOptions.privateDesktop === true && process.platform === 'win32'
+          ? 'private-desktop'
+          : 'ordinary'),
+    });
     this.process.onStdout(chunk => this.ingest(chunk));
     // stderr is diagnostic only — kept bounded so a chatty agent cannot grow
     // the heap, and surfaced only when something actually fails.
@@ -2039,12 +2138,14 @@ class AcpSession {
     }
     this.pending.clear();
     if (!this.exited) {
-      try {
-        this.process.kill();
-      } catch {
-        // Already gone.
+      const treeKillStarted = this.killProcessTree();
+      if (!treeKillStarted) {
+        try {
+          this.process.kill();
+        } catch {
+          // Already gone.
+        }
       }
-      this.killProcessTree();
     }
   }
 
@@ -2064,18 +2165,27 @@ class AcpSession {
    * "make it dead" path, where a process that is *already* gone is success.
    * The approach is the one `acp-patchbay` arrived at independently.
    */
-  private killProcessTree(): void {
+  private killProcessTree(): boolean {
     if (process.platform !== 'win32') {
-      return;
+      return false;
     }
     const pid = this.processPid;
     if (pid === undefined) {
-      return;
+      return false;
     }
     try {
-      execFile('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true }, () => { /* already gone is success */ });
+      execFile('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true }, error => {
+        if (error && !this.exited) {
+          try {
+            this.process.kill();
+          } catch {
+            // Already gone.
+          }
+        }
+      });
+      return true;
     } catch {
-      // Nothing left to do on a teardown path.
+      return false;
     }
   }
 
@@ -2327,6 +2437,7 @@ const defaultAcpProcessFactory: AcpProcessFactory = (config, cwd, options) => {
   child.stderr.setEncoding('utf8');
   return {
     pid: child.pid,
+    launchMode: wrapped.status,
     writeLine: line => { child.stdin.write(line); },
     onStdout: listener => { child.stdout.on('data', listener); },
     onStderr: listener => { child.stderr.on('data', listener); },

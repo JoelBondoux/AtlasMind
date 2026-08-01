@@ -1,6 +1,6 @@
 # ACP (Agent Client Protocol) Integration — Phased Roadmap
 
-> **Status:** Planned. No implementation yet. **Owner:** AtlasMind core. **Created:** 2026-07-28.
+> **Status:** Tier 1 shipped v0.170.0; Tier 2 multi-agent subscription capacity shipped; Tier 3's authorization half shipped v0.176.0 while delegated-subtask reconciliation remains outstanding; **Tier 4 reciprocal local-stdio agent endpoint shipped v0.238.0**. **Owner:** AtlasMind core. **Created:** 2026-07-28.
 > This is the SSOT north star for integrating ACP into AtlasMind. Build incrementally,
 > respecting the entry criteria between tiers. Nothing here overrides AtlasMind's
 > safety-first defaults: deny-by-default, sanitize-at-boundary, confirm-before-destructive-action.
@@ -40,7 +40,7 @@ approval gate — and gains **subscription-backed execution capacity** across mu
 | **Memory / SSOT** — project context, run history, checkpoints | **AtlasMind** | Owns it. Context is *supplied* to a session; the agent is never the memory store. |
 
 **Guardrails that keep the seam clean:**
-- **AtlasMind is always the ACP Client.** Until Tier 4, AtlasMind never exposes an agent surface.
+- **AtlasMind is the ACP Client on routed-provider paths and an ACP Agent only on the explicit Tier 4 local-stdio entrypoint.** The two roles do not share transport authority.
 - **Delegated execution is never delegated authorization.** Handing an agent a subtask (Tier 3) does
   not hand it the policy gate. An adapter is never launched in an auto-approve / bypass-permissions mode.
 - **One agentic loop owns the workspace at a time.** See the double-loop hazard in Tier 3.
@@ -51,7 +51,7 @@ approval gate — and gains **subscription-backed execution capacity** across mu
 
 | Component | What it is | Integration relevance |
 |---|---|---|
-| `@agentclientprotocol/sdk` | Official TypeScript SDK. Fluent `client()` / `agent()` builders registering typed handlers. TS + Rust SDKs at v1.0. | The seam AtlasMind implements. AtlasMind is TS — this is the natural path. |
+| `@agentclientprotocol/sdk` | Official TypeScript SDK. Fluent `client()` / `agent()` builders registering typed handlers. AtlasMind pins 1.3.0 and negotiates stable protocol v1. | The seam AtlasMind implements. AtlasMind is TS — this is the natural path. |
 | `@agentclientprotocol/claude-agent-acp` | ACP server powered by the Claude Agent SDK. Uses an existing **Claude subscription**. | **Tier 1 first target** — the direct replacement for `claude-cli`. |
 | `agentclientprotocol/codex-acp` | ACP server exposing Codex CLI. **ChatGPT Plus/Pro** subscription. `CODEX_PATH` selects the binary. | Tier 2. No subscription path exists in AtlasMind today. |
 | Gemini CLI | Listed as an ACP-implementing agent. **Exact launch invocation unverified — pin before use.** | Tier 2. No Google subscription path in AtlasMind today. |
@@ -185,18 +185,33 @@ fake agent) and a live-binary verification (not done).
 
 ---
 
-## Tier 4 — AtlasMind as an ACP agent (reciprocal)
+## Tier 4 — AtlasMind as an ACP agent (reciprocal) ✅ **SHIPPED v0.238.0**
 
 **Goal:** expose AtlasMind itself over ACP so any ACP client — Zed, JetBrains, Neovim, Emacs, Buzz —
 can drive AtlasMind's orchestration, routing, and memory.
 
-- Implements the **agent** side of `@agentclientprotocol/sdk`, inverting the Tier 1–3 relationship.
-- **Cross-link:** satisfies [buzz-integration.md](buzz-integration.md) Tier 4's A2A handoff, which
-  already names `buzz-acp` as a transport.
-- MAJOR-version-class: a new externally-driven control surface into AtlasMind. Requires full
-  authentication and policy review before any exposure beyond localhost stdio.
+- [x] Implements the **agent** side of `@agentclientprotocol/sdk`, inverting the Tier 1–3 relationship.
+- [x] Local stdio only: no listener, explicit child launch, workspace-constrained sessions, bounded
+  prompt/history, streaming, cancellation, and one orchestrator turn at a time.
+- [x] Risky tools return to the ACP client through a fail-closed permission broker that offers only
+  `allow_once` / `reject_once`; client-supplied MCP commands are never spawned.
+- [x] Buzz cross-link: `buzz-acp` can launch the extension-managed `atlasmind-acp` Custom command,
+  and the final answer can be published through validated generated channel/event metadata plus the
+  communication-only Buzz CLI bridge.
+- [x] Threat model recorded in `wiki/Security.md`; operator setup in `wiki/CLI.md`.
 
-**Entry criteria:** Tiers 1–3 stable; security review of the inbound control surface; explicit opt-in.
+This completes the reciprocal ACP transport. It does **not** complete Buzz's separate self-sovereign
+identity tier: AtlasMind still does not generate or custody one Nostr keypair per AtlasMind agent,
+record a human→agent scope grant, perform signed A2A handoffs, or provide revocation UX.
+
+**Scope decision:** the repository owner explicitly selected Tier 4 before the Tier 3 delegated-
+subtask path was complete. The reciprocal host does not depend on that path: it uses the existing
+headless runtime and keeps the single-loop invariant. Any exposure beyond local stdio still requires
+a separate authenticated transport design and security review.
+
+**Original entry criteria:** Tiers 1–3 stable; security review of the inbound control surface;
+explicit opt-in. The direct owner instruction superseded the Tier 3 sequencing dependency, not the
+security requirements; local stdio and explicit launch are the shipped boundary.
 
 ---
 

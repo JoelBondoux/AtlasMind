@@ -746,6 +746,47 @@ describe('participant helper logic', () => {
     ]));
   });
 
+  it('reports actual failed model attempts instead of every selection preview', () => {
+    const metadata = buildAssistantResponseMetadata(
+      'Review the repository',
+      {
+        agentId: 'test-developer',
+        modelUsed: 'mistral/final',
+        costUsd: 0.01,
+        inputTokens: 100,
+        outputTokens: 20,
+        artifacts: undefined,
+        modelAttempts: [
+          {
+            model: 'acp/codex@gpt-5.5#low',
+            providerId: 'acp',
+            endpointScope: 'acp:codex',
+            status: 'timeout',
+            durationMs: 180_000,
+            inputTokens: 0,
+            outputTokens: 0,
+            reason: 'Provider timed out.',
+          },
+          {
+            model: 'mistral/final',
+            providerId: 'mistral',
+            endpointScope: 'provider:mistral',
+            status: 'completed',
+            durationMs: 2_000,
+            inputTokens: 100,
+            outputTokens: 20,
+          },
+        ],
+      },
+    );
+
+    expect(metadata.modelsUsed).toEqual(['acp/codex@gpt-5.5#low', 'mistral/final']);
+    expect(metadata.thoughtSummary?.summary).toBe('Completed after 2 model attempts; 1 did not complete.');
+    expect(metadata.thoughtSummary?.bullets).toContain(
+      'Did not complete: acp/codex@gpt-5.5#low (timeout).',
+    );
+  });
+
   it('carries execution-limit recovery values into chat metadata', () => {
     const metadata = buildAssistantResponseMetadata(
       'Continue the workspace audit',
@@ -1078,13 +1119,13 @@ describe('participant helper logic', () => {
     ]);
   });
 
-  it('reconciles partial streamed text with a different final response', () => {
+  it('visually separates a divergent legacy stream while keeping only the final response in history', () => {
     expect(reconcileAssistantResponse(
       'I will inspect the code path.',
       'The response was getting dropped after the first streamed chunk.',
     )).toEqual({
-      additionalText: '\n\nThe response was getting dropped after the first streamed chunk.',
-      transcriptText: 'I will inspect the code path.\n\nThe response was getting dropped after the first streamed chunk.',
+      additionalText: '\n\n---\n\nThe response was getting dropped after the first streamed chunk.',
+      transcriptText: 'The response was getting dropped after the first streamed chunk.',
     });
   });
 

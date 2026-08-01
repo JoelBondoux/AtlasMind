@@ -1,5 +1,3 @@
-import * as vscode from 'vscode';
-
 /**
  * Currency codes supported for display. All underlying values are stored in USD;
  * this controls the symbol, locale formatting, and (when exchange rates are
@@ -57,9 +55,25 @@ interface ExchangeRateCache {
   fetchedAt: number;
 }
 
+export interface CurrencyFormatterState {
+  get<T>(key: string): T | undefined;
+  update(key: string, value: unknown): Thenable<void>;
+}
+
 // In-memory cache shared across all formatCost calls within a session.
 // Populated by syncExchangeRates() called at activation.
 let rateCache: ExchangeRateCache | undefined;
+let readConfiguredCurrency: (() => string | undefined) | undefined;
+
+/**
+ * Supplies the VS Code setting reader without making this otherwise-pure
+ * formatter load the `vscode` module in headless CLI and ACP processes.
+ */
+export function configureCurrencyFormatter(
+  reader: (() => string | undefined) | undefined,
+): void {
+  readConfiguredCurrency = reader;
+}
 
 /**
  * Detects the system locale's currency code using the Intl API.
@@ -81,7 +95,7 @@ export function detectSystemCurrency(): string {
  */
 export function getDisplayCurrency(): string {
   try {
-    const setting = vscode.workspace.getConfiguration('atlasmind').get<string>('displayCurrency', 'USD');
+    const setting = readConfiguredCurrency?.() ?? 'USD';
     if (setting === 'auto') {
       return detectSystemCurrency();
     }
@@ -110,7 +124,7 @@ export function getExchangeRate(currency: string): number {
  *
  * Call this once from extension.ts `activate()`.
  */
-export async function syncExchangeRates(globalState: vscode.Memento): Promise<void> {
+export async function syncExchangeRates(globalState: CurrencyFormatterState): Promise<void> {
   const stored = globalState.get<ExchangeRateCache>(EXCHANGE_RATE_STORAGE_KEY);
   const now = Date.now();
 

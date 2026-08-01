@@ -213,8 +213,11 @@ describe('proving the first message arrives', () => {
     expect(step({ ...FRESH, enabled: true, hasAgentKey: true }, 'firstAgent')?.status).toBe('blocked');
   });
 
-  it('says the stored key already is an agent, rather than sending someone to get one', () => {
-    expect(guidance(READY, 'firstAgent')).toMatch(/already have an agent/i);
+  it('distinguishes a Buzz identity from a running managed agent', () => {
+    const text = guidance(READY, 'firstAgent');
+    expect(text).toMatch(/identity is not runtime/i);
+    expect(text).toMatch(/Person.*routing metadata/i);
+    expect(text).toMatch(/automatic replies require/i);
   });
 
   it('is the step that says how to get the Buzz desktop app', () => {
@@ -290,6 +293,29 @@ describe('putting the Buzz people in the Director roster', () => {
   it('counts bound identities without inventing a total', () => {
     expect(step({ ...READY, observedIdentities: 3, agentBindings: 1 }, 'roster')?.detail)
       .toMatch(/1 Buzz identity is bound .* out of 3 seen/i);
+  });
+
+  it('states that a Director binding does not create a managed agent', () => {
+    expect(guidance({ ...READY, observedIdentities: 1 }, 'roster'))
+      .toMatch(/does not.*create a Buzz managed agent/i);
+  });
+});
+
+describe('running AtlasMind behind Buzz ACP', () => {
+  it('is a separate optional step without bypassing the guide opening-action rule', () => {
+    const managed = step(WALKTHROUGH_DONE, 'managedAgent');
+    expect(managed?.status).toBe('optional');
+    expect(managed?.action).toBeUndefined();
+    expect((managed?.guidance ?? []).map(line => line.text).join(' '))
+      .toMatch(/AtlasMind: Copy Buzz ACP Agent Setup/i);
+  });
+
+  it('keeps Buzz as the harness and AtlasMind as the custom ACP agent', () => {
+    const managed = step(WALKTHROUGH_DONE, 'managedAgent');
+    const text = (managed?.guidance ?? []).map(line => line.text).join(' ');
+    expect(text).toMatch(/Provider → Custom command/i);
+    expect(text).toMatch(/Buzz keeps `buzz-acp` as the harness/i);
+    expect(text).toMatch(/leave Buzz’s .*provider.*Model.*blank/i);
   });
 });
 

@@ -63,6 +63,12 @@ describe('package manifest', () => {
     expect(readme).toContain(`Current source version: ${manifest.version}`);
   });
 
+  it('keeps the Stryker REST client on the patched qs release', () => {
+    const overrides = manifest.overrides as Record<string, unknown>;
+
+    expect(overrides.qs).toBe('6.15.2');
+  });
+
   it('keeps the README sales-led and free of competitor comparison charts', () => {
     const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
 
@@ -354,7 +360,7 @@ describe('package manifest', () => {
     ]));
   });
 
-  it('contributes Models view inline toggle and info commands', () => {
+  it('contributes Models view inline toggle, info, and reversible hide commands', () => {
     const commands = (manifest.contributes?.commands ?? []) as ContributedCommand[];
     const paletteMenus = (manifest.contributes?.menus?.commandPalette ?? []) as ManifestMenuItem[];
     const toggleEnabled = commands.find(entry => entry.command === 'atlasmind.models.toggleEnabled');
@@ -362,12 +368,15 @@ describe('package manifest', () => {
     const configureProvider = commands.find(entry => entry.command === 'atlasmind.models.configureProvider');
     const refreshProvider = commands.find(entry => entry.command === 'atlasmind.models.refreshProvider');
     const assignToAgent = commands.find(entry => entry.command === 'atlasmind.models.assignToAgent');
+    const hideFromSidebar = commands.find(entry => entry.command === 'atlasmind.models.hideFromSidebar');
 
     expect(toggleEnabled?.title).toBe('Toggle Model Enabled');
     expect(openInfo?.title).toBe('Summarize Model In Chat');
     expect(configureProvider?.title).toBe('Configure Model Provider');
     expect(refreshProvider?.title).toBe('Refresh Available Models');
     expect(assignToAgent?.title).toBe('Assign To Agents');
+    expect(hideFromSidebar?.title).toBe('Hide from Models Sidebar');
+    expect(hideFromSidebar?.icon).toBe('$(eye-closed)');
 
     const menus = (manifest.contributes?.menus?.['view/item/context'] ?? []) as ManifestMenuItem[];
     expect(menus).toEqual(expect.arrayContaining([
@@ -391,6 +400,10 @@ describe('package manifest', () => {
         command: 'atlasmind.models.assignToAgent',
         when: 'view == atlasmind.modelsView && viewItem =~ /^model-/',
       }),
+      expect.objectContaining({
+        command: 'atlasmind.models.hideFromSidebar',
+        when: 'view == atlasmind.modelsView && viewItem =~ /^(model-|acp-bridge-)/',
+      }),
     ]));
 
     expect(paletteMenus).toEqual(expect.arrayContaining([
@@ -399,6 +412,7 @@ describe('package manifest', () => {
       expect.objectContaining({ command: 'atlasmind.models.configureProvider', when: 'false' }),
       expect.objectContaining({ command: 'atlasmind.models.refreshProvider', when: 'false' }),
       expect.objectContaining({ command: 'atlasmind.models.assignToAgent', when: 'false' }),
+      expect.objectContaining({ command: 'atlasmind.models.hideFromSidebar', when: 'false' }),
     ]));
   });
 
@@ -593,6 +607,7 @@ describe('package manifest', () => {
   it('publishes the compiled AtlasMind CLI as an npm bin and helper script', () => {
     expect(manifest.bin).toMatchObject({
       atlasmind: './out/cli/main.js',
+      'atlasmind-acp': './out/cli/acpAgent.js',
     });
 
     expect(manifest.scripts?.cli).toBe('node ./out/cli/main.js');

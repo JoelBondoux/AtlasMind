@@ -17,7 +17,9 @@ const SYSTEM_PROMPT = [
 ].join('\n');
 
 /**
- * Automatically assigns skills to agents that have skillsAutoManaged enabled.
+ * Automatically maintains the eligibility pool for agents that have
+ * skillsAutoManaged enabled. The Orchestrator still performs bounded,
+ * task-scoped selection from that pool on each turn.
  * Uses an AI model to assess which available skills match the agent's role and context.
  * Built-in agents and agents without skillsAutoManaged are never touched.
  */
@@ -138,6 +140,6 @@ export class SkillAutoAssigner {
       (id): id is string => typeof id === 'string' && validIds.has(id),
     );
 
-    return { ...agent, skills };
+    return { ...agent, skills, skillPolicy: 'task-scoped' };
   }
 }

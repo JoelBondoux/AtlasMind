@@ -28,12 +28,30 @@ export function getWebviewHtmlShell(options: WebviewShellOptions): string {
     *::after {
       box-sizing: border-box;
     }
-    :where(section, article, div, button, label, p, h1, h2, h3, h4, h5, h6, span, strong, small, em, a, ul, ol, li, textarea, input, select, table, th, td) {
+    /* Only structural boxes get a zero minimum. Applying this to inline text,
+       labels and controls lets flex/grid shrink them below their longest word;
+       Chromium then "solves" the row by rendering a word like "requirement"
+       as fragments. Containers should shrink, content-sized controls
+       should wrap or move to the next row. */
+    :where(section, article, div, p, h1, h2, h3, h4, h5, h6, ul, ol, li, textarea, input, select, table, th, td) {
       min-width: 0;
     }
-    :where(p, h1, h2, h3, h4, h5, h6, li, td, th, button, label, strong, span, a) {
+    /* "break-word" contains a genuinely long token without changing the
+       element's min-content width. "anywhere" does change that width and is
+       reserved below for links, where an unbroken URL really may be wider than
+       the panel. */
+    :where(p, h1, h2, h3, h4, h5, h6, li, td, th, strong, span) {
+      overflow-wrap: break-word;
+      word-break: normal;
+    }
+    :where(a) {
       overflow-wrap: anywhere;
       word-break: break-word;
+    }
+    :where(button, label) {
+      max-width: 100%;
+      overflow-wrap: break-word;
+      word-break: normal;
     }
     html, body {
       max-width: 100%;
@@ -86,6 +104,8 @@ export function getWebviewHtmlShell(options: WebviewShellOptions): string {
       border-radius: 2px;
       font-family: inherit;
       color: inherit;
+      max-width: 100%;
+      white-space: normal;
     }
     /* Same hazard, same fix, for text-entry controls: unstyled they take the UA
        "field"/"fieldtext" pair (white on black text). Colour and background are
@@ -175,6 +195,83 @@ export const QUICK_REPLY_CSS = `
         .quick-reply-btn:active {
           transform: scale(0.96);
         }`;
+
+/**
+ * Shared Atlas-chat affordance used when a panel can explain or resolve the
+ * state it is showing. The logo is never the only accessible label: compact
+ * uses keep text for assistive technology, while roomy error rows show it.
+ */
+export const ATLAS_DISCUSS_ACTION_CSS = `
+  .atlas-discuss-action {
+    appearance: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    align-self: flex-start;
+    gap: 6px;
+    width: max-content;
+    min-width: 30px;
+    min-height: 30px;
+    max-width: 100%;
+    padding: 4px 9px;
+    border: 1px solid color-mix(in srgb, var(--vscode-textLink-foreground) 52%, var(--vscode-widget-border, rgba(127, 127, 127, 0.4)));
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--vscode-textLink-foreground) 12%, transparent);
+    color: var(--vscode-textLink-foreground);
+    font: inherit;
+    font-size: 0.8rem;
+    font-weight: 600;
+    line-height: 1.2;
+    cursor: pointer;
+    flex: 0 0 auto;
+  }
+  .atlas-discuss-action:hover {
+    background: color-mix(in srgb, var(--vscode-textLink-foreground) 22%, transparent);
+    border-color: var(--vscode-textLink-foreground);
+  }
+  .atlas-discuss-action:focus-visible {
+    outline: 2px solid var(--vscode-focusBorder);
+    outline-offset: 2px;
+  }
+  .atlas-discuss-action img {
+    width: 18px;
+    height: 18px;
+    object-fit: contain;
+    flex: 0 0 auto;
+  }
+  .atlas-discuss-action.icon-only {
+    width: 30px;
+    padding: 4px;
+  }
+  .atlas-discuss-action.icon-only .atlas-discuss-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+`;
+
+export interface AtlasDiscussActionOptions {
+  iconUri: string;
+  action: string;
+  label: string;
+  title: string;
+  targetId?: string;
+  iconOnly?: boolean;
+}
+
+/** Render a nonce-free, delegated-event button that opens an Atlas discussion. */
+export function renderAtlasDiscussAction(options: AtlasDiscussActionOptions): string {
+  const target = options.targetId
+    ? ` data-id="${escapeHtml(options.targetId)}"`
+    : '';
+  return `<button type="button" class="atlas-discuss-action${options.iconOnly ? ' icon-only' : ''}" data-action="${escapeHtml(options.action)}"${target} title="${escapeHtml(options.title)}" aria-label="${escapeHtml(options.label)}"><img src="${escapeHtml(options.iconUri)}" alt="" aria-hidden="true" /><span class="atlas-discuss-label">${escapeHtml(options.label)}</span></button>`;
+}
 
 export function escapeHtml(text: string): string {
   return text

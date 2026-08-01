@@ -39,9 +39,17 @@ This prevents MCP-backed inspection tools from triggering approval prompts that 
 
 ## Read-Only Agents
 
-Tool access is normally uniform: every built-in agent declares `skills: []`, which resolves to *all* enabled skills, and agents differ by routing metadata and system prompt rather than by restricted capability.
+Tool access begins with an explicit agent policy. `task-scoped` selects at most 12 relevant tools and treats an empty eligibility list as built-ins only; `allowlist` offers exactly the named enabled skills; advanced `all` deliberately admits every enabled integration. Custom/MCP tools must be named before a task-scoped agent can select them. The Test Developer keeps a focused testing/repository eligibility list and narrows it per turn, so a conceptual testing explanation remains tool-less while implementation work can still receive file, diagnostic, and test capabilities.
+
+Selection is not authorization. It runs after registry eligibility and the user's turn capability envelope, so it can only remove tools. Approval classification and the execution-time envelope check still run for every call. Natural-language cues stay in the selected callable schema; the system prompt no longer carries a duplicate skills catalogue.
 
 The three oversight advisors (`ethics-oversight`, `legal-oversight`, `commercial-oversight`) are the deliberate exception. They pin an explicit read-only allowlist — file/directory reads, search, git status/diff/log/blame, diff preview, diagnostics, code symbols, framework detection, memory *query*, and `web-fetch` — and therefore have no write, commit, push, terminal, container, test-run, memory-write, or arbitrary-method `http-request` capability at all. This is enforced at skill resolution, not by prompt instruction: the tools are simply never offered to the model.
+
+### A read-only turn narrows every agent
+
+The user's current instruction is also an authority boundary. A turn that explicitly says to explain, review, or inspect without writing files, running commands, or executing tests receives a deterministic `TurnCapabilityEnvelope`. AtlasMind filters the offered skill schemas before the model sees them and checks the envelope again immediately before execution, so a hallucinated or injected tool call cannot recover a capability omitted from the prompt. This is independent of the selected agent's normal allowlist.
+
+On such a turn, ACP native delegated tools are disabled as well. An external agent is not allowed to substitute its own shell or file writer for AtlasMind capabilities the user withheld. The boundary is per turn and does not persist into a later implementation request.
 
 The reasoning is separation of duties. An advisor that reviews whether something *should* ship should not also be the thing that changes it. Where an advisor's findings need to be recorded, the Project Dashboard owns that write path and sanitises the model's output at the boundary first.
 
@@ -169,7 +177,9 @@ An agent AtlasMind has no recipe for — one the user named themselves — is ne
 
 ## Delegated execution (ACP) is never delegated authorization
 
-An agent reached over the [Agent Client Protocol](https://agentclientprotocol.com) — a Claude, ChatGPT, Gemini, Copilot or Qwen subscription — can be allowed to run **its own** tools via `atlasmind.acp.toolsEnabled` (off by default). The work happens inside the agent's process; the decision does not. Every operation arrives as a `session/request_permission` request and is answered by `src/providers/acpPermission.ts`:
+An agent reached over the [Agent Client Protocol](https://agentclientprotocol.com) — a Claude, ChatGPT, Copilot or Qwen subscription, or an eligible Gemini Code Assist license — can be allowed to run **its own** tools via `atlasmind.acp.toolsEnabled` (off by default). The work happens inside the agent's process; the decision does not. Every operation arrives as a `session/request_permission` request and is answered by `src/providers/acpPermission.ts`:
+
+The setting also participates in model eligibility. ACP discovery marks the distinct `delegatedToolExecution` capability but does not claim AtlasMind `function_calling`; the Orchestrator supplies a separate live routing authorization only while the setting is enabled **and the current turn permits native tools**. Both are required for a tool-backed turn. If ACP is selected, AtlasMind sends no `ToolDefinition` schemas—the adapter rejects them—and the agent uses its native tools. If routing falls back to an ordinary function-calling provider, that attempt receives only the schemas permitted by the same turn envelope.
 
 - **`ToolKind` maps onto the same `ToolRiskCategory`** the rest of this page uses, so a bypass the user granted for `workspace-write` means the same thing whether the write comes from an AtlasMind subtask or a delegated agent. `execute` → `terminal-write`, `delete` → `workspace-write` (high), `fetch` → `network`.
 - **`ToolKind::Other` is the highest-risk bucket, not the lowest.** The schema marks it `#[serde(other)]`, so anything a newer agent invents deserializes there. "A kind this build cannot identify" is exactly the case that must prompt.
@@ -188,6 +198,8 @@ agent boot and console churn. That changes process lifetime only:
 - AtlasMind still selects at most an allow-once option and never `allow_always`;
 - changing the MCP list or switching between completion-only isolation and
   delegated execution invalidates the session before the next prompt;
+- an empty MCP allowlist does not imply completion-only mode when delegated
+  execution is enabled, because the agent may still expose built-in tools;
 - a private Windows desktop hides UI only — it is not a sandbox and grants or
   removes no filesystem, network, or command authority.
 
@@ -368,6 +380,27 @@ The Project Director tab can reach a contact through a connected MCP connector, 
 ### Buzz communication boundary
 
 The guided **Buzz Communications** starter launches AtlasMind's bundled stdio MCP server around official pinned `buzz-cli` source tag v0.4.26. It exposes only list channels, post message, read bounded thread, and send DM. The agent key and optional owner authorization tag live in SecretStorage. The bridge refuses to connect while `atlasmind.buzz.enabled` is off, rejects remote relays unless `allowRemoteRelay` is explicit (and TLS is used), probes the exact required command/flag contract before MCP handshake, invokes the executable without a shell, sends body text over stdin, validates identifiers, bounds I/O/time, and redacts credentials from failures. It is not `buzz-dev-mcp`: no shell/file tools or Buzz workflow/repository/admin surfaces cross this connector.
+
+### When an ACP client drives AtlasMind
+
+`atlasmind-acp` applies AtlasMind's tool classification before an ACP-hosted
+turn may act. Read-only categories follow the headless default. Writes,
+subprocesses, network access, audio, and unknown categories cause
+`AcpPermissionBroker` to send `session/request_permission` to the client with a
+bounded, secret-redacted preview.
+
+Only **Allow once** and **Reject** are offered. A malformed response,
+`allow_always`, a request after the owning task ended, or a transport failure
+denies. The broker registers authority by AtlasMind task id for the duration of
+one prompt and removes it in `finally`; a live Buzz harness or reused ACP session
+does not retain approval.
+
+Client-provided MCP server definitions are not executed. MCP process authority
+still comes only from AtlasMind's configured registry or from the narrow,
+host-owned Buzz reply publisher. The latter validates Buzz-generated
+channel/event metadata and passes the answer over stdin to the communication
+CLI; it never gives the model Buzz's shell, repository, workflow, or admin
+commands.
 
 ## Promotion Execution (Delivery)
 

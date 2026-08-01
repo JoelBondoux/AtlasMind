@@ -32,4 +32,15 @@ describe('inferModelMetadata — routing annotations survive the merge', () => {
     expect(info.reasoningDepth).toBeUndefined();
     expect(info.latencyClass).toBeUndefined();
   });
+
+  it('preserves delegated tool execution learned during provider discovery', () => {
+    const info = inferModelMetadata('acp', 'acp/claude', {
+      id: 'acp/claude',
+      capabilities: ['chat', 'code', 'reasoning'],
+      delegatedToolExecution: true,
+    });
+
+    expect(info.delegatedToolExecution).toBe(true);
+    expect(info.capabilities).not.toContain('function_calling');
+  });
 });

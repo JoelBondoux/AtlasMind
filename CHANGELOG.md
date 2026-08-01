@@ -6,6 +6,138 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.241.2] - 2026-08-02
+
+### Fixed
+- **The ACP private-desktop evidence test now reflects the platform boundary it verifies.** Windows still requires the effective `private-desktop` mode when hidden-desktop launch is requested; macOS and Linux require the intentional `ordinary` fallback instead of failing CI for not claiming a Windows-only capability.
+
+## [0.241.1] - 2026-08-02
+
+### Added
+- **An unlinked pull request can now become a reviewable tracking-issue draft.** The Pull Requests page sends only the PR number; the extension host re-resolves the sanitized open record, derives fixed-order title/body text without a model, keeps only labels that already exist on the repository, and opens the existing issue composer. Nothing is posted until the ordinary issue-write permission and modal confirmation both permit it.
+- **Issues now shows tracking coverage instead of presenting an empty tracker without context.** The page combines open issues, commits since the latest tag, and open PRs with no linked issue, explains the effective issue-intake posture, and distinguishes a traceability warning from proof that every commit needed a ticket.
+
+### Fixed
+- **Project Dashboard no longer hides GitHub activity behind an Issues-page refresh.** The ready handshake and a later panel reveal start at most one bounded read per five-minute freshness window; the dashboard-wide Refresh button and a new Pull Requests refresh action update the same Issues/PR/CI/release/taxonomy snapshot. Pull Requests now receives its own navigation badge, so an open draft such as #152 is visible without knowing to visit another page first.
+
+### Security
+- **Opening or refreshing the dashboard remains read-only.** Automatic refresh never creates an issue, PR, comment, merge, or release. PR-derived issue text is host-authored and editable, the browser supplies only a positive PR number, stale/already-linked records are refused, and repository labels are never invented as a side effect.
+- **The patched dependency graph is verified, not merely declared.** `npm audit` reports zero vulnerabilities with `qs@6.15.2` deduplicated across the installed tree. GitHub alert #22 remains a default-branch deployment fact until this already-committed override reaches `main`; no vulnerable copy remains on `develop`.
+
+## [0.241.0] - 2026-08-01
+
+### Added
+- **Agents now declare how skill eligibility works.** `AgentDefinition.skillPolicy` supports `task-scoped`, `allowlist`, and deliberate `all` modes. Every built-in declares a policy, synthesized agents are constrained to `task-scoped`, and the Agent Manager explains the safe default, exact manual allowlists, and the advanced all-skills override.
+- **Task-scoped agents receive a deterministic bounded tool set.** The Orchestrator combines explicit tool names, workspace/action/testing/Git/memory/web intent, prior-session follow-through signals, and existing routing hints to select at most 12 relevant skills. Live progress reports selected versus eligible counts.
+
+### Changed
+- **An empty skill list no longer means every integration.** For legacy definitions, a populated list remains an allowlist while an empty list becomes task-scoped built-ins. Custom and MCP skills enter a task-scoped pool only when the agent names them explicitly; `all` is the only policy that admits every enabled present and future skill.
+- **Tool schemas are the single model-facing skill description.** AtlasMind no longer duplicates skill names, descriptions, or likely-tool guidance in the system prompt. Natural-language routing cues remain in the selected tool schema, ACP completion/delegated calls receive no AtlasMind skill catalogue, and normal-provider failover restores the selected schemas.
+- **Context budgeting now accounts for JSON tool definitions.** Schema tokens are included in initial cost estimates, per-round context-window headroom, and memory/session prompt budgets instead of being invisible to the overflow calculation.
+
+### Security
+- **Skill availability now fails narrow at both agent and turn scope.** Empty legacy agents cannot silently inherit a newly installed MCP/custom capability, task selection cannot widen the agent's eligibility pool or the user's read-only/no-command envelope, and the existing approval and execution-time policy checks still apply after selection.
+
+## [0.240.1] - 2026-08-01
+
+### Fixed
+- **A single chat request can no longer exhaust every configured model.** Orchestration now has a hard ceiling of three actually invoked model endpoints across initial selection, capability re-routing, escalation, and provider failover. A transport failure opens a turn-local circuit for the execution endpoint, so ACP model/effort variants backed by the same agent and local models backed by the same endpoint are skipped instead of relaunched. The hidden maintenance-model recovery path was removed; an empty completion escalates inside the same bounded loop, and a terminal failure is host-authored without another model call.
+- **ACP is no longer cancelled at the generic 30-second provider boundary.** Stateful ACP turns now inherit the adapter-aligned 180-second floor, while ACP still receives no blind retry after an uncertain prompt. Ordinary providers keep the configured 30-second default.
+- **Failed attempt streams no longer become part of the answer.** Each model attempt buffers its own stream; only the final accepted completion is committed to Chat. Tool-round preambles and abandoned fallback drafts stay out of the transcript; a divergent legacy stream is visually separated from the authoritative result and is not retained in conversation history. Exact trailing loops are collapsed repeatedly, repeated long paragraphs are removed outside code fences, and skills-context warnings are surfaced once as progress instead of repeated as answer prose.
+- **“Read-only” and “do not run commands” now constrain execution rather than merely prompting the model.** The Orchestrator derives a turn-scoped capability envelope, filters the offered skills and schemas, repeats the check immediately before execution, and disables ACP delegated native tools when that envelope cannot be imposed on the remote agent. Test Developer now carries a focused testing/workspace skill list instead of expanding `skills: []` to every enabled integration.
+- **The ACP private-desktop helper now owns descendant lifetime deterministically.** It creates the agent suspended, assigns it to a kill-on-close Windows Job Object and the private desktop, requests a hidden first window, then resumes it. TypeScript teardown starts `taskkill /T` before allowing the direct process to disappear and falls back to the direct kill only if tree termination cannot start. The rebuilt 120 KB helper is SHA-256-pinned.
+
+### Changed
+- **Reply metadata reports execution rather than selection previews.** `TaskResult.modelAttempts` records the provider, non-sensitive endpoint scope, outcome, duration, measured tokens, and bounded failure reason for each invoked endpoint. “Models used” and “What Atlas did” now name the actual attempts, the final model, and which attempts timed out, errored, mismatched capabilities, or were superseded.
+- **ACP launch-mode diagnostics are explicit and data-minimal.** The AtlasMind output channel records whether each agent launch used ordinary or private-desktop mode and whether private mode was requested, without exposing a command line, PID, transcript, path, or credential.
+
+### Security
+- **User-declared non-mutation is now a deny-by-default tool boundary.** Unknown or hallucinated tool calls cannot synthesize their way around the turn envelope; only declared read/git-read tools (plus terminal-read only when commands remain allowed) survive. The same restriction participates in routing so a native-tool ACP agent cannot silently receive broader authority than the AtlasMind function loop.
+
+## [0.240.0] - 2026-08-01
+
+### Added
+- **Every Branches card now has an Ask Atlas icon.** It opens Chat with a deterministic, host-authored reading of the selected branch: status and head metadata, commit-graph comparisons against the current and production branches, changed-file counts from each merge base, declared warning signals, and the names/counts of recent contributors.
+- **Branch summaries lead to focused next questions.** Context-aware chips offer **Compare with current**, **Compare with production**, **Identify issues**, and **Recent contributors**. Comparison chips are omitted when the selected branch already is that baseline; deeper inspection enters the normal routed Chat and approval path.
+
+### Security
+- **The first branch answer is local, model-free, and non-mutating.** It uses cached Git refs and bounded author names only; it does not fetch, switch, merge, rebase, push, read author email addresses or diff bodies, invoke a model, or spend subscription/API capacity.
+- **The webview still supplies only an opaque branch id.** The extension host rebuilds the inventory, resolves the selected/current/production commits, and constructs every prompt from bounded host-owned facts. Ref names are explicitly marked as reported data, and a stale or manufactured id is refused.
+
+## [0.239.0] - 2026-08-01
+
+### Added
+- **Project Dashboard now has a complete Branches page.** It combines local branches with cached remote-only refs, folding a tracked pair into one logical card and showing current/default/protected/worktree state, upstream tracking, ahead/behind drift, merge state, latest commit/author, 30-day staleness, search, and operational filters. Ordinary dashboard refresh remains local; **Fetch latest from remotes** is an explicit network action.
+- **Any available branch can be brought into the current workspace for immediate work.** **Switch here** activates an existing local branch, while **Bring local** creates a same-named local tracking branch from a remote-only ref.
+
+### Security
+- **Branch activation is host-authoritative and clean-tree-only.** The webview returns an opaque inventory id; the extension rebuilds live Git state and supplies the actual ref to `git switch`. Pending changes, another-worktree branches, remote/local name collisions, vanished refs, and malformed messages are refused. A modal confirmation names the workspace change, and protected branches carry an additional warning.
+- **Git metadata is parsed without delimiter ambiguity.** The inventory uses NUL-separated `for-each-ref` fields, so punctuation in author names or commit subjects cannot shift a displayed record or the id later resolved for activation.
+
+## [0.238.1] - 2026-08-01
+
+### Fixed
+- **Testing Policy Coverage no longer spends a fleet of models to explain AtlasMind’s own policy.** Every protocol now has declared beginner-facing guidance for what it is, what is needed, the expected result, why it is useful, and its main trade-off. **Ask Atlas** immediately combines that catalogue with the host-rebuilt live evidence and recommendation; the deterministic first answer bypasses the orchestrator, uses zero model/provider capacity, and cannot enter fallback or escalation.
+- **Policy questions now lead to explicit choices instead of an open clarification dead end.** The response ends with status-appropriate reply chips — project fit, a smallest useful starting point, disabling an irrelevant policy, reviewing coverage, diagnosing failures, or drafting practice evidence — and the card action is visibly labelled **Ask Atlas** instead of relying on an unexplained icon.
+- **“Let subscription agents act” now affects the routing decision it describes.** Tool-backed work may select an eligible ACP subscription agent when `atlasmind.acp.toolsEnabled` is on; AtlasMind sends no incompatible function schemas and lets the agent use its own tools instead. With the setting off, the same model remains ineligible for that requirement. An empty MCP allowlist no longer disguises an enabled agent as a completion-only session, and changing the setting invalidates any live session created on the other side of that boundary.
+
+### Security
+- **Host-authored Chat responses are one-shot, bounded, redacted, and non-executable.** Only `atlasmind/*` source identifiers are accepted, Markdown and metadata are size-capped, controls and likely secrets are removed, action chips can submit bounded follow-up prompts but cannot name extension commands, and the response is consumed before any asynchronous work so it cannot leak into a later turn.
+- **ACP delegated-tool eligibility requires capability and live authority.** Discovery marks the provider’s native execution ability, while the router separately requires the current `acp.toolsEnabled` value; neither fact grants the other. The adapter still rejects AtlasMind tool definitions, every native operation still crosses the existing one-turn permission broker, a missing or throwing broker still denies, and completion-only sessions remain settings-isolated.
+
+## [0.238.0] - 2026-08-01
+
+### Added
+- **AtlasMind can now run as an ACP v1 agent behind Buzz or another local ACP client.** The new `atlasmind-acp` stdio entrypoint reuses the headless orchestrator, agent registry, model router, SSOT memory, provider adapters, and workspace tools; streams reply chunks; carries bounded per-session context; supports cancellation; and deliberately runs only one orchestrator turn at a time.
+- **Buzz managed-agent setup is now explicit and copyable.** **AtlasMind: Copy Buzz ACP Agent Setup** creates extension-managed launchers and copies the exact credential-free fields for Buzz's **Provider → Custom command** form. Buzz remains the `buzz-acp` harness while AtlasMind supplies the ACP-speaking agent and owns model routing.
+- **Buzz ACP turns can publish replies through AtlasMind's communication-only bridge.** With the explicit `--buzz-auto-reply` launch flag, AtlasMind reads only Buzz's generated structured context, validates the channel UUID and reply event against generated metadata, and posts the final answer without exposing Buzz shell, file, workflow, repository, or admin tools to the model.
+
+### Changed
+- **The Buzz guide now distinguishes three separate concepts:** a Director Person is contact/routing metadata, its handle identifies a channel or public identity, and a Buzz managed agent is an executable runtime. A Director binding still routes inbound follow-up ownership; it no longer implies that anything will listen or reply.
+- **The extension-managed terminal shims now include `atlasmind-acp` alongside `atlasmind`.** Buzz receives a stable JavaScript runner invoked directly through VS Code's Electron executable in Node mode, avoiding the Windows `.cmd`/`cmd.exe` hop that Buzz cannot spawn as an ACP child. The shared currency and orchestrator paths no longer load the `vscode` module in a headless process.
+
+### Security
+- **The agent-side ACP boundary is local stdio only and opens no listener.** Workspace roots and session directories are constrained, client-supplied MCP commands are never spawned, prompts and retained history are bounded, concurrent loops are refused, and cancellation propagates into orchestration.
+- **ACP tool authority remains one-turn and fail-closed.** Read-only operations follow the headless policy; write, subprocess, network, audio, and unknown actions request `session/request_permission` with only **Allow once** or **Reject**. `allow_always` is neither offered nor accepted, missing clients deny, and tool previews are bounded with likely credentials redacted.
+- **VS Code secrets are not exported into Buzz.** The copied setup contains launcher paths, arguments, and provider environment-variable names only. The operator supplies the one provider credential or local endpoint the external process should receive.
+
+## [0.237.0] - 2026-08-01
+
+### Added
+- **Providers, subscription routes, and individual models can now be hidden from the Models sidebar without disabling them.** Every applicable row has an eye-closed action; the preference follows the VS Code user profile and changes presentation only, so credentials, enablement, agent assignments, and model routing remain untouched.
+- **Settings → Models & Integrations now restores hidden rows one by one.** The Sidebar Visibility card keeps hidden entries visible even when a provider is temporarily unavailable, resolves friendly live names when it can, and leaves a direct Settings placeholder in the tree when every provider or every child model is hidden.
+
+### Security
+- **The restore boundary accepts only a bounded opaque identity and matches it against host-owned user storage.** A Settings webview cannot manufacture a provider mutation or affect routing; unknown restore identities are ignored, malformed stored entries are discarded, and duplicate preferences are collapsed.
+
+## [0.236.0] - 2026-08-01
+
+### Added
+- **Operational errors now offer a direct, recognisable path into Atlas Chat.** MCP server-card failures and guided-setup warnings/errors show a shared AtlasMind-logo **Resolve with Atlas** action, while Project Dashboard refresh failures and retained activated-testing results use the same affordance. Each action opens a reviewable new-session draft instead of submitting anything automatically.
+- **Every Testing Policy Coverage card can now be discussed in context.** A compact AtlasMind logo beside the live status opens a plain-language explanation of what the enabled methodology is meant to establish, what the current files/report/tooling do and do not prove, and whether leaving the policy alone, changing configuration, or improving tests is the safest next step.
+
+### Fixed
+- **The retained activated-testing result handoff works again.** Its browser action had a validated message and a host-owned, redacted prompt builder, but the handler call itself was commented out, leaving the visible **Open result in Atlas Chat** control inert.
+- **`atlasmind.acp.hideConsoleWindows` now covers the ACP health probe, which is the path that launches most often.** Of the three places that start an agent, only the probe omitted its launch options, so the private-desktop wrapper saw no request and started the agent — and every console its descendants allocate — on the visible desktop. Any panel or tree refresh past the 5-minute probe TTL relaunched it, which is why a ticked checkbox still produced terminal windows. The probe cache key had always keyed on this setting; now the spawn honours it too.
+
+### Security
+- **Discussion actions re-resolve live host state instead of trusting displayed error or policy text.** MCP errors cross the webview boundary as a server id, Testing coverage as a fixed methodology id, and dashboard refresh failures use the host-retained error. Before any of those values reaches a chat draft, likely secrets are redacted, controls and length are bounded, and repository/process text is fenced explicitly as reported data rather than instructions.
+
+## [0.235.3] - 2026-08-01
+
+### Fixed
+- **Webview labels, buttons, badges, and compact analytics rows now size to readable content instead of splitting ordinary words into fragments.** The shared shell applied `min-width: 0` and `overflow-wrap: anywhere` to inline text and controls as well as structural containers, so flex and grid layouts could compress `requirement`, `evidence`, and `knowledge-graph` into a few characters per line even when the surrounding panel had room. Zero minimum widths are now limited to structural boxes, prose wraps at word boundaries, only genuinely unbroken links use anywhere wrapping, and controls remain bounded by their panel. Project Ideation's memory targets now wrap as whole content-sized checkbox labels, while analytics rows reserve intrinsic columns for kind and score and give the flexible middle column to card titles and meters.
+
+## [0.235.2] - 2026-08-01
+
+### Fixed
+- **Gemini ACP no longer advertises personal Google AI subscriptions that Google stopped serving.** Google ended Gemini CLI access for free individual and personal Google AI Pro and Ultra accounts on 18 June 2026; OAuth still succeeds in the browser before the Code Assist backend rejects the client, which made AtlasMind's **Use my Gemini subscription** offer a dead end. The Google card now says **Use my Code Assist license**, every built-in setup surface carries the same entitlement boundary, and setup confirms it before installing or probing: an assigned Gemini Code Assist Standard or Enterprise license is required. Gemini Enterprise Standard and Plus include Code Assist Standard after separate assignment; Business and Frontline do not. The direct Google Gemini API provider is unchanged.
+
+## [0.235.1] - 2026-08-01
+
+### Security
+- **Closed the remaining Dependabot alert for `qs` without widening the production dependency graph.** `@stryker-mutator/core@9.6.1` brings in `typed-rest-client@2.3.1`, which pins vulnerable `qs@6.15.1` exactly; npm cannot lift that transitive edge with a normal audit fix, and even `typed-rest-client@3.0.0` still carries the same pin. The root npm override now forces patched `qs@6.15.2` across the tree; every other consumer already resolved to or accepted that release, so the practical graph change is the single development-only Stryker copy. The production audit remains clean, and a manifest test prevents the override from disappearing before upstream removes the vulnerable constraint.
+
 ## [0.235.0] - 2026-08-01
 
 ### Changed

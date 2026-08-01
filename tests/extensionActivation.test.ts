@@ -279,10 +279,12 @@ describe('runActivationStep', () => {
     const extensionRoot = path.join(tempRoot, 'extension');
     const globalStorageRoot = path.join(tempRoot, 'storage');
     const cliEntryPath = path.join(extensionRoot, 'out', 'cli', 'main.js');
+    const acpEntryPath = path.join(extensionRoot, 'out', 'cli', 'acpAgent.js');
 
     await fs.mkdir(path.dirname(cliEntryPath), { recursive: true });
     await fs.mkdir(globalStorageRoot, { recursive: true });
     await fs.writeFile(cliEntryPath, 'console.log("atlasmind");\n', 'utf8');
+    await fs.writeFile(acpEntryPath, 'console.log("atlasmind-acp");\n', 'utf8');
 
     const prepend = vi.fn();
     const environmentVariableCollection = {
@@ -305,13 +307,22 @@ describe('runActivationStep', () => {
 
     const shellShim = await fs.readFile(path.join(globalStorageRoot, 'bin', 'atlasmind'), 'utf8');
     const cmdShim = await fs.readFile(path.join(globalStorageRoot, 'bin', 'atlasmind.cmd'), 'utf8');
+    const acpShellShim = await fs.readFile(path.join(globalStorageRoot, 'bin', 'atlasmind-acp'), 'utf8');
+    const acpCmdShim = await fs.readFile(path.join(globalStorageRoot, 'bin', 'atlasmind-acp.cmd'), 'utf8');
+    const acpRunner = await fs.readFile(path.join(globalStorageRoot, 'bin', 'atlasmind-acp-runner.js'), 'utf8');
 
     expect(shellShim).toContain('ELECTRON_RUN_AS_NODE=1');
     expect(shellShim).toContain('main.js');
     expect(cmdShim).toContain('set ELECTRON_RUN_AS_NODE=1');
     expect(cmdShim).toContain('main.js');
+    expect(acpShellShim).toContain('ELECTRON_RUN_AS_NODE=1');
+    expect(acpShellShim).toContain('acpAgent.js');
+    expect(acpCmdShim).toContain('set ELECTRON_RUN_AS_NODE=1');
+    expect(acpCmdShim).toContain('acpAgent.js');
+    expect(acpRunner).toContain('runAcpAgentCli');
+    expect(acpRunner).toContain('acpAgent.js');
     expect(outputChannel.appendLine).toHaveBeenCalledWith(
-      expect.stringContaining('cliPath enabled atlasmind in new integrated terminals'),
+      expect.stringContaining('cliPath enabled AtlasMind launchers in new integrated terminals'),
     );
   });
 });

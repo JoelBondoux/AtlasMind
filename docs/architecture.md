@@ -63,7 +63,7 @@
 2. `extension.ts` → `activate()` runs:
   - Creates core services: `CostTracker`, `AgentRegistry`, `SkillsRegistry`, `ModelRouter`, `TaskProfiler`, `MemoryManager`, `ToolWebhookDispatcher`.
     - Creates `VoiceManager` for browser-based voice panel orchestration and optional ElevenLabs audio delivery. It also owns a `HostSpeechSynthesizer` (`src/voice/hostSpeechSynthesizer.ts`) that drives the OS's built-in speech engine (Windows SAPI via PowerShell, macOS `say`, Linux `espeak-ng`) on-device when `atlasmind.voice.hostSpeechEnabled` is set; TTS backend priority is ElevenLabs → OS host engine → Web Speech API. For speech-to-text it owns a `LocalTranscriber` (`src/voice/localTranscriber.ts`) that runs a local `whisper-cli` on webview-captured WAV audio; the model (and, on Windows x64, the binary) are SHA-256-verified downloads provisioned on first use, and audio never leaves the machine. STT engine selection (`atlasmind.voice.sttEngine`) is `auto` | `webspeech` | `local`.
-  - Creates `ProviderRegistry` and registers provider adapters, including the ACP subscription bridge.
+  - Creates `ProviderRegistry` and registers provider adapters, including the ACP subscription/license bridge. Gemini is advertised there only with the assigned Code Assist Standard/Enterprise entitlement it requires; a published ACP command is not treated as proof that a personal plan may use it.
    - Instantiates the `Orchestrator` with all services injected.
    - Bundles services into `AtlasMindContext`.
    - Calls `registerChatParticipant()`, `registerCommands()`, `registerTreeViews()`.
@@ -73,6 +73,18 @@ The AtlasMind sidebar now starts with a compact Quick Links webview row that sit
 
 AtlasMind's Voice panel is currently a webview-first specialist surface. It uses the Web Speech API for in-panel STT and fallback TTS, can route optional ElevenLabs audio through a selectable HTML audio sink when the runtime supports it, and stores preferred microphone and speaker ids for future native backends. There is not yet a host-side OS-native speech adapter.
 
+## Agent-side ACP endpoint
+
+`src/cli/acpAgent.ts` exposes AtlasMind itself as a local ACP v1 agent over newline-delimited JSON on stdin/stdout. This is the inverse of the routed ACP provider adapter: instead of AtlasMind driving Claude/Codex/etc., an ACP client such as Buzz drives AtlasMind's shared headless runtime.
+
+`src/acp/atlasMindAcpAgent.ts` owns ACP sessions, bounded transcript context, streamed message chunks, cancellation, and the permission broker. A session must use an absolute directory inside the configured workspace; client-declared additional directories are validated against the same boundary. Client-supplied MCP server commands are not launched. The core orchestrator has one shared execution context, so the endpoint permits one prompt turn at a time rather than racing two sessions through it.
+
+Risky tool calls cross back to the ACP client through `session/request_permission`. The broker offers only `allow_once` and `reject_once`, ignores `allow_always`, redacts and bounds tool arguments, and denies if the prompt/permission context has disappeared. Read-only tools retain the normal headless policy.
+
+For Buzz, `src/acp/buzzReplyPublisher.ts` is the reciprocal delivery seam. Buzz's `buzz-acp` remains the harness and supplies generated channel/event context. AtlasMind parses only that generated context, requires a channel UUID and one reply event that also appears in generated metadata, then passes the final answer to the existing communication-only `BuzzCliBridge`. The model never receives Buzz shell, file-edit, repository, workflow, or admin tools.
+
+The VS Code host creates `atlasmind-acp` launch shims beside the normal CLI shim. Buzz cannot launch a Windows `.cmd` shim directly as an ACP child, so the copied recipe instead invokes a stable JavaScript runner through the VS Code Electron executable with `ELECTRON_RUN_AS_NODE=1`; no `cmd.exe` is involved. **AtlasMind: Copy Buzz ACP Agent Setup** copies that workspace-specific, credential-free recipe; it does not edit Buzz state or export SecretStorage values.
+
 ## Core Services
 
 ### Orchestrator (`src/core/orchestrator.ts`)
@@ -80,12 +92,25 @@ AtlasMind's Voice panel is currently a webview-first specialist surface. It uses
 Central coordinator. Receives a `TaskRequest` and:
 1. Selects the best agent via `AgentRegistry`.
 2. Gathers relevant memory slices via `MemoryManager.queryRelevant()`.
-3. Builds a task profile via `TaskProfiler`.
-4. Picks a model via `ModelRouter.selectModel()`.
-5. Resolves skills for the agent via `SkillsRegistry.getSkillsForAgent()`.
-6. Composes immutable guardrails, the portable operating contract, the selected role prompt, and the shared plus agent-specific execution rubric.
-7. Builds a context bundle and dispatches execution, enforcing incomplete-delivery and verification gates.
-8. Records cost and an evidence-backed execution-quality outcome via `CostTracker` and `ModelRouter`.
+3. Resolves the agent's enabled skill eligibility pool and narrows `task-scoped` agents to at most 12 relevant tools for the current request.
+4. Builds a task profile via `TaskProfiler`, including whether the selected turn needs tool execution.
+5. Picks a model via `ModelRouter.selectModel()`.
+6. Builds callable schemas, accounting for their tokens in prompt budgets, while omitting the former duplicate skills prose.
+7. Composes immutable guardrails, the portable operating contract, the selected role prompt, and the shared plus agent-specific execution rubric.
+8. Builds a context bundle and dispatches execution, enforcing incomplete-delivery and verification gates.
+9. Records cost and an evidence-backed execution-quality outcome via `CostTracker` and `ModelRouter`.
+
+Host-specific settings enter through `OrchestratorHooks.readSetting`. The VS Code host supplies a configuration reader; CLI and ACP hosts receive safe defaults. This keeps the core importable without loading the `vscode` module in a headless process.
+
+Tool-backed ACP execution is a separate execution shape, not an emulation of AtlasMind function calling. When the live `atlasmind.acp.toolsEnabled` setting is true, the Orchestrator adds `RoutingConstraints.allowDelegatedToolExecution`; the router may then admit an ACP `ModelInfo` that declares `delegatedToolExecution`. If that ACP model is selected, the Orchestrator passes an empty AtlasMind tool-schema list and lets the subscription agent use its native tools. Every native operation still returns through `AcpPermission`; a non-ACP failover receives the original AtlasMind tool definitions again.
+
+Execution is bounded across all routing paths. A task may invoke at most three model endpoints, including the initial choice, capability re-route, escalation, and provider failover. Transport failures open a turn-local circuit keyed to the real execution endpoint (`acp:<agent>`, `local:<endpoint>`, or provider), not merely the displayed model id, so cosmetic model/effort variants cannot relaunch the same unhealthy process. `TaskResult.modelAttempts` records only endpoints actually called; selection previews are not audit evidence.
+
+Provider text is attempt-scoped. Each candidate stream is buffered privately and only the accepted final completion crosses the Chat callback. Diagnostics such as skills-context-budget warnings are emitted once through progress, while response sanitation collapses exact trailing loops and repeated long paragraphs outside code fences. This keeps abandoned model prose out of both the visible answer and stored transcript.
+
+Explicit user constraints also become a `TurnCapabilityEnvelope`. “Read-only”, “do not edit”, and “do not run commands” filter skill definitions before routing/prompt construction and are checked again immediately before execution. Restricted turns cannot use delegated ACP native tools because AtlasMind cannot impose its per-turn schema ceiling inside that external agent.
+
+`AgentDefinition.skillPolicy` separates eligibility semantics from the skill IDs themselves. `task-scoped` is the safe default; an empty list admits built-ins only and custom/MCP skills must be named. `allowlist` preserves an exact enabled set, while `all` is the sole deliberate every-skill mode. The selector consumes explicit IDs, request intent, and bounded session follow-through context, but it can only narrow the registry result and capability envelope. The selected schemas are the single model-facing capability description. Their serialized size participates in initial cost estimates, memory/session allocation, and every loop's completion headroom.
 
 The operating contract and rubric are injected in `buildMessages()` rather than copied into built-in definitions. This closes prompt drift across hand-written specialists, custom agents, ephemeral project agents, synthesized agents, and persisted prompt overrides. Built-in role prompts therefore contain only specialist scope and boundaries; all 16 user-facing specialists add concise observable criteria through `completionCriteria.rubric`. Detailed SEO and UX checklists are progressively disclosed by `src/skills/specialistGuidance.ts` only when relevant, keeping volatile platform and standards details out of permanent prompts. `completionCriteria.incompletePatterns` is evaluated inside the agentic loop using a bounded restricted-regex policy before the existing one-time completion-integrity reprompt. Execution artifacts record failed tool-call count alongside tool count, verification, and TDD status so the router's outcome signal reflects observable delivery rather than only the provider finish reason. The agentic loop also recognizes explicit runtime claims that workspace tools are disabled or unavailable: instead of spending the remaining iterations re-prompting the same bridge, it marks that model's runtime capability as failed and immediately asks the provider-failover path for another `function_calling` model. If no recovery succeeds, the project classifier records the refusal as failed, never completed.
 
@@ -96,7 +121,7 @@ In-memory map of `AgentDefinition` objects. Supports `register()`, `unregister()
 ### SkillsRegistry (`src/core/skillsRegistry.ts`)
 
 In-memory map of `SkillDefinition` objects. Also supports:
-- `getSkillsForAgent()` — resolves skills for an agent, filtered to enabled skills only.
+- `getSkillsForAgent()` — resolves an agent's enabled eligibility pool using `task-scoped`, `allowlist`, or `all` semantics. Missing legacy policies fail narrow: populated lists are allowlists; empty lists admit built-ins only.
 - `enable(id)` / `disable(id)` — toggle availability; `enable` throws if the skill has a failed scan.
 - `setScanResult(result)` / `getScanResult(id)` — store and retrieve security scan results.
 - `setDisabledIds(ids)` / `getDisabledIds()` — bulk restore/persist disabled state.
@@ -108,6 +133,8 @@ Utility helpers that build the prompt for Atlas-generated custom skill drafts, n
 ### ModelRouter (`src/core/modelRouter.ts`)
 
 Maintains a map of `ProviderConfig` objects plus provider health state. `selectModel()` accepts `RoutingConstraints`, an optional model whitelist, and an optional `TaskProfile`. It filters by required capabilities, task-profile gates, and provider health before scoring the remaining models using budget mode, speed mode, capability proxies, and task fit. `getModelInfo()` exposes pricing metadata for orchestration cost accounting.
+
+`function_calling` normally remains a hard capability requirement. The one explicit alternative is delegated provider execution: `modelSatisfiesRequiredCapability()` accepts `ModelInfo.delegatedToolExecution` only when the same turn carries `RoutingConstraints.allowDelegatedToolExecution`. Discovery states capability; the live constraint states authority. Neither one is sufficient alone, so installing or discovering an ACP agent cannot silently make it eligible to act.
 
 The router carries two learned, decaying routing channels (both gated by `feedbackRoutingWeight`): a positive **outcome bias** (EWMA of graded execution quality, in `executionOutcomes`) and a **struggle memory** (`struggleSignals`) — a persistent, task-signature-keyed de-weight for models that repeatedly fail a *kind* of task. Normal orchestrator grades incorporate expected tool use, tool success/failure counts, verification, TDD status, incomplete-delivery signals, and the final recovered response; clean text is no longer automatically a perfect execution outcome. The explicit Model Comparison harness intentionally retains its coarse completion-integrity grade and optional judge. `recordModelStruggle()` folds a severity-weighted, decaying increment (kinds: timeout, empty, tool-call-as-text, error-finish, user-correction) keyed by `phase|modality|reasoning|requiresTools`; `scoreModel()` subtracts the decayed penalty, and `selectBestModel()` applies a **tier-escape** (re-opening candidacy one budget tier higher and re-ranking) when the top pick is a chronic struggler, so a capable model can take over the task kind a cheap model keeps failing. `recoverModelStruggle()` halves the penalty on a clean turn; `getStruggleSignals()`/`setStruggleSignals()` snapshot/restore for persistence (`globalState` key `atlasmind.modelStruggleSignals`); `getStruggleSummary()` exposes active de-weights for the Model Comparison panel hint.
 
@@ -129,6 +156,8 @@ The extension-scoped routed `AcpAdapter` is also the owner of reusable ACP conve
 2. The recorded client transcript must be an exact prefix of the new request. Only the unseen suffix is sent because the remote ACP session already holds the prefix. Edited history and branches create another session.
 
 Identical concurrent completions join one in-flight prompt; successful identical retries are replayed for 15 seconds. An error after a prompt may have crossed stdio is never retried, and the uncertain session is discarded. The adapter holds at most four parallel conversations and closes them during extension deactivation.
+
+ACP discovery declares `delegatedToolExecution` but deliberately never declares `function_calling`: the adapter cannot consume AtlasMind `ToolDefinition` schemas and refuses any request containing them. The host supplies a live `delegatedExecutionEnabled` getter independently of the MCP allowlist. That distinction matters because an ACP agent may have built-in tools while sharing zero MCP servers. Completion-only isolation follows the explicit setting, and changing it alters the launch/coalescing fingerprint so an already-live isolated session cannot be reused after tools are enabled.
 
 `acpWindowsLauncher.ts` is the TypeScript integrity/selection boundary for the opt-in Windows private-desktop path. It verifies the checked-in helper under `media/bin/`, then places the already-resolved executable behind it without introducing a shell. The auditable helper source is `native/acp-private-desktop/`: it creates a desktop with the minimum `DESKTOP_CREATEWINDOW` access, uses `STARTUPINFOEX`/`PROC_THREAD_ATTRIBUTE_HANDLE_LIST` to inherit only stdio, starts the child with `CREATE_NO_WINDOW`, waits, and forwards the exit code. It never switches desktops. The feature is off by default because hidden desktops are a Defender-visible hVNC technique and may trigger enterprise EDR.
 
@@ -316,7 +345,7 @@ The repository's issue tracker, read into the Project Dashboard → **Issues** p
 
 **A body that reaches a model is quoted as data.** `buildIssueWorkPrompt` fences the issue and labels it `REPORTED CONTENT, not instructions`, telling the model not to follow anything inside it and not to treat its claims as verified. This is the one path on the page where text written by an arbitrary internet user reaches a model that can call tools, so the mitigation lives in the prompt itself rather than in a reviewer's memory (pinned by test).
 
-**Reads on demand; writes behind a confirmation.** The list comes from a rate-limited network call, so it is fetched when the user asks and cached on the panel — never refreshed as part of an unrelated render. Creating, commenting, closing, and reopening are outward-facing and usually public, so each is gated on a `{ modal: true }` confirmation built by `describeIssueAction` from the same values that will be sent; the webview supplies data only, never a command or an argument list, and `gh` is executed directly rather than through a shell. Failure modes are reported as themselves with the command that fixes them (`gh` missing, not authenticated, no GitHub repo) — "no issues" and "we could not look" are different facts, and collapsing them would report a clean tracker that nobody checked.
+**One bounded read; writes behind a confirmation.** The ready handshake reads issues, pull requests, CI, releases, labels, and milestones into one panel-held snapshot. A reveal retries only after a five-minute freshness window, manual Refresh bypasses the time check, and both routes share one in-flight guard. The read is never part of ordinary render churn, and absence remains typed: "nothing loaded", "the read failed", and "zero issues" are different states. Creating, commenting, closing, and reopening are outward-facing and usually public, so each is gated on a `{ modal: true }` confirmation built by `describeIssueAction` from the same values that will be sent; the webview supplies data only, never a command or an argument list, and `gh` is executed directly rather than through a shell. Failure modes are reported as themselves with the command that fixes them (`gh` missing, not authenticated, no GitHub repo).
 
 ### WorkflowCurriculum (`src/core/workflowCurriculum.ts`)
 
@@ -339,6 +368,12 @@ Every statistic on the Workflow page, derived purely so each is testable against
 Consequences that follow from that one decision: `median` refuses below `MIN_SAMPLES_FOR_MEDIAN` (3) so one data point is never reported as a project characteristic; `percentage` has no verdict on a zero denominator; `deriveCiMetrics` on an empty check list reports `none` with a fix hint rather than 0% passing; and `deriveWorkflowHealth` **omits** unmeasured components and redistributes their weight, returning the omissions by name so a score of 80 cannot read as "80% of everything is fine".
 
 Output shapes match the dashboard's existing render primitives — series for `renderChartCard`, slices for `renderDonutChart`, segments for `renderDistributionBar` — so the instrumentation wall is assembled from components that already exist. `deriveBranchMetrics` exempts integration and release branches from naming conformance, because a permanent unfixable gap teaches people to ignore gaps; `deriveCommitConformance` excludes platform-generated merge commits, which would otherwise penalise a team for using squash merges.
+
+### Models Sidebar Visibility (`src/views/modelSidebarVisibility.ts`)
+
+The Models tree treats hidden rows as a **user-profile presentation preference**, never as model configuration. `ModelsTreeProvider` filters provider, ACP subscription-route, and model identities read from `globalState`; it does not call provider enablement, alter credentials, change agent assignments, or remove a candidate from `ModelRouter`. When filtering removes every root or every child of an expanded provider, the tree renders a Settings-linked placeholder so an intentionally quiet view cannot be mistaken for missing configuration.
+
+Settings → Models & Integrations reads the same bounded, sanitized entries and renders one Restore action per identity. The webview sends only an encoded entry key. The extension host re-reads its own stored array and removes an exact match, so a browser-originated message cannot invent a provider operation or use this presentation control to mutate routing. Entries retain raw provider/model ids rather than display labels, allowing live names to change without orphaning the restore preference.
 
 ### ProjectStateTree (`src/core/projectStateTree.ts`)
 
@@ -700,6 +735,8 @@ Until this module, nothing in AtlasMind sanitized that text — because nothing 
 
 `parseGhPullRequestList` never throws: malformed JSON, a wrong shape, or one unusable entry degrades to *fewer pull requests*, never to an exception on a dashboard render. `buildPrReviewPrompt` fences review bodies as REPORTED CONTENT and instructs the model not to follow them, so the mitigation lives where the prompt is built rather than in a reviewer's memory. Two smaller decisions carry real weight: an unrecognised review verdict reads as `commented` rather than `approved`, so a malformed feed can never satisfy an approval gate; and `parseLinkedIssues` recognises only GitHub's closing keywords, so a bare `#142` is not counted as traceability the repository does not have.
 
+`derivePullRequestIssueDraft` is the repair path for that traceability gap. It converts the current sanitized open PR record into fixed-order, editable issue text without a model, carries only labels that already exist on the repository, and never posts. The browser sends a positive PR number; the host re-resolves it and refuses a stale, closed, or already-linked record before opening the existing composer. The ordinary issue-write policy and confirmation remain the only route to GitHub.
+
 ### BranchNaming (`src/core/branchNaming.ts`)
 
 `deriveBranchName` turns an issue into `feat/142-guided-github-workflow`. A branch name is the only context anyone gets before opening a branch, and deriving it means the link back to the issue is never forgotten because it was never typed.
@@ -733,6 +770,8 @@ Answers, for every *enabled* testing policy, the question the Testing dashboard 
 Each policy has a **marker set** (file-path patterns, dependency names, script-name patterns, config paths) chosen to be something the tooling itself creates — a `.feature` file, a `stryker.conf`, a `__snapshots__` directory — never a word that might appear in a filename, because a false "covered" is the one outcome the panel must not produce. That yields four statuses: `covered` (matching test files exist), `tooling-only` (its tooling is installed but nothing tests with it), `missing` (enabled with nothing to show), and `not-file-evident` for the policies that are a *practice* rather than an artifact (exploratory, black-box, gray-box, V-model, white-box, test-design, agile testing) — those are **never** reported as a gap, since flagging a practice trains people to ignore the panel.
 
 **Failures come only from a report the project produced.** `parseJUnitReport` reads the JUnit XML interchange format every mainstream runner can emit (vitest/jest reporters, pytest `--junitxml`, Playwright, surefire, gotestsum, dotnet). Nothing here ever runs a test command — a dashboard that shells out on render is both a surprise and an execution surface — so when no report exists the page says it has *no verdict* and quotes the command that would create one, rather than rendering "0 failures". The report is untrusted input: the parser never throws, resolves no entities beyond the five predefined ones and no external DTDs (attributes are read by regex, not an XML parser), caps how much it reads and how many cases it keeps, clamps and control-strips every string, and prefers the failures it can *count* over the totals the report *asserts* so a hand-edited report cannot present itself as clean. **Failure messages are deliberately never extracted** — an assertion message can carry values from a test environment and this data is rendered in a webview; the test name, suite, and file are enough to open it. Report staleness (a test file changed after the report was written) is surfaced rather than hidden, and skipped-test counts are derived locally from the test files themselves, so that signal exists even with no report at all.
+
+**The explainer is also derived, never routed.** `buildTestingPolicyLaymanGuide` is total over the 23-methodology id union and declares the beginner-facing meaning and expected result of every policy; requirements, use case, and trade-off come from the same catalogue and marker rules that produce the status. The Dashboard host combines that guide with the freshly rebuilt `TestingPolicyRow`, explains why the status follows and what it cannot prove, then opens Chat with a one-shot `ChatPanelDirectResponse`. The response is consumed before any asynchronous work and bypasses `Orchestrator.processTask`, so a deterministic explanation cannot fan out through provider recovery. Chat normalizes, bounds, and secret-redacts the host-authored Markdown/metadata, accepts only an `atlasmind/*` source id, and renders bounded follow-up prompts as quick-reply chips; those chips cannot name commands.
 
 ### TestingProtocolSync (`src/utils/testingProtocolSync.ts`)
 
@@ -957,7 +996,10 @@ User message → Chat Participant → Orchestrator.processTask()
   → TaskProfiler.profileTask()
   → ModelRouter.selectModel()
   → SkillsRegistry.getSkillsForAgent()
-  → ProviderAdapter.complete()
+  → execution boundary
+      → ordinary function-calling provider: ProviderAdapter.complete(AtlasMind tool definitions)
+      → eligible ACP with delegated execution enabled: ProviderAdapter.complete(no AtlasMind tool definitions)
+          → ACP-native operation → AcpPermission → ToolApprovalManager
   → CostTracker.record()
   → TaskResult → Chat response stream
 ```
@@ -1043,6 +1085,7 @@ extension.ts
   │     │     └── core/missionRunner.ts (→ core/goalEvaluator.ts, core/missionRegistry.ts)
   │     └── bootstrap/bootstrapper.ts
   ├── views/treeViews.ts
+  ├── views/modelSidebarVisibility.ts (user-level Models tree filtering + exact-entry restore)
   └── core/orchestrator.ts
         ├── core/agentRegistry.ts
         ├── core/skillsRegistry.ts
@@ -1107,9 +1150,9 @@ All shared types live in `src/types.ts`. See the [type definitions](../src/types
 |---|---|
 | `AgentDefinition` | Agent identity, role, system prompt, allowed models, cost limit, skills, and optional completion rubric/incomplete-response gates |
 | `SkillDefinition` | Skill identity, JSON Schema for tool params, handler path |
-| `ModelInfo` | Model identity, provider, pricing, context window, capabilities, reasoning depth, latency class, and prompt-cache support (`supportsPromptCaching`, `cachedInputPricePer1k`) |
+| `ModelInfo` | Model identity, provider, pricing, context window, capabilities, optional delegated-native-tool execution shape, reasoning depth, latency class, and prompt-cache support (`supportsPromptCaching`, `cachedInputPricePer1k`) |
 | `ProviderConfig` | Provider identity, API key setting key, enabled flag, model list |
-| `RoutingConstraints` | Budget mode, speed mode, max cost, preferred provider, preferred model (role pin), parallel slots, cacheable-prefix ratio |
+| `RoutingConstraints` | Budget mode, speed mode, max cost, preferred provider, preferred model (role pin), parallel slots, cacheable-prefix ratio, and the live delegated-tool authority required before that execution shape can satisfy `function_calling` |
 | `TaskProfile` | Inferred task phase, modality, reasoning intensity, and capability preferences |
 | `ModelStruggleKind` | A way a model under-performed on a turn: `timeout`, `empty`, `tool-call-as-text`, `error-finish`, `user-correction` |
 | `ModelStruggleState` | Persistent decaying de-weight for a model on a task signature: `penalty`, `lastUpdated`, `hits`, `lastKind` |

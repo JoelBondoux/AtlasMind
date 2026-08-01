@@ -55,6 +55,16 @@ export interface ModelInfo {
   inputPricePer1k: number;   // USD
   outputPricePer1k: number;  // USD
   capabilities: ModelCapability[];
+  /**
+   * The provider can satisfy a tool-backed task by letting its agent execute
+   * native tools inside the provider session, rather than by returning
+   * AtlasMind `tool_calls`.
+   *
+   * This is capability only, never permission. Routing may use it only when
+   * `RoutingConstraints.allowDelegatedToolExecution` is true, and the provider
+   * remains responsible for approval-gating every native operation.
+   */
+  delegatedToolExecution?: boolean;
   specialistDomains?: SpecialistDomain[];
   enabled: boolean;
   /**
@@ -218,6 +228,15 @@ export interface RoutingConstraints {
   /** Hard requirements that the selected model must support. */
   requiredCapabilities?: ModelCapability[];
   /**
+   * Permit a model with `delegatedToolExecution` to satisfy a
+   * `function_calling` requirement using its provider-native tools.
+   *
+   * Off unless the host has an explicit delegated-execution authorization
+   * setting. It never means AtlasMind tool schemas may be passed to that
+   * provider.
+   */
+  allowDelegatedToolExecution?: boolean;
+  /**
    * Number of concurrent model slots the caller needs for this task batch.
    * When > 1, the router will allow pay-per-token overflow beyond
    * subscription providers to enable parallelism.
@@ -346,6 +365,13 @@ export interface ModelStruggleState {
  */
 export type AgentAutoUpdateCadence = 'never' | 'every-use' | 'daily' | 'weekly' | 'monthly';
 
+/**
+ * How an agent's declared `skills` list becomes an execution-time eligibility
+ * pool. Missing values are treated as the safe legacy default:
+ * `allowlist` when ids are present, otherwise `task-scoped`.
+ */
+export type AgentSkillPolicy = 'task-scoped' | 'allowlist' | 'all';
+
 export interface AgentDefinition {
   id: string;
   name: string;
@@ -354,7 +380,14 @@ export interface AgentDefinition {
   systemPrompt: string;
   allowedModels?: string[];  // model IDs – empty = any
   costLimitUsd?: number;
-  skills: string[];           // skill IDs
+  skills: string[];           // skill IDs; meaning is controlled by skillPolicy
+  /**
+   * `task-scoped`: deterministically select a small relevant subset per turn.
+   * An empty list means built-in skills are eligible; external/MCP skills must
+   * be named explicitly. `allowlist`: expose exactly the named enabled skills.
+   * `all`: deliberately expose every enabled skill, including external skills.
+   */
+  skillPolicy?: AgentSkillPolicy;
   /**
    * Routing need IDs this agent is the primary handler for.
    * Used by the orchestrator as the dominant signal when the classifier
@@ -789,6 +822,12 @@ export interface DataPrivacyActivityEvent {
  * verification without inflating the constructor parameter list.
  */
 export interface OrchestratorHooks {
+  /**
+   * Host-owned settings reader. The core orchestrator has no direct dependency
+   * on VS Code so the same runtime can run behind a stdio ACP client or CLI.
+   */
+  readSetting?: <T>(key: string, fallback: T) => T;
+
   /** Gate function that determines whether a tool invocation should proceed. */
   toolApprovalGate?: (
     taskId: string,
@@ -2755,6 +2794,20 @@ export interface TaskImageAttachment {
   dataBase64: string;
 }
 
+/** One model endpoint AtlasMind actually invoked while producing a task result. */
+export interface TaskModelAttempt {
+  model: string;
+  providerId: string;
+  /** Turn-local circuit-breaker key. Contains no URL, command, or credential. */
+  endpointScope: string;
+  status: 'completed' | 'timeout' | 'error' | 'capability-mismatch' | 'escalated';
+  durationMs: number;
+  inputTokens: number;
+  outputTokens: number;
+  /** Bounded diagnostic text for failed or superseded attempts. */
+  reason?: string;
+}
+
 export interface TaskResult {
   id: string;
   agentId: string;
@@ -2765,6 +2818,8 @@ export interface TaskResult {
   outputTokens: number;
   contextCompressionSavingsUsd?: number;
   durationMs: number;
+  /** Every model endpoint actually invoked, in order. Selection previews are excluded. */
+  modelAttempts?: TaskModelAttempt[];
   artifacts?: Omit<SubTaskExecutionArtifacts, 'changedFiles' | 'diffPreview'>;
   /** Set when a provider was automatically paused mid-request (e.g. billing failure). */
   autoDisabledProvider?: {

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-07-28T02:14:47.553Z",
+  "updatedAt": "2026-08-01T11:24:00.535Z",
   "project": {
     "name": "atlasmind",
     "summary": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry."
@@ -80,7 +80,7 @@
       "title": "Buzz project channel",
       "links": [
         {
-          "id": "link-443a7fd2-dc28-46a6-998e-8721589f2778",
+          "id": "link-buzz-443a7fd2-dc28-46a6-998e-8721589f2778",
           "kind": "buzz",
           "label": "Local Buzz",
           "handle": "443a7fd2-dc28-46a6-998e-8721589f2778",
@@ -111,6 +111,11 @@
       "id": "tm-contact-joelbondoux",
       "contactId": "contact-joelbondoux",
       "discipline": "code-owner"
+    },
+    {
+      "id": "tm-contact-atlasmind-local",
+      "contactId": "contact-atlasmind-local",
+      "discipline": "contributor"
     }
   ],
   "responsibilities": [

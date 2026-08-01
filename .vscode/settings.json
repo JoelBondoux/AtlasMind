@@ -39,5 +39,11 @@
             "id": "claude",
             "command": "claude-agent-acp"
         }
-    ]
+    ],
+    "atlasmind.acp.toolsEnabled": true,
+    "atlasmind.buzz.enabled": true,
+    "atlasmind.buzz.inboundEnabled": true,
+    "atlasmind.buzz.inboundChannels": ["443a7fd2-dc28-46a6-998e-8721589f2778"],
+    "atlasmind.buzz.autoCreateFollowUps": false,
+    "atlasmind.buzz.relayUrl": "ws://localhost:3000"
 }

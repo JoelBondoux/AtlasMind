@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "updatedAt": "2026-07-31T20:18:04.804Z",
+  "version": 2,
+  "updatedAt": "2026-08-01T20:31:40.242Z",
   "methodologies": [
     {
       "id": "tdd",

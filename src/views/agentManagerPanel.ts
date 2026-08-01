@@ -4,6 +4,7 @@ import type { AgentAutoUpdateCadence, AgentDefinition, TestingMethodologyId } fr
 import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
 import { readProjectTestingConfig } from './settingsPanel.js';
+import { resolveAgentSkillPolicy } from '../core/skillsRegistry.js';
 
 // ── Globalstate key for persisted user agents ────────────────────
 const STORAGE_KEY = 'atlasmind.userAgents';
@@ -47,12 +48,14 @@ interface AgentFormData {
   allowedModels: string;
   /** Numeric string or empty. */
   costLimitUsd: string;
-  /** Newline-separated skill IDs; ignored when skillsAutoManaged is true. */
+  /** Newline-separated skill IDs; ignored for task-scoped auto or all-enabled mode. */
   skills: string;
   /** When true, this agent is excluded from the global auto-update cadence. */
   autoUpdateExcluded: boolean;
   /** When true, skill assignments are managed automatically based on agent role and context. */
   skillsAutoManaged: boolean;
+  /** Deliberate advanced override: expose every enabled skill, including custom/MCP. */
+  skillsUseAll?: boolean;
   /** JSON-serialised Partial<Record<TestingMethodologyId, string>>; empty string means no overrides. */
   testingModelOverridesJson: string;
   /** Newline-separated, observable definition-of-done rows. */
@@ -104,7 +107,8 @@ export function isAgentPanelMessage(msg: unknown): msg is AgentPanelMessage {
     ];
     return stringFields.every(field => typeof values[field] === 'string') &&
       typeof values['autoUpdateExcluded'] === 'boolean' &&
-      typeof values['skillsAutoManaged'] === 'boolean';
+      typeof values['skillsAutoManaged'] === 'boolean' &&
+      (values['skillsUseAll'] === undefined || typeof values['skillsUseAll'] === 'boolean');
   }
   return false;
 }
@@ -360,7 +364,7 @@ export class AgentManagerPanel {
             description: data.description.trim(),
             systemPrompt: data.systemPrompt.trim(),
             autoUpdateExcluded: data.autoUpdateExcluded || undefined,
-            skillsAutoManaged: data.skillsAutoManaged || undefined,
+            skillsAutoManaged: existing.skillsAutoManaged,
             costLimitUsd: data.costLimitUsd.trim() ? Number(data.costLimitUsd.trim()) : undefined,
             testingModelOverrides: Object.keys(parsedOverrides).length > 0 ? parsedOverrides : undefined,
           };
@@ -379,9 +383,10 @@ export class AgentManagerPanel {
               ? Number(data.costLimitUsd.trim())
               : undefined,
             // When auto-managed, preserve the last auto-assigned skills; manual selections are ignored.
-            skills: data.skillsAutoManaged
+            skills: data.skillsAutoManaged || data.skillsUseAll
               ? (existing?.skills ?? [])
               : data.skills.split('\n').map(s => s.trim()).filter(Boolean),
+            skillPolicy: data.skillsUseAll ? 'all' : data.skillsAutoManaged ? 'task-scoped' : 'allowlist',
             builtIn: false,
             autoUpdateExcluded: data.autoUpdateExcluded || undefined,
             skillsAutoManaged: data.skillsAutoManaged || undefined,
@@ -585,6 +590,12 @@ export class AgentManagerPanel {
       ].join(' ').toLowerCase());
       const filterValues = `${isBuiltIn ? 'built-in' : 'custom'} ${isEnabled ? 'enabled' : 'disabled'}`;
       const selected = this.editingId === agent.id;
+      const policy = resolveAgentSkillPolicy(agent);
+      const policyLabel = policy === 'task-scoped'
+        ? `${agent.skills.length || 'built-in'} eligible · max 12/turn`
+        : policy === 'allowlist'
+          ? `${agent.skills.length} allowlisted`
+          : 'all enabled';
 
       return `<button type="button" class="agent-list-item ${selected ? 'selected' : ''}" data-action="select-agent" data-agent-id="${escapeHtml(agent.id)}" data-agent-search="${searchText}" data-agent-filter-values="${filterValues}" aria-pressed="${selected ? 'true' : 'false'}">
         <span class="agent-list-heading">
@@ -592,7 +603,7 @@ export class AgentManagerPanel {
           <span class="status-dot ${isEnabled ? 'enabled' : 'disabled'}" aria-label="${isEnabled ? 'Enabled' : 'Disabled'}"></span>
         </span>
         <span class="agent-list-role">${escapeHtml(agent.role)}</span>
-        <span class="agent-list-meta">${isBuiltIn ? 'Built-in' : 'Custom'} · ${agent.skills.length} skill${agent.skills.length === 1 ? '' : 's'}</span>
+        <span class="agent-list-meta">${isBuiltIn ? 'Built-in' : 'Custom'} · ${policyLabel}</span>
       </button>`;
     }).join('');
 
@@ -622,13 +633,19 @@ export class AgentManagerPanel {
         isNew ? '' : (agent?.completionCriteria?.incompletePatterns ?? []).join('\n'),
       );
       const autoUpdateExcluded = !isNew && agent?.autoUpdateExcluded === true;
-      // New agents default to Auto; existing agents respect their stored setting.
-      const skillsAutoManaged = isNew ? true : (agent?.skillsAutoManaged !== false);
+      const isBuiltIn = agent?.builtIn === true;
+      // New agents default to task-scoped. Explicit policy wins for existing
+      // definitions; the skillsAutoManaged fallback keeps legacy agents stable.
+      const skillsAutoManaged = isNew
+        ? true
+        : agent?.skillPolicy === 'task-scoped'
+          || (agent?.skillPolicy === undefined && agent?.skillsAutoManaged !== false);
+      const skillsUseAll = !isNew && agent?.skillPolicy === 'all';
 
       const enabledSkillIds = new Set<string>(isNew ? [] : (agent?.skills ?? []));
       const skillCheckboxes = allSkills.map(skill => {
         const checked = enabledSkillIds.has(skill.id) ? 'checked' : '';
-        return `<label><input type="checkbox" class="skill-cb" value="${escapeHtml(skill.id)}" ${checked}> ${escapeHtml(skill.name)}</label>`;
+        return `<label><input type="checkbox" class="skill-cb" value="${escapeHtml(skill.id)}" ${checked} ${isBuiltIn ? 'disabled' : ''}> ${escapeHtml(skill.name)}</label>`;
       }).join('');
 
       // ── Testing Roles ─────────────────────────────────────────────
@@ -677,10 +694,9 @@ export class AgentManagerPanel {
         ? `<div class="form-error">${escapeHtml(this.formError)}</div>`
         : '';
 
-      const isBuiltIn = agent?.builtIn === true;
       const isEnabled = isNew || !agent ? true : this.atlas.agentRegistry.isEnabled(agent.id);
       const builtInNotice = isBuiltIn
-        ? `<div class="built-in-notice">Built-in identity and completion criteria are factory-defined. You can tailor the description, system prompt, skills, cost limit, and testing overrides; <strong>Reset to defaults</strong> removes those customizations.</div>`
+        ? `<div class="built-in-notice">Built-in identity, skill policy, and completion criteria are factory-defined. You can tailor the description, system prompt, cost limit, and testing overrides; <strong>Reset to defaults</strong> removes those customizations.</div>`
         : '';
       const agentIdRow = isNew
         ? `<label>Agent ID</label><div class="hint" style="padding-top:6px">Auto-generated from the name (lowercase letters, digits, hyphens, underscores).</div>`
@@ -740,19 +756,25 @@ export class AgentManagerPanel {
           </details>
 
           <details class="editor-section">
-            <summary><span>Skills</span><small>Automatic or manual capability assignment</small></summary>
+            <summary><span>Skills</span><small>Task-scoped or explicit capability assignment</small></summary>
             <div class="section-body field-grid">
               <label>Assignment</label>
               <div>
                 <label class="skill-auto-label">
-                  <input type="checkbox" id="skillsAutoManaged" ${skillsAutoManaged ? 'checked' : ''} />
-                  Auto — assign skills based on agent role and context
+                  <input type="checkbox" id="skillsAutoManaged" ${skillsAutoManaged ? 'checked' : ''} ${isBuiltIn ? 'disabled' : ''} />
+                  Task-scoped — select only relevant skills for each turn
                 </label>
                 <div class="hint" id="skillsAutoHint" ${skillsAutoManaged ? '' : 'style="display:none"'}>
-                  AtlasMind reassesses relevant skills when capabilities change and after eligible agent updates.
+                  AtlasMind maintains an eligible pool from the agent role, then sends only a bounded relevant subset. Custom and MCP skills must appear in that pool explicitly.
                 </div>
                 <div id="skillsManualSection" ${skillsAutoManaged ? 'style="display:none"' : ''}>
+                  <div class="hint">Manual mode is an explicit allowlist. Only the selected enabled skills are offered.</div>
                   <div class="skill-list">${skillCheckboxes || '<em>No skills registered.</em>'}</div>
+                  <label class="skill-auto-label" style="margin-top:10px">
+                    <input type="checkbox" id="skillsUseAll" ${skillsUseAll ? 'checked' : ''} ${isBuiltIn ? 'disabled' : ''} />
+                    Advanced — expose every enabled skill
+                  </label>
+                  <div class="hint">Includes present and future custom/MCP skills. Use only when the agent genuinely requires an unrestricted capability pool.</div>
                 </div>
               </div>
             </div>
@@ -877,7 +899,8 @@ export class AgentManagerPanel {
       function saveAgent() {
         const idEl = document.getElementById('agentId');
         const autoManaged = document.getElementById('skillsAutoManaged')?.checked ?? true;
-        const skillEls = autoManaged ? [] : Array.from(document.querySelectorAll('.skill-cb:checked'));
+        const useAll = !autoManaged && (document.getElementById('skillsUseAll')?.checked ?? false);
+        const skillEls = autoManaged || useAll ? [] : Array.from(document.querySelectorAll('.skill-cb:checked'));
         const skills = skillEls.map(el => el.value).join('\\n');
         const overrides = {};
         document.querySelectorAll('.override-model-input').forEach(el => {
@@ -898,6 +921,7 @@ export class AgentManagerPanel {
             skills,
             autoUpdateExcluded: document.getElementById('agentAutoUpdateExcluded')?.checked ?? false,
             skillsAutoManaged: autoManaged,
+            skillsUseAll: useAll,
             testingModelOverridesJson: JSON.stringify(overrides),
             completionRubric: document.getElementById('agentCompletionRubric').value,
             incompletePatterns: document.getElementById('agentIncompletePatterns').value,

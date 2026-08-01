@@ -308,6 +308,52 @@ describe('a roadmap item can be raised as an issue', () => {
   });
 });
 
+describe('an unlinked pull request can become a tracking-issue draft', () => {
+  it('sends only the pull-request number and lets the host derive all text', () => {
+    expect(WEBVIEW).toContain("type: 'draftIssueFromPullRequest'");
+    const guard = PANEL.slice(
+      PANEL.indexOf("if (candidate['type'] === 'draftIssueFromPullRequest')"),
+      PANEL.indexOf("if (candidate['type'] === 'openGithubLink')"),
+    );
+    expect(guard).toContain("payload?.['number']");
+    expect(guard).not.toMatch(/title|body|labels/);
+  });
+
+  it('resolves the current PR, refuses linked work, and opens the composer', () => {
+    const handler = PANEL.slice(
+      PANEL.indexOf('private async handleDraftIssueFromPullRequest'),
+      PANEL.indexOf('   * Append an ideation card'),
+    );
+    expect(handler).toContain('this.pullRequestsState?.find');
+    expect(handler).toContain('pullRequest.linkedIssues.length > 0');
+    expect(handler).toContain('derivePullRequestIssueDraft');
+    expect(handler).toContain("type: 'issueDraft'");
+    expect(handler).not.toContain("'issue', 'create'");
+    expect(handler).not.toContain('runGh');
+  });
+});
+
+describe('GitHub activity refreshes on dashboard use without request fan-out', () => {
+  it('starts from the ready handshake and visible-panel reveal path', () => {
+    expect(PANEL).toMatch(/case 'ready':[\s\S]{0,180}refreshRepositoryActivityIfStale/);
+    expect(PANEL).toMatch(/webviewPanel\.visible[\s\S]{0,180}refreshRepositoryActivityIfStale/);
+  });
+
+  it('makes the dashboard-wide Refresh button update GitHub-backed pages too', () => {
+    expect(PANEL).toMatch(/case 'refresh':[\s\S]{0,260}handleRefreshIssues/);
+  });
+
+  it('shares one in-flight guard across automatic and manual refreshes', () => {
+    const refresh = PANEL.slice(
+      PANEL.indexOf('private refreshRepositoryActivityIfStale'),
+      PANEL.indexOf('private classifyIssueFailure'),
+    );
+    expect(refresh).toContain('this.repositoryActivityRefreshRunning');
+    expect(refresh).toContain('this.repositoryActivityLastAttemptAt');
+    expect(refresh).toContain('finally');
+  });
+});
+
 describe('a milestone can be attached on create', () => {
   it('passes --milestone, which it never did', () => {
     // A milestone could be declared in the taxonomy and attached to nothing.

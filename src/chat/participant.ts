@@ -2171,6 +2171,7 @@ export async function collectAcpSetupSteps(atlas: AtlasMindContext): Promise<imp
       command: agent.command,
       args: agent.args,
       install: acpInstallCommand(agent.npmPackage),
+      ...(agent.eligibility ? { eligibility: agent.eligibility } : {}),
     })),
     // Absent for an agent whose sign-in AtlasMind has never read — the guide
     // says so rather than printing a command nobody verified.
@@ -3532,10 +3533,15 @@ export function reconcileAssistantResponse(
     };
   }
 
-  const joined = sanitizeResponseTail(joinAssistantResponseSegments(streamedText, finalResponse));
+  // The orchestrator now commits only the winning attempt, so normal routed
+  // turns reach this function with identical streamed and final text. If a
+  // legacy caller has already rendered divergent text we cannot retract it from
+  // VS Code's append-only stream. Separate the authoritative completion
+  // visually, while retaining only that completion in conversation history.
+  const authoritative = sanitizeResponseTail(finalResponse);
   return {
-    additionalText: joined.slice(streamedText.length),
-    transcriptText: joined,
+    additionalText: `\n\n---\n\n${authoritative}`,
+    transcriptText: authoritative,
   };
 }
 
@@ -3598,18 +3604,6 @@ export function ensureAssistantVisibleResponse(
   // Last-resort fallback — the orchestrator should have already generated a targeted
   // clarifying question, so this only fires if that call also failed.
   return 'Could you share more details about what you\'d like me to do? Providing relevant files, error messages, or examples would help.';
-}
-
-function joinAssistantResponseSegments(streamedText: string, finalResponse: string): string {
-  if (!streamedText) {
-    return finalResponse;
-  }
-  if (!finalResponse) {
-    return streamedText;
-  }
-
-  const needsSeparator = !/[\s\n]$/.test(streamedText) && !/^[\s\n]/.test(finalResponse);
-  return `${streamedText}${needsSeparator ? '\n\n' : ''}${finalResponse}`;
 }
 
 function writeMarkdownChunk(
@@ -3928,12 +3922,17 @@ export function buildQuickReplyPayload(responseText: string | undefined): Webvie
 
 export function buildAssistantResponseMetadata(
   prompt: string,
-  result: Pick<TaskResult, 'agentId' | 'modelUsed' | 'costUsd' | 'inputTokens' | 'outputTokens' | 'artifacts' | 'autoDisabledProvider' | 'contextCompressionSavingsUsd' | 'iterationLimitHit' | 'suggestedIterationLimit' | 'suggestedToolCallsPerTurnLimit'>,
+  result: Pick<TaskResult, 'agentId' | 'modelUsed' | 'costUsd' | 'inputTokens' | 'outputTokens' | 'modelAttempts' | 'artifacts' | 'autoDisabledProvider' | 'contextCompressionSavingsUsd' | 'iterationLimitHit' | 'suggestedIterationLimit' | 'suggestedToolCallsPerTurnLimit'>,
   options?: { hasSessionContext?: boolean; imageAttachments?: TaskImageAttachment[]; routingContext?: Record<string, unknown>; policies?: SessionPolicySnapshot[]; responseText?: string },
 ): SessionTranscriptMetadata {
   const toolCallCount = result.artifacts?.toolCallCount ?? 0;
   const toolCalls = result.artifacts?.toolCalls ?? [];
   const responseWasEmpty = options?.responseText !== undefined && options.responseText.trim().length === 0;
+  const attempts = result.modelAttempts ?? [];
+  const failedAttempts = attempts.filter(attempt =>
+    attempt.status === 'timeout' || attempt.status === 'error' || attempt.status === 'capability-mismatch',
+  );
+  const supersededAttempts = attempts.filter(attempt => attempt.status === 'escalated');
 
   // Build a concise, action-oriented summary line.
   let summary: string;
@@ -3941,6 +3940,8 @@ export function buildAssistantResponseMetadata(
     summary = result.autoDisabledProvider
       ? `${result.autoDisabledProvider.displayName} stopped before returning an answer.`
       : 'No usable answer was returned.';
+  } else if (failedAttempts.length > 0) {
+    summary = `Completed after ${attempts.length} model attempt${attempts.length === 1 ? '' : 's'}; ${failedAttempts.length} did not complete.`;
   } else if (toolCallCount > 0) {
     const actionSummary = toolCalls.length > 0 ? summarizeToolActionsForDisplay(toolCalls) : '';
     summary = actionSummary
@@ -3964,6 +3965,17 @@ export function buildAssistantResponseMetadata(
         ? `${result.autoDisabledProvider.displayName} was paused; failover attempted with ${result.autoDisabledProvider.failoverModelUsed}.`
         : `${result.autoDisabledProvider.displayName} was paused and no fallback model completed the request.`,
     );
+  }
+  if (attempts.length > 1 || failedAttempts.length > 0 || supersededAttempts.length > 0) {
+    bullets.push(
+      `${attempts.length} model attempt${attempts.length === 1 ? '' : 's'}; final model: ${result.modelUsed}.`,
+    );
+  }
+  if (failedAttempts.length > 0) {
+    bullets.push(`Did not complete: ${failedAttempts.map(attempt => `${attempt.model} (${attempt.status})`).join(', ')}.`);
+  }
+  if (supersededAttempts.length > 0) {
+    bullets.push(`Superseded after a struggle signal: ${supersededAttempts.map(attempt => attempt.model).join(', ')}.`);
   }
 
   // Context factors
@@ -4039,6 +4051,9 @@ export function buildAssistantResponseMetadata(
 
   return {
     modelUsed: result.modelUsed,
+    ...(attempts.length > 1
+      ? { modelsUsed: [...new Set(attempts.map(attempt => attempt.model))] }
+      : {}),
     ...(result.iterationLimitHit ? { iterationLimitHit: true } : {}),
     ...(typeof result.suggestedIterationLimit === 'number' ? { suggestedIterationLimit: result.suggestedIterationLimit } : {}),
     ...(typeof result.suggestedToolCallsPerTurnLimit === 'number'

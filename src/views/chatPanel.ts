@@ -42,6 +42,7 @@ import { extractSessionCarryForwardImages, resolvePickedImageAttachments } from 
 import { buildChatWebviewHtml } from './chatWebviewMarkup.js';
 import { hasAiInstructionSyncFile, scanAiInstructionFiles, syncAiInstructionFiles } from '../utils/aiInstructionSync.js';
 import { stripAnsiSequences } from '../utils/terminalOutput.js';
+import { redactSecrets } from '../utils/secretRedactor.js';
 
 import {
   type ComposerSendMode,
@@ -153,7 +154,7 @@ interface PreparedPromptRequest {
   /** False for continuation/card starts so the file-count safety gate still runs. */
   projectPreApproved?: boolean;
   loopGoal?: string;
-  directResponse?: { markdown: string; modelUsed: string; composerPrefills?: SessionComposerPrefill[] };
+  directResponse?: ChatPanelDirectResponse;
   commandIntent?: { commandId: string; args?: unknown[]; summary: string };
   terminalDirective?: ManagedTerminalDirective;
   context: Record<string, unknown>;
@@ -174,8 +175,27 @@ export interface ChatPanelTarget {
   draftPrompt?: string;
   sendMode?: ComposerSendMode;
   autoSubmit?: boolean;
+  /**
+   * A bounded host-authored answer that accompanies an auto-submitted prompt.
+   *
+   * Used when AtlasMind itself owns the answer (for example the meaning and
+   * evidence rules of a Testing Policy Coverage row). It avoids routing a
+   * deterministic explanation through one or more models merely to recover the
+   * catalogue AtlasMind already declared.
+   */
+  directResponse?: ChatPanelDirectResponse;
   contextPatch?: Record<string, unknown>;
   preserveFocus?: boolean;
+}
+
+export interface ChatPanelDirectResponse {
+  markdown: string;
+  modelUsed: string;
+  statusMessage?: string;
+  thoughtSummary?: SessionThoughtSummary;
+  followupQuestion?: string;
+  quickReplies?: SessionSuggestedFollowup[];
+  composerPrefills?: SessionComposerPrefill[];
 }
 
 interface ChatPanelState {
@@ -329,6 +349,7 @@ export class ChatPanel {
   private composerAttachments: ChatComposerAttachment[] = [];
   private pendingComposerDraft: string | undefined;
   private pendingComposerMode: ComposerSendMode | undefined;
+  private pendingDirectResponse: ChatPanelDirectResponse | undefined;
   private pendingComposerContextPatch: Record<string, unknown> | undefined;
   private pendingPromptSubmission: PendingPromptSubmission | undefined;
   private activePromptExecution: ActivePromptExecution | undefined;
@@ -358,7 +379,7 @@ export class ChatPanel {
     const normalizedTarget = normalizeChatPanelTarget(target);
 
     if (ChatPanel.currentPanel) {
-      if (normalizedTarget.sessionId || normalizedTarget.messageId || normalizedTarget.draftPrompt || normalizedTarget.contextPatch || normalizedTarget.autoSubmit) {
+      if (normalizedTarget.sessionId || normalizedTarget.messageId || normalizedTarget.draftPrompt || normalizedTarget.directResponse || normalizedTarget.contextPatch || normalizedTarget.autoSubmit) {
         void ChatPanel.currentPanel.showChatSession(normalizedTarget);
       }
       ChatPanel.currentPanel.host.reveal?.(column, normalizedTarget.preserveFocus ?? false);
@@ -389,7 +410,7 @@ export class ChatPanel {
     }
 
     const normalizedTarget = normalizeChatPanelTarget(target);
-    if (normalizedTarget.sessionId || normalizedTarget.messageId || normalizedTarget.draftPrompt || normalizedTarget.contextPatch || normalizedTarget.autoSubmit) {
+    if (normalizedTarget.sessionId || normalizedTarget.messageId || normalizedTarget.draftPrompt || normalizedTarget.directResponse || normalizedTarget.contextPatch || normalizedTarget.autoSubmit) {
       await ChatPanel.currentPanel.showChatSession(normalizedTarget);
     }
     ChatPanel.currentPanel.host.reveal?.(
@@ -415,6 +436,7 @@ export class ChatPanel {
     this.selectedMessageId = initialTarget?.messageId;
     this.pendingComposerDraft = initialTarget?.autoSubmit ? undefined : initialTarget?.draftPrompt;
     this.pendingComposerMode = initialTarget?.sendMode;
+    this.pendingDirectResponse = initialTarget?.directResponse;
     this.pendingComposerContextPatch = initialTarget?.contextPatch;
     this.host.webview.html = this.getHtml();
 
@@ -479,6 +501,7 @@ export class ChatPanel {
     this.selectedRunId = undefined;
     this.pendingComposerDraft = normalizedTarget.autoSubmit ? undefined : normalizedTarget.draftPrompt;
     this.pendingComposerMode = normalizedTarget.sendMode;
+    this.pendingDirectResponse = normalizedTarget.directResponse;
     this.pendingComposerContextPatch = normalizedTarget.contextPatch;
     this.activeSurface = 'chat';
     await this.syncState();
@@ -908,6 +931,18 @@ export class ChatPanel {
   private async runPrompt(rawPrompt: string, mode: ComposerSendMode): Promise<void> {
     if (this._isDisposed) return;
     if (this.activePromptExecution) {
+      if (this.pendingDirectResponse && mode !== 'steer') {
+        // A host-authored answer is tied to the target's prompt. Queue the pair
+        // together until the active request releases this panel rather than
+        // rejecting it and leaving the answer armed for whatever the operator
+        // happens to type next.
+        this.pendingPromptSubmission = { prompt: rawPrompt.trim(), mode };
+        await this.host.webview.postMessage({
+          type: 'status',
+          payload: 'The policy explanation is queued and will open when the current chat request finishes.',
+        });
+        return;
+      }
       if (mode === 'steer') {
         const steerPrompt = rawPrompt.trim();
         if (!steerPrompt) {
@@ -1115,24 +1150,34 @@ export class ChatPanel {
       }
 
       if (preparedRequest.directResponse) {
+        const directResponse = preparedRequest.directResponse;
         this.atlas.sessionConversation.updateMessage(
           assistantMessageId,
-          preparedRequest.directResponse.markdown,
+          directResponse.markdown,
           activeSessionId,
           {
-            modelUsed: preparedRequest.directResponse.modelUsed,
-            thoughtSummary: {
+            modelUsed: directResponse.modelUsed,
+            thoughtSummary: directResponse.thoughtSummary ?? {
               label: 'Action summary',
               summary: 'Returned a live roadmap status summary from the current SSOT files.',
               bullets: ['Used roadmap files on disk instead of snippet-based memory retrieval.'],
             },
-            ...(preparedRequest.directResponse.composerPrefills
-              ? { composerPrefills: preparedRequest.directResponse.composerPrefills }
+            ...(directResponse.followupQuestion
+              ? { followupQuestion: directResponse.followupQuestion }
+              : {}),
+            ...(directResponse.quickReplies
+              ? { quickReplies: directResponse.quickReplies }
+              : {}),
+            ...(directResponse.composerPrefills
+              ? { composerPrefills: directResponse.composerPrefills }
               : {}),
           },
         );
         await this.syncState();
-        await this.host.webview.postMessage({ type: 'status', payload: 'Roadmap status completed.' });
+        await this.host.webview.postMessage({
+          type: 'status',
+          payload: directResponse.statusMessage ?? 'AtlasMind explanation ready.',
+        });
         return;
       }
 
@@ -1220,7 +1265,9 @@ export class ChatPanel {
 
       const reconciled = reconcileAssistantResponse(streamedText, result.response);
       this.streamingThought = undefined;
-      const completedModels = this.streamingModels.length > 0 ? [...this.streamingModels] : undefined;
+      const completedModels = result.modelAttempts && result.modelAttempts.length > 1
+        ? [...new Set(result.modelAttempts.map(attempt => attempt.model))]
+        : undefined;
       this.streamingModels = [];
       const assistantMeta = {
         ...buildAssistantResponseMetadata(preparedRequest.userMessage, result, {
@@ -2412,6 +2459,22 @@ export class ChatPanel {
      */
     forcedProjectGoal?: string,
   ): Promise<PreparedPromptRequest> {
+    const hostAuthoredResponse = this.pendingDirectResponse;
+    if (hostAuthoredResponse) {
+      // One target authorises one answer. Clear it before any await so a queued
+      // or re-entrant submission cannot reuse the response for a different
+      // user message. Context patches exist for routed work and must not leak
+      // past a model-free turn.
+      this.pendingDirectResponse = undefined;
+      this.pendingComposerContextPatch = undefined;
+      return {
+        userMessage: prompt,
+        directResponse: hostAuthoredResponse,
+        context: {},
+        imageAttachments: [],
+      };
+    }
+
     const forceSteer = mode === 'steer';
     // "New Loop" treats the whole prompt as a mission goal: skip steer, terminal
     // directive parsing, and intent routing so the goal runs as a loop verbatim.
@@ -2889,14 +2952,111 @@ function normalizeChatPanelTarget(target?: string | ChatPanelTarget): ChatPanelT
   if (!target) {
     return {};
   }
+  // A direct answer is meaningful only as one atomic auto-submitted prompt +
+  // response pair. Without both fields it would remain armed and could answer
+  // an unrelated later message.
+  const directResponse = target.autoSubmit === true
+    && typeof target.draftPrompt === 'string'
+    && target.draftPrompt.trim().length > 0
+    ? normalizeChatPanelDirectResponse(target.directResponse)
+    : undefined;
   return {
     ...(typeof target.sessionId === 'string' && target.sessionId.trim().length > 0 ? { sessionId: target.sessionId.trim() } : {}),
     ...(typeof target.messageId === 'string' && target.messageId.trim().length > 0 ? { messageId: target.messageId.trim() } : {}),
     ...(typeof target.draftPrompt === 'string' && target.draftPrompt.trim().length > 0 ? { draftPrompt: target.draftPrompt.trim() } : {}),
     ...(target.sendMode === 'send' || target.sendMode === 'steer' || target.sendMode === 'new-chat' || target.sendMode === 'new-session' || target.sendMode === 'new-loop' ? { sendMode: target.sendMode } : {}),
     ...(target.autoSubmit === true ? { autoSubmit: true } : {}),
+    ...(directResponse ? { directResponse } : {}),
     ...(isJsonRecord(target.contextPatch) ? { contextPatch: target.contextPatch } : {}),
     ...(target.preserveFocus === true ? { preserveFocus: true } : {}),
+  };
+}
+
+function normalizeChatPanelDirectResponse(value: unknown): ChatPanelDirectResponse | undefined {
+  if (!isJsonRecord(value)) {
+    return undefined;
+  }
+  const clean = (candidate: unknown, max: number, preserveLines = false): string => {
+    if (typeof candidate !== 'string') {
+      return '';
+    }
+    const withoutControls = preserveLines
+      ? candidate.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]+/g, '')
+      : candidate.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ');
+    return redactSecrets(withoutControls).text.trim().slice(0, max);
+  };
+  const markdown = clean(value['markdown'], 40_000, true);
+  const modelUsed = clean(value['modelUsed'], 120);
+  if (!markdown || !/^atlasmind\/[a-z0-9._/-]+$/i.test(modelUsed)) {
+    return undefined;
+  }
+
+  let thoughtSummary: SessionThoughtSummary | undefined;
+  if (isJsonRecord(value['thoughtSummary'])) {
+    const source = value['thoughtSummary'];
+    const label = clean(source['label'], 80);
+    const summary = clean(source['summary'], 320);
+    const bullets = Array.isArray(source['bullets'])
+      ? source['bullets'].slice(0, 12).map(item => clean(item, 320)).filter(Boolean)
+      : [];
+    const status = source['status'];
+    if (label && summary) {
+      thoughtSummary = {
+        label,
+        summary,
+        bullets,
+        ...(status === 'verified' || status === 'blocked' || status === 'missing' || status === 'not-applicable'
+          ? { status }
+          : {}),
+        ...(clean(source['statusLabel'], 80) ? { statusLabel: clean(source['statusLabel'], 80) } : {}),
+      };
+    }
+  }
+
+  const quickReplies = Array.isArray(value['quickReplies'])
+    ? value['quickReplies'].slice(0, 5).flatMap(item => {
+      if (!isJsonRecord(item)) {
+        return [];
+      }
+      const label = clean(item['label'], 60);
+      const prompt = clean(item['prompt'], 800, true);
+      const description = clean(item['description'], 180);
+      return label && prompt
+        ? [{ label, prompt, ...(description ? { description } : {}) }]
+        : [];
+    })
+    : [];
+
+  const composerPrefills = Array.isArray(value['composerPrefills'])
+    ? value['composerPrefills'].slice(0, 5).flatMap(item => {
+      if (!isJsonRecord(item)) {
+        return [];
+      }
+      const label = clean(item['label'], 60);
+      const template = clean(item['template'], 4000, true);
+      const description = clean(item['description'], 180);
+      const cursorOffset = Number(item['cursorOffset']);
+      return label && template
+        ? [{
+            label,
+            template,
+            ...(description ? { description } : {}),
+            ...(Number.isInteger(cursorOffset) && cursorOffset >= 0 && cursorOffset <= template.length ? { cursorOffset } : {}),
+          }]
+        : [];
+    })
+    : [];
+
+  const statusMessage = clean(value['statusMessage'], 180);
+  const followupQuestion = clean(value['followupQuestion'], 300);
+  return {
+    markdown,
+    modelUsed,
+    ...(statusMessage ? { statusMessage } : {}),
+    ...(thoughtSummary ? { thoughtSummary } : {}),
+    ...(followupQuestion ? { followupQuestion } : {}),
+    ...(quickReplies.length > 0 ? { quickReplies } : {}),
+    ...(composerPrefills.length > 0 ? { composerPrefills } : {}),
   };
 }
 

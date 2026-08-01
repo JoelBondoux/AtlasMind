@@ -20,6 +20,13 @@ import { countOverdueFollowUps, deriveFollowUpUrgency, resolveTeamMode } from '.
 import { assessPipelinePromotions } from '../core/promotionReadiness.js';
 import type { SessionConversationSummary, SessionFolderSummary } from '../chat/sessionConversation.js';
 import { ChatViewProvider } from './chatPanel.js';
+import {
+  isModelSidebarBridgeHidden,
+  isModelSidebarModelHidden,
+  isModelSidebarProviderHidden,
+  readHiddenModelSidebarEntries,
+  type ModelSidebarVisibilityReader,
+} from './modelSidebarVisibility.js';
 
 const SESSION_TREE_MIME = 'application/vnd.atlasmind.sessions';
 
@@ -54,7 +61,7 @@ export function registerTreeViews(
   sessionsTreeView.onDidChangeSelection(event => {
     selectedSessionRenameTarget = event.selection.find(isSessionRenameTarget);
   });
-  const modelsProvider = new ModelsTreeProvider(atlas);
+  const modelsProvider = new ModelsTreeProvider(atlas, context.globalState);
   const modelsTreeView = vscode.window.createTreeView('atlasmind.modelsView', {
     treeDataProvider: modelsProvider,
   });
@@ -1755,11 +1762,14 @@ function acpAgentIdOf(modelId: string): string {
   return modelId.startsWith('acp/') ? modelId.slice(4) : '';
 }
 
-class ModelsTreeProvider implements vscode.TreeDataProvider<ModelsTreeNode> {
+export class ModelsTreeProvider implements vscode.TreeDataProvider<ModelsTreeNode> {
   private readonly _onDidChangeTreeData = new vscode.EventEmitter<ModelsTreeNode | undefined>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
-  constructor(private atlas: AtlasMindContext) {}
+  constructor(
+    private atlas: AtlasMindContext,
+    private readonly visibilityState: ModelSidebarVisibilityReader,
+  ) {}
 
   refresh(): void {
     this._onDidChangeTreeData.fire(undefined);
@@ -1771,6 +1781,7 @@ class ModelsTreeProvider implements vscode.TreeDataProvider<ModelsTreeNode> {
 
   async getChildren(element?: ModelsTreeNode): Promise<ModelsTreeNode[]> {
     const providers = this.atlas.modelRouter.listProviders();
+    const hiddenEntries = readHiddenModelSidebarEntries(this.visibilityState);
     if (providers.length === 0) {
       return [new vscode.TreeItem('No providers configured', vscode.TreeItemCollapsibleState.None)];
     }
@@ -1810,14 +1821,32 @@ class ModelsTreeProvider implements vscode.TreeDataProvider<ModelsTreeNode> {
         })
         .map(entry => entry.item);
 
-      return this.withAcpBridgeRows(ordered, providers);
+      const visibleRows = this.withAcpBridgeRows(ordered, providers).filter(row => {
+        if (row instanceof ModelProviderTreeItem) {
+          return !isModelSidebarProviderHidden(hiddenEntries, row.providerId);
+        }
+        if (row instanceof AcpBridgeTreeItem) {
+          return !isModelSidebarBridgeHidden(hiddenEntries, row.vendorId, row.agentId);
+        }
+        return true;
+      });
+
+      return visibleRows.length > 0
+        ? visibleRows
+        : [this.hiddenRowsPlaceholder('All providers are hidden — restore them in Settings')];
     }
 
     if (element instanceof AcpBridgeTreeItem) {
       const provider = providers.find(candidate => candidate.id === ACP_PROVIDER_ID);
       const providerEnabled = provider?.enabled === true;
       const models = (provider?.models ?? []).filter(model => acpAgentIdOf(model.id) === element.agentId);
-      return models.map(model => {
+      const visibleModels = models.filter(model =>
+        !isModelSidebarModelHidden(hiddenEntries, ACP_PROVIDER_ID, model.id),
+      );
+      if (models.length > 0 && visibleModels.length === 0) {
+        return [this.hiddenRowsPlaceholder('All models are hidden — restore them in Settings')];
+      }
+      return visibleModels.map(model => {
         const failure = getModelFailure(this.atlas, model.id);
         return new ModelTreeItem(
           ACP_PROVIDER_ID,
@@ -1852,7 +1881,14 @@ class ModelsTreeProvider implements vscode.TreeDataProvider<ModelsTreeNode> {
         duplicateNameCounts.set(model.name, (duplicateNameCounts.get(model.name) ?? 0) + 1);
       }
 
-      return provider.models.map(model => {
+      const visibleModels = provider.models.filter(model =>
+        !isModelSidebarModelHidden(hiddenEntries, provider.id, model.id),
+      );
+      if (provider.models.length > 0 && visibleModels.length === 0) {
+        return [this.hiddenRowsPlaceholder('All models are hidden — restore them in Settings')];
+      }
+
+      return visibleModels.map(model => {
         const failure = getModelFailure(this.atlas, model.id);
         const tooltip =
           `${model.name}\n` +
@@ -1876,6 +1912,18 @@ class ModelsTreeProvider implements vscode.TreeDataProvider<ModelsTreeNode> {
     }
 
     return [];
+  }
+
+  private hiddenRowsPlaceholder(label: string): vscode.TreeItem {
+    const item = new vscode.TreeItem(label, vscode.TreeItemCollapsibleState.None);
+    item.iconPath = new vscode.ThemeIcon('eye-closed', new vscode.ThemeColor('descriptionForeground'));
+    item.tooltip = 'Open Settings → Models & Integrations → Sidebar visibility to restore hidden rows.';
+    item.command = {
+      command: 'atlasmind.openSettings',
+      title: 'Open Models & Integrations Settings',
+      arguments: [{ page: 'models', section: 'modelSidebarVisibilityCard' }],
+    };
+    return item;
   }
 
   /**

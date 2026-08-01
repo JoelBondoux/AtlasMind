@@ -11,6 +11,7 @@
   const versionStrip = document.getElementById('dashboard-version-strip');
   const noProjectBanner = document.getElementById('no-project-banner');
   const statusRegion = document.getElementById('dashboard-status');
+  const atlasDiscussIconUri = root?.dataset.atlasDiscussIcon || '';
 
   // Targeted announcement, replacing the aria-live that used to wrap the whole
   // dashboard and re-read all 14 pages on every render.
@@ -18,6 +19,12 @@
     if (statusRegion) {
       statusRegion.textContent = message;
     }
+  }
+
+  function renderAtlasDiscussAction(action, payload, label, options = {}) {
+    const iconOnly = options.iconOnly === true;
+    const title = options.title || label;
+    return `<button type="button" class="atlas-discuss-action${iconOnly ? ' icon-only' : ''}" data-action="${escapeAttr(action)}"${payload ? ` data-payload="${escapeAttr(payload)}"` : ''} title="${escapeAttr(title)}" aria-label="${escapeAttr(label)}"><img src="${escapeAttr(atlasDiscussIconUri)}" alt="" aria-hidden="true" /><span class="atlas-discuss-label">${escapeHtml(label)}</span></button>`;
   }
 
   noProjectBanner?.addEventListener('click', event => {
@@ -72,6 +79,7 @@
       id: 'code',
       label: 'The code',
       pages: [
+        ['branches', 'Branches'],
         ['repo', 'Repo'],
         // CI sat as one card on Workflow while carrying the failure taxonomy —
         // the thing that most rewards a page of its own.
@@ -206,6 +214,8 @@
     // share a severity.
     debtRuleFilter: 'all',
     issueSearch: '',
+    branchSearch: '',
+    branchFilter: 'all',
     issueDraftOpen: false,
     /**
      * A derived draft waiting in the composer, or undefined.
@@ -514,6 +524,30 @@
       render();
       return;
     }
+    if (action === 'branch-filter') {
+      state.branchFilter = payload || 'all';
+      render();
+      return;
+    }
+    if (action === 'branch-fetch') {
+      vscode.postMessage({ type: 'fetchBranches' });
+      return;
+    }
+    if (action === 'branch-activate') {
+      if (payload) {
+        vscode.postMessage({ type: 'activateBranch', payload });
+      }
+      return;
+    }
+    if (action === 'branch-discuss') {
+      // The branch name and Git evidence never cross from the webview. The host
+      // resolves this opaque id against a newly collected inventory and authors
+      // the first Chat response from local Git facts.
+      if (payload) {
+        vscode.postMessage({ type: 'discussBranch', payload });
+      }
+      return;
+    }
     if (action === 'contributor-filter') {
       // Clicking the active contributor clears the filter, so the ring and the
       // segmented control are both a toggle rather than a one-way trip.
@@ -541,6 +575,18 @@
     }
     if (action === 'prompt') {
       vscode.postMessage({ type: 'openPrompt', payload: { prompt: payload, sourcePage: state.activePage } });
+      return;
+    }
+    if (action === 'discuss-testing-policy') {
+      // Re-resolved from the current host-side testing snapshot. No displayed
+      // description, failure text or proposed instruction crosses this boundary.
+      vscode.postMessage({ type: 'discussTestingPolicy', payload: { id: payload } });
+      return;
+    }
+    if (action === 'discuss-dashboard-error') {
+      // The host retained the error that it sent. A webview-side render failure
+      // falls back to a generic diagnosis prompt rather than round-tripping DOM.
+      vscode.postMessage({ type: 'discussDashboardError' });
       return;
     }
     if (action === 'risk-run') {
@@ -951,6 +997,12 @@
     }
     if (action === 'load-review-comments') {
       vscode.postMessage({ type: 'loadReviewComments', payload: { number: Number(payload) } });
+      return;
+    }
+    if (action === 'pr-draft-issue') {
+      // Number only. The host resolves the current sanitized PR record and
+      // derives the issue text; nothing in the browser can publish wording.
+      vscode.postMessage({ type: 'draftIssueFromPullRequest', payload: { number: Number(payload) } });
       return;
     }
     if (action === 'address-review-comment') {
@@ -1418,6 +1470,10 @@
       state.issueSearch = target.value;
       render();
     }
+    if (target instanceof HTMLInputElement && target.id === 'branch-search-input') {
+      state.branchSearch = target.value;
+      render();
+    }
     if (target instanceof HTMLInputElement && target.id === 'debt-search-input') {
       state.debtSearch = target.value;
       render();
@@ -1732,6 +1788,7 @@
     let activeId = null, cursorPos = null, isTextarea = false;
     const active = document.activeElement;
     if (active && (active.id === 'test-search-input' || active.id === 'issue-search-input'
+      || active.id === 'branch-search-input'
       || active.id === 'debt-search-input'
       || (active instanceof HTMLTextAreaElement && active.hasAttribute('data-roadmap-draft')))) {
       activeId = active.id || (active.hasAttribute('data-roadmap-draft') ? 'roadmap-draft' : null);
@@ -1798,6 +1855,7 @@
         ${renderPipeline(snapshot)}
         ${renderDirector(snapshot)}
         ${renderRuntime(snapshot)}
+        ${renderBranches(snapshot)}
         ${renderRepo(snapshot)}
         ${renderTesting(snapshot)}
         ${renderDebt(snapshot)}
@@ -1823,6 +1881,7 @@
       if (activeId) {
         let el = null;
         if (activeId === 'test-search-input' || activeId === 'issue-search-input'
+          || activeId === 'branch-search-input'
           || activeId === 'debt-search-input') {
           el = document.getElementById(activeId);
         } else if (activeId === 'roadmap-draft') {
@@ -1922,6 +1981,16 @@
         + (issues.summary.staleCount > 0 ? `, ${issues.summary.staleCount} stale` : ''));
     }
 
+    const pullRequests = snapshot.guidedWorkflow && snapshot.guidedWorkflow.pullRequests;
+    if (pullRequests) {
+      set('pullRequests', pullRequests.open,
+        pullRequests.changesRequested > 0 ? 'critical' : pullRequests.awaitingReview > 0 ? 'warn' : 'accent',
+        `${pullRequests.open} open pull request${pullRequests.open === 1 ? '' : 's'}`
+        + (pullRequests.draft > 0 ? `, ${pullRequests.draft} draft` : '')
+        + (pullRequests.awaitingReview > 0 ? `, ${pullRequests.awaitingReview} awaiting review` : '')
+        + (pullRequests.unlinked > 0 ? `, ${pullRequests.unlinked} without an issue` : ''));
+    }
+
     if (snapshot.director && snapshot.director.overdueCount > 0) {
       set('director', snapshot.director.overdueCount, 'critical',
         `${snapshot.director.overdueCount} overdue follow-up${snapshot.director.overdueCount === 1 ? '' : 's'}`);
@@ -1943,6 +2012,15 @@
     if (repo) {
       const pending = (repo.staged || 0) + (repo.modified || 0) + (repo.untracked || 0);
       set('repo', pending, 'accent', `${pending} pending file change${pending === 1 ? '' : 's'}`);
+    }
+
+    const branches = snapshot.branches;
+    if (branches && Array.isArray(branches.items)) {
+      const attention = branches.items.filter(branch =>
+        branch.stale || branch.ahead > 0 || branch.behind > 0
+        || branch.status === 'upstream-gone' || branch.status === 'name-conflict').length;
+      set('branches', attention, 'warn',
+        `${attention} branch${attention === 1 ? '' : 'es'} stale, drifted, or blocked from local activation`);
     }
 
     const runtime = snapshot.runtime;
@@ -2005,6 +2083,14 @@
         <div>
           <strong>Dashboard refresh failed</strong>
           <div class="stat-detail">${escapeHtml(message)}</div>
+          <div class="tag-row" style="margin-top:10px">
+            ${renderAtlasDiscussAction(
+              'discuss-dashboard-error',
+              '',
+              'Resolve with Atlas',
+              { title: 'Open this dashboard error in Atlas Chat as a reviewable draft' },
+            )}
+          </div>
         </div>
       </div>
     `;
@@ -2487,6 +2573,151 @@
     `;
   }
 
+  function renderBranches(snapshot) {
+    const branches = snapshot.branches || {
+      items: [],
+      localCount: 0,
+      remoteOnlyCount: 0,
+      staleCount: 0,
+      divergedCount: 0,
+      checkedOutElsewhereCount: 0,
+    };
+    const items = Array.isArray(branches.items) ? branches.items : [];
+    const query = String(state.branchSearch || '').trim().toLowerCase();
+    const filter = state.branchFilter || 'all';
+    const filtered = items.filter(branch => {
+      if (filter === 'local' && !branch.localRef) { return false; }
+      if (filter === 'remote' && branch.localRef) { return false; }
+      if (filter === 'stale' && !branch.stale) { return false; }
+      if (filter === 'attention' && !['ahead', 'behind', 'diverged', 'upstream-gone', 'name-conflict'].includes(branch.status)
+        && !(branch.ahead > 0 || branch.behind > 0) && !branch.checkedOutElsewhere) { return false; }
+      if (filter === 'merged' && !branch.mergedIntoCurrent) { return false; }
+      if (!query) { return true; }
+      return [
+        branch.name,
+        branch.subject,
+        branch.author,
+        branch.upstream,
+        branch.remoteRef,
+        branch.hash,
+      ].some(value => String(value || '').toLowerCase().includes(query));
+    });
+    const dirty = Boolean(snapshot.repo && snapshot.repo.dirty);
+    const attentionCount = items.filter(branch =>
+      ['ahead', 'behind', 'diverged', 'upstream-gone', 'name-conflict'].includes(branch.status)
+      || branch.ahead > 0 || branch.behind > 0 || branch.checkedOutElsewhere).length;
+    const mergedCount = items.filter(branch => branch.mergedIntoCurrent).length;
+
+    return `
+      ${pageSectionOpen('branches')}
+        ${renderPageIntro({
+          kicker: 'Git branches',
+          title: 'Every branch, ready when you need it',
+          summary: `${items.length} logical branch${items.length === 1 ? '' : 'es'} across ${branches.localCount} local and ${branches.remoteOnlyCount} remote-only ref${branches.remoteOnlyCount === 1 ? '' : 's'}. Remote state is read from cached refs until you explicitly fetch. ${dirty ? 'The working tree has pending changes, so branch switching is paused.' : 'The working tree is clean, so another branch can be brought local safely.'}`,
+          chips: [
+            { label: `${branches.localCount} local`, tone: 'accent' },
+            { label: `${branches.remoteOnlyCount} remote only`, tone: branches.remoteOnlyCount ? 'accent' : undefined },
+            { label: `${branches.divergedCount} drifted`, tone: branches.divergedCount ? 'warn' : 'good' },
+            { label: `${branches.staleCount} stale`, tone: branches.staleCount ? 'warn' : 'good' },
+          ],
+        })}
+        <article class="panel-card branch-inventory-controls">
+          <div>
+            <p class="section-kicker">Branch inventory</p>
+            <h3>Find a branch</h3>
+            <p class="section-copy">Tracked local and remote refs are folded into one card. A remote-only branch creates a same-named local tracking branch when you choose <strong>Bring local</strong>.</p>
+          </div>
+          <div class="branch-control-actions">
+            <button type="button" class="action-link" data-action="branch-fetch">Fetch latest from remotes</button>
+            <button type="button" class="action-link" data-action="command" data-payload="workbench.view.scm">Open Source Control</button>
+          </div>
+          <label class="dashboard-search-label" for="branch-search-input">Search branches</label>
+          <input id="branch-search-input" class="ideation-input" type="search" value="${escapeAttr(state.branchSearch || '')}" placeholder="Name, author, commit, upstream…" autocomplete="off" />
+          <div class="segmented-control branch-filter-control" role="group" aria-label="Filter branches">
+            ${[
+              ['all', `All (${items.length})`],
+              ['local', `Local (${branches.localCount})`],
+              ['remote', `Remote only (${branches.remoteOnlyCount})`],
+              ['attention', `Needs attention (${attentionCount})`],
+              ['stale', `Stale (${branches.staleCount})`],
+              ['merged', `Merged (${mergedCount})`],
+            ].map(entry => `<button type="button" data-action="branch-filter" data-payload="${entry[0]}" class="${filter === entry[0] ? 'active' : ''}" aria-pressed="${filter === entry[0] ? 'true' : 'false'}">${escapeHtml(entry[1])}</button>`).join('')}
+          </div>
+          ${dirty ? '<div class="inline-notice warning"><strong>Switching paused.</strong> Commit, stash, or discard the current changes first. AtlasMind will not carry them onto another branch.</div>' : ''}
+        </article>
+        <div class="branch-inventory-grid">
+          ${filtered.length > 0
+            ? filtered.map(branch => renderBranchInventoryCard(branch, dirty)).join('')
+            : `<div class="dashboard-empty"><div><strong>No branches match this view</strong><p class="section-copy">${items.length === 0 ? 'No local or cached remote refs were found.' : 'Clear the search or choose another filter.'}</p></div></div>`}
+        </div>
+      </section>
+    `;
+  }
+
+  function renderBranchInventoryCard(branch, dirty) {
+    const warningStatuses = ['behind', 'diverged', 'upstream-gone', 'name-conflict'];
+    const statusClass = branch.status === 'current' || branch.status === 'synced'
+      ? 'tag-good'
+      : warningStatuses.includes(branch.status) || branch.stale
+        ? 'tag-warn'
+        : '';
+    const canActivate = Boolean(branch.canActivate) && !dirty && !branch.current;
+    const disabledReason = dirty
+      ? 'Commit, stash, or discard pending changes before switching.'
+      : branch.blocker || (branch.current ? 'This is already the current branch.' : '');
+    const location = branch.localRef
+      ? (branch.remoteRef ? `Local · ${branch.remoteRef}` : 'Local only')
+      : `Remote only · ${branch.remoteRef || 'cached ref'}`;
+    const tracking = branch.upstream
+      ? `<span class="tag mono">tracks ${escapeHtml(branch.upstream)}</span>`
+      : branch.remoteRef && branch.localRef
+        ? '<span class="tag tag-warn">remote match, not tracking</span>'
+        : '';
+
+    return `
+      <article class="panel-card branch-inventory-card${branch.current ? ' is-current' : ''}">
+        <div class="row-head branch-card-head">
+          <div>
+            <p class="section-kicker">${escapeHtml(location)}</p>
+            <h3>${escapeHtml(branch.name)}</h3>
+          </div>
+          <span class="tag ${statusClass}">${escapeHtml(branch.statusLabel)}</span>
+        </div>
+        <div class="tag-row">
+          ${branch.current ? '<span class="tag tag-good">● current</span>' : ''}
+          ${branch.default ? '<span class="tag">default</span>' : ''}
+          ${branch.protected ? '<span class="tag tag-warn">protected</span>' : ''}
+          ${branch.checkedOutElsewhere ? '<span class="tag tag-warn">another worktree</span>' : ''}
+          ${branch.mergedIntoCurrent ? '<span class="tag tag-good">merged into current</span>' : ''}
+          ${branch.stale ? `<span class="tag tag-warn">stale · ${escapeHtml(branch.lastCommitRelative)}</span>` : ''}
+        </div>
+        <p class="branch-subject">${escapeHtml(branch.subject || 'No commit subject available.')}</p>
+        <div class="branch-commit-meta">
+          <span class="mono">${escapeHtml(branch.hash || '—')}</span>
+          <span>${escapeHtml(branch.author || 'Unknown author')}</span>
+          <span>${escapeHtml(branch.lastCommitRelative || 'Unknown date')}</span>
+        </div>
+        <div class="tag-row">
+          ${tracking}
+          ${branch.ahead ? `<span class="tag">${escapeHtml(String(branch.ahead))} ahead</span>` : ''}
+          ${branch.behind ? `<span class="tag tag-warn">${escapeHtml(String(branch.behind))} behind</span>` : ''}
+        </div>
+        <div class="branch-card-actions">
+          ${renderAtlasDiscussAction(
+            'branch-discuss',
+            branch.id || '',
+            'Ask Atlas',
+            {
+              iconOnly: true,
+              title: `Ask Atlas for a deterministic summary of ${branch.name}`,
+            },
+          )}
+          <button type="button" class="action-link${canActivate ? ' primary' : ''}" data-action="branch-activate" data-payload="${escapeAttr(branch.id || '')}" ${canActivate ? '' : 'disabled'} title="${escapeAttr(disabledReason || `${branch.activationLabel} for immediate work`)}">${escapeHtml(branch.current ? 'Current branch' : branch.activationLabel || 'Work locally')}</button>
+        </div>
+      </article>
+    `;
+  }
+
   function renderRepo(snapshot) {
     const r = snapshot.repo;
     const changed = r.modified + r.staged + r.untracked;
@@ -2496,7 +2727,7 @@
         ${renderPageIntro({
           kicker: 'Repository',
           title: 'Working tree at a glance',
-          summary: `On ${escapeHtml(snapshot.currentBranch)} — ${r.dirty ? `${changed} file${changed === 1 ? '' : 's'} differ from HEAD` : 'the working tree is clean'}${r.behind ? `, ${r.behind} commit${r.behind === 1 ? '' : 's'} behind upstream` : ''}${r.ahead ? `, ${r.ahead} ahead` : ''}. ${r.branchCount} local branch${r.branchCount === 1 ? '' : 'es'}. Click any card to open it in Source Control.`,
+          summary: `On ${escapeHtml(snapshot.currentBranch)} — ${r.dirty ? `${changed} file${changed === 1 ? '' : 's'} differ from HEAD` : 'the working tree is clean'}${r.behind ? `, ${r.behind} commit${r.behind === 1 ? '' : 's'} behind upstream` : ''}${r.ahead ? `, ${r.ahead} ahead` : ''}. ${r.branchCount} local branch${r.branchCount === 1 ? '' : 'es'}. Open the Branches page for the complete local and remote inventory.`,
           chips: [
             { label: r.dirty ? `${changed} uncommitted` : 'Clean tree', tone: r.dirty ? 'warn' : 'good' },
             { label: r.behind ? `${r.behind} behind` : 'Up to date', tone: r.behind ? 'warn' : 'good' },
@@ -2558,7 +2789,7 @@
             <h3>Most recently touched</h3>
             <div class="stack-list">
               ${r.branches.length > 0 ? r.branches.map(branch => `
-                <button type="button" class="branch-card" data-action="command" data-payload="workbench.view.scm" title="Open Source Control">
+                <button type="button" class="branch-card" data-action="page" data-payload="branches" title="Open Branches">
                   <div class="row-head">
                     <h4>${escapeHtml(branch.name)}${branch.current ? ' <span class="tag tag-good">● current</span>' : ''}</h4>
                     <span class="list-meta">${escapeHtml(branch.lastCommitRelative)}</span>
@@ -3026,7 +3257,12 @@
       : '';
     const chatAction = result
       ? `<div class="tag-row testing-fix-actions">
-          <button type="button" class="action-link" data-action="testing-fix-chat">Open result in Atlas Chat</button>
+          ${renderAtlasDiscussAction(
+            'testing-fix-chat',
+            '',
+            result.outcome === 'failed' ? 'Resolve with Atlas' : 'Discuss with Atlas',
+            { title: 'Open the host-retained repair result in Atlas Chat as a reviewable draft' },
+          )}
           <span class="list-meta">Opens a reviewable draft; it is not sent automatically.</span>
         </div>`
       : '';
@@ -3095,7 +3331,17 @@
         <div class="policy-card status-${escapeAttr(row.status)}${row.failedCount > 0 ? ' has-failures' : ''}">
           <div class="policy-card-head">
             <strong>${escapeHtml(row.label)}</strong>
-            <span class="tag ${tone}">${escapeHtml(row.failedCount > 0 ? `${row.failedCount} failing` : row.statusLabel)}</span>
+            <div class="policy-card-head-actions">
+              <span class="tag ${tone}">${escapeHtml(row.failedCount > 0 ? `${row.failedCount} failing` : row.statusLabel)}</span>
+              ${renderAtlasDiscussAction(
+                'discuss-testing-policy',
+                row.id,
+                'Ask Atlas',
+                {
+                  title: `Ask Atlas to explain ${row.label}, its current evidence, and configuration options`,
+                },
+              )}
+            </div>
           </div>
           ${counts.length > 0 ? `<div class="policy-card-signals">${escapeHtml(counts.join(' · '))}</div>` : ''}
           <div class="policy-card-detail">${escapeHtml(row.detail)}</div>
@@ -3408,16 +3654,35 @@
   }
 
   // ── Issues (the repository's tracker) ─────────────────────────────
-  // Read on demand rather than on every render: the list comes from a
-  // rate-limited network call, and refreshing it to populate a tab nobody has
-  // opened would spend the user's quota for nothing.
+  // The host refreshes this bounded GitHub snapshot once when the dashboard
+  // opens, then holds it across renders. Manual refresh remains available.
   function renderIssues(snapshot) {
     const issues = snapshot.issues || { status: 'not-loaded', detail: '', issues: [], busy: false };
+    const workflow = snapshot.guidedWorkflow || {};
+    const pullRequestRecords = Array.isArray(workflow.pullRequestRecords) ? workflow.pullRequestRecords : [];
     const list = Array.isArray(issues.issues) ? issues.issues : [];
     const summary = issues.summary || { openCount: 0, closedCount: 0, byLabel: [], byAssignee: [], unassignedCount: 0, staleCount: 0, summary: '' };
     const ready = issues.status === 'ready';
     const filter = state.issueFilter || 'open';
     const search = String(state.issueSearch || '').trim().toLowerCase();
+    const unlinkedOpenPullRequests = pullRequestRecords.filter(pr =>
+      (pr.state === 'open' || pr.state === 'draft')
+      && (!Array.isArray(pr.linkedIssues) || pr.linkedIssues.length === 0));
+    const commitsSinceTag = Number(workflow.commitsSinceTag) || 0;
+    const issueWriteCapability = (workflow.capabilities || [])
+      .find(capability => capability.id === 'atlasmind.workflow.allowIssueWrites');
+    const planningStage = workflow.workflowConfig && workflow.workflowConfig.config
+      ? (workflow.workflowConfig.config.stages || []).find(stage => stage.id === 'planning')
+      : undefined;
+    const issueIntakePosture = !workflow.enabled
+      ? 'The workflow master switch is off.'
+      : !issueWriteCapability || !issueWriteCapability.enabled
+        ? 'Issue writes are disabled.'
+        : workflow.automationLevel === 'off' || workflow.automationLevel === 'observe' || workflow.automationLevel === 'draft'
+          ? `Your automation ceiling is ${workflow.automationLevel || 'observe'}.`
+          : !planningStage || planningStage.automationLevel === 'off' || planningStage.automationLevel === 'observe' || planningStage.automationLevel === 'draft'
+            ? `The Planning & issue intake stage is ${planningStage ? planningStage.automationLevel : 'observe'}.`
+            : 'Issue drafts may be proposed, but every public post still requires review and confirmation.';
     const visible = list.filter(issue => {
       if (filter === 'open' && issue.state !== 'open') { return false; }
       if (filter === 'closed' && issue.state !== 'closed') { return false; }
@@ -3457,6 +3722,35 @@
         `}
 
         ${ready ? `
+          <article class="panel-card ${unlinkedOpenPullRequests.length > 0 || (summary.openCount === 0 && commitsSinceTag > 0) ? 'status-warn' : ''}">
+            <div class="row-head">
+              <div>
+                <p class="section-kicker">Tracking coverage</p>
+                <h3>${unlinkedOpenPullRequests.length > 0 || (summary.openCount === 0 && commitsSinceTag > 0)
+                  ? 'Work exists outside the issue tracker'
+                  : 'Issue intake is review-and-confirm'}</h3>
+              </div>
+              ${unlinkedOpenPullRequests.length > 0
+                ? `<span class="tag tag-warn">${unlinkedOpenPullRequests.length} unlinked PR${unlinkedOpenPullRequests.length === 1 ? '' : 's'}</span>`
+                : ''}
+            </div>
+            <p class="stat-detail">AtlasMind does not silently turn commits or pull requests into public issues. It prepares a draft from a roadmap item or an unlinked pull request; you review it, and a separate confirmation is the only step that posts it.</p>
+            <div class="mini-grid">
+              ${renderMetricPill('Open issues', String(summary.openCount), { tone: summary.openCount > 0 ? 'accent' : 'warn' })}
+              ${renderMetricPill('Commits since last tag', String(commitsSinceTag), { tone: commitsSinceTag > 0 ? 'accent' : 'good' })}
+              ${renderMetricPill('Open PRs without an issue', String(unlinkedOpenPullRequests.length), {
+                tone: unlinkedOpenPullRequests.length > 0 ? 'warn' : 'good',
+                action: unlinkedOpenPullRequests.length > 0 ? { page: 'pullRequests', hint: 'Review pull requests' } : undefined,
+              })}
+            </div>
+            <p class="stat-detail">${escapeHtml(issueIntakePosture)} ${summary.openCount === 0 && commitsSinceTag > 0 ? 'No single commit proves that an issue was required, but the combination is a traceability warning worth reviewing.' : ''}</p>
+            <div class="tag-row">
+              <button type="button" class="action-link primary" data-action="issues-new">Draft a new issue</button>
+              ${unlinkedOpenPullRequests.length > 0 ? '<button type="button" class="action-link" data-action="page" data-payload="pullRequests">Review unlinked PRs</button>' : ''}
+              <button type="button" class="action-link" data-action="page" data-payload="workflow">Review workflow gates</button>
+            </div>
+          </article>
+
           <div class="panel-grid">
             <article class="panel-card">
               <p class="section-kicker">${escapeHtml(issues.repoSlug || 'Repository')}</p>
@@ -3739,7 +4033,7 @@
       title: 'Pull requests and review',
       summary: metrics
         ? `${metrics.open} open, ${metrics.awaitingReview} awaiting review, ${metrics.merged} merged in the window.`
-        : 'Pull requests have not been read yet. AtlasMind fetches them on the same refresh as issues, because the GitHub API is rate-limited.',
+        : 'Pull requests have not been read yet. AtlasMind normally loads a bounded GitHub snapshot when the dashboard opens; you can retry it here.',
       chips: metrics && metrics.awaitingReview > 0
         ? [{ label: `${metrics.awaitingReview} awaiting review`, tone: 'warn' }]
         : [],
@@ -3751,7 +4045,7 @@
         <div class="dashboard-empty"><div>
           <strong>Pull requests have not been loaded</strong>
           <p class="section-copy">A pull request is where a change stops being private: the point CI runs, the point a second pair of eyes can see it, and the durable record of why the change looked right at the time. Even working alone it is worth opening one — CI is the reviewer.</p>
-          <button type="button" class="action-link" data-action="page" data-payload="issues">Open the Issues tab and refresh</button>
+          <button type="button" class="action-link primary" data-action="issues-refresh">Load GitHub activity</button>
         </div></div>
       </section>`;
     }
@@ -3784,7 +4078,8 @@
               ${(pr.linkedIssues || []).length === 0
                 // Stated rather than left out: an unlinked PR means the diff and
                 // the reasoning behind it end up in separate places.
-                ? '<span class="tag tag-warn">no linked issue</span>'
+                ? `<span class="tag tag-warn">no linked issue</span>
+                   <button type="button" class="action-link" data-action="pr-draft-issue" data-payload="${pr.number}">Draft tracking issue</button>`
                 : `<span class="tag">closes #${escapeHtml(String(pr.linkedIssues[0]))}</span>`}
               ${pr.url ? `<button type="button" class="action-link" data-action="external-url" data-payload="${escapeAttr(pr.url)}">Open on GitHub</button>` : ''}
               ${comments === undefined
@@ -3801,6 +4096,9 @@
 
     return `${pageSectionOpen('pullRequests')}
       ${intro}
+      <div class="tag-row">
+        <button type="button" class="action-link" data-action="issues-refresh">Refresh GitHub activity</button>
+      </div>
       <article class="panel-card">
         <p class="card-kicker">In flight</p>
         <div class="stack-list">${list}</div>

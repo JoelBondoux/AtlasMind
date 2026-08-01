@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.235.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.241.2</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -36,7 +36,7 @@ Use a focused chat turn for a small fix, `/project` for a coordinated delivery p
 
 ### Bring the models you already trust
 
-Connect cloud providers, local OpenAI-compatible runtimes such as Ollama and LM Studio, or **the subscription you already pay for** — a Claude, ChatGPT, Gemini, Copilot or Qwen plan becomes routable capacity over the Agent Client Protocol, with no per-token cost. AtlasMind routes by task fit, capability, health, budget, speed, and observed outcomes.
+Connect cloud providers, local OpenAI-compatible runtimes such as Ollama and LM Studio, or **capacity you already pay for** — a Claude, ChatGPT, Copilot or Qwen plan, or an eligible Gemini Code Assist license, becomes routable over the Agent Client Protocol with no per-token cost. AtlasMind routes by task fit, capability, health, budget, speed, and observed outcomes.
 
 ### Work the way your repository already works
 
@@ -68,9 +68,51 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.235.0
+## What's new in 0.241.2
 
-Since the last Marketplace publication, **v0.219.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+Since the last Marketplace publication, **v0.235.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **ACP launch evidence now follows the real platform contract.** CI requires private-desktop mode when it is requested on Windows and the intentional ordinary-desktop fallback on macOS and Linux, keeping the diagnostic truthful across all three supported runner platforms.
+
+- **Project Dashboard now opens with a current, bounded GitHub reading.** Issues, pull requests, CI, releases, labels, and milestones refresh once per five-minute freshness window instead of remaining invisible until the Issues page is opened manually. The dashboard-wide Refresh action and the Pull Requests page both update that same snapshot, and Pull Requests has its own navigation badge.
+
+- **Work outside the issue tracker is visible and recoverable.** Issues reports commits since the last tag and open PRs with no linked issue, explains the current workflow/issue-write posture, and states why AtlasMind never silently turns commits into public issues. An unlinked PR can produce a deterministic, editable tracking-issue draft; posting still requires the ordinary issue-write permission and explicit confirmation.
+
+- **Skill context is selected per turn instead of inherited wholesale.** Built-in agents use a deterministic `task-scoped` policy capped at 12 relevant tools; explicit allowlists remain exact, and an advanced `all` policy must be chosen deliberately. A legacy empty skill list now admits built-in skills only—never every custom or MCP integration—and externally supplied skills must be named explicitly.
+
+- **Tool schemas now count toward the context window once.** AtlasMind no longer repeats every selected skill name and description in the system prompt before sending the same information as JSON tool definitions. Schema tokens are included in prompt sizing and completion headroom; completion-only and delegated-tool ACP requests receive neither AtlasMind schemas nor the old prose catalogue.
+
+- **One chat turn can no longer become a model tour.** AtlasMind invokes at most three model endpoints, quarantines a timed-out transport for the rest of that turn (including ACP model/effort variants backed by the same agent), and gives stateful ACP work its real 180-second timeout instead of cancelling it at the generic 30-second boundary. The reply footer lists endpoints that were actually invoked and distinguishes timeout, error, capability mismatch, superseded, and completed attempts.
+
+- **Only the winning attempt becomes the answer.** Provider streams are isolated per attempt; abandoned preambles, tool-round narration, fallback drafts, and repeated skill-budget warnings no longer accumulate in the assistant bubble. The final response passes through a conservative paragraph/code-aware deduplicator, while a unique runtime warning appears once as progress rather than answer prose.
+
+- **“Read-only” and “do not run commands” are enforced capabilities.** AtlasMind removes write/process skills from that turn before it builds the prompt, denies a hallucinated forbidden tool again at execution, disables ACP native-tool delegation when it cannot enforce the same turn ceiling, and gives Test Developer a focused 17-skill set rather than all enabled integrations.
+
+- **The Windows ACP private desktop now owns the whole process tree.** The helper creates the agent suspended, assigns its private desktop and a kill-on-close Job Object, hides the initial window, then resumes it. Teardown asks Windows to kill the tree before the root can disappear; the output channel records the effective ordinary/private launch mode without logging commands, PIDs, prompts, or paths.
+
+- **Every branch now has a dashboard home.** **Project Dashboard → The code → Branches** shows local branches and cached remote-only refs together, with current/default/protected/worktree state, upstream tracking, ahead/behind drift, merge state, last commit, author, and staleness. Search and status filters keep large repositories usable, while **Fetch latest from remotes** is explicit rather than hidden inside ordinary dashboard refresh.
+
+- **Every branch card can now ask Atlas for a deterministic reading.** The Atlas icon opens Chat with a host-authored summary of the selected branch, comparisons against the current and production branches, declared warning signals, and recent contributor names/counts. This first answer uses cached local Git only—no fetch, branch switch, author email, model route, or subscription/API capacity—and offers focused chips for deeper current/production comparison, issue review, and recent-contributor analysis.
+
+- **Any safe branch can be brought into the workspace for immediate work.** **Switch here** activates an existing local branch; **Bring local** creates a same-named tracking branch from a remote-only ref. AtlasMind re-resolves the branch against live Git state, requires a clean working tree, blocks branches already checked out in another worktree or remote names that would collide locally, and confirms the workspace-changing action — with an extra warning for protected branches.
+
+- **AtlasMind can now be the agent behind Buzz.** The new local `atlasmind-acp` stdio endpoint lets Buzz's existing `buzz-acp` harness drive AtlasMind's orchestrator, agent registry, model routing, SSOT memory, and approval-gated workspace tools. In the Command Palette, run **AtlasMind: Copy Buzz ACP Agent Setup**, then create a Buzz managed agent with **Provider → Custom command** and paste the copied command and comma-separated arguments.
+
+- **A Director Person is now described accurately.** Adding a Buzz channel or public identity to the Director routes inbound work to an AtlasMind specialist; it does not create a Buzz managed agent, start a process, or produce replies. Those are separate objects in separate applications.
+
+- **The reciprocal bridge stays narrow.** It uses local stdio only, refuses client-supplied MCP commands, permits only one orchestrator loop at a time, asks the ACP client for one-turn approval on risky tools, and posts Buzz replies through the communication-only CLI surface after validating Buzz's generated channel/reply metadata. VS Code secrets are never copied into the external process.
+
+- **The Models sidebar can now be decluttered without changing routing.** An eye-closed icon on every provider, subscription route, and model row hides only that line from the tree. **Settings → Models & Integrations → Sidebar visibility** lists the hidden entries with individual Restore buttons; credentials, enablement, agent assignments, and router eligibility are unchanged.
+
+- **Testing-policy explanations are immediate, useful, and model-free.** Every Testing Policy Coverage card now has a visible **Ask Atlas** action that opens with four beginner-facing answers: what the method is, what it needs, what result to expect, and why to use it. It then explains the live status and evidence limits, recommends a next step, and offers relevant chips such as **Check whether it fits**, **Plan a starting point**, or **Explain turning it off**. AtlasMind owns these facts, so this first answer bypasses routing entirely: zero models, zero provider fallbacks, and no subscription or API capacity. MCP connection/setup errors and Project Dashboard failures retain their separate reviewable, redacted Chat drafts.
+
+- **The ACP tools checkbox now makes subscription agents eligible for tool-backed work.** When **Let subscription agents act** is selected, the router can choose a configured ACP agent for a task that needs workspace actions. AtlasMind passes no incompatible function schemas; the subscription agent uses its own tools and every operation still asks through AtlasMind’s existing approval broker. With the checkbox off, ACP remains completion-only.
+
+- **Webview controls and compact rows stay legible as panels resize.** Labels, buttons, and badges no longer volunteer to shrink below the width of an ordinary word and then split it into fragments. Structural panel boxes remain responsive, prose wraps at word boundaries, long URLs still contain themselves, and Project Ideation's memory checklist and confidence/risk analytics keep their labels and scores intact while the flexible text column takes the available space.
+
+- **Gemini ACP now names the license it actually requires.** Google stopped serving Gemini CLI requests for free individual and personal Google AI Pro and Ultra accounts on 18 June 2026. The Google provider card now offers **Use my Code Assist license**, and setup states that an assigned Gemini Code Assist Standard or Enterprise license is required before it installs or probes anything. Gemini Enterprise Standard and Plus can qualify after the bundled Code Assist Standard license is assigned; Business and Frontline do not include it. The direct Gemini API provider is unchanged.
+
+- **The remaining Dependabot alert is resolved.** Stryker's development-only REST client pins vulnerable `qs@6.15.1`, so npm's normal audit fix cannot move it and upgrading the parent does not help. AtlasMind now forces patched `6.15.2` across the dependency tree; every other consumer already used or accepted that version, and production dependencies were already clean.
 
 - **Personality Profile and Website Studio are one click from Chat.** Their account and globe icons now occupy visible slots in the native AtlasMind Chat title bar. Project Ideation and Cost Dashboard remain in the same title bar’s `…` menu, keeping the five-icon limit intact while putting the two requested managers at the top right.
 
@@ -94,7 +136,7 @@ Since the last Marketplace publication, **v0.219.0**, source builds have added t
 
 - **Scaffold Testing Framework can begin the first real test.** It still creates only missing starter files and never alters manifests. It now also synchronises the chosen testing guidance into existing AI-agent instruction files and, if the project already has Vitest or Jest plus a small exported source candidate, asks AtlasMind to author one focused code-specific test. That task follows the normal approval rules, inspects the source first, and makes no dependency or production-code change; if it cannot establish a stable behaviour, it makes no test change at all.
 
-- **ACP subscription plans now follow your installed configuration, not a stale vendor table.** Configure Agent Plan lists every agent in `atlasmind.acp.agents`—including Gemini and custom ACP clients—and records the plan name you enter. ACP does not expose a trustworthy tier or remaining allowance, so AtlasMind no longer asks for, estimates, decrements, or routes on subscription credits. Copilot’s separate credit flow is unchanged.
+- **ACP subscription plans now follow your installed configuration, not a stale vendor table.** Configure Agent Plan lists every agent in `atlasmind.acp.agents`—including eligible Gemini Code Assist and custom ACP clients—and records the plan name you enter. ACP does not expose a trustworthy tier or remaining allowance, so AtlasMind no longer asks for, estimates, decrements, or routes on subscription credits. Copilot’s separate credit flow is unchanged.
 
 - **ACP tool permission now stays set.** The Safety & Verification checkbox that lets ACP agents use their own tools is saved to your workspace and remains selected when you return to Settings.
 
@@ -102,7 +144,7 @@ Since the last Marketplace publication, **v0.219.0**, source builds have added t
 
 - **ACP no longer boots a coding-agent process tree for every answer.** The routed adapter keeps a successful session alive for up to 30 idle minutes and sends only the exact transcript suffix the remote session has not seen. Reuse is refused on a branch/edit, agent or cwd change, model/effort change, MCP or isolation change, launch-mode change, instruction/settings-file change, exit, or idle expiry. Identical concurrent calls share one in-flight prompt, and a 15-second result ledger absorbs transport-style retries — an uncertain prompt is never sent twice.
 
-- **Windows console pop-ups are now an informed choice made before the first ACP probe.** Ordinary launching remains the compatibility-first default and may briefly show terminals created by an agent or MCP server. The new **ACP: Hide Console Windows** checkbox instead uses a bundled 120 KB native launcher to put the agent and its descendants on a dedicated private Windows desktop, preserving JSON-RPC stdio without a shell. Missing, modified, or blocked helpers fail visibly; AtlasMind never falls back behind your back.
+- **Windows console pop-ups are now an informed choice made before the first ACP probe.** Ordinary launching remains the compatibility-first default and may briefly show terminals created by an agent or MCP server. The **ACP: Hide Console Windows** checkbox instead uses a bundled 120 KB native launcher to put the agent and its descendants on a dedicated private Windows desktop, preserving JSON-RPC stdio without a shell. It starts the agent suspended, attaches the tree to a kill-on-close Job Object, assigns the hidden desktop, then resumes it. Missing, modified, or blocked helpers fail visibly; AtlasMind never falls back behind your back.
 
   While this opt-in path has a routed session alive, the VS Code status bar says **ACP private desktop: _n_**. Click it to open Models & Providers. It provides visible, in-editor evidence of the selected launch mode without another native window, a focus change, or a suggestion that the desktop is a sandbox.
 
@@ -157,7 +199,7 @@ Since the last Marketplace publication, **v0.219.0**, source builds have added t
 ## What is included
 
 - **Multi-agent orchestration** — debugger, frontend and backend engineers, reviewer, security specialist, testing, documentation, performance, DevOps, dependency, SEO, UX, and ethics/legal/commercial oversight. Agents can hand a question to a better-placed specialist, and a handoff transfers the question without widening the caller's permissions.
-- **Outcome-aware model routing** — cloud providers, local runtimes, or a Claude/ChatGPT/Gemini/Copilot/Qwen **subscription** used as capacity, chosen by budget, speed, capability, health, feedback, and task-profile signals.
+- **Outcome-aware model routing** — cloud providers, local runtimes, a Claude/ChatGPT/Copilot/Qwen subscription, or an eligible Gemini Code Assist license used as capacity, chosen by budget, speed, capability, health, feedback, and task-profile signals.
 - **A guided GitHub workflow** — ideation, issues, branches, pull requests, review, pipeline, release, and tech debt, each with its own automation level from *observe* to *act*. Specialised by your project's shape and traits, and written to a file your team owns.
 - **Ideation that reaches the backlog** — cards become roadmap items carrying the connections that argued for them, and a roadmap item becomes a GitHub issue draft with labels drawn only from your repository's real taxonomy.
 - **A tech-debt register** — deferred work found by scanning your own markers, graded by a **published rule table** rather than a model's opinion, with entries that transition instead of disappearing. Any entry can be handed to an agent as a proposal, never a mandate.
@@ -244,7 +286,7 @@ Project Dashboard → **Workflow** is the guided eight-stage workflow: ideation,
 
 ### Keep the project organised
 
-Project Dashboard brings ideation, roadmap, issues, documents, delivery stages, privacy, risk, stakeholders, assignments, and follow-ups into one operational surface.
+Project Dashboard brings ideation, roadmap, issues, every local and cached remote branch, documents, delivery stages, privacy, risk, stakeholders, assignments, and follow-ups into one operational surface. On **Branches**, use the Atlas icon for a deterministic local-Git summary with comparison and contributor follow-up chips, **Switch here** for an existing local branch, or **Bring local** for a remote-only branch; AtlasMind requires a clean tree and confirms before changing the workspace.
 
 ---
 
@@ -306,6 +348,7 @@ Open the Command Palette with `Ctrl+Shift+P`.
 | `AtlasMind: Open Mission Control` | Configure and operate bounded autonomous loops |
 | `AtlasMind: Open Cost Dashboard` | Inspect spend, cache/compression efficiency, and estimated local-model savings |
 | `AtlasMind: Compare Models on a Prompt` | Run a controlled prompt across configured models |
+| `Hide from Models Sidebar` | Sidebar-only eye-closed action that hides one provider, subscription route, or model until it is restored in Models & Integrations settings |
 | `AtlasMind: Manage MCP Servers` | Connect and manage MCP tool servers |
 | `AtlasMind: Resource Discovery` | Search, install, manage, and export agentic resources |
 | `AtlasMind: Specialist Integrations` | Configure specialist search and media providers |
@@ -317,6 +360,7 @@ Open the Command Palette with `Ctrl+Shift+P`.
 | `AtlasMind: Toggle Keep Computer Awake` | Opt into an AC-aware wake lock for long-running activity |
 | `AtlasMind: Set Buzz Agent Key` | Store or remove the Buzz agent key in the OS secret store (empty value removes it) |
 | `AtlasMind: Fetch My Buzz Channels` | Ask the Buzz CLI which channels your key can see, and tick the ones to watch. Writes nothing unless you confirm |
+| `AtlasMind: Copy Buzz ACP Agent Setup` | Copy the workspace-scoped Custom command fields that make AtlasMind a Buzz managed agent; copies no credentials |
 | `AtlasMind: Run a Research Scan` | Ask one research question about the world outside this repository. Confirms first, naming the scan, the source and the cost |
 | `AtlasMind: Open the Research Register` | The findings, their sources, and the rule that graded each |
 | `AtlasMind: Open the Research Digest` | What changed outside, what it means, and what is still unassessed |
@@ -348,7 +392,7 @@ AtlasMind's main settings are available in its Settings panel and under `atlasmi
 | `buzz.inboundEnabled` | `false` | Hold a read-only subscription to a Buzz relay |
 | `buzz.autoCreateFollowUps` | `false` | Record derived Buzz follow-ups into git-tracked project memory |
 | `buzz.agentBindings` | `{}` | Route a Buzz identity's work to an AtlasMind agent (edited per person on Dashboard → Director) |
-| `acp.toolsEnabled` | `false` | **Let subscription agents act**: allow their own tools one approval at a time |
+| `acp.toolsEnabled` | `false` | **Let subscription agents act**: make ACP eligible for tool-backed work using its own tools, one approval at a time |
 | `acp.hideConsoleWindows` | `false` | Windows only: keep ACP descendants on a private desktop so consoles cannot pop up or steal focus; may be flagged by EDR. Also a checkbox on Settings → Safety & Verification |
 
 See the [Configuration Reference](docs/configuration.md) or [wiki Configuration](wiki/Configuration.md) for every setting, accepted value, security implication, and provider-specific option.
@@ -362,6 +406,8 @@ The README keeps the map short; implementation details and data flows belong in 
 | Path | Responsibility |
 |---|---|
 | `src/core/` | Orchestration, routing, planning, safety and security registers, cost, and project services |
+| `src/acp/` | Agent-side ACP v1 sessions, one-turn permission brokering, and validated Buzz reply delivery |
+| `src/cli/` | Headless AtlasMind CLI and the local `atlasmind-acp` stdio entrypoint |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Provider adapters, catalogs, health, and local-model discovery |
 | `native/acp-private-desktop/` | Auditable Rust source for the optional Windows private-desktop launcher; the pinned release binary ships under `media/bin/` |
@@ -369,6 +415,7 @@ The README keeps the map short; implementation details and data flows belong in 
 | `src/memory/` | SSOT retrieval, scanning, redaction, and persistence |
 | `src/chat/` | Chat participant and shared interaction protocol |
 | `src/views/` | Settings, dashboards, editors, and sidebar surfaces |
+| `src/views/modelSidebarVisibility.ts` | User-level, presentation-only persistence for hidden Models sidebar rows and exact-entry restoration |
 | `src/mcp/` and `src/ard/` | MCP connectivity—including the bundled Buzz communications bridge—and Agentic Resource Discovery |
 | `src/voice/` and `src/remote/` | Voice backends and opt-in remote control |
 | `tests/` | Unit, integration, webview, security, and regression coverage |

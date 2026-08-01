@@ -135,6 +135,8 @@ Because that acknowledgement is narrow ("store these contact details") but enabl
 
 ### 6. Tool Approval Gate
 
+Before approval is considered, AtlasMind minimizes capability exposure. `AgentDefinition.skillPolicy` separates task-scoped selection, exact allowlists, and a deliberate all-enabled override. An empty legacy list becomes task-scoped built-ins—not every newly installed custom or MCP integration—and synthesized agents are constrained to that safe mode. At most 12 task-relevant schemas survive to a model call. This is a narrowing layer only: it cannot widen the agent pool, user capability envelope, risk classification, or approval policy.
+
 - **Default mode:** `ask-on-write` — read-only operations auto-approved, writes require consent
 - Four configurable approval modes from strictest to most permissive
 - Interactive approval prompts now stay inside the AtlasMind chat surface instead of using an OS modal dialog, render in a dedicated warning stack below the transcript and above the composer, and prefer reusing the current chat surface instead of opening a second detached panel when AtlasMind needs attention, while still distinguishing one-off approval from task-scoped bypass and session-wide autopilot so users can deliberately widen execution scope instead of repeatedly clicking through the same tool sequence
@@ -147,6 +149,7 @@ Because that acknowledgement is narrow ("store these contact details") but enabl
 - For implementation work, AtlasMind also requires a failing relevant test signal before it will perform non-test writes or risky external execution such as terminal-write, git-write, or network-classified tool calls.
 - Repo-maintenance actions such as Dependabot merges, rebases, or dependency branch resolution are evaluated by the normal approval gate, but they are not blocked by the implementation-only red-to-green TDD requirement.
 - Atlas also uses recent session context to interpret terse deictic follow-up requests before deciding whether to stay advisory or move into tool-backed action, which reduces misclassification without weakening the approval gate itself.
+- Routed ACP tools retain two gates: the live `atlasmind.acp.toolsEnabled` setting makes a declared delegated-tool model eligible for the turn, then each native operation still requires the independent ACP permission policy. Model discovery or setting state alone cannot approve an action.
 - Max **8 tool calls per turn** prevents runaway execution
 - **Pre-write checkpoints** allow rollback if something goes wrong
 - **Post-write verification** (tests/lint) catches regressions immediately
@@ -157,6 +160,17 @@ Because that acknowledgement is narrow ("store these contact details") but enabl
 - `ProjectRunHistory` persists preview, running, completed, and failed autonomous-run records so operators can review what happened after reload.
 - `ToolWebhookDispatcher` is the current hook for centralized auditing or alerting; AtlasMind itself does not yet ship a hosted alerting backend.
 - Tool parameters in webhook payloads are redacted for sensitive fields before they leave the extension host.
+
+### 6b. Routed ACP Delegated-Execution Boundary
+
+ACP subscription agents use their own tool implementations, so AtlasMind separates capability, route authority, schema delivery, and operation approval:
+
+- `ModelInfo.delegatedToolExecution` says only that the provider can act natively. It never grants permission and never aliases the model's capabilities to `function_calling`.
+- `RoutingConstraints.allowDelegatedToolExecution` is derived from the live, off-by-default `atlasmind.acp.toolsEnabled` setting. The router requires both flags before ACP can satisfy a tool-backed task.
+- The Orchestrator sends an empty AtlasMind tool-schema list to a selected delegated ACP model, and `AcpAdapter` independently refuses any request containing those schemas. A normal-provider failover receives the original schemas.
+- Delegated execution mode is read independently of the MCP allowlist. An agent may have built-in tools with no shared MCP server; conversely, an absent or throwing setting boundary fails closed to completion-only isolation.
+- Changing the setting alters the ACP execution/session fingerprint, invalidating an incompatible live session and short replay entry before another prompt.
+- Eligibility never authorizes an individual operation. `session/request_permission` still passes through `AcpPermission` and `ToolApprovalManager`; a missing or failing policy denies.
 
 ### 7. Skill Security Scanner
 
@@ -227,9 +241,20 @@ so defenders can hunt that behaviour. AtlasMind therefore:
 - gives its desktop handle only the required `DESKTOP_CREATEWINDOW` access;
 - passes an already-resolved executable and argv with no shell;
 - uses `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` to inherit only stdin/stdout/stderr;
+- creates the agent suspended, assigns it to a Job Object with
+  `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, and only then resumes it, preventing a
+  child-process race before the lifetime boundary exists;
+- supplies `STARTF_USESHOWWINDOW`/`SW_HIDE` as a second defence against the root
+  process displaying a window;
 - pins the shipped PE by SHA-256 and refuses missing or changed binaries;
 - fails visibly if EDR blocks the helper, without silently falling back to a
   focus-stealing visible launch.
+
+AtlasMind also records a minimal local launch-boundary event—configured agent id,
+whether private desktop was requested, and whether the effective launch was
+private or ordinary—in the ACP output channel. It does not log argv, paths,
+prompts, PIDs, or credentials. This makes a future focus regression diagnosable
+without expanding the disclosure boundary.
 
 These controls make the intent auditable; they cannot guarantee an enterprise
 heuristic will accept the technique. The SHA-256 pin is an AtlasMind integrity
@@ -237,6 +262,41 @@ check, not an Authenticode signature or a reputation signal; the v0.230.0 helper
 PE is not Authenticode-signed. Managed environments should leave the checkbox
 off unless their security team approves it, and may require an organisation
 signature or a hash/publisher allow-rule before deployment.
+
+### 8b. AtlasMind agent-side ACP boundary
+
+The reciprocal `atlasmind-acp` host is deliberately narrower than a general
+remote agent server:
+
+- **Local stdio only.** It opens no TCP, HTTP, WebSocket, or named-pipe listener.
+  Starting the child is the opt-in and the OS process boundary is the local
+  transport boundary. A network transport would require a separate
+  authenticated design and is not accepted by this endpoint.
+- **Workspace constrained.** The launch command fixes one workspace root.
+  Session cwd and additional directory declarations must remain inside it;
+  workspace tools retain their canonical-path/symlink checks at access time.
+- **No executable delegation during session setup.** `session/new` may describe
+  MCP servers under ACP, but AtlasMind never spawns those client-provided
+  commands. Doing so would turn the transport peer into a code-execution
+  authority.
+- **Bounded input and memory.** Prompt text is capped at 1,000,000 characters
+  and retained transcript context at 80,000. Image/audio prompts are not
+  advertised. One orchestrator loop runs at a time; concurrent sessions are
+  refused rather than racing shared execution state.
+- **One-turn risky-tool grants.** The client sees a bounded, secret-redacted
+  preview and can allow once or reject. `allow_always` is not offered or
+  accepted, and any missing/failed permission context denies.
+- **Secrets do not cross during setup.** The Buzz recipe names provider
+  environment variables but contains no value. VS Code SecretStorage is never
+  exported. A separate child therefore has only the credential the operator
+  explicitly supplies to Buzz.
+
+Buzz automatic reply delivery has an additional destination check. The parser
+reads only `buzz-acp`'s generated `[Context]` section, requires one channel UUID
+and one reply event id, and requires that id to reappear in generated
+event/thread metadata. Message text appears in another section and cannot
+select a destination by pasting a fake `Channel:` or `--reply-to` line. Delivery
+then uses the existing shell-free, communication-only CLI bridge.
 
 ### 9. Model Output Validation
 
@@ -251,15 +311,17 @@ signature or a hash/publisher allow-rule before deployment.
 
 ### 9a. Read-Only Oversight Advisors
 
-The three oversight advisors (`ethics-oversight`, `legal-oversight`, `commercial-oversight`) are the only built-in agents with a **restricted skill allowlist**. Every other built-in uses `skills: []`, which expands to all enabled skills; the advisors pin an explicit read-only set and therefore hold no `file-write`, `file-edit`, `file-delete`, `file-move`, `git-commit`, `git-push`, `git-apply-patch`, `terminal-run`, `docker-cli`, `npm-scripts`, `test-run`, `memory-write`, `memory-delete`, `rename-symbol`, `code-action`, `code-format`, `rollback-checkpoint`, or `http-request` (which permits arbitrary methods — `web-fetch` is the read-only equivalent).
+The three oversight advisors (`ethics-oversight`, `legal-oversight`, `commercial-oversight`) are the built-in agents whose `allowlist` policies are **strictly read-only**. Test Developer has a focused explicit eligibility list but uses task-scoped selection because its implementation role still requires write and test capabilities on relevant turns. Other empty built-in lists are task-scoped, never “all”; the advisors additionally hold no `file-write`, `file-edit`, `file-delete`, `file-move`, `git-commit`, `git-push`, `git-apply-patch`, `terminal-run`, `docker-cli`, `npm-scripts`, `test-run`, `memory-write`, `memory-delete`, `rename-symbol`, `code-action`, `code-format`, `rollback-checkpoint`, or `http-request` (which permits arbitrary methods — `web-fetch` is the read-only equivalent).
 
 An advisor inspects and reports; it is never also the thing that edits. Where findings must be recorded, the Project Dashboard owns that single write path and sanitises the model's output before it reaches disk. The advisors also set `autoUpdateExcluded: true`, so the agent auto-updater cannot paraphrase their "advisory, not authoritative" framing away on its cadence. Because `getSkillsForAgent` silently drops unrecognised ids, `tests/runtime/core.test.ts` asserts that every pinned id resolves and that no mutating skill is granted.
+
+An explicit read-only user instruction narrows any agent further for that turn. The Orchestrator derives a deterministic capability envelope, removes disallowed schemas before the model call, rechecks it immediately before tool execution, and disables ACP native delegated tools. This prevents prompt injection or model error from turning an explanation-only request into a command, edit, or test run.
 
 None of the advisors gates anything: an open finding never blocks a commit, a promotion, or a release. Their output is a prompt for human judgement, and each prompt names the review a consequential finding needs — qualified counsel in the relevant jurisdiction, an ethics or DPO review, or finance/commercial sign-off. They are explicitly **not a substitute for professional advice**.
 
 ### 10. Context-Window Overflow Guard
 
-Each iteration of the agentic loop now computes a safe `maxTokens` value: `min(DEFAULT_CHAT_MAX_TOKENS, modelContextWindow − estimatedInputTokens − 1024)`. This prevents completion requests from overflowing the model's context window as conversation history grows, which could otherwise cause silent truncation or provider errors on long-running tasks.
+Each iteration of the agentic loop computes a safe `maxTokens` value: `min(DEFAULT_CHAT_MAX_TOKENS, modelContextWindow − estimatedInputTokens − 1024)`. Estimated input includes both message text and serialized callable tool definitions. The same schema reservation reduces session, memory, and supplemental-context budgets before message construction. Selected skills are described only through those schemas, not duplicated in system prose; ACP calls that receive no AtlasMind schemas reserve no AtlasMind schema budget. This prevents silent truncation or provider errors while avoiding the previous double cost of a skill catalogue plus definitions.
 
 ### 11. Autonomous Mission Loop Containment
 
@@ -284,6 +346,7 @@ The Mission Loop (`/loop` and Mission Control) is autonomous, so it is bounded o
 | Credential exposure | SecretStorage + MemoryScanner write-gate + SecretRedactor dispatch-time scan |
 | Path traversal | Workspace-root sandboxing on all file ops |
 | Shell injection | execFile (no shell) + allow-list + operator blocking |
+| ACP capability metadata or tools-enabled setting mistaken for action approval | Capability + live routing-authority split, no AtlasMind schemas across the ACP boundary, per-operation permission broker, deny on missing policy |
 | ACP prompt replay / duplicated delegated work | Stable per-tool-round identity + exact transcript-prefix reuse + in-flight single-flight + short completed-result ledger + exclusion from generic retries + outer-timeout `session/cancel` and teardown after an uncertain `session/prompt` |
 | Hidden-desktop dual use / EDR detection | Off-by-default disclosed choice + source-visible SHA-256-pinned helper + no desktop switching/control + minimal handle inheritance + visible failure, with ordinary launch available |
 | SSRF via web-fetch | IP range blocking + metadata endpoint blocking |

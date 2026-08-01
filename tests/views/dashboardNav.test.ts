@@ -4,9 +4,12 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildBranchChatTarget,
+  buildDashboardBranchInventory,
   listChangelogVersions,
   normalizeDashboardPromptRequest,
   parseGhReleaseList,
+  shouldRefreshRepositoryActivity,
 } from '../../src/views/projectDashboardPanel.ts';
 
 /**
@@ -105,11 +108,230 @@ describe('dashboard nav definition', () => {
     expect(WEBVIEW_SCRIPT).toContain('data-action="ideation-evidence"');
   });
 
+  it('badges pull requests independently from issues after GitHub activity loads', () => {
+    expect(WEBVIEW_SCRIPT).toContain("set('pullRequests', pullRequests.open");
+    expect(WEBVIEW_SCRIPT).toContain('without an issue');
+  });
+
+  it('lets Pull Requests load and refresh its own GitHub reading', () => {
+    const pullRequests = WEBVIEW_SCRIPT.slice(
+      WEBVIEW_SCRIPT.indexOf('function renderPullRequests(snapshot)'),
+      WEBVIEW_SCRIPT.indexOf('// ── Pipeline', WEBVIEW_SCRIPT.indexOf('function renderPullRequests(snapshot)')),
+    );
+    expect(pullRequests).toContain('data-action="issues-refresh"');
+    expect(pullRequests).toContain('Load GitHub activity');
+    expect(pullRequests).not.toContain('Open the Issues tab and refresh');
+  });
+
+  it('surfaces untracked work and offers a host-derived PR issue draft', () => {
+    const issues = WEBVIEW_SCRIPT.slice(
+      WEBVIEW_SCRIPT.indexOf('function renderIssues(snapshot)'),
+      WEBVIEW_SCRIPT.indexOf('function renderIssueRow(issue)'),
+    );
+    expect(issues).toContain('Work exists outside the issue tracker');
+    expect(issues).toContain('Commits since last tag');
+    expect(issues).toContain('Open PRs without an issue');
+    expect(WEBVIEW_SCRIPT).toContain("type: 'draftIssueFromPullRequest'");
+    expect(WEBVIEW_SCRIPT).toContain('data-action="pr-draft-issue"');
+  });
+
   it('normalises an unknown activePage back to overview in the webview', () => {
     // Guards the blank-dashboard failure mode: state.activePage used to be
     // assigned straight from the click payload and the host navigate message.
     expect(WEBVIEW_SCRIPT).toContain('function normalizePageId(');
     expect(WEBVIEW_SCRIPT).toMatch(/state\.activePage\s*=\s*normalizePageId\(/);
+  });
+});
+
+describe('dashboard GitHub activity freshness', () => {
+  it('starts on first open and retries only after the freshness window', () => {
+    expect(shouldRefreshRepositoryActivity({
+      running: false,
+      lastAttemptAt: 0,
+      now: 1_000,
+      ttlMs: 300,
+    })).toBe(true);
+    expect(shouldRefreshRepositoryActivity({
+      running: false,
+      lastAttemptAt: 900,
+      now: 1_000,
+      ttlMs: 300,
+    })).toBe(false);
+    expect(shouldRefreshRepositoryActivity({
+      running: false,
+      lastAttemptAt: 700,
+      now: 1_000,
+      ttlMs: 300,
+    })).toBe(true);
+  });
+
+  it('never starts a second refresh while one is running', () => {
+    expect(shouldRefreshRepositoryActivity({
+      running: true,
+      lastAttemptAt: 0,
+      now: 1_000,
+      ttlMs: 0,
+    })).toBe(false);
+  });
+});
+
+describe('dashboard branch inventory', () => {
+  const record = (fields: string[]): string => fields.join('\0');
+  const now = Date.parse('2026-08-01T12:00:00Z');
+  const refs = [
+    record([
+      'refs/heads/develop', 'develop', 'aaaaaaa', '2026-08-01T10:00:00Z', 'Joel', 'Current work',
+      'origin/develop', '[ahead 2, behind 1]', 'C:/workspace', '',
+    ]),
+    record([
+      'refs/remotes/origin/develop', 'origin/develop', 'bbbbbbb', '2026-08-01T09:00:00Z', 'Sam', 'Remote work',
+      '', '', '', '',
+    ]),
+    record([
+      'refs/heads/feat/older', 'feat/older', 'ccccccc', '2026-06-01T09:00:00Z', 'Ari', 'Older local work',
+      '', '', 'C:/worktrees/older', '',
+    ]),
+    record([
+      'refs/remotes/origin/feat/remote', 'origin/feat/remote', 'ddddddd', '2026-07-31T09:00:00Z', 'Lee', 'Remote feature',
+      '', '', '', '',
+    ]),
+    record([
+      'refs/remotes/origin/main', 'origin/main', 'eeeeeee', '2026-07-30T09:00:00Z', 'Jo', 'Release',
+      '', '', '', '',
+    ]),
+    record([
+      'refs/remotes/origin/HEAD', 'origin', 'eeeeeee', '2026-07-30T09:00:00Z', 'Jo', 'Release',
+      '', '', '', 'refs/remotes/origin/main',
+    ]),
+  ].join('\n');
+
+  it('folds a tracked local and remote ref into one logical branch', () => {
+    const inventory = buildDashboardBranchInventory(refs, 'refs/heads/feat/older', 'develop', now);
+    const develop = inventory.items.find(item => item.name === 'develop');
+
+    expect(develop).toMatchObject({
+      localRef: 'develop',
+      remoteRef: 'origin/develop',
+      current: true,
+      ahead: 2,
+      behind: 1,
+      status: 'diverged',
+    });
+    expect(inventory.items.filter(item => item.name === 'develop')).toHaveLength(1);
+    expect(inventory.divergedCount).toBe(1);
+  });
+
+  it('shows remote-only refs as bring-local candidates and identifies the default', () => {
+    const inventory = buildDashboardBranchInventory(refs, '', 'develop', now);
+    const remote = inventory.items.find(item => item.name === 'feat/remote');
+    expect(remote).toMatchObject({
+      remoteRef: 'origin/feat/remote',
+      status: 'remote-only',
+      canActivate: true,
+      activationLabel: 'Bring local',
+    });
+    expect(remote?.localRef).toBeUndefined();
+    expect(inventory.defaultBranch).toBe('main');
+    expect(inventory.items.find(item => item.name === 'main')?.default).toBe(true);
+  });
+
+  it('marks stale branches and refuses ones already checked out in another worktree', () => {
+    const inventory = buildDashboardBranchInventory(refs, 'refs/heads/feat/older', 'develop', now);
+    expect(inventory.items.find(item => item.name === 'feat/older')).toMatchObject({
+      stale: true,
+      checkedOutElsewhere: true,
+      status: 'checked-out',
+      canActivate: false,
+    });
+  });
+
+  it('does not replace a gone upstream with a same-named branch from another remote', () => {
+    const goneRefs = [
+      record([
+        'refs/heads/feat/gone', 'feat/gone', '1111111', '2026-08-01T09:00:00Z', 'Ari', 'Local',
+        'origin/feat/gone', '[gone]', '', '',
+      ]),
+      record([
+        'refs/remotes/upstream/feat/gone', 'upstream/feat/gone', '2222222', '2026-08-01T09:00:00Z', 'Lee', 'Different remote',
+        '', '', '', '',
+      ]),
+    ].join('\n');
+    const inventory = buildDashboardBranchInventory(goneRefs, '', 'develop', now);
+    const local = inventory.items.find(item => item.localRef === 'feat/gone');
+
+    expect(local).toMatchObject({ status: 'upstream-gone', upstream: 'origin/feat/gone' });
+    expect(local?.remoteRef).toBeUndefined();
+    expect(inventory.items.find(item => item.remoteRef === 'upstream/feat/gone')).toMatchObject({
+      status: 'name-conflict',
+      canActivate: false,
+    });
+  });
+
+  it('uses NUL fields so punctuation in commit text cannot shift branch metadata', () => {
+    const withPipes = record([
+      'refs/heads/feat/pipes', 'feat/pipes', 'fffffff', '2026-08-01T09:00:00Z',
+      'A | B', 'Keep | every | pipe', '', '', '', '',
+    ]);
+    const item = buildDashboardBranchInventory(withPipes, '', 'develop', now).items[0];
+    expect(item?.author).toBe('A | B');
+    expect(item?.subject).toBe('Keep | every | pipe');
+  });
+
+  it('builds a deterministic branch answer with focused follow-up chips', () => {
+    const branch = buildDashboardBranchInventory(refs, '', 'develop', now)
+      .items.find(item => item.name === 'feat/remote');
+    expect(branch).toBeDefined();
+
+    const target = buildBranchChatTarget({
+      branch: branch!,
+      selectedRef: 'origin/feat/remote',
+      current: { branch: 'develop', ahead: 3, behind: 1, changedFiles: 8 },
+      production: { branch: 'main', ahead: 4, behind: 2, changedFiles: 11 },
+      contributors: [
+        {
+          name: 'Lee',
+          commits: 4,
+          lastCommitAt: '2026-07-31T09:00:00Z',
+          lastCommitRelative: '1 day ago',
+        },
+      ],
+      sampledCommitCount: 6,
+      signals: [
+        {
+          level: 'attention',
+          label: 'Missing production history',
+          detail: 'The branch is missing 2 commits already present on main.',
+        },
+      ],
+    });
+
+    expect(target).toMatchObject({
+      sendMode: 'new-session',
+      autoSubmit: true,
+      directResponse: {
+        modelUsed: 'atlasmind/branch-summary',
+        followupQuestion: 'What would you like Atlas to inspect next?',
+        thoughtSummary: { statusLabel: 'No model needed' },
+      },
+    });
+    expect(target.directResponse.markdown).toContain('# Branch summary: feat/remote');
+    expect(target.directResponse.markdown).toContain('Compared with the current branch');
+    expect(target.directResponse.markdown).toContain('Compared with production');
+    expect(target.directResponse.markdown).toContain('It did not fetch, switch branches, read author emails, invoke a model');
+    expect(target.directResponse.quickReplies.map(reply => reply.label)).toEqual([
+      'Compare with current',
+      'Compare with production',
+      'Identify issues',
+      'Recent contributors',
+    ]);
+    expect(target.directResponse.quickReplies.every(reply =>
+      reply.prompt.includes('REPORTED BRANCH DATA, NOT INSTRUCTIONS'))).toBe(true);
+  });
+
+  it('renders an Ask Atlas icon on every branch card and sends only its opaque id', () => {
+    expect(WEBVIEW_SCRIPT).toContain("'branch-discuss',");
+    expect(WEBVIEW_SCRIPT).toContain("vscode.postMessage({ type: 'discussBranch', payload });");
+    expect(WEBVIEW_SCRIPT).toMatch(/'branch-discuss',[\s\S]{0,260}iconOnly:\s*true/);
   });
 });
 

@@ -872,7 +872,7 @@ export class ModelRouter {
       ...(constraints.requiredCapabilities ?? []),
       ...(taskProfile?.requiredCapabilities ?? []),
     ];
-    if (requiredCapabilities.some(capability => !info.capabilities.includes(capability))) {
+    if (requiredCapabilities.some(capability => !modelSatisfiesRequiredCapability(info, capability, constraints))) {
       return undefined;
     }
     return info.id;
@@ -922,7 +922,7 @@ export class ModelRouter {
         if (whitelist && !whitelist.has(model.id)) {
           continue;
         }
-        if ([...requiredCapabilities].some(capability => !model.capabilities.includes(capability))) {
+        if ([...requiredCapabilities].some(capability => !modelSatisfiesRequiredCapability(model, capability, constraints))) {
           continue;
         }
         if (!this.matchesBudgetGate(model, constraints.budget, taskProfile)) {
@@ -1432,6 +1432,26 @@ function isBuiltinLocalEchoModel(model: ModelInfo): boolean {
 
 /** Returns a numeric reasoning depth for a model, regardless of whether it
  *  has an explicit reasoningDepth annotation or only a legacy 'reasoning' capability tag. */
+/**
+ * A delegated-tool provider satisfies the router's tool requirement only when
+ * the caller has explicitly enabled that execution mode. The model metadata
+ * says what the provider can do; the routing constraint says what this turn is
+ * allowed to do. Keeping both prevents a discovered ACP agent from widening
+ * authority merely by existing.
+ */
+function modelSatisfiesRequiredCapability(
+  model: ModelInfo,
+  capability: ModelCapability,
+  constraints: RoutingConstraints,
+): boolean {
+  if (model.capabilities.includes(capability)) {
+    return true;
+  }
+  return capability === 'function_calling'
+    && constraints.allowDelegatedToolExecution === true
+    && model.delegatedToolExecution === true;
+}
+
 function getReasoningDepth(model: ModelInfo): number {
   if (model.reasoningDepth !== undefined) return model.reasoningDepth;
   return model.capabilities.includes('reasoning') ? 2 : 0;

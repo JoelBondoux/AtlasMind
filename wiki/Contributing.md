@@ -42,7 +42,7 @@ npm run monitor:integrations:audit # Enforce monitoring coverage for new third-p
 ```
 
 CI executes compile, lint, full unit tests, and a focused local-recommendation registry regression gate on Ubuntu, Windows, and macOS, and publishes the coverage artifact from the Ubuntu leg only.
-Dependabot handles npm and GitHub Actions updates weekly, and the scheduled integration monitor workflow raises review issues when curated VS Code extension versions move.
+Dependabot checks npm dependencies daily and GitHub Actions weekly, and the scheduled integration monitor workflow raises review issues when curated VS Code extension versions move. The root manifest's `qs@6.15.2` override is a temporary security constraint: Stryker's REST client pins vulnerable `6.15.1` exactly, while every other consumer already resolves to or accepts the patched release. Keep the override until upstream removes that pin and confirm both the production and full audits before deleting it.
 
 ### Lint
 
@@ -85,6 +85,8 @@ The checked-in `.gitignore` keeps `project_memory_old/` out of source control, w
 | Directory        | Purpose                                                       |
 | ---------------- | ------------------------------------------------------------- |
 | `src/core/`      | Core services (orchestrator, agents, skills, router, planner) |
+| `src/acp/`       | Agent-side ACP sessions, permission broker, and Buzz setup/reply boundary |
+| `src/cli/`       | Headless CLI hosts, including the `atlasmind-acp` stdio agent |
 | `src/chat/`      | Chat participant and slash commands                           |
 | `src/providers/` | LLM provider adapters                                         |
 | `native/acp-private-desktop/` | Auditable Rust source for the optional Windows ACP private-desktop launcher; the release PE is SHA-256-pinned under `media/bin/` |
@@ -172,6 +174,13 @@ When you make any of these changes, update the corresponding docs:
 
 If the provider should work in both the extension and the CLI, keep it free of direct `vscode` imports and use the shared secret contract in `src/runtime/secrets.ts`. Shared provider bootstrapping now flows through the runtime builder rather than being duplicated per host.
 
+The same rule applies to anything imported by `src/cli/acpAgent.ts`. Run both
+`node out/cli/main.js --help` and `node out/cli/acpAgent.js --help` after
+changing shared core code; a transitive runtime `vscode` import compiles but
+fails only when the headless executable starts. The ACP transport uses the
+official ESM-only `@agentclientprotocol/sdk` behind a dynamic import so the
+extension's CommonJS desktop build remains loadable.
+
 AtlasMind's `local` provider supports both an offline echo fallback and a configurable OpenAI-compatible local endpoint through `src/providers/registry.ts`. Azure OpenAI uses the same reusable adapter with deployment-backed routing, while Bedrock uses a dedicated SigV4-signed adapter. `src/providers/acp.ts` is the reference for a host-neutral, subprocess-backed provider that depends on local install and the agent's own auth state instead of an AtlasMind-managed API key. OpenAI-compatible providers also normalize upstream model IDs into AtlasMind's internal `provider/model` format during discovery and execution so routing metadata stays consistent. If you change any of those paths, update the routing and configuration docs as well.
 
 When changing routing heuristics, validate both low-stakes and high-stakes follow-up prompts. Free or local models should stay attractive for simple turns, but they should not dominate later thread-based requests when the task profile signals higher reasoning demand.
@@ -184,6 +193,15 @@ Minimum validation for provider work:
 - Add routing or orchestrator regression coverage when the change affects failover, health, pricing, or capability selection.
 - Update `.github/integration-monitor.json` when the new provider introduces a third-party dependency or monitoring obligation.
 
+For the Windows ACP private-desktop helper, rebuild the pinned Rust source, copy
+the release PE to `media/bin/atlasmind-acp-private-desktop.exe`, update
+`ACP_PRIVATE_DESKTOP_HELPER_SHA256`, and run
+`tests/providers/acpWindowsLauncher.test.ts`. Preserve the create-suspended →
+assign kill-on-close Job Object → resume ordering, the restricted inherited
+handle list, and `STARTF_USESHOWWINDOW`/`SW_HIDE`. The Windows test must execute
+the shipped PE around a real redirected-stdio child; binary hash agreement alone
+does not prove the launcher works.
+
 ## Debugging Orchestration And Concurrency
 
 1. Confirm whether the issue is in agent selection, skill availability, provider routing, or tool execution before editing shared orchestrator code.
@@ -191,6 +209,11 @@ Minimum validation for provider work:
 3. Use `diagnostics` and `workspace-observability` to capture editor-state evidence instead of guessing from the final model response alone.
 4. For race-condition or dependency-order problems, add a focused scheduler or integration regression before changing concurrency behavior.
 5. For routing regressions, add coverage near `tests/core/orchestrator.tools.test.ts` or the relevant provider tests before changing heuristics.
+
+Failover is capped at three invoked endpoints, not three model labels. ACP
+model/effort variants share an endpoint circuit, and local models on the same
+configured server do too. Use `TaskResult.modelAttempts` for diagnostics; router
+previews and abandoned stream fragments are not evidence that a model ran.
 
 AtlasMind does not yet ship a formal load-test harness. For performance-sensitive changes, repeated local execution and targeted regression tests are the current required bar.
 

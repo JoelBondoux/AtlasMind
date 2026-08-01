@@ -1731,8 +1731,17 @@ export const TOOL_EXECUTION_TIMEOUT_MS = 15_000;
 /** Provider call timeout in milliseconds. */
 export const PROVIDER_TIMEOUT_MS = 30_000;
 
+/** ACP agents run a stateful subprocess and may legitimately spend time using tools. */
+export const ACP_PROVIDER_TIMEOUT_MS = 180_000;
+
 /** Number of retries for transient provider failures. */
 export const MAX_PROVIDER_RETRIES = 2;
+
+/**
+ * Hard per-turn ceiling across initial selection, capability re-routing,
+ * escalation, and provider failover.
+ */
+export const MAX_TASK_MODEL_ATTEMPTS = 3;
 
 /** Exponential backoff base for provider retries in milliseconds. */
 export const PROVIDER_RETRY_BASE_DELAY_MS = 400;

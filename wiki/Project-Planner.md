@@ -76,6 +76,12 @@ Each open item on the Project Dashboard's **Roadmap** page carries **Raise as is
 
 The body's provenance section names the roadmap file and the item id verbatim, and says plainly that closing the issue does not tick the item off and ticking it off does not close the issue — an issue that does not record where it came from becomes a duplicate the first time somebody reads the roadmap again.
 
+### An unlinked pull request can recover its issue record
+
+Work may begin outside AtlasMind's intake path: a branch can be pushed or a PR can be opened by another tool. Project Dashboard now makes that visible instead of pretending an empty issue tracker means no work exists. Its shared GitHub refresh shows open PRs with no closing-keyword issue link alongside commits since the latest tag.
+
+Each unlinked open or draft PR offers **Draft tracking issue**. The host re-resolves the current sanitized PR record and derives a fixed-order title, context, acceptance checklist, and PR link without a model. Only labels already present on the repository survive. The result opens in the ordinary issue composer; it never posts automatically, and the existing issue-write gate plus explicit confirmation still decide whether it reaches GitHub.
+
 ### Roadmap replies ask before they plan
 
 When a roadmap-context prompt reaches chat, AtlasMind reads the SSOT roadmap files live and responds in one of two ways depending on intent:

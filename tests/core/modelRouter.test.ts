@@ -134,6 +134,42 @@ describe('ModelRouter', () => {
     expect(['openai', 'google', 'copilot', 'anthropic', 'local']).toContain(provider);
   });
 
+  it('admits delegated ACP tools only when the turn explicitly authorizes them', () => {
+    const router = new ModelRouter();
+    router.registerProvider({
+      id: 'acp',
+      displayName: 'ACP Agents (subscription)',
+      apiKeySettingKey: '',
+      enabled: true,
+      pricingModel: 'subscription',
+      models: [{
+        id: 'acp/claude',
+        provider: 'acp',
+        name: 'Claude via ACP',
+        contextWindow: 200000,
+        inputPricePer1k: 0,
+        outputPricePer1k: 0,
+        capabilities: ['chat', 'code', 'reasoning'],
+        delegatedToolExecution: true,
+        enabled: true,
+      }],
+    });
+
+    const toolTask = {
+      budget: 'balanced' as const,
+      speed: 'balanced' as const,
+      requiredCapabilities: ['function_calling' as const],
+      preferredProvider: 'acp',
+    };
+
+    // Discovering a capable agent grants no authority by itself.
+    expect(router.selectBestModel(toolTask)).toBeUndefined();
+    expect(router.selectBestModel({
+      ...toolTask,
+      allowDelegatedToolExecution: true,
+    })).toBe('acp/claude');
+  });
+
   it('uses task profile vision requirements as a hard gate', () => {
     const router = new ModelRouter();
     const taskProfiler = new TaskProfiler();

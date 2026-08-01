@@ -120,6 +120,20 @@ export interface PullRequestSummary {
   summary: string;
 }
 
+/**
+ * A reviewable issue draft derived from an open pull request that has no issue.
+ *
+ * The draft is intentionally small and deterministic. Pull-request text is
+ * untrusted, so it is cleaned at the parser boundary and never interpreted as
+ * instructions here. The caller puts this in the issue composer; posting still
+ * goes through the ordinary issue-write permission and confirmation gates.
+ */
+export interface PullRequestIssueDraft {
+  title: string;
+  body: string;
+  labels: string[];
+}
+
 /** An open pull request untouched for this long is worth surfacing separately. */
 export const STALE_PR_DAYS = 14;
 
@@ -146,6 +160,51 @@ function clean(value: unknown, max: number): string {
     .replace(/[ \t]+/g, ' ')
     .trim()
     .slice(0, max);
+}
+
+/**
+ * Turn an unlinked pull request into a tracking-issue draft without a model.
+ *
+ * Only labels already declared by the repository survive. A PR label that does
+ * not exist cannot be attached to an issue, and creating it as a side effect
+ * would turn a drafting action into an unexpected repository mutation.
+ */
+export function derivePullRequestIssueDraft(
+  pullRequest: PullRequestRecord,
+  declaredLabels: readonly string[],
+): PullRequestIssueDraft {
+  const availableLabels = new Map(
+    declaredLabels
+      .map(label => clean(label, MAX_NAME))
+      .filter(Boolean)
+      .map(label => [label.toLowerCase(), label] as const),
+  );
+  const labels = pullRequest.labels
+    .map(label => availableLabels.get(label.toLowerCase()))
+    .filter((label): label is string => label !== undefined)
+    .filter((label, index, all) => all.indexOf(label) === index)
+    .slice(0, MAX_LABELS);
+  const title = clean(`Track PR #${pullRequest.number}: ${pullRequest.title}`, MAX_TITLE);
+  const state = pullRequest.state === 'draft' ? 'draft' : pullRequest.state;
+  const body = [
+    '## Context',
+    '',
+    `Pull request #${pullRequest.number} is ${state} from \`${pullRequest.headRefName || 'unknown'}\` into \`${pullRequest.baseRefName || 'unknown'}\` and has no linked issue.`,
+    '',
+    '## Objective',
+    '',
+    `Track and review the work described by “${pullRequest.title}”.`,
+    '',
+    '## Acceptance criteria',
+    '',
+    '- [ ] Confirm the intended scope and acceptance criteria.',
+    '- [ ] Review the implementation and its CI/test evidence.',
+    `- [ ] Link this issue from pull request #${pullRequest.number} with a GitHub closing keyword.`,
+    '- [ ] Merge the pull request or record the remaining follow-up work.',
+    ...(pullRequest.url ? ['', '## Pull request', '', pullRequest.url] : []),
+  ].join('\n');
+
+  return { title, body, labels };
 }
 
 /** Same, but newlines survive so a body stays readable. */

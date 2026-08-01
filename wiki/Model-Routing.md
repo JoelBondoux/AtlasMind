@@ -35,13 +35,17 @@ AtlasMind can also perform one bounded escalation during execution when the curr
 
 **Whole-project assessments are high-reasoning work even when the sentence is short.** Assessment, evaluation, review, and “where does this project stand?” prompts receive a deterministic high-reasoning floor that an optional classifier cannot lower. Among capable candidates, a bounded adequacy bonus prefers real local or active subscription-backed capacity over pay-per-token capacity that is only marginally faster; review, planning, and synthesis candidates must still meet a reasoning-depth floor.
 
+**Tool capability is based on the selected turn, not the agent's theoretical maximum.** `task-scoped` agents receive at most 12 relevant tools from their enabled eligibility pool; a general explanation can therefore remain a normal text request. `allowlist` preserves an exact pool, and the advanced `all` policy deliberately admits every enabled skill. Empty task-scoped lists admit built-ins only; custom/MCP skills must be named explicitly.
+
+**Tool schemas count as context.** The selected callable JSON definitions are the single model-facing skill description; AtlasMind no longer repeats them as a prose list. Serialized schema tokens participate in initial estimates, session/memory budgeting, and every tool round's output headroom. ACP completion-only and delegated-native-tool attempts receive no AtlasMind schemas or catalogue; ordinary-provider failover restores the selected definitions.
+
 For action-oriented workspace requests, AtlasMind also distinguishes between evidence-gathering and follow-through. Prompts that ask Atlas to wire, integrate, configure, support, add, update, fix, or otherwise implement behavior are now biased more aggressively toward direct execution, and after successful read-only evidence gathering AtlasMind issues one stronger follow-through reprompt before accepting a summary-only answer. Verification-style follow-ups such as asking whether a change actually happened now also trigger a repository-backed check, and investigation stalling like “I need to check” is treated as a retry signal rather than an acceptable final answer.
 
 AtlasMind also treats prompts about the current project structure, settings pages, or voice and audio settings as workspace-backed investigation requests more aggressively. When a turn has already gathered enough read-only repository evidence, the follow-through nudge now requires exact existing file paths or one final lookup before Atlas is allowed to settle on a summary.
 
 Security prompts such as security gap analysis, runtime-boundary review, auth review, vulnerability review, and threat modeling now bias even more strongly toward live repository evidence. AtlasMind treats those requests as code, configuration, runtime-boundary, and test investigations first, adds explicit prompt guidance that documentation is context rather than the sole source of truth, and prefers source-backed implementation evidence before it summarizes any claimed gap.
 URL-bearing integration and configuration prompts now also inject explicit URL-safety guidance so Atlas validates scheme and host trust boundaries, prefers HTTPS for external services, and uses the SSRF-safe fetch or HTTP request path to verify health or reachability before it presents a link as working.
-If the selected provider fails outright, AtlasMind now attempts a bounded provider failover and reroutes the task to another eligible provider before surfacing a final error.
+If the selected provider fails outright, AtlasMind invokes at most **three actual model endpoints** for the turn. A transport failure opens a turn-local circuit for the entire endpoint, so ACP effort/model variants and local models sharing the same failed server are skipped instead of repeatedly restarting it. ACP uses a protocol-aware 180-second deadline rather than the generic 30-second provider deadline. Reply metadata reports only endpoints actually invoked, with outcome and duration; routing previews are not counted as “models used.”
 
 AtlasMind also includes workstation context in routed prompts so response formatting can default to the active environment, such as preferring PowerShell command examples on Windows inside VS Code unless the user asks for another shell or platform.
 
@@ -64,7 +68,7 @@ That feedback bias is controlled by `atlasmind.feedbackRoutingWeight`. Set it to
 | Provider | ID | Pricing Model | Catalog source | Notes |
 |----------|----|--------------|----------------|-------|
 | **Anthropic** | `anthropic` | Pay-per-token | Runtime discovery via adapter `discoverModels()` / `listModels()` | One seed model is registered before refresh completes |
-| **ACP Agents (subscription)** | `acp` | Subscription | User-authored agent list (`atlasmind.acp.agents`); models are `acp/<id>` | Drives any Agent Client Protocol agent (`claude-agent-acp`, `codex-acp`, `gemini --acp`, `copilot --acp`, `qwen --acp`, …) over JSON-RPC on stdio using that vendor's subscription. Streams, has no argv prompt ceiling, and sends images when the agent declares support. A completion source by default — no MCP pass-through, permission requests refused — until `atlasmind.acp.toolsEnabled` lets the agent act, one approved operation at a time. Declares `vision` once a handshake reports image support; never `function_calling`. Seeded disabled — nothing is spawned until you name a command you have installed. See [ACP agents](#acp-agents) below |
+| **ACP Agents (subscription/license)** | `acp` | Subscription/license | User-authored agent list (`atlasmind.acp.agents`); models are `acp/<id>` | Drives any Agent Client Protocol agent (`claude-agent-acp`, `codex-acp`, `gemini --acp`, `copilot --acp`, `qwen --acp`, …) over JSON-RPC on stdio using that vendor's subscription or eligible product license. Streams, has no argv prompt ceiling, and sends images when the agent declares support. A completion source by default. With `atlasmind.acp.toolsEnabled`, the router may satisfy a tool-backed task through the model’s distinct delegated-tool capability: AtlasMind sends no function schemas, the agent uses its own tools, and each operation is approved. Declares `vision` once a handshake reports image support; never claims `function_calling`. Seeded disabled — nothing is spawned until you name a command you have installed. See [ACP agents](#acp-agents) below |
 | **OpenAI** | `openai` | Pay-per-token | Runtime discovery via `/models` on the OpenAI-compatible adapter | One seed model is registered before refresh completes |
 | **Azure OpenAI** | `azure` | Pay-per-token | Deployment list from `atlasmind.azureOpenAiDeployments` plus a workspace-configured Azure endpoint | Starts empty until you configure an endpoint and at least one deployment |
 | **GitHub Copilot** | `copilot` | Subscription | Runtime discovery from the VS Code Language Model API | Starts with `copilot/default`; live discovery is deferred until you explicitly activate Copilot so AtlasMind does not prompt for language-model access during startup |
@@ -84,7 +88,7 @@ The short model names you may see initially are **seed entries**, not AtlasMind'
 
 ## ACP agents
 
-The `acp` provider turns a subscription you already pay for into capacity the router can select, by driving a coding agent over the [Agent Client Protocol](https://agentclientprotocol.com) — JSON-RPC 2.0 over a subprocess's stdio.
+The `acp` provider turns a subscription or eligible product license you already pay for into capacity the router can select, by driving a coding agent over the [Agent Client Protocol](https://agentclientprotocol.com) — JSON-RPC 2.0 over a subprocess's stdio.
 
 ### Agents AtlasMind can name and install
 
@@ -97,6 +101,19 @@ Transcribed from the [ACP registry](https://github.com/agentclientprotocol/regis
 | Gemini CLI | `gemini --acp` | `npm install -g @google/gemini-cli` |
 | GitHub Copilot CLI | `copilot --acp` | `npm install -g @github/copilot` |
 | Qwen Code | `qwen --acp` | `npm install -g @qwen-code/qwen-code` |
+
+The Gemini row has a narrower entitlement than its published command suggests.
+Since [18 June
+2026](https://docs.cloud.google.com/gemini/docs/codeassist/set-up-gemini),
+`gemini --acp` requires an assigned Gemini Code Assist Standard or Enterprise
+license (or separately metered Google Cloud/API access). Free individual and
+personal Google AI Pro and Ultra accounts no longer work.
+Gemini Enterprise Standard and Plus include Code Assist Standard after separate
+assignment; Gemini Enterprise Business and Frontline do not. AtlasMind carries
+that eligibility boundary through the Google-card tooltip, agent picker, `/acp`
+guide, sign-in guidance, and a confirmation before install or probe.
+Metered Google access belongs on AtlasMind's direct Google provider, where token
+costs remain attributable; it is not advertised as zero-cost ACP capacity.
 
 The package and the command are **one fact**, not two. Keeping a second copy is what let AtlasMind advise `@zed-industries/claude-code-acp` while spawning `claude-agent-acp` — that package's `bin` is `claude-code-acp`, so following the instructions installed a binary AtlasMind then failed to find.
 
@@ -174,7 +191,7 @@ If a tier cannot be applied, the turn still runs at the agent's default rather t
 
 `acp` fronts several unrelated subscriptions, so a plan is recorded **per configured agent**, not per protocol provider.
 
-**Configure agent plan** opens on the agents currently named in `atlasmind.acp.agents`; Gemini and a self-installed ACP agent therefore appear without waiting for an AtlasMind release. After selecting the agent, enter the plan name the service shows—such as `ChatGPT Pro (5×)`. ACP does not expose a tier catalogue, request total, remaining usage, reset date, or cost per unit, so the flow neither asks for nor invents any of those values. The card shows one label per agent. Copilot's separate observable-credit flow is unaffected.
+**Configure agent plan** opens on the agents currently named in `atlasmind.acp.agents`; eligible Gemini Code Assist and a self-installed ACP agent therefore appear without waiting for an AtlasMind release. After selecting the agent, enter the plan name the service shows—such as `ChatGPT Pro (5×)`. ACP does not expose a tier catalogue, request total, remaining usage, reset date, or cost per unit, so the flow neither asks for nor invents any of those values. The card shows one label per agent. Copilot's separate observable-credit flow is unaffected.
 
 ### Why checking an ACP agent is expensive
 
@@ -183,15 +200,15 @@ Checking whether an agent is usable means opening a session, because that is the
 Ordinary `windowsHide` cannot reach those descendants. AtlasMind now controls both levers:
 
 - **How often:** the routed adapter keeps a successful session for 30 idle minutes. It sends only the exact transcript suffix the ACP session has not already seen; a branch/edit or any launch/security/configuration change gets a fresh session. Setup/health/panel probes are single-flighted before their five-minute TTL cache, so concurrent surfaces launch one process tree rather than several. A stable orchestrator task identity lets concurrent calls for one tool round join one prompt and lets a 15-second completed-result ledger absorb its retry without merging independent chats with identical text. ACP bypasses the generic transient-provider retry loop, so an uncertain `session/prompt` is never automatically sent again.
-- **Where Windows may show them:** setup asks before the first probe. Ordinary launching is the compatibility-first default. The opt-in `atlasmind.acp.hideConsoleWindows` checkbox sends the already-resolved agent through a bundled, SHA-256-pinned 120 KB Rust helper that creates a private Windows desktop, assigns it through `STARTUPINFO.lpDesktop`, uses `CREATE_NO_WINDOW`, and inherits only stdin/stdout/stderr. Descendant consoles then exist off the input desktop and cannot take focus.
+- **Where Windows may show them:** setup asks before the first probe. Ordinary launching is the compatibility-first default. The opt-in `atlasmind.acp.hideConsoleWindows` checkbox sends the already-resolved agent through a bundled, SHA-256-pinned 120 KB Rust helper. It creates a private Windows desktop, creates the agent suspended with `STARTUPINFO.lpDesktop`, `STARTF_USESHOWWINDOW`/`SW_HIDE`, `CREATE_NO_WINDOW`, and only stdin/stdout/stderr inherited, assigns the root to a kill-on-close Job Object, then resumes it. No child can race ahead of the lifetime boundary; descendant consoles remain off the input desktop and cannot take focus.
 
 That private-desktop option is disclosed rather than silently enabled because the primitive has a dual use: hVNC malware runs interactive processes on hidden desktops, and Microsoft Defender exposes `DesktopName` so defenders can hunt them. AtlasMind never switches to or remotely controls the desktop and uses no shell, but enterprise EDR may still flag or block it. A missing, changed, or blocked helper fails visibly and never falls back to visible launching behind your back. While a routed private-desktop session is alive, VS Code's status bar visibly shows the number of such sessions and links to **Models & Providers**. The indicator proves AtlasMind selected that launch mode; it does not confer, imply or replace a process permission boundary.
 
-The strongest follow-up is a modern-Windows host rather than another hidden-desktop variation. Windows 11 24H2 / Server 2025 adds [`AllocConsoleWithOptions(ALLOC_CONSOLE_MODE_NO_WINDOW)`](https://learn.microsoft.com/en-us/windows/console/allocconsolewithoptions): a revised helper could allocate a real console session with no window and launch the agent attached to it, so normal descendants inherit the windowless console without the hidden-desktop heuristic. It still needs real-agent testing before replacing this path—the API is build-26100-only, explicitly detached/new-console children can escape it, GUI windows remain interactive, and console attachment can alter stdio/TTY behaviour. Upstream fixes in each ACP agent remain the cleanest ownership/signing answer. ConPTY changes a raw JSONL protocol into terminal I/O; a Windows service/WSL/container/sidecar adds installation, identity, filesystem and credential plumbing; an in-process rewrite loses generic ACP isolation. Job Objects improve whole-tree teardown but do not hide windows.
+The strongest follow-up is a modern-Windows host rather than another hidden-desktop variation. Windows 11 24H2 / Server 2025 adds [`AllocConsoleWithOptions(ALLOC_CONSOLE_MODE_NO_WINDOW)`](https://learn.microsoft.com/en-us/windows/console/allocconsolewithoptions): a revised helper could allocate a real console session with no window and launch the agent attached to it, so normal descendants inherit the windowless console without the hidden-desktop heuristic. It still needs real-agent testing before replacing this path—the API is build-26100-only, explicitly detached/new-console children can escape it, GUI windows remain interactive, and console attachment can alter stdio/TTY behaviour. Upstream fixes in each ACP agent remain the cleanest ownership/signing answer. ConPTY changes a raw JSONL protocol into terminal I/O; a Windows service/WSL/container/sidecar adds installation, identity, filesystem and credential plumbing; an in-process rewrite loses generic ACP isolation. The current Job Object improves whole-tree teardown but does not itself hide windows.
 
 **Since v0.228.0 most completion-only descendants are gone too.** When AtlasMind is only using the agent to *write* an answer, it asks the agent not to load your machine's own settings — which is where your MCP servers come from. On this machine that took the session from 19 background processes to 3, and from six windows to two. Live reuse means even those remaining starts no longer happen for every answer.
 
-The moment you switch on **Let subscription agents act**, that isolation is dropped: an agent that may actually run commands is one you want your own `CLAUDE.md`, permission defaults and MCP servers to reach. So the quiet version is the read-only version, by design.
+The moment you switch on **Let subscription agents act**, the router may choose ACP for tool-backed work and that isolation is dropped: AtlasMind sends no incompatible function schemas, the agent uses its own tools, and each operation still crosses the approval broker. The setting itself is the signal—an empty MCP allowlist does not erase built-in agent tools. Toggling it replaces any live session created under the opposite isolation policy, even when both MCP lists are empty. So the quiet version is the read-only version, by design.
 
 If you want fewer still in that mode, trimming the MCP servers configured in the agent itself is the lever — that is what is being started.
 
@@ -205,7 +222,7 @@ So AtlasMind now records the sign-in command separately, read from each vendor's
 |---|---|---|
 | `claude-agent-acp` | `claude` | `/login` if Claude Code does not prompt you |
 | `codex-acp` | `codex login` | A browser opens; `codex login --device-auth` if none is available |
-| `gemini --acp` | `gemini` | Choose **Sign in with Google**, or run `/auth` |
+| `gemini --acp` | `gemini` | Choose **Sign in with Google**, or run `/auth`; requires an assigned Gemini Code Assist Standard/Enterprise license |
 | `copilot --acp` | `copilot` | `/login` |
 | `qwen --acp` | `qwen` | `/auth`, then pick a provider |
 
@@ -324,7 +341,7 @@ The CLI reuses the same host-neutral provider adapters for Anthropic, local/Open
 - The router tracks per-provider health status
 - Unhealthy providers receive a health penalty (score multiplier × 0) and are deprioritised
 - Health updates via `setProviderHealth()` — typically after request failures
-- The orchestrator can also perform bounded provider failover when a request still fails after retry handling, so provider health is not just advisory metadata.
+- The orchestrator can invoke at most three endpoints after retry handling. A failed execution endpoint opens a turn-local circuit, so cosmetic variants do not spend the remaining attempt budget restarting the same ACP process or local server.
 
 ---
 
@@ -352,7 +369,7 @@ During refresh, AtlasMind normalizes upstream model IDs into its internal `provi
 
 AtlasMind now refreshes all enabled providers during startup, including GitHub Copilot, so the routing pool is built from the current live model catalogs instead of a partially deferred provider set.
 
-Provider failover now stays inside the candidate set that still satisfies the task's routing constraints. If a workspace-debug or tool-required request runs out of models that support the needed capabilities, AtlasMind fails the request explicitly instead of silently dropping to the built-in `local/echo-1` text fallback.
+Provider failover stays inside the candidate set that still satisfies the task's routing constraints and is capped at three invoked endpoints. If a workspace-debug or tool-required request runs out of capable endpoints, AtlasMind fails explicitly instead of silently dropping to the built-in `local/echo-1` text fallback. ACP model/effort variants share one endpoint circuit, as do models on the same configured local endpoint.
 
 When a routed model fails during execution, AtlasMind marks that model as failed for the current session, removes it from future candidate selection, increments a per-model failure counter, and shows a warning state in the Models sidebar. Refresh clears transient failures only; provider-confirmed removal/deprecation tombstones remain excluded for the session.
 

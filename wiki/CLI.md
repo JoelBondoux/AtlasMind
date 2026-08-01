@@ -36,6 +36,76 @@ Important boundary:
 - It does not modify the user's system-wide PATH or external terminals.
 - Source-development workflows can still use `npm run cli -- ...` directly.
 
+## ACP Agent Mode
+
+`atlasmind-acp` exposes AtlasMind itself as an ACP v1 agent over local stdio:
+
+```bash
+atlasmind-acp --workspace /absolute/path/to/project
+```
+
+It uses the same headless orchestrator, built-in agents, model router, SSOT
+loader, provider adapters, and workspace skills as the CLI. It does not open a
+port. The official `@agentclientprotocol/sdk` handles newline-delimited JSON-RPC
+framing; AtlasMind handles sessions, streaming, cancellation, bounded history,
+and one-turn tool permissions.
+
+Options:
+
+```text
+--workspace <absolute-path>
+--ssot <relative-path>
+--daily-limit-usd <n>
+--buzz-auto-reply
+--help
+--version
+```
+
+### Buzz managed-agent setup
+
+Run **AtlasMind: Copy Buzz ACP Agent Setup** from VS Code's Command Palette.
+The copied JSON contains no credentials and gives the exact values for the open
+workspace:
+
+| Buzz field | Value |
+|---|---|
+| Provider | **Custom command** |
+| Agent command | The copied VS Code/Electron runtime executable |
+| Agent arguments | Paste `agentArgumentsField` (the stable AtlasMind runner plus workspace flags, comma-separated) |
+| LLM provider | Leave blank |
+| Model | Leave blank |
+
+Buzz continues to run its bundled `buzz-acp` harness; the Custom command is the
+ACP-speaking agent that harness starts. Set Buzz's managed-agent parallelism to
+**1**, matching AtlasMind's single orchestrator loop.
+
+On Windows the recipe deliberately does not use `atlasmind-acp.cmd`. Buzz
+launches ACP agents directly and cannot use a batch shim as the child
+executable. It starts VS Code's Electron executable in Node mode with the
+stable JavaScript runner as the first argument, avoiding an intermediate
+`cmd.exe` and its console window.
+
+Under the Buzz agent's **Environment variables**, supply one intended model
+route and the launcher mode:
+
+```text
+ELECTRON_RUN_AS_NODE=1
+ATLASMIND_PROVIDER_OPENAI_APIKEY
+ATLASMIND_PROVIDER_ANTHROPIC_APIKEY
+ATLASMIND_LOCAL_OPENAI_BASE_URL
+```
+
+For an off-machine relay, also set
+`ATLASMIND_BUZZ_ALLOW_REMOTE_RELAY=true` only after reviewing its WSS/HTTPS URL.
+Buzz supplies `BUZZ_PRIVATE_KEY`, `BUZZ_RELAY_URL`, and the generated
+channel/event context to the child. AtlasMind does not export credentials from
+VS Code SecretStorage.
+
+The Director's **Person** and **AtlasMind agent for their Buzz messages** fields
+are a different mechanism: they attribute inbound work to an AtlasMind
+specialist. They do not create a Buzz managed agent, start this command, or
+reply. Create the executable agent under **Buzz Settings → Agents**.
+
 ## Commands
 
 ### Chat
@@ -144,6 +214,10 @@ This is enforced by the CLI runtime approval gate in [src/cli/main.ts](../src/cl
 - The CLI uses the default built-in agent unless you constrain routing with `--provider` or `--model`.
 - Provider availability depends entirely on the current process environment.
 - Copilot-backed execution remains extension-only.
+- Agent-side ACP uses environment-backed headless providers; it cannot inherit
+  VS Code-only Copilot capacity or SecretStorage credentials.
+- Only one ACP prompt turn executes at a time. Buzz managed-agent parallelism
+  should remain 1.
 - The CLI is designed for shared orchestration and workspace automation, not for replicating every UI surface from the extension.
 
 ## Related Pages

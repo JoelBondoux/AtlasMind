@@ -462,6 +462,50 @@ describe('chat panel controls', () => {
   });
 });
 
+describe('webview content sizing', () => {
+  const shell = readFileSync(path.join(VIEWS_DIR, 'webviewUtils.ts'), 'utf8');
+  const ideation = readFileSync(path.join(VIEWS_DIR, 'projectIdeationPanel.ts'), 'utf8');
+
+  it('does not make inline text and controls zero-width flex candidates', () => {
+    const structuralRule = /:where\(([^)]*)\)\s*\{\s*min-width:\s*0;/.exec(shell);
+    expect(structuralRule, 'shared structural min-width rule is missing').not.toBeNull();
+    const selectors = structuralRule![1]!.split(',').map(value => value.trim());
+    expect(selectors).not.toEqual(expect.arrayContaining([
+      'button',
+      'label',
+      'span',
+      'strong',
+      'small',
+      'em',
+      'a',
+    ]));
+  });
+
+  it('wraps prose at word boundaries and reserves anywhere breaks for URLs', () => {
+    const proseRule = /:where\(p,[^)]*\)\s*\{([^}]*)\}/.exec(shell);
+    expect(proseRule, 'shared prose wrapping rule is missing').not.toBeNull();
+    expect(proseRule![1]).toMatch(/overflow-wrap:\s*break-word/);
+    expect(proseRule![1]).toMatch(/word-break:\s*normal/);
+
+    const linkRule = /:where\(a\)\s*\{([^}]*)\}/.exec(shell);
+    expect(linkRule, 'shared long-link containment rule is missing').not.toBeNull();
+    expect(linkRule![1]).toMatch(/overflow-wrap:\s*anywhere/);
+  });
+
+  it('lets buttons use their content width without exceeding their panel', () => {
+    const buttonRule = /\n\s*button\s*\{([^}]*)\}/.exec(shell);
+    expect(buttonRule, 'shared button rule is missing').not.toBeNull();
+    expect(buttonRule![1]).toMatch(/max-width:\s*100%/);
+    expect(buttonRule![1]).toMatch(/white-space:\s*normal/);
+  });
+
+  it('keeps ideation labels and badges intact while flexible text gets the space', () => {
+    expect(ideation).toMatch(/\.ideation-dist-row\s*\{[^}]*grid-template-columns:\s*max-content\s+minmax\(0,\s*1fr\)\s+max-content/s);
+    expect(ideation).toMatch(/\.ideation-check\s*\{[^}]*flex:\s*0\s+0\s+auto/s);
+    expect(ideation).toMatch(/\.ideation-check input\[type="checkbox"\]\s*\{[^}]*flex:\s*0\s+0\s+auto/s);
+  });
+});
+
 describe('tool webhook panel', () => {
   const source = readFileSync(path.join(VIEWS_DIR, 'toolWebhookPanel.ts'), 'utf8');
 

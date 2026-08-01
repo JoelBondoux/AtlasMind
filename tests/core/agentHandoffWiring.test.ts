@@ -42,11 +42,11 @@ describe('the caller cannot name itself', () => {
     expect(delegateSource()).not.toMatch(/request\.caller/);
   });
 
-  it('records the caller from the resolved skill list, not the definition', () => {
+  it('records the caller from the resolved turn-narrowed skill list, not the definition', () => {
     // A planner subtask is an ephemeral agent that is not in the registry, so a
     // lookup by id would find nothing and hand back an empty ceiling — refusing
     // every handoff for a reason that looks like policy and is a missing record.
-    expect(ORCHESTRATOR).toContain('skillIds: availableAgentSkills.map(skill => skill.id)');
+    expect(ORCHESTRATOR).toContain('skillIds: activeAgentSkills.map(skill => skill.id)');
   });
 
   it('refuses when nothing is executing rather than assuming a caller', () => {
