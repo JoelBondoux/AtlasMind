@@ -1,4 +1,3 @@
-import * as vscode from 'vscode';
 import type { AgentDefinition, BudgetMode, ProjectTestingConfig, DataPrivacyMatch, MemoryEntry, ModelCapability, ModelStruggleKind, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, SubTaskStatus, TaskProfile, TaskRequest, TaskResult, TestingMethodologyId, ToolExecutionArtifact } from '../types.js';
 import type { AgentAutoUpdater } from './agentAutoUpdater.js';
 import { buildDebtMarkerGuidance, parseCustomDebtMarkers } from './debtRegister.js';
@@ -461,6 +460,7 @@ export class Orchestrator {
   private agentAutoUpdater?: AgentAutoUpdater;
   private dataPrivacy?: DataPrivacyManager;
   private onClassifiedContentForUntrustedModel?: OrchestratorHooks['onClassifiedContentForUntrustedModel'];
+  private readSettingHook?: OrchestratorHooks['readSetting'];
 
   constructor(
     private agents: AgentRegistry,
@@ -486,6 +486,7 @@ export class Orchestrator {
     this.onModelStruggleRecorded = hooks?.onModelStruggleRecorded;
     this.onModelSelected = hooks?.onModelSelected;
     this.onClassifiedContentForUntrustedModel = hooks?.onClassifiedContentForUntrustedModel;
+    this.readSettingHook = hooks?.readSetting;
     this.classifier = new ClassifierService(router, providers, taskProfiler);
     this.cfg = { ...defaultConfig, ...config };
 
@@ -618,6 +619,14 @@ export class Orchestrator {
 
   updateConfig(patch: Partial<OrchestratorConfig>): void {
     this.cfg = { ...this.cfg, ...patch };
+  }
+
+  private readSetting<T>(key: string, fallback: T): T {
+    try {
+      return this.readSettingHook?.(key, fallback) ?? fallback;
+    } catch {
+      return fallback;
+    }
   }
 
   getExecutionLimits(): Pick<OrchestratorConfig, 'maxToolIterations' | 'maxToolCallsPerTurn'> {
@@ -1724,7 +1733,7 @@ export class Orchestrator {
 
     const completion = finalAttempt.completion;
     const executionArtifacts = finalAttempt.artifacts;
-    const compressionEnabled = vscode.workspace.getConfiguration('atlasmind').get<boolean>('contextCompressionEnabled', true);
+    const compressionEnabled = this.readSetting('contextCompressionEnabled', true);
     // Tag the artifact with the detected testing methodology (if any).
     if (executionArtifacts && directTaskMethodologyId) {
       executionArtifacts.testingMethodologyId = directTaskMethodologyId;
@@ -1983,7 +1992,7 @@ export class Orchestrator {
       name: task.role,
       role: task.role,
       description: `Ephemeral sub-agent for: ${task.title}`,
-      systemPrompt: buildRolePrompt(task.role),
+      systemPrompt: buildRolePrompt(task.role, this.readSetting('debt.markers', [])),
       skills: task.skills,
     };
 
@@ -3762,7 +3771,7 @@ export class Orchestrator {
     const sessionBundle = requestContext['sessionContextBundle'] as import('../types.js').SessionContextBundle | undefined;
     const imageAttachmentsEarly = toImageAttachments(requestContext['imageAttachments']);
     const promptBudgetEarly = buildPromptBudget(this.router.getModelInfo(modelId)?.contextWindow, imageAttachmentsEarly.length);
-    const compressionEnabled = vscode.workspace.getConfiguration('atlasmind').get<boolean>('contextCompressionEnabled', true);
+    const compressionEnabled = this.readSetting('contextCompressionEnabled', true);
     const rawSessionContext = (() => {
       let raw = '';
       if (sessionBundle) {
@@ -4004,7 +4013,7 @@ export class Orchestrator {
    * silently to normal routing when the setting is unset or the model is unknown.
    */
   private withRoleModel(constraints: RoutingConstraints, settingKey: string): RoutingConstraints {
-    const modelId = (vscode.workspace.getConfiguration('atlasmind').get<string>(settingKey, '') ?? '').trim();
+    const modelId = (this.readSetting(settingKey, '') ?? '').trim();
     if (!modelId || !this.router.getModelInfo(modelId)) {
       return constraints;
     }
@@ -6019,23 +6028,20 @@ export function buildProjectSessionContextBundle(
   * declares a new marker should have its next subtask told about it, not its
   * next window.
   */
-function debtMarkerGuidance(): string {
+function debtMarkerGuidance(customMarkers: unknown): string {
   try {
-    return buildDebtMarkerGuidance(parseCustomDebtMarkers(
-      vscode.workspace.getConfiguration('atlasmind').get<string[]>('debt.markers', []),
-    ));
+    return buildDebtMarkerGuidance(parseCustomDebtMarkers(customMarkers));
   } catch {
-    // No workspace configuration (a test, a headless host). The built-in
-    // markers are still worth stating.
+    // Invalid host configuration. The built-in markers are still worth stating.
     return buildDebtMarkerGuidance();
   }
 }
 
-function buildRolePrompt(role: string): string {
+function buildRolePrompt(role: string, customDebtMarkers: unknown): string {
   const basePrompt = ROLE_PROMPTS[role] ?? ROLE_PROMPTS['general-assistant']!;
   return `${basePrompt} ${AUTONOMOUS_PROJECT_DELIVERY_PROMPT}
 
-${debtMarkerGuidance()}`;
+${debtMarkerGuidance(customDebtMarkers)}`;
 }
 
 function buildProjectSubTaskMessage(task: SubTask, depOutputs: Record<string, string>, projectGoal: string): string {

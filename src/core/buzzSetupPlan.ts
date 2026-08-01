@@ -324,7 +324,7 @@ export function buildBuzzSetupPlan(state: BuzzSetupState): BuzzSetupStep[] {
   const bound = Math.max(0, Math.trunc(state.agentBindings ?? 0));
   steps.push({
     id: 'firstAgent',
-    title: 'Get your first agent talking, and prove it arrived',
+    title: 'Prove your first Buzz message arrived',
     status: observed > 0 ? 'done' : rosterBlocked ? 'blocked' : 'todo',
     detail: observed > 0
       ? `Working — ${observed} Buzz ${observed === 1 ? 'identity has' : 'identities have'} been seen on the wire this session.`
@@ -332,7 +332,7 @@ export function buildBuzzSetupPlan(state: BuzzSetupState): BuzzSetupStep[] {
         ? 'Needs the steps above first — nothing is subscribed yet.'
         : 'Subscribed, but nothing has arrived yet. A wrong channel id, a wrong relay, and a quiet day all look identical from here, so send one message and check it lands.',
     guidance: observed > 0 || rosterBlocked ? undefined : [
-      { text: '**You already have an agent.** The key you stored two steps ago *is* a Buzz identity — Buzz makes no distinction between a person and an agent, they are both keypairs. There is nothing else to obtain.' },
+      { text: '**Identity is not runtime.** The key you stored lets AtlasMind authenticate to Buzz, but it does not create a running managed agent. Likewise, a **Person** in the Director is routing metadata; its Buzz handle opens or labels a channel. Automatic replies require the separate **Run AtlasMind as a Buzz managed agent** step below.' },
       // The one step that genuinely needs the desktop app, so the one step that
       // should say how to get it. It was mentioned only in an optional step the
       // walkthrough never shows, which read as though nothing needed it.
@@ -380,11 +380,29 @@ export function buildBuzzSetupPlan(state: BuzzSetupState): BuzzSetupStep[] {
       { text: 'Choose the **AtlasMind agent** that should own their work — the DevOps specialist for a build bot, a reviewer for a colleague raising defects. Leave it unset and their messages stay unassigned; nothing is guessed.' },
       { text: 'Bind yourself too. Your own agent posts under its own key, and binding it keeps your own activity attributed rather than arriving as a stranger.' },
       { text: 'One binding is enough to finish this step. You can add the rest as people appear.' },
+      { text: 'This binding routes inbound follow-up work only. It does not create a Buzz managed agent or start a reply loop. Use **AtlasMind: Copy Buzz ACP Agent Setup** from the Command Palette for that.' },
     ],
     action: { command: 'atlasmind.openProjectDirector', title: 'Open the Director roster' },
   });
 
-  // 7 — persistence. A choice, never a requirement.
+  // 7 — reciprocal ACP. Optional because inbound-only use remains valid, and
+  // not marked "done" merely because AtlasMind copied instructions: only Buzz
+  // can know whether the managed agent was actually created and started.
+  steps.push({
+    id: 'managedAgent',
+    title: 'Run AtlasMind as a Buzz managed agent (for automatic replies)',
+    status: 'optional',
+    detail: 'A Director Person/channel binding is not executable. Buzz needs its own managed agent whose Custom command launches AtlasMind’s local ACP endpoint.',
+    guidance: [
+      { text: 'Open the VS Code Command Palette and run **AtlasMind: Copy Buzz ACP Agent Setup** to copy a credential-free recipe for this workspace.' },
+      { text: 'In Buzz, open **Settings → Agents**, create an agent, choose **Provider → Custom command**, then paste **Agent command** and the comma-separated **Agent arguments** from the copied JSON.' },
+      { text: 'Leave Buzz’s **LLM provider** and **Model** blank. AtlasMind owns model routing; those Buzz fields do not configure AtlasMind.' },
+      { text: 'Under **Environment variables**, add `ELECTRON_RUN_AS_NODE=1` from the copied recipe plus one AtlasMind provider variable (or a local endpoint). VS Code SecretStorage is deliberately not exported into another process.' },
+      { text: 'Buzz keeps `buzz-acp` as the harness. The AtlasMind command is the ACP-speaking agent behind it, so it does not need to appear in Buzz’s built-in runtime catalog.' },
+    ],
+  });
+
+  // 8 — persistence. A choice, never a requirement.
   steps.push({
     id: 'persistence',
     title: 'Record follow-ups to project memory',
@@ -395,7 +413,7 @@ export function buildBuzzSetupPlan(state: BuzzSetupState): BuzzSetupStep[] {
     action: { command: 'atlasmind.openSettings', title: 'Open Settings → Buzz', args: ['buzz'] },
   });
 
-  // 8 — outbound, which is a different mechanism with a different dependency.
+  // 9 — outbound, which is a different mechanism with a different dependency.
   steps.push({
     id: 'cli',
     title: 'Install the Buzz CLI (only needed to send)',

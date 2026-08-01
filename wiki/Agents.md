@@ -254,6 +254,24 @@ The built-in exclusion is enforced before any provider call and is shown as a lo
 
 ## Operational Boundaries
 
+### AtlasMind as a Buzz/ACP managed agent
+
+`atlasmind-acp` lets a local ACP client drive AtlasMind's default agent and
+orchestrator. In Buzz, keep `buzz-acp` as the harness and select **Provider →
+Custom command** for the managed agent; **AtlasMind: Copy Buzz ACP Agent Setup**
+provides the workspace-scoped command and arguments.
+
+A Project Director **Person** is not that agent. The Person record associates a
+human or external identity with channels and an AtlasMind specialist so inbound
+follow-up work has an owner. It does not start a process, subscribe on the
+person's behalf, or reply. Buzz's managed-agent record owns those runtime
+concerns.
+
+Buzz's provider/model dropdowns are also not AtlasMind's router. Leave them
+blank for the custom runtime and give the child one intended
+`ATLASMIND_PROVIDER_*` credential or `ATLASMIND_LOCAL_OPENAI_BASE_URL`. The
+extension never exports its SecretStorage values.
+
 - `AgentRegistry` manages agent definitions, enablement, and success or failure history.
 - `SkillsRegistry` manages which skills are available to those agents.
 - `Orchestrator` owns routing, execution, retries, and final task outcomes.

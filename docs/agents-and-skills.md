@@ -565,6 +565,34 @@ value is reachable from three places that all write it: the guided picker
 The panel checkbox exists because the control was previously in VS Code's editor
 only, so searching the AtlasMind Settings panel for it found nothing.
 
+### AtlasMind as an ACP agent
+
+AtlasMind also exposes the reciprocal ACP direction through `atlasmind-acp`.
+An ACP client creates a session and submits a prompt; AtlasMind still selects
+the agent, gathers SSOT memory, routes the model, resolves skills, and applies
+its tool policy. The client does not choose an AtlasMind specialist merely by
+naming a Buzz identity or Director contact.
+
+The endpoint is local stdio only. It accepts text and text-bearing embedded
+resources, retains at most 80,000 characters of session history, streams
+`agent_message_chunk` updates, and propagates `session/cancel` through the task's
+abort signal. One turn may execute at a time because the core orchestrator owns
+one active execution context.
+
+Tool authority crosses the seam explicitly. Read-only categories retain the
+headless default; everything else asks the ACP client through
+`session/request_permission`, with **Allow once** and **Reject** as the only
+options. A client response naming `allow_always`, a missing prompt context, or
+a failed permission request denies. Client-declared MCP commands are ignored
+rather than spawned.
+
+Buzz uses this endpoint as a **Custom command** behind its own `buzz-acp`
+harness. The Director's Person/channel record remains contact and inbound-work
+routing metadata; it neither creates nor starts that managed agent. The
+workspace-specific recipe from **AtlasMind: Copy Buzz ACP Agent Setup** supplies
+the executable and arguments, while AtlasMind continues to own model selection.
+VS Code SecretStorage credentials are never copied to Buzz.
+
 **Workspace-path defaulting**: Before dispatch, `McpClient.callTool` (`applyMcpWorkspacePathDefaults`) fills repo/working-directory parameters the model omitted with the current workspace folder, keyed off the tool's input schema. This prevents failures such as GitKraken `git_status` rejecting a call with "repoPath is required". Only string-typed, currently-empty params whose name denotes a repo/working path (`repoPath`, `projectPath`, `cwd`, `workingDirectory`, …) are defaulted; a bare `path`/`file` argument is untouched and explicit caller values are preserved.
 
 **Transport options**:

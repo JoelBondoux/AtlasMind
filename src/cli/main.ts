@@ -502,7 +502,7 @@ async function runTestCommand(parsed: ParsedCliArgs, workspaceRoot: string): Pro
   });
 }
 
-function createCliProviderAdapters(): ProviderAdapter[] {
+export function createCliProviderAdapters(): ProviderAdapter[] {
   const secretStore = new EnvSecretStore();
   const adapters: ProviderAdapter[] = [
     new LocalEchoAdapter({
@@ -607,7 +607,7 @@ export function createCliToolApprovalGate(allowWrites = false): OrchestratorHook
   };
 }
 
-function syncProviderAvailability(modelRouter: AtlasCliRuntime['modelRouter'], adapters: ProviderAdapter[]): void {
+export function syncProviderAvailability(modelRouter: AtlasCliRuntime['modelRouter'], adapters: ProviderAdapter[]): void {
   const registeredIds = new Set(adapters.map(adapter => adapter.providerId));
   for (const provider of modelRouter.listProviders()) {
     modelRouter.registerProvider({

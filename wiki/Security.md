@@ -238,6 +238,41 @@ PE is not Authenticode-signed. Managed environments should leave the checkbox
 off unless their security team approves it, and may require an organisation
 signature or a hash/publisher allow-rule before deployment.
 
+### 8b. AtlasMind agent-side ACP boundary
+
+The reciprocal `atlasmind-acp` host is deliberately narrower than a general
+remote agent server:
+
+- **Local stdio only.** It opens no TCP, HTTP, WebSocket, or named-pipe listener.
+  Starting the child is the opt-in and the OS process boundary is the local
+  transport boundary. A network transport would require a separate
+  authenticated design and is not accepted by this endpoint.
+- **Workspace constrained.** The launch command fixes one workspace root.
+  Session cwd and additional directory declarations must remain inside it;
+  workspace tools retain their canonical-path/symlink checks at access time.
+- **No executable delegation during session setup.** `session/new` may describe
+  MCP servers under ACP, but AtlasMind never spawns those client-provided
+  commands. Doing so would turn the transport peer into a code-execution
+  authority.
+- **Bounded input and memory.** Prompt text is capped at 1,000,000 characters
+  and retained transcript context at 80,000. Image/audio prompts are not
+  advertised. One orchestrator loop runs at a time; concurrent sessions are
+  refused rather than racing shared execution state.
+- **One-turn risky-tool grants.** The client sees a bounded, secret-redacted
+  preview and can allow once or reject. `allow_always` is not offered or
+  accepted, and any missing/failed permission context denies.
+- **Secrets do not cross during setup.** The Buzz recipe names provider
+  environment variables but contains no value. VS Code SecretStorage is never
+  exported. A separate child therefore has only the credential the operator
+  explicitly supplies to Buzz.
+
+Buzz automatic reply delivery has an additional destination check. The parser
+reads only `buzz-acp`'s generated `[Context]` section, requires one channel UUID
+and one reply event id, and requires that id to reappear in generated
+event/thread metadata. Message text appears in another section and cannot
+select a destination by pasting a fake `Channel:` or `--reply-to` line. Delivery
+then uses the existing shell-free, communication-only CLI bridge.
+
 ### 9. Model Output Validation
 
 - LLM responses are treated as **untrusted input**

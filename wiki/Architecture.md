@@ -2,7 +2,15 @@
 
 ## Overview
 
-AtlasMind is a VS Code extension built in TypeScript, and it now also ships a small Node CLI. Both hosts share the same service-oriented runtime builder so orchestration, routing, skills, and memory loading stay consistent.
+AtlasMind is a VS Code extension built in TypeScript, and it also ships a Node CLI plus an agent-side ACP v1 stdio endpoint. All three hosts share the same service-oriented runtime builder so orchestration, routing, skills, and memory loading stay consistent.
+
+### Agent-side ACP host
+
+`src/cli/acpAgent.ts` lets a local ACP client drive AtlasMind. It is the reciprocal direction from the provider adapter: Buzz or another client owns the UI/transport, while AtlasMind keeps agent selection, SSOT retrieval, model routing, skill resolution, approvals, and execution.
+
+The process opens no listener. Sessions are workspace-bound and bounded, client-provided MCP commands are never launched, cancellation aborts the current task, and only one orchestrator loop may run at a time. `AcpPermissionBroker` auto-allows the existing read-only categories and sends risky actions through `session/request_permission` with one-turn choices only.
+
+Buzz keeps `buzz-acp` as its harness and launches AtlasMind through **Provider → Custom command**. `BuzzAcpReplyPublisher` accepts only a generated Buzz context whose channel UUID and reply anchor agree with the generated event metadata, then uses the narrow `BuzzCliBridge`. A Project Director Person/binding remains contact and work-routing data, not the managed process.
 
 ## Core Services
 
@@ -330,6 +338,10 @@ src/
 |- extension.ts          Entry point - creates services, registers commands/views
 |- types.ts              Shared interfaces and constants
 |- commands.ts           VS Code command registrations
+|- acp/
+|  |- atlasMindAcpAgent.ts  ACP v1 sessions + one-turn permission broker
+|  |- buzzAcpSetup.ts     Credential-free Buzz Custom command recipe
+|  `- buzzReplyPublisher.ts  Validated deterministic Buzz reply delivery
 |- chat/
 |  |- participant.ts     @atlas chat participant; owns the one slash dispatch both surfaces use
 |  `- sessionConversation.ts  Persistent workspace chat sessions
@@ -360,6 +372,7 @@ src/
 |  `- toolWebhookDispatcher.ts  Outbound webhooks
 |- cli/
 |  |- main.ts            Node CLI entrypoint
+|  |- acpAgent.ts        Local stdio ACP agent entrypoint
 |  |- nodeMemoryManager.ts  Node SSOT loader/query layer
 |  |- nodeCostTracker.ts CLI cost tracking
 |  `- nodeSkillContext.ts  Node host implementation for built-in skills
@@ -458,6 +471,7 @@ All shared interfaces live in `src/types.ts`. Key types include:
 | `TaskProfile` | Inferred task phase, modality, reasoning intensity, required capabilities |
 | `ModelStruggleKind` / `ModelStruggleState` | A model's under-performance signal (`timeout`, `empty`, `tool-call-as-text`, `error-finish`, `user-correction`) and its persistent decaying de-weight per task signature |
 | `MemoryEntry` | Memory path, title, tags, snippet, timestamp, optional embedding |
+| `OrchestratorHooks` | Host callbacks for approvals, progress, execution context, and settings; `readSetting` keeps VS Code configuration out of headless imports |
 | `SubTask` | Plan node: title, role, skills, dependency edges |
 | `SubTaskResult` | Execution outcome with `status` (`completed` / `failed` / `needs-input`); a capped subtask reports `needs-input` plus `iterationLimitHit` and suggested raised limits |
 | `ProjectPlan` | Goal string + SubTask DAG |

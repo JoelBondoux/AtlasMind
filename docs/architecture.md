@@ -73,6 +73,18 @@ The AtlasMind sidebar now starts with a compact Quick Links webview row that sit
 
 AtlasMind's Voice panel is currently a webview-first specialist surface. It uses the Web Speech API for in-panel STT and fallback TTS, can route optional ElevenLabs audio through a selectable HTML audio sink when the runtime supports it, and stores preferred microphone and speaker ids for future native backends. There is not yet a host-side OS-native speech adapter.
 
+## Agent-side ACP endpoint
+
+`src/cli/acpAgent.ts` exposes AtlasMind itself as a local ACP v1 agent over newline-delimited JSON on stdin/stdout. This is the inverse of the routed ACP provider adapter: instead of AtlasMind driving Claude/Codex/etc., an ACP client such as Buzz drives AtlasMind's shared headless runtime.
+
+`src/acp/atlasMindAcpAgent.ts` owns ACP sessions, bounded transcript context, streamed message chunks, cancellation, and the permission broker. A session must use an absolute directory inside the configured workspace; client-declared additional directories are validated against the same boundary. Client-supplied MCP server commands are not launched. The core orchestrator has one shared execution context, so the endpoint permits one prompt turn at a time rather than racing two sessions through it.
+
+Risky tool calls cross back to the ACP client through `session/request_permission`. The broker offers only `allow_once` and `reject_once`, ignores `allow_always`, redacts and bounds tool arguments, and denies if the prompt/permission context has disappeared. Read-only tools retain the normal headless policy.
+
+For Buzz, `src/acp/buzzReplyPublisher.ts` is the reciprocal delivery seam. Buzz's `buzz-acp` remains the harness and supplies generated channel/event context. AtlasMind parses only that generated context, requires a channel UUID and one reply event that also appears in generated metadata, then passes the final answer to the existing communication-only `BuzzCliBridge`. The model never receives Buzz shell, file-edit, repository, workflow, or admin tools.
+
+The VS Code host creates `atlasmind-acp` launch shims beside the normal CLI shim. Buzz cannot launch a Windows `.cmd` shim directly as an ACP child, so the copied recipe instead invokes a stable JavaScript runner through the VS Code Electron executable with `ELECTRON_RUN_AS_NODE=1`; no `cmd.exe` is involved. **AtlasMind: Copy Buzz ACP Agent Setup** copies that workspace-specific, credential-free recipe; it does not edit Buzz state or export SecretStorage values.
+
 ## Core Services
 
 ### Orchestrator (`src/core/orchestrator.ts`)
@@ -86,6 +98,8 @@ Central coordinator. Receives a `TaskRequest` and:
 6. Composes immutable guardrails, the portable operating contract, the selected role prompt, and the shared plus agent-specific execution rubric.
 7. Builds a context bundle and dispatches execution, enforcing incomplete-delivery and verification gates.
 8. Records cost and an evidence-backed execution-quality outcome via `CostTracker` and `ModelRouter`.
+
+Host-specific settings enter through `OrchestratorHooks.readSetting`. The VS Code host supplies a configuration reader; CLI and ACP hosts receive safe defaults. This keeps the core importable without loading the `vscode` module in a headless process.
 
 The operating contract and rubric are injected in `buildMessages()` rather than copied into built-in definitions. This closes prompt drift across hand-written specialists, custom agents, ephemeral project agents, synthesized agents, and persisted prompt overrides. Built-in role prompts therefore contain only specialist scope and boundaries; all 16 user-facing specialists add concise observable criteria through `completionCriteria.rubric`. Detailed SEO and UX checklists are progressively disclosed by `src/skills/specialistGuidance.ts` only when relevant, keeping volatile platform and standards details out of permanent prompts. `completionCriteria.incompletePatterns` is evaluated inside the agentic loop using a bounded restricted-regex policy before the existing one-time completion-integrity reprompt. Execution artifacts record failed tool-call count alongside tool count, verification, and TDD status so the router's outcome signal reflects observable delivery rather than only the provider finish reason. The agentic loop also recognizes explicit runtime claims that workspace tools are disabled or unavailable: instead of spending the remaining iterations re-prompting the same bridge, it marks that model's runtime capability as failed and immediately asks the provider-failover path for another `function_calling` model. If no recovery succeeds, the project classifier records the refusal as failed, never completed.
 

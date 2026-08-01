@@ -789,6 +789,12 @@ export interface DataPrivacyActivityEvent {
  * verification without inflating the constructor parameter list.
  */
 export interface OrchestratorHooks {
+  /**
+   * Host-owned settings reader. The core orchestrator has no direct dependency
+   * on VS Code so the same runtime can run behind a stdio ACP client or CLI.
+   */
+  readSetting?: <T>(key: string, fallback: T) => T;
+
   /** Gate function that determines whether a tool invocation should proceed. */
   toolApprovalGate?: (
     taskId: string,

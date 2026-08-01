@@ -369,6 +369,27 @@ The Project Director tab can reach a contact through a connected MCP connector, 
 
 The guided **Buzz Communications** starter launches AtlasMind's bundled stdio MCP server around official pinned `buzz-cli` source tag v0.4.26. It exposes only list channels, post message, read bounded thread, and send DM. The agent key and optional owner authorization tag live in SecretStorage. The bridge refuses to connect while `atlasmind.buzz.enabled` is off, rejects remote relays unless `allowRemoteRelay` is explicit (and TLS is used), probes the exact required command/flag contract before MCP handshake, invokes the executable without a shell, sends body text over stdin, validates identifiers, bounds I/O/time, and redacts credentials from failures. It is not `buzz-dev-mcp`: no shell/file tools or Buzz workflow/repository/admin surfaces cross this connector.
 
+### When an ACP client drives AtlasMind
+
+`atlasmind-acp` applies AtlasMind's tool classification before an ACP-hosted
+turn may act. Read-only categories follow the headless default. Writes,
+subprocesses, network access, audio, and unknown categories cause
+`AcpPermissionBroker` to send `session/request_permission` to the client with a
+bounded, secret-redacted preview.
+
+Only **Allow once** and **Reject** are offered. A malformed response,
+`allow_always`, a request after the owning task ended, or a transport failure
+denies. The broker registers authority by AtlasMind task id for the duration of
+one prompt and removes it in `finally`; a live Buzz harness or reused ACP session
+does not retain approval.
+
+Client-provided MCP server definitions are not executed. MCP process authority
+still comes only from AtlasMind's configured registry or from the narrow,
+host-owned Buzz reply publisher. The latter validates Buzz-generated
+channel/event metadata and passes the answer over stdin to the communication
+CLI; it never gives the model Buzz's shell, repository, workflow, or admin
+commands.
+
 ## Promotion Execution (Delivery)
 
 Promoting a build between deployment stages on the Project Dashboard → **Delivery** page (`PromotionRunner`) is a high-trust action and carries its own guardrails on top of the tool pipeline:

@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.238.0 — AtlasMind can be the managed agent behind Buzz
+
+**Buzz can now launch AtlasMind as an ACP v1 agent rather than treating a Director contact as though it were executable.** Run **AtlasMind: Copy Buzz ACP Agent Setup**, create a managed agent in Buzz, choose **Provider → Custom command**, and paste the copied command and comma-separated arguments. Buzz keeps its `buzz-acp` harness and identity/channel controls; AtlasMind supplies orchestration, model routing, project memory, and approval-gated tools.
+
+The distinction is now explicit throughout setup: a Director **Person** routes inbound work, a Buzz handle identifies an identity or channel, and a Buzz **managed agent** is the process that listens and replies. The copied recipe contains no credential. AtlasMind opens no socket, refuses client-supplied MCP commands, serializes orchestration, offers only one-turn risky-tool approval, and validates Buzz-generated reply metadata before using the existing communication-only CLI bridge.
+
 ## v0.237.0 — A quieter Models sidebar, without changing routing
 
 **Any provider, subscription route, or individual model can now be hidden with the eye-closed action on its sidebar row.** This is a user-profile display preference, not provider configuration: hidden models remain enabled, assigned, credentialed, and eligible for routing.

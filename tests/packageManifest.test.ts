@@ -607,6 +607,7 @@ describe('package manifest', () => {
   it('publishes the compiled AtlasMind CLI as an npm bin and helper script', () => {
     expect(manifest.bin).toMatchObject({
       atlasmind: './out/cli/main.js',
+      'atlasmind-acp': './out/cli/acpAgent.js',
     });
 
     expect(manifest.scripts?.cli).toBe('node ./out/cli/main.js');

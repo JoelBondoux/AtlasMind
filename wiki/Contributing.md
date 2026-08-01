@@ -85,6 +85,8 @@ The checked-in `.gitignore` keeps `project_memory_old/` out of source control, w
 | Directory        | Purpose                                                       |
 | ---------------- | ------------------------------------------------------------- |
 | `src/core/`      | Core services (orchestrator, agents, skills, router, planner) |
+| `src/acp/`       | Agent-side ACP sessions, permission broker, and Buzz setup/reply boundary |
+| `src/cli/`       | Headless CLI hosts, including the `atlasmind-acp` stdio agent |
 | `src/chat/`      | Chat participant and slash commands                           |
 | `src/providers/` | LLM provider adapters                                         |
 | `native/acp-private-desktop/` | Auditable Rust source for the optional Windows ACP private-desktop launcher; the release PE is SHA-256-pinned under `media/bin/` |
@@ -171,6 +173,13 @@ When you make any of these changes, update the corresponding docs:
 5. Update `docs/model-routing.md` and `CONTRIBUTING.md`
 
 If the provider should work in both the extension and the CLI, keep it free of direct `vscode` imports and use the shared secret contract in `src/runtime/secrets.ts`. Shared provider bootstrapping now flows through the runtime builder rather than being duplicated per host.
+
+The same rule applies to anything imported by `src/cli/acpAgent.ts`. Run both
+`node out/cli/main.js --help` and `node out/cli/acpAgent.js --help` after
+changing shared core code; a transitive runtime `vscode` import compiles but
+fails only when the headless executable starts. The ACP transport uses the
+official ESM-only `@agentclientprotocol/sdk` behind a dynamic import so the
+extension's CommonJS desktop build remains loadable.
 
 AtlasMind's `local` provider supports both an offline echo fallback and a configurable OpenAI-compatible local endpoint through `src/providers/registry.ts`. Azure OpenAI uses the same reusable adapter with deployment-backed routing, while Bedrock uses a dedicated SigV4-signed adapter. `src/providers/acp.ts` is the reference for a host-neutral, subprocess-backed provider that depends on local install and the agent's own auth state instead of an AtlasMind-managed API key. OpenAI-compatible providers also normalize upstream model IDs into AtlasMind's internal `provider/model` format during discovery and execution so routing metadata stays consistent. If you change any of those paths, update the routing and configuration docs as well.
 

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.237.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.238.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,9 +68,15 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.237.0
+## What's new in 0.238.0
 
 Since the last Marketplace publication, **v0.235.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
+
+- **AtlasMind can now be the agent behind Buzz.** The new local `atlasmind-acp` stdio endpoint lets Buzz's existing `buzz-acp` harness drive AtlasMind's orchestrator, agent registry, model routing, SSOT memory, and approval-gated workspace tools. In the Command Palette, run **AtlasMind: Copy Buzz ACP Agent Setup**, then create a Buzz managed agent with **Provider → Custom command** and paste the copied command and comma-separated arguments.
+
+- **A Director Person is now described accurately.** Adding a Buzz channel or public identity to the Director routes inbound work to an AtlasMind specialist; it does not create a Buzz managed agent, start a process, or produce replies. Those are separate objects in separate applications.
+
+- **The reciprocal bridge stays narrow.** It uses local stdio only, refuses client-supplied MCP commands, permits only one orchestrator loop at a time, asks the ACP client for one-turn approval on risky tools, and posts Buzz replies through the communication-only CLI surface after validating Buzz's generated channel/reply metadata. VS Code secrets are never copied into the external process.
 
 - **The Models sidebar can now be decluttered without changing routing.** An eye-closed icon on every provider, subscription route, and model row hides only that line from the tree. **Settings → Models & Integrations → Sidebar visibility** lists the hidden entries with individual Restore buttons; credentials, enablement, agent assignments, and router eligibility are unchanged.
 
@@ -328,6 +334,7 @@ Open the Command Palette with `Ctrl+Shift+P`.
 | `AtlasMind: Toggle Keep Computer Awake` | Opt into an AC-aware wake lock for long-running activity |
 | `AtlasMind: Set Buzz Agent Key` | Store or remove the Buzz agent key in the OS secret store (empty value removes it) |
 | `AtlasMind: Fetch My Buzz Channels` | Ask the Buzz CLI which channels your key can see, and tick the ones to watch. Writes nothing unless you confirm |
+| `AtlasMind: Copy Buzz ACP Agent Setup` | Copy the workspace-scoped Custom command fields that make AtlasMind a Buzz managed agent; copies no credentials |
 | `AtlasMind: Run a Research Scan` | Ask one research question about the world outside this repository. Confirms first, naming the scan, the source and the cost |
 | `AtlasMind: Open the Research Register` | The findings, their sources, and the rule that graded each |
 | `AtlasMind: Open the Research Digest` | What changed outside, what it means, and what is still unassessed |
@@ -373,6 +380,8 @@ The README keeps the map short; implementation details and data flows belong in 
 | Path | Responsibility |
 |---|---|
 | `src/core/` | Orchestration, routing, planning, safety and security registers, cost, and project services |
+| `src/acp/` | Agent-side ACP v1 sessions, one-turn permission brokering, and validated Buzz reply delivery |
+| `src/cli/` | Headless AtlasMind CLI and the local `atlasmind-acp` stdio entrypoint |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Provider adapters, catalogs, health, and local-model discovery |
 | `native/acp-private-desktop/` | Auditable Rust source for the optional Windows private-desktop launcher; the pinned release binary ships under `media/bin/` |

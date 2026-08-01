@@ -49,7 +49,7 @@ npm run watch:web    # Watch mode for the browser bundle
 
 The extension has **two build targets**:
 
-- **Desktop** (Node): `tsc -p ./` emits `out/extension.js` (the `main` entry) and the CLI under `out/cli/`.
+- **Desktop** (Node): `tsc -p ./` emits `out/extension.js` (the `main` entry), the ordinary CLI, and the agent-side ACP stdio entrypoint under `out/cli/`.
 - **Web** (browser/Web Worker): `tsc -p ./src/web/tsconfig.json` type-checks the web sources against WebWorker (not Node) globals, and `node esbuild.mjs` bundles `src/web/extension.ts` into the single dependency-free `out/web/extension.js` (the `browser` entry). The web build must stay free of Node built-ins; only `vscode`, WebWorker globals, and the Node-free shared modules (`src/remote/protocol.ts`, `src/views/chatProtocol.ts`, `src/views/chatWebviewMarkup.ts`, `src/views/webviewUtils.ts`) may be imported. `npm run compile` runs all three steps.
 
 ## Run
@@ -57,6 +57,15 @@ The extension has **two build targets**:
 Press **F5** in VS Code to launch the Extension Development Host. The extension activates on startup (`onStartupFinished`).
 
 To exercise the **web build**, run `npm run open-in-browser` (uses `@vscode/test-web` to load the browser bundle in Chromium).
+
+To smoke-test the headless entrypoints after compiling:
+
+```bash
+node out/cli/main.js --help
+node out/cli/acpAgent.js --help
+```
+
+The ACP entrypoint dynamically imports the official `@agentclientprotocol/sdk` because that package is ESM while AtlasMind's desktop output is CommonJS. Do not replace the dynamic boundary with a top-level runtime import. Extension activation writes `atlasmind` and `atlasmind-acp` shims that run the packaged JavaScript through the VS Code Electron executable with `ELECTRON_RUN_AS_NODE=1`.
 
 ## Lint
 
@@ -116,7 +125,9 @@ AtlasMind/
 │   ├── extension.ts      Entry point
 │   ├── commands.ts       Command handlers
 │   ├── types.ts          Shared type definitions
+│   ├── acp/              Agent-side ACP sessions, permissions, Buzz setup/reply boundary
 │   ├── chat/             Chat participant
+│   ├── cli/              Headless CLI and `atlasmind-acp` stdio host
 │   ├── core/             Orchestrator, registries, router, skill drafting, task profiler, cost tracker, currency formatter, webhook dispatcher, Website Studio SSOT (`websiteWorkspaceManager.ts`), testing config loader + scaffolder + per-policy coverage + declaration/evidence reconciliation (`testingScaffolder.ts`, `testingPolicyCoverage.ts`, `testingReconciliation.ts`), roadmap release gates (`roadmapGates.ts`), shared setup walkthroughs (`setupWalkthrough.ts`, `setupGuideRegistry.ts`, `acpSetupPlan.ts`), persisted-document migration (`schemaMigration.ts`), issue-tracker parsing (`issueTracker.ts`), delivery/deployment-stage modelling (`deliveryManager.ts`) + guarded promotion engine (`promotionRunner.ts`), Project Director people/follow-up modelling (`projectDirectorManager.ts`) + guarded outbound-comms detection (`directorCommsRunner.ts`) + follow-up reminder scheduler (`followUpScheduler.ts`), Buzz inbound protocol/connection-policy/derivation/subscription (`buzzProtocol.ts`, `buzzConnectionPolicy.ts`, `buzzInboundDerivation.ts`, `buzzClient.ts`, `buzzSocket.ts`, `buzzSigner.ts`, `buzzAgentBindings.ts`, `buzzChannelCatalog.ts`, `buzzInboundService.ts`), security-review register persistence/scoring (`securityReviewManager.ts`), Mission Loop (`missionRunner.ts`, `goalEvaluator.ts`, `missionRegistry.ts`), routing intelligence (`executionQuality.ts`, `modelEvalHarness.ts`)
 │   ├── utils/            Shared helpers: `secretRedactor.ts`, `aiInstructionSync.ts` (inbound import), `aiInstructionMerge.ts` (two-way instruction-set sync), `managedBlock.ts` (shared delimited-block upsert/strip), `testingProtocolSync.ts` (outbound sync of the three managed blocks: testing protocols, debt markers, workflow), `instructionSyncCheck.ts` (vscode-free staleness check the pre-commit hook calls), `terminalOutput.ts` (ANSI/control-sequence sanitizer for captured tool output)
 │   ├── mcp/              MCP client/registry plus bundled Buzz CLI communications bridge/server

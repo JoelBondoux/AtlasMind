@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.238.0] - 2026-08-01
+
+### Added
+- **AtlasMind can now run as an ACP v1 agent behind Buzz or another local ACP client.** The new `atlasmind-acp` stdio entrypoint reuses the headless orchestrator, agent registry, model router, SSOT memory, provider adapters, and workspace tools; streams reply chunks; carries bounded per-session context; supports cancellation; and deliberately runs only one orchestrator turn at a time.
+- **Buzz managed-agent setup is now explicit and copyable.** **AtlasMind: Copy Buzz ACP Agent Setup** creates extension-managed launchers and copies the exact credential-free fields for Buzz's **Provider → Custom command** form. Buzz remains the `buzz-acp` harness while AtlasMind supplies the ACP-speaking agent and owns model routing.
+- **Buzz ACP turns can publish replies through AtlasMind's communication-only bridge.** With the explicit `--buzz-auto-reply` launch flag, AtlasMind reads only Buzz's generated structured context, validates the channel UUID and reply event against generated metadata, and posts the final answer without exposing Buzz shell, file, workflow, repository, or admin tools to the model.
+
+### Changed
+- **The Buzz guide now distinguishes three separate concepts:** a Director Person is contact/routing metadata, its handle identifies a channel or public identity, and a Buzz managed agent is an executable runtime. A Director binding still routes inbound follow-up ownership; it no longer implies that anything will listen or reply.
+- **The extension-managed terminal shims now include `atlasmind-acp` alongside `atlasmind`.** Buzz receives a stable JavaScript runner invoked directly through VS Code's Electron executable in Node mode, avoiding the Windows `.cmd`/`cmd.exe` hop that Buzz cannot spawn as an ACP child. The shared currency and orchestrator paths no longer load the `vscode` module in a headless process.
+
+### Security
+- **The agent-side ACP boundary is local stdio only and opens no listener.** Workspace roots and session directories are constrained, client-supplied MCP commands are never spawned, prompts and retained history are bounded, concurrent loops are refused, and cancellation propagates into orchestration.
+- **ACP tool authority remains one-turn and fail-closed.** Read-only operations follow the headless policy; write, subprocess, network, audio, and unknown actions request `session/request_permission` with only **Allow once** or **Reject**. `allow_always` is neither offered nor accepted, missing clients deny, and tool previews are bounded with likely credentials redacted.
+- **VS Code secrets are not exported into Buzz.** The copied setup contains launcher paths, arguments, and provider environment-variable names only. The operator supplies the one provider credential or local endpoint the external process should receive.
+
 ## [0.237.0] - 2026-08-01
 
 ### Added

@@ -269,6 +269,20 @@ Prefer full control? The **Advanced** tab keeps the raw transport/command/args/e
 
 ### Buzz Communications (Tier 1b)
 
+### Agent-side ACP permissions
+
+When AtlasMind is launched by an ACP client, skills still pass through
+AtlasMind's policy before execution. Safe reads follow the headless default.
+Workspace writes, subprocesses, network calls, audio, and unknown tools request
+a one-turn decision from the ACP client. The request exposes a bounded,
+secret-redacted preview and offers only **Allow once** or **Reject**;
+`allow_always` is never accepted.
+
+Client-declared MCP server commands in `session/new` are not started. Accepting
+an executable from the transport peer would turn session setup into a remote
+code-execution surface and would bypass the MCP registry's explicit
+configuration and approval path.
+
 Choose **Browse by category → Collaboration → Buzz Communications** to add AtlasMind's bundled communication-only connector. It requires official `buzz-cli` v0.4.26, a dedicated agent key, and `atlasmind.buzz.enabled`. The wizard stores `BUZZ_PRIVATE_KEY` and an optional NIP-OA `BUZZ_AUTH_TAG` in SecretStorage; the saved MCP config contains only the executable path plus non-secret, closed-template references to the Buzz relay and consent settings.
 
 The connector registers four skills:

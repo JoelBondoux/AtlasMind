@@ -5,7 +5,8 @@
 > protocol/policy/derivation **foundation** shipped (v0.147.0) and its `BuzzClient` subscription
 > (v0.148.0), NIP-42 Schnorr signing (v0.149.0), **real-relay validation (v0.149.2 — which caught a
 > wrong message kind)**, and the wiring + agent bindings (v0.150.0). **Tier 3 is complete and
-> switchable-on.** Tier 4 planned.
+> switchable-on.** Tier 4 reciprocal ACP transport shipped in v0.238.0; per-agent key generation,
+> authorization grants, signed A2A handoff, and revocation remain planned.
 > **Owner:** AtlasMind core. **Created:** 2026-07-25.
 > This is the SSOT north star for integrating Buzz into AtlasMind. Build incrementally,
 > respecting the entry criteria between tiers. Nothing here overrides AtlasMind's
@@ -372,10 +373,12 @@ repeat sightings update nothing rather than duplicating, with a per-batch cap.
   `ai-catalog.json`.
 - The **p-gate** remains confirmed only indirectly: auth intercepts a kind-less query before the gate
   can answer. Re-run `--discover` on a relay without auth to close it.
-- **Tier 4** (agent keypairs, signed A2A handoffs, revocation) — unstarted, and gated on a threat
-  model + security review. Note the new agent bindings are a *natural stepping stone*: they already
-  express "this AtlasMind agent corresponds to that Buzz identity", which Tier 4 would extend from a
-  reference into a custodied keypair.
+- **Tier 4 identity half** (agent keypairs, signed A2A handoffs, revocation) — unstarted, and gated
+  on a threat model + security review. The reciprocal ACP transport shipped in v0.238.0: Buzz can
+  launch AtlasMind as a managed Custom-command agent and AtlasMind can reply through validated Buzz
+  context. The new agent bindings remain a *natural stepping stone*: they already express "this
+  AtlasMind agent corresponds to that Buzz identity", which the remaining work would extend from a
+  reference into a custodied keypair and revocable grant.
 
 **Still owed for Tier 3:**
 1. ~~**Schnorr signing**~~ — **done in v0.149.0.** `buildAuthEventTemplate` returns an *unsigned*
@@ -480,6 +483,9 @@ read-thread / send-DM only).
 ---
 
 ## Tier 4 — Self-sovereign agent identities & A2A
+
+**Status:** reciprocal `buzz-acp` → `atlasmind-acp` execution and reply transport shipped v0.238.0.
+The identity/key-custody/grant/revocation work below remains planned.
 
 **Goal:** AtlasMind's orchestrated agents get their own Buzz Nostr keypairs, sign their own work,
 and coordinate in channels with a full, human-attributable audit trail.
