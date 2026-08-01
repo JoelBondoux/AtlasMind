@@ -94,9 +94,11 @@ Starting from a target or working-tree diff, show upstream callers, downstream c
 
 The v0.245 vertical slice turns **Show impact** on a Code Explorer symbol into a bounded editor map of language-service callers, two outgoing-call levels, and other references. It groups upstream, downstream, and consumer evidence; retains proximity/provider evidence; offers exact Open/Ask actions and a text equivalent; and makes no edits. Working-tree diffs, file-level analysis, public contracts, configuration, schemas, tests, documentation, operational surfaces, and runtime reachability remain named unknowns until their adapters land.
 
-### Phase 5 — Test and Behaviour Map
+### Phase 5 — Test and Behaviour Map (in progress, v0.246.0)
 
 Connect production symbols, routes, contracts, and behaviours to unit, integration, contract, end-to-end, and exploratory evidence. Surface untested behaviour and tests with no live production target without equating absence of a discovered link with absence of coverage.
+
+The v0.246 vertical slice turns **Find tests** on a Code Explorer symbol into a bounded map of language-service test callers/references. Explicit path signals classify unit, integration, contract, end-to-end, or unknown test-like sources while remaining separate from call/reference evidence. The map provides exact Open/Ask actions and a text equivalent, executes no tests, reads no coverage/assertions, and never treats no discovered link as no coverage. Route/contract/behaviour links, exploratory evidence, coverage ingestion, pass/fail state, and orphan-test analysis remain active Phase 5 work.
 
 ### Phase 6 — Data Journey and Trust Map
 
@@ -136,6 +138,7 @@ Turn a branch or pull request into a reviewable story: intent, changed component
 - [x] Add fixtures for renamed, transformed, dropped, incompatible, and unverifiable fields.
 - [x] Establish graph performance budgets and accessibility acceptance tests.
 - [x] Open the first source-backed Change Impact Map from a selected symbol.
+- [x] Open the first conservative Test & Behaviour evidence map from a selected symbol.
 
 ## Out of scope for the foundation
 

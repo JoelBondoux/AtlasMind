@@ -17,6 +17,7 @@ AtlasMind is a VS Code extension built in TypeScript, and it now also ships a sm
 | **LensTarget** | `src/core/lensTarget.ts` | Versioned visual-target contract for AtlasMind Lens. Carries a validated workspace-root identity plus root-relative path, refuses absolute/traversal paths and invalid ranges, bounds labels and evidence, and carries no source contents across command or chat-context boundaries |
 | **LensGraph** | `src/core/lensGraph.ts` | Versioned graph trust boundary for Lens journeys. Requires normalized target nodes, valid endpoints, explicit evidence, and a present root; caps views at 80 nodes and 160 edges and marks truncation |
 | **LensCodeImpact** | `src/core/lensCodeImpact.ts` | Deterministically projects a normalized Lens graph into bounded upstream-caller, downstream-callee, and source-consumer implications while retaining proximity, provider evidence, and named unknowns |
+| **LensTestMap** | `src/core/lensTestMap.ts` | Retains only language-service callers/references with explicit test-like paths, keeps path classification separate from link evidence, and never equates missing discovery with missing coverage |
 | **LensContract** | `src/core/lensContract.ts` | Normalizes bounded contract fields and `.atlasmind/lens-mappings.json`, then deterministically labels adjacent field wires exact, transformed, dropped, introduced, incompatible, inferred, or unverified without treating missing evidence as a defect |
 | **MemoryScanner** | `src/memory/memoryScanner.ts` | Scans content for prompt injection and credential leakage |
 | **SecretRedactor** | `src/utils/secretRedactor.ts` | Pattern-based secret scanner applied to memory context and live evidence before LLM dispatch; covers API keys, tokens, PEM private keys, DB connection strings, and generic key/secret assignments |
@@ -181,6 +182,8 @@ The AtlasMind sidebar now starts with a composite Home webview that anchors majo
 **A selected symbol can now open the first editor-hosted possible-flow journey.** `LensLanguageGraphAdapter` combines VS Code incoming calls, two levels of outgoing calls, and references; every edge names the source provider, and unavailable providers become notices instead of invented wires. `normalizeLensGraph` refuses malformed roots/endpoints and caps the graph at 80 nodes and 160 edges. `LensJourneyPanel` receives only the normalized graph after a ready handshake, uses DOM text nodes rather than interpolated HTML, and offers both the visual columns and a textual relationship list. Open/Ask actions return only a node id; the extension resolves it from the retained graph and rechecks the live workspace identity and path. This is static **possible** flow, never a claim of observed runtime execution, and it invokes no model unless the user explicitly chooses Ask Atlas.
 
 **Show impact on a selected symbol now opens the first general Change Impact Map.** `analyzeLensCodeImpact` projects that same normalized language graph into upstream callers, downstream callees, and other source consumers while retaining call depth and provider evidence. `LensImpactPanel` groups those implications visually and provides an equivalent text list; all labels arrive after the ready handshake and render through DOM text, while Open/Ask returns only a bounded host-held id whose workspace identity and path are rechecked. The first slice is static and code-only: contracts, schemas, configuration, documentation, tests, and runtime paths remain named unknowns, absence never means zero impact, and opening the map runs no model/code and edits nothing.
+
+**Find tests on a selected symbol now opens the first Test & Behaviour evidence map.** `analyzeLensTestMap` keeps only callers/references with explicit test-like filename/folder signals, classifies a test kind only when the path names it, and preserves the VS Code link evidence separately. `LensTestPanel` groups those items, counts kinds, supplies a text equivalent, and resolves Open/Ask through bounded host-held ids with live workspace revalidation. It runs no tests, reads no coverage/assertions, makes no pass/fail or behaviour claim, and an empty result remains missing evidence rather than an untested verdict.
 
 **Contract/schema review now shares one normalized field model.** UI, API, validator, domain, persistence, database, and external declarations retain source kind, coverage, type, presence, nullability, evidence, and optional exact code targets. The pure contract reviewer automatically accepts only exact path/shape matches; incompatible declarations are named, and anything without enough evidence remains unverified. Deliberate equivalence, renames, transforms, drops, introductions, and inferences live in the versioned `.atlasmind/lens-mappings.json` file, with VS Code JSON Schema guidance. Every rule names its exact upstream/downstream contract pair. Suppressions annotate rather than erase review output, and no live database connection or project-schema write occurs in this foundation.
 
@@ -356,6 +359,7 @@ src/
 |  |- lensTarget.ts      Validated Lens source/evidence target contract
 |  |- lensGraph.ts       Bounded Lens graph/evidence trust boundary
 |  |- lensCodeImpact.ts  Caller/callee/reference change-impact projection
+|  |- lensTestMap.ts     Conservative test-evidence projection
 |  |- lensContract.ts    Contract fields, explicit mappings, and wiring review
 |  |- lensContractSources.ts TypeScript, OpenAPI/JSON Schema, and heuristic SQL adapters
 |  |- lensContractDrift.ts Contract finding classes and severity summary
@@ -433,6 +437,7 @@ src/
 |  |- lensLanguageGraph.ts VS Code call-hierarchy/reference adapter
 |  |- lensJourneyPanel.ts Editor-hosted possible-flow graph and text alternative
 |  |- lensImpactPanel.ts Editor-hosted code-impact map and text alternative
+|  |- lensTestPanel.ts   Editor-hosted test-evidence map and text alternative
 |  |- lensContractReviewCommand.ts Contract discovery and ordered pair selection
 |  |- lensContractReviewPanel.ts Filterable Field Wiring board
 |  |- chatPanel.ts       Dedicated AtlasMind session workspace webview

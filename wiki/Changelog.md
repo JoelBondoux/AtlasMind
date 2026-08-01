@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.246.0 — Lens maps discovered test evidence
+
+**Find tests on a Code Explorer symbol now opens a Test & Behaviour evidence map.** Bounded language-service callers/references with explicit test-like paths are grouped as unit, integration, contract, end-to-end, or unknown kind, with exact Open/Ask actions, kind counts, and an equivalent text view.
+
+**Discovery is not a coverage verdict.** Path classification remains separate from call/reference evidence; AtlasMind runs no test, reads no coverage/assertion, and does not infer pass/fail or runtime behaviour. An empty result remains missing evidence, never proof that the symbol is untested.
+
 ## v0.245.0 — Lens maps source-backed code impact
 
 **Show impact on a Code Explorer symbol now opens an editor-hosted Change Impact Map.** Bounded VS Code call-hierarchy and reference evidence is grouped into upstream callers, downstream callees, and other source consumers, with visible proximity, exact Open/Ask actions, and an equivalent text view.

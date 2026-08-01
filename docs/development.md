@@ -121,6 +121,7 @@ AtlasMind/
 │   │   ├── lensTarget.ts Versioned, validated source/evidence target contract for Lens
 │   │   ├── lensGraph.ts Versioned, bounded graph and edge-evidence trust boundary
 │   │   ├── lensCodeImpact.ts Deterministic caller/callee/reference change-impact projection
+│   │   ├── lensTestMap.ts Conservative test-path classification over source-backed links
 │   │   ├── lensContract.ts Contract fields, explicit mappings, suppressions, and wiring review
 │   │   ├── lensContractSources.ts Bounded TypeScript, OpenAPI/JSON Schema, and heuristic SQL adapters
 │   │   ├── lensContractDrift.ts Finding classes and active/suppressed severity summaries
@@ -137,6 +138,7 @@ AtlasMind/
 │   │   ├── lensLanguageGraph.ts VS Code call-hierarchy/reference adapter
 │   │   ├── lensJourneyPanel.ts Editor-hosted possible-flow graph and text alternative
 │   │   ├── lensImpactPanel.ts Editor-hosted code-impact map and text alternative
+│   │   ├── lensTestPanel.ts Editor-hosted test-evidence map and text alternative
 │   │   ├── lensContractReviewCommand.ts Contract discovery, pair selection, and mapping load
 │   │   └── lensContractReviewPanel.ts Filterable Field Wiring review webview
 │   ├── voice/            TTS/STT: `voiceManager.ts` bridge, `hostSpeechSynthesizer.ts` (OS TTS), `localTranscriber.ts` (on-device Whisper STT)

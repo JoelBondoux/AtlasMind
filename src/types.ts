@@ -2287,6 +2287,31 @@ export interface LensCodeImpact {
   truncated: boolean;
 }
 
+export type LensTestKind = 'unit' | 'integration' | 'contract' | 'end-to-end' | 'unknown';
+
+/** One source-backed test-like caller/reference associated with a selected production symbol. */
+export interface LensTestEvidenceItem {
+  id: string;
+  testKind: LensTestKind;
+  link: LensGraphRelation;
+  target: LensVisualTarget;
+  reason: string;
+  /** The conservative filename/folder signal used to classify this source as test-like. */
+  classification: string;
+  evidence: LensEvidence;
+}
+
+/** Bounded, non-executing test-evidence projection for one selected Lens target. */
+export interface LensTestMap {
+  version: 1;
+  id: string;
+  label: string;
+  root: LensVisualTarget;
+  items: LensTestEvidenceItem[];
+  notices: string[];
+  truncated: boolean;
+}
+
 export type LensContractLayer =
   | 'ui'
   | 'api'

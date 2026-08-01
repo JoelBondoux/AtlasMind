@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.246.0] - 2026-08-01
+
+### Added
+
+- **Find tests now opens the first Test & Behaviour evidence map for a selected symbol.** AtlasMind filters the bounded language-service caller/reference graph for explicit test-like filenames and folders, groups discovered sources as unit, integration, contract, end-to-end, or unknown test kind, and keeps the call/reference evidence separate from path-based classification. Every linked source can open exactly or prepare an editable test-focused Ask Atlas draft.
+- **The map includes test-kind counts and an equivalent text view.** Test callers are preferred over duplicate references to the same source, ordinary production references stay out of the test-focused view, and all gaps remain visible as missing discovery evidence.
+
+### Security
+
+- **Test mapping is static, local, bounded, and non-executing.** It does not run tests, read coverage, inspect assertions, infer pass/fail state, or claim runtime behaviour. The webview receives normalized records after its ready handshake, renders data through DOM text, and returns only a bounded host-held id; workspace identity and path are revalidated before Open or Ask.
+- **No discovered test is not an untested verdict.** Filename/folder classification is explicitly conservative and never promoted into proof of test methodology or behavioural coverage.
+
 ## [0.245.0] - 2026-08-01
 
 ### Added

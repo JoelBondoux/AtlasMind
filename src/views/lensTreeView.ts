@@ -14,6 +14,7 @@ import { reviewWorkspaceContractWiring } from './lensContractReviewCommand.js';
 import { LensImpactPanel } from './lensImpactPanel.js';
 import { LensJourneyPanel } from './lensJourneyPanel.js';
 import { LensLanguageGraphAdapter } from './lensLanguageGraph.js';
+import { LensTestPanel } from './lensTestPanel.js';
 
 const LENS_VIEW_ID = 'atlasmind.lensView';
 const LENS_FILTER_STORAGE_KEY = 'atlasmind.lens.symbolFilter';
@@ -41,8 +42,8 @@ const SYMBOL_FILTER_OPTIONS: readonly LensSymbolFilterOption[] = [
 const TARGET_ACTION_OPTIONS: readonly LensTargetActionOption[] = [
   { label: 'Trace possible flow', description: 'Open a bounded references and call-hierarchy journey', action: 'journey' },
   { label: 'Explain this', description: 'Draft a question about behaviour and dependencies', action: 'explain' },
-  { label: 'Show impact', description: 'Draft a change-impact review with evidence labels', action: 'impact' },
-  { label: 'Find tests', description: 'Draft a test and behaviour coverage review', action: 'tests' },
+  { label: 'Show impact', description: 'Open a bounded source-impact map for symbols; draft a file review', action: 'impact' },
+  { label: 'Find tests', description: 'Open a conservative test-evidence map for symbols; draft a file review', action: 'tests' },
 ];
 
 /** A source-backed file or symbol displayed in the first AtlasMind Lens view. */
@@ -238,12 +239,15 @@ export class LensTreeProvider implements vscode.TreeDataProvider<LensTreeItem | 
     }
     if (
       selected.action === 'journey' ||
-      (selected.action === 'impact' && target.kind === 'symbol' && Boolean(target.range))
+      ((selected.action === 'impact' || selected.action === 'tests') &&
+        target.kind === 'symbol' && Boolean(target.range))
     ) {
       try {
         const graph = await this.languageGraph.buildPossibleFlow(target, item.uri);
         if (selected.action === 'impact') {
           LensImpactPanel.createOrShow(graph);
+        } else if (selected.action === 'tests') {
+          LensTestPanel.createOrShow(graph);
         } else {
           LensJourneyPanel.createOrShow(graph);
         }
@@ -251,6 +255,8 @@ export class LensTreeProvider implements vscode.TreeDataProvider<LensTreeItem | 
         void vscode.window.showWarningMessage(
           selected.action === 'impact'
             ? 'AtlasMind Lens could not build a safe change-impact map for this symbol.'
+            : selected.action === 'tests'
+              ? 'AtlasMind Lens could not build a safe test-evidence map for this symbol.'
             : 'AtlasMind Lens could not build a safe possible-flow journey for this symbol.',
         );
       }
