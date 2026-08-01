@@ -6,6 +6,158 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.235.0 — Personality and Web/UI at the top of Chat
+
+**Personality Profile is back in the native AtlasMind Chat title bar, and Website Studio joins it.** The account and globe icons are visible at the top right alongside Project Dashboard, Mission Control, and Settings. Project Ideation and Cost Dashboard stay available under `…`, so both requested manager links remain one click away without exceeding the five-inline-action limit.
+
+## v0.234.0 — Instructions you can follow, and panels you can reach
+
+**"Installed but not signed in" now names the command that signs you in.** It used to say to run the agent once in a terminal, naming nothing — and the command on screen at that moment is the one that *cannot* log you in: `gemini --acp`, `copilot --acp` and `qwen --acp` all start a JSON-RPC server, and `claude-agent-acp` uses the Claude CLI's credentials rather than holding its own. The sign-in command is now recorded separately, read from each vendor's documentation, and offered as **Open a terminal with the command** — which types it and stops there. AtlasMind never presses Enter and never sees the credential. An agent it has no documented flow for is told as much, rather than handed a guess.
+
+**The ACP console-window choice is on a Settings page.** Settings → Safety & Verification → *Delegated agents (ACP)* carries the Windows private-desktop checkbox, its endpoint-security disclosure, and a button that reopens the guided comparison. Searching the Settings panel for `acp: hide console windows` previously found nothing twice over: the control was only in VS Code's own settings editor, and the search compared the whole query as one substring against keyword lists written as separate words. Multi-word searches now match a page when every word appears.
+
+**Website Studio can be opened from the panels it links to.** Project Dashboard → Delivery and the Project Ideation board both offer it. The Studio pointed at both and neither pointed back, which left the command palette as the only way in.
+
+## v0.233.3 — Honest tool previews and exploratory testing
+
+**An approval card no longer presents unserializable tool arguments as `{}`.** A non-empty object that collapses during JSON serialization is labelled **unserializable arguments**; representable values still pass through secret redaction and the normal preview length cap.
+
+**The committed testing posture now enables exploratory testing instead of performance testing.** The testing configuration, generated strategy, and managed instruction blocks stay synchronized, with charter-based exploratory work assigned to the Test Developer.
+
+## v0.233.2 — Honest routing and honest empty states
+
+**Whole-project assessment prompts now carry a high-reasoning floor.** AtlasMind no longer treats a short request for an overall project assessment as low-effort chat, and adequate local or active subscription-backed capacity wins over a pay-per-token route whose only edge is a small speed-score difference. Capability still comes first for broad review, planning, and synthesis.
+
+**An empty completion is reported as an empty completion.** The transcript no longer turns zero output into “Answered from context.” If bounded recovery cannot produce an answer, Chat asks what to do next and renders **Retry** and **Provider status** chips; the retry explicitly prefers available local or subscription-backed capacity.
+
+## v0.233.1 — Activated-testing repair is visible
+
+**A testing repair no longer goes quiet after confirmation.** The Testing Dashboard now keeps an indeterminate activity indicator and a concise sequence of actual routing and approved-tool updates while the normal approval-gated task runs. It retains a completed or failed outcome with the reported output, and it never labels completion green without fresh test evidence.
+
+**The result can move safely into Atlas Chat.** **Open result in Atlas Chat** opens a reviewable draft rather than sending anything automatically. AtlasMind redacts likely secrets and fences the captured report as untrusted agent output, so Chat is asked to verify it against workspace evidence before taking another action.
+
+## v0.233.0 — Ideation has a home on the dashboard
+
+**Ideation is now visible as stage 0 in Project Dashboard → Where we stand.** The overview reports what is on the active board, what has not yet become work, which live roadmap items still carry a board origin, and unresolved contradictions. Its readiness observations publish the rule that produced each concern, so an empty board reads as unstarted rather than clean.
+
+**Existing project evidence can enter the board without another scan.** Open Gap Analysis, Security Review, Risk, Tech Debt, and Testing Coverage records are offered as evidence cards. The dashboard sends only an opaque id, re-resolves it host-side, and hands the actual write to the canvas, which preserves the complete board record and does not invent a supporting connection.
+
+**`/ideate` reads the same state without changing it.** It reports the board and needs-attention reading, then offers the dashboard overview and canvas. It runs no scan and invokes no model.
+
+## v0.232.0 — Testing guidance, first tests, and a green repair loop
+
+**The Testing Dashboard can now fix the activated strategy as one coherent task.** Its **Fix activated testing** button is host-confirmed and passes the current enabled-policy coverage, existing scripts, and report failures to the normal approval-gated Atlas task. The agent must inspect before it changes anything, runs only relevant existing test commands, and re-verifies the affected surfaces. It cannot achieve a false green result by disabling or skipping tests, weakening assertions, lowering thresholds, changing runner configuration, adding dependencies, or declaring a missing environment successful.
+
+**The testing dashboard now explains the protocols, rather than merely naming them.** It receives Settings' shared methodology catalogue, so each enabled approach has the same plain-English description, when-to-use guidance, familiar tools, and trade-offs wherever a developer meets it. There is no labels-only dashboard copy to become stale.
+
+**Scaffolding now carries a strategy into action with a deliberately narrow safety envelope.** Once the operator confirms the existing non-destructive scaffold, AtlasMind syncs its testing instructions into instruction files that already exist. If — and only if — it finds an existing Vitest or Jest runner and a small exported source module, it starts one ordinary approval-gated authoring task for a focused first test. The agent must inspect before writing, may not add dependencies, change a manifest, or edit production code, and makes no change when the candidate has no stable behaviour worth testing.
+
+## v0.230.2 — ACP plans without fictional credit balances
+
+**Configure Agent Plan** now reads the current `atlasmind.acp.agents` list, so
+Gemini and self-installed ACP agents appear as soon as they are configured. ACP
+does not report an account tier or a trustworthy remaining allowance, so the
+flow stores only the plan name the user enters—such as `ChatGPT Pro (5×)`—and
+never asks for, estimates, decrements, or routes on credits. Old guessed ACP
+quota records are retired. Copilot keeps its separate credit-tracking flow.
+
+The Safety & Verification permission that lets ACP agents use their own tools
+now saves to workspace settings, so returning to the page preserves the choice.
+
+## v0.230.1 — Keep mutation sandboxes out of the VSIX
+
+VSIX packaging now excludes Stryker's local `.stryker-tmp/` sandbox, the
+separate `test/`, `e2e/`, and `performance/` directories, and the mutation
+configuration itself. A local mutation run therefore cannot turn thousands of
+disposable test files into extension payload.
+
+## v0.230.0 — Quiet ACP sessions, without hiding the trade-off
+
+The testing baseline now includes a real `fast-check` property test in the normal
+Vitest suite and a separate `npm run test:mutation` command. The committed
+Stryker configuration starts with the criticality, tool-policy and agent-registry
+modules — decisions where a test that merely executes a line is not enough.
+
+ACP no longer throws a coding-agent process tree away after every answer. A
+successful conversation stays live for 30 idle minutes, and the next turn sends
+only the exact transcript suffix the remote session has not already seen.
+Branches, edits, model/effort changes, MCP or isolation changes, Windows launch
+mode changes, startup instruction changes, exits and idle expiry all open a
+fresh session. Concurrent setup, health and panel probes now share one one-shot
+process instead of racing to start several identical trees.
+
+Duplicate delivery is guarded separately: one stable task identity follows an
+orchestrator tool round, concurrent calls for that identity share one
+`session/prompt`, and a 15-second result ledger absorbs its immediate retry
+without merging independent chats that happen to contain the same words. ACP is
+exempt from the generic transient-provider retry loop, so an uncertain prompt
+is never automatically sent again. That protects subscription allowance and
+prevents an acting agent from being asked to perform the same work twice.
+
+On Windows, setup now asks *before the first probe*: accept ordinary launching
+and the possibility of brief terminal pop-ups, or tick **ACP: Hide Console
+Windows**. The opt-in path uses a source-visible, dependency-free, SHA-256-pinned
+native helper to put the agent and descendants on a dedicated private desktop,
+with no shell and only stdio inherited. It never switches to or controls that
+desktop, and a missing/changed/blocked helper fails rather than falling back.
+The guided choice is written to User settings so setup does not dirty the
+repository; a workspace may still override it explicitly. The configuration
+schema's default does not count as a choice, so startup discovery and direct
+routed turns cannot launch an older configured agent first.
+
+The warning is intentional: hidden desktops are also used by hVNC malware, and
+Microsoft Defender exposes them for threat hunting. A managed-device EDR may
+flag the legitimate helper. The feature therefore remains off until selected,
+and the private desktop is documented as a visibility control — never a
+sandbox or permission boundary. The SHA pin verifies the bytes AtlasMind expects
+but is not Authenticode; the v0.230.0 helper itself is unsigned, so an enterprise
+may require its own signature or allow-rule.
+
+While a private-desktop routed session is alive, AtlasMind also shows **ACP private
+desktop: _n_** in VS Code's status bar. Click it to open Models & Providers. This
+is intentionally in-editor rather than a taskbar/notification-area icon: taskbar
+buttons represent windows on the active desktop, a tray icon can be hidden in
+overflow and neither changes the EDR signal. The indicator is visible evidence of
+the selected launch mode, never a claim that the desktop is a sandbox.
+
+**Settings are now one click from the AtlasMind Chat title bar.** The gear takes
+the fifth visible title-bar slot; the contextual project-memory action remains
+in the overflow menu. Native VS Code Settings search now recognizes the exact
+panel wording, **Let subscription agents act**, for `atlasmind.acp.toolsEnabled`.
+The ACP card's matching Safety link now passes its allowed page id through the
+webview boundary correctly, and its description begins with the plain-language
+fact: use an installed Claude Code or Codex agent and its existing subscription.
+
+---
+
+## v0.229.0 — Groundwork for keeping the agent alive
+
+AtlasMind throws the ACP agent away after every answer, so every question pays a fresh ten-second startup. Measured: opening a session costs about 9.7 seconds, while a second question on a session that is already open costs 1.7. Keeping one alive is worth roughly **13 seconds down to 2 per answer** — and it turns the console-window flurry from once-per-answer into once-per-lifetime.
+
+This release lands the rules such a host has to obey, before the host itself. A background process holding a signed-in Claude session can spend your subscription and, with *Let subscription agents act* enabled, run commands — a different kind of exposure from an agent that exists for a few seconds. So the rules are settled and tested first: only this machine's user can reach it, a missing token authorizes nothing, a reused session must still match the conditions it was created under (including which side of the act/don't-act line it was started on), and the host outlives one editor window but never all of them.
+
+Nothing is wired up yet — this is the part worth getting right before there is a process to get it wrong in.
+
+---
+
+## v0.228.1 — Clearing the working tree
+
+Commits work products an earlier session left uncommitted: the first ATDD artifacts, four agent definitions, and a refresh of the SSOT memory files. No behaviour changes — it puts the repository in a known state before the ACP daemon work begins.
+
+---
+
+## v0.228.0 — Console windows during model discovery
+
+Checking an ACP agent means opening a session, because that is the only honest test of "signed in". What that actually starts had been underestimated: on Windows, `claude-agent-acp` launches **your entire configured MCP fleet** inside the session — a GitKraken CLI, an `npx @azure/mcp` tree, a `contrast-checker-mcp` tree, several through `cmd.exe` — and `codex-acp` starts an `app-server` plus a REPL host. Each `cmd.exe` makes Windows allocate a `conhost.exe`, which is a console window that flashes on screen.
+
+AtlasMind's own spawn has always been `windowsHide: true`, but that governs the process it starts, not what *that* process starts. The window was never suppressible from here, so the lever is frequency.
+
+The probe answer was cached for **ten seconds** — a number sized for a handshake, not for booting two agent runtimes — while a dozen call sites refresh the provider catalog whenever you open a panel or change a setting. It is five minutes now, and the session is explicitly closed rather than merely killed so the agent reaps its own children instead of orphaning them. Only visible since v0.217.0, which is when ACP started being probed at all.
+
+If you want fewer still, the lever is the MCP servers configured in the agent itself — those are what the session starts.
+
+---
+
 ## v0.218.1 — Every variant bills the plan it actually used
 
 ACP subscription quotas are *model-scoped*: one `acp` provider fronts several unrelated plans, so your Claude Max entry sits on `acp/claude`. The plan lookup stripped only the `#effort` suffix, so the `@model` segment introduced in v0.218.0 left `acp/claude@opus#high` resolving to a key no plan is stored under — and it fell through to a provider-level quota ACP deliberately does not have.
@@ -13,6 +165,114 @@ ACP subscription quotas are *model-scoped*: one `acp` provider fronts several un
 Silent, and in the direction that costs money: every model-variant turn looked like an *unmetered* plan. The "already paid for" preference kept applying after the quota was spent, and nothing decremented the plan those turns were billed to. Both separators now strip, because each names a choice *inside* one subscription rather than a different one.
 
 **Also confirmed:** an ACP plan is weighed exactly as Copilot and Claude CLI are. Subscription capacity is advanced over pay-per-token by a general preference, and by a larger one on maintenance turns that pairs with a penalty for metered models — both keyed on the provider's pricing model rather than a list of provider names, so the equivalence holds by construction. A test now pins it.
+
+---
+
+## v0.227.1 - The ideation roadmap says what did not ship
+
+Three releases delivered most of the ideation and research work. Five things were deliberately left — the Ideation dashboard page, findings becoming evidence cards, the spend projection shown before a scan may run unattended, `/ideate`, and two accessibility and audit items on the board itself. They are now written down with the reason each was deferred, rather than being absent from a plan whose phases all read "shipped".
+
+---
+
+## v0.227.0 — The ideation guide stops describing the layout and becomes it
+
+Five sections used to be on the ideation page at once, with a four-card guide above them explaining the order they were meant to be used in. That guide had been moved twice already on the theory that placement was the problem. It was not — a guide that has to explain a layout is a symptom of the layout.
+
+**Frame → Scaffold → Shape → Decide is now a control.** Pick a stage and only that stage renders. The board still leads the page, and each button's status reports where your *board* is rather than which tab you are reading, so the bar stays honest while you look ahead.
+
+**An empty board offers a starting point.** Eleven starter frames derived from what your project actually looks like — a game and a command-line tool no longer open the same blank canvas — and every seeded card is a **question**, never an answer. They append; they never replace anything.
+
+**The kind picker finally says what a kind means.** Choosing `problem` has always put "Fix: …" on the roadmap and `risk` has always put "Mitigate: …", and until now that was written down only in the source. A rule you cannot see is a rule you cannot argue with.
+
+**Decide opens with what the board cannot defend** — unresolved contradictions first, then problems with nothing behind them, wish lists, and cards that never reached the backlog. Each line names the rule that produced it, and none of it blocks anything.
+
+---
+
+## v0.226.0 — The research engine gets a button
+
+v0.225.0 shipped the modules. This makes them run.
+
+`AtlasMind: Run a Research Scan` asks one question about the world outside your repository and records what it found. It confirms first — naming the scan, the source it will use, and the fact that it reaches the network and spends model budget — and **a scan that cannot look never reaches the model at all**. It records that it could not look, which is a different thing from finding nothing, and the only version of this feature worth having.
+
+`/research` in chat reads the same state and presses nothing: open findings with their sources, what is due, what is blocked, and — always, even when everything else is quiet — what has never been assessed.
+
+**Nothing runs on its own until you say what it may cost.** The monthly spend cap defaults to zero, whatever automation level a scan is set to. Switching research on and letting it run unattended are two decisions, and one switch for both would make the first one carry a cost you never agreed to.
+
+**The register is not created until there is something to put in it.** It gets committed, and writing a file into your repository because you opened a tab is not AtlasMind's call to make.
+
+---
+
+## v0.225.0 — Ideation learns something nobody typed into it
+
+Stage 0 of the workflow had exactly two inbound paths: you, and Atlas re-reading the board you had already filled in. So ideation could structure a decision but never inform one, and a board full of confident cards about an unexamined market looked identical to a board full of researched ones.
+
+**Seven research scans, and deliberately not the five people ask for first.** gap, security, risk, debt and testing coverage are already answered by registers in AtlasMind — a second answer would eventually contradict the first, surfacing as a board citing evidence the Gap Analysis page denies. Those five are *subscribed to*. Scanning is built only for competition, customers, technology, feature gaps, market, funding and regulation — every one of which reaches outside your repository, where nothing owns the question.
+
+**A citation, or it is not a finding.** A model asked about a market will answer: fluently, specifically, with plausible numbers. Written into git-tracked project memory and read six weeks later by somebody deciding what to build, that answer is indistinguishable from research. So the check lives in the sanitizer, not in a prompt — an uncited claim is recorded as a *question*, never counted as evidence — and it holds through a hand-edit of the file.
+
+**With no way to look, AtlasMind refuses rather than guessing.** Before a scan runs it decides whether anything *could* have looked — an EXA key, a connected MCP search tool, or the built-in fetch. With none, the scan reports `no-source` and names the setup step. Fetching a page somebody named is kept separate from finding one nobody has: a fetch-only project running a competition scan would get the model's memory with one real citation stapled to it, which is worse than no scan, because it looks sourced.
+
+**Scheduled means due, not automatic.** Scans have a cadence and become due; running one stays a decision, on a three-rung ladder you cap yourself. Six weeks with the editor closed produces one due scan, not six — and an automatic pass runs exactly one, never-assessed before merely overdue.
+
+**The digest answers three questions and the third is not optional.** What changed outside, what it means, and what is still unassessed. No model writes any of it: each scan's "so what" is a sentence declared once and published, so it can be argued with. And a scan going from never-run to twelve findings is reported as a first assessment, not as twelve competitors appearing.
+
+**The board itself:** eleven starter frames derived from your project's archetype — a game and a CLI tool no longer open the same empty canvas — every seeded card phrased as a question rather than a conclusion. And a readiness reading that says what the board cannot defend: unresolved contradictions first, then problems with nothing behind them, wish lists, and cards that never reached the backlog. A record, never a gate.
+
+---
+
+## v0.224.1 - The test report stops shipping inside the extension
+
+The JUnit report added in v0.220.0 is gitignored, so it never appeared in a diff. But `.vscodeignore` is a separate list, and nothing had told it — so `atlasmind-0.224.0.vsix` carried 836 KB of this repository's own test names into every install. Excluded now, with a guard that reads the output path out of `vitest.config.ts` rather than restating it, since restating it is how the two would drift apart again.
+
+---
+
+## v0.224.0 - Reconcile the policy with the repository
+
+A testing matrix drifts in one direction. Enabling a methodology takes a click; noticing months later that it never produced anything takes somebody deliberately looking. **Reconcile with the repository**, on the Testing page, compares the declared policy with what is actually here and proposes a change for each disagreement: drop what was declared and never started, keep what has tooling underway, adopt what the project practises but never declared. Nothing is written until you approve the exact lines.
+
+Dropping is a first-class outcome. A declaration the project has outgrown is a stale statement, not work you failed to do - and a policy nobody can withdraw from is one people stop reading.
+
+Two smaller things that let the drift happen. Three places could change the matrix and only one of them synced the AI instruction files, so turning a methodology off from the dashboard left every external agent still being told to follow it. And auto-assess arrived with every match pre-ticked, which is how one click could enable thirteen methodologies on a project with evidence for five. It now ticks only what the repository can already show, and offers the rest as intentions.
+
+---
+
+## v0.223.0 — Testing is worth points, and a release checks the policy
+
+The project score had eight components and 127 points, and testing was not one of them. So a project with fourteen declared methodologies and evidence for none scored *better* than one that declared nothing — neither carried a testing number, and the first looked more organised everywhere else. That is the one comparison a health score most needs to make, and it was making it backwards.
+
+**Testing evidence** is now worth 15 points: ten for the share of enabled methodologies that have evidence, five for having a readable test report. A project with nothing declared scores zero and is told the points are *unclaimed*, not that it has failed — nobody has looked is different from looking and finding it broken. The recommendation says *close or retire*, because a declaration the project has outgrown is a legitimate thing to withdraw.
+
+The release gates gained **Declared testing policy met**. A failing test fails it, an enabled methodology with no evidence fails it, and coverage that was never gathered reports `unknown` — which is not a pass, because a published version can never be replaced and *"we did not check"* must stay distinguishable from *"we checked and it was fine"*.
+
+---
+
+## v0.222.0 — A methodology can hold work back, if you say so
+
+AtlasMind's one real enforcement — the gate that refuses non-test writes until a failing test has been seen — never read the testing matrix. It fired on the task's role and wording, so a project that had switched TDD *off* still got the gate, and the thirteen methodologies it had switched *on* got no gate whatsoever. The declaration and the enforcement had nothing to do with each other.
+
+Blocking is now a per-methodology opt-in rather than a project-wide switch. Enabling a methodology is a statement of intent and should stay safe to make; turning one into a gate changes how every task in the project runs. Declare fourteen as the standard you hold yourself to, and block on the one or two you are willing to stop work over. Where the config cannot be read at all the gate stays on — dropping a safety behaviour because a file would not parse is the wrong direction to fail in.
+
+Alongside it, a real data-loss hazard closed: the config reader hard-gated on `version === 1`, so a file written by a newer AtlasMind read as *no testing policy at all* — and that is what every writer treats as licence to persist a fresh default over the top. For a document whose entire content is which methodologies are on, that is a silent way to switch a project's testing policy off. It goes through the shared migration ladder now, which keeps *corrupt* and *newer* apart.
+
+---
+
+## v0.221.0 — A testing policy that reaches the code
+
+The fix for the failure v0.220.0 made visible. This project enabled fourteen testing methodologies in June and eight of them still had no evidence of any kind seven weeks later — not because the declaration was wrong, but because it was never shown to a model that could act on it.
+
+Testing policy reached a prompt through one channel, and that channel required the task to be *already* classified as testing, or the subtask's own text to *already* contain a testing word. The turns implementing features — the only turns that could have written the tests — were precisely the ones told nothing.
+
+Every turn that could change behaviour now carries the whole enabled set, phrased as an obligation rather than a description: a change is not finished until it carries the evidence its policy names, and an agent unable to produce that evidence must say so and say why. A project with no declared policy is told nothing at all, because generic advice nobody asked for is how a prompt block becomes something agents skim. Practices such as V-Model and Exploratory are named as context but never requested as files.
+
+The gate is task modality and nothing else. Every narrower condition available — classification, routing needs, agent assignment, task wording — is a variation on the gate that caused the original failure.
+
+---
+
+## v0.220.0 — The Testing dashboard gets something to read
+
+AtlasMind reads test pass/fail from a report your project wrote, and never runs your tests to find out. Nothing in this repository ever wrote one — not a script, not CI, not the pre-commit hook — so on its own project the Testing page had reported *"No test report"* since the day it shipped. Every `vitest run` now writes `test-results/junit.xml`, gitignored, and the pre-commit hook already runs the full suite, so the verdict on screen is never older than your last commit.
+
+Three more things the page was getting wrong. The `continuous` policy had no file markers at all, so a project running its whole suite on every push capped at *"No tests yet"* permanently — for that one policy the pipeline definition **is** the artifact, though only the config file counts and never a matching script name. Five test files had never executed, sitting outside the runner's glob in `src/`, in a `test/` directory, and under a `.spec.ts` suffix; two of them failed once they ran, having been written against behaviour the code no longer has. And the Testing Strategy badge read *"13 / 14 active"* above a table of 23 rows, because the registry grew to 23 and four pieces of copy never followed — all four derive from the registry now, with a test refusing a literal.
 
 ---
 

@@ -64,6 +64,25 @@ describe('every settings route can actually be drawn', () => {
     expect(missing, 'these views have a free slot and no visible settings route').toEqual([]);
   });
 
+  it('reserves the Chat titlebar’s fifth visible slot for the Settings cog', () => {
+    // Chat is the AtlasMind home and had a full titlebar, so its Settings
+    // command was deliberately put into an overflow-only group. That made the
+    // most general configuration route much harder to find than any of the
+    // dashboard shortcuts. Project-memory maintenance remains available in the
+    // overflow; Settings is the visible fifth action.
+    const chatNavigation = navigationFor('atlasmind.chatView');
+    expect(chatNavigation).toContainEqual(expect.objectContaining({
+      command: 'atlasmind.openSettings',
+      group: 'navigation@5',
+    }));
+
+    const chatMemory = viewTitle.filter(entry =>
+      (entry.when ?? '').startsWith('view == atlasmind.chatView')
+      && ['atlasmind.importProject', 'atlasmind.updateProjectMemory'].includes(entry.command));
+    expect(chatMemory).toHaveLength(2);
+    expect(new Set(chatMemory.map(entry => entry.group))).toEqual(new Set(['5_memory@1']));
+  });
+
   it('still respects the five-slot ceiling everywhere', () => {
     // The rule the promotion had to work within, not around.
     for (const view of sidebarViews) {
@@ -113,6 +132,16 @@ describe('the subscription plan action', () => {
       .find(entry => entry.command === 'atlasmind.models.configureSubscription');
     expect(palette?.when).toBe('false');
   });
+
+  it('does not carry a hard-coded ACP vendor-plan catalogue', () => {
+    const source = readFileSync(path.join(process.cwd(), 'src', 'views', 'modelProviderPanel.ts'), 'utf8');
+    // ACP can discover configured agents and offered models, but not account
+    // tiers or balances. A baked plan list made a new ChatGPT 5× tier invisible
+    // until an AtlasMind release and omitted any user-installed agent.
+    expect(source).toContain('parseAcpAgentSettings');
+    expect(source).toContain('ACP_SUBSCRIPTION_PLAN_STORAGE_KEY');
+    expect(source).not.toContain('ACP_AGENT_TIERS');
+  });
 });
 
 describe('provider copy that names a settings page routes to it', () => {
@@ -161,5 +190,6 @@ describe('provider copy that names a settings page routes to it', () => {
   it('still tells the ACP reader where the switch is', () => {
     // The sentence is the thing being linked; losing it would remove the point.
     expect(source).toContain('Settings → Safety');
+    expect(source).toContain('no separate AtlasMind API key is needed');
   });
 });

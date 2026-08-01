@@ -45,45 +45,72 @@ When you make **any** of the following changes, you **MUST** update the correspo
 ## Branch And Release Policy
 ## Branch Strategy
 
-- `develop`: default branch and integration branch for routine day-to-day work.
-- `main`: protected release-ready branch used only for intentional Marketplace publication.
-- Feature branches: `feat/<short-name>` created from `develop`.
-- Fix branches: `fix/<short-name>` created from `develop`.
-- Chore branches: `chore/<short-name>` created from `develop`.
-- Promotion model: routine maintainer work can land directly on `develop`, optional topic branches can still merge into `develop`, and `develop` is promoted into `main` only when you intentionally want a new Marketplace release build.
+The specification's stage 2 (Branch Creation & Naming), instantiated.
+
+| Role | Branch | Notes |
+|---|---|---|
+| Integration | `develop` | Default branch and normal push target. Expected to move constantly. |
+| Release | `main` | Protected. Updated only by an intentional Marketplace release promotion. |
+
+Feature branches are created from `develop` as `<type>/<short-name>` — `feat/`, `fix/`, `chore/`,
+`docs/`. Where the work has an issue, prefer `<type>/<issue>-<slug>` so the link back is derived
+rather than typed.
+
+**Promotion model.** Routine maintainer work lands directly on `develop`. Optional topic branches
+merge into `develop`. `develop` is promoted into `main` only when a new Marketplace release is
+intended.
+
+`project_memory/` **is tracked, and is present on `main`.** `.gitignore` excludes only
+`project_memory/sessions/`, `project_memory/temp/`, `project_memory/operations/project-run-*.json`,
+and `project_memory/operations/.delivery-lock.json`. What keeps project memory out of the shipped
+extension is `.vscodeignore`, not `.gitignore` — a workspace-memory directory appearing in the VSIX
+listing is a release blocker, but its presence in a release PR is expected and correct.
 
 ## Pull Request Workflow
 
-1. Open an issue first when the work benefits from tracking or external review.
-2. For routine solo-maintainer work, commit and push directly to `develop`.
-3. For isolated or higher-risk changes, create a branch from `develop`, implement the change with tests and docs, and open a PR back into `develop`.
-4. Promote `develop` into `main` only when you want to publish the next Marketplace release.
+The specification's stage 4 (Pull Requests & Reviews), instantiated for the `solo` profile.
 
+1. Open an issue first when the work benefits from tracking or external review.
+2. For routine maintainer work, commit and push directly to `develop`.
+3. For isolated or higher-risk changes, branch from `develop`, implement with tests and docs, and
+   open a PR back into `develop`. Link the issue with `Closes #<n>` in the body.
+4. Promote `develop` into `main` only when publishing the next Marketplace release.
+
+**Required approvals: zero.** This is the `solo` profile's defining value, and it is a deliberate
+choice rather than an omission — requiring self-approval trains a maintainer to dismiss a gate. CI
+is the reviewer here, which is why the status checks below are genuinely required rather than
+advisory. Reintroduce approvals and CODEOWNERS review on `main` before treating this as a broader
+team release branch.
+
+### Branch protection for `main`
+
+- Require a pull request before merging.
+- Do **not** require approving reviews — see above.
+- Require these status checks:
+  - `quality (ubuntu-latest)`
+  - `quality (windows-latest)`
+  - `quality (macos-latest)`
+- Enable auto-merge so the release PR completes as soon as required CI goes green.
+- Keep admin enforcement enabled so `main` stays PR-only even for repository admins.
+- Restrict force pushes and branch deletion.
+
+### Branch protection for `develop`
+
+- Do not require pull requests or approving reviews.
+- Keep admin enforcement disabled so the maintainer can push directly.
+- Let CI run on pushes for visibility, but do not treat `develop` as a release gate.
+- Restrict force pushes.
 
 ## Release Flow
 
-- Use `develop` for normal integration, active implementation, and routine push targets.
-- Keep `main` releasable at all times.
-- **Do not include any `project_memory/` files or folders in `main`.** The entire `project_memory/` directory is for development and feature branches only, and must be excluded from release PRs and the `main` branch. This is enforced by `.gitignore` and should be checked in PR reviews.
-- Every commit (not just PRs) must include a version bump in `package.json` and a matching `CHANGELOG.md` entry. This applies to all code, doc, and config changes. The version bump and changelog update must be in the same commit as the change.
-- Trigger `Release — promote develop to main` from the Actions tab when you want a release.
-- That workflow creates or reuses the `develop` -> `main` release PR and enables squash auto-merge.
-- When the release PR merges into `main`, the `Release — tag merged main version` workflow creates the matching `v<package.json version>` tag.
-- The `Release — publish Marketplace from tag` workflow publishes from that tag and creates the GitHub Release entry.
-- Direct pushes to `main` are blocked, including for admins.
-- If you later split preview and stable delivery again, keep `main` for stable and add a dedicated `pre-release` branch.
-
-## Release Hygiene
-
-- Every commit includes an appropriate SemVer bump in `package.json`.
-- Every version bump includes a matching entry in `CHANGELOG.md`.
-- Use conventional commit prefixes.
+The specification's stage 6 (Release Automation), instantiated. **The release is Acti
+…(truncated)
 
 <!-- atlasmind-import
 entry-path: decisions/development-guardrails.md
 generator-version: 2
-generated-at: 2026-07-28T12:06:49.103Z
+generated-at: 2026-07-31T03:25:06.200Z
 source-paths: .github/copilot-instructions.md | docs/github-workflow.md
-source-fingerprint: 9264430b
-body-fingerprint: 38f1c61e
+source-fingerprint: 116616b5
+body-fingerprint: 5d3a2ccc
 -->

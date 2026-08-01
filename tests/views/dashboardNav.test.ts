@@ -89,13 +89,20 @@ describe('dashboard nav definition', () => {
     }
   });
 
-  it('keeps "ideation" out of the nav while remaining a valid prompt origin', () => {
-    // Ideation is a separate panel. It must stay valid for prompt attribution
-    // (it routes to openIdeationPromptInChat) but must never be a tab: an
-    // unrenderable activePage leaves every section inactive and blanks the page.
-    expect(navPages).not.toContain('ideation');
+  it('puts ideation under Where we stand and keeps it a valid prompt origin', () => {
+    // The dashboard is the stage-0 overview; the dedicated panel remains the
+    // canvas. Both paths rely on the same page id, so it must be a genuine tab
+    // as well as a valid sourcePage for an Ask Atlas prompt.
+    expect(navPages).toContain('ideation');
+    expect(groups.find(group => group.id === 'stand')?.pages).toContain('ideation');
     expect(normalizeDashboardPromptRequest({ prompt: 'x', sourcePage: 'ideation' }))
       .toEqual({ prompt: 'x', sourcePage: 'ideation' });
+  });
+
+  it('renders the stage-0 evidence bridge without making the dashboard a board writer', () => {
+    expect(WEBVIEW_SCRIPT).toContain('function renderIdeation(snapshot)');
+    expect(WEBVIEW_SCRIPT).toContain("type: 'addIdeationEvidence'");
+    expect(WEBVIEW_SCRIPT).toContain('data-action="ideation-evidence"');
   });
 
   it('normalises an unknown activePage back to overview in the webview', () => {
@@ -103,6 +110,32 @@ describe('dashboard nav definition', () => {
     // assigned straight from the click payload and the host navigate message.
     expect(WEBVIEW_SCRIPT).toContain('function normalizePageId(');
     expect(WEBVIEW_SCRIPT).toMatch(/state\.activePage\s*=\s*normalizePageId\(/);
+  });
+});
+
+describe('testing methodology guidance', () => {
+  it('uses the shared Settings catalogue instead of a labels-only dashboard copy', () => {
+    expect(WEBVIEW_SCRIPT).toContain('testing.methodologyDefinitions');
+    expect(WEBVIEW_SCRIPT).toContain('methodology-dashboard-description');
+    expect(WEBVIEW_SCRIPT).toContain('When to use it and the trade-offs');
+    expect(WEBVIEW_SCRIPT).not.toContain('const METHODOLOGY_DEFS = [');
+  });
+
+  it('offers a host-confirmed repair action for every activated test surface', () => {
+    expect(WEBVIEW_SCRIPT).toContain('Fix activated testing');
+    expect(WEBVIEW_SCRIPT).toContain("type: 'fixActivatedTesting'");
+    expect(WEBVIEW_SCRIPT).toContain('normal tool approvals');
+  });
+
+  it('keeps activated-testing repair observable and hands the retained result to Chat safely', () => {
+    expect(WEBVIEW_SCRIPT).toContain('testingFixStarted');
+    expect(WEBVIEW_SCRIPT).toContain('testingFixProgress');
+    expect(WEBVIEW_SCRIPT).toContain('testingFixFinished');
+    expect(WEBVIEW_SCRIPT).toContain('testing-fix-progress');
+    expect(WEBVIEW_SCRIPT).toContain('View reported task output');
+    expect(WEBVIEW_SCRIPT).toContain("type: 'openTestingFixChat'");
+    expect(WEBVIEW_SCRIPT).toContain("vscode.postMessage({ type: 'openTestingFixChat' });");
+    expect(WEBVIEW_SCRIPT).toContain('it is not sent automatically');
   });
 });
 

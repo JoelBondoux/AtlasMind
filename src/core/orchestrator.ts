@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { AgentDefinition, BudgetMode, DataPrivacyMatch, MemoryEntry, ModelCapability, ModelStruggleKind, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, SubTaskStatus, TaskProfile, TaskRequest, TaskResult, TestingMethodologyId, ToolExecutionArtifact } from '../types.js';
+import type { AgentDefinition, BudgetMode, ProjectTestingConfig, DataPrivacyMatch, MemoryEntry, ModelCapability, ModelStruggleKind, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, SubTaskStatus, TaskProfile, TaskRequest, TaskResult, TestingMethodologyId, ToolExecutionArtifact } from '../types.js';
 import type { AgentAutoUpdater } from './agentAutoUpdater.js';
 import { buildDebtMarkerGuidance, parseCustomDebtMarkers } from './debtRegister.js';
 import {
@@ -46,7 +46,7 @@ import {
 } from '../constants.js';
 import { redactSecretsWithWarning } from '../utils/secretRedactor.js';
 import type { DataPrivacyManager } from './dataPrivacyManager.js';
-import { readProjectTestingConfig, inferTestingMethodologyForSubTask, resolveTestingModelOverride, buildMethodologySystemPromptHint } from './testingConfigLoader.js';
+import { readProjectTestingConfig, inferTestingMethodologyForSubTask, resolveTestingModelOverride, buildMethodologySystemPromptHint, buildTestingObligationGuidance } from './testingConfigLoader.js';
 
 const defaultConfig: OrchestratorConfig = {
   maxToolIterations: MAX_TOOL_ITERATIONS,
@@ -409,6 +409,7 @@ interface CostEstimate {
 }
 
 type ProviderCompletionRequest = {
+  requestId?: string;
   model: string;
   messages: ChatMessage[];
   tools: ToolDefinition[];
@@ -1386,6 +1387,27 @@ export class Orchestrator {
 
     const initialModel = selectedInitialModel ?? agent.allowedModels?.find(modelId => this.router.getModelInfo(modelId));
 
+    // ── The project's declared testing policy, for any turn that could change
+    // behaviour ─────────────────────────────────────────────────────────────
+    //
+    // Set here rather than inside `buildMessages` because the task profile is
+    // only known at this point, and read there through `requestContext` like
+    // every other conditional prompt block.
+    //
+    // The gate is deliberately *only* modality. The reason the policy was never
+    // honoured is that it reached a prompt solely when the task already
+    // mentioned testing — so the agents implementing features, the ones that
+    // would have written the tests, were the only ones never told. Any narrower
+    // gate here would reproduce that failure with different wording. A read-only
+    // turn ('text' modality) is excluded because it cannot leave a change behind
+    // for a test to cover.
+    if (baseTaskProfile.modality === 'code' || baseTaskProfile.modality === 'mixed') {
+      const obligation = this.buildTestingObligation();
+      if (obligation) {
+        request.context['__testingObligation'] = obligation;
+      }
+    }
+
     const previewModel = initialModel ?? 'unavailable';
     (onModelSelected ?? this.onModelSelected)?.(previewModel);
     const initialMessages = this.buildMessages(agent, activeAgentSkills, retrievalContext, request.userMessage, request.context, previewModel);
@@ -1397,8 +1419,13 @@ export class Orchestrator {
 
     const requestBudget = request.constraints.maxCostUsd;
     const agentBudget = agent.costLimitUsd;
+    // The freeform gate answers the same question as the subtask one, so it obeys
+    // the same declaration: a project that has enabled no blocking methodology is
+    // not held back on a chat-driven change either.
     const projectTddPolicy = parseProjectTddPolicy(request.context['projectTddPolicy'])
-      ?? inferFreeformTddPolicy(request.userMessage, baseTaskProfile);
+      ?? (projectWantsTddWriteGate(this.readTestingConfig())
+        ? inferFreeformTddPolicy(request.userMessage, baseTaskProfile)
+        : { mode: 'not-applicable' as const, dependencyRedSignal: false });
     const budgetCapUsd = [requestBudget, agentBudget]
       .filter((value): value is number => typeof value === 'number' && value > 0)
       .reduce<number | undefined>((min, value) => min === undefined ? value : Math.min(min, value), undefined);
@@ -1963,10 +1990,11 @@ export class Orchestrator {
     // Detect the active testing methodology for this subtask and apply any
     // model override configured in the Testing Methodology Matrix.
     let subTaskMethodologyId: TestingMethodologyId | undefined;
+    const testingConfigForTask = this.readTestingConfig();
     {
       const wsRoot = this.skillContext.workspaceRootPath;
       if (wsRoot) {
-        const testingConfig = readProjectTestingConfig(wsRoot);
+        const testingConfig = testingConfigForTask;
         if (testingConfig) {
           subTaskMethodologyId = inferTestingMethodologyForSubTask(task, testingConfig);
           if (subTaskMethodologyId) {
@@ -1993,7 +2021,7 @@ export class Orchestrator {
         userMessage: message,
         context: {
           __subTask: true,
-          projectTddPolicy: buildProjectTddPolicy(task, depOutputs),
+          projectTddPolicy: buildProjectTddPolicy(task, depOutputs, testingConfigForTask),
           ...(projectGoal ? { sessionContextBundle: projectBundle } : {}),
           ...(subTaskMethodologyId ? { __testingMethodologyHint: buildMethodologySystemPromptHint(subTaskMethodologyId) } : {}),
         },
@@ -2377,6 +2405,7 @@ export class Orchestrator {
         : DEFAULT_CHAT_MAX_TOKENS;
       const clampedMaxTokens = Math.min(DEFAULT_CHAT_MAX_TOKENS, safeMaxTokens);
       completion = await this.completeUntilStop(provider, {
+        requestId: `${context.taskId}:tool-round:${i}`,
         model,
         messages,
         tools,
@@ -3007,11 +3036,18 @@ export class Orchestrator {
     onTextChunk?: (chunk: string) => void,
   ): Promise<CompletionResponse> {
     const timeoutMs = getProviderTimeoutMs(provider.providerId, this.cfg.providerTimeoutMs);
-    for (let attempt = 0; attempt <= MAX_PROVIDER_RETRIES; attempt += 1) {
+    // An ACP prompt is stateful and can continue running after a transport
+    // timeout. Retrying it on a fresh session can spend twice and execute tools
+    // twice, so uncertainty is terminal for this attempt. The adapter still
+    // coalesces a duplicate caller carrying the same `requestId` while the
+    // original promise is in flight.
+    const maxRetries = provider.providerId === 'acp' ? 0 : MAX_PROVIDER_RETRIES;
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+      const scoped = createProviderAttemptRequest(request, provider.providerId === 'acp');
       try {
         const execute = onTextChunk && provider.streamComplete
-          ? provider.streamComplete(request, onTextChunk)
-          : provider.complete(request);
+          ? provider.streamComplete(scoped.request, onTextChunk)
+          : provider.complete(scoped.request);
         return await withTimeout(
           execute,
           timeoutMs,
@@ -3019,7 +3055,7 @@ export class Orchestrator {
         );
       } catch (err) {
         const transient = isTransientProviderError(err);
-        if (!transient || attempt >= MAX_PROVIDER_RETRIES) {
+        if (!transient || attempt >= maxRetries) {
           throw err;
         }
         // Respect Retry-After header when the provider signals a back-off delay.
@@ -3028,6 +3064,8 @@ export class Orchestrator {
           ? retryAfterMs
           : PROVIDER_RETRY_BASE_DELAY_MS * (2 ** attempt);
         await sleep(delay);
+      } finally {
+        scoped.dispose();
       }
     }
 
@@ -3040,16 +3078,18 @@ export class Orchestrator {
     onTextChunk: (chunk: string) => void,
   ): Promise<CompletionResponse> {
     const timeoutMs = getProviderTimeoutMs(provider.providerId, this.cfg.providerTimeoutMs);
-    for (let attempt = 0; attempt <= MAX_PROVIDER_RETRIES; attempt += 1) {
+    const maxRetries = provider.providerId === 'acp' ? 0 : MAX_PROVIDER_RETRIES;
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+      const scoped = createProviderAttemptRequest(request, provider.providerId === 'acp');
       try {
         return await withTimeout(
-          provider.streamComplete!(request, onTextChunk),
+          provider.streamComplete!(scoped.request, onTextChunk),
           timeoutMs,
           `Provider timed out after ${timeoutMs}ms.`,
         );
       } catch (err) {
         const transient = isTransientProviderError(err);
-        if (!transient || attempt >= MAX_PROVIDER_RETRIES) {
+        if (!transient || attempt >= maxRetries) {
           throw err;
         }
         const retryAfterMs = (err as Record<string, unknown>)['retryAfterMs'];
@@ -3057,6 +3097,8 @@ export class Orchestrator {
           ? retryAfterMs
           : PROVIDER_RETRY_BASE_DELAY_MS * (2 ** attempt);
         await sleep(delay);
+      } finally {
+        scoped.dispose();
       }
     }
 
@@ -3663,6 +3705,35 @@ export class Orchestrator {
     return agent;
   }
 
+  /**
+   * The workspace's enabled testing methodologies, stated as an obligation.
+   *
+   * Returns `''` when there is no workspace, no config file, or nothing enabled —
+   * a project that has declared no policy is told nothing, rather than given
+   * generic advice about testing that nobody asked for. An unreadable config
+   * must never take a turn down with it.
+   */
+  private buildTestingObligation(): string {
+    return buildTestingObligationGuidance(this.readTestingConfig());
+  }
+
+  /**
+   * The workspace's testing configuration, or `undefined` when there is no
+   * workspace, no file, or one this build must not use. Never throws: an
+   * unreadable config must not take a turn down with it.
+   */
+  private readTestingConfig(): ProjectTestingConfig | undefined {
+    const workspaceRoot = this.skillContext.workspaceRootPath;
+    if (!workspaceRoot) {
+      return undefined;
+    }
+    try {
+      return readProjectTestingConfig(workspaceRoot);
+    } catch {
+      return undefined;
+    }
+  }
+
   private buildMessages(
     agent: AgentDefinition,
     agentSkills: SkillDefinition[],
@@ -3805,6 +3876,14 @@ export class Orchestrator {
     const testingMethodologyHint = typeof requestContext['__testingMethodologyHint'] === 'string' && requestContext['__testingMethodologyHint'].trim().length > 0
       ? `\n\nTesting methodology guidance:\n${requestContext['__testingMethodologyHint'].trim()}`
       : '';
+    // The whole declared policy, for any turn that could change behaviour. This
+    // and the per-methodology hint above answer different questions — "what does
+    // this project require of any change" versus "which methodology owns this
+    // particular testing task" — so both can be present, and the narrower one
+    // deliberately comes second.
+    const testingObligationBlock = typeof requestContext['__testingObligation'] === 'string' && requestContext['__testingObligation'].trim().length > 0
+      ? `\n\n${requestContext['__testingObligation'].trim()}`
+      : '';
     const attachmentSummary = imageAttachments.length > 0
       ? `\n\nUser-attached images:\n${imageAttachments.map(image => `- ${image.source} (${image.mimeType})`).join('\n')}` +
         (hasCarryForwardImages
@@ -3862,6 +3941,7 @@ export class Orchestrator {
           `\n\nTool result policy:\n- Treat tool outputs as the authoritative record of what actually happened.\n- If a tool reports an error, denial, validation issue, missing resource, or no-op, do not claim success. State that the action did not complete and summarize the tool result succinctly.` +
           securityAnalysisHint +
           urlSafetyHint +
+          testingObligationBlock +
           testingMethodologyHint +
           (rawSpecialistRoutingHint ? `\n\nSpecialist routing guidance:\n${rawSpecialistRoutingHint}` : '') +
           executionBiasHint +
@@ -4089,7 +4169,34 @@ function buildToolFailureGuidance(toolResults: ReadonlyArray<{ toolCall: ToolCal
   return 'If this is transient, please try again. If it keeps failing, tell me which tool reported it and I can help narrow the blocker.';
 }
 
-function buildProjectTddPolicy(task: SubTask, depOutputs: Record<string, string>): ProjectTddPolicy {
+/**
+ * Does this project want writes held back until a failing test has been seen?
+ *
+ * The write gate predates the testing matrix and never consulted it, so it fired
+ * on role and task wording alone — which meant a project that had switched TDD
+ * *off* still got the gate, and the thirteen other methodologies it had switched
+ * *on* got no gate at all. The config governs it now, and `blocking` is opt-in
+ * per methodology (schema v2): declaring a methodology should be safe, turning
+ * one into a gate changes how every task in the project runs.
+ *
+ * `undefined` config means no file, an unreadable file, or one written by a newer
+ * build — and in every one of those cases the honest answer is "this project has
+ * not told us", so the historical behaviour is kept rather than silently dropping
+ * a gate somebody may be relying on. Removing a safety behaviour on the strength
+ * of a file we could not read is the wrong direction to fail in.
+ */
+function projectWantsTddWriteGate(config: ProjectTestingConfig | undefined): boolean {
+  if (!config) {
+    return true;
+  }
+  return config.methodologies.some(entry => entry.enabled && entry.blocking === true);
+}
+
+function buildProjectTddPolicy(
+  task: SubTask,
+  depOutputs: Record<string, string>,
+  testingConfig: ProjectTestingConfig | undefined,
+): ProjectTddPolicy {
   const combinedText = `${task.title}\n${task.description}`;
   if (isTestAuthoringSubTask(task.role, combinedText)) {
     return {
@@ -4098,7 +4205,7 @@ function buildProjectTddPolicy(task: SubTask, depOutputs: Record<string, string>
     };
   }
 
-  if (!requiresProjectTddWriteGate(task.role, combinedText)) {
+  if (!projectWantsTddWriteGate(testingConfig) || !requiresProjectTddWriteGate(task.role, combinedText)) {
     return {
       mode: 'not-applicable',
       dependencyRedSignal: false,
@@ -5778,6 +5885,40 @@ async function withTimeout<T>(
       getTimerGlobals().clearTimeout(timeoutHandle);
     }
   }
+}
+
+/**
+ * Give a stateful provider an attempt-scoped cancellation signal.
+ *
+ * `withTimeout` cannot stop the promise it races. For ordinary stateless HTTP
+ * providers that is existing adapter territory; for ACP it is unsafe because a
+ * timed-out prompt can keep acting while the orchestrator fails over. Disposing
+ * this scope aborts ACP on timeout, error, or success (a post-success abort is a
+ * no-op because the adapter has already removed its listener).
+ */
+function createProviderAttemptRequest(
+  request: ProviderCompletionRequest,
+  abortOnDispose: boolean,
+): { request: ProviderCompletionRequest; dispose(): void } {
+  if (!abortOnDispose) {
+    return { request, dispose: () => {} };
+  }
+
+  const controller = new AbortController();
+  const forwardAbort = () => controller.abort();
+  if (request.signal?.aborted) {
+    controller.abort();
+  } else {
+    request.signal?.addEventListener('abort', forwardAbort, { once: true });
+  }
+
+  return {
+    request: { ...request, signal: controller.signal },
+    dispose: () => {
+      request.signal?.removeEventListener('abort', forwardAbort);
+      controller.abort();
+    },
+  };
 }
 
 function getTimerGlobals(): { setTimeout(callback: () => void, ms: number): unknown; clearTimeout(handle: unknown): void } {

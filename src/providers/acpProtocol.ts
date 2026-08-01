@@ -270,7 +270,12 @@ export interface AcpMcpServer {
  * variant `#[serde(untagged)]`, so adding the discriminator the http/sse
  * variants use would make the entry fail to deserialize.
  */
-export function buildSessionNewRequest(id: number, cwd: string, mcpServers: AcpMcpServer[] = []): JsonRpcRequest {
+export function buildSessionNewRequest(
+  id: number,
+  cwd: string,
+  mcpServers: AcpMcpServer[] = [],
+  options?: { isolateAgentSettings?: boolean },
+): JsonRpcRequest {
   return {
     jsonrpc: '2.0',
     id,
@@ -283,9 +288,42 @@ export function buildSessionNewRequest(id: number, cwd: string, mcpServers: AcpM
         args: server.args,
         env: server.env.map(entry => ({ name: entry.name, value: entry.value })),
       })),
+      ...(options?.isolateAgentSettings ? { _meta: CLAUDE_ISOLATED_SETTINGS_META } : {}),
     },
   };
 }
+
+/**
+ * Ask a Claude Agent session not to load the machine's own settings.
+ *
+ * **A vendor extension, not the spec.** `_meta` is ACP's extensibility escape
+ * hatch and this key is Anthropic's; it was read out of the installed
+ * `claude-agent-acp` build rather than from a published contract, which is a
+ * weaker guarantee than everything else in this file — hence its own
+ * verified-at constant. It degrades safely in both directions: an agent that
+ * ignores `_meta` behaves exactly as it does today, and `codex-acp` was checked
+ * to accept the unknown key without error.
+ *
+ * What it buys: with `settingSources: []` the agent does not read the user's
+ * user/project/local settings, and therefore does not start **their** MCP
+ * fleet inside our session. Measured on this machine, that is the difference
+ * between 19 descendant processes and 3 — and between six console windows
+ * flashing on Windows and two, because each of those servers is launched
+ * through a `cmd.exe` shim that allocates its own console.
+ *
+ * Deliberately **not** sent when delegated execution is on. The setting sources
+ * carry more than MCP — the project's `CLAUDE.md`, permission defaults, custom
+ * subagents — and an agent that may actually act is one the user wants their
+ * own instructions to reach. Restricting a *completion source* to nothing but
+ * the prompt is the conservative reading; restricting an *executor* is taking
+ * away context it needs.
+ */
+export const CLAUDE_ISOLATED_SETTINGS_META = {
+  claudeCode: { options: { settingSources: [] as string[] } },
+} as const;
+
+/** The `claude-agent-acp` build whose source this extension key was read from. */
+export const ACP_CLAUDE_META_VERIFIED_VERSION = '0.63.0';
 
 export interface AcpPromptBlock {
   type: 'text' | 'image';
@@ -341,6 +379,8 @@ export interface AcpInitializeResult {
    */
   supportsAudio: boolean;
   supportsLoadSession: boolean;
+  /** `sessionCapabilities.close` — whether a session can be torn down explicitly. */
+  supportsSessionClose: boolean;
 }
 
 /**
@@ -374,7 +414,21 @@ export function parseInitializeResult(result: Record<string, unknown>): AcpIniti
     supportsImages: promptCapabilities['image'] === true,
     supportsAudio: promptCapabilities['audio'] === true,
     supportsLoadSession: capabilities['loadSession'] === true,
+    supportsSessionClose: asRecord(capabilities['sessionCapabilities'])['close'] !== undefined,
   };
+}
+
+/**
+ * Ask the agent to tear a session down.
+ *
+ * Worth sending rather than just killing the process, because a `session/new` on
+ * a coding agent is not a lightweight object: `claude-agent-acp` starts the
+ * user's whole MCP fleet inside it, `codex-acp` starts an `app-server` and a
+ * REPL host. Killing our direct child leaves that tree to be reaped by the OS,
+ * which is slower and noisier than asking the agent to close it.
+ */
+export function buildSessionCloseRequest(id: number, sessionId: string): JsonRpcRequest {
+  return { jsonrpc: '2.0', id, method: 'session/close', params: { sessionId } };
 }
 
 /** Read the `sessionId` from a `session/new` result; '' when unusable. */

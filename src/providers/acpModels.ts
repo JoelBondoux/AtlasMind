@@ -74,7 +74,7 @@ export interface AcpModelChoice {
   rule: string;
   /** Absent for `unknown` — the router then scores on effort alone. */
   reasoningDepth?: number;
-  /** Assumed quota cost relative to a balanced turn. 1 when unknown. */
+  /** Relative routing intensity. It is not a subscription-balance measurement. */
   premiumRequestMultiplier: number;
 }
 

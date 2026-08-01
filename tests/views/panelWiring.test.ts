@@ -454,6 +454,12 @@ describe('chat panel controls', () => {
     expect(script).toContain('closeOnOutsideClick');
     expect(script).toMatch(/if \(willOpen\) \{\s*document\.addEventListener\('click', closeOnOutsideClick/);
   });
+
+  it('does not present an empty response as an answer and points to rendered reply chips', () => {
+    expect(script).toContain('!/^Answered from context/i.test(thoughtSummary)');
+    expect(script).toContain('No usable answer was returned.');
+    expect(script).toContain('Choose an option below, or type a different response.');
+  });
 });
 
 describe('tool webhook panel', () => {

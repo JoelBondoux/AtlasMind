@@ -15,6 +15,15 @@ import { BUZZ_SETUP_COMMANDS } from './core/buzzSetupPlan.js';
 
 /** The walkthrough lives in its own thread rather than interrupting another. */
 const BUZZ_GUIDE_SESSION_TITLE = 'Buzz setup';
+
+/**
+ * One reused terminal for setup commands AtlasMind types.
+ *
+ * Named rather than anonymous so a second prepared command lands in the terminal
+ * the user is already looking at, and so the sign-in flow they are half-way
+ * through is not buried under a stack of identical panes.
+ */
+const SETUP_TERMINAL_NAME = 'AtlasMind setup';
 import type { ProjectMemoryFreshnessStatus } from './bootstrap/bootstrapper.js';
 import type { SessionConversation, SessionPolicySnapshot } from './chat/sessionConversation.js';
 import type { VoiceManager } from './voice/voiceManager.js';
@@ -39,8 +48,9 @@ import type { DeliveryManager } from './core/deliveryManager.js';
 import type { ProjectDirectorManager } from './core/projectDirectorManager.js';
 import type { DocumentsManager } from './core/documentsManager.js';
 import type { RiskOversightManager } from './core/riskOversightManager.js';
+import type { ResearchRegisterManager } from './core/researchRegister.js';
 import type { MissionRegistry } from './core/missionRegistry.js';
-import { ACP_PROBE_TIMEOUT_MS, getConfiguredLocalEndpoints, type ProviderRegistry } from './providers/index.js';
+import { ACP_PROBE_TIMEOUT_MS, ACP_PROVIDER_ID, getConfiguredLocalEndpoints, type ProviderRegistry } from './providers/index.js';
 import { getModelInfoUrl, getProviderInfoUrl, lookupCatalog } from './providers/modelCatalog.js';
 import { inferContextWindow, inferCapabilities, inferSpecialistDomains, inferPricing } from './providers/modelMetadataInference.js';
 import {
@@ -234,6 +244,10 @@ export interface AtlasMindContext {
   riskOversightManager: RiskOversightManager;
   /** Fires when risk-oversight.json changes on disk, so the dashboard can re-sync. */
   riskOversightRefresh: vscode.EventEmitter<void>;
+  /** Findings from research scans about the world outside this repository. */
+  researchRegisterManager: ResearchRegisterManager;
+  /** Fires when research.json changes on disk, so the dashboard can re-sync. */
+  researchRefresh: vscode.EventEmitter<void>;
   /** Audit trail + persistence for autonomous Mission Loop runs. */
   missionRegistry: MissionRegistry;
   rollbackLastCheckpoint(): Promise<{ ok: boolean; summary: string; restoredPaths: string[] }>;
@@ -570,7 +584,16 @@ async function persistModelAvailabilityState(
 function restorePersistedQuotas(globalState: vscode.Memento, modelRouter: ModelRouter): void {
   const stored = globalState.get<Record<string, unknown>>(SUBSCRIPTION_QUOTA_STORAGE_KEY, {});
   const now = new Date().toISOString();
+  let retiredAcpQuota = false;
   for (const [scope, raw] of Object.entries(stored)) {
+    // ACP deliberately no longer restores manually estimated allowances. The
+    // protocol identifies agents and models but does not disclose a plan or a
+    // trustworthy balance; treating old guesses as live capacity can suppress a
+    // working subscription. Keep only its user-facing plan label elsewhere.
+    if (scope === ACP_PROVIDER_ID || scope.startsWith(`${ACP_PROVIDER_ID}/`)) {
+      retiredAcpQuota = true;
+      continue;
+    }
     if (
       typeof raw !== 'object' || raw === null ||
       typeof (raw as Record<string, unknown>)['totalRequests'] !== 'number' ||
@@ -600,6 +623,12 @@ function restorePersistedQuotas(globalState: vscode.Memento, modelRouter: ModelR
     const remainingRequests = isReset ? existing.totalRequests : persisted.remainingRequests;
     modelRouter.updateSubscriptionQuota(scope, { ...existing, remainingRequests });
   }
+  if (retiredAcpQuota) {
+    const retained = Object.fromEntries(
+      Object.entries(stored).filter(([scope]) => scope !== ACP_PROVIDER_ID && !scope.startsWith(`${ACP_PROVIDER_ID}/`)),
+    );
+    void globalState.update(SUBSCRIPTION_QUOTA_STORAGE_KEY, retained);
+  }
 }
 
 /**
@@ -615,12 +644,18 @@ function isModelScopedQuotaKey(key: string): boolean {
 function persistQuotas(globalState: vscode.Memento, modelRouter: ModelRouter): void {
   const snapshot: Record<string, unknown> = {};
   for (const provider of modelRouter.listProviders()) {
+    if (provider.id === ACP_PROVIDER_ID) {
+      continue;
+    }
     const quota = modelRouter.getSubscriptionQuota(provider.id);
     if (quota) {
       snapshot[provider.id] = quota;
     }
   }
   for (const [modelId, quota] of modelRouter.listModelSubscriptionQuotas()) {
+    if (modelId.startsWith(`${ACP_PROVIDER_ID}/`)) {
+      continue;
+    }
     snapshot[modelId] = quota;
   }
   void globalState.update(SUBSCRIPTION_QUOTA_STORAGE_KEY, snapshot);
@@ -1640,6 +1675,7 @@ async function bootstrapAtlasMind(
       projectDirectorManagerModule,
       documentsManagerModule,
       riskOversightManagerModule,
+      researchRegisterModule,
       followUpSchedulerModule,
       missionRegistryModule,
       dataPrivacyModule,
@@ -1676,6 +1712,7 @@ async function bootstrapAtlasMind(
       import('./core/projectDirectorManager.js'),
       import('./core/documentsManager.js'),
       import('./core/riskOversightManager.js'),
+      import('./core/researchRegister.js'),
       import('./core/followUpScheduler.js'),
       import('./core/missionRegistry.js'),
       import('./core/dataPrivacyManager.js'),
@@ -1691,6 +1728,7 @@ async function bootstrapAtlasMind(
       BedrockAdapter: providersModule.BedrockAdapter,
       AcpAdapter: providersModule.AcpAdapter,
       parseAcpAgentSettings: providersModule.parseAcpAgentSettings,
+      isAcpConsoleModeChosen: providersModule.isAcpConsoleModeChosen,
       acpToolRisk: providersModule.acpToolRisk,
       describeAcpToolCall: providersModule.describeAcpToolCall,
       selectAcpMcpServers: providersModule.selectAcpMcpServers,
@@ -1734,6 +1772,7 @@ async function bootstrapAtlasMind(
       ProjectDirectorManager: projectDirectorManagerModule.ProjectDirectorManager,
       DocumentsManager: documentsManagerModule.DocumentsManager,
       RiskOversightManager: riskOversightManagerModule.RiskOversightManager,
+      ResearchRegisterManager: researchRegisterModule.ResearchRegisterManager,
       FollowUpScheduler: followUpSchedulerModule.FollowUpScheduler,
       MissionRegistry: missionRegistryModule.MissionRegistry,
       DataPrivacyManager: dataPrivacyModule.DataPrivacyManager,
@@ -1762,6 +1801,7 @@ async function bootstrapAtlasMind(
     const projectDirectorRefresh = new vscode.EventEmitter<void>();
     const documentsRefresh = new vscode.EventEmitter<void>();
     const riskOversightRefresh = new vscode.EventEmitter<void>();
+    const researchRefresh = new vscode.EventEmitter<void>();
     const scannerRulesManager = new startupModules.ScannerRulesManager(context.globalState);
     const toolWebhookDispatcher = new startupModules.ToolWebhookDispatcher(context, outputChannel);
     const voiceManager = new startupModules.VoiceManager(context.secrets, undefined, {
@@ -1832,6 +1872,19 @@ async function bootstrapAtlasMind(
       riskWatcher.onDidDelete(reloadRisk);
       context.subscriptions.push(riskWatcher);
     }
+    const researchRegisterManager = new startupModules.ResearchRegisterManager(workspaceRootPath);
+    if (workspaceRootPath) {
+      // The register is committed, so a teammate's `git pull` is a normal way for
+      // it to change under a running editor.
+      const researchWatcher = vscode.workspace.createFileSystemWatcher(
+        new vscode.RelativePattern(workspaceRootPath, 'project_memory/analysis/research.json'),
+      );
+      const reloadResearch = () => { researchRegisterManager.reload(); researchRefresh.fire(); };
+      researchWatcher.onDidChange(reloadResearch);
+      researchWatcher.onDidCreate(reloadResearch);
+      researchWatcher.onDidDelete(reloadResearch);
+      context.subscriptions.push(researchWatcher);
+    }
     // Follow-up reminders (notification-only, deny-by-default). Nudges once per
     // day when follow-ups are due/overdue, opening the Director tab on click. The
     // recurring timer runs only while the project has reminders enabled; a single
@@ -1875,6 +1928,26 @@ async function bootstrapAtlasMind(
     // running unsupervised.
     let acpAuthorize: ((request: import('./providers/acpProtocol.js').AcpPermissionRequest) => Promise<boolean>) | undefined;
     let acpMcpServers: () => import('./providers/acpProtocol.js').AcpMcpServer[] = () => [];
+    // A private Windows desktop cannot have a meaningful taskbar button on the
+    // user's input desktop. Instead, disclose the real state in VS Code itself
+    // while it is active: present, clickable, and never focus-stealing.
+    const acpPrivateDesktopStatusBar = vscode.window.createStatusBarItem(
+      vscode.StatusBarAlignment.Right,
+      51,
+    );
+    acpPrivateDesktopStatusBar.command = 'atlasmind.openModelProviders';
+    context.subscriptions.push(acpPrivateDesktopStatusBar);
+    const updateAcpPrivateDesktopStatusBar = (summary: { privateDesktop: number }) => {
+      if (summary.privateDesktop <= 0) {
+        acpPrivateDesktopStatusBar.hide();
+        return;
+      }
+      const count = summary.privateDesktop;
+      acpPrivateDesktopStatusBar.text = `$(eye-closed) ACP private desktop: ${count}`;
+      acpPrivateDesktopStatusBar.tooltip = `${count} active ACP session${count === 1 ? '' : 's'} runs on a private Windows desktop. `
+        + 'This changes window visibility, not process permissions. Click to open Models & Providers.';
+      acpPrivateDesktopStatusBar.show();
+    };
 
     const providerAdapters = [
       new startupModules.LocalEchoAdapter({
@@ -1885,6 +1958,21 @@ async function bootstrapAtlasMind(
       // ACP agents are user-authored and deny-by-default: with no configured
       // agent the adapter reports no models and never spawns anything.
       new startupModules.AcpAdapter({
+        // The routed adapter is the ACP host for this VS Code window. A live
+        // session is reused only while its transcript and launch/security
+        // fingerprint still match; setup probes use separate one-shot adapters.
+        keepAlive: true,
+        consoleModeChosen: () => {
+          const inspected = vscode.workspace.getConfiguration('atlasmind')
+            .inspect<boolean>('acp.hideConsoleWindows');
+          return startupModules.isAcpConsoleModeChosen(process.platform, [
+            inspected?.workspaceFolderValue,
+            inspected?.workspaceValue,
+            inspected?.globalValue,
+          ]);
+        },
+        hideConsoleWindows: () => vscode.workspace.getConfiguration('atlasmind')
+          .get<boolean>('acp.hideConsoleWindows', false),
         // Read on every use, not captured once. This adapter lives as long as
         // the extension host, so a snapshot here meant an agent added to
         // settings after activation was invisible to routing and to the health
@@ -1921,6 +2009,7 @@ async function bootstrapAtlasMind(
             + 'The turn ran at the agent\'s own default.',
           );
         },
+        onLiveSessionChange: updateAcpPrivateDesktopStatusBar,
       }),
       new startupModules.AnthropicAdapter(context.secrets),
       new startupModules.CopilotAdapter(),
@@ -2033,6 +2122,10 @@ async function bootstrapAtlasMind(
         context.secrets,
       ),
     ];
+    const routedAcpAdapter = providerAdapters.find(adapter => adapter.providerId === 'acp');
+    if (routedAcpAdapter && 'dispose' in routedAcpAdapter && typeof routedAcpAdapter.dispose === 'function') {
+      context.subscriptions.push({ dispose: () => routedAcpAdapter.dispose() });
+    }
 
     const toolApprovalManager = new ToolApprovalManager();
     const toolApprovalGate = async (taskId: string, toolName: string, args: Record<string, unknown>) => {
@@ -2170,11 +2263,9 @@ async function bootstrapAtlasMind(
     // Wire up quota tracking: persist on every decrement and warn when
     // a provider transitions into overflow or approaches exhaustion.
     const quotaOverflowWarned = new Set<string>();
-    // `scope` is a provider id for a provider that fronts one plan, and a model
-    // id for one that fronts several — see `setModelSubscriptionQuota`. It is
-    // resolved to a name here rather than assumed to be a provider, because
-    // "acp/codex subscription quota exhausted" would name the plan the user
-    // configured under a string they never typed.
+    // `scope` may be a provider id or an authoritative model-scoped quota. It
+    // is resolved to a name here rather than assumed to be a provider. ACP is
+    // deliberately absent: it has no tracked quota to warn about.
     quotaUpdatedRef = (scope: string, remainingRequests: number, totalRequests: number) => {
       persistQuotas(context.globalState, modelRouter);
       modelsRefresh.fire();
@@ -2556,9 +2647,21 @@ async function bootstrapAtlasMind(
           //
           // What "configured" means here is the same thing it means for `local`:
           // is there anything to talk to. That is an agent in settings.
-          const { parseAcpAgentSettings } = await import('./providers/acp.js');
+          const [{ parseAcpAgentSettings }, { isAcpConsoleModeChosen }] = await Promise.all([
+            import('./providers/acp.js'),
+            import('./providers/acpWindowsLauncher.js'),
+          ]);
+          const configuration = vscode.workspace.getConfiguration('atlasmind');
+          const inspected = configuration.inspect<boolean>('acp.hideConsoleWindows');
+          if (!isAcpConsoleModeChosen(process.platform, [
+            inspected?.workspaceFolderValue,
+            inspected?.workspaceValue,
+            inspected?.globalValue,
+          ])) {
+            return false;
+          }
           return parseAcpAgentSettings(
-            vscode.workspace.getConfiguration('atlasmind').get<unknown>('acp.agents'),
+            configuration.get<unknown>('acp.agents'),
           ).length > 0;
         }
         if (providerId === 'local') {
@@ -2619,6 +2722,8 @@ async function bootstrapAtlasMind(
       documentsRefresh,
       riskOversightManager,
       riskOversightRefresh,
+      researchRegisterManager,
+      researchRefresh,
       missionRegistry,
       rollbackLastCheckpoint: async () => {
         if (!checkpointManager) {
@@ -2937,6 +3042,54 @@ async function bootstrapAtlasMind(
       }
     }),
   );
+  /**
+   * Resolve what a research scan could look with, right now.
+   *
+   * Assembled here rather than inside the pure detector because every input is
+   * a fact about this running editor: whether an EXA key is in SecretStorage,
+   * which MCP tools are connected, whether the fetch skill is registered.
+   */
+  const resolveResearchSources = async (): Promise<import('./core/researchSources.js').ResearchSourceResolution> => {
+    const { detectResearchSources } = await import('./core/researchSources.js');
+    const { readResearchSettings } = await import('./core/researchSettings.js');
+    const settings = readResearchSettings(vscode.workspace.getConfiguration('atlasmind'));
+    // The key itself never leaves this line: only *whether one exists* reaches
+    // the detector, because a source check has no business holding a credential.
+    const exaKey = await context.secrets.get('atlasmind.integration.exa.apiKey');
+    const mcpToolIds = (atlasContext?.skillsRegistry.listSkills() ?? [])
+      .map(skill => skill.id)
+      .filter(id => id.startsWith('mcp:'));
+    return detectResearchSources({
+      exaKeyPresent: Boolean(exaKey),
+      mcpToolIds,
+      webFetchEnabled: (atlasContext?.skillsRegistry.get('web-fetch')) !== undefined,
+      preference: settings.searchSource,
+    });
+  };
+
+  /** Roadmap item text, normalized, for the severity rule that asks about overlap. */
+  const readRoadmapTitles = async (): Promise<Set<string>> => {
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!root) { return new Set(); }
+    try {
+      const { normalizeForRoadmapMatch } = await import('./core/ideationDerivation.js');
+      const nodePath = await import('node:path');
+      const fsp = await import('node:fs/promises');
+      const ssotPath = vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath') ?? 'project_memory';
+      const raw = await fsp.readFile(nodePath.join(root, ssotPath, 'roadmap', 'improvement-plan.md'), 'utf8');
+      const titles = new Set<string>();
+      for (const match of raw.matchAll(/^-\s*\[[ xX]\]\s*(.+)$/gm)) {
+        const text = (match[1] ?? '').replace(/[*_`]/g, '').trim();
+        if (text) { titles.add(normalizeForRoadmapMatch(text)); }
+      }
+      return titles;
+    } catch {
+      // No roadmap is a real state, not an error. The overlap rule simply
+      // never fires, which is the safe direction: it can only raise severity.
+      return new Set();
+    }
+  };
+
   context.subscriptions.push(
     presenceStatusBar,
     presenceManager,
@@ -3153,6 +3306,31 @@ async function bootstrapAtlasMind(
       terminal.sendText(text, false);
     }),
 
+    // The same affordance as `buzz.prepareCommand`, for setup commands that are
+    // not Buzz's. It exists because "run it once in a terminal and complete its
+    // own login" is not an instruction anybody can act on when it names no
+    // command — and the command AtlasMind knew was the launch one, which for
+    // four of the five agents starts a JSON-RPC server that never shows a login.
+    //
+    // It still only *types*. Pressing Enter stays with the user, because an
+    // extension silently running a command that opens a browser and asks for a
+    // password is the shape of the thing this codebase refuses everywhere else.
+    vscode.commands.registerCommand('atlasmind.setup.prepareCommand', async (command?: string) => {
+      const text = typeof command === 'string' ? command.trim() : '';
+      // Reachable from a webview, so the payload names a command rather than
+      // being one: it has to appear in a list AtlasMind authored.
+      const { ACP_SIGN_IN_COMMANDS } = await import('./providers/acp.js');
+      const allowed = [...BUZZ_SETUP_COMMANDS, ...ACP_SIGN_IN_COMMANDS];
+      if (!text || !allowed.includes(text)) {
+        void vscode.window.showWarningMessage('That is not a known AtlasMind setup command, so it was not prepared.');
+        return;
+      }
+      const terminal = vscode.window.terminals.find((entry) => entry.name === SETUP_TERMINAL_NAME)
+        ?? vscode.window.createTerminal({ name: SETUP_TERMINAL_NAME });
+      terminal.show(true);
+      terminal.sendText(text, false);
+    }),
+
     vscode.commands.registerCommand('atlasmind.setBuzzAgentKey', async () => {
       const existing = await context.secrets.get(BUZZ_AGENT_KEY_SECRET);
       const entered = await vscode.window.showInputBox({
@@ -3195,6 +3373,191 @@ async function bootstrapAtlasMind(
      * is stored if they dismiss the picker. It touches only the channel list —
      * never a gate, never a key.
      */
+    vscode.commands.registerCommand('atlasmind.research.runScan', async (requestedScanId?: string) => {
+      const atlas = atlasContext;
+      const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!atlas || !root) {
+        void vscode.window.showWarningMessage('Open a workspace folder before running a research scan.');
+        return;
+      }
+      const cfg = vscode.workspace.getConfiguration('atlasmind');
+      if (cfg.get<boolean>('research.enabled', false) !== true) {
+        const choice = await vscode.window.showWarningMessage(
+          'Research scans are switched off. They reach the network and spend on a model, so they are off by default.',
+          'Open settings',
+        );
+        if (choice) {
+          void vscode.commands.executeCommand('workbench.action.openSettings', 'atlasmind.research.enabled');
+        }
+        return;
+      }
+
+      const [
+        { RESEARCH_SCANS, isResearchScanId, researchScan },
+        { runResearchScan },
+        { appendResearchHistory },
+      ] = await Promise.all([
+        import('./core/researchScanCatalog.js'),
+        import('./core/researchRunner.js'),
+        import('./core/researchRegister.js'),
+      ]);
+
+      const sources = await resolveResearchSources();
+
+      let scanId = isResearchScanId(requestedScanId) ? requestedScanId : undefined;
+      if (!scanId) {
+        const picked = await vscode.window.showQuickPick(
+          RESEARCH_SCANS.map(scan => ({
+            label: scan.label,
+            detail: scan.question,
+            description: scan.evidenceClass === 'hybrid' ? 'reads this repository too' : undefined,
+            id: scan.id,
+          })),
+          { title: 'Run a research scan', placeHolder: sources.selected ? `Using ${sources.selected}` : 'No research source is configured' },
+        );
+        if (!picked) { return; }
+        scanId = picked.id;
+      }
+      const scan = researchScan(scanId);
+
+      // Outward-facing and it spends money, so it is confirmed the same way every
+      // other outward action in AtlasMind is: modally, naming exactly what will
+      // happen and with what.
+      const confirmed = await vscode.window.showWarningMessage(
+        `Run the ${scan.label} research scan?`,
+        {
+          modal: true,
+          detail: [
+            scan.question,
+            '',
+            sources.selected
+              ? `Source: ${sources.selected}${sources.canDiscover ? '' : ' (can read a page you name, but cannot search)'}`
+              : 'No research source is available — AtlasMind will record that it could not look rather than guessing.',
+            `Agent: ${scan.agentId}. This reaches the network and uses your model budget.`,
+            'Findings are recorded as open and need your triage. Nothing is written to the roadmap.',
+          ].join('\n'),
+        },
+        'Run scan',
+      );
+      if (confirmed !== 'Run scan') { return; }
+
+      const result = await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: `AtlasMind: ${scan.label} research scan…`, cancellable: false },
+        async () => runResearchScan(scanId!, {
+          runAgent: async (agentId, prompt) => {
+            const agent = atlas.agentRegistry.get(agentId);
+            if (!agent) {
+              return { ok: false as const, error: `The ${agentId} advisor is not available.` };
+            }
+            let streamed = '';
+            try {
+              const response = await atlas.orchestrator.processTaskWithAgent(
+                {
+                  id: `research-${scanId}-${Date.now()}`,
+                  userMessage: prompt,
+                  context: { researchScanMode: 'json' },
+                  constraints: {
+                    budget: (cfg.get<string>('budgetMode') ?? 'balanced') as never,
+                    speed: (cfg.get<string>('speedMode') ?? 'balanced') as never,
+                  },
+                  timestamp: new Date().toISOString(),
+                },
+                agent,
+                chunk => { streamed += chunk ?? ''; },
+              );
+              const text = `${streamed}\n${response.response ?? ''}`;
+              return { ok: true as const, text, ...(typeof response.costUsd === 'number' ? { costUsd: response.costUsd } : {}) };
+            } catch (error) {
+              return { ok: false as const, error: error instanceof Error ? error.message : String(error) };
+            }
+          },
+          getRegister: () => atlas.researchRegisterManager.ensureLoaded(),
+          saveRegister: async register => {
+            await atlas.researchRegisterManager.save(register);
+            atlas.researchRefresh.fire();
+          },
+          appendHistory: entry => appendResearchHistory(root, entry),
+          sources,
+          projectSummary: vscode.workspace.name ?? 'this project',
+          roadmapTitles: await readRoadmapTitles(),
+          now: new Date(),
+        }),
+      );
+
+      const actions = result.outcome === 'no-source' && result.setupStep ? ['Open the register', 'How to fix'] : ['Open the register'];
+      const choice = await vscode.window.showInformationMessage(result.message, ...actions);
+      if (choice === 'Open the register') {
+        void vscode.commands.executeCommand('atlasmind.research.openRegister');
+      } else if (choice === 'How to fix' && result.setupStep) {
+        void vscode.window.showInformationMessage(result.setupStep);
+      }
+    }),
+
+    vscode.commands.registerCommand('atlasmind.research.openRegister', async () => {
+      const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!root) { return; }
+      const { RESEARCH_SUMMARY_SSOT_PATH } = await import('./core/researchRegister.js');
+      const nodePath = await import('node:path');
+      try {
+        const document = await vscode.workspace.openTextDocument(
+          vscode.Uri.file(nodePath.join(root, RESEARCH_SUMMARY_SSOT_PATH)),
+        );
+        await vscode.window.showTextDocument(document, { preview: false });
+      } catch {
+        void vscode.window.showInformationMessage(
+          'No research register yet. Run a scan and one is written the first time something is recorded.',
+        );
+      }
+    }),
+
+    vscode.commands.registerCommand('atlasmind.research.openDigest', async () => {
+      const atlas = atlasContext;
+      const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!atlas || !root) { return; }
+      const [
+        { buildResearchDigest, renderResearchDigestMarkdown },
+        { buildResearchSchedule },
+        { readResearchSettings },
+      ] = await Promise.all([
+        import('./core/researchDigest.js'),
+        import('./core/researchSchedule.js'),
+        import('./core/researchSettings.js'),
+      ]);
+      const nodePath = await import('node:path');
+      const fsp = await import('node:fs/promises');
+
+      const settings = readResearchSettings(vscode.workspace.getConfiguration('atlasmind'));
+      const sources = await resolveResearchSources();
+      const now = new Date();
+      const register = atlas.researchRegisterManager.ensureLoaded(now);
+      const schedule = buildResearchSchedule({
+        enabled: settings.enabled,
+        masterLevel: settings.automationLevel,
+        scans: settings.scans,
+        register,
+        sourceAvailable: sources.selected !== undefined,
+        monthlySpendCapUsd: settings.monthlySpendCapUsd,
+        spentThisMonthUsd: 0,
+        now,
+      });
+      // The baseline is per-developer, never the git-tracked SSOT: a shared one
+      // would mean "when did *anybody* last read this", and would conflict
+      // between two people on the same day. Same reason `observedDelta` says so
+      // in its own module note.
+      const baselineKey = 'atlasmind.research.digestBaseline';
+      const stored = context.workspaceState.get<import('./core/researchDigest.js').ResearchDigestBaseline>(baselineKey);
+      const scope = vscode.workspace.name ?? root;
+      const digest = buildResearchDigest({ register, schedule, ...(stored ? { baseline: stored } : {}), scope, now });
+
+      const target = nodePath.join(root, 'project_memory', 'analysis', 'research-digest.md');
+      await fsp.mkdir(nodePath.dirname(target), { recursive: true });
+      await fsp.writeFile(target, renderResearchDigestMarkdown(digest, now), 'utf-8');
+      await context.workspaceState.update(baselineKey, digest.nextBaseline);
+
+      const document = await vscode.workspace.openTextDocument(vscode.Uri.file(target));
+      await vscode.window.showTextDocument(document, { preview: false });
+    }),
+
     vscode.commands.registerCommand('atlasmind.buzz.fetchChannels', async () => {
       const cfg = vscode.workspace.getConfiguration('atlasmind');
       if (!cfg.get<boolean>('buzz.enabled', false)) {
@@ -3303,6 +3666,15 @@ async function bootstrapAtlasMind(
       atlasContext.modelRouter.setFeedbackWeight(getConfiguredFeedbackRoutingWeight());
     }
     if (event.affectsConfiguration('atlasmind.localOpenAiEndpoints') || event.affectsConfiguration('atlasmind.localOpenAiBaseUrl')) {
+      atlasContext.refreshProviderModels(true).then(() => {
+        atlasContext!.modelsRefresh.fire();
+      }).catch(() => {});
+    }
+    if (event.affectsConfiguration('atlasmind.acp.hideConsoleWindows')) {
+      // The first explicit value turns a previously gated provider into a
+      // configured one; a later change also alters the launch fingerprint.
+      // Refresh from the same setting event so choosing through Settings or the
+      // command palette does not leave ACP marked unhealthy until a reload.
       atlasContext.refreshProviderModels(true).then(() => {
         atlasContext!.modelsRefresh.fire();
       }).catch(() => {});

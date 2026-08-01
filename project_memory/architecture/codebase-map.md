@@ -27,8 +27,12 @@ src/
     acpSetupPlan.ts
     agentAutoUpdater.ts
     agentDrafting.ts
+    agentHandoff.ts
     agentRegistry.ts
     approvalAttention.ts
+    archetypePacks.ts
+    attentionFeed.ts
+    branchNaming.ts
     builtinWorkspaceTools.ts
     buzzAgentBindings.ts
     buzzChannelCatalog.ts
@@ -40,11 +44,7 @@ src/
     buzzInboundDerivation.ts
     buzzInboundService.ts
     buzzProtocol.ts
-    buzzSendPolicy.ts
-    buzzSetupPlan.ts
-    buzzSigner.ts
-    buzzSocket.ts
-    ... (49 more entries)
+    ... (86 more entries)
   mcp/
     buzzCliBridge.ts
     buzzCommsServer.ts
@@ -59,11 +59,15 @@ src/
     sessionContextManager.ts
   providers/
     acp.ts
+    acpEffort.ts
+    acpInstaller.ts
+    acpLaunch.ts
+    acpModels.ts
+    acpPermission.ts
     acpProtocol.ts
     adapter.ts
     anthropic.ts
     bedrock.ts
-    claude-cli.ts
     copilot.ts
     copilotMultiplierSync.ts
     index.ts
@@ -72,11 +76,9 @@ src/
     localModelSync.ts
     modelCatalog.ts
     modelMetadataInference.ts
-    openai-compatible.test.ts
     openai-compatible.ts
     openrouter.ts
-    providerPricingSync.ts
-    registry.ts
+    ... (2 more entries)
   remote/
     protocol.ts
     remoteBridge.ts
@@ -109,6 +111,7 @@ src/
   utils/
     aiInstructionMerge.ts
     aiInstructionSync.ts
+    instructionSyncCheck.ts
     managedBlock.ts
     secretRedactor.ts
     terminalOutput.ts
@@ -118,6 +121,8 @@ src/
     agentManagerPanel.ts
     chatPanel.ts
     chatProtocol.ts
+    chatSlashRouting.ts
+    chatStreamCollector.ts
     chatWebviewMarkup.ts
     costDashboardPanel.ts
     dashboardTheme.ts
@@ -131,11 +136,9 @@ src/
     projectDashboardPanel.ts
     projectIdeationPanel.ts
     projectRunCenterPanel.ts
-    settingsPanel.test.ts
     settingsPanel.ts
     skillScannerPanel.ts
-    specialistIntegrationsPanel.ts
-    ... (6 more entries)
+    ... (7 more entries)
   voice/
     hostSpeechSynthesizer.ts
     localTranscriber.ts
@@ -166,6 +169,7 @@ tests/
   bootstrap/
     bootstrapper.test.ts
     bootstrapProject.test.ts
+    ciScaffold.test.ts
     importProject.test.ts
   chat/
     frustrationAdaptation.test.ts
@@ -176,9 +180,15 @@ tests/
   cli/
     adversarialPrompt.test.ts
     main.test.ts
+    nodeMemoryManager.test.ts
   core/
     acpSetupPlan.test.ts
+    agentHandoff.test.ts
+    agentHandoffWiring.test.ts
     approvalAttention.test.ts
+    archetypePacks.test.ts
+    attentionFeed.test.ts
+    branchNaming.test.ts
     buzzAgentBindings.test.ts
     buzzChannelCatalog.test.ts
     buzzClient.integration.test.ts
@@ -192,12 +202,12 @@ tests/
     buzzProtocol.test.ts
     buzzSendPolicy.test.ts
     buzzSetupPlan.test.ts
-    buzzSigner.test.ts
-    checkpointManager.test.ts
-    compliancePacks.test.ts
-    costTracker.test.ts
-    dataPrivacyManager.test.ts
-    ... (33 more entries)
+    ... (77 more entries)
+  features/
+    slash-command-project-planner.test.ts
+    task-routing.test.ts
+  helpers/
+    tempDir.ts
   integration/
     taskLifecycle.test.ts
   mcp/
@@ -212,21 +222,27 @@ tests/
     memoryScanner.test.ts
   providers/
     acpAdapter.test.ts
+    acpEffort.test.ts
+    acpInstaller.test.ts
+    acpLaunch.test.ts
+    acpModels.test.ts
+    acpPermission.test.ts
     acpProtocol.test.ts
     anthropicCaching.test.ts
-    claudeCliPrompt.test.ts
     copilotDiscovery.test.ts
     copilotMultiplierSync.test.ts
     inferModelMetadata.test.ts
     localModelRecommendationRegistry.test.ts
     modelCatalog.test.ts
     modelMetadataInference.test.ts
+    openaiCompatible.test.ts
     providerAdapters.test.ts
   remote/
     protocol.test.ts
     remoteBridge.test.ts
   runtime/
     core.test.ts
+    workflowStageAgents.test.ts
   skills/
     codeAction.test.ts
     codeSymbols.test.ts
@@ -251,35 +267,38 @@ tests/
     ... (11 more entries)
   utils/
     aiInstructionMerge.test.ts
+    instructionSyncCheck.test.ts
     managedBlock.test.ts
     terminalOutput.test.ts
     testingProtocolSync.test.ts
   views/
     buzzSurfaces.test.ts
+    chatSlashRouting.test.ts
+    chatStreamCollector.test.ts
+    dashboardCommands.test.ts
+    dashboardMessageErrors.test.ts
     dashboardNav.test.ts
+    dashboardNavStyles.test.ts
     dashboardScore.test.ts
+    dashboardShortcuts.test.ts
     dashboardWidgets.test.ts
+    headerVersionStrip.test.ts
+    ideationWorkflowWiring.test.ts
     localModelMatch.test.ts
+    observedStateCoverage.test.ts
+    overviewAttention.test.ts
     panelFlows.test.ts
     panelInformationArchitecture.test.ts
     panelNav.test.ts
     panelWiring.test.ts
-    skillScannerPanel.test.ts
-    themeContrast.test.ts
-    treeViews.test.ts
-    voicePanel.test.ts
-    websiteStudioPanel.test.ts
-    webviewIdentifierIntegrity.test.ts
-    webviewMessages.test.ts
-    webviewSecurity.test.ts
+    projectStateLinks.test.ts
+    ... (15 more entries)
   voice/
     hostSpeechSynthesizer.test.ts
     localTranscriber.test.ts
   commands.test.ts
-  extensionActivation.test.ts
-  nodeMemoryManager-cache.spec.ts
-  packageManifest.test.ts
-  ... (1 more entries)
+  docsIntegrity.test.ts
+  ... (4 more entries)
 ```
 
 ## docs
@@ -292,8 +311,12 @@ docs/
   configuration.md
   criticality-routing.md
   development.md
+  game-engine-integration.md
   github-workflow.md
+  guided-github-workflow.md
+  ideation-and-research.md
   model-routing.md
+  project-composition.md
   remote-control.md
   resource-discovery.md
   roadmap.md
@@ -313,19 +336,19 @@ wiki/
   CLI.md
   Configuration.md
   Contributing.md
+  Delivery.md
   FAQ.md
   Funding-and-Sponsorship.md
   Getting-Started.md
+  GitHub-Workflow.md
   Home.md
+  Ideation.md
   Memory-System.md
   Model-Routing.md
   Project-Planner.md
   Remote-Control.md
   Resource-Discovery.md
-  Security.md
-  Skills.md
-  Tool-Execution.md
-  ... (1 more entries)
+  ... (4 more entries)
 ```
 
 ## project_memory
@@ -336,12 +359,15 @@ project_memory/
     .gitkeep
     backend-engineer.md
     code-reviewer.md
+    commercial-oversight.md
     default.md
     dependency-manager.md
     devops-engineer.md
     docs-writer.md
+    ethics-oversight.md
     frontend-engineer.md
     github-operator.md
+    legal-oversight.md
     memory-agent.md
     performance-analyst.md
     security-reviewer.md
@@ -405,11 +431,14 @@ project_memory/
     project-run-2026-06-11T18-34-23-597Z.json
     project-run-2026-06-12T15-39-39-156Z.json
     risk-oversight-history.json
-    ... (3 more entries)
+    ... (7 more entries)
   roadmap/
     .gitkeep
     acp-integration.md
     buzz-integration.md
+    game-engine-integration.md
+    guided-github-workflow.md
+    ideation-and-research.md
     improvement-plan.md
     release-history.md
   routines/
@@ -419,6 +448,11 @@ project_memory/
   sessions/
     chat-1775389876037-6d714e/
     chat-1778659585817-hvmfa6/
+    chat-1785240543631-z7wf6d/
+    chat-1785410012592-3q1h7u/
+    chat-1785447715411-80ql3h/
+    chat-1785448285898-rry7dd/
+    chat-1785463616816-c2f598/
     .gitkeep
   skills/
     .gitkeep
@@ -441,6 +475,7 @@ project_memory/
     tag-release.mjs
   workflows/
     ci.yml
+    marketplace-identity.yml
     publish.yml
     release.yml
   CODEOWNERS
@@ -454,8 +489,8 @@ project_memory/
 <!-- atlasmind-import
 entry-path: architecture/codebase-map.md
 generator-version: 2
-generated-at: 2026-07-28T12:06:49.103Z
+generated-at: 2026-07-31T03:25:06.200Z
 source-paths: src | tests | docs | wiki | project_memory | .github
-source-fingerprint: 98760453
-body-fingerprint: 7a2eaa4b
+source-fingerprint: fd3fd986
+body-fingerprint: 97184c28
 -->

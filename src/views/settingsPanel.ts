@@ -11,9 +11,10 @@ import { RECOMMENDED_MCP_SERVERS, getRecommendedMcpStarterDetails } from '../con
 import { escapeHtml, getWebviewHtmlShell } from './webviewUtils.js';
 import { scanAiInstructionFiles, syncAiInstructionFiles } from '../utils/aiInstructionSync.js';
 import { syncTestingProtocols, readWorkflowGuidanceInput } from '../utils/testingProtocolSync.js';
-import { scaffoldTestingFramework } from '../core/testingScaffolder.js';
+import { scaffoldTestingFramework, type FirstTestCandidate } from '../core/testingScaffolder.js';
+import { readProjectTestingConfig, TESTING_CONFIG_SSOT_PATH } from '../core/testingConfigLoader.js';
 import { IMMUTABLE_GUARDRAILS } from '../core/orchestrator.js';
-import type { ArdDiscoveredResource, ArdDiscoveryEndpoint } from '../types.js';
+import type { ArdDiscoveredResource, ArdDiscoveryEndpoint, ProjectTestingConfig } from '../types.js';
 import { getDisplayCurrency, getExchangeRate } from '../core/currencyFormatter.js';
 import { isLocalSyncStale, LOCAL_MODEL_SYNC_CACHE_KEY, syncLocalModels, type LocalModelSyncResult } from '../providers/localModelSync.js';
 import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
@@ -165,6 +166,27 @@ export interface TestingDashboardSnapshot {
   /** Agents available for methodology assignment. */
   availableAgentSummaries: Array<{ id: string; name: string }>;
   /**
+   * The shared methodology catalogue, carried to the Project Dashboard so it
+   * can explain a protocol with the same wording as Settings rather than keep
+   * a second, labels-only copy that inevitably drifts.
+   */
+  methodologyDefinitions: import('../types.js').TestingMethodologyDefinition[];
+  /**
+   * The evidence `policyCoverage` was derived from.
+   *
+   * Carried so a caller can ask the same question about methodologies that are
+   * switched *off* — the coverage rows only cover enabled ones, so a project
+   * quietly practising something it never declared is invisible without this.
+   * Re-scanning the workspace to find out would be a second walk producing a
+   * second answer.
+   */
+  policyEvidence?: {
+    testFiles: import('../core/testingPolicyCoverage.js').TestingPolicyTestFile[];
+    dependencies: string[];
+    scripts: string[];
+    configFiles: string[];
+  };
+  /**
    * Per-enabled-policy evidence: what has tests, what has none, and what is
    * failing according to the project's own test report. See
    * {@link ../core/testingPolicyCoverage.ts}.
@@ -242,6 +264,7 @@ type SettingsMessage =
   | { type: 'setToolApprovalMode'; payload: 'always-ask' | 'ask-on-write' | 'ask-on-external' | 'allow-safe-readonly' }
   | { type: 'setAllowTerminalWrite'; payload: boolean }
   | { type: 'setAcpToolsEnabled'; payload: boolean }
+  | { type: 'setAcpHideConsoleWindows'; payload: boolean }
   | { type: 'setAutoVerifyAfterWrite'; payload: boolean }
   | { type: 'setAutoVerifyScripts'; payload: string }
   | { type: 'setAutoVerifyTimeoutMs'; payload: number }
@@ -302,6 +325,7 @@ type SettingsMessage =
   | { type: 'openCompareModels' }
   | { type: 'openVoicePanel' }
   | { type: 'openVisionPanel' }
+  | { type: 'chooseAcpConsoleMode' }
   | { type: 'openChat' }
   | { type: 'recommendLocalModels' }
   | { type: 'installRecommendedLocalModel'; payload: { runtime: 'ollama' | 'lmstudio'; modelTag: string } }
@@ -324,6 +348,32 @@ type SettingsMessage =
   | { type: 'ardRemoveFinder'; payload: { id: string } }
   | { type: 'ardAddFinder'; payload: { name: string; url: string; kind: string; insecure: boolean } }
   | { type: 'ardExportCatalog' };
+
+/**
+ * A deliberately bounded first-test brief. It names evidence AtlasMind
+ * observed, rather than claiming that an arbitrary example test is coverage.
+ * The test-authoring agent can decline without changing files if the candidate
+ * is not a stable, observable behaviour after inspection.
+ */
+export function buildFirstTestAuthoringPrompt(
+  candidate: FirstTestCandidate,
+  config: ProjectTestingConfig,
+): string {
+  const enabledLabels = config.methodologies
+    .filter(methodology => methodology.enabled)
+    .map(methodology => TESTING_METHODOLOGY_DEFINITIONS.find(definition => definition.id === methodology.id)?.label ?? methodology.id);
+  const protocols = enabledLabels.length > 0 ? enabledLabels.join(', ') : 'the project default testing policy';
+  return [
+    'Author exactly one focused, codebase-specific first automated test after AtlasMind scaffolds the testing strategy.',
+    '',
+    `The project already exposes ${candidate.exportedSymbol} from \`${candidate.sourcePath}\` and has ${candidate.testRunner} configured.`,
+    `Follow the enabled testing protocols: ${protocols}. The same protocols have just been synchronised into the detected AI instruction files.`,
+    '',
+    'First inspect that source module and the existing test conventions. Write one smallest meaningful test for an observed, stable behaviour of that module only if it can run in the existing test setup.',
+    'Do not count a generic scaffold sample as project coverage. Do not install dependencies, edit package manifests or runner configuration, change production source, make network calls, or add a speculative test.',
+    'If the target has no clear, stable, safely testable behaviour, make no file changes and explain why. Respect every AtlasMind approval request before writing or running anything.',
+  ].join('\n');
+}
 
 /**
  * Settings webview panel – budget/speed modes plus /project execution controls.
@@ -793,6 +843,17 @@ export class SettingsPanel {
         await configuration.update('acp.toolsEnabled', message.payload === true, vscode.ConfigurationTarget.Workspace);
         return;
 
+      case 'setAcpHideConsoleWindows':
+        // Global, matching the guided picker: this is a property of the machine
+        // and its endpoint security, not of the repository, and writing it to
+        // the workspace would dirty `.vscode/settings.json` for everyone else.
+        await configuration.update(
+          'acp.hideConsoleWindows',
+          message.payload === true,
+          vscode.ConfigurationTarget.Global,
+        );
+        return;
+
       case 'setAutoVerifyAfterWrite':
         await configuration.update('autoVerifyAfterWrite', message.payload, vscode.ConfigurationTarget.Workspace);
         return;
@@ -1107,6 +1168,14 @@ export class SettingsPanel {
         await vscode.commands.executeCommand('atlasmind.openVisionPanel');
         return;
 
+      case 'chooseAcpConsoleMode':
+        // The picker writes whichever option is selected, so the checkbox on
+        // this page can be out of date the moment it returns. Re-render rather
+        // than leave two controls disagreeing about the same setting.
+        await vscode.commands.executeCommand('atlasmind.acp.chooseConsoleMode');
+        this.panel.webview.html = this.getHtml();
+        return;
+
       case 'openChat':
         await vscode.commands.executeCommand('workbench.action.chat.open');
         return;
@@ -1312,26 +1381,13 @@ export class SettingsPanel {
       return;
     }
     try {
-      await writeProjectTestingConfig(workspaceRoot, config);
-      // Keep external AI agent instruction files in sync with the matrix so
-      // tools outside AtlasMind (Claude Code, Copilot, etc.) pick up the same
-      // protocols automatically. Best-effort: a sync failure must not block save.
-      try {
-        const agents = this.atlasContext?.agentRegistry?.listAgents() ?? [];
-        const result = await syncTestingProtocols(
+      const { syncSummary } = await persistTestingConfig(
         workspaceRoot,
         config,
-        agents,
-        parseCustomDebtMarkers(
-          vscode.workspace.getConfiguration('atlasmind').get<string[]>('debt.markers', []),
-        ),
-        readWorkflowGuidanceInput(workspaceRoot),
+        this.atlasContext?.agentRegistry?.listAgents() ?? [],
       );
-        if (result.success) {
-          void vscode.window.showInformationMessage(`Testing strategy saved. ${result.summary}`);
-        }
-      } catch {
-        /* non-fatal: save already succeeded */
+      if (syncSummary) {
+        void vscode.window.showInformationMessage(`Testing strategy saved. ${syncSummary}`);
       }
       this.panel.webview.html = this.getHtml();
     } catch (err) {
@@ -1385,8 +1441,11 @@ export class SettingsPanel {
       return;
     }
     const confirm = await vscode.window.showInformationMessage(
-      'Scaffold the testing framework for the enabled methodologies? This creates starter config and test files (existing files are never overwritten) plus a managed strategy playbook.',
-      { modal: true },
+      'Scaffold the testing framework for the enabled methodologies? This creates starter files only where absent, refreshes the managed strategy playbook, and syncs the enabled protocols into existing AI instruction files.',
+      {
+        modal: true,
+        detail: 'If the project already has Vitest or Jest and AtlasMind finds a small exported source target, it will also ask an Atlas agent to author one focused test. The agent must inspect the code first, will not install dependencies or change production code, and normal tool approvals still apply.',
+      },
       'Scaffold',
     );
     if (confirm !== 'Scaffold') {
@@ -1394,8 +1453,20 @@ export class SettingsPanel {
     }
     try {
       const result = await scaffoldTestingFramework(workspaceRoot, config);
+      const protocolSync = await syncTestingProtocols(
+        workspaceRoot,
+        config,
+        this.atlasContext?.agentRegistry?.listAgents() ?? [],
+        parseCustomDebtMarkers(
+          vscode.workspace.getConfiguration('atlasmind').get<string[]>('debt.markers', []),
+        ),
+        readWorkflowGuidanceInput(workspaceRoot),
+      );
+      const firstTestSummary = result.firstTestCandidate
+        ? await this.authorFirstScaffoldTest(result.firstTestCandidate, config)
+        : 'No codebase-specific first-test task was started: AtlasMind needs an existing Vitest or Jest runner and a small exported source module before it can safely nominate one.';
       if (result.success) {
-        void vscode.window.showInformationMessage(result.summary);
+        void vscode.window.showInformationMessage(`${result.summary} ${protocolSync.summary} ${firstTestSummary}`);
       } else {
         void vscode.window.showWarningMessage(result.summary);
       }
@@ -1403,6 +1474,44 @@ export class SettingsPanel {
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
       void vscode.window.showErrorMessage(`Failed to scaffold testing framework: ${detail}`);
+    }
+  }
+
+  /**
+   * Turn a source candidate into one actual project test, rather than claiming
+   * a generic sample proves anything. The candidate is deliberately narrow and
+   * the agent is explicitly allowed to decline: syntactic exports are not proof
+   * of a stable, observable behaviour. This call happens only after the
+   * scaffold confirmation and the outbound instruction sync.
+   */
+  private async authorFirstScaffoldTest(
+    candidate: FirstTestCandidate,
+    config: ProjectTestingConfig,
+  ): Promise<string> {
+    if (!this.atlasContext) {
+      return 'The strategy and AI instruction files were prepared, but no live Atlas task runner is available to author the first test.';
+    }
+    const status = vscode.window.setStatusBarMessage(
+      `AtlasMind is assessing ${candidate.sourcePath} for the first focused test…`,
+    );
+    try {
+      const result = await this.atlasContext.orchestrator.processTask({
+        id: `testing-scaffold-first-test-${Date.now()}`,
+        userMessage: buildFirstTestAuthoringPrompt(candidate, config),
+        context: {
+          testingScaffold: true,
+          firstTestCandidate: candidate,
+          testingMethodologies: config.methodologies.filter(methodology => methodology.enabled).map(methodology => methodology.id),
+        },
+        constraints: { budget: 'auto', speed: 'balanced' },
+        timestamp: new Date().toISOString(),
+      });
+      return `First-test task completed with ${result.agentId}; refresh the Testing Dashboard to review the result.`;
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return `The first-test task could not run (${detail}); the strategy and agent instructions are still ready.`;
+    } finally {
+      status.dispose();
     }
   }
 
@@ -1437,7 +1546,7 @@ export class SettingsPanel {
         },
         {
           label: '$(list-unordered) Manual',
-          description: 'Choose from the full list of 14 methodologies',
+          description: `Choose from the full list of ${TESTING_METHODOLOGY_DEFINITIONS.length} methodologies`,
           value: 'manual' as const,
         },
         {
@@ -1456,10 +1565,34 @@ export class SettingsPanel {
     let selectedIds: import('../types.js').TestingMethodologyId[] | undefined;
 
     if (modeChoice.value === 'auto') {
+      // Pre-tick only what this project can already show evidence or tooling for.
+      //
+      // Everything matching the corpus used to arrive ticked, which is how one
+      // click could enable thirteen methodologies — including mutation, contract,
+      // model-based and end-to-end testing on a project with none of them — and
+      // leave eight permanent gaps that nobody read as gaps. The rest are still
+      // offered, and still one keystroke away; they simply arrive as proposals
+      // rather than as decisions already taken on the user's behalf.
+      //
+      // The evidence comes from the same coverage derivation the Testing page
+      // renders, so what is pre-ticked here and what reads as *Tested* there are
+      // the same judgement.
+      const evidenced = new Set(
+        (collectTestingDashboardSnapshot(this.atlasContext).policyCoverage?.rows ?? [])
+          .filter(row => row.status === 'covered' || row.status === 'tooling-only' || row.status === 'not-file-evident')
+          .map(row => row.id),
+      );
       const accepted = await vscode.window.showQuickPick(
-        inferred.map(item => ({ label: item.label, description: item.reason, picked: true, id: item.id })),
+        inferred.map(item => ({
+          label: item.label,
+          description: evidenced.has(item.id)
+            ? `${item.reason} — evidence already present`
+            : `${item.reason} — nothing on disk yet, so enabling this declares an intention`,
+          picked: evidenced.has(item.id),
+          id: item.id,
+        })),
         {
-          placeHolder: 'Recommended methodologies — deselect any you do not need, then press Enter',
+          placeHolder: 'Ticked where evidence already exists. Tick anything else you intend to practise, then press Enter',
           canPickMany: true,
           ignoreFocusOut: true,
           title: 'Auto-Assessed Methodologies',
@@ -1529,10 +1662,18 @@ export class SettingsPanel {
       }),
     };
 
-    await writeProjectTestingConfig(workspaceRoot, newConfig);
+    // Through the shared path, so auto-assess pushes the new matrix to the
+    // external instruction files too. It previously wrote the file alone, which
+    // is how a project could enable thirteen methodologies in one click and leave
+    // every AI tool reading the old set.
+    const { syncSummary } = await persistTestingConfig(
+      workspaceRoot,
+      newConfig,
+      this.atlasContext?.agentRegistry?.listAgents() ?? [],
+    );
     this.panel.webview.html = this.getHtml();
     void vscode.window.showInformationMessage(
-      `Testing strategy updated: ${selectedIds.length} methodolog${selectedIds.length === 1 ? 'y' : 'ies'} active.`,
+      `Testing strategy updated: ${selectedIds.length} methodolog${selectedIds.length === 1 ? 'y' : 'ies'} active.${syncSummary ? ` ${syncSummary}` : ''}`,
     );
   }
 
@@ -1858,6 +1999,11 @@ export class SettingsPanel {
     const acpAgentCount = Array.isArray(configuration.get<unknown>('acp.agents'))
       ? (configuration.get<unknown[]>('acp.agents') ?? []).length
       : 0;
+    // Windows-only, and stated as such rather than shown everywhere as a
+    // checkbox that does nothing: the pop-up windows it suppresses are a
+    // consequence of how Windows allocates a console to a child process.
+    const acpConsoleChoiceApplies = process.platform === 'win32';
+    const acpHideConsoleWindows = configuration.get<boolean>('acp.hideConsoleWindows', false);
     const autoVerifyAfterWrite = configuration.get<boolean>('autoVerifyAfterWrite', true);
     const autoVerifyScripts = escapeHtml((configuration.get<string[]>('autoVerifyScripts', ['test']) ?? ['test']).join(', '));
     const autoVerifyTimeoutMs = getPositiveInteger(configuration.get<number>('autoVerifyTimeoutMs'), 120000);
@@ -1993,7 +2139,7 @@ export class SettingsPanel {
           </div>
           <div class="nav-group" role="presentation">
             <span class="nav-group-label" aria-hidden="true">Guardrails</span>
-            <button type="button" class="nav-link ${initialPage === 'safety' ? 'active' : ''}" id="tab-safety" data-page-target="safety" data-search="safety verification approvals tool approval terminal write scripts timeout max tool iterations loop limit acp agent client protocol acp tools delegated execution agent permissions allow once always allow acp mcp servers" role="tab" aria-selected="${initialPage === 'safety' ? 'true' : 'false'}" aria-controls="page-safety" ${initialPage === 'safety' ? '' : 'tabindex="-1"'}>Safety & Verification</button>
+            <button type="button" class="nav-link ${initialPage === 'safety' ? 'active' : ''}" id="tab-safety" data-page-target="safety" data-search="safety verification approvals tool approval terminal write scripts timeout max tool iterations loop limit acp agent client protocol acp tools delegated execution agent permissions allow once always allow acp mcp servers hide console windows private desktop pop-up popup black terminal window focus stealing windows launcher" role="tab" aria-selected="${initialPage === 'safety' ? 'true' : 'false'}" aria-controls="page-safety" ${initialPage === 'safety' ? '' : 'tabindex="-1"'}>Safety & Verification</button>
             <button type="button" class="nav-link ${initialPage === 'testing' ? 'active' : ''}" id="tab-testing" data-page-target="testing" data-search="testing methodology tdd bdd unit integration e2e mutation property snapshot contract performance security visual exploratory test strategy agent override model" role="tab" aria-selected="${initialPage === 'testing' ? 'true' : 'false'}" aria-controls="page-testing" ${initialPage === 'testing' ? '' : 'tabindex="-1"'}>Testing</button>
           </div>
           <div class="nav-group" role="presentation">
@@ -2386,6 +2532,33 @@ export class SettingsPanel {
                 ${acpAgentCount === 0
                   ? '<p class="muted-line">No ACP agent is configured yet, so this setting has nothing to govern. Set one up from Model Providers — look for &ldquo;Use my Claude subscription&rdquo;.</p>'
                   : ''}
+              </article>
+
+              <article class="settings-card" id="acpConsoleWindowsCard">
+                <div class="card-header">
+                  <p class="card-kicker">Delegated agents (ACP)</p>
+                  <h3>Where ACP console windows appear</h3>
+                </div>
+                ${acpConsoleChoiceApplies
+                  ? `<label class="checkbox-card">
+                  <input id="acpHideConsoleWindows" type="checkbox" ${acpHideConsoleWindows ? 'checked' : ''}>
+                  <span>
+                    <strong>Hide ACP windows on a private Windows desktop</strong>
+                    <span class="muted-line">
+                      An ACP agent starts its own child processes, and on Windows each one may briefly open a black terminal window that
+                      takes focus. With this on, AtlasMind starts the agent and its descendants on a dedicated, non-visible desktop instead.
+                    </span>
+                  </span>
+                </label>
+                <p class="muted-line top-gap">
+                  Hidden desktops are also used by hVNC malware, so Microsoft Defender or corporate endpoint security may flag or block the
+                  launcher — AtlasMind never switches to that desktop or controls it remotely, and it fails visibly rather than silently
+                  falling back. Leave this off where policy forbids it.
+                </p>
+                <div class="button-stack top-gap">
+                  <button id="chooseAcpConsoleMode" class="secondary-button">Compare both options</button>
+                </div>`
+                  : '<p class="muted-line">This choice is Windows-only. On this platform ACP agents do not create console pop-ups, so there is nothing to suppress.</p>'}
               </article>
 
               <article class="settings-card">
@@ -4077,6 +4250,13 @@ export class SettingsPanel {
 
         function updateSearch(query, options = {}) {
           const normalized = typeof query === 'string' ? query.trim().toLowerCase() : '';
+          // Every word must appear, rather than the whole phrase as one string.
+          // A setting is most often searched for by the name it has in the VS
+          // Code settings UI — "acp: hide console windows" — and as a substring
+          // that matches nothing, because keyword lists are written as keywords.
+          // Punctuation goes the same way: a trailing colon should not be the
+          // reason a page is hidden.
+          const terms = normalized.split(/[^a-z0-9.+#-]+/).filter(term => term.length > 0);
           let visibleCount = 0;
 
           navButtons.forEach(button => {
@@ -4084,7 +4264,7 @@ export class SettingsPanel {
               return;
             }
             const haystack = ((button.textContent ?? '') + ' ' + (button.dataset.search ?? '')).toLowerCase();
-            const matches = normalized.length === 0 || haystack.includes(normalized);
+            const matches = terms.length === 0 || terms.every(term => haystack.includes(term));
             button.classList.toggle('hidden-by-search', !matches);
             if (matches) {
               visibleCount += 1;
@@ -4200,6 +4380,7 @@ export class SettingsPanel {
           bindCommandButton('openCompareModels', 'openCompareModels');
           bindCommandButton('openVoicePanel', 'openVoicePanel');
           bindCommandButton('openVisionPanel', 'openVisionPanel');
+          bindCommandButton('chooseAcpConsoleMode', 'chooseAcpConsoleMode');
           bindCommandButton('scanLocalModelRecommendations', 'recommendLocalModels');
           bindCommandButton('purgeProjectMemory', 'purgeProjectMemory');
           bindCommandButton('refreshTestingInventory', 'refreshTestingInventory');
@@ -4575,6 +4756,13 @@ export class SettingsPanel {
           if (acpToolsEnabled instanceof HTMLInputElement) {
             acpToolsEnabled.addEventListener('change', () => {
               vscode.postMessage({ type: 'setAcpToolsEnabled', payload: acpToolsEnabled.checked });
+            });
+          }
+
+          const acpHideConsoleWindows = document.getElementById('acpHideConsoleWindows');
+          if (acpHideConsoleWindows instanceof HTMLInputElement) {
+            acpHideConsoleWindows.addEventListener('change', () => {
+              vscode.postMessage({ type: 'setAcpHideConsoleWindows', payload: acpHideConsoleWindows.checked });
             });
           }
 
@@ -5485,11 +5673,11 @@ function renderTestingPage(snapshot: TestingDashboardSnapshot, isActive: boolean
               <div class="button-stack top-gap">
                 <button id="saveTestingStrategy" type="button">Save Testing Strategy</button>
                 <button id="autoAssessTestingConfig" type="button" class="secondary-button" title="Scan the project and automatically recommend testing methodologies based on the tech stack and dependencies">Auto-assess project</button>
-                <button id="scaffoldTestingFramework" type="button" class="secondary-button" title="Construct a stack-aware starter framework (config + example tests + strategy playbook) for the enabled methodologies. Existing files are never overwritten.">Scaffold framework</button>
+                <button id="scaffoldTestingFramework" type="button" class="secondary-button" title="Construct a stack-aware starter framework and strategy playbook, sync existing AI instruction files, then ask AtlasMind to author one real test only when a supported runner and a safe source candidate already exist. Existing files are never overwritten.">Scaffold framework</button>
                 <button id="syncTestingProtocols" type="button" class="secondary-button" title="Write the enabled protocols into detected AI agent instruction files (CLAUDE.md, copilot-instructions.md, AGENTS.md, etc.) so external agents enact the same strategy.">Sync to AI agents</button>
                 <button id="refreshTestingInventory" type="button" class="secondary-button">Refresh inventory</button>
               </div>
-              <p class="info-note top-gap">Saved configuration is written to <strong>project_memory/index/testing-config.json</strong> and is read by Atlas agents when planning test tasks. <strong>Sync to AI agents</strong> mirrors the enabled protocols into external agent instruction files; saving also syncs automatically.</p>
+              <p class="info-note top-gap">Saved configuration is written to <strong>project_memory/index/testing-config.json</strong> and is read by Atlas agents when planning test tasks. <strong>Sync to AI agents</strong> mirrors the enabled protocols into external agent instruction files; saving and scaffolding also sync automatically. Scaffolding may ask AtlasMind to write one focused test only after it finds an existing Vitest/Jest runner and a small exported source target; it never invents a test target or installs tooling.</p>
             </article>
 
             <div class="page-grid two-up">
@@ -5598,24 +5786,16 @@ function renderTestingStatCard(label: string, value: string, meta: string): stri
     </article>`;
 }
 
-const TESTING_CONFIG_SSOT_PATH = 'project_memory/index/testing-config.json';
+/**
+ * Re-exported so existing importers keep working. There is now exactly one
+ * reader: this file used to carry a byte-identical copy, which meant two
+ * implementations that could disagree about whether a config was usable, and
+ * both hard-gated on `version === 1` — so a file written by a newer AtlasMind
+ * read as "no testing policy at all" and was liable to be overwritten with a
+ * fresh default.
+ */
+export { readProjectTestingConfig };
 
-export function readProjectTestingConfig(workspaceRoot: string): import('../types.js').ProjectTestingConfig | undefined {
-  const configPath = path.join(workspaceRoot, TESTING_CONFIG_SSOT_PATH);
-  if (!existsSync(configPath)) {
-    return undefined;
-  }
-  try {
-    const raw = readFileSync(configPath, 'utf8');
-    const parsed = JSON.parse(raw) as import('../types.js').ProjectTestingConfig;
-    if (parsed.version === 1 && Array.isArray(parsed.methodologies)) {
-      return parsed;
-    }
-    return undefined;
-  } catch {
-    return undefined;
-  }
-}
 
 export async function writeProjectTestingConfig(
   workspaceRoot: string,
@@ -5624,6 +5804,43 @@ export async function writeProjectTestingConfig(
   const configUri = vscode.Uri.file(path.join(workspaceRoot, TESTING_CONFIG_SSOT_PATH));
   const updated: import('../types.js').ProjectTestingConfig = { ...config, updatedAt: new Date().toISOString() };
   await vscode.workspace.fs.writeFile(configUri, Buffer.from(JSON.stringify(updated, null, 2), 'utf-8'));
+}
+
+/**
+ * Save the testing matrix **and** push it to the AI instruction files that read it.
+ *
+ * The two used to be separate, and only one of three writers did both: the
+ * Settings page synced, while the Project Dashboard's methodology toggle and the
+ * auto-assess flow wrote the file alone. So turning a methodology off from the
+ * dashboard left `CLAUDE.md`, `AGENTS.md` and `.github/copilot-instructions.md`
+ * still instructing every external agent to follow it — the config said one thing
+ * and the tools reading it said another, with nothing on screen to suggest they
+ * had diverged.
+ *
+ * The sync is best-effort and deliberately cannot fail the save: the file on disk
+ * is the source of truth, and a mirror that could block it would make a
+ * write-through cache out of a copy.
+ */
+export async function persistTestingConfig(
+  workspaceRoot: string,
+  config: import('../types.js').ProjectTestingConfig,
+  agents: import('../types.js').AgentDefinition[],
+): Promise<{ syncSummary?: string }> {
+  await writeProjectTestingConfig(workspaceRoot, config);
+  try {
+    const result = await syncTestingProtocols(
+      workspaceRoot,
+      config,
+      agents,
+      parseCustomDebtMarkers(
+        vscode.workspace.getConfiguration('atlasmind').get<string[]>('debt.markers', []),
+      ),
+      readWorkflowGuidanceInput(workspaceRoot),
+    );
+    return result.success ? { syncSummary: result.summary } : {};
+  } catch {
+    return {};
+  }
 }
 
 /**
@@ -5785,6 +6002,7 @@ export function collectTestingDashboardSnapshot(
       verificationScripts,
       projectTestingConfig: undefined,
       availableAgentSummaries,
+      methodologyDefinitions: TESTING_METHODOLOGY_DEFINITIONS,
       policyCoverage: deriveTestingPolicyCoverage({
         enabledMethodologies: [],
         testFiles: [],
@@ -5897,6 +6115,12 @@ export function collectTestingDashboardSnapshot(
     ...(newestTestFileMs > 0 ? { newestTestFileMs } : {}),
     frameworkLabel,
   });
+  const policyEvidence = {
+    testFiles: policyTestFiles,
+    dependencies: dependencyNames,
+    scripts: allScriptNames,
+    configFiles: [...configFiles, ...probePolicyConfigFiles(workspaceRoot)],
+  };
 
   const coverageInfoPath = path.join(workspaceRoot, 'coverage', 'lcov.info');
   const coverage = parseLcovCoverage(coverageInfoPath);
@@ -5905,6 +6129,7 @@ export function collectTestingDashboardSnapshot(
     : (existsSync(path.join(workspaceRoot, 'coverage', 'index.html')) ? 'coverage/index.html' : undefined);
 
   return {
+    policyEvidence,
     frameworkLabel,
     testingPolicyLabel,
     testingPolicyDetail,
@@ -5933,6 +6158,7 @@ export function collectTestingDashboardSnapshot(
     verificationScripts,
     projectTestingConfig,
     availableAgentSummaries,
+    methodologyDefinitions: TESTING_METHODOLOGY_DEFINITIONS,
     policyCoverage,
   };
 }
@@ -6362,6 +6588,14 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
     return typeof message.payload === 'boolean';
   }
 
+  if (message.type === 'setAcpToolsEnabled') {
+    return typeof message.payload === 'boolean';
+  }
+
+  if (message.type === 'setAcpHideConsoleWindows') {
+    return typeof message.payload === 'boolean';
+  }
+
   if (message.type === 'setAutoVerifyAfterWrite') {
     return typeof message.payload === 'boolean';
   }
@@ -6498,6 +6732,7 @@ export function isSettingsMessage(value: unknown): value is SettingsMessage {
     message.type === 'openCompareModels' ||
     message.type === 'openVoicePanel' ||
     message.type === 'openVisionPanel' ||
+    message.type === 'chooseAcpConsoleMode' ||
     message.type === 'openChat' ||
     message.type === 'recommendLocalModels' ||
     message.type === 'scanAiInstructions' ||

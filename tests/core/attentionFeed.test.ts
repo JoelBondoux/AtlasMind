@@ -229,3 +229,41 @@ describe('summarizeAttention', () => {
     expect(summary).toContain('1 unassessed');
   });
 });
+
+describe('research is the one group whose absence means "switched off"', () => {
+  it('says nothing about research when the group is absent', () => {
+    // Every other group treats absence as "not assessed". Research is passed
+    // only when it is switched on, so an absent group is a decision rather than
+    // an oversight — and a disabled feature must not raise items forever.
+    const feed = buildAttentionFeed(healthy);
+    expect(feed.items.some(item => item.id.startsWith('research-'))).toBe(false);
+  });
+
+  it('raises a due scan as soon, not now', () => {
+    const feed = buildAttentionFeed({ ...healthy, research: { due: 2, neverScanned: 0, blocked: 0 } });
+    const item = feed.items.find(entry => entry.id === 'research-due')!;
+    expect(item.urgency).toBe('soon');
+    expect(item.count).toBe(2);
+    expect(item.pageTarget).toBe('ideation');
+  });
+
+  it('reports a scan that has never run as unassessed rather than clear', () => {
+    const feed = buildAttentionFeed({ ...healthy, research: { due: 0, neverScanned: 4, blocked: 0 } });
+    const item = feed.items.find(entry => entry.id === 'research-never-scanned')!;
+    expect(item.urgency).toBe('unassessed');
+    expect(item.detail).toContain('Unknown');
+  });
+
+  it('reports research with nothing to look with, and says AtlasMind refuses to guess', () => {
+    const feed = buildAttentionFeed({ ...healthy, research: { due: 0, neverScanned: 0, blocked: 3 } });
+    const item = feed.items.find(entry => entry.id === 'research-no-source')!;
+    expect(item.urgency).toBe('unassessed');
+    expect(item.detail).toContain('refuses to run them');
+  });
+
+  it('stays silent when research is on and everything is current', () => {
+    const feed = buildAttentionFeed({ ...healthy, research: { due: 0, neverScanned: 0, blocked: 0 } });
+    expect(feed.totalCount).toBe(0);
+    expect(feed.emptyState).toBe('clear');
+  });
+});

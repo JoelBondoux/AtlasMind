@@ -148,6 +148,21 @@ interface PolicyMarkers {
    * or deny it, so it is never reported as a gap.
    */
   practiceOnly?: boolean;
+  /**
+   * For this policy the configuration *is* the artifact, not merely the tooling.
+   *
+   * Every other policy leaves test files behind and its config only proves the
+   * runner is installed — so `tooling-only` ("No tests yet") is the honest
+   * reading. Continuous testing leaves behind a pipeline definition and nothing
+   * else; without this, a project running its whole suite on every push capped
+   * at "No tests yet" permanently and read as a gap it could never close.
+   *
+   * Only a matching **config file** counts. Script names deliberately do not:
+   * `continuous`'s script patterns include `/watch/i`, and a `npm run watch` for
+   * a bundler would otherwise be reported as continuous testing. A false
+   * "covered" is the one outcome this panel must not produce.
+   */
+  configIsEvidence?: boolean;
 }
 
 const GENERIC_TEST_FILE = /(^|\/)(tests?|__tests__|spec)\//i;
@@ -229,6 +244,7 @@ const POLICY_MARKERS: Record<TestingMethodologyId, PolicyMarkers> = {
       /^Jenkinsfile$/i, /^\.circleci\//i, /^\.travis\.ya?ml$/i, /^bitbucket-pipelines\.ya?ml$/i,
     ],
     scriptPatterns: [/^ci$/i, /^ci:/i, /watch/i],
+    configIsEvidence: true,
   },
   performance: {
     filePatterns: [/(^|\/)(performance|perf|bench(marks?)?|load)\//i, /\.k6\.[a-z0-9]+$/i, /(^|\/)locustfile\.py$/i, /\.jmx$/i],
@@ -423,6 +439,15 @@ function fileEvidencesPolicy(relativePath: string, markers: PolicyMarkers): bool
   return !matchesAny(relativePath, markers.excludePatterns);
 }
 
+/**
+ * The config files that evidence this policy — a strict subset of its tooling
+ * signals, kept separate because `configIsEvidence` may promote these to
+ * `covered` and must not be able to promote a script name.
+ */
+function configSignalsFor(markers: PolicyMarkers, input: TestingPolicyEvidenceInput): string[] {
+  return input.configFiles.filter(config => matchesAny(config, markers.configPatterns));
+}
+
 function toolingSignalsFor(markers: PolicyMarkers, input: TestingPolicyEvidenceInput): string[] {
   const signals: string[] = [];
   for (const dep of input.dependencies) {
@@ -520,15 +545,22 @@ export function deriveTestingPolicyCoverage(input: TestingPolicyEvidenceInput): 
       });
     }
 
+    // A policy whose artifact is its configuration (see `configIsEvidence`) is
+    // covered by that configuration alone — but only by the config file, never
+    // by a script name that merely matched.
+    const configEvidence = !markers.practiceOnly && markers.configIsEvidence === true
+      ? configSignalsFor(markers, input)
+      : [];
+
     const status: TestingPolicyStatus = markers.practiceOnly
       ? 'not-file-evident'
-      : matchingFiles.length > 0
+      : matchingFiles.length > 0 || configEvidence.length > 0
         ? 'covered'
         : toolingSignals.length > 0
           ? 'tooling-only'
           : 'missing';
 
-    const detail = buildDetail({ status, label, matchingFileCount: matchingFiles.length, caseCount, skippedCount, toolingSignals, failureCount: failures.length });
+    const detail = buildDetail({ status, label, matchingFileCount: matchingFiles.length, caseCount, skippedCount, toolingSignals, configEvidence, failureCount: failures.length });
 
     return {
       id,
@@ -607,6 +639,7 @@ function buildDetail(input: {
   caseCount: number;
   skippedCount: number;
   toolingSignals: string[];
+  configEvidence: string[];
   failureCount: number;
 }): string {
   if (input.status === 'not-file-evident') {
@@ -617,6 +650,11 @@ function buildDetail(input: {
   }
   if (input.status === 'tooling-only') {
     return `Tooling is present (${input.toolingSignals.slice(0, 3).join(', ')}) but nothing in the tree tests with it yet.`;
+  }
+  // Covered by configuration rather than by test files: say which file, because
+  // "3 files · 0 cases" would be a nonsense reading of a pipeline definition.
+  if (input.matchingFileCount === 0 && input.configEvidence.length > 0) {
+    return `Evidenced by ${input.configEvidence.slice(0, 3).join(', ')} — the pipeline is the artifact for this policy.`;
   }
   const parts = [`${input.matchingFileCount} file${input.matchingFileCount === 1 ? '' : 's'}`, `${input.caseCount} case${input.caseCount === 1 ? '' : 's'}`];
   if (input.skippedCount > 0) {

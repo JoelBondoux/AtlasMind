@@ -31,7 +31,9 @@ AtlasMind can also perform one bounded escalation during execution when the curr
 
 **Correction turns are never downgraded.** When the user disputes or corrects the assistant's previous answer ("that's not correct", "no, that's wrong", "you got it wrong", "are you sure?", "re-check that"), the turn is treated as high-stakes: high reasoning, reasoning-capable model preferred, and an escalated budget/speed. A pushback against a wrong answer is never silently routed to the cheapest/local model.
 
-**Empty completions trigger escalation, not a blank turn.** If a model returns no usable content (zero output tokens, no tool calls), AtlasMind does not re-prompt the same (often flaky/local) model — it records the empty result as a failure and retries on an escalated, reasoning-class model, surfacing a real answer instead of a blank reply.
+**Empty completions trigger escalation, not a blank turn.** If a model returns no usable content (zero output tokens, no tool calls), AtlasMind does not re-prompt the same (often flaky/local) model — it records the empty result as a failure and retries on an escalated, reasoning-class model. If bounded recovery still yields nothing, the transcript says so and offers **Retry** and **Provider status** choices; it never converts zero output into “Answered from context.”
+
+**Whole-project assessments are high-reasoning work even when the sentence is short.** Assessment, evaluation, review, and “where does this project stand?” prompts receive a deterministic high-reasoning floor that an optional classifier cannot lower. Among capable candidates, a bounded adequacy bonus prefers real local or active subscription-backed capacity over pay-per-token capacity that is only marginally faster; review, planning, and synthesis candidates must still meet a reasoning-depth floor.
 
 For action-oriented workspace requests, AtlasMind also distinguishes between evidence-gathering and follow-through. Prompts that ask Atlas to wire, integrate, configure, support, add, update, fix, or otherwise implement behavior are now biased more aggressively toward direct execution, and after successful read-only evidence gathering AtlasMind issues one stronger follow-through reprompt before accepting a summary-only answer. Verification-style follow-ups such as asking whether a change actually happened now also trigger a repository-backed check, and investigation stalling like “I need to check” is treated as a retry signal rather than an acceptable final answer.
 
@@ -121,13 +123,11 @@ AtlasMind opens a real session instead. The reserved ACP error `-32000` means a 
 - **`usage_update`** carries `{ used, size, cost? }` — cumulative context occupancy and window size. A progress bar, not a bill, and never charged as input tokens: doing so would re-bill the whole conversation on every message.
 - **The prompt result** carries the turn's `inputTokens` / `outputTokens`. Missing counts are reported as **zero** rather than estimated, and nothing is derived from a total.
 
-ACP models are priced at zero per token because the subscription already paid. The router's subscription handling, not the adapter, is what keeps that from automatically winning budget mode.
+ACP models are priced at zero per token because the subscription already paid. ACP does not report an account tier or trustworthy remaining allowance, so a recorded plan name is display-only and never becomes a quota gate or credit counter.
 
 ### Subscription capacity comes first
 
-Capacity you have already paid for is preferred over metered tokens — Copilot and ACP are treated identically, because the preference keys on *how a provider is priced*, not on its name. There is a general nudge on every turn while quota remains, and a bigger one on background maintenance work (paired with a penalty for pay-per-token), so housekeeping never spends metered tokens. Once a plan's quota is exhausted the nudge disappears and the provider is treated as pay-per-token, which is what it has become.
-
-One thing worth knowing if you run more than one plan through ACP: your quotas are stored **per model**, not per provider, because `acp` fronts several unrelated subscriptions — your Claude plan on `acp/claude`, your ChatGPT one on `acp/codex`. Effort and model variants (`acp/claude@opus#high`) bill against the base plan, so the remaining count moves however you routed.
+Capacity you have already paid for is preferred over metered tokens — Copilot and ACP are treated as subscription-backed because the preference keys on *how a provider is priced*, not on its name. Quota-specific scoring applies only to a source with an authoritative allowance, such as Copilot. ACP intentionally carries no manual quota: its protocol identifies agents and models but has no standard account-tier or balance field.
 
 ### The models inside the subscription
 
@@ -162,23 +162,56 @@ Each effort level your agent actually offers is now a routed model:
 | `claude-agent-acp` | `low` `medium` `high` `xhigh` `max` |
 | `codex-acp` | `low` `medium` `high` `xhigh` `max` `ultra` |
 
-They appear as `acp/claude#high`, `acp/codex#max`, and so on, alongside the plain `acp/claude` row — which still means *the agent's own default*. Each tier carries a reasoning depth and a quota cost, so the budget mode you already set expresses the gradient: **cheap** reaches `low`, **balanced** reaches `high`, **auto/expensive** reach the top. Variants show up once the agent has been probed — refresh the models if you have just added one.
+They appear as `acp/claude#high`, `acp/codex#max`, and so on, alongside the plain `acp/claude` row — which still means *the agent's own default*. Each tier carries a reasoning depth and a declared relative routing intensity, so the budget mode you already set expresses the gradient: **cheap** reaches `low`, **balanced** reaches `high`, **auto/expensive** reach the top. Variants show up once the agent has been probed — refresh the models if you have just added one.
 
 **AtlasMind will not touch your agent's permission mode.** The same list that offers effort also offers `bypassPermissions` (Claude Agent) and `agent-full-access` (Codex). Only two things can ever be set — the model and the effort — so a routing decision can never widen what an agent is allowed to do. Codex's "fast mode" (*1.5x speed, increased usage*) is excluded as well: spending your plan faster is your call, not a routing optimisation.
 
-**The quota cost of each tier is our assumption, not a vendor figure.** No vendor publishes what a max-effort turn costs against a plan, so the numbers are AtlasMind's own stated rule and the provider card says so. If your remaining count drifts, correct it on the plan.
+**The relative intensity of each tier is our routing rule, not a vendor usage figure.** No vendor publishes what a max-effort turn costs against a plan, so AtlasMind does not display, estimate, or decrement a remaining count.
 
 If a tier cannot be applied, the turn still runs at the agent's default rather than failing — and the ACP output channel says so, because it was priced at the tier you asked for.
 
 ### Which subscription — because `acp` fronts several
 
-Every other subscription provider is one provider in front of one plan. `acp` is not: your Claude plan pays for `acp/claude` and your ChatGPT plan pays for `acp/codex`, bought separately and priced differently. So a plan is configured **per agent**, not per provider.
+`acp` fronts several unrelated subscriptions, so a plan is recorded **per configured agent**, not per protocol provider.
 
-**Configure agent plan** on the ACP card opens on *"Which subscription are you configuring?"* when more than one agent is set up, lists each agent with its current allowance, and titles every step after it with that agent. Each vendor's real tiers are offered — Claude Pro / Max 5× / Max 20×, ChatGPT Plus / Pro, Google AI Pro / Ultra — with *Custom…* still available for anything unlisted. The card shows one row per agent.
+**Configure agent plan** opens on the agents currently named in `atlasmind.acp.agents`; Gemini and a self-installed ACP agent therefore appear without waiting for an AtlasMind release. After selecting the agent, enter the plan name the service shows—such as `ChatGPT Pro (5×)`. ACP does not expose a tier catalogue, request total, remaining usage, reset date, or cost per unit, so the flow neither asks for nor invents any of those values. The card shows one label per agent. Copilot's separate observable-credit flow is unaffected.
 
-The plan you configure is the one that gets spent: pricing, budget gating and the post-turn decrement all resolve through the same accessor, so a Codex turn can never be charged to your Claude allowance. Providers that front exactly one plan (Copilot) are unaffected.
+### Why checking an ACP agent is expensive
 
-Before v0.216.0 the button opened directly on "Enter monthly cost" with no subject, and whatever you typed landed on the provider — so configuring a second plan overwrote the first.
+Checking whether an agent is usable means opening a session, because that is the only honest test of "signed in" — and a session on a coding agent starts its whole runtime. On Windows you may briefly see console windows appear and vanish: `claude-agent-acp` launches every MCP server *you* have configured in Claude Code inside that session, and some of those start through `cmd.exe`, which makes Windows allocate a console host.
+
+Ordinary `windowsHide` cannot reach those descendants. AtlasMind now controls both levers:
+
+- **How often:** the routed adapter keeps a successful session for 30 idle minutes. It sends only the exact transcript suffix the ACP session has not already seen; a branch/edit or any launch/security/configuration change gets a fresh session. Setup/health/panel probes are single-flighted before their five-minute TTL cache, so concurrent surfaces launch one process tree rather than several. A stable orchestrator task identity lets concurrent calls for one tool round join one prompt and lets a 15-second completed-result ledger absorb its retry without merging independent chats with identical text. ACP bypasses the generic transient-provider retry loop, so an uncertain `session/prompt` is never automatically sent again.
+- **Where Windows may show them:** setup asks before the first probe. Ordinary launching is the compatibility-first default. The opt-in `atlasmind.acp.hideConsoleWindows` checkbox sends the already-resolved agent through a bundled, SHA-256-pinned 120 KB Rust helper that creates a private Windows desktop, assigns it through `STARTUPINFO.lpDesktop`, uses `CREATE_NO_WINDOW`, and inherits only stdin/stdout/stderr. Descendant consoles then exist off the input desktop and cannot take focus.
+
+That private-desktop option is disclosed rather than silently enabled because the primitive has a dual use: hVNC malware runs interactive processes on hidden desktops, and Microsoft Defender exposes `DesktopName` so defenders can hunt them. AtlasMind never switches to or remotely controls the desktop and uses no shell, but enterprise EDR may still flag or block it. A missing, changed, or blocked helper fails visibly and never falls back to visible launching behind your back. While a routed private-desktop session is alive, VS Code's status bar visibly shows the number of such sessions and links to **Models & Providers**. The indicator proves AtlasMind selected that launch mode; it does not confer, imply or replace a process permission boundary.
+
+The strongest follow-up is a modern-Windows host rather than another hidden-desktop variation. Windows 11 24H2 / Server 2025 adds [`AllocConsoleWithOptions(ALLOC_CONSOLE_MODE_NO_WINDOW)`](https://learn.microsoft.com/en-us/windows/console/allocconsolewithoptions): a revised helper could allocate a real console session with no window and launch the agent attached to it, so normal descendants inherit the windowless console without the hidden-desktop heuristic. It still needs real-agent testing before replacing this path—the API is build-26100-only, explicitly detached/new-console children can escape it, GUI windows remain interactive, and console attachment can alter stdio/TTY behaviour. Upstream fixes in each ACP agent remain the cleanest ownership/signing answer. ConPTY changes a raw JSONL protocol into terminal I/O; a Windows service/WSL/container/sidecar adds installation, identity, filesystem and credential plumbing; an in-process rewrite loses generic ACP isolation. Job Objects improve whole-tree teardown but do not hide windows.
+
+**Since v0.228.0 most completion-only descendants are gone too.** When AtlasMind is only using the agent to *write* an answer, it asks the agent not to load your machine's own settings — which is where your MCP servers come from. On this machine that took the session from 19 background processes to 3, and from six windows to two. Live reuse means even those remaining starts no longer happen for every answer.
+
+The moment you switch on **Let subscription agents act**, that isolation is dropped: an agent that may actually run commands is one you want your own `CLAUDE.md`, permission defaults and MCP servers to reach. So the quiet version is the read-only version, by design.
+
+If you want fewer still in that mode, trimming the MCP servers configured in the agent itself is the lever — that is what is being started.
+
+### When it says the agent is installed but not signed in
+
+That message used to end at "run it once in a terminal and complete its own login". It named no command, and the command on screen at that moment is the wrong one: `gemini --acp`, `copilot --acp` and `qwen --acp` all start a JSON-RPC server that will never ask you to log in, and `claude-agent-acp` does not hold the Claude credential at all — it uses the Claude CLI's.
+
+So AtlasMind now records the sign-in command separately, read from each vendor's own documentation:
+
+| Agent | Sign in with | Then |
+|---|---|---|
+| `claude-agent-acp` | `claude` | `/login` if Claude Code does not prompt you |
+| `codex-acp` | `codex login` | A browser opens; `codex login --device-auth` if none is available |
+| `gemini --acp` | `gemini` | Choose **Sign in with Google**, or run `/auth` |
+| `copilot --acp` | `copilot` | `/login` |
+| `qwen --acp` | `qwen` | `/auth`, then pick a provider |
+
+The warning offers **Open a terminal with the command**, which types it and stops there. AtlasMind does not press Enter, and never sees the credential — every one of these flows opens a browser and asks for an account password, which is not something an extension should be running for you. The same command and button appear as step 4 of the `/acp` walkthrough.
+
+For any other agent — anything you name yourself in `atlasmind.acp.agents` — the message says AtlasMind has no recorded sign-in flow rather than inventing `<command> login`. A guessed command is worse than none, because you would run it and believe the answer.
 
 ### When a row says an agent is not responding
 
@@ -186,7 +219,7 @@ Health is tracked **per agent**, so the *Anthropic — Claude subscription* row 
 
 An agent AtlasMind has not managed to contact yet shows **not checked yet**, not "agent not responding". A probe spawns the agent and opens a session, which takes a few seconds; refreshing the models runs it. If a row does say *not responding*, the tooltip carries what the agent itself reported, rather than guessing between the two usual causes.
 
-ACP counts as configured when there is an agent in `atlasmind.acp.agents` — never by an API key, since there is no ACP key to hold. Before v0.216.0 there was no such check, so an installed and signed-in agent was reported as not responding on every startup while the provider panel showed it as ready.
+ACP counts as configured when there is an agent in `atlasmind.acp.agents` — never by an API key, since there is no ACP key to hold. On Windows it additionally requires an explicit workspace or user value for `atlasmind.acp.hideConsoleWindows`; the schema default is not consent, so neither startup discovery nor a direct turn can launch an older configured agent before the visible/private choice is explained. Before v0.216.0 there was no agent check, so an installed and signed-in agent was reported as not responding on every startup while the provider panel showed it as ready.
 
 See [[Tool-Execution]] for what an ACP agent is allowed to *do*, which is a separate gate.
 
@@ -328,7 +361,7 @@ Each candidate is scored using:
 ```
 score = (cheapness × budgetWeight) + (speedProxy × speedWeight)
       + (qualityProxy × qualityWeight) + taskFit + healthBonus + feedbackBias
-      + outcomeBias − strugglePenalty
+      + zeroMarginalCostAdequacy + outcomeBias − strugglePenalty
 ```
 
 | Factor | How it's computed |
@@ -339,6 +372,7 @@ score = (cheapness × budgetWeight) + (speedProxy × speedWeight)
 | **Task fit** | Bonus for matching preferred capabilities and task phase |
 | **Health bonus** | +1.25 for healthy providers, 0 for unhealthy |
 | **Feedback bias** | Small capped adjustment derived from stored thumbs up/down history for that exact `modelUsed` id |
+| **Zero-marginal-cost adequacy** | Bounded bonus for a real local/free model or active subscription with capacity remaining; broad review, planning, and synthesis require reasoning depth ≥ 2 before the bonus applies |
 | **Outcome bias** | Decaying EWMA of graded execution quality, bucketed per reasoning tier — nudges toward models that perform well |
 | **Struggle penalty** | Persistent, decaying **de-weight** for a model that repeatedly fails *this kind of task* — see [Model-Struggle Memory](#model-struggle-memory) |
 

@@ -1,5 +1,9 @@
 import * as vscode from 'vscode';
 import { describe, expect, it, vi } from 'vitest';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import nodePath from 'node:path';
+import { removeTempDir } from '../helpers/tempDir.ts';
 import { Orchestrator, appendTddBlockedCaveat, appendVerificationCaveat, budgetForCorrection, buildProjectSessionContextBundle, classifySubTaskFailure, collapseDuplicatedTrailingBlock, detectVerificationContradiction, isUserCorrectionTurn, looksLikeIncompleteDelivery, looksLikeToolCapabilityRefusal, resolveProviderIdForModel, responseClaimsSuccessWithoutCaveat, shouldBiasTowardWorkspaceInvestigation, TOOL_EXECUTION_FAILURE_PREFIX, verificationIndicatesFailure } from '../../src/core/orchestrator.ts';
 import { MAX_TOOL_ITERATIONS } from '../../src/constants.ts';
 import { AgentRegistry } from '../../src/core/agentRegistry.ts';
@@ -2224,6 +2228,71 @@ describe('Orchestrator agentic loop', () => {
     expect(result.response).toBe('Recovered after retry.');
   });
 
+  it('never blindly retries an uncertain ACP prompt and gives it a stable task identity', async () => {
+    const local = makeMockProvider([{
+      content: 'Recovered through a different provider.',
+      model: 'local/echo-1',
+      inputTokens: 4,
+      outputTokens: 5,
+      finishReason: 'stop',
+    }]);
+    const acp: ProviderAdapter = {
+      providerId: 'acp',
+      complete: vi.fn(async () => {
+        const error = new Error('ACP transport temporarily unavailable');
+        (error as Error & { status?: number }).status = 503;
+        throw error;
+      }),
+      listModels: vi.fn().mockResolvedValue(['acp/fake']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+    const orchestrator = makeOrchestrator(
+      local,
+      [],
+      makeSkillContext(),
+      undefined,
+      [],
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        extraProviders: [{
+          providerId: 'acp',
+          adapter: acp,
+          models: [{
+            id: 'acp/fake',
+            name: 'ACP Fake',
+            contextWindow: 32_000,
+            inputPricePer1k: 0,
+            outputPricePer1k: 0,
+            capabilities: ['chat', 'code'],
+          }],
+        }],
+      },
+    );
+
+    await orchestrator.processTask({
+      id: 'task-acp-no-duplicate',
+      userMessage: 'hello',
+      context: {},
+      constraints: {
+        budget: 'balanced',
+        speed: 'balanced',
+        preferredModel: 'acp/fake',
+      },
+      timestamp: new Date().toISOString(),
+    });
+
+    const executionCalls = (acp.complete as ReturnType<typeof vi.fn>).mock.calls
+      .map(call => call[0] as CompletionRequest)
+      .filter(call => call.requestId === 'task-acp-no-duplicate:tool-round:0');
+    expect(executionCalls).toHaveLength(1);
+    const sent = executionCalls[0]!;
+    expect(sent.requestId).toBe('task-acp-no-duplicate:tool-round:0');
+  });
+
   it('does not retry provider timeouts that would otherwise leave the chat UI waiting', async () => {
     const provider: ProviderAdapter = {
       providerId: 'local',
@@ -3877,5 +3946,214 @@ describe('empty-completion recovery', () => {
     expect(frontierProvider.complete).toHaveBeenCalled();
     expect(result.response.trim().length).toBeGreaterThan(0);
     expect(result.response).toContain('master');
+  });
+});
+
+describe('the declared testing policy reaches the agent that writes the code', () => {
+  /**
+   * The regression: fourteen methodologies were enabled and eight still had no
+   * evidence of any kind seven weeks later. The policy was never wrong — it was
+   * never shown to the agent that could have honoured it. `__testingMethodologyHint`
+   * only ever fired when a task was *already* classified as testing, or when a
+   * subtask's own text contained a testing word, so the turns that implemented
+   * features — the only turns that could have written the tests — were precisely
+   * the ones told nothing.
+   */
+  function writeTestingConfig(root: string, enabled: string[]): void {
+    mkdirSync(nodePath.join(root, 'project_memory', 'index'), { recursive: true });
+    writeFileSync(
+      nodePath.join(root, 'project_memory', 'index', 'testing-config.json'),
+      JSON.stringify({
+        version: 1,
+        updatedAt: '2026-07-30T00:00:00.000Z',
+        methodologies: [
+          { id: 'unit', enabled: enabled.includes('unit') },
+          { id: 'e2e', enabled: enabled.includes('e2e') },
+          { id: 'mutation', enabled: enabled.includes('mutation') },
+        ],
+      }),
+      'utf8',
+    );
+  }
+
+  async function systemPromptFor(userMessage: string, enabled: string[]): Promise<string> {
+    const root = mkdtempSync(nodePath.join(tmpdir(), 'atlasmind-testing-policy-'));
+    try {
+      writeTestingConfig(root, enabled);
+      const provider = makeMockProvider([{
+        content: 'Done.',
+        model: 'local/echo-1',
+        inputTokens: 4,
+        outputTokens: 2,
+        finishReason: 'stop',
+      }]);
+      const orchestrator = makeOrchestrator(provider, [], makeSkillContext({ workspaceRootPath: root }));
+
+      await orchestrator.processTaskWithAgent({
+        id: 'task-testing-policy',
+        userMessage,
+        context: {},
+        constraints: { budget: 'balanced', speed: 'balanced' },
+        timestamp: new Date().toISOString(),
+      }, {
+        id: 'backend-engineer',
+        name: 'Backend Engineer',
+        role: 'backend api specialist',
+        description: 'Focuses on backend changes.',
+        systemPrompt: 'You are a backend engineer.',
+        skills: [],
+        builtIn: true,
+      });
+
+      const request = (provider.complete as unknown as { mock: { calls: Array<[CompletionRequest]> } }).mock.calls[0]?.[0];
+      return request?.messages.find(message => message.role === 'system')?.content ?? '';
+    } finally {
+      removeTempDir(root);
+    }
+  }
+
+  it('states the policy on a code task that never mentions testing', async () => {
+    // This exact shape ran for seven weeks and was told nothing.
+    const prompt = await systemPromptFor(
+      'Add a retry with backoff to the upload endpoint in src/api/upload.ts.',
+      ['unit', 'e2e'],
+    );
+
+    expect(prompt).toContain('TESTING POLICY');
+    expect(prompt).toContain('Unit');
+    expect(prompt).toContain('End-to-End');
+    expect(prompt).not.toContain('Mutation');
+  });
+
+  it('says nothing when the project has enabled no methodologies', async () => {
+    const prompt = await systemPromptFor(
+      'Add a retry with backoff to the upload endpoint in src/api/upload.ts.',
+      [],
+    );
+
+    expect(prompt).not.toContain('TESTING POLICY');
+  });
+});
+
+describe('the write gate follows the declared testing policy', () => {
+  /**
+   * The gate predates the testing matrix and never consulted it: it fired on role
+   * and task wording alone. So a project that had switched TDD *off* still got the
+   * gate, and the thirteen other methodologies it had switched *on* got no gate at
+   * all — the config and the only real enforcement in the system had nothing to do
+   * with each other.
+   */
+  function withTestingConfig(methodologies: Array<Record<string, unknown>>): string {
+    const root = mkdtempSync(nodePath.join(tmpdir(), 'atlasmind-tdd-gate-'));
+    mkdirSync(nodePath.join(root, 'project_memory', 'index'), { recursive: true });
+    writeFileSync(
+      nodePath.join(root, 'project_memory', 'index', 'testing-config.json'),
+      JSON.stringify({ version: 2, updatedAt: '2026-07-30T00:00:00.000Z', methodologies }),
+      'utf8',
+    );
+    return root;
+  }
+
+  async function runImplementationTask(root: string): Promise<{ blocked: boolean }> {
+    const providerCalls: CompletionRequest[] = [];
+    const writeHandler = vi.fn().mockResolvedValue('written');
+    const provider: ProviderAdapter = {
+      providerId: 'local',
+      complete: vi.fn(async (request: CompletionRequest) => {
+        providerCalls.push(request);
+        if (providerCalls.length === 1) {
+          return {
+            content: '',
+            model: 'local/echo-1',
+            inputTokens: 16,
+            outputTokens: 4,
+            finishReason: 'tool_calls',
+            toolCalls: [{ id: 'tool-1', name: 'file-write', arguments: { path: 'src/login.ts', content: 'export const fixed = true;' } }],
+          } satisfies CompletionResponse;
+        }
+        return {
+          content: 'Done.',
+          model: 'local/echo-1',
+          inputTokens: 18,
+          outputTokens: 6,
+          finishReason: 'stop',
+        } satisfies CompletionResponse;
+      }),
+      listModels: vi.fn().mockResolvedValue(['local/echo-1']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+    };
+
+    const orchestrator = makeOrchestrator(
+      provider,
+      [{
+        id: 'file-write',
+        name: 'File Write',
+        description: 'Write a workspace file',
+        parameters: { type: 'object', required: ['path', 'content'], properties: { path: { type: 'string' }, content: { type: 'string' } } },
+        execute: writeHandler,
+      }],
+      makeSkillContext({ workspaceRootPath: root }),
+    );
+
+    // No `projectTddPolicy` in context: this is the *inferred* path, which is the
+    // one the config governs.
+    const result = await orchestrator.processTask({
+      id: 'task-config-driven-gate',
+      userMessage: 'Implement the login fix in src/login.ts and update the application code.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced' },
+      timestamp: new Date().toISOString(),
+    });
+
+    return { blocked: result.artifacts?.tddStatus === 'blocked' };
+  }
+
+  it('does not gate when no enabled methodology asks to block', async () => {
+    const root = withTestingConfig([
+      { id: 'unit', enabled: true },
+      { id: 'e2e', enabled: true },
+      { id: 'tdd', enabled: false },
+    ]);
+    try {
+      // Enabling a methodology is a statement of intent and must stay safe to
+      // make. Fourteen declarations should not silently change how every task in
+      // the project runs.
+      expect((await runImplementationTask(root)).blocked).toBe(false);
+    } finally {
+      removeTempDir(root);
+    }
+  });
+
+  it('gates when an enabled methodology is marked blocking', async () => {
+    const root = withTestingConfig([
+      { id: 'tdd', enabled: true, blocking: true },
+      { id: 'unit', enabled: true },
+    ]);
+    try {
+      expect((await runImplementationTask(root)).blocked).toBe(true);
+    } finally {
+      removeTempDir(root);
+    }
+  });
+
+  it('does not gate on a blocking methodology that is switched off', async () => {
+    const root = withTestingConfig([{ id: 'tdd', enabled: false, blocking: true }]);
+    try {
+      expect((await runImplementationTask(root)).blocked).toBe(false);
+    } finally {
+      removeTempDir(root);
+    }
+  });
+
+  it('keeps the gate when the project has no config to read', async () => {
+    // No file, an unreadable file, or one written by a newer build all mean "this
+    // project has not told us". Dropping a safety behaviour on the strength of a
+    // file we could not read is the wrong direction to fail in.
+    const root = mkdtempSync(nodePath.join(tmpdir(), 'atlasmind-tdd-gate-none-'));
+    try {
+      expect((await runImplementationTask(root)).blocked).toBe(true);
+    } finally {
+      removeTempDir(root);
+    }
   });
 });

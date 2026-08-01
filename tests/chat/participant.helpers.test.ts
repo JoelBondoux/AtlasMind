@@ -866,6 +866,54 @@ describe('participant helper logic', () => {
     ]);
   });
 
+  it('turns an empty model response into an explicit recovery question with reply chips', () => {
+    const metadata = buildAssistantResponseMetadata(
+      'give me an honest assessment of my project so far.',
+      {
+        agentId: 'default',
+        modelUsed: 'google/gemini-2.0-flash-lite-001',
+        costUsd: 0,
+        inputTokens: 24_706,
+        outputTokens: 0,
+        artifacts: undefined,
+      },
+      { responseText: '' },
+    );
+
+    expect(metadata.thoughtSummary?.summary).toBe('No usable answer was returned.');
+    expect(metadata.thoughtSummary?.summary).not.toMatch(/Answered from context/i);
+    expect(metadata.followupQuestion).toMatch(/no usable answer/i);
+    expect(metadata.quickReplies?.map(item => item.label)).toEqual(['Retry', 'Provider status']);
+    expect(metadata.suggestedFollowups).toBeUndefined();
+  });
+
+  it('names an auto-paused provider and offers a retry elsewhere after an empty response', () => {
+    const metadata = buildAssistantResponseMetadata(
+      'Assess the repository.',
+      {
+        agentId: 'default',
+        modelUsed: 'google/gemini-2.0-flash-lite-001',
+        costUsd: 0,
+        inputTokens: 500,
+        outputTokens: 0,
+        artifacts: undefined,
+        autoDisabledProvider: {
+          providerId: 'google',
+          displayName: 'Google Gemini',
+          reason: 'billing',
+        },
+      },
+      { responseText: '   ' },
+    );
+
+    expect(metadata.thoughtSummary?.summary).toBe('Google Gemini stopped before returning an answer.');
+    expect(metadata.thoughtSummary?.bullets).toContain(
+      'Google Gemini was paused and no fallback model completed the request.',
+    );
+    expect(metadata.followupQuestion).toMatch(/Google Gemini returned no answer/i);
+    expect(metadata.quickReplies?.map(item => item.label)).toEqual(['Retry elsewhere', 'Provider status']);
+  });
+
   it('detects explicit frustration cues that should trigger adaptive learning', () => {
     expect(detectUserFrustrationSignal('You are not doing what I ask. Can you not do this for me?')).toEqual(
       expect.objectContaining({
@@ -894,6 +942,19 @@ describe('participant helper logic', () => {
     });
 
     expect(visible).toMatch(/Proceed|continue/i);
+  });
+
+  it('points to rendered reply choices instead of asking for typed Proceed', () => {
+    const visible = ensureAssistantVisibleResponse('', {
+      followupQuestion: 'The model returned no usable answer. What should Atlas do next?',
+      quickReplies: [
+        { label: 'Retry', prompt: 'Retry my previous request.' },
+        { label: 'Provider status', prompt: 'Show provider status.' },
+      ],
+    });
+
+    expect(visible).toMatch(/Choose an option below/i);
+    expect(visible).not.toMatch(/Proceed/i);
   });
 
   it('surfaces the last-resort fallback when the response is empty and the model did no work', () => {

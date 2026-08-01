@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createDefaultWebsiteWorkspace } from '../../src/core/websiteWorkspaceManager.ts';
 import {
@@ -43,5 +45,40 @@ describe('Website Studio webview boundary', () => {
     expect(html).toContain('Production');
     expect(html).toContain('SecretStorage:website.staging.password');
     expect(html).toContain('Production promotion protected');
+  });
+});
+
+/**
+ * Could anybody find this panel?
+ *
+ * Website Studio shipped registered, documented and linked to from nowhere: the
+ * command existed, the panel linked *out* to the Dashboard, Ideation and Chat,
+ * and nothing anywhere linked back. The only way in was typing its name into the
+ * command palette, which is not a discovery mechanism for a surface you do not
+ * know exists.
+ *
+ * The rule this pins is narrow and checkable: **a panel that links to another
+ * surface must be reachable from one.** A one-way link is how a whole panel goes
+ * missing without a single test failing.
+ */
+describe('Website Studio is reachable from the surfaces it links to', () => {
+  const read = (relative: string) => readFileSync(path.join(process.cwd(), relative), 'utf8');
+  const OPEN_COMMAND = 'atlasmind.openWebsiteStudio';
+
+  it('is offered by the panels it sends people to', () => {
+    // It points at the Dashboard's delivery pipeline for publishing, and at the
+    // Ideation board for the thinking that precedes a brief. Both now answer.
+    expect(read('media/projectDashboard.js')).toContain(`data-payload="${OPEN_COMMAND}"`);
+    expect(read('media/projectIdeation.js')).toContain(`data-payload="${OPEN_COMMAND}"`);
+  });
+
+  it('is allowlisted by the hosts of those buttons, so clicking does something', () => {
+    expect(read('src/views/projectDashboardPanel.ts')).toContain(`'${OPEN_COMMAND}'`);
+    expect(read('src/views/projectIdeationPanel.ts')).toContain(`'${OPEN_COMMAND}'`);
+  });
+
+  it('still declares the command it is opened by', () => {
+    const manifest = JSON.parse(read('package.json')) as { contributes: { commands: Array<{ command: string }> } };
+    expect(manifest.contributes.commands.some(entry => entry.command === OPEN_COMMAND)).toBe(true);
   });
 });

@@ -46,6 +46,18 @@ jobs:
       - name: Local recommendation registry tests
         run: npm run test:providers:local-recommendations
 
+      # Uploaded even when the suite failed — a red run is exactly when somebody
+      # needs the per-test breakdown, and `if: always()` is what makes the
+      # artifact survive the step that produced it.
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-report-${{ matrix.os }}
+          path: test-results/
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Coverage
         if: matrix.os == 'ubuntu-latest'
         run: npm run test:coverage

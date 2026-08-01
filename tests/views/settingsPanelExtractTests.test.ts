@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { extractIndividualTests } from './settingsPanel';
+import { extractIndividualTests } from '../../src/views/settingsPanel.ts';
 
 describe('extractIndividualTests', () => {
   it('should include a status field in the returned test cases', () => {

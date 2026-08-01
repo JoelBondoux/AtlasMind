@@ -537,6 +537,17 @@ describe('ModelRouter', () => {
     expect(retrieved).toEqual(quota);
   });
 
+  it('can retire a stale provider quota without changing the provider registration', () => {
+    const router = new ModelRouter();
+    registerProviders(router);
+    router.updateSubscriptionQuota('copilot', { totalRequests: 10, remainingRequests: 0 });
+
+    router.clearSubscriptionQuota('copilot');
+
+    expect(router.getSubscriptionQuota('copilot')).toBeUndefined();
+    expect(router.getProviderConfig('copilot')).toBeDefined();
+  });
+
   it('getSubscriptionQuota returns undefined for non-existent provider', () => {
     const router = new ModelRouter();
     registerProviders(router);
@@ -761,6 +772,36 @@ describe('ModelRouter', () => {
     const selected = router.selectModel({ budget: 'balanced', speed: 'balanced' });
 
     expect(selected).toBe('freex/m');
+  });
+
+  it('prefers adequate local or subscription capacity over a marginally faster paid model', () => {
+    const router = new ModelRouter();
+    registerAssessmentRoutingProviders(router);
+    const profile = new TaskProfiler().profileTask({
+      userMessage: 'hello there',
+      phase: 'execution',
+      requiresTools: false,
+    });
+
+    const selected = router.selectModel({ budget: 'auto', speed: 'auto' }, undefined, profile);
+
+    expect(selected).not.toBe('google/gemini-2.0-flash-lite-001');
+    expect(['local/llama', 'copilot/gpt-4.1']).toContain(selected);
+  });
+
+  it('routes a whole-project assessment to adequate zero-marginal reasoning capacity', () => {
+    const router = new ModelRouter();
+    registerAssessmentRoutingProviders(router);
+    const profile = new TaskProfiler().profileTask({
+      userMessage: 'give me an honest assessment of my project so far.',
+      phase: 'execution',
+      requiresTools: false,
+    });
+
+    const selected = router.selectModel({ budget: 'auto', speed: 'auto' }, undefined, profile);
+
+    expect(profile.reasoning).toBe('high');
+    expect(selected).toBe('acp/claude@sonnet');
   });
 
   // ── Cache-aware routing ───────────────────────────────────────
@@ -1084,6 +1125,88 @@ function registerSubscriptionVsFree(router: ModelRouter): void {
     enabled: true,
     pricingModel: 'free',
     models: [{ id: 'freex/m', provider: 'freex', name: 'Free M', ...model, capabilities: [...model.capabilities] }],
+  });
+}
+
+function registerAssessmentRoutingProviders(router: ModelRouter): void {
+  router.registerProvider({
+    id: 'google',
+    displayName: 'Google Gemini',
+    apiKeySettingKey: 'atlasmind.provider.google.apiKey',
+    enabled: true,
+    pricingModel: 'pay-per-token',
+    models: [{
+      id: 'google/gemini-2.0-flash-lite-001',
+      provider: 'google',
+      name: 'Gemini 2.0 Flash Lite',
+      contextWindow: 1_000_000,
+      inputPricePer1k: 0.000075,
+      outputPricePer1k: 0.0003,
+      capabilities: ['chat', 'code', 'function_calling'],
+      latencyClass: 'fast',
+      enabled: true,
+    }],
+  });
+  router.registerProvider({
+    id: 'local',
+    displayName: 'Local Model',
+    apiKeySettingKey: 'atlasmind.provider.local.apiKey',
+    enabled: true,
+    pricingModel: 'free',
+    models: [{
+      id: 'local/llama',
+      provider: 'local',
+      name: 'Local Llama',
+      contextWindow: 32_768,
+      inputPricePer1k: 0,
+      outputPricePer1k: 0,
+      capabilities: ['chat', 'code'],
+      latencyClass: 'balanced',
+      enabled: true,
+    }],
+  });
+  router.registerProvider({
+    id: 'acp',
+    displayName: 'ACP Agents (subscription)',
+    apiKeySettingKey: 'atlasmind.provider.acp.apiKey',
+    enabled: true,
+    pricingModel: 'subscription',
+    models: [{
+      id: 'acp/claude@sonnet',
+      provider: 'acp',
+      name: 'Claude Sonnet',
+      contextWindow: 200_000,
+      inputPricePer1k: 0,
+      outputPricePer1k: 0,
+      capabilities: ['chat', 'code', 'reasoning'],
+      reasoningDepth: 3,
+      premiumRequestMultiplier: 1,
+      latencyClass: 'slow',
+      enabled: true,
+    }],
+  });
+  router.registerProvider({
+    id: 'copilot',
+    displayName: 'GitHub Copilot',
+    apiKeySettingKey: 'atlasmind.provider.copilot.apiKey',
+    enabled: true,
+    pricingModel: 'subscription',
+    subscriptionQuota: {
+      totalRequests: 300,
+      remainingRequests: 300,
+      costPerRequestUnit: 0.033,
+    },
+    models: [{
+      id: 'copilot/gpt-4.1',
+      provider: 'copilot',
+      name: 'GPT-4.1',
+      contextWindow: 1_000_000,
+      inputPricePer1k: 0,
+      outputPricePer1k: 0,
+      capabilities: ['chat', 'code', 'function_calling'],
+      latencyClass: 'balanced',
+      enabled: true,
+    }],
   });
 }
 

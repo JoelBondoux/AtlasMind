@@ -3,6 +3,7 @@
 Top-level contents of the workspace:
 
 ```
+.agents/
 .atlasmind/
 .claude/
 .continue/
@@ -10,8 +11,6 @@ Top-level contents of the workspace:
 .github/
 .gitignore
 .husky/
-.vitest-panelFlows-shortcut.json
-.vitest-panelFlows.json
 .vscode/
 .vscodeignore
 AGENTS.md
@@ -26,7 +25,16 @@ SECURITY.md
 architecture/
 atlasmind-0.169.0.vsix
 atlasmind-0.171.1.vsix
+atlasmind-0.208.0.vsix
+atlasmind-0.209.0.vsix
+atlasmind-0.213.0.vsix
+atlasmind-0.214.0.vsix
+atlasmind-0.217.0.vsix
+atlasmind-0.218.0.vsix
+atlasmind-0.219.0.vsix
+atlasmind-0.224.1.vsix
 atlasmind0.157.0.vsix
+context.md
 coverage/
 data/
 debug_node.js
@@ -41,7 +49,9 @@ package-lock.json
 package.json
 project_memory/
 project_memory_old/
+scripts/
 src/
+test-results/
 test/
 tests/
 tsconfig.json
@@ -52,8 +62,8 @@ wiki/
 <!-- atlasmind-import
 entry-path: architecture/project-structure.md
 generator-version: 2
-generated-at: 2026-07-28T12:06:49.103Z
+generated-at: 2026-07-31T03:25:06.200Z
 source-paths: workspace-root
-source-fingerprint: 83373b1f
-body-fingerprint: f8def649
+source-fingerprint: 583d4a18
+body-fingerprint: 7610b98e
 -->

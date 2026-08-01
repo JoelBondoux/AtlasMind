@@ -48,6 +48,7 @@ For headless workflows, the CLI now rejects malformed flags instead of treating 
 | [[CLI]] | Use AtlasMind from the terminal with the shared runtime and safety model |
 | [[Architecture]] | System design, core services, data flow |
 | [[Chat Commands]] | Slash commands, Command Palette surfaces, and view-local sidebar actions |
+| [[Ideation]] | Stage 0: starter frames, board readiness, and the research scans that ask what is happening outside your repository |
 | [[Agents]] | Built-in and custom agent definitions |
 | [[Skills]] | 43 built-in skills, custom skill import, and MCP tools |
 | [[Resource Discovery]] | Find and install external MCP servers, agents, and skills via Agentic Resource Discovery (ARD) |

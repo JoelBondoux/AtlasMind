@@ -32,6 +32,12 @@ AtlasMind now ships a compact developer-focused built-in set for freeform routin
 | `ethics-oversight` | Ethics Oversight | User harm, fairness and bias, consent, dark patterns, transparency, accessibility as an ethical duty. Read-only, advisory — never an ethics approval |
 | `legal-oversight` | Legal Oversight | Dependency and third-party licence compatibility, IP, GDPR/CCPA, liability, terms of service, regulated data. Read-only, advisory — not a lawyer and not legal advice |
 | `commercial-oversight` | Commercial Oversight | Monetisation and business viability, vendor cost and lock-in, contractual and customer obligations, competitor positioning, go-to-market impact. Read-only, advisory |
+| `competitive-analyst` | Competitive Analyst | Who else solves this, how they are positioned and priced, what they shipped recently, and which capabilities this project lacks. Read-only, cited, advisory |
+| `customer-researcher` | Customer Researcher | What people publicly ask for and complain about in products of this shape. Quotes sources, names no individuals. Read-only, cited, advisory |
+| `technology-analyst` | Technology Analyst | Deprecations, end-of-life dates and breaking changes in the platforms and dependencies this project stands on. Read-only, cited, advisory |
+| `market-analyst` | Market Analyst | Category size and direction, segments, adjacent categories. Every figure cited with its date; an unavailable figure is reported as unavailable. Read-only, advisory |
+| `funding-analyst` | Funding Analyst | Grants, accelerators, sponsorship and open-source funding schemes, with eligibility and deadlines cited from the programme's own page. Read-only, advisory |
+| `regulatory-analyst` | Regulatory Analyst | Obligations that apply to a product of this shape, by jurisdiction, with the dates they take effect. Not legal advice. Read-only, cited, advisory |
 | `github-operator` | GitHub Operator | Evidence-backed pull requests, issues, CI diagnosis, branch/commit operations, and project-policy-aware releases |
 | `ci-analyst` | CI Analyst | Explains a *classified* pipeline failure from its evidence lines and proposes the smallest fix. Never re-classifies (the rule table decided), never re-runs a job, never edits a pipeline definition |
 | `release-manager` | Release Manager | Confirms the derived version matches the compatibility impact and that release notes stay the changelog verbatim. Never pushes, tags, or publishes |
@@ -95,6 +101,20 @@ AtlasMind ships a 23-methodology testing strategy registry, replacing the earlie
 | **Behavioral** | End-to-End, Snapshot, Contract, Model-Based (MBT), Test Design Techniques, Black-Box, Gray-Box |
 | **Non-functional** | Performance, Security, Visual Regression |
 | **Exploratory** | Exploratory, Agile Testing |
+
+#### What an enabled methodology actually does
+
+Enabling a methodology has three effects, and until v0.221.0 only the first two existed — which is why a project could carry fourteen enabled methodologies and have tests for none of them.
+
+1. **It is stated to every agent that writes code.** On any turn whose task profile is `code` or `mixed`, the orchestrator injects `buildTestingObligationGuidance` — the *whole* enabled set, phrased as an obligation: a change that alters behaviour is not finished until it carries the evidence its policy names, and an agent that cannot produce that evidence must say so and say why. Previously, policy reached a prompt only when the task was **already** classified as testing or its text already contained a testing word, so the turns implementing features were precisely the ones told nothing.
+2. **It can select a model.** A methodology assigned to an agent, with a model override, prepends that model for a matching testing task.
+3. **It is expected to leave evidence.** The Testing page reports each enabled methodology as *Tested*, *No tests yet*, *Nothing found*, or *Practice*, and an unevidenced one becomes a tech-debt entry graded by the published rule table.
+
+Practices — V-Model, White-Box, Test Design Techniques, Black-Box, Gray-Box, Exploratory, Agile Testing — are ways of working that leave no artifact. They are named to the agent as context but never requested as files, and the Testing page never counts them as gaps.
+
+**A methodology can also hold work back — if you ask it to.** Each entry carries an optional `blocking` flag (schema version 2, off by default). When set on an enabled methodology, AtlasMind's write gate refuses non-test writes until a failing test has been observed. It is opt-in *per methodology* rather than a project-wide switch, because enabling a methodology is a statement of intent that should stay safe to make, whereas turning one into a gate changes how every task in the project runs. Declare the full standard you hold yourself to, and block on the one or two you are willing to stop work over. Where AtlasMind cannot read the config at all, the gate stays on.
+
+**Enabling a methodology you do not practise produces a permanent, visible gap.** That is the intended behaviour rather than a flaw: the alternative is a declaration that means nothing. Turn on what the project genuinely does, and add the rest deliberately.
 
 #### Configuration — Settings Panel → Testing
 

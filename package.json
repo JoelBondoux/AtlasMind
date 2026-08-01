@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.219.0",
+  "version": "0.235.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -120,6 +120,14 @@
           {
             "name": "followups",
             "description": "List open follow-ups grouped by overdue / due soon / upcoming"
+          },
+          {
+            "name": "research",
+            "description": "What research scans have found about the world outside this repository, what is due, and what has never been asked"
+          },
+          {
+            "name": "ideate",
+            "description": "Board state, what needs attention, and links to the Ideation overview and canvas"
           },
           {
             "name": "ship",
@@ -268,6 +276,11 @@
         "enablement": "false"
       },
       {
+        "command": "atlasmind.setup.prepareCommand",
+        "title": "AtlasMind: Prepare a Setup Command",
+        "enablement": "false"
+      },
+      {
         "command": "atlasmind.buzz.openGuide",
         "title": "AtlasMind: Guide Me Through Buzz Setup"
       },
@@ -280,6 +293,21 @@
         "command": "atlasmind.buzz.fetchChannels",
         "title": "AtlasMind: Fetch My Buzz Channels",
         "icon": "$(list-selection)"
+      },
+      {
+        "command": "atlasmind.research.runScan",
+        "title": "AtlasMind: Run a Research Scan",
+        "icon": "$(telescope)"
+      },
+      {
+        "command": "atlasmind.research.openRegister",
+        "title": "AtlasMind: Open the Research Register",
+        "icon": "$(book)"
+      },
+      {
+        "command": "atlasmind.research.openDigest",
+        "title": "AtlasMind: Open the Research Digest",
+        "icon": "$(graph)"
       },
       {
         "command": "atlasmind.skills.addSkill",
@@ -374,6 +402,12 @@
         "title": "AtlasMind: Set Up This Subscription (ACP)",
         "category": "AtlasMind",
         "icon": "$(plug)"
+      },
+      {
+        "command": "atlasmind.acp.chooseConsoleMode",
+        "title": "AtlasMind: Choose ACP Console Window Behaviour",
+        "category": "AtlasMind",
+        "icon": "$(window)"
       },
       {
         "command": "atlasmind.models.refreshProvider",
@@ -552,27 +586,37 @@
         {
           "command": "atlasmind.openProjectIdeation",
           "when": "view == atlasmind.chatView",
-          "group": "navigation@3"
+          "group": "2_workspaces@1"
         },
         {
           "command": "atlasmind.openCostDashboard",
+          "when": "view == atlasmind.chatView",
+          "group": "2_workspaces@2"
+        },
+        {
+          "command": "atlasmind.openPersonalityProfile",
+          "when": "view == atlasmind.chatView",
+          "group": "navigation@3"
+        },
+        {
+          "command": "atlasmind.openWebsiteStudio",
           "when": "view == atlasmind.chatView",
           "group": "navigation@4"
         },
         {
           "command": "atlasmind.updateProjectMemory",
           "when": "view == atlasmind.chatView && atlasmind.ssotPresent",
-          "group": "navigation@5"
+          "group": "5_memory@1"
         },
         {
           "command": "atlasmind.importProject",
           "when": "view == atlasmind.chatView && !atlasmind.ssotPresent && config.atlasmind.showImportProjectAction",
-          "group": "navigation@5"
+          "group": "5_memory@1"
         },
         {
           "command": "atlasmind.openSettings",
           "when": "view == atlasmind.chatView",
-          "group": "4_config@1"
+          "group": "navigation@5"
         },
         {
           "command": "atlasmind.openProjectDashboard",
@@ -1261,6 +1305,12 @@
           },
           "description": "Map a Buzz identity (npub or 64-character hex) to an AtlasMind agent id, so inbound work from that Buzz agent lands with the right specialist.",
           "markdownDescription": "Assign specific **AtlasMind agents** to specific **Buzz agents**.\n\nMaps a Buzz identity to an AtlasMind agent id, so inbound work from that identity is attributed to the right specialist — a Buzz build-bot's messages can land with your DevOps agent instead of arriving unattributed.\n\n```json\n{\n  \"npub1abc…\": \"devops-engineer\",\n  \"7e7e9c42…\": \"security-specialist\"\n}\n```\n\nKeys accept an `npub…` or a 64-character hex key (the bech32 checksum is validated, so a mistyped npub is rejected rather than binding to the wrong identity; an `nsec` secret key is refused). An unbound identity simply stays unassigned — AtlasMind never guesses an agent.\n\nThis is a **local routing preference only**. Buzz still owns the keypair, the directory, and the authorship ledger."
+        },
+        "atlasmind.acp.hideConsoleWindows": {
+          "type": "boolean",
+          "default": false,
+          "description": "Windows only: keep ACP agent console windows on a private desktop so they cannot pop up or steal focus. Off by default.",
+          "markdownDescription": "**Windows only, off by default.** Keep an ACP agent and the child processes it launches on a dedicated, non-visible Windows desktop. This prevents black console windows from appearing or taking keyboard/mouse focus.\n\nWith this unchecked, AtlasMind uses ordinary process launching. The first ACP start — and any restart after settings change or 30 minutes idle — may briefly show terminal windows created by the agent or its MCP servers. AtlasMind reuses a safe live session, so it no longer starts that process tree for every answer.\n\nWith this checked, AtlasMind uses a bundled, SHA-256-pinned native launcher. It creates a private desktop, passes through only stdin/stdout/stderr, starts the already-resolved agent command without a shell, and never switches to or remotely controls that desktop. If the helper is missing, modified, or blocked, the ACP launch fails visibly; AtlasMind does not silently fall back.\n\n**Security software note:** hidden desktops are also used by hVNC malware. Microsoft Defender exposes and hunts processes on them for that reason, so enterprise EDR may flag this legitimate use. The hash pin checks AtlasMind's expected bytes; it is not an Authenticode signature, and this helper is not Authenticode-signed in v0.230.0. Leave this unchecked where policy forbids it, or if your security team has not approved the launcher."
         },
         "atlasmind.acp.modelStanding": {
           "type": "object",
@@ -2068,8 +2118,8 @@
         "atlasmind.acp.toolsEnabled": {
           "type": "boolean",
           "default": false,
-          "description": "Allow ACP agents (Claude subscription, Codex/ChatGPT subscription) to run their own tools, asking your approval for each operation. Off by default: agents answer questions but cannot act.",
-          "markdownDescription": "**Off by default.** Lets an ACP agent — a Claude or ChatGPT subscription driven over the [Agent Client Protocol](https://agentclientprotocol.com) — actually *do* things: edit files, run commands, search, fetch.\n\nEvery operation still needs your approval. When the agent asks, AtlasMind shows what it wants to do and waits; nothing runs unless you allow it.\n\nTwo things worth knowing before turning this on:\n\n- **The work happens inside the agent's process, not inside AtlasMind.** AtlasMind decides *whether* each operation may proceed, and shows you what ran, but the agent performs it with whatever access it already has.\n- **AtlasMind never grants a permanent permission.** Where an agent offers \"always allow\", AtlasMind declines it and answers \"allow once\" instead — a standing grant would live in the agent's own state, where you could not find or revoke it.\n\nWith this off, agents still work for chat, code, and reasoning; they simply cannot act. See also `#atlasmind.acp.mcpServers#`."
+          "description": "Let subscription agents act — allow ACP agents (Claude subscription, Codex/ChatGPT subscription) to run their own tools, asking your approval for each operation. Off by default: agents answer questions but cannot act.",
+          "markdownDescription": "**Let subscription agents act.** **Off by default.** Lets an ACP agent — a Claude or ChatGPT subscription driven over the [Agent Client Protocol](https://agentclientprotocol.com) — actually *do* things: edit files, run commands, search, fetch.\n\nEvery operation still needs your approval. When the agent asks, AtlasMind shows what it wants to do and waits; nothing runs unless you allow it.\n\nTwo things worth knowing before turning this on:\n\n- **The work happens inside the agent's process, not inside AtlasMind.** AtlasMind decides *whether* each operation may proceed, and shows you what ran, but the agent performs it with whatever access it already has.\n- **AtlasMind never grants a permanent permission.** Where an agent offers \"always allow\", AtlasMind declines it and answers \"allow once\" instead — a standing grant would live in the agent's own state, where you could not find or revoke it.\n\nWith this off, agents still work for chat, code, and reasoning; they simply cannot act. See also `#atlasmind.acp.mcpServers#`."
         },
         "atlasmind.acp.mcpServers": {
           "type": "array",
@@ -2100,6 +2150,77 @@
           },
           "default": [],
           "description": "Absolute paths to other AtlasMind projects whose ideation boards may be read for cross-project context. At most three are consulted, and nothing is ever written to another project."
+        },
+        "atlasmind.research.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Master switch for research scans, which ask questions about the world outside this repository (competition, customers, technology, feature gaps, market, funding, regulation). Off by default: a scan reaches the network and spends on a model. Findings are recorded in project_memory/analysis/research.json, and a claim with no retrievable source is stored as a question rather than as evidence."
+        },
+        "atlasmind.research.automationLevel": {
+          "type": "string",
+          "enum": [
+            "observe",
+            "propose",
+            "auto"
+          ],
+          "default": "observe",
+          "enumDescriptions": [
+            "Tell you when a scan is due. Nothing runs.",
+            "Draft the scan brief when one is due. Running it is still a click.",
+            "Run a due scan on window activation, inside the declared spend cap. Findings still land as open and need triage."
+          ],
+          "description": "The ceiling every individual scan's automation level is capped by. A scan may request more and will be reduced to this, with the reduction stated. AtlasMind never files a decision on your behalf at any level."
+        },
+        "atlasmind.research.scans": {
+          "type": "object",
+          "default": {},
+          "description": "Per-scan overrides, keyed by scan id (competition, customer, technology, feature, market, funding, regulatory). Each value may set `enabled` (boolean), `cadenceDays` (number) and `automationLevel` (observe/propose/auto). A scan is off until switched on here. Unknown ids are ignored.",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "default": false
+              },
+              "cadenceDays": {
+                "type": "number"
+              },
+              "automationLevel": {
+                "type": "string",
+                "enum": [
+                  "observe",
+                  "propose",
+                  "auto"
+                ]
+              }
+            }
+          }
+        },
+        "atlasmind.research.searchSource": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "exa",
+            "mcp",
+            "web-fetch",
+            "none"
+          ],
+          "default": "auto",
+          "enumDescriptions": [
+            "Use the best source available: EXA, then a connected MCP search tool, then the built-in fetch.",
+            "EXA web search. Requires an EXA API key in the Specialist Integrations panel.",
+            "A connected MCP server exposing a search or fetch tool.",
+            "The built-in Fetch URL skill. It can read a page you name but cannot find one, so scans that need discovery will report what they could not assess.",
+            "No source. External scans will refuse to run rather than answering from the model's own recollection."
+          ],
+          "description": "Where research scans look. With no usable source AtlasMind reports that it could not look — it never falls back to what a model already believed."
+        },
+        "atlasmind.research.monthlySpendCapUsd": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 1000,
+          "description": "The most automatic research runs may spend per month. 0 (the default) means no scan may run on its own, whatever its automation level — turning research on and letting it run unattended are deliberately two separate decisions. Scans you start yourself are not capped here."
         },
         "atlasmind.instructions.verifyOnCommit": {
           "type": "boolean",
@@ -2142,6 +2263,7 @@
     "test:providers:local-recommendations": "vitest run tests/providers/localModelRecommendationRegistry.test.ts --reporter=dot",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:mutation": "stryker run stryker.config.json",
     "package": "vsce package",
     "package:vsix": "npx @vscode/vsce package",
     "publish:pre-release": "npx @vscode/vsce publish --pre-release",
@@ -2150,6 +2272,9 @@
     "tag:release": "node .github/scripts/tag-release.mjs"
   },
   "devDependencies": {
+    "@stryker-mutator/core": "^9.6.1",
+    "@stryker-mutator/typescript-checker": "^9.6.1",
+    "@stryker-mutator/vitest-runner": "^9.6.1",
     "@types/node": "^26.1.2",
     "@types/vscode": "^1.120.0",
     "@types/ws": "^8.18.1",
@@ -2160,6 +2285,7 @@
     "@vscode/vsce": "^3.9.2",
     "esbuild": "^0.28.1",
     "eslint": "^10.8.0",
+    "fast-check": "^4.9.0",
     "husky": "^9.1.7",
     "typescript": "^6.0.3",
     "vitest": "^4.1.2"

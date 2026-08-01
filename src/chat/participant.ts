@@ -40,6 +40,8 @@ import {
 import { mergeImageAttachments, resolveInlineImageAttachments, resolvePickedImageAttachments } from './imageAttachments.js';
 import { ATLAS_SLASH_COMMANDS } from '../views/chatSlashRouting.js';
 import { detectGovernedAction } from '../core/workflowChatGuard.js';
+import { assessIdeationReadiness } from '../core/ideationReadiness.js';
+import { extractItemGates, parseRoadmapGates, stripRoadmapGatesBlock } from '../core/roadmapGates.js';
 import {
   applyManagedInstructionBlock,
   detectedWritebackTools,
@@ -682,7 +684,9 @@ async function handleNativeChatRequest(
   return {
     metadata: {
       command: request.command ?? 'freeform',
-      ...(assistantMeta.suggestedFollowups ? { suggestedFollowups: assistantMeta.suggestedFollowups } : {}),
+      ...((assistantMeta.suggestedFollowups ?? assistantMeta.quickReplies)
+        ? { suggestedFollowups: assistantMeta.suggestedFollowups ?? assistantMeta.quickReplies }
+        : {}),
     },
   };
 }
@@ -859,6 +863,8 @@ export async function runDeterministicSlashCommand(
     case 'acp': await handleAcpCommand(argument, stream, atlas); return true;
     case 'setup': await handleSetupCommand(argument, stream, atlas, token); return true;
     case 'followups': await handleFollowUpsCommand(stream, atlas); return true;
+    case 'research': await handleResearchCommand(argument, stream, atlas); return true;
+    case 'ideate': await handleIdeateCommand(stream); return true;
     case 'ship': await handleShipCommand(argument, stream, atlas); return true;
     case 'sync-instructions': await handleSyncInstructionsCommand(argument, stream, atlas); return true;
     case 'voice': await handleVoiceCommand(stream); return true;
@@ -2109,7 +2115,7 @@ export async function collectBuzzSetupSteps(atlas: AtlasMindContext): Promise<im
 export async function collectAcpSetupSteps(atlas: AtlasMindContext): Promise<import('../core/setupWalkthrough.js').SetupStep[]> {
   const [
     { buildAcpSetupPlan },
-    { parseAcpAgentSettings, AcpAdapter, VERIFIED_ACP_AGENTS, acpInstallCommand },
+    { parseAcpAgentSettings, AcpAdapter, VERIFIED_ACP_AGENTS, acpInstallCommand, acpSignInFor },
     { ACP_PROTOCOL_VERSION },
   ] = await Promise.all([
     import('../core/acpSetupPlan.js'),
@@ -2120,10 +2126,24 @@ export async function collectAcpSetupSteps(atlas: AtlasMindContext): Promise<imp
   const cfg = vscode.workspace.getConfiguration('atlasmind');
   const agents = parseAcpAgentSettings(cfg.get<unknown>('acp.agents'));
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const consoleSetting = cfg.inspect<boolean>('acp.hideConsoleWindows');
+  const { isAcpConsoleModeChosen } = await import('../providers/acpWindowsLauncher.js');
+  const consoleModeChosen = isAcpConsoleModeChosen(process.platform, [
+    consoleSetting?.workspaceFolderValue,
+    consoleSetting?.workspaceValue,
+    consoleSetting?.globalValue,
+  ]);
+  const hideConsoleWindows = cfg.get<boolean>('acp.hideConsoleWindows', false);
 
   let probe: { installed: boolean; authenticated: boolean; protocolVersion?: number; message?: string } | undefined;
-  if (agents.length > 0) {
-    const adapter = new AcpAdapter({ agents, ...(workspaceRoot ? { cwd: workspaceRoot } : {}) });
+  // On Windows the setup guide must explain the launch choices *before* a probe
+  // starts the process tree whose windows are in question.
+  if (agents.length > 0 && (process.platform !== 'win32' || consoleModeChosen)) {
+    const adapter = new AcpAdapter({
+      agents,
+      ...(workspaceRoot ? { cwd: workspaceRoot } : {}),
+      hideConsoleWindows,
+    });
     probe = await adapter.probe().catch(() => undefined);
   }
 
@@ -2132,6 +2152,9 @@ export async function collectAcpSetupSteps(atlas: AtlasMindContext): Promise<imp
 
   return buildAcpSetupPlan({
     configuredAgents: agents.map(agent => ({ id: agent.id, command: agent.command, ...(agent.label ? { label: agent.label } : {}) })),
+    platform: process.platform,
+    consoleModeChosen,
+    hideConsoleWindows,
     ...(probe ? { installed: probe.installed, authenticated: probe.authenticated } : {}),
     ...(probe?.protocolVersion !== undefined ? { protocolVersion: probe.protocolVersion } : {}),
     ...(probe?.message ? { probeMessage: probe.message } : {}),
@@ -2149,6 +2172,9 @@ export async function collectAcpSetupSteps(atlas: AtlasMindContext): Promise<imp
       args: agent.args,
       install: acpInstallCommand(agent.npmPackage),
     })),
+    // Absent for an agent whose sign-in AtlasMind has never read — the guide
+    // says so rather than printing a command nobody verified.
+    ...(agents[0] ? (signIn => signIn ? { signIn } : {})(acpSignInFor(agents[0].command)) : {}),
   });
 }
 
@@ -2458,6 +2484,441 @@ async function handleFollowUpsCommand(
   }
   stream.markdown(out.join('\n'));
   stream.button({ command: 'atlasmind.openProjectDirector', title: 'Open Project Director' });
+}
+
+const IDEATION_COMMAND_MAX_FILE_BYTES = 512 * 1024;
+const IDEATION_COMMAND_MAX_CARDS = 48;
+const IDEATION_COMMAND_MAX_CONNECTIONS = 96;
+const IDEATION_BOARD_DEFAULT_FILE = 'atlas-ideation-board.json';
+const IDEATION_WORKSPACE_REGISTRY_FILE = 'atlas-ideation-workspaces.json';
+const IDEATION_ROADMAP_ITEMS_START = '<!-- atlasmind:roadmap-items:start -->';
+const IDEATION_ROADMAP_ITEMS_END = '<!-- atlasmind:roadmap-items:end -->';
+
+interface IdeationCommandBoard {
+  workspaceTitle: string;
+  exists: boolean;
+  omittedCardCount: number;
+  omittedConnectionCount: number;
+  cards: Array<{
+    id: string;
+    kind: string;
+    title: string;
+    archived?: boolean;
+    derived?: { roadmapText: string; roadmapNormalized: string; derivedAt: string };
+  }>;
+  connections: Array<{
+    fromCardId: string;
+    toCardId: string;
+    relation: 'supports' | 'causal' | 'dependency' | 'contradiction' | 'opportunity';
+  }>;
+}
+
+/**
+ * `/ideate` — a read-only stage-0 status check and two routes back into the
+ * work. It deliberately reads the persisted board instead of running a model,
+ * scan, or board mutation: opening a status command must not change the thing
+ * it is describing.
+ */
+async function handleIdeateCommand(stream: vscode.ChatResponseStream): Promise<void> {
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!workspaceRoot) {
+    stream.markdown('### Ideation\n\nOpen a workspace folder to inspect the active ideation board.');
+    stream.button({ command: 'atlasmind.openProjectIdeation', title: 'Open canvas' });
+    return;
+  }
+
+  const ssotSegments = ideationCommandSsotSegments(
+    vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', DEFAULT_SSOT_PATH),
+  );
+  if (!ssotSegments) {
+    stream.markdown([
+      '### Ideation',
+      '',
+      'The configured SSOT path cannot be read safely, so AtlasMind did not inspect an ideation file outside this workspace.',
+    ].join('\n'));
+    stream.button({ command: 'workbench.action.openSettings', title: 'Open SSOT path setting', arguments: ['atlasmind.ssotPath'] });
+    return;
+  }
+
+  const ideasRoot = path.join(workspaceRoot, ...ssotSegments, 'ideas');
+  const roadmapPath = path.join(workspaceRoot, ...ssotSegments, 'roadmap', 'improvement-plan.md');
+  const [board, roadmapMarkdown] = await Promise.all([
+    readIdeationCommandBoard(ideasRoot),
+    readIdeationCommandText(roadmapPath),
+  ]);
+  const readiness = assessIdeationReadiness({
+    cards: board.cards,
+    connections: board.connections,
+    roadmapItems: extractIdeationCommandRoadmapItems(roadmapMarkdown ?? ''),
+  });
+  const realized = readiness.observations.find(observation => observation.id === 'reaching-backlog')?.count ?? 0;
+  const out: string[] = [
+    '### Ideation',
+    '',
+    `**${escapeMd(readiness.summary)}**`,
+    '',
+    '**Board state**',
+    '',
+    `- Active cards: ${readiness.activeCards}`,
+    `- Evidence cards: ${readiness.evidenceCards}`,
+    `- Not yet work: ${readiness.unrealized}`,
+    `- Became roadmap work: ${realized}`,
+    `- Unresolved contradictions: ${readiness.contradictions}`,
+    '',
+  ];
+
+  if (!board.exists) {
+    out.push('_No saved active board was found; the reading above is an unstarted board, not a clean one._', '');
+  } else {
+    out.push(`_Active workspace: ${escapeMd(board.workspaceTitle)}._`, '');
+  }
+  if (board.omittedCardCount > 0 || board.omittedConnectionCount > 0) {
+    out.push(
+      `_This reading used the first ${IDEATION_COMMAND_MAX_CARDS} cards and ${IDEATION_COMMAND_MAX_CONNECTIONS} connections `
+      + `from an oversized board; ${board.omittedCardCount} card${board.omittedCardCount === 1 ? '' : 's'} and `
+      + `${board.omittedConnectionCount} connection${board.omittedConnectionCount === 1 ? '' : 's'} were not included._`,
+      '',
+    );
+  }
+
+  // The readiness module ranks observations by consequence and has a bounded
+  // rule table, so every observation can be shown rather than silently capped.
+  out.push('**Needs attention**', '');
+  if (readiness.observations.length === 0) {
+    out.push('- No readiness observations are available yet.', '');
+  } else {
+    for (const observation of readiness.observations) {
+      out.push(`- \`${observation.tone}\` ${escapeMd(observation.label)} — ${escapeMd(observation.detail)}`);
+    }
+    out.push('');
+  }
+
+  out.push('_This command only reads the board and roadmap. It does not run a scan or change either file._');
+  stream.markdown(out.join('\n'));
+  stream.button({ command: 'atlasmind.openProjectDashboard', title: 'Open ideation overview', arguments: ['ideation'] });
+  stream.button({ command: 'atlasmind.openProjectIdeation', title: 'Open canvas' });
+}
+
+function ideationCommandSsotSegments(value: string | undefined): string[] | undefined {
+  const normalized = normalizeSsotPathForLookup(value);
+  const segments = normalized.split('/').filter(Boolean);
+  return segments.length > 0 && segments.every(segment => /^[A-Za-z0-9._-]+$/.test(segment) && segment !== '.' && segment !== '..')
+    ? segments
+    : undefined;
+}
+
+async function readIdeationCommandBoard(ideasRoot: string): Promise<IdeationCommandBoard> {
+  const registry = await readIdeationCommandJson(path.join(ideasRoot, IDEATION_WORKSPACE_REGISTRY_FILE));
+  let boardFile = IDEATION_BOARD_DEFAULT_FILE;
+  let workspaceTitle = 'Primary ideation';
+  if (isIdeationCommandRecord(registry)) {
+    const activeWorkspaceId = ideationCommandText(registry['activeWorkspaceId'], 80);
+    const workspaces = Array.isArray(registry['workspaces'])
+      ? registry['workspaces'].filter(isIdeationCommandRecord)
+      : [];
+    const activeWorkspace = workspaces.find(workspace => ideationCommandText(workspace['id'], 80) === activeWorkspaceId)
+      ?? workspaces[0];
+    if (activeWorkspace) {
+      const candidateFile = ideationCommandText(activeWorkspace['boardFile'], 140);
+      if (isSafeIdeationCommandBoardFile(candidateFile)) {
+        boardFile = candidateFile;
+      }
+      workspaceTitle = ideationCommandText(activeWorkspace['title'], 80) || workspaceTitle;
+    }
+  }
+
+  const rawBoard = await readIdeationCommandJson(path.join(ideasRoot, boardFile));
+  if (!isIdeationCommandRecord(rawBoard)) {
+    return { workspaceTitle, exists: false, omittedCardCount: 0, omittedConnectionCount: 0, cards: [], connections: [] };
+  }
+
+  const rawCards = Array.isArray(rawBoard['cards']) ? rawBoard['cards'] : [];
+  const rawConnections = Array.isArray(rawBoard['connections']) ? rawBoard['connections'] : [];
+  const cards = rawCards
+    .slice(0, IDEATION_COMMAND_MAX_CARDS)
+    .flatMap(item => {
+      if (!isIdeationCommandRecord(item)) {
+        return [];
+      }
+      const id = ideationCommandText(item['id'], 160);
+      const title = ideationCommandText(item['title'], 160);
+      if (!isSafeIdeationCommandId(id) || !title) {
+        return [];
+      }
+      const derived = isIdeationCommandRecord(item['derived'])
+        ? ideationCommandDerivedRecord(item['derived'])
+        : undefined;
+      return [{
+        id,
+        kind: ideationCommandText(item['kind'], 40) || 'unknown',
+        title,
+        ...(ideationCommandText(item['archivedAt'], 64) ? { archived: true } : {}),
+        ...(derived ? { derived } : {}),
+      }];
+    });
+  const connections = rawConnections
+    .slice(0, IDEATION_COMMAND_MAX_CONNECTIONS)
+    .flatMap(item => {
+      if (!isIdeationCommandRecord(item)) {
+        return [];
+      }
+      const fromCardId = ideationCommandText(item['fromCardId'], 160);
+      const toCardId = ideationCommandText(item['toCardId'], 160);
+      const relation = item['relation'];
+      if (!isSafeIdeationCommandId(fromCardId) || !isSafeIdeationCommandId(toCardId)
+        || !isIdeationCommandRelation(relation)) {
+        return [];
+      }
+      return [{ fromCardId, toCardId, relation }];
+    });
+  return {
+    workspaceTitle,
+    exists: true,
+    omittedCardCount: Math.max(0, rawCards.length - IDEATION_COMMAND_MAX_CARDS),
+    omittedConnectionCount: Math.max(0, rawConnections.length - IDEATION_COMMAND_MAX_CONNECTIONS),
+    cards,
+    connections,
+  };
+}
+
+async function readIdeationCommandJson(filePath: string): Promise<unknown | undefined> {
+  const text = await readIdeationCommandText(filePath);
+  if (text === undefined) {
+    return undefined;
+  }
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+async function readIdeationCommandText(filePath: string): Promise<string | undefined> {
+  try {
+    const metadata = await fs.lstat(filePath);
+    if (!metadata.isFile() || metadata.size > IDEATION_COMMAND_MAX_FILE_BYTES) {
+      return undefined;
+    }
+    return await fs.readFile(filePath, 'utf-8');
+  } catch {
+    return undefined;
+  }
+}
+
+function extractIdeationCommandRoadmapItems(markdown: string): Array<{ id: string; text: string; completed: boolean }> {
+  const withoutGateBlock = stripRoadmapGatesBlock(markdown);
+  const start = withoutGateBlock.indexOf(IDEATION_ROADMAP_ITEMS_START);
+  const end = withoutGateBlock.indexOf(IDEATION_ROADMAP_ITEMS_END);
+  const region = start >= 0 && end > start
+    ? withoutGateBlock.slice(start + IDEATION_ROADMAP_ITEMS_START.length, end)
+    : withoutGateBlock;
+  let gates: ReturnType<typeof parseRoadmapGates> = [];
+  try {
+    gates = parseRoadmapGates(markdown);
+  } catch {
+    // A malformed gate declaration must not stop `/ideate` reporting the board.
+  }
+  const seen = new Set<string>();
+  const items = [...region.matchAll(/^\s*(?:[-*]|\d+\.)\s+(.+?)\s*$/gm)]
+    .flatMap(match => {
+      const raw = ideationCommandText(match[1], 320);
+      if (!raw) {
+        return [];
+      }
+      const completed = /^(?:✅|\[x\])/i.test(raw);
+      const withoutCheckbox = raw.replace(/^(?:✅|\[(?:x| )\])\s*/i, '').trim();
+      const text = ideationCommandText(extractItemGates(withoutCheckbox, gates).text, 300);
+      const key = text.toLowerCase().replace(/\s+/g, ' ').replace(/[.\s]+$/, '').trim();
+      if (!text || seen.has(key)) {
+        return [];
+      }
+      seen.add(key);
+      return [{ text, completed }];
+    });
+  return items.map((item, index) => ({ id: `roadmap-${index + 1}`, ...item }));
+}
+
+function ideationCommandDerivedRecord(value: Record<string, unknown>): { roadmapText: string; roadmapNormalized: string; derivedAt: string } | undefined {
+  const roadmapText = ideationCommandText(value['roadmapText'], 300);
+  const roadmapNormalized = ideationCommandText(value['roadmapNormalized'], 300);
+  const derivedAt = ideationCommandText(value['derivedAt'], 64);
+  return roadmapText && roadmapNormalized && derivedAt ? { roadmapText, roadmapNormalized, derivedAt } : undefined;
+}
+
+function isIdeationCommandRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function ideationCommandText(value: unknown, limit: number): string {
+  return typeof value === 'string'
+    ? value.replace(/[\u0000-\u001F\u007F]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, limit)
+    : '';
+}
+
+function isSafeIdeationCommandId(value: string): boolean {
+  return /^[A-Za-z0-9._:-]{1,160}$/.test(value);
+}
+
+function isIdeationCommandRelation(
+  value: unknown,
+): value is IdeationCommandBoard['connections'][number]['relation'] {
+  return value === 'supports' || value === 'causal' || value === 'dependency'
+    || value === 'contradiction' || value === 'opportunity';
+}
+
+function isSafeIdeationCommandBoardFile(value: string): boolean {
+  return value === path.basename(value) && /^[A-Za-z0-9][A-Za-z0-9._-]{0,120}\.json$/.test(value);
+}
+
+/**
+ * `/research` — what the world outside this repository has told us, and what it
+ * has not been asked.
+ *
+ * Reads only. Running a scan spends money and reaches the network, so it stays
+ * behind the command's own modal confirmation; this surface offers the button and
+ * never presses it.
+ *
+ * The section that must never be dropped is the last one. A list of findings
+ * reads as a complete picture, and the questions nobody has asked are exactly
+ * what a research surface is for — so scans that have never produced an answer
+ * are reported here even when everything else is quiet.
+ */
+async function handleResearchCommand(
+  argument: string,
+  stream: vscode.ChatResponseStream,
+  atlas: AtlasMindContext,
+): Promise<void> {
+  const [
+    { RESEARCH_SCANS, researchScan },
+    { openResearchFindings, researchQuestions, seedResearchRegister },
+    { buildResearchSchedule },
+    { readResearchSettings },
+    { detectResearchSources },
+  ] = await Promise.all([
+    import('../core/researchScanCatalog.js'),
+    import('../core/researchRegister.js'),
+    import('../core/researchSchedule.js'),
+    import('../core/researchSettings.js'),
+    import('../core/researchSources.js'),
+  ]);
+
+  const settings = readResearchSettings(vscode.workspace.getConfiguration('atlasmind'));
+  if (!settings.enabled) {
+    stream.markdown([
+      '### Research',
+      '',
+      'Research scans are switched off. They ask questions about the world *outside* this repository —',
+      'competition, customers, technology, feature gaps, market, funding, regulation — and they reach the',
+      'network and spend on a model, so they are off by default.',
+      '',
+      'Findings are only ever recorded with a retrievable source. A claim with no source is kept as a',
+      '*question to research*, never as evidence.',
+    ].join('\n'));
+    stream.button({ command: 'workbench.action.openSettings', title: 'Open research settings', arguments: ['atlasmind.research.enabled'] });
+    return;
+  }
+
+  const register = atlas.researchRegisterManager?.getRegister() ?? seedResearchRegister();
+  const sources = detectResearchSources({
+    exaKeyPresent: settings.searchSource !== 'none',
+    mcpToolIds: atlas.skillsRegistry.listSkills().map(skill => skill.id).filter(id => id.startsWith('mcp:')),
+    webFetchEnabled: atlas.skillsRegistry.get('web-fetch') !== undefined,
+    preference: settings.searchSource,
+  });
+  const schedule = buildResearchSchedule({
+    enabled: settings.enabled,
+    masterLevel: settings.automationLevel,
+    scans: settings.scans,
+    register,
+    sourceAvailable: sources.selected !== undefined,
+    monthlySpendCapUsd: settings.monthlySpendCapUsd,
+    spentThisMonthUsd: 0,
+    now: new Date(),
+  });
+
+  const showAll = /^all$/i.test(argument.trim());
+  const open = openResearchFindings(register);
+  const questions = researchQuestions(register);
+  const out: string[] = ['### Research', '', `**${schedule.summary}**`, ''];
+
+  if (open.length > 0) {
+    out.push('**Open findings**', '');
+    for (const finding of [...open]
+      .sort((a, b) => ({ high: 0, medium: 1, low: 2 })[a.severity] - ({ high: 0, medium: 1, low: 2 })[b.severity])
+      .slice(0, 8)) {
+      const host = finding.citations[0]?.host ?? 'no source';
+      out.push(`- \`${finding.severity}\` ${escapeMd(finding.title)} — ${escapeMd(researchScan(finding.scanId).label)}, via ${escapeMd(host)}`);
+    }
+    if (open.length > 8) {
+      out.push(`- …and ${open.length - 8} more in the register.`);
+    }
+    out.push('');
+  }
+
+  const due = schedule.dueNow;
+  if (due.length > 0) {
+    out.push('**Due now**', '');
+    for (const scan of due) {
+      out.push(`- ${escapeMd(scan.label)} — last answered ${scan.daysSinceRun ?? '?'} days ago, cadence ${scan.cadenceDays} days`);
+    }
+    out.push('');
+  }
+
+  const blocked = schedule.scans.filter(scan => scan.state === 'blocked');
+  if (blocked.length > 0) {
+    out.push('**Blocked**', '');
+    for (const scan of blocked) {
+      out.push(`- ${escapeMd(scan.label)} — ${escapeMd(scan.blocker ?? 'blocked')}`);
+    }
+    out.push('');
+  }
+
+  // Never omitted. A findings list on its own reads as a complete picture, and
+  // the whole point of this surface is the questions nobody has asked yet.
+  const never = schedule.neverScanned;
+  out.push('**Never assessed**', '');
+  if (never.length === 0) {
+    out.push('- Every switched-on scan has produced an answer.', '');
+  } else {
+    for (const scan of never) {
+      out.push(`- ${escapeMd(scan.label)} — ${escapeMd(researchScan(scan.scanId as never).question)}`);
+    }
+    out.push('');
+  }
+
+  const off = schedule.scans.filter(scan => scan.state === 'disabled');
+  if (off.length > 0) {
+    out.push(
+      `_${off.length} of ${RESEARCH_SCANS.length} scans are switched off: `
+      + off.map(scan => escapeMd(scan.label)).join(', ') + '._',
+      '',
+    );
+  }
+
+  if (questions.length > 0) {
+    out.push(
+      `_${questions.length} claim${questions.length === 1 ? '' : 's'} recorded without a source, held as `
+      + 'questions to research rather than as evidence._',
+      '',
+    );
+  }
+
+  if (showAll) {
+    out.push('**Every scan**', '');
+    for (const scan of schedule.scans) {
+      out.push(
+        `- ${escapeMd(scan.label)} — \`${scan.state}\`, \`${scan.effectiveLevel}\`, every ${scan.cadenceDays} days`
+        + (scan.levelReason ? ` (${escapeMd(scan.levelReason)})` : ''),
+      );
+    }
+    out.push('');
+  }
+
+  out.push(`_Source: ${escapeMd(sources.selected ?? sources.noSourceReason ?? 'none')}_`);
+  stream.markdown(out.join('\n'));
+  stream.button({ command: 'atlasmind.research.runScan', title: 'Run a scan' });
+  stream.button({ command: 'atlasmind.research.openDigest', title: 'Open the digest' });
+  stream.button({ command: 'atlasmind.research.openRegister', title: 'Open the register' });
 }
 
 async function handleAgentsCommand(
@@ -3119,6 +3580,9 @@ export function ensureAssistantVisibleResponse(
 
   const followupQuestion = metadata?.followupQuestion?.trim();
   if (followupQuestion) {
+    if (metadata?.quickReplies?.length) {
+      return `${followupQuestion}\n\nChoose an option below, or type a different response.`;
+    }
     return `${followupQuestion}\n\nSay "Proceed" to continue, or pick a follow-up option below.`;
   }
 
@@ -3464,15 +3928,20 @@ export function buildQuickReplyPayload(responseText: string | undefined): Webvie
 
 export function buildAssistantResponseMetadata(
   prompt: string,
-  result: Pick<TaskResult, 'agentId' | 'modelUsed' | 'costUsd' | 'inputTokens' | 'outputTokens' | 'artifacts' | 'contextCompressionSavingsUsd' | 'iterationLimitHit' | 'suggestedIterationLimit' | 'suggestedToolCallsPerTurnLimit'>,
+  result: Pick<TaskResult, 'agentId' | 'modelUsed' | 'costUsd' | 'inputTokens' | 'outputTokens' | 'artifacts' | 'autoDisabledProvider' | 'contextCompressionSavingsUsd' | 'iterationLimitHit' | 'suggestedIterationLimit' | 'suggestedToolCallsPerTurnLimit'>,
   options?: { hasSessionContext?: boolean; imageAttachments?: TaskImageAttachment[]; routingContext?: Record<string, unknown>; policies?: SessionPolicySnapshot[]; responseText?: string },
 ): SessionTranscriptMetadata {
   const toolCallCount = result.artifacts?.toolCallCount ?? 0;
   const toolCalls = result.artifacts?.toolCalls ?? [];
+  const responseWasEmpty = options?.responseText !== undefined && options.responseText.trim().length === 0;
 
   // Build a concise, action-oriented summary line.
   let summary: string;
-  if (toolCallCount > 0) {
+  if (responseWasEmpty) {
+    summary = result.autoDisabledProvider
+      ? `${result.autoDisabledProvider.displayName} stopped before returning an answer.`
+      : 'No usable answer was returned.';
+  } else if (toolCallCount > 0) {
     const actionSummary = toolCalls.length > 0 ? summarizeToolActionsForDisplay(toolCalls) : '';
     summary = actionSummary
       ? `Used ${toolCallCount} tool call${toolCallCount === 1 ? '' : 's'} — ${actionSummary}.`
@@ -3487,6 +3956,14 @@ export function buildAssistantResponseMetadata(
   if (toolCallCount > 0) {
     const actionDetail = toolCalls.length > 0 ? ` — ${summarizeToolActionsForDisplay(toolCalls)}` : '';
     bullets.push(`${toolCallCount} tool call${toolCallCount === 1 ? '' : 's'}${actionDetail}.`);
+  }
+
+  if (result.autoDisabledProvider) {
+    bullets.push(
+      result.autoDisabledProvider.failoverModelUsed
+        ? `${result.autoDisabledProvider.displayName} was paused; failover attempted with ${result.autoDisabledProvider.failoverModelUsed}.`
+        : `${result.autoDisabledProvider.displayName} was paused and no fallback model completed the request.`,
+    );
   }
 
   // Context factors
@@ -3529,12 +4006,34 @@ export function buildAssistantResponseMetadata(
   // Cost/token detail — kept last; concise so it doesn't dominate the summary
   bullets.push(`${formatCost(result.costUsd, 4)} · ${result.inputTokens.toLocaleString()} in / ${result.outputTokens.toLocaleString()} out`);
 
-  const suggestedFollowups = buildSuggestedExecutionFollowups(prompt, options?.routingContext ?? {});
+  const suggestedFollowups = responseWasEmpty
+    ? undefined
+    : buildSuggestedExecutionFollowups(prompt, options?.routingContext ?? {});
   const timelineNotes = buildTimelineNotes(options?.routingContext ?? {});
+
+  const emptyResponseRecovery = responseWasEmpty
+    ? {
+      followupQuestion: result.autoDisabledProvider
+        ? `${result.autoDisabledProvider.displayName} returned no answer. What should Atlas do next?`
+        : 'The model returned no usable answer. What should Atlas do next?',
+      quickReplies: [
+        {
+          label: result.autoDisabledProvider ? 'Retry elsewhere' : 'Retry',
+          prompt: 'Retry my previous request using available local or subscription-backed capacity. If no eligible model is available, explain why.',
+          description: 'Retry without selecting the failed pay-per-token route.',
+        },
+        {
+          label: 'Provider status',
+          prompt: 'Show which model providers are currently eligible and explain why the previous request failed.',
+          description: 'Review routing eligibility and the provider failure.',
+        },
+      ],
+    } satisfies Pick<SessionTranscriptMetadata, 'followupQuestion' | 'quickReplies'>
+    : undefined;
 
   // Detect quick-reply opportunities from the response text. These take lower
   // priority than the explicit suggestedFollowups (fix/explain/autonomous choices).
-  const responseQuickReplies = !suggestedFollowups && options?.responseText
+  const responseQuickReplies = !emptyResponseRecovery && !suggestedFollowups && options?.responseText
     ? detectResponseQuickReplies(options.responseText)
     : undefined;
 
@@ -3547,7 +4046,9 @@ export function buildAssistantResponseMetadata(
       : {}),
     ...(options?.policies?.length ? { policies: options.policies.map(policy => ({ ...policy })) } : {}),
     ...(timelineNotes.length ? { timelineNotes } : {}),
-    ...(suggestedFollowups
+    ...(emptyResponseRecovery
+      ? emptyResponseRecovery
+      : suggestedFollowups
       ? {
         followupQuestion: FOLLOWUP_FIX_QUESTION,
         suggestedFollowups,
@@ -4463,6 +4964,18 @@ export function buildFollowups(
     case 'followups':
       return [
         { prompt: '/director', label: 'Open Project Director' },
+      ];
+
+    case 'research':
+      return [
+        { prompt: '/research due', label: 'What is due' },
+        { prompt: '/research all', label: 'Every scan' },
+      ];
+
+    case 'ideate':
+      return [
+        { prompt: '/ideate', label: 'Refresh board status' },
+        { prompt: '/research', label: 'Review outside research' },
       ];
 
     case 'ship':

@@ -58,6 +58,38 @@ describe('TaskProfiler', () => {
     }
   });
 
+  it('treats whole-project assessments as high reasoning, including classifier underestimates', () => {
+    const profiler = new TaskProfiler();
+
+    for (const userMessage of [
+      'give me an honest assessment of my project so far.',
+      'Evaluate this repository as a whole.',
+      'Where does our codebase stand?',
+    ]) {
+      const profile = profiler.profileTask({ userMessage, phase: 'execution', requiresTools: false });
+      expect(profile.reasoning, userMessage).toBe('high');
+      expect(profile.preferredCapabilities, userMessage).toContain('reasoning');
+    }
+
+    const classifiedLow = profiler.profileTask({
+      userMessage: 'give me an honest assessment of my project so far.',
+      context: {
+        __classification: {
+          specialistDomain: null,
+          routingNeeds: [],
+          modality: 'text',
+          reasoning: 'low',
+          workspaceBias: 'none',
+          uiCommand: null,
+          fromLlm: true,
+        },
+      },
+      phase: 'execution',
+      requiresTools: false,
+    });
+    expect(classifiedLow.reasoning).toBe('high');
+  });
+
   it('does not over-escalate a plain action follow-up to high reasoning', () => {
     const profiler = new TaskProfiler();
     const profile = profiler.profileTask({

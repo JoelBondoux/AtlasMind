@@ -16,6 +16,7 @@ project_memory/
 ├── ideas/                 Feature ideas, explorations, brainstorms
 ├── domain/                Business logic, conventions, glossary
 ├── operations/            Runbooks, deployment, CI/CD, project run reports
+├── analysis/              Gap analysis and the research register (findings, digest, history)
 ├── agents/                Agent-specific knowledge
 ├── skills/                Skill-specific knowledge
 ├── sessions/              Internal per-session context snapshots (excluded from normal SSOT retrieval)

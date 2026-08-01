@@ -1,6 +1,6 @@
 # Website Studio
 
-Website Studio is AtlasMind's project-scoped workspace for taking a client website from intake to delivery readiness. Open it with **AtlasMind: Open Website Studio**, or choose **Website / Marketing Site** during guided bootstrap.
+Website Studio is AtlasMind's project-scoped workspace for taking a client website from intake to delivery readiness. Open it from **Project Dashboard → Delivery**, from the Project Ideation board, with the **AtlasMind: Open Website Studio** command, or by choosing **Website / Marketing Site** during guided bootstrap. (Until v0.234.0 the command was the only way in — the Studio linked out to the Dashboard and the Ideation board, and neither linked back.)
 
 ## Dashboards
 

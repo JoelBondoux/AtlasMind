@@ -1,10 +1,14 @@
 # Exclude source and test assets from VSIX
 src/**
 tests/**
+test/**
+e2e/**
+performance/**
 
 # Exclude docs and repo metadata not required at runtime
 .github/**
 docs/**
+native/**
 .vscode/**
 wiki/**
 project_memory*/**
@@ -23,6 +27,12 @@ SECURITY.md
 
 # Exclude development artifacts
 coverage/**
+.stryker-tmp/**
+# Written by every `vitest run` (see vitest.config.ts) so the Testing dashboard
+# has a verdict to read. It is evidence of a local run — never something to ship
+# inside the extension, where it would be ~800 KB of this repository's own test
+# names in every user's install.
+test-results/**
 node_modules/**/test/**
 node_modules/**/tests/**
 node_modules/**/example/**
@@ -39,6 +49,7 @@ node_modules/**/.vscode/**
 # Exclude config files not needed by extension runtime
 vitest.config.ts
 tsconfig.json
+stryker.config.json
 
 # Keep required extension assets
 !.gitignore

@@ -125,6 +125,8 @@ describe('isOpeningAction — a plan is never an installer', () => {
       'atlasmind.setup.prepareCommand',
       // Opens an input box the user types into — dismissing it stores nothing.
       'atlasmind.setBuzzAgentKey',
+      // Opens the disclosed visible/private-desktop picker; dismissing stores nothing.
+      'atlasmind.acp.chooseConsoleMode',
       'workbench.action.openSettings',
       'vscode.open',
     ]) {
@@ -189,8 +191,8 @@ describe('every shipped guide obeys the opening-action rule', () => {
       { id: 'gemini', label: 'Gemini CLI', command: 'gemini', args: ['--acp'], install: 'npm install -g @google/gemini-cli' },
     ];
     const states = [
-      { configuredAgents: [], clientProtocolVersion: 1, providerEnabled: false, hasCompletedATurn: false, suggestions },
-      { configuredAgents: [{ id: 'claude', command: 'claude-agent-acp' }], installed: true, authenticated: true, clientProtocolVersion: 1, providerEnabled: true, hasCompletedATurn: true, suggestions },
+      { configuredAgents: [], platform: 'win32', consoleModeChosen: false, hideConsoleWindows: false, clientProtocolVersion: 1, providerEnabled: false, hasCompletedATurn: false, suggestions },
+      { configuredAgents: [{ id: 'claude', command: 'claude-agent-acp' }], platform: 'win32', consoleModeChosen: true, hideConsoleWindows: true, installed: true, authenticated: true, clientProtocolVersion: 1, providerEnabled: true, hasCompletedATurn: true, suggestions },
     ];
     for (const state of states) {
       expect(findNonOpeningActions(buildAcpSetupPlan(state))).toEqual([]);
@@ -240,7 +242,7 @@ describe('buildSetupIndex', () => {
       hasCompletedATurn: false,
     });
     const entry = buildSetupIndex([{ guideId: 'acp', steps }]).find(item => item.guide.id === 'acp')!;
-    expect(entry.progress).toMatchObject({ done: 3, total: 5, finished: false });
+    expect(entry.progress).toMatchObject({ done: 4, total: 6, finished: false });
     expect(entry.nextTitle).toBe('Enable the ACP provider');
   });
 });

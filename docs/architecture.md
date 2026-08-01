@@ -69,7 +69,7 @@
    - Calls `registerChatParticipant()`, `registerCommands()`, `registerTreeViews()`.
 3. The `@atlas` chat participant and sidebar views are now available.
 
-The AtlasMind sidebar now starts with a compact Quick Links webview row that sits under the container title and exposes icon-only shortcuts for the Project Dashboard, Ideation board, Run Center, Cost Dashboard, Model Providers, and Settings before the embedded Chat view and the collapsed operational tree views. Assistant transcript metadata now carries not only routed-model and thinking-summary details but also learned-from-friction timeline notes, which lets both the dedicated chat panel and the native sidebar chat surface when Atlas has shifted into direct recovery after operator frustration. Project-run offers are another validated metadata shape: interactive chat renders a **Start run / Save for later / Cancel** card, the host resolves each action once, and saving delegates preview creation to Project Run Center; Autopilot is the only mode allowed to auto-start. During an active request, the composer status also derives the current model from the host-provided `streamingModels` state and appends it to progress text; a failover updates that label without trusting model text supplied by the browser.
+The AtlasMind sidebar now starts with a compact Quick Links webview row that sits under the container title and exposes icon-only shortcuts for the Project Dashboard, Ideation board, Run Center, Cost Dashboard, Model Providers, and Settings before the embedded Chat view and the collapsed operational tree views. The native Chat title bar separately uses its five visible action slots for Project Dashboard, Mission Control, Personality Profile, Website Studio, and Settings. Project Ideation, Cost Dashboard, and contextual project-memory maintenance remain in VS Code's overflow menu, preserving the five-inline-action ceiling while keeping the operator-profile and Web/UI workspaces one click away. Assistant transcript metadata now carries not only routed-model and thinking-summary details but also learned-from-friction timeline notes, which lets both the dedicated chat panel and the native sidebar chat surface when Atlas has shifted into direct recovery after operator frustration. Project-run offers are another validated metadata shape: interactive chat renders a **Start run / Save for later / Cancel** card, the host resolves each action once, and saving delegates preview creation to Project Run Center; Autopilot is the only mode allowed to auto-start. During an active request, the composer status also derives the current model from the host-provided `streamingModels` state and appends it to progress text; a failover updates that label without trusting model text supplied by the browser.
 
 AtlasMind's Voice panel is currently a webview-first specialist surface. It uses the Web Speech API for in-panel STT and fallback TTS, can route optional ElevenLabs audio through a selectable HTML audio sink when the runtime supports it, and stores preferred microphone and speaker ids for future native backends. There is not yet a host-side OS-native speech adapter.
 
@@ -111,7 +111,7 @@ Maintains a map of `ProviderConfig` objects plus provider health state. `selectM
 
 The router carries two learned, decaying routing channels (both gated by `feedbackRoutingWeight`): a positive **outcome bias** (EWMA of graded execution quality, in `executionOutcomes`) and a **struggle memory** (`struggleSignals`) — a persistent, task-signature-keyed de-weight for models that repeatedly fail a *kind* of task. Normal orchestrator grades incorporate expected tool use, tool success/failure counts, verification, TDD status, incomplete-delivery signals, and the final recovered response; clean text is no longer automatically a perfect execution outcome. The explicit Model Comparison harness intentionally retains its coarse completion-integrity grade and optional judge. `recordModelStruggle()` folds a severity-weighted, decaying increment (kinds: timeout, empty, tool-call-as-text, error-finish, user-correction) keyed by `phase|modality|reasoning|requiresTools`; `scoreModel()` subtracts the decayed penalty, and `selectBestModel()` applies a **tier-escape** (re-opening candidacy one budget tier higher and re-ranking) when the top pick is a chronic struggler, so a capable model can take over the task kind a cheap model keeps failing. `recoverModelStruggle()` halves the penalty on a clean turn; `getStruggleSignals()`/`setStruggleSignals()` snapshot/restore for persistence (`globalState` key `atlasmind.modelStruggleSignals`); `getStruggleSummary()` exposes active de-weights for the Model Comparison panel hint.
 
-**Subscription quotas may be scoped to a model rather than to a provider.** For every provider but one, the provider *is* the subscription, so keying by provider id says the same thing; `acp` is one provider id in front of several unrelated plans (`acp/claude` on a Claude subscription, `acp/codex` on a ChatGPT one). `setModelSubscriptionQuota()` / `getModelSubscriptionQuota()` / `listModelSubscriptionQuotas()` hold those, and **`subscriptionQuotaForModel()` is the single accessor** every pricing, scoring and budget-gating path uses — reading `provider.subscriptionQuota` directly is what made a multi-plan provider report one plan's numbers for all of them. `consumeSubscriptionUnits(modelId, units)` owns the scope decision and returns the scope it spent, so a turn cannot be priced against one subscription and deducted from another. Providers fronting exactly one plan fall back to the provider-level quota unchanged. Persistence keys both kinds in one record: provider ids never contain a slash, model ids always do.
+**Subscription quotas are used only when the provider exposes a trustworthy billing unit.** `setModelSubscriptionQuota()` / `getModelSubscriptionQuota()` / `listModelSubscriptionQuotas()` support an authoritative per-model allowance, while **`subscriptionQuotaForModel()` is the single accessor** used by pricing, scoring, and budget gating. Providers with one observable plan fall back to the provider-level quota unchanged. ACP is deliberately excluded: its protocol reports agents and models, not a subscription tier or remaining balance. AtlasMind stores an ACP plan label for display only and retires legacy guessed ACP quota records, so a stale manual count cannot suppress a working subscription.
 
 Key behaviors added in 0.73.0–0.73.1:
 - **Deprecation filter**: models with a `deprecatedAt` date in the past are auto-excluded from candidates.
@@ -120,6 +120,19 @@ Key behaviors added in 0.73.0–0.73.1:
 - **Smooth context gradients**: context-window score penalties in `scoreTaskFit` interpolate linearly rather than applying binary cliff penalties, so future large-context models are not penalised.
 - **Outcome feedback loop**: `recordModelOutcome(modelId, success)` accumulates fractional preference votes from completed tasks, feeding real execution results back into future routing decisions.
 - **Named scoring constants**: all previously undocumented magic numbers in `scoreModel`, `scorePreferenceBias`, and `scoreTaskFit` are extracted to named constants in `src/constants.ts`.
+
+### ACP live-session host (`src/providers/acp.ts`)
+
+The extension-scoped routed `AcpAdapter` is also the owner of reusable ACP conversations. A successful session remains alive for at most 30 idle minutes; temporary setup/probe adapters are explicitly one-shot so dropping a short-lived object cannot strand an authenticated agent. Reuse requires two independent proofs:
+
+1. `acpHostPolicy.ts` compares the launch/security fingerprint — agent executable and argv, cwd, model/effort, MCP names, completion-only isolation, Windows launch mode, startup-settings stamp, exit state, and idle age.
+2. The recorded client transcript must be an exact prefix of the new request. Only the unseen suffix is sent because the remote ACP session already holds the prefix. Edited history and branches create another session.
+
+Identical concurrent completions join one in-flight prompt; successful identical retries are replayed for 15 seconds. An error after a prompt may have crossed stdio is never retried, and the uncertain session is discarded. The adapter holds at most four parallel conversations and closes them during extension deactivation.
+
+`acpWindowsLauncher.ts` is the TypeScript integrity/selection boundary for the opt-in Windows private-desktop path. It verifies the checked-in helper under `media/bin/`, then places the already-resolved executable behind it without introducing a shell. The auditable helper source is `native/acp-private-desktop/`: it creates a desktop with the minimum `DESKTOP_CREATEWINDOW` access, uses `STARTUPINFOEX`/`PROC_THREAD_ATTRIBUTE_HANDLE_LIST` to inherit only stdio, starts the child with `CREATE_NO_WINDOW`, waits, and forwards the exit code. It never switches desktops. The feature is off by default because hidden desktops are a Defender-visible hVNC technique and may trigger enterprise EDR.
+
+The adapter exposes only aggregate live-session counts by launch mode to `extension.ts`; while any routed private-desktop session exists, the extension renders that count in VS Code's status bar and links it to **Models & Providers**. No process id, prompt text, or new capability crosses that boundary, and the indicator remains a disclosure of window placement rather than a security claim.
 
 ### SecretRedactor (`src/utils/secretRedactor.ts`)
 
@@ -260,9 +273,21 @@ Static security scanner that checks skill source code against configurable rules
 
 Pure-Node utility (no VS Code dependency) that connects the Testing Methodology Matrix to the execution pipeline. `readProjectTestingConfig(workspaceRoot)` reads `project_memory/index/testing-config.json`. `inferTestingMethodologyForSubTask(task, config)` detects the best matching `TestingMethodologyId` from a subtask's role and description using `TESTING_METHODOLOGY_DEFINITIONS.autoDetectSignals`. `resolveTestingModelOverride(methodologyId, methodConfig, agents)` walks the lookup chain — `assignedModelId` → assigned agent's `testingModelOverrides[id]` — and returns the effective override model ID. Used by the orchestrator in both the project subtask path and the direct task path to apply per-methodology model routing when the Testing Methodology Matrix is configured.
 
+`buildTestingObligationGuidance(config)` is the module's other half, and it exists because the routing half was the *only* half. Testing policy reached a prompt through exactly one channel — `buildMethodologySystemPromptHint` — behind two gates: a direct task had to already be classified as testing **and** match an `assignedAgentId`, and a subtask had to satisfy `inferTestingMethodologyForSubTask`, which returns `undefined` unless the task text already contains a testing term. So the turns implementing features, the only turns that could have written the tests, were the ones never told. This project ran seven weeks with fourteen methodologies declared and eight of them with no evidence of any kind.
+
+Three properties are load-bearing. It returns the **whole enabled set, never one match** — the per-methodology hint answers "which methodology owns *this* testing task" and is kept for exactly that, but choosing one of fourteen for a general obligation would silently drop thirteen. It states an **obligation, not a description**: the old hint closed with "report the checks you used", which a model satisfies with a sentence, so work that changes behaviour and produces none of the evidence its policy names is stated to be incomplete. And it is **empty when nothing is enabled**, because generic advice about testing that nobody asked for is how a prompt block becomes something agents learn to skim. Practices (`v-model`, `exploratory`, and the five others `testingPolicyCoverage` marks `practiceOnly`) are named as context but never asked for as artifacts — requesting a file they cannot produce invites an invented one, and the two lists are pinned together by `tests/core/testingObligation.test.ts` so they cannot drift.
+
+The Orchestrator sets it on `request.context['__testingObligation']` in `processTaskWithAgent`, gated **only** on task modality (`code` or `mixed`), and `buildMessages` concatenates it alongside the other conditional prompt blocks. The gate is modality alone on purpose: any narrower condition would reproduce the original failure with different wording.
+
+**Reading is versioned.** `readProjectTestingConfig` routes through `interpretVersionedDocument` rather than checking the version itself. The previous gate was `parsed.version === 1`, which collapsed a corrupt file and a file written by a *newer* AtlasMind into the same `undefined` — and every caller treats `undefined` as "this project has no testing policy", which is what the writers take as licence to persist a fresh default over the top. Since the document's entire content is which methodologies are enabled, that was a silent way to switch a project's testing policy off. `readProjectTestingConfigDocument` exposes `preserveExisting` for callers that are about to write. Schema version 2 adds the per-methodology `blocking` flag; the 1→2 step deliberately leaves the field absent rather than writing `false`, because absent means "never considered" and `false` means "decided against".
+
+**The write gate is governed by the config.** `evaluateProjectTddWriteGate` is the only real enforcement in the system, and until v0.222.0 `buildProjectTddPolicy` and `requiresProjectTddWriteGate` never consulted `testing-config.json` at all — they matched on role and task wording, so a project with TDD switched off still got the gate and the methodologies it had switched on got none. `projectWantsTddWriteGate` now decides, from `blocking` on an enabled methodology. An absent, unreadable, or newer-than-this-build config keeps the gate: in all three cases the project has not told us, and removing a safety behaviour because a file would not parse fails in the wrong direction.
+
 ### TestingScaffolder (`src/core/testingScaffolder.ts`)
 
 Constructs a language- and archetype-aware starter testing framework from the enabled methodologies. `scaffoldTestingFramework(workspaceRoot, config)` detects the project **language** — Node (JS/TS), Python, Rust, Go, .NET, or Java — from manifest fingerprints (`package.json`, `pyproject.toml`/`requirements.txt`/`setup.py`/`Pipfile`, `Cargo.toml`, `go.mod`, `*.csproj`/`*.sln`, `pom.xml`/`build.gradle`) and a coarse **archetype** (web / api / cli / game / mobile / library / generic), then generates idiomatic starter files per enabled methodology: Vitest/Jest/Playwright/Cypress/fast-check/k6 (Node, with e2e branching on archetype), pytest/Hypothesis/Locust (Python), `cargo test`/proptest/criterion (Rust), `go test`/`testing/quick`/benchmarks (Go), xUnit (.NET), JUnit 5 (Java). It also writes a managed `project_memory/operations/testing-strategy.md` playbook with language-specific set-up hints. Unknown stacks degrade to playbook-only guidance. Strictly non-destructive: starter files are created only when absent and never overwritten, no manifest is ever mutated, and the only file always (re)written is the managed playbook.
+
+For an already configured Node project, the scaffold may also nominate one **first-test candidate** — a bounded scan only considers a small source module with a named export when an installed Vitest or Jest runner is already evident. A nomination is not proof that the module is testable and it never writes a test itself. After the user confirms the scaffold, Settings synchronises the enabled protocol blocks into existing AI instruction files, then uses the normal Orchestrator/approval path to ask an agent to inspect and author exactly one focused test. The authoring prompt prohibits dependency, manifest, and production-source changes and explicitly permits the agent to make no change when no stable behaviour can be established; missing runner or candidate means no authoring task is started.
 
 ### SchemaMigration (`src/core/schemaMigration.ts`)
 
@@ -471,6 +496,14 @@ The manager mirrors `documentsManager` including the asymmetry that matters — 
 
 Building this closed a gap that could not be closed: `workflowConfigPresent` had been hardcoded `false` since the curriculum shipped, so "declare your workflow" was a step nobody could ever complete. `integrationBranch` and `protectedBranches` were likewise hardcoded to this repository's own branch names, teaching every other project a workflow naming branches it does not have.
 
+### TestingReconciliation (`src/core/testingReconciliation.ts`)
+
+What the declared testing policy says, next to what the repository shows, and what to do about each disagreement. A testing matrix drifts in one direction: enabling a methodology takes a click, and noticing months later that it never produced anything takes somebody deliberately looking. This repository enabled fourteen in a single auto-assess pass and eight still had no evidence of any kind seven weeks later. The coverage board reported those gaps accurately the whole time; what was missing was a way to act on them without hand-editing a tracked JSON file.
+
+Four rules, each closing a way this could mislead. **Dropping is a first-class outcome, not a failure** — a methodology declared in June that the project has since decided against is a stale declaration, and presenting every gap as "write these tests" would make withdrawing one feel like giving up; a policy nobody can withdraw from is a policy people stop reading. **`commit` is a real answer with a real cost**: a methodology whose tooling is installed is kept, because somebody started, and the proposal says out loud that it stays a visible gap rather than filing it under "accepted". **Practices are never proposed for anything**, since they leave no artifact and there is therefore no evidence to be missing — proposing to drop Exploratory Testing because no file mentions it would be the tool misreading its own data. And **nothing is decided here**: the derivation returns a proposal, the caller confirms it, and `applyTestingReconciliation` is a separate call, because the outcome rewrites a git-tracked file that governs how every agent in the project behaves.
+
+Applying changes only *whether* a methodology is declared. The assigned agent, model override, notes and `blocking` flag all survive a drop, so re-enabling later restores what was there rather than a blank row. The confirmation renders `describeTestingReconciliation` in a `{modal:true}` dialog — the exact lines, because approving "reconcile the testing policy?" with a count would be approving a rewrite without seeing what it says. Adoption is derived by the caller rather than from the coverage rows, which only cover *enabled* methodologies: a project quietly practising something it never declared is invisible otherwise, and `integration` on this repository was exactly that — switched off while its tests sat in the tree and ran on every commit. Pure + unit-tested.
+
 ### ReleasePreparation (`src/core/releasePreparation.ts`)
 
 Stage 6, and the only stage of this workflow describing an action that cannot be undone. Every property here follows from that.
@@ -481,7 +514,7 @@ The hard parts already existed and were already pure — `classifyBumpLevel`, `b
 
 **A secret in the notes refuses the release rather than being redacted out of it.** This inverts the boundary rule used everywhere else in AtlasMind, deliberately. Untrusted *inbound* text is redacted and passed on because the alternative loses information; these notes are *outbound and permanent*, so quietly redacting them would mean publishing something other than what the author reviewed, with no way for them to find out. The same reasoning `buzzSendPolicy` applies to an outbound message applies with more force to a release that cannot be recalled.
 
-**`unknown` is not a pass.** The gates are `pass` / `fail` / `unknown`, and the third is a first-class outcome: a repository where `gh` could not be reached genuinely has no answer about whether its version is ahead of the last published one, and shipping on an unknown is the habit this stage exists to break. Gates run in order — changelog entry, notes content, notes clean, version ahead, tag free, clean tree, CI green — so the first failure a user reads is the one closest to the root cause. Being told CI is red is unhelpful when the real problem is that no changelog entry exists.
+**`unknown` is not a pass.** The gates are `pass` / `fail` / `unknown`, and the third is a first-class outcome: a repository where `gh` could not be reached genuinely has no answer about whether its version is ahead of the last published one, and shipping on an unknown is the habit this stage exists to break. Gates run in order — changelog entry, notes content, notes clean, version ahead, tag free, clean tree, CI green, declared testing policy met — so the first failure a user reads is the one closest to the root cause. The **testing gate** is last because by release time an unevidenced methodology has been unevidenced for weeks, and this is a backstop rather than the main defence: a failing test fails it, an enabled methodology with no evidence fails it (the project set the standard and is about to ship without meeting it), and coverage that was never gathered reports `unknown`. So does a project with no methodology enabled at all — nothing to check against is not the same as checking and finding nothing wrong. It is fed from the same `TestingPolicyCoverage` the Testing page renders, so the two surfaces cannot disagree about a number. Being told CI is red is unhelpful when the real problem is that no changelog entry exists.
 
 The tag gate is what catches a double publish: an existing tag means the publish workflow already fired for this version, which is the failure this repository documented in 0.181.0 and fixed in 0.184.0. Its fix hint says never to delete or move a published tag, because anyone who already fetched it keeps the old contents under the new name and never finds out.
 
@@ -500,6 +533,44 @@ Ideation as stage 0 of the workflow. The board held nine card kinds and had two 
 **Provenance is keyed on text, not on ids.** Card ids are durable; roadmap item ids are positional (`roadmap-${index + 1}`, assigned after filtering), so inserting one item renumbers every item below it. The card stores the item's **normalized text** — the same key the roadmap already uses to detect duplicates — and `resolveDerivedRoadmapItem` finds the item wherever it has moved to, reporting `missing` with the previous text when a rename breaks the link rather than matching whatever now sits at that position. `normalizeForRoadmapMatch` is pinned to the dashboard's `normalizeRoadmapText` by a test, both textually and behaviourally: two normalizers drifting apart would break every stored link at once.
 
 `collectCardConnectionSources` lives here rather than in either panel because both need it — the board writes the roadmap item, and the dashboard recomputes the evidence when that item becomes an issue. Two copies would eventually disagree about direction, which is the one thing here that must not be wrong.
+
+
+### Research register (`src/core/researchScanCatalog.ts`, `src/core/researchRegister.ts`, `src/core/researchSources.ts`, `src/core/researchSchedule.ts`, `src/core/researchDigest.ts`)
+
+Ideation is stage 0 of the guided workflow, and until v0.225.0 every inbound path to it was the user
+or Atlas re-reading the board's own contents. The research register is the missing inbound edge: a
+scan asks a question about the world *outside* this repository, records what it found, and offers
+each finding to the board as evidence.
+
+The normative specification is [`ideation-and-research.md`](ideation-and-research.md). The five
+properties that shape the code:
+
+1. **A scan is classified by where its evidence lives.** `gap`, `security`, `risk`, `debt` and
+   `testing` are already answered by registers in this codebase, so they are declared as
+   `RESEARCH_SUBSCRIPTIONS` — pointers — rather than re-scanned. Only the seven outward-facing
+   questions get scanners. A test asserts no declared scan is `internal`.
+2. **A citation, or it is not a finding.** The check is in `sanitizeIncomingFindings`, not in a
+   prompt. An uncited claim becomes a `question`: recorded, never counted as evidence. `https` only.
+3. **Absent is not empty.** `detectResearchSources` decides before a run whether anything could have
+   looked; with nothing available an external scan returns `no-source` with a named setup step.
+4. **Due is a fact, running is a decision.** `buildResearchSchedule` computes due-ness from the last
+   run that *answered*; `nextAutomaticScan` returns at most one scan per pass.
+5. **The digest introduces no claims.** It groups and ranks recorded findings, reusing
+   `observedDelta`'s five rules for its "what changed" section.
+
+Persistence lives in `project_memory/analysis/` — `research.json` (source of truth), `research.md`
+(mirror, publishing the rule table and catalog), `research-history.json` (capped, append-only) and
+`research-digest.md`.
+
+### Ideation board templates and readiness (`src/core/ideationBoardTemplates.ts`, `src/core/ideationReadiness.ts`)
+
+`ideationBoardTemplates.ts` derives starter frames from the detected archetype and traits. Every
+seeded card is a question rather than a conclusion, and nothing is placed at a coordinate — the board
+owns layout.
+
+`ideationReadiness.ts` produces a reading of what a board can and cannot defend, from ten declared
+rules ordered by consequence: an unresolved contradiction first, then unevidenced problems, wish-list
+boards, unconnected cards, and cards that never reached the backlog. It blocks nothing.
 
 ### RoadmapIssueDraft (`src/core/roadmapIssueDraft.ts`)
 
@@ -1001,11 +1072,16 @@ extension.ts
               ├── providers/acp.ts
               │     ├── providers/acpProtocol.ts     (wire framing, pure)
               │     ├── providers/acpLaunch.ts       (command → spawnable invocation, pure)
+              │     ├── providers/acpWindowsLauncher.ts (private-desktop selection + binary integrity)
               │     ├── providers/acpPermission.ts   (authorization policy, pure)
               │     ├── providers/acpInstaller.ts    (install planning, pure)
-              │     └── providers/acpEffort.ts       (effort tiers + settable-config allowlist, pure)
+              │     ├── providers/acpEffort.ts       (effort tiers + settable-config allowlist, pure)
+              │     ├── providers/acpHostPolicy.ts   (long-lived host: reuse, auth, lifetime; pure)
               │     └── providers/acpModels.ts       (detected model list + declared standing, pure)
               └── providers/localModelRecommendationRegistry.ts
+
+native/acp-private-desktop/
+  └── src/main.rs                    (Windows private-desktop process helper)
 
 tests/core/
   ├── modelRouter.test.ts

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-06-09T17:19:24.311Z",
+  "updatedAt": "2026-07-31T20:18:04.804Z",
   "methodologies": [
     {
       "id": "tdd",
@@ -87,7 +87,7 @@
     },
     {
       "id": "performance",
-      "enabled": true,
+      "enabled": false,
       "assignedAgentId": "test-developer"
     },
     {
@@ -101,7 +101,8 @@
     },
     {
       "id": "exploratory",
-      "enabled": false
+      "enabled": true,
+      "assignedAgentId": "test-developer"
     },
     {
       "id": "agile-testing",

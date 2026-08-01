@@ -1772,12 +1772,18 @@
       return (followupQuestion ? followupQuestion + '\n\n' : '') + limitMsg;
     }
     if (followupQuestion) {
+      if (Array.isArray(meta.quickReplies) && meta.quickReplies.length > 0) {
+        return followupQuestion + '\n\nChoose an option below, or type a different response.';
+      }
       return followupQuestion + '\n\nSay "Proceed" to continue, or pick a follow-up option below.';
     }
     if (meta.thoughtSummary && typeof meta.thoughtSummary.summary === 'string' && meta.thoughtSummary.summary.trim()) {
-      return meta.thoughtSummary.summary.trim() + '\n\nSay "Proceed" to continue, or tell Atlas what to do next.';
+      var thoughtSummary = meta.thoughtSummary.summary.trim();
+      if (!/^Answered from context/i.test(thoughtSummary)) {
+        return thoughtSummary + '\n\nSay "Proceed" to continue, or tell Atlas what to do next.';
+      }
     }
-    return 'Atlas is ready to continue. Say "Proceed" to keep going, or tell Atlas what to do next.';
+    return 'No usable answer was returned. Retry the request, or review Model Providers to see which routes are currently eligible.';
   }
 
   function captureDisclosureState() {

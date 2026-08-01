@@ -47,14 +47,40 @@ describe('migrateDocument', () => {
     expect(migrateDocument('not-a-kind' as never, { version: 1 }).status).toBe('invalid');
   });
 
-  it('ships no migrations yet, because no format has changed', () => {
-    expect(SCHEMA_MIGRATIONS).toEqual([]);
-    // Every kind starts at 1; a bump here without a migration is the mistake
-    // this suite exists to catch.
+  it('can reach every declared version from 1', () => {
+    // The real invariant, and the mistake this suite exists to catch: a version
+    // bumped without the migration that reaches it. A document at the older
+    // version then fails to migrate and reads as `invalid` — which every manager
+    // treats as licence to overwrite it with a fresh default.
+    //
+    // (This previously also asserted the registry was empty. It stopped being
+    // true in v0.222.0, when `testing-config` gained the `blocking` field.)
     for (const [kind, version] of Object.entries(CURRENT_SCHEMA_VERSIONS)) {
-      const ladder = SCHEMA_MIGRATIONS.filter(step => step.kind === kind);
+      const ladder = SCHEMA_MIGRATIONS.filter(step => step.kind === kind).sort((left, right) => left.from - right.from);
       expect(ladder.length, `${kind} is at v${version} with ${ladder.length} migrations`).toBe(version - 1);
+
+      // Contiguous and single-stepped: 1→2→3, never 1→3 or two steps from 2.
+      ladder.forEach((step, index) => {
+        expect(step.from, `${kind} ladder is not contiguous at index ${index}`).toBe(index + 1);
+        expect(step.to, `${kind} step ${step.from} does not advance by exactly one`).toBe(step.from + 1);
+      });
     }
+  });
+
+  it('migrates a v1 testing config forward without inventing a blocking decision', () => {
+    const outcome = migrateDocument('testing-config', {
+      version: 1,
+      updatedAt: '2026-06-09T00:00:00.000Z',
+      methodologies: [{ id: 'unit', enabled: true }],
+    });
+
+    expect(outcome.status).toBe('migrated');
+    const value = (outcome as { value: Record<string, unknown> }).value;
+    expect(value['version']).toBe(2);
+    // Absent means "this project never considered the question". An explicit
+    // `false` would mean "this project decided against it" — a claim a migration
+    // has no standing to make on the user's behalf.
+    expect((value['methodologies'] as Array<Record<string, unknown>>)[0]).not.toHaveProperty('blocking');
   });
 });
 

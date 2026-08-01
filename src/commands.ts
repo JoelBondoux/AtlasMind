@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { pathToFileURL } from 'node:url';
 import type { AtlasMindContext } from './extension.js';
-import { describeLocalModel, getConfiguredLocalEndpoints } from './providers/index.js';
+import { describeLocalModel, getConfiguredLocalEndpoints, resetAcpProbeCache } from './providers/index.js';
 import type { AgentDefinition, McpServerConfig, ProviderId, SkillDefinition, SkillScanResult } from './types.js';
 import type { SettingsPageId, SettingsPanelTarget } from './views/settingsPanel.js';
 import { TaskProfiler } from './core/taskProfiler.js';
@@ -483,6 +483,12 @@ export function registerCommands(
         ? parseAcpAgentSettings(vscode.workspace.getConfiguration('atlasmind').get<unknown>('acp.agents'))
           .some(agent => agent.id === bridge.agentId)
         : false;
+      if (configured) {
+        const { chooseAcpConsoleMode } = await import('./views/modelProviderPanel.js');
+        if (!await chooseAcpConsoleMode(false)) {
+          return;
+        }
+      }
 
       // Already configured and merely switched off: flipping it is the whole
       // job, and routing through the probe would re-ask a question already
@@ -506,6 +512,11 @@ export function registerCommands(
       const { useSubscriptionForProvider } = await import('./views/modelProviderPanel.js');
       await useSubscriptionForProvider(atlas, vendorId as ProviderId);
       atlas.modelsRefresh.fire();
+    }),
+
+    vscode.commands.registerCommand('atlasmind.acp.chooseConsoleMode', async () => {
+      const { chooseAcpConsoleMode } = await import('./views/modelProviderPanel.js');
+      await chooseAcpConsoleMode(true);
     }),
 
     vscode.commands.registerCommand('atlasmind.openChatView', async (target?: string | import('./views/chatPanel.js').ChatPanelTarget) => {
@@ -1287,6 +1298,7 @@ export function registerCommands(
       const atlas = requireAtlas();
       if (!atlas) { return; }
 
+      resetAcpProbeCache();
       const summary = await atlas.refreshProviderModels(true);
       const targetLabel = isModelProviderTreeItem(item) ? item.label : 'providers';
       void vscode.window.showInformationMessage(
@@ -1363,11 +1375,13 @@ export function registerCommands(
       });
     }),
 
-    vscode.commands.registerCommand('atlasmind.openProjectDashboard', async () => {
+    vscode.commands.registerCommand('atlasmind.openProjectDashboard', async (target?: unknown) => {
       const atlas = requireAtlas();
       if (!atlas) { return; }
       const { ProjectDashboardPanel } = await import('./views/projectDashboardPanel.js');
-      ProjectDashboardPanel.createOrShow(atlas.extensionContext, atlas);
+      // Commands are an extension boundary too: only a known dashboard page can
+      // influence navigation, and the panel still normalises it defensively.
+      ProjectDashboardPanel.createOrShow(atlas.extensionContext, atlas, target === 'ideation' ? 'ideation' : undefined);
     }),
     vscode.commands.registerCommand('atlasmind.openProjectDirector', async () => {
       const atlas = requireAtlas();

@@ -73,6 +73,8 @@ The `atlasmind.toolApprovalMode` setting controls when AtlasMind asks for confir
   - `Autopilot` — skip approval prompts for the rest of the current session
 6. `Deny` rejects the tool call without leaving the chat surface
 
+Tool parameters are previewed host-side through `toJsonPreview` before they reach an approval surface. Representable JSON is secret-redacted and length-capped. If a non-empty object collapses to `{}` during serialization—for example through custom serialization behaviour—the preview is `[unserializable arguments]` rather than a misleading empty-object claim.
+
 Autopilot can also be toggled explicitly with `AtlasMind: Toggle Autopilot`. When it is on, AtlasMind exposes a status bar item so the current session bypass state stays visible. Internally, listener failures are isolated so one broken UI subscriber cannot prevent the rest of the session-bypass state from updating.
 
 ### Mission Loop checkpoints
@@ -177,6 +179,29 @@ An agent reached over the [Agent Client Protocol](https://agentclientprotocol.co
 - **MCP servers are shared only by explicit allowlist** (`atlasmind.acp.mcpServers`, empty by default), and two kinds are held back even when listed: servers whose credentials live in SecretStorage (forwarding would copy a key given to AtlasMind into another vendor's process) and HTTP/SSE servers, whose headers carry bearer tokens.
 - **`fs` and `terminal` client capabilities stay `false`.** They do not sandbox the agent — a coding agent has its own file and shell access — they only decide whether AtlasMind *proxies* the I/O. The permission gate is where the authority lives.
 
+### Keeping the process alive does not keep an approval alive
+
+ACP sessions can now remain live for 30 idle minutes, which removes repeated
+agent boot and console churn. That changes process lifetime only:
+
+- every operation still arrives through `session/request_permission`;
+- AtlasMind still selects at most an allow-once option and never `allow_always`;
+- changing the MCP list or switching between completion-only isolation and
+  delegated execution invalidates the session before the next prompt;
+- a private Windows desktop hides UI only — it is not a sandbox and grants or
+  removes no filesystem, network, or command authority.
+
+Prompt delivery is at-most-once within the adapter. The orchestrator assigns a
+stable identity to each tool round; exact concurrent calls for that identity
+join one in-flight request and a short completed-result ledger absorbs its
+retry, while separate chats with identical text stay separate. ACP also bypasses
+the generic transient-provider retry loop: an error after `session/prompt` may
+have crossed stdio is never automatically resent. An outer provider timeout
+aborts the attempt, sends `session/cancel`, and discards the session so it cannot
+keep acting behind a fallback response. This is a safety rule, not just billing
+hygiene: an agent allowed to act could otherwise perform the same requested
+operation twice, each time behind a separately valid approval.
+
 Tool calls the agent announces (`tool_call`, `tool_call_update`) are surfaced rather than dropped, so what ran is visible after the fact as well as before it.
 
 ## Resource discovery is pre-invocation, not execution
@@ -237,7 +262,13 @@ AtlasMind's red-to-green TDD gate is intended for implementation work that chang
 
 Two testing-strategy actions write to the workspace under a non-destructive contract. The **framework scaffolder** (`scaffoldTestingFramework`) creates starter config/test files only when absent, never overwrites, never mutates `package.json`, and is modal-confirmed. The **outbound protocol sync** (`syncTestingProtocols`) only replaces its own delimited managed block in instruction files that already exist, preserving surrounding content and routing every path through the shared traversal guard. Neither requires the per-tool approval gate because they cannot overwrite arbitrary content, but both are surfaced explicitly in the UI before running.
 
+That confirmed scaffold can then start one first-test authoring task, but only after the protocol sync and only when a bounded detector found an existing Vitest/Jest runner plus a small source module with a named export. The detector grants no write authority: the normal Orchestrator and tool-approval gates remain in force. The task is limited to inspecting the candidate and, only if its behaviour is stable enough to test, writing one focused test. It is told not to install dependencies, change a manifest, or edit production source; no candidate or no runner means no task, and an unsuitable candidate means no test change.
+
+The Testing Dashboard's **Fix activated testing** action is also a single, modal-confirmed agent task — not an invisible command runner. The host derives its enabled methodologies, coverage, current scripts, and failure report; the webview supplies no target or command. It may use existing relevant commands through the normal approval gate, but cannot change dependencies, manifests, runner configuration, thresholds, test enablement, skips, or assertions merely to obtain green output. A missing browser, credential, service, or other environment prerequisite remains a reported blocker, never a pass.
+
 ---
+
+The activated-testing repair remains observable without widening its authority. The host streams bounded status updates from routing and approved tool work into the Testing panel, where an indeterminate activity control says work is in progress without fabricating a percentage. The final result remains separate from test evidence, so a returned task can never be represented as green by UI wording alone. The Chat handoff is a no-payload browser request: only the host-held, redacted result is put in a fenced, reviewable draft, and it is never submitted automatically.
 
 ## Post-Write Verification
 

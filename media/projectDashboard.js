@@ -52,6 +52,7 @@
         ['overview', 'Overview'],
         ['score', 'Score'],
         ['gapAnalysis', 'Gap Analysis'],
+        ['ideation', 'Ideation'],
       ],
     },
     {
@@ -124,9 +125,8 @@
   const DEFAULT_PAGE = 'overview';
 
   // `activePage` arrives from click payloads and from host `navigate` messages.
-  // 'ideation' is a valid DashboardPageId for prompt attribution but has no
-  // page here (it is a separate panel), so an unvalidated id could leave every
-  // section inactive and render a blank dashboard.
+  // It is normalised here rather than trusted: an unrecognised value must not
+  // leave every section inactive and render a blank dashboard.
   function normalizePageId(value) {
     return NAV_PAGE_IDS.indexOf(value) === -1 ? DEFAULT_PAGE : value;
   }
@@ -177,6 +177,16 @@
     gapStatus: '',
     riskBusy: false,
     riskStatus: '',
+    // The host owns every entry in this activity record. Keeping it separate
+    // from the snapshot means an evidence refresh cannot erase the task the
+    // user just started or its terminal outcome.
+    testingFix: {
+      running: false,
+      runId: '',
+      current: '',
+      updates: [],
+      result: null,
+    },
     /** '' = all, otherwise a domain id, a status, or a `likelihood:impact` matrix cell. */
     riskFilter: '',
     activeDetails: {
@@ -349,6 +359,57 @@
       return;
     }
 
+    if (message.type === 'testingFixStarted') {
+      const update = normalizeTestingFixUpdate(message.payload);
+      if (!update) {
+        return;
+      }
+      state.testingFix = {
+        running: true,
+        runId: update.runId,
+        current: update.message,
+        updates: [update],
+        result: null,
+      };
+      announce(update.message);
+      render();
+      return;
+    }
+
+    if (message.type === 'testingFixProgress') {
+      const update = normalizeTestingFixUpdate(message.payload);
+      if (!update || (state.testingFix.runId && state.testingFix.runId !== update.runId)) {
+        return;
+      }
+      state.testingFix = {
+        ...state.testingFix,
+        running: true,
+        runId: update.runId,
+        current: update.message,
+        updates: [...state.testingFix.updates, update].slice(-8),
+      };
+      announce(update.message);
+      render();
+      return;
+    }
+
+    if (message.type === 'testingFixFinished') {
+      const result = normalizeTestingFixResult(message.payload);
+      if (!result || (state.testingFix.runId && state.testingFix.runId !== result.runId)) {
+        return;
+      }
+      state.testingFix = {
+        ...state.testingFix,
+        running: false,
+        runId: result.runId,
+        current: result.summary,
+        result,
+      };
+      announce(result.summary);
+      render();
+      return;
+    }
+
     if (message.type === 'promotionPlan') {
       state.promotion = {
         plan: message.payload.plan,
@@ -437,6 +498,15 @@
         resetScrollAfterRender = true;
       }
       render();
+      return;
+    }
+    if (action === 'ideation-evidence') {
+      // The payload is an opaque id from the just-rendered snapshot. The host
+      // re-derives it before it hands anything to the canvas, so this page
+      // cannot manufacture an evidence card from arbitrary text.
+      if (payload) {
+        vscode.postMessage({ type: 'addIdeationEvidence', payload });
+      }
       return;
     }
     if (action === 'timescale') {
@@ -825,6 +895,26 @@
     }
     if (action === 'scan-debt') {
       vscode.postMessage({ type: 'scanDebt' });
+      return;
+    }
+    if (action === 'reconcile-testing') {
+      // No payload: the host derives the proposal from the same snapshot this
+      // page rendered, so the webview cannot choose what a reconciliation
+      // changes. The confirmation showing the exact diff lives host-side too.
+      vscode.postMessage({ type: 'reconcileTestingPolicy' });
+      return;
+    }
+    if (action === 'fix-activated-testing') {
+      // The host rebuilds the evidence from its current snapshot and confirms
+      // the task before it can use an agent. No browser-provided target, test
+      // command, or policy selection crosses this boundary.
+      vscode.postMessage({ type: 'fixActivatedTesting' });
+      return;
+    }
+    if (action === 'testing-fix-chat') {
+      // The webview sends no transcript or error text. The extension host
+      // retains, sanitizes, and fences the real result before opening Chat.
+      vscode.postMessage({ type: 'openTestingFixChat' });
       return;
     }
     if (action === 'open-debt-evidence') {
@@ -1359,13 +1449,21 @@
     if (!methodologyId || !state.snapshot) {
       return;
     }
-    const config = state.snapshot.testing && state.snapshot.testing.projectTestingConfig;
-    const baseMethodologies = METHODOLOGY_DEFS.map(def => {
+    const testing = state.snapshot.testing;
+    const config = testing && testing.projectTestingConfig;
+    // The catalogue arrives in the host snapshot so this write path uses the
+    // same definitions, labels, and future additions as the renderer and
+    // Settings. A webview-local copy would quietly fall behind.
+    const baseMethodologies = getMethodologyDefinitions(testing).map(def => {
       const existing = config && config.methodologies ? config.methodologies.find(m => m.id === def.id) : undefined;
       return existing ? { ...existing } : { id: def.id, enabled: def.id === 'tdd' || def.id === 'unit' };
     });
     const updated = baseMethodologies.map(m => m.id === methodologyId ? { ...m, enabled: target.checked } : m);
-    const newConfig = { version: 1, updatedAt: new Date().toISOString(), methodologies: updated };
+    const newConfig = {
+      version: config && config.version === 2 ? 2 : 1,
+      updatedAt: new Date().toISOString(),
+      methodologies: updated,
+    };
     // Optimistically update local snapshot so re-renders stay consistent without a full refresh.
     if (state.snapshot.testing) {
       state.snapshot.testing.projectTestingConfig = newConfig;
@@ -1692,6 +1790,7 @@
         ${renderOverview(snapshot)}
         ${renderScore(snapshot)}
         ${renderGapAnalysis(snapshot)}
+        ${renderIdeation(snapshot)}
         ${renderWorkflow(snapshot)}
         ${renderRoadmap(snapshot)}
         ${renderIssues(snapshot)}
@@ -1797,6 +1896,16 @@
       set('gapAnalysis', open.length, p1 > 0 ? 'critical' : 'warn',
         `${open.length} open gap${open.length === 1 ? '' : 's'}${p1 > 0 ? `, ${p1} at P1` : ''}`);
     }
+
+    const ideation = snapshot.ideation;
+    const ideationObservations = ideation && ideation.readiness && Array.isArray(ideation.readiness.observations)
+      ? ideation.readiness.observations
+      : [];
+    const ideationAttention = ideationObservations.filter(observation =>
+      observation && (observation.tone === 'blocking' || observation.tone === 'weak' || observation.tone === 'unassessed'));
+    const ideationContradictions = ideation && ideation.readiness ? Number(ideation.readiness.contradictions) || 0 : 0;
+    set('ideation', ideationAttention.length, ideationContradictions > 0 ? 'critical' : 'warn',
+      `${ideationAttention.length} board concern${ideationAttention.length === 1 ? '' : 's'}${ideationContradictions > 0 ? `, ${ideationContradictions} contradiction${ideationContradictions === 1 ? '' : 's'}` : ''}`);
 
     if (snapshot.risk && snapshot.risk.openCount > 0) {
       set('risk', snapshot.risk.openCount, 'warn',
@@ -2188,6 +2297,107 @@
             </div>
           </article>
         </div>
+      </section>
+    `;
+  }
+
+  function renderIdeation(snapshot) {
+    const ideation = snapshot.ideation || {};
+    const readiness = ideation.readiness || {
+      activeCards: 0,
+      evidenceCards: 0,
+      unrealized: 0,
+      contradictions: 0,
+      state: 'unexamined',
+      summary: 'The ideation board has not been assessed yet.',
+      observations: [],
+    };
+    const observations = Array.isArray(readiness.observations) ? readiness.observations : [];
+    const evidence = Array.isArray(ideation.availableEvidence) ? ideation.availableEvidence : [];
+    const onRoadmap = Number(ideation.realizedWorkCount) || 0;
+    const stateLabel = readiness.state === 'argued'
+      ? 'Argument recorded'
+      : readiness.state === 'developing'
+        ? 'Still developing'
+        : 'Not yet started';
+    const stateTone = readiness.state === 'argued'
+      ? 'good'
+      : 'warn';
+    const observationTagClass = tone => (
+      tone === 'blocking' ? 'tag-critical'
+        : tone === 'good' ? 'tag-good'
+          : 'tag-warn'
+    );
+    const evidenceTagClass = tone => (
+      tone === 'critical' ? 'tag-critical'
+        : tone === 'warn' ? 'tag-warn'
+          : tone === 'good' ? 'tag-good'
+            : ''
+    );
+
+    return `
+      ${pageSectionOpen('ideation')}
+        ${renderPageIntro({
+          kicker: 'Stage 0 — Ideation',
+          title: 'Turn board notes into work you can defend',
+          summary: readiness.summary || 'Read the board, bring in evidence already held by AtlasMind, then continue the conversation on the canvas.',
+          chips: [
+            { label: stateLabel, tone: stateTone },
+            { label: `${Number(readiness.activeCards) || 0} active cards`, tone: 'accent' },
+            { label: `${onRoadmap} on roadmap`, tone: onRoadmap > 0 ? 'good' : 'warn' },
+          ],
+          action: { command: 'atlasmind.openProjectIdeation', hint: 'Open the canvas' },
+          actionLabel: 'Open canvas',
+        })}
+        <div class="panel-grid">
+          <article class="panel-card">
+            <p class="section-kicker">Board state</p>
+            <h3>What is on the board</h3>
+            <div class="metric-pills">
+              ${renderMetricPill('On board', String(Number(readiness.activeCards) || 0), { tone: (Number(readiness.activeCards) || 0) > 0 ? 'accent' : 'warn' })}
+              ${renderMetricPill('Not yet work', String(Number(readiness.unrealized) || 0), { tone: (Number(readiness.unrealized) || 0) > 0 ? 'warn' : 'good' })}
+              ${renderMetricPill('On roadmap', String(onRoadmap), { tone: onRoadmap > 0 ? 'good' : 'warn' })}
+              ${renderMetricPill('Contradictions', String(Number(readiness.contradictions) || 0), { tone: (Number(readiness.contradictions) || 0) > 0 ? 'critical' : 'good' })}
+            </div>
+            <div class="stat-detail">${escapeHtml(readiness.summary || '')}</div>
+          </article>
+          <article class="panel-card">
+            <p class="section-kicker">Needs attention</p>
+            <h3>What the board cannot yet defend</h3>
+            <div class="stack-list">
+              ${observations.length > 0 ? observations.map(observation => `
+                <div class="recent-item">
+                  <div class="row-head">
+                    <strong>${escapeHtml(observation.label || 'Board observation')}</strong>
+                    <span class="tag ${observationTagClass(observation.tone)}">${escapeHtml(observation.tone || 'needs review')}</span>
+                  </div>
+                  <div class="list-meta">${escapeHtml(observation.detail || '')}</div>
+                  <div class="stat-detail">Rule: ${escapeHtml(observation.rule || 'No rule recorded.')}</div>
+                </div>
+              `).join('') : '<div class="dashboard-empty">No readiness observations are available yet.</div>'}
+            </div>
+          </article>
+        </div>
+        <article class="panel-card">
+          <p class="section-kicker">Existing evidence</p>
+          <h3>Bring project evidence into the board</h3>
+          <div class="stat-detail">These records come from the registers that already own them. Adding one opens the canvas and creates an evidence card; it never starts a new scan.</div>
+          <div class="stack-list">
+            ${evidence.length > 0 ? evidence.map(item => `
+              <div class="recent-item">
+                <div class="row-head">
+                  <strong>${escapeHtml(item.title || 'Existing evidence')}</strong>
+                  <span class="tag ${evidenceTagClass(item.tone)}">${escapeHtml(item.sourceLabel || 'AtlasMind')}</span>
+                </div>
+                <div class="list-meta">${escapeHtml(item.detail || '')}</div>
+                <div class="tag-row">
+                  <button type="button" class="action-link primary" data-action="ideation-evidence" data-payload="${escapeAttr(item.id || '')}">Add evidence card</button>
+                  <button type="button" class="action-link" data-action="page" data-payload="${escapeAttr(item.pageTarget || 'overview')}">View source</button>
+                </div>
+              </div>
+            `).join('') : '<div class="dashboard-empty">No unresolved register evidence is available right now. This page did not run a scan to reach that result.</div>'}
+          </div>
+        </article>
       </section>
     `;
   }
@@ -2738,6 +2948,105 @@
     return chips;
   }
 
+  // The host already strips controls and redacts likely credentials; these
+  // parsers remain defensive because extension-host messages are still a
+  // boundary and a malformed payload should never blank the Testing page.
+  function boundedTestingFixText(value, limit, preserveLines = false) {
+    if (typeof value !== 'string') {
+      return '';
+    }
+    const cleaned = value
+      .replace(/\r\n?/g, '\n')
+      .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+      .trim();
+    return (preserveLines ? cleaned : cleaned.replace(/\s+/g, ' ')).slice(0, limit);
+  }
+
+  function normalizeTestingFixUpdate(payload) {
+    if (!payload || typeof payload !== 'object') {
+      return null;
+    }
+    const runId = boundedTestingFixText(payload.runId, 120);
+    const message = boundedTestingFixText(payload.message, 360);
+    if (!runId || !message) {
+      return null;
+    }
+    return {
+      runId,
+      message,
+      at: boundedTestingFixText(payload.at, 80),
+    };
+  }
+
+  function normalizeTestingFixResult(payload) {
+    if (!payload || typeof payload !== 'object') {
+      return null;
+    }
+    const runId = boundedTestingFixText(payload.runId, 120);
+    const summary = boundedTestingFixText(payload.summary, 440);
+    if (!runId || !summary) {
+      return null;
+    }
+    return {
+      runId,
+      outcome: payload.outcome === 'failed' ? 'failed' : 'completed',
+      summary,
+      output: boundedTestingFixText(payload.output, 12000, true),
+      completedAt: boundedTestingFixText(payload.completedAt, 80),
+      agentId: boundedTestingFixText(payload.agentId, 140),
+    };
+  }
+
+  function renderTestingFixActivity() {
+    const fix = state.testingFix;
+    if (!fix || (!fix.running && !fix.current && !fix.result)) {
+      return '';
+    }
+
+    const result = fix.result;
+    const tone = fix.running ? 'running' : result && result.outcome === 'failed' ? 'failed' : 'completed';
+    const label = fix.running
+      ? 'Repair running'
+      : result && result.outcome === 'failed'
+        ? 'Repair task failed'
+        : 'Task finished — review evidence';
+    const tagTone = fix.running ? 'tag-warn' : result && result.outcome === 'failed' ? 'tag-critical' : 'tag-warn';
+    const updates = Array.isArray(fix.updates) ? fix.updates.slice(-8) : [];
+    const updatesHtml = updates.length > 0
+      ? `<ul class="testing-fix-update-list">${updates.map(update => `<li>${escapeHtml(update.message)}</li>`).join('')}</ul>`
+      : '';
+    const outputHtml = result && result.output
+      ? `<details class="testing-fix-output">
+          <summary>View reported task output</summary>
+          <pre>${escapeHtml(result.output)}</pre>
+        </details>`
+      : '';
+    const resultMeta = result && result.agentId
+      ? `<span class="list-meta">Reported by ${escapeHtml(result.agentId)}</span>`
+      : '';
+    const chatAction = result
+      ? `<div class="tag-row testing-fix-actions">
+          <button type="button" class="action-link" data-action="testing-fix-chat">Open result in Atlas Chat</button>
+          <span class="list-meta">Opens a reviewable draft; it is not sent automatically.</span>
+        </div>`
+      : '';
+
+    return `
+      <section class="testing-fix-activity ${tone}" aria-label="Activated-testing repair status">
+        <div class="testing-fix-heading">
+          <strong>Activated-testing repair</strong>
+          <span class="tag ${tagTone}">${label}</span>
+        </div>
+        <p class="testing-fix-current" role="status" aria-live="polite">${escapeHtml(fix.current || 'AtlasMind is preparing the repair task.')}</p>
+        ${fix.running ? '<progress class="testing-fix-progress" aria-label="AtlasMind repair activity in progress"></progress>' : ''}
+        ${updatesHtml}
+        ${resultMeta}
+        ${outputHtml}
+        ${chatAction}
+      </section>
+    `;
+  }
+
   // ── Per-policy coverage board ────────────────────────────────────
   // Answers, for every policy the project switched on: is anything testing it,
   // and is any of it failing? Deliberately distinguishes "no tests" from "no
@@ -2752,6 +3061,7 @@
     const report = coverage.report;
     const failingRows = rows.filter(row => row.failedCount > 0);
     const gapRows = rows.filter(row => row.status === 'missing' || row.status === 'tooling-only');
+    const fixRunning = Boolean(state.testingFix && state.testingFix.running);
 
     const reportLine = report
       ? `
@@ -2812,6 +3122,12 @@
           <span class="tag ${gapRows.length > 0 || failingRows.length > 0 ? 'tag-warn' : 'tag-good'}">${escapeHtml(`${coverage.coveredCount}/${coverage.activeCount} with tests`)}</span>
         </div>
         <div class="stat-detail">${escapeHtml(coverage.summary)}</div>
+        <div class="tag-row" style="margin-top:8px">
+          <button type="button" class="action-link primary" data-action="fix-activated-testing"${fixRunning ? ' disabled' : ''} title="Inspect and repair the enabled test surfaces through AtlasMind's normal approval flow">${fixRunning ? 'Repairing activated testing…' : 'Fix activated testing…'}</button>
+          <button type="button" class="action-link" data-action="reconcile-testing"${fixRunning ? ' disabled' : ''}>Reconcile with the repository…</button>
+          <span class="list-meta">Fix runs only after confirmation and normal tool approvals; routed activity and its final report appear below. Reconcile compares the declared policy with what is actually here and proposes any configuration changes.</span>
+        </div>
+        ${renderTestingFixActivity()}
         ${reportLine}
         <div class="panel-grid" style="margin-top:12px">
           ${renderDistributionBar('policy-coverage', [
@@ -2851,7 +3167,10 @@
     `;
   }
 
-  const METHODOLOGY_DEFS = [
+  // This is only a compatibility fallback for a snapshot produced by an older
+  // extension host. Current snapshots carry the shared catalogue from
+  // `types.ts`, including the explanatory copy Settings already shows.
+  const METHODOLOGY_FALLBACK_DEFS = [
     { id: 'tdd',              label: 'TDD',                     category: 'design-time' },
     { id: 'bdd',              label: 'BDD',                     category: 'design-time' },
     { id: 'atdd',             label: 'ATDD',                    category: 'design-time' },
@@ -2885,8 +3204,16 @@
     { key: 'exploratory',    label: 'Exploratory' },
   ];
 
+  function getMethodologyDefinitions(testing) {
+    const definitions = Array.isArray(testing && testing.methodologyDefinitions)
+      ? testing.methodologyDefinitions.filter(def => def && typeof def.id === 'string' && typeof def.label === 'string')
+      : [];
+    return definitions.length > 0 ? definitions : METHODOLOGY_FALLBACK_DEFS;
+  }
+
   function renderMethodologyStrategy(testing) {
     const config = testing.projectTestingConfig;
+    const definitions = getMethodologyDefinitions(testing);
     const enabledIds = new Set(
       config ? config.methodologies.filter(m => m.enabled).map(m => m.id) : ['tdd', 'unit'],
     );
@@ -2894,7 +3221,7 @@
 
     const categoryGroups = METHODOLOGY_CATEGORIES.map(cat => ({
       ...cat,
-      items: METHODOLOGY_DEFS.filter(d => d.category === cat.key),
+      items: definitions.filter(d => d.category === cat.key),
     }));
 
     const rows = categoryGroups.map(cat => `
@@ -2903,12 +3230,25 @@
       </tr>
       ${cat.items.map(def => {
         const isEnabled = enabledIds.has(def.id);
+        const description = typeof def.description === 'string' ? def.description : '';
+        const whenToUse = typeof def.whenToUse === 'string' ? def.whenToUse : '';
+        const keyTools = typeof def.keyTools === 'string' ? def.keyTools : '';
+        const tradeoffs = typeof def.tradeoffs === 'string' ? def.tradeoffs : '';
+        const details = whenToUse || keyTools || tradeoffs ? `
+          <details class="methodology-dashboard-guidance">
+            <summary>When to use it and the trade-offs</summary>
+            ${whenToUse ? `<div><strong>When to use:</strong> ${escapeHtml(whenToUse)}</div>` : ''}
+            ${keyTools ? `<div><strong>Common tools:</strong> ${escapeHtml(keyTools)}</div>` : ''}
+            ${tradeoffs ? `<div><strong>Trade-offs:</strong> ${escapeHtml(tradeoffs)}</div>` : ''}
+          </details>` : '';
         return `<tr>
           <td class="methodology-name-cell">
             <label class="methodology-toggle-label">
               <input type="checkbox" class="dashboard-methodology-cb" data-methodology-id="${escapeAttr(def.id)}" ${isEnabled ? 'checked' : ''} />
               ${escapeHtml(def.label)}
             </label>
+            ${description ? `<div class="methodology-dashboard-description">${escapeHtml(description)}</div>` : ''}
+            ${details}
           </td>
           <td><span class="tag ${isEnabled ? 'tag-good' : ''}">${isEnabled ? 'Active' : 'Off'}</span></td>
         </tr>`;
@@ -2922,9 +3262,9 @@
             <p class="section-kicker">Methodology configuration</p>
             <h3>Testing Strategy</h3>
           </div>
-          <span class="tag tag-good">${escapeHtml(String(enabledCount))} / 14 active</span>
+          <span class="tag tag-good">${escapeHtml(String(enabledCount))} / ${escapeHtml(String(definitions.length))} active</span>
         </div>
-        <div class="stat-detail" style="margin-bottom:12px">Toggle methodologies to enable or disable them. Changes are saved immediately to <code>project_memory/index/testing-config.json</code>. Use <strong>Open Testing Strategy</strong> for agent assignments, model overrides, and detailed notes.</div>
+        <div class="stat-detail" style="margin-bottom:12px">Toggle methodologies to enable or disable them. The descriptions and guidance below are the same shared protocol catalogue as Settings. Changes are saved immediately to <code>project_memory/index/testing-config.json</code>. Use <strong>Open Testing Strategy</strong> for agent assignments, model overrides, and project notes.</div>
         <table class="methodology-dashboard-table">
           <tbody>
             ${rows}
@@ -5852,6 +6192,7 @@
               : '<button type="button" class="action-link" data-action="delivery-reimport" data-payload="">↻ Re-import from repo</button>'}
             <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(summaryPath)}">📖 Open runbook (delivery.md)</button>
             <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(pipeline.configPath)}">Edit delivery.json</button>
+            <button type="button" class="action-link" data-action="command" data-payload="atlasmind.openWebsiteStudio">🌐 Website Studio</button>
           </div>
         </div>
         ${renderDeliveryReviewBanner(pipeline.review)}
@@ -7243,6 +7584,7 @@
     'atlasmind.openToolWebhooks': 'Tool Webhooks',
     'atlasmind.openVoicePanel': 'Voice',
     'atlasmind.openVisionPanel': 'Vision',
+    'atlasmind.openWebsiteStudio': 'Website Studio',
     'atlasmind.updateProjectMemory': 'SSOT sync',
     'atlasmind.toggleAutopilot': 'Autopilot',
     'workbench.view.scm': 'Source Control',

@@ -35,6 +35,7 @@ The extension builds two targets: the Node desktop build (`out/extension.js`) an
 ```bash
 npm test             # Run all Vitest tests
 npm run test:coverage # Run the CI coverage gate locally
+npm run test:mutation # Run the slower Stryker mutation suite
 npm run test:providers:local-recommendations # Focused registry override/fallback coverage
 npm run monitor:integrations # Generate the curated integration drift report
 npm run monitor:integrations:audit # Enforce monitoring coverage for new third-party surfaces
@@ -56,7 +57,7 @@ npm run package:vsix # Produces a .vsix file with runtime dependencies included
 ```
 
 AtlasMind has runtime dependencies. Do not package or publish with `--no-dependencies` unless those dependencies have been bundled into the extension output first.
-The checked-in `.gitignore` keeps `project_memory_old/` out of source control, while `.vscodeignore` keeps local and release VSIX files focused on runtime assets by excluding all workspace-memory directories matching `project_memory*` (including local archives and backups), `wiki/`, generated `.vsix` files, local Vitest JSON reports, assistant instruction folders, and extra dependency docs or test trees. Treat any workspace-memory directory shown by `vsce package` as a release blocker.
+The checked-in `.gitignore` keeps `project_memory_old/` out of source control, while `.vscodeignore` keeps local and release VSIX files focused on runtime assets by excluding all workspace-memory directories matching `project_memory*` (including local archives and backups), `wiki/`, generated `.vsix` files, local Vitest JSON reports, Stryker's `.stryker-tmp/` sandbox, separate test/e2e/performance trees, assistant instruction folders, and extra dependency docs or test trees. Treat any workspace-memory directory shown by `vsce package` as a release blocker.
 
 ### Run in VS Code
 
@@ -86,6 +87,7 @@ The checked-in `.gitignore` keeps `project_memory_old/` out of source control, w
 | `src/core/`      | Core services (orchestrator, agents, skills, router, planner) |
 | `src/chat/`      | Chat participant and slash commands                           |
 | `src/providers/` | LLM provider adapters                                         |
+| `native/acp-private-desktop/` | Auditable Rust source for the optional Windows ACP private-desktop launcher; the release PE is SHA-256-pinned under `media/bin/` |
 | `src/skills/`    | Built-in skill implementations                                |
 | `src/memory/`    | Memory manager and scanner                                    |
 | `src/mcp/`       | MCP client and server registry                                |

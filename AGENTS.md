@@ -133,6 +133,15 @@ the identity has authenticated once, which is what the verify workflow is for.
 | `WorkflowAuditRecord` | `src/core/workflowAuditRecord.ts` | What the workflow has done — the module that turns every other determinism claim from marketing into something checkable. **Fingerprints, not payloads:** the ledger is git-tracked, so storing what was processed would commit issue bodies, review comments and CI logs into the repository; `WorkflowRunRecord` has no field that could hold one (pinned by test). Everything rests on `canonicalJson` (keys sorted recursively) — without it two descriptions of the same input hash differently and the determinism check cries wolf until somebody turns it off. **Record first, then act** (a record written afterwards is missing exactly when it matters — the run that crashed is the one somebody needs to read about), and **a record that cannot be written stops the action**; a *refusal* records best-effort instead, because nothing was about to happen so there is no gap to protect against. `findDeterminismBreaches` groups by `(stageId, action, inputsFingerprint)` — the same inputs to different actions have no reason to agree — skips incomplete runs (a failure has no output), and names **both** runs rather than a count. Actor is coarse (`user`/`agent`/`automation`): the file is committed, and git already records who, with better provenance. Pure + `fs`-only + unit-tested |
 | `WorkflowConfig` | `src/core/workflowConfig.ts` | The workflow as data a team owns — a **committed file**, not a setting, so a change to how a team works arrives as a diff with a reviewer rather than a habit nobody wrote down. Four rules carry semantics: a `managed` stage may be **disabled but never deleted** (disabling is a record, deletion an erasure — `sanitizeStages` restores one the file has lost, *disabled*, so deleting by hand is not an error, it just does not work); **the file sets intent, settings set the ceiling** (`min(master, ceiling, capability, stage)` — a stage can request `auto` and get `observe`, and every level change says so in the same sentence); **profiles seed but do not govern** (changing the profile never rewrites customised stages); and **unknown fields survive a round trip**, so an older build saving cannot silently drop a newer one's settings. **An empty `command` is the blocker, not an oversight** — `undefined` (needs none) and `''` (needs one, has none) never collapse at any layer, and `stageBlockers` folds the derived blocker in with declared ones so every surface asking "what is stopping this?" gets one answer. Labels are **categorised** (type/priority/status/area) because a flat list makes "only from the declared taxonomy" satisfiable by three conflicting priorities; observed repository labels seed `type` only, since sorting them would be guessing at meaning, and priority/status seed empty rather than teaching a vocabulary nobody picked. `testing: { inherit: true }` is single-valued to *say* testing rules live in `testing-config.json` and are deliberately not duplicated. `validateWorkflowConfig` is separate from sanitizing — one asks "is this file usable", the other "does everything it names exist" — and an unresolvable owner is **reported, never dropped**, because a silently ownerless stage reads as one nobody was assigned. Mirrors `documentsManager` — seeding never overwrites a newer-format file, an explicit save does — with one difference: **never seeded on render**, because this file gets committed and writing one because somebody opened a tab would put words in their mouth. Pure + `fs`-only + unit-tested |
 | `IdeationDerivation` | `src/core/ideationDerivation.ts` | Ideation as **stage 0** of the workflow. The board had nine card kinds — `problem`, `requirement`, `risk`, `evidence` among them — and two outbound paths (autonomous run, or prose appended to a memory file), so nothing fed the backlog and a card called `requirement` could not become a requirement. **Focus is not decided here**: `prioritizeDashboardRoadmapItems` already derives it from item *text* with one published keyword table, and a second classifier keyed on card kind would eventually disagree — surfacing as an item whose priority reason contradicts its own label (a test reads the source to confirm no focus vocabulary appears at all). **A kind becomes a prefix only where it changes what the sentence commits to** — `Fix:` for a problem and `Mitigate:` for a risk, because the work is the fix not the problem; nothing for a requirement or an idea, since putting an idea on the roadmap *is* the commitment and hedging it would misreport the decision just made. `decapitalizeFirstWord` checks the whole first word, because `/^[A-Z][a-z]/` matched the `Gi` in `GitHub`. **Connections are the evidence and direction is load-bearing** — all five relations written out both ways rather than templated, ranked by consequence, and a `contradiction` surfaced as a **caution** never as support: raising work while hiding the card that argues against it is the worst use of a board that recorded the argument. **Provenance is keyed on normalized text, not ids** — card ids are durable but roadmap ids are positional (`roadmap-${index + 1}`, after filtering), so inserting one item renumbers the rest; `resolveDerivedRoadmapItem` finds an item wherever it moved and reports `missing` with the old text on a rename rather than matching whatever took its place. `normalizeForRoadmapMatch` is pinned to the dashboard's normalizer by test, since two of them drifting would break every stored link at once. `collectCardConnectionSources` lives here because both panels need it and two copies would disagree about direction. Pure + unit-tested |
+| `ResearchScanCatalog` | `src/core/researchScanCatalog.ts` | The seven questions a research scan may ask, and the rule that grades the answers. **A scan is classified by where its evidence lives, and that decides whether AtlasMind builds a scanner at all** — gap, security, risk, debt and testing coverage are already answered by registers in this codebase, and a second answer would eventually contradict the first, surfacing as a board citing evidence the Gap Analysis page denies (the same refusal `ideationDerivation` made about focus classification). Those five are recorded as `RESEARCH_SUBSCRIPTIONS` pointing at the module that owns each; the catalog declares only questions that reach outside the repository, and a test asserts none is `internal`. **Severity from a declared table evaluated over facts, never a model's sense of importance** — which scan produced it, whether a stated deadline parses and is still ahead of a published horizon, whether two *independent hosts* carry the claim, whether the title collides with something already on this project's roadmap (computed by the caller, never asserted by a model) — because a score assigned in March must be comparable with one assigned in July. **An uncited claim is refused rather than graded `low`**: a model asked about a market answers fluently and specifically, and once that is in git-tracked memory it is indistinguishable from research. `buildResearchScanPrompt` states the citation rule to the model *and* fences fetched pages as REPORTED CONTENT, since a competitor's marketing page is exactly as untrusted as an issue body. Pure + unit-tested |
+| `ResearchRegister` | `src/core/researchRegister.ts` | What a scan found and what a human decided about it. Shaped after `riskOversightManager` — findings transition rather than disappear, JSON is the source of truth, the markdown mirror publishes the rule table and the catalog, history is capped and append-only — with one difference that is the whole security story: **the citation gate is in the sanitizer, not in a prompt**, because a prompt is a request and a sanitizer is a guarantee. `https` only (a citation is a retrieval promise somebody will click). An uncited claim is **demoted to a `question`, not discarded**: an analyst's hunch is worth writing down and worth never planning against. The invariant survives a hand-edit — a stored `finding` whose citations were deleted is demoted on read. **Derive, don't mirror**: the claim and its URL are stored, never the page body, since `project_memory/` is committed and mirroring a competitor's site would be a licensing problem wearing a feature's clothes. **A decision outlives the scan that prompted it** — reconciliation supersedes an `open` finding the latest scan did not reproduce, never one somebody accepted, actioned or dismissed, and `superseded` stays distinct from `dismissed` for the reason the debt register keeps `resolved` apart from `obsolete`. `hasBeenScanned` counts only an `ok` run, so an attempt that answered nothing never reads as an assessment. `fs`-only + unit-tested |
+| `ResearchSources` | `src/core/researchSources.ts` | Whether anything could have looked, decided **before** the scan runs. Asked about a market with no way to look it up, a model still answers — so the only defence is to know in advance and refuse rather than improvise. **Absent is not empty**: no source yields `no-source` plus a named setup step, never a clean result. **Fetching a named page is not discovery, and the difference is a separate field** — a `web-fetch`-only project running a competition scan would receive the model's recollection with one real citation stapled to it, which is worse than no scan because it looks sourced; `assessScanFeasibility` therefore refuses an `external` scan on a fetch-only source while letting a `hybrid` one run its repository half and **state** the half it could not assess. **MCP tools are matched on a short declared verb list against the tool-name segment of `mcp:<server>:<tool>`, never on description prose** — names are stable, descriptions are marketing that changes between versions, and `delete_index` matching `index` would be a genuinely bad afternoon. Pure + unit-tested |
+| `ResearchSchedule` | `src/core/researchSchedule.ts` | When a scan is **due**, which is not when one runs — a VS Code extension has no daemon, and these scans reach the network and spend money on somebody else's model. **A missed window is not a backlog**: due-ness is derived from the last run and never accumulated, so six weeks with the editor closed is one due scan rather than six artefacts of when somebody opened their laptop. **Measured from the last run that answered**, so a failed attempt yesterday cannot reset a clock that last ticked in May. **The file asks, the settings decide** — `min(master, per-scan)`, with every reduction stated in the same sentence as the request, because a ceiling that silently lowers something is a ceiling nobody can debug. **A blocker is named, never implied**: master gate off, no source, spend cap reached each produce a `blocked` state carrying the reason, since a scan that simply never becomes due looks identical to one that is working. `nextAutomaticScan` returns exactly **one** — seven scans coming due in a week must not become seven model runs on the morning somebody opens their editor — never-assessed ahead of merely overdue, ties on catalog order so the choice cannot shuffle. Pure, clock-injected + unit-tested |
+| `ResearchDigest` | `src/core/researchDigest.ts` | Three questions in a fixed order — what changed outside, what it means for what we are building, what is still unassessed — and **the third always renders, including when empty**, because dropping it when inconvenient is how a digest starts congratulating you for not looking. **No model is in this path**: the plan left the "so what" open between a fenced model reading and a declared table, and this is the table — the same register must produce the same digest, which is what makes it reviewable and diffable, and a generated paragraph in a committed file is a claim nobody checked attributed to the project. Question 1 is a delta, so it obeys `observedDelta`'s five rules with a sharper edge because the subject is the outside world: **no baseline is a first look**; **unknown → known is not zero → n** (a competition scan going from never-run to twelve findings is not twelve competitors appearing — the rule most likely to be broken by accident and the most alarming when it is); **known → unknown is news**, ranked above the movement it hides, so a scan that can no longer run leads; **a changed scope discards the baseline**; and **your own dismissals are never reported back**, which lives here by omission since only `open` findings are considered. Ranked by consequence with declaration order breaking ties; the unassessed section is deliberately **never capped**. Pure, clock-injected + unit-tested |
+| `IdeationBoardTemplates` | `src/core/ideationBoardTemplates.ts` | Starter frames for an empty board — the hardest screen in AtlasMind, since every other surface opens onto something and the whiteboard opens onto nothing. **A template is a set of questions, not a set of answers**: every seeded card is a `problem`, `requirement` or `experiment` phrased as something to fill in, because seeding confident-sounding conclusions would be text that reads like thinking somebody did when nobody did (a test asserts at least half the seeded titles end in a question mark, and that every seeded kind is one the board can turn into work). **Derived from the project, never generated** — from `projectArchetype`'s detected archetype and traits, since a hallucinated starting frame is worse than a blank one because it sets the agenda. **Nothing is placed at a coordinate here**: the board already has collision avoidance and a lane model, and the second placement algorithm would be the wrong one because it cannot see the board. Eleven frames — one per archetype that has a genuinely different first conversation, two trait frames, four general — and deliberately not thirty, because a gallery is a second decision before the first one. Pure + unit-tested |
+| `IdeationReadiness` | `src/core/ideationReadiness.ts` | What the board has and what it cannot defend. The panel could already say how many cards were on the board; it could not say the thing anybody wants to know before acting on it — whether the board contains an argument or a pile of assertions. Five ideas with no evidence, one unresolved contradiction and nothing that ever reached the backlog looked identical to a finished board with the same card count. **Nothing here blocks anything**: `releasePreparation` gates a release because a release cannot be undone, and a board can always be edited, so a gate would be theatre with a cost — this produces a *reading*, and a reading may be ignored. **Every check names the rule that produced it**, as the debt register and attention feed do. **Unassessed is not clear** — an empty board reads `unexamined`, never good. **An unresolved contradiction outranks everything**, because the board is the one place in AtlasMind that records an argument *against* doing something, and burying that under "3 cards have no evidence" would waste the only thing this surface knows that an issue tracker does not. Only edges between two still-active cards count: an edge to an archived card is not an argument anybody can read. Pure + unit-tested |
+| `ResearchRunner` | `src/core/researchRunner.ts` | One scan, start to finish, with every dependency injected — so the property that matters is checkable rather than assumed: **a scan that cannot look never calls the model**. The feasibility check runs first and, when it fails, records a `no-source` outcome and returns. It does not try anyway and see what comes back, because what comes back would be fluent, specific, indistinguishable from research and carrying no signal that nobody looked anything up (a test asserts the agent was not invoked; without it this is a comment, and comments do not stop anybody paying for a hallucinated market report). **A failed call is recorded, not swallowed** — the register keeps a `failed` run, which `hasBeenScanned` deliberately does not count as an assessment, so the scan still reads as never answered while the attempt stays visible: two true facts, neither implying the other. **What could not be assessed is carried into the record**, not just into the message on screen, since a partial answer stored as a whole one lies by omission the next time anybody reads it. Questions are reconciled alongside findings, or a claim demoted last month would reappear as new on every run. Pure + unit-tested |
+| `ResearchSettings` | `src/core/researchSettings.ts` | `atlasmind.research.*`, read once and in one place, kept pure by taking a reader rather than importing `vscode`. `monthlySpendCapUsd` defaults to **0** — meaning *no automatic run may spend anything*, whatever a scan's automation level says — because switching research on and letting it run unattended are two decisions, and one switch carrying both would make the first one cost something nobody agreed to. `researchAttentionInput` returns `undefined` when research is off rather than a zeroed group, and it exists as a function precisely so no caller can get that wrong: research is the one attention-feed group whose absence means *decided against* rather than *not assessed*, and zeroes would make a disabled feature raise items forever. Pure + unit-tested |
 | `RoadmapIssueDraft` | `src/core/roadmapIssueDraft.ts` | A roadmap item turned into an issue draft — the gap where `IssueDraft` existed with only a sanitizer, so the roadmap held the work structured and prioritised while issues could only be hand-typed. **No model is in this path**: the same item yields a byte-identical draft, which is what makes it reviewable (the rule that chose a label is visible, the next item is predictable); a generated issue title is a claim nobody checked, posted publicly in the user's name. **A draft is not a filed issue** — nothing calls `gh`; the confirmation lives at the call site behind the same gate as every other issue write. **Labels only from the declared taxonomy**, since an invented label is *created* on the repository as a side effect of filing: several candidates per focus in preference order, the repository's own spelling wins (`Documentation` ≠ `documentation` to `gh`), and an unmatched intent is recorded in `droppedLabels` **and stated in the issue body** so the omission is visible to the reader, not just the filer. A gate becomes a label only where the repo already uses that word. Titles clamp on a word boundary (a mid-word cut reads as a truncation bug) with the full text kept in the body; the provenance line carries the item id verbatim, because an issue that does not say where it came from becomes a duplicate on the next roadmap read — and it says closing the issue does not tick the item off. `draftableRoadmapItems` excludes completed items rather than sorting them last. Pure + unit-tested |
 | `GithubDeepLinks` | `src/core/githubDeepLinks.ts` | The GitHub page each dashboard page is about — the dashboard read GitHub, reasoned about it, then left you to navigate from the repository root. Three rules: **a slug is untrusted input** (it comes from a git remote or `gh` and is interpolated into a URL, so it is validated against GitHub's real naming rules — 39-char owner, no leading/trailing hyphen — not checked for a slash; a slug that does not parse yields **no links at all**, because a plausible link to *somebody else's* tracker is worse than a missing button; origin pinned to a constant); **only surfaces every repository has** (`/wiki`, `/discussions`, `/projects` can each be off, and a 404 behind a button we drew reads as our bug — knowing which are enabled costs a `gh` call, and a link is not worth a round trip); and **the caller resolves ids, not URLs** (`resolveGithubLink`, id space scoped per page, so a webview can never name what `openExternal` opens). Four pages get none by declaration — Privacy/Runtime/Risk/Ideation are about this machine, not the repository. Derived from the git remote so it works with no `gh` at all. Pure + unit-tested |
 | `VersionStrip` | `src/core/versionStrip.ts` | The dashboard header's version pills — *what version is where*, one per delivery stage. Previously two, from git alone: a production branch found by walking a candidate list plus the checked-out branch, which answers "which branch am I on?" while the Delivery page already models the real answer as an ordered pipeline whose stages each carry the `branchRef` representing them. The header never read it, so adding a Staging stage changed nothing and four environments still showed two pills. Derived now from the **same `DashboardStageView`s the Delivery page renders** — not a second collection pass — so the surfaces cannot report different versions and a stage is declared once. Four rules, all about not claiming to know a version: **a branch that does not exist has no version** (borrowing the working copy's would claim a deployment nobody made; the `—` placeholder is unknown, never a value); **the working tree is a different claim from a branch** — no `branchRef` by design, read from `package.json` on disk, so it is the only pill that can be ahead of what is committed, says `working tree` rather than borrowing a branch name, and is marked dirty, which is *precisely* when it differs (a clean local pill only repeats staging); **ordered by rank, capped, remainder stated** and routed to Delivery, ties broken on name so pills cannot shuffle; and **never empty, but a guess is not a declaration** — no pipeline falls back to the git pair under `source: 'branches'`, since a heuristic production branch must not wear a declared stage's shape. Pure + unit-tested |
@@ -274,3 +283,191 @@ The GitHub Wiki is published from the `wiki/` directory. When any docs-level cha
 | `wiki/FAQ.md` | Troubleshooting, common questions |
 | `wiki/Changelog.md` | `CHANGELOG.md` highlights |
 | `wiki/_Sidebar.md` | Wiki navigation sidebar |
+
+<!-- atlasmind:testing-protocols:start -->
+## Testing Protocols (managed by AtlasMind)
+
+> Auto-generated from `project_memory/index/testing-config.json`. Do not edit by hand —
+> changes are overwritten on the next sync. Update the matrix in the AtlasMind Settings → Testing page instead.
+
+This project enforces **13** testing methodologies. When writing or verifying tests, follow the applicable protocols below and report the checks, assertions, or verification artifacts you produced before concluding.
+
+### TDD
+
+- **What:** Test-Driven Development — red-green-refactor loop
+- **When to apply:** Any project where correctness matters and requirements can be expressed as assertions before the code is written. Especially valuable for greenfield features and critical business logic.
+- **Key tools:** Jest, Vitest, Mocha, pytest, JUnit, RSpec, Go testing
+- **Primary owner:** Test Developer
+
+### BDD
+
+- **What:** Behavior-Driven Development — Gherkin / Given-When-Then specs
+- **When to apply:** Projects with a non-technical product owner or QA team who needs to co-author acceptance criteria. Works best when requirements arrive as user stories.
+- **Key tools:** Cucumber, SpecFlow, Behave, Gherkin, Codecept, Playwright BDD plugin
+- **Primary owner:** Test Developer
+
+### ATDD
+
+- **What:** Acceptance Test-Driven Development — customer-facing criteria first
+- **When to apply:** When the delivery team works directly from customer acceptance criteria. Bridges the gap between BDD storytelling and executable acceptance tests.
+- **Key tools:** Robot Framework, FitNesse, Cucumber, SpecFlow, Gauge
+- **Primary owner:** Test Developer
+
+### Unit Testing
+
+- **What:** Isolated function and class-level tests
+- **When to apply:** All projects. Start here. Fast, cheap, and gives precise regression signals. Should be the largest layer of your test pyramid.
+- **Key tools:** Jest, Vitest, Mocha, pytest, JUnit, NUnit, xUnit, Go testing, Minitest
+- **Primary owner:** Test Developer
+
+### Mutation Testing
+
+- **What:** Fault injection to measure suite kill-rate (Stryker, Pitest)
+- **When to apply:** Mature suites where you want to measure test quality, not just quantity. Excellent for libraries and shared utilities where coverage alone is misleading.
+- **Key tools:** Stryker Mutator (JS/TS/C#), Pitest (Java/Kotlin), mutmut (Python), Infection (PHP)
+- **Primary owner:** Test Developer
+
+### Property-Based
+
+- **What:** Generative input testing (fast-check, Hypothesis)
+- **When to apply:** Pure functions, parsers, data transformers, and algorithmic code. Generates hundreds of random inputs to find edge cases no human would enumerate.
+- **Key tools:** fast-check (JS/TS), Hypothesis (Python), QuickCheck (Haskell/Erlang), jqwik (Java), gopter (Go)
+- **Primary owner:** Test Developer
+
+### Continuous / Shift-Left
+
+- **What:** Automated testing embedded throughout CI/CD — tests run on every commit, earliest possible feedback
+- **When to apply:** Any project with a CI/CD pipeline. Essential for teams delivering frequent releases or practising trunk-based development. Shift-left means pushing tests earlier: linting, type checks, and unit tests on pre-commit; integration and E2E on PR; performance and security on merge.
+- **Key tools:** GitHub Actions, GitLab CI, Jenkins, CircleCI, Azure DevOps, Buildkite, Husky / pre-commit hooks, Test Impact Analysis (Vitest, Jest)
+- **Primary owner:** Test Developer
+
+### White-Box
+
+- **What:** Structure-aware testing — code paths, branches, and conditions guided by internal knowledge
+- **When to apply:** Security-sensitive modules, complex algorithms, and codebases where path or branch coverage is a compliance requirement (DO-178C, IEC 61508). Augments unit tests with precise coverage metrics to identify dead code and untested logic.
+- **Key tools:** Istanbul / nyc (JS/TS), coverage.py, JaCoCo (Java/Kotlin), gcov / lcov (C/C++), LLVM coverage, SonarQube, Codecov, Coveralls
+- **Primary owner:** Test Developer
+
+### End-to-End
+
+- **What:** Full user-flow simulation (Playwright, Cypress, etc.)
+- **When to apply:** Web and mobile applications with critical user journeys (checkout, login, onboarding). High confidence at the cost of speed.
+- **Key tools:** Playwright, Cypress, Puppeteer, WebdriverIO, Detox (mobile), Appium
+- **Primary owner:** Test Developer
+
+### Contract
+
+- **What:** Consumer-driven API contract verification (Pact)
+- **When to apply:** Microservice architectures where multiple teams own their own services. Consumers write the contract; providers verify it — eliminating integration environment dependency.
+- **Key tools:** Pact (JS, Java, Go, .NET, Ruby, Python), Spring Cloud Contract, Dredd
+- **Primary owner:** Test Developer
+
+### Model-Based (MBT)
+
+- **What:** Derive test cases from formal system models — state machines, UML diagrams, decision tables
+- **When to apply:** Complex systems with many state transitions: embedded software, protocol implementations, workflow engines, and telecom or automotive stacks. MBT generates optimised test suites that cover the model more completely than hand-authored cases.
+- **Key tools:** GraphWalker, TestOptimal, Conformiq, MBTsuite, Selenium + custom state model wrappers
+- **Primary owner:** Test Developer
+
+### Security
+
+- **What:** SAST / DAST and dependency vulnerability scanning
+- **When to apply:** Any application handling authentication, payments, PII, or sensitive data. Should be part of CI for all production software.
+- **Key tools:** Snyk, OWASP ZAP, Semgrep, Trivy, CodeQL, Dependabot, npm audit, OWASP Dependency-Check
+- **Primary owner:** Test Developer
+
+### Exploratory
+
+- **What:** Session-based manual discovery and charter testing
+- **When to apply:** New features, usability-sensitive workflows, and any area where automation has not yet caught up. Pairs well with a formal charter to keep sessions focused.
+- **Key tools:** Session-based testing charters, TestRail, Zephyr, Xray, Notion test logs, PractiTest
+- **Primary owner:** Test Developer
+
+<!-- atlasmind:source-digest:abbcf2f8467c5276 -->
+<!-- atlasmind:testing-protocols:end -->
+
+<!-- atlasmind:debt-markers:start -->
+## Technical debt markers
+
+When you leave temporary code, a shortcut, or a deferred decision behind, mark it with a
+comment beginning with one of these. AtlasMind scans for them and records each one with its
+file, its line, and the rule that graded it — anything marked another way is invisible, and an
+empty register then reads as "no debt" rather than "not detected".
+
+- `TODO:` — something absent. Graded low.
+- `FIXME:` — something wrong. Graded medium.
+- `HACK:` / `XXX:` — works, but not the way it should. Graded medium.
+
+The marker must be the first word of the comment: `// TODO: replace this` is recorded,
+`// a TODO for later` is not. A marker mentioning a credential, a token or sanitising is
+graded high whichever word you used.
+
+<!-- atlasmind:debt-markers:end -->
+
+<!-- atlasmind:workflow:start -->
+## GitHub workflow (managed by AtlasMind)
+
+> Auto-generated from `project_memory/operations/workflow.json`. Do not edit by hand —
+> changes are overwritten on the next sync. Edit the workflow file, or the Workflow page.
+
+This repository follows a declared GitHub workflow. It is recorded in
+`project_memory/operations/workflow.json` and is the authority for the rules below —
+if this block and that file disagree, the file wins and this block is stale.
+
+These rules apply to **you**, whichever tool you are. AtlasMind cannot gate a process it
+does not run, so nothing here is enforced by machinery on your side: it is enforced by you
+reading it. Where a rule and convenience conflict, follow the rule and say that you did.
+
+### Branches
+
+- Integration branch (normal push target): `develop`
+- Release branch: `main`
+- **Protected — never push directly:** `main`, `master`, `production`, `prod`, `release`, `stable`, `development`. Reach these through a reviewed pull request only.
+- New branches: `<type>/<issue>-<slug>`, at most 60 characters, type from `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `perf`.
+
+### How far you may go, by stage
+
+The operator's ceiling is `auto`. A stage asking for more than that gets the ceiling, and the levels below already have it applied — they are what is actually permitted.
+
+| Stage | Permitted | What that means for you |
+|---|---|---|
+| Planning & issue intake | `observe` | Report what you find. Do not create, modify or close anything. |
+| Branch creation & naming | `observe` | Report what you find. Do not create, modify or close anything. |
+| Local development | `observe` | Report what you find. Do not create, modify or close anything. |
+| Pull requests & review | `observe` | Report what you find. Do not create, modify or close anything. |
+| CI & failure analysis | `observe` | Report what you find. Do not create, modify or close anything. |
+| Release | `observe` | Report what you find. Do not create, modify or close anything. |
+
+### Evidence a stage requires
+
+Two different things, which must not stand in for each other: a **check** is a person saying
+"I looked", and a **status check** is a machine saying "it passed". Do not report one as the other.
+
+- **Planning & issue intake**
+  - Human checks: _Acceptance criteria written_
+- **Pull requests & review**
+  - Human checks: _Self-reviewed the diff_, _Linked to an issue_, _Version bumped and changelog written_
+  - CI that must be green: `CI`
+- **CI & failure analysis**
+  - CI that must be green: `CI`
+- **Release**
+  - Human checks: _Changelog entry written_, _Version bumped_, _README banner matches package.json_
+  - CI that must be green: `CI`
+
+### Labels
+
+Use **only** these. A label that does not exist is *created* on the repository as a side
+effect of applying it, so inventing one changes the project's taxonomy without asking.
+Pick at most one from each category.
+
+- **type:** `bug`, `enhancement`, `documentation`, `security`, `dependencies`, `workflow`
+
+### Testing
+
+Testing requirements are **not** duplicated here. They live in
+`project_memory/index/testing-config.json` and are described in the testing-protocols block
+of this same file. Follow those.
+
+
+<!-- atlasmind:source-digest:22fb7e16dd0950ff -->
+<!-- atlasmind:workflow:end -->

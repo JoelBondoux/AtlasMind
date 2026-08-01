@@ -48,15 +48,15 @@ Source: `docs/architecture.md`
 │                   │  Adapters   │                              │
 │                   │             │                              │
 │                   │ Anthropic   │                              │
-│                   │ Claude CLI  │                              │
+│                   │ ACP Agents  │                              │
 │        
 …(truncated)
 
 <!-- atlasmind-import
 entry-path: architecture/runtime-and-surfaces.md
 generator-version: 2
-generated-at: 2026-07-28T12:06:49.103Z
+generated-at: 2026-07-31T03:25:06.200Z
 source-paths: docs/architecture.md
-source-fingerprint: 1b15eda6
-body-fingerprint: e6bd7aff
+source-fingerprint: 5ee77b7d
+body-fingerprint: 6aa7ad75
 -->

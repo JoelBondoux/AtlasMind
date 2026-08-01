@@ -121,6 +121,32 @@ describe('scaffoldTestingFramework', () => {
     expect(e2e?.path).toMatch(/api\.spec/);
     expect(readFileSync(path.join(workspace, e2e!.path), 'utf8')).toContain('/health');
   });
+
+  it('offers a real first-test target only when a supported runner and exported source function already exist', async () => {
+    writePackageJson({ vitest: '^1.0.0', typescript: '^5.0.0' });
+    const sourcePath = path.join(workspace, 'src', 'core', 'math.ts');
+    mkdirSync(path.dirname(sourcePath), { recursive: true });
+    writeFileSync(sourcePath, 'export function add(left: number, right: number): number { return left + right; }\n');
+
+    const result = await scaffoldTestingFramework(workspace, makeConfig([{ id: 'unit', enabled: true }]));
+
+    expect(result.firstTestCandidate).toEqual({
+      sourcePath: 'src/core/math.ts',
+      exportedSymbol: 'add',
+      testRunner: 'vitest',
+    });
+  });
+
+  it('does not nominate a source target when the project has no supported runner', async () => {
+    writePackageJson({ typescript: '^5.0.0' });
+    const sourcePath = path.join(workspace, 'src', 'math.ts');
+    mkdirSync(path.dirname(sourcePath), { recursive: true });
+    writeFileSync(sourcePath, 'export function add(left: number, right: number): number { return left + right; }\n');
+
+    const result = await scaffoldTestingFramework(workspace, makeConfig([{ id: 'unit', enabled: true }]));
+
+    expect(result.firstTestCandidate).toBeUndefined();
+  });
 });
 
 // ── Language adaptivity ───────────────────────────────────────────

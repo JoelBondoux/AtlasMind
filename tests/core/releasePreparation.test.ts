@@ -95,6 +95,7 @@ const READY = {
   lastReleasedVersion: '0.2.0',
   workingTreeClean: true,
   ciConclusion: 'success' as const,
+  testingEvidence: { assessable: 3, evidenced: 3, unevidenced: [], hasReport: true, failing: 0 },
 };
 
 describe('evaluateReleaseGates', () => {
@@ -195,5 +196,50 @@ describe('buildReleasePlan', () => {
 
   it('says plainly that publishing stays with the human', () => {
     expect(describeReleasePlan(buildReleasePlan(READY))).toMatch(/stays with you/);
+  });
+});
+
+describe('evaluateReleaseGates — the declared testing policy', () => {
+  const gate = (testingEvidence: unknown) =>
+    evaluateReleaseGates(
+      { ...READY, ...(testingEvidence === undefined ? { testingEvidence: undefined } : { testingEvidence }) } as never,
+      extractChangelogSection(CHANGELOG, '0.3.0'),
+    ).find(entry => entry.id === 'tests-evidenced');
+
+  it('reports unknown when coverage was never gathered', () => {
+    // A published version can never be replaced, so "we did not check" must stay
+    // distinguishable from "we checked and it was fine". `unknown` is not a pass,
+    // so the release is not ready.
+    expect(gate(undefined)?.status).toBe('unknown');
+  });
+
+  it('fails on a methodology the project declared and did not evidence', () => {
+    const result = gate({ assessable: 4, evidenced: 1, unevidenced: ['Mutation', 'End-to-End', 'Contract'], hasReport: true, failing: 0 });
+    expect(result?.status).toBe('fail');
+    expect(result?.detail).toContain('Mutation');
+    // Both resolutions are legitimate: add the evidence, or stop declaring it.
+    expect(result?.fixHint).toContain('stop declaring');
+  });
+
+  it('fails on a failing test before it looks at evidence', () => {
+    const result = gate({ assessable: 4, evidenced: 4, unevidenced: [], hasReport: true, failing: 2 });
+    expect(result?.status).toBe('fail');
+    expect(result?.detail).toContain('2 tests failing');
+  });
+
+  it('reports unknown when everything is evidenced but nothing was ever run', () => {
+    const result = gate({ assessable: 3, evidenced: 3, unevidenced: [], hasReport: false, failing: 0 });
+    expect(result?.status).toBe('unknown');
+    expect(result?.detail).toContain('unknown rather than clean');
+  });
+
+  it('reports unknown rather than pass when no methodology is declared at all', () => {
+    // Nothing to check against is not the same as checking and finding nothing
+    // wrong, and a release must not be waved through on the absence of a standard.
+    expect(gate({ assessable: 0, evidenced: 0, unevidenced: [], hasReport: true, failing: 0 })?.status).toBe('unknown');
+  });
+
+  it('passes only when every declared methodology has evidence and the report is clean', () => {
+    expect(gate({ assessable: 3, evidenced: 3, unevidenced: [], hasReport: true, failing: 0 })?.status).toBe('pass');
   });
 });

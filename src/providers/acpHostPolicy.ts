@@ -1,0 +1,223 @@
+/**
+ * The rules a long-lived ACP host must obey — decided here, where they can be
+ * tested, rather than inside the process that spawns things.
+ *
+ * The host exists because AtlasMind currently throws the agent away after every
+ * answer. Measured on this machine: `session/new` costs ~9.7s and a second
+ * prompt on a live session costs ~1.7s, so discarding it means every turn pays a
+ * ten-second boot to save nothing. Keeping one alive is worth roughly 13s → 2s
+ * per answer, and it collapses the console-window flurry from once-per-answer to
+ * once-per-lifetime.
+ *
+ * Everything in this file is a decision, not a mechanism. `vscode`-free and
+ * process-free by construction, so the parts that would be dangerous to get
+ * wrong — who may talk to the host, when it must die, whether a cached session
+ * is still the one the caller asked for — are unit-testable without spawning
+ * anything. The spawning itself lives at the call site, as `PresenceManager`
+ * does it.
+ *
+ * **The security shape is the point.** A host holding an authenticated Claude
+ * session is a thing that can spend the user's money, and with delegated
+ * execution enabled, run commands. That is a materially different exposure from
+ * today's design, where the agent lives only for the length of one answer. So:
+ * the channel is authenticated with a per-launch secret, it is never reachable
+ * off-machine, and the host dies on its own if the editor that owns it goes
+ * away. Each of those is a rule below with a test behind it.
+ */
+
+/** How the host is reached. Never a TCP port — see {@link isLoopbackOnlyEndpoint}. */
+export interface AcpHostEndpoint {
+  /** Windows named pipe path, or a unix domain socket path elsewhere. */
+  path: string;
+  /**
+   * Per-launch shared secret. Required on every request; absent or wrong is a
+   * refusal, never a warning.
+   */
+  token: string;
+}
+
+/**
+ * Why a cached agent session cannot be reused.
+ *
+ * Reuse is only safe when the *conditions the session was created under* still
+ * hold. Each reason below is a real way those conditions change underneath a
+ * cached session, and lumping them into a boolean would make a stale session
+ * indistinguishable from a healthy one.
+ */
+export type AcpSessionInvalidation =
+  | 'agent-changed'
+  | 'cwd-changed'
+  | 'launch-mode-changed'
+  | 'configuration-changed'
+  | 'mcp-servers-changed'
+  | 'isolation-changed'
+  | 'settings-file-changed'
+  | 'idle-expired'
+  | 'agent-exited';
+
+/** What a live session was created under. Reuse compares against this. */
+export interface AcpSessionFingerprint {
+  agentId: string;
+  command: string;
+  args: readonly string[];
+  cwd: string | undefined;
+  /**
+   * Where Windows is allowed to display any console a descendant allocates.
+   *
+   * Changing this setting must replace the live process. Otherwise selecting
+   * "hide" would appear to do nothing until an unrelated invalidation happened,
+   * while selecting "visible" could leave an already-hidden agent somewhere
+   * the user did not ask it to remain.
+   */
+  launchMode: 'ordinary' | 'private-desktop';
+  /** Model option selected for this conversation, if the agent offers one. */
+  modelValue: string | undefined;
+  /** Thought-level option selected for this conversation, if one was requested. */
+  effortValue: string | undefined;
+  /** Names of the MCP servers handed over at `session/new`, in a stable order. */
+  mcpServerNames: readonly string[];
+  /** Whether the session asked the agent not to load the machine's settings. */
+  isolatedSettings: boolean;
+  /**
+   * A stamp of the on-disk settings the agent read at startup (`CLAUDE.md`, its
+   * MCP config). Any change means the live session is running on instructions
+   * the user has since edited.
+   *
+   * Deliberately opaque: the host does not care *what* changed, only that
+   * something did — which is why there is one field rather than one per file.
+   */
+  settingsStamp: string;
+}
+
+/**
+ * Can this live session serve this request?
+ *
+ * Ordered most-fundamental first, so the reported reason is the root cause
+ * rather than the first difference noticed. A caller that reports
+ * `idle-expired` for a session whose agent actually exited sends somebody to
+ * look at a timeout that was never the problem.
+ */
+export function reuseBlockedBecause(
+  live: AcpSessionFingerprint,
+  wanted: AcpSessionFingerprint,
+  state: { exited: boolean; idleMs: number },
+  limits: { maxIdleMs: number },
+): AcpSessionInvalidation | undefined {
+  if (state.exited) {
+    return 'agent-exited';
+  }
+  if (live.agentId !== wanted.agentId || live.command !== wanted.command
+    || live.args.join('\u0000') !== wanted.args.join('\u0000')) {
+    return 'agent-changed';
+  }
+  if (live.cwd !== wanted.cwd) {
+    return 'cwd-changed';
+  }
+  if (live.launchMode !== wanted.launchMode) {
+    return 'launch-mode-changed';
+  }
+  if (live.modelValue !== wanted.modelValue || live.effortValue !== wanted.effortValue) {
+    return 'configuration-changed';
+  }
+  // A turn that may act must never inherit a session created for a turn that
+  // may not. This is the reuse-side half of the isolation rule in
+  // `acpProtocol.ts` — without it, enabling delegated execution mid-session
+  // would silently keep using a session started with the user's settings
+  // withheld, or worse, the other way round.
+  if (live.isolatedSettings !== wanted.isolatedSettings) {
+    return 'isolation-changed';
+  }
+  if (live.mcpServerNames.join('\u0000') !== wanted.mcpServerNames.join('\u0000')) {
+    return 'mcp-servers-changed';
+  }
+  if (live.settingsStamp !== wanted.settingsStamp) {
+    return 'settings-file-changed';
+  }
+  if (state.idleMs >= limits.maxIdleMs) {
+    return 'idle-expired';
+  }
+  return undefined;
+}
+
+/**
+ * The host must not be reachable by anything but this machine's user.
+ *
+ * A TCP endpoint — even on loopback — is reachable by every process and every
+ * user on the box, and on Windows loopback is not filtered the way people
+ * assume. Named pipes and unix sockets carry OS-level access control, so the
+ * transport choice *is* the access control. Refusing rather than warning,
+ * because a host that fell back to TCP would hand an authenticated Claude
+ * session to anything that could open a socket.
+ */
+export function isLoopbackOnlyEndpoint(path: string): boolean {
+  if (!path) {
+    return false;
+  }
+  if (/^(tcp:|https?:|ws:|wss:)/i.test(path) || /^\d{1,3}(\.\d{1,3}){3}:\d+$/.test(path)) {
+    return false;
+  }
+  return path.startsWith('\\\\.\\pipe\\') || path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path);
+}
+
+/** Minimum entropy for the per-launch token. Short enough to guess is the same as absent. */
+export const ACP_HOST_TOKEN_MIN_LENGTH = 32;
+
+/**
+ * Whether a request may be served.
+ *
+ * Constant-time comparison is deliberately **not** attempted here: this is a
+ * local pipe whose peer already passed OS access control, and a hand-rolled
+ * timing-safe compare in JavaScript is a comfort rather than a defence. The
+ * real control is the transport; the token stops a *different* process owned by
+ * the same user from driving the host by accident.
+ */
+export function isAuthorizedRequest(expected: string, presented: string | undefined): boolean {
+  if (!expected || expected.length < ACP_HOST_TOKEN_MIN_LENGTH) {
+    return false;
+  }
+  return presented === expected;
+}
+
+/**
+ * Should the host still be running?
+ *
+ * The host outlives any single editor window on purpose — that is what lets
+ * three open projects share one agent instead of starting three. But it must
+ * not outlive *all* of them, or a user who closes VS Code is left with a Claude
+ * Code process and its subtree running until they notice.
+ *
+ * Two independent conditions, either sufficient to stop, because each covers
+ * the other's blind spot: no owner left (the clean case) and no work for a long
+ * time (the case where an owner died without saying so, leaving a PID that no
+ * longer exists but was never unregistered).
+ */
+export function shouldHostExit(state: {
+  liveOwnerPids: readonly number[];
+  idleMs: number;
+}, limits: { maxIdleMs: number }): { exit: boolean; reason?: 'no-owners' | 'idle' } {
+  if (state.liveOwnerPids.length === 0) {
+    return { exit: true, reason: 'no-owners' };
+  }
+  if (state.idleMs >= limits.maxIdleMs) {
+    return { exit: true, reason: 'idle' };
+  }
+  return { exit: false };
+}
+
+/**
+ * Defaults, stated once.
+ *
+ * The idle window is generous because the cost it guards against is a held
+ * process, while the cost of expiring too eagerly is a ten-second boot the user
+ * feels. Erring long is the cheaper mistake — but not unbounded, because
+ * "forever" is how a background process becomes something nobody remembers
+ * agreeing to.
+ */
+export const ACP_HOST_DEFAULTS = {
+  /** A live agent session is reusable for this long between turns. */
+  sessionMaxIdleMs: 30 * 60_000,
+  /** The host itself exits after this long with nothing to do. */
+  hostMaxIdleMs: 60 * 60_000,
+  /** How often the host re-checks its owners and its idle clock. */
+  supervisionIntervalMs: 30_000,
+} as const;

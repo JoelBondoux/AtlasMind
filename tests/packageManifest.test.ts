@@ -1,6 +1,9 @@
 import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import manifest from '../package.json';
+
+const REPO_ROOT = path.resolve(__dirname, '..');
 
 type WalkthroughStep = {
   id: string;
@@ -16,6 +19,7 @@ type Walkthrough = {
 type ContributedCommand = {
   command: string;
   title?: string;
+  icon?: string;
 };
 
 type ContributedKeybinding = {
@@ -35,6 +39,8 @@ type ManifestConfigurationProperty = {
   default?: unknown;
   minimum?: number;
   maximum?: number;
+  description?: string;
+  markdownDescription?: string;
 };
 
 describe('package manifest', () => {
@@ -64,6 +70,12 @@ describe('package manifest', () => {
     expect(readme).toContain(`## What's new in ${manifest.version}`);
     expect(readme).not.toContain('| Feature | AtlasMind | Copilot');
     expect(readme).not.toContain('wiki/Comparison.md');
+  });
+
+  it('uses the ACP panel’s wording in the native Settings search entry', () => {
+    const property = manifest.contributes?.configuration?.properties?.['atlasmind.acp.toolsEnabled'] as ManifestConfigurationProperty | undefined;
+    expect(property?.description).toContain('Let subscription agents act');
+    expect(property?.markdownDescription).toContain('Let subscription agents act');
   });
 
   it('keeps the wiki comparison page and navigation removed', () => {
@@ -417,20 +429,42 @@ describe('package manifest', () => {
     ]));
   });
 
-  it('adds a dashboard shortcut to the AtlasMind chat view title bar', () => {
+  it('keeps Personality and Website Studio visible in the AtlasMind chat title bar', () => {
+    const commands = (manifest.contributes?.commands ?? []) as ContributedCommand[];
     const menus = (manifest.contributes?.menus?.['view/title'] ?? []) as ManifestMenuItem[];
+
+    expect(commands.find(entry => entry.command === 'atlasmind.openPersonalityProfile')?.icon).toBe('$(account)');
+    expect(commands.find(entry => entry.command === 'atlasmind.openWebsiteStudio')?.icon).toBe('$(globe)');
     expect(menus).toEqual(expect.arrayContaining([
       expect.objectContaining({
         command: 'atlasmind.openProjectDashboard',
         when: 'view == atlasmind.chatView',
+        group: 'navigation@1',
       }),
       expect.objectContaining({
-        command: 'atlasmind.openCostDashboard',
+        command: 'atlasmind.openPersonalityProfile',
         when: 'view == atlasmind.chatView',
+        group: 'navigation@3',
+      }),
+      expect.objectContaining({
+        command: 'atlasmind.openWebsiteStudio',
+        when: 'view == atlasmind.chatView',
+        group: 'navigation@4',
       }),
       expect.objectContaining({
         command: 'atlasmind.openSettings',
         when: 'view == atlasmind.chatView',
+        group: 'navigation@5',
+      }),
+      expect.objectContaining({
+        command: 'atlasmind.openProjectIdeation',
+        when: 'view == atlasmind.chatView',
+        group: '2_workspaces@1',
+      }),
+      expect.objectContaining({
+        command: 'atlasmind.openCostDashboard',
+        when: 'view == atlasmind.chatView',
+        group: '2_workspaces@2',
       }),
       expect.objectContaining({
         command: 'atlasmind.importProject',
@@ -608,5 +642,49 @@ describe('package manifest', () => {
     expect(enabled).toMatchObject({ type: 'boolean', default: true });
     expect(federation).toMatchObject({ type: 'string', default: 'referrals' });
     expect(insecure).toMatchObject({ type: 'boolean', default: false });
+  });
+});
+
+describe('.vscodeignore excludes generated local artifacts', () => {
+  /**
+   * `test-results/` shipped inside atlasmind-0.224.0.vsix — 836 KB of this
+   * repository's own test names, in every user's install. It was gitignored, so
+   * it never showed in a diff, and `.vscodeignore` is a separate list that
+   * nobody thinks to update when adding a build output.
+   *
+   * The rule this pins is the general one: anything a build writes into the
+   * working tree is excluded from the package unless somebody says otherwise.
+   */
+  const GENERATED_DIRECTORIES = ['coverage', 'test-results', 'out/test', 'node_modules/**/test'];
+
+  it('names every directory a build writes into the working tree', () => {
+    const ignore = readFileSync(path.join(REPO_ROOT, '.vscodeignore'), 'utf8');
+    const patterns = ignore
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(line => line.length > 0 && !line.startsWith('#'));
+
+    for (const directory of ['coverage', 'test-results']) {
+      expect(
+        patterns.some(pattern => pattern === `${directory}/**` || pattern === `${directory}/`),
+        `.vscodeignore does not exclude ${directory}/ — it would ship inside the VSIX`,
+      ).toBe(true);
+    }
+    expect(GENERATED_DIRECTORIES.length).toBeGreaterThan(0);
+  });
+
+  it('excludes whatever vitest.config.ts writes an outputFile to', () => {
+    // Read the actual configured path rather than restating it: the two drifting
+    // apart is exactly how this shipped in the first place.
+    const config = readFileSync(path.join(REPO_ROOT, 'vitest.config.ts'), 'utf8');
+    const outputFile = /junit:\s*'([^']+)'/.exec(config)?.[1];
+    expect(outputFile, 'vitest.config.ts no longer declares a junit outputFile').toBeTruthy();
+
+    const directory = outputFile!.split('/')[0]!;
+    const ignore = readFileSync(path.join(REPO_ROOT, '.vscodeignore'), 'utf8');
+    expect(
+      ignore.split(/\r?\n/).some(line => line.trim() === `${directory}/**`),
+      `vitest writes to ${outputFile} but .vscodeignore does not exclude ${directory}/`,
+    ).toBe(true);
   });
 });

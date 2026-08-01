@@ -87,11 +87,25 @@ export interface ScaffoldFileResult {
   reason?: string;
 }
 
+/**
+ * A source-level target that an agent may turn into the project's first real
+ * test. This is deliberately only a *candidate*: syntax can show a callable
+ * export and an existing runner, but only an agent reading the implementation
+ * can decide whether its observable behaviour is safe and useful to test.
+ */
+export interface FirstTestCandidate {
+  sourcePath: string;
+  exportedSymbol: string;
+  testRunner: 'vitest' | 'jest';
+}
+
 export interface TestingScaffoldResult {
   success: boolean;
   summary: string;
   files: ScaffoldFileResult[];
   stackLabel: string;
+  /** Present only when the workspace already has a supported test runner and a small exported source target. */
+  firstTestCandidate?: FirstTestCandidate;
 }
 
 function probe(workspaceRoot: string, rel: string): boolean {
@@ -289,6 +303,102 @@ function detectStack(workspaceRoot: string): DetectedStack {
     hasPlaywright: has('@playwright/test') || probe(workspaceRoot, 'playwright.config.ts'),
     hasCypress: has('cypress') || probe(workspaceRoot, 'cypress.config.ts'),
     testExt: isTypeScript ? 'ts' : 'js',
+  };
+}
+
+const FIRST_TEST_SOURCE_DIRS = ['src', 'lib', 'app'];
+const FIRST_TEST_MAX_CANDIDATES = 400;
+const FIRST_TEST_MAX_FILE_BYTES = 64_000;
+const FIRST_TEST_SOURCE_FILE = /\.[cm]?[jt]sx?$/i;
+const FIRST_TEST_EXPORTED_FUNCTION = /\bexport\s+(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/;
+const FIRST_TEST_METHODOLOGIES = new Set<TestingMethodologyId>([
+  'tdd', 'unit', 'test-design', 'white-box', 'black-box', 'gray-box', 'property',
+]);
+
+/**
+ * Discover one conservative first-test target.
+ *
+ * The scaffolder must not pretend a generic "1 + 1" sample proves a project.
+ * We only offer an authoring task when the project already has a supported
+ * runner and a small source module with a named exported function. The task
+ * still reads the code and may decline to write: a static scan cannot prove
+ * that a function is pure, reachable, or worth locking down.
+ */
+function findFirstTestCandidate(
+  workspaceRoot: string,
+  stack: DetectedStack,
+): FirstTestCandidate | undefined {
+  if (stack.language !== 'node' || !stack.testRunner) {
+    return undefined;
+  }
+
+  const candidates: Array<FirstTestCandidate & { score: number; bytes: number }> = [];
+  const pending = FIRST_TEST_SOURCE_DIRS
+    .map(relative => path.join(workspaceRoot, relative))
+    .filter(existsSync)
+    .map(directory => ({ directory, depth: 0 }));
+  let inspected = 0;
+
+  while (pending.length > 0 && inspected < FIRST_TEST_MAX_CANDIDATES) {
+    const current = pending.shift()!;
+    let entries: Array<{ name: string; isDirectory(): boolean; isFile(): boolean }>;
+    try {
+      entries = readdirSync(current.directory, { encoding: 'utf8', withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      if (inspected >= FIRST_TEST_MAX_CANDIDATES) {
+        break;
+      }
+      const absolute = path.join(current.directory, entry.name);
+      const relative = path.relative(workspaceRoot, absolute).replace(/\\/g, '/');
+      if (entry.isDirectory()) {
+        if (current.depth < 5 && !['node_modules', 'dist', 'out', 'coverage', 'test', 'tests', '__tests__'].includes(entry.name)) {
+          pending.push({ directory: absolute, depth: current.depth + 1 });
+        }
+        continue;
+      }
+      if (!entry.isFile() || !FIRST_TEST_SOURCE_FILE.test(entry.name) || /(?:\.d\.ts|[._-](?:test|spec)\.)/i.test(entry.name)) {
+        continue;
+      }
+      inspected += 1;
+      let text: string;
+      try {
+        const bytes = readFileSync(absolute);
+        if (bytes.byteLength > FIRST_TEST_MAX_FILE_BYTES) {
+          continue;
+        }
+        text = bytes.toString('utf8');
+      } catch {
+        continue;
+      }
+      const exportedFunction = FIRST_TEST_EXPORTED_FUNCTION.exec(text)?.[1];
+      if (!exportedFunction) {
+        continue;
+      }
+      const score = relative.startsWith('src/core/') ? 0
+        : relative.startsWith('src/utils/') ? 1
+          : relative.startsWith('src/') ? 2
+            : relative.startsWith('lib/') ? 3
+              : 4;
+      candidates.push({
+        sourcePath: relative,
+        exportedSymbol: exportedFunction,
+        testRunner: stack.testRunner,
+        score,
+        bytes: Buffer.byteLength(text),
+      });
+    }
+  }
+
+  candidates.sort((left, right) => left.score - right.score || left.bytes - right.bytes || left.sourcePath.localeCompare(right.sourcePath));
+  const selected = candidates[0];
+  return selected && {
+    sourcePath: selected.sourcePath,
+    exportedSymbol: selected.exportedSymbol,
+    testRunner: selected.testRunner,
   };
 }
 
@@ -773,11 +883,15 @@ export async function scaffoldTestingFramework(
   }
 
   const createdCount = results.filter(r => r.created).length;
+  const firstTestCandidate = enabled.some(methodology => FIRST_TEST_METHODOLOGIES.has(methodology.id))
+    ? findFirstTestCandidate(workspaceRoot, stack)
+    : undefined;
   return {
     success: true,
     summary: `Scaffolded testing framework for ${label}: created ${createdCount} file${createdCount === 1 ? '' : 's'}, ` +
       `${results.length - createdCount} skipped/existing.`,
     files: results,
     stackLabel: label,
+    ...(firstTestCandidate ? { firstTestCandidate } : {}),
   };
 }

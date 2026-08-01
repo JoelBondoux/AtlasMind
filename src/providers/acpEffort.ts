@@ -28,14 +28,12 @@
  * excluded too — spending more of somebody's subscription is their call, not a
  * routing optimisation.
  *
- * **3. The cost of effort is a declared rule, not vendor data.** No vendor
- * publishes what a `max`-effort turn costs against a plan's allowance. So the
- * multipliers below are AtlasMind's own stated assumption, published here and
- * surfaced on the model rows, exactly as the debt register publishes the table
- * that graded an entry. They are what make the router's existing budget gate
- * express an effort gradient — `cheap` reaches `low`, `balanced` reaches `high`,
- * `expensive` reaches the top — and being a declared rule is what makes that
- * gradient arguable rather than merely trusted.
+ * **3. Relative effort is a declared routing rule, not vendor usage data.** ACP
+ * does not disclose how an effort level consumes a subscription, so the
+ * multipliers below express only AtlasMind's relative routing preference. They
+ * make the existing budget gate express an effort gradient — `cheap` reaches
+ * `low`, `balanced` reaches `high`, `expensive` reaches the top — but never
+ * estimate, display, or decrement a subscription balance.
  */
 
 /**
@@ -64,9 +62,9 @@ export interface AcpEffortTier {
    */
   reasoningDepth: number;
   /**
-   * Quota units a turn at this effort is assumed to consume. **A declared rule,
-   * not a published figure** — see the module note. This is what the budget gate
-   * reads, so it is also what stops `cheap` mode from routing to `max`.
+   * Relative routing intensity. **A declared rule, not vendor usage data** —
+   * see the module note. This is what the budget gate reads, so it is also what
+   * stops `cheap` mode from routing to `max`.
    */
   premiumRequestMultiplier: number;
 }
@@ -80,11 +78,11 @@ export const ACP_EFFORT_TIERS: readonly AcpEffortTier[] = [
   { value: 'ultra',  label: 'ultra',  reasoningDepth: 5, premiumRequestMultiplier: 8 },
 ];
 
-/** The rule table, in the words the UI shows, so the assumption travels with the number. */
+/** The rule table in user-facing words; it deliberately makes no balance claim. */
 export const ACP_EFFORT_RULE_NOTE =
-  'Effort tiers are read from the agent\'s own `thought_level` options. The quota cost of each '
-  + 'tier is an AtlasMind assumption, not a published vendor figure — no vendor states what a '
-  + 'max-effort turn costs against a plan. Adjust the plan\'s remaining count if it drifts.';
+  'Effort tiers are read from the agent\'s own `thought_level` options. Their relative routing '
+  + 'intensity is an AtlasMind rule, not a published vendor usage figure. ACP does not report or '
+  + 'decrement a subscription balance.';
 
 /** Separator between an agent's model id and its effort variant: `acp/claude#high`. */
 export const ACP_VARIANT_SEPARATOR = '#';

@@ -19,7 +19,9 @@
  *
  * 1. **A plan is never an installer.** Every action a step offers must be an
  *    *opening* action — a settings page, a panel, a docs URL, a command
- *    pre-loaded into a terminal that the user presses Enter on themselves.
+ *    pre-loaded into a terminal that the user presses Enter on themselves, or
+ *    the one explicitly allowlisted choice dialog whose selection is the
+ *    setting value.
  *    {@link isOpeningAction} is the allowlist, and it is pinned by test, because
  *    a setup assistant that enabled the deny-by-default switches to be helpful
  *    would remove the property those switches exist to provide.
@@ -88,7 +90,9 @@ export interface SetupGuideSummary {
  * settings page does not have to be added here — but every entry is something
  * that opens a surface. Nothing that writes a setting, stores a secret, or
  * enables a gate belongs in a plan: those are the user's decisions, made on the
- * screen the guide opens for them.
+ * screen the guide opens for them. The ACP console-mode picker is named
+ * explicitly because it is itself that screen: dismissing stores nothing and
+ * neither option expands capability.
  */
 export function isOpeningAction(command: string): boolean {
   if (typeof command !== 'string' || command.length === 0) {
@@ -108,6 +112,13 @@ export function isOpeningAction(command: string): boolean {
   // prefix, because a prefix would also admit the switch-flipping commands this
   // list exists to keep out (`setBuzzEnabled` and friends).
   if (command === 'atlasmind.setBuzzAgentKey') {
+    return true;
+  }
+  // A two-choice disclosure shown before any ACP process starts. It writes
+  // exactly the option the user selected; neither answer enables the provider
+  // or grants a permission. Explicit, because a broad `choose*` prefix would
+  // admit future commands whose consequences this module has not reviewed.
+  if (command === 'atlasmind.acp.chooseConsoleMode') {
     return true;
   }
   // VS Code's own settings UI and external-link opener.

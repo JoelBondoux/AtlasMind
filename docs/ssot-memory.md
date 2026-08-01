@@ -16,6 +16,7 @@ project_memory/
 ├── ideas/                Unstructured brainstorms and proposals
 ├── domain/               Domain knowledge, glossary, business rules
 ├── operations/           Runbooks, deployment procedures, scripts, and data-privacy.json (Data Privacy policy)
+├── analysis/             Gap analysis, and the research register the ideation board draws evidence from
 ├── agents/               Per-agent configuration and custom prompts
 ├── skills/               Skill definitions and tool schemas
 ├── sessions/             Internal per-session context snapshots (not part of general SSOT retrieval)
@@ -80,6 +81,21 @@ Unstructured space for brainstorming. No format requirements.
 Domain-specific knowledge: glossary, business rules, entity relationships, external system documentation.
 
 `domain/ai-instructions-sync.md` holds the unified AI instruction set produced by the two-way sync (`/sync-instructions`, `src/utils/aiInstructionMerge.ts`): the reconciled superset of every detected tool's instructions plus AtlasMind's own, which AtlasMind also mirrors back into each tool's instruction file. It is loaded as `domain` context like any other entry.
+
+### `analysis/`
+
+Findings *about* the project rather than statements *of* it. Two things live here:
+
+- `gap-analysis.md` — the Project Dashboard's gap analysis.
+- `research.json` / `research.md` / `research-history.json` / `research-digest.md` — the research
+  register (see [`ideation-and-research.md`](ideation-and-research.md)).
+
+The register is committed, which shapes what may go into it. Findings store a claim and the `https`
+URL it came from, **never the page body** — mirroring a third party's site into this repository would
+be a licensing problem wearing a feature's clothes, and it is the same "derive, don't mirror" rule
+`buzzInboundDerivation` applies to colleagues' messages. A claim with no retrievable citation is
+stored as a *question*, never as evidence, so nobody six weeks later mistakes a model's recollection
+for something somebody checked.
 
 ### `operations/`
 Deployment procedures, environment setup, monitoring, incident response.

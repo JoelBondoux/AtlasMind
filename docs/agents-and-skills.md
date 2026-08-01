@@ -45,6 +45,12 @@ AtlasMind now ships a small developer-focused built-in set for freeform routing:
 | `ethics-oversight` | Ethics Oversight | User harm, fairness and bias, consent, dark patterns, transparency, accessibility as an ethical duty. Read-only, advisory — never an ethics approval |
 | `legal-oversight` | Legal Oversight | Dependency and third-party licence compatibility, IP, GDPR/CCPA, liability, terms of service, regulated data. Read-only, advisory — not a lawyer and not legal advice |
 | `commercial-oversight` | Commercial Oversight | Monetisation and business viability, vendor cost and lock-in, contractual and customer obligations, competitor positioning, go-to-market impact. Read-only, advisory |
+| `competitive-analyst` | Competitive Analyst | Who else solves this, how they are positioned and priced, what they shipped recently, and which capabilities this project lacks. Read-only, cited, advisory |
+| `customer-researcher` | Customer Researcher | What people publicly ask for and complain about in products of this shape. Quotes sources, names no individuals. Read-only, cited, advisory |
+| `technology-analyst` | Technology Analyst | Deprecations, end-of-life dates and breaking changes in the platforms and dependencies this project stands on. Read-only, cited, advisory |
+| `market-analyst` | Market Analyst | Category size and direction, segments, adjacent categories. Every figure cited with its date; an unavailable figure is reported as unavailable. Read-only, advisory |
+| `funding-analyst` | Funding Analyst | Grants, accelerators, sponsorship and open-source funding schemes, with eligibility and deadlines cited from the programme's own page. Read-only, advisory |
+| `regulatory-analyst` | Regulatory Analyst | Obligations that apply to a product of this shape, by jurisdiction, with the dates they take effect. Not legal advice. Read-only, cited, advisory |
 | `github-operator` | GitHub Operator | Evidence-backed pull requests, issues, CI diagnosis, branch/commit operations, and project-policy-aware releases |
 | `ci-analyst` | CI Analyst | Explains a *classified* pipeline failure from its evidence lines and proposes the smallest fix. Never re-classifies (the rule table decided), never re-runs a job, never edits a pipeline definition |
 | `release-manager` | Release Manager | Confirms the derived version matches the compatibility impact and that release notes stay the changelog verbatim. Never pushes, tags, or publishes |
@@ -77,6 +83,8 @@ Every user-facing invocation is also composed with `AGENT_OPERATING_CONTRACT` an
 The stock built-in **engineering** specialists intentionally keep `skills: []`, which means they can use the same enabled skill set as the default agent. They differ by routing metadata and system prompt, not by artificially restricted tool access.
 
 The three **oversight advisors** are the deliberate exception. `ethics-oversight`, `legal-oversight`, and `commercial-oversight` pin an explicit read-only allowlist (`file-read`, `directory-list`, `file-search`, `text-search`, `git-status`, `git-diff`, `git-log`, `git-blame`, `diff-preview`, `diagnostics`, `code-symbols`, `framework-detect`, `memory-query`, `web-fetch`, plus `exa-search` for Commercial). They hold no `file-write`, `file-edit`, `file-delete`, `git-commit`, `git-push`, `git-apply-patch`, `terminal-run`, `memory-write`, or `http-request`. An advisor inspects and reports; it is not also the thing that edits. Where their findings need to be recorded, the Project Dashboard → Risk page owns that write path and sanitises the model's output at the boundary before anything reaches disk. They also set `autoUpdateExcluded: true` so the agent auto-updater cannot paraphrase away the "advisory, not authoritative" framing on its cadence.
+
+The six **research analysts** — `competitive-analyst`, `customer-researcher`, `technology-analyst`, `market-analyst`, `funding-analyst`, `regulatory-analyst` — hold the same read-only allowlist plus `exa-search`, and are excluded from auto-update for the same reason. They add one discipline the oversight advisors do not need: **every claim must carry a retrievable `https` URL the analyst actually visited**. This is not politeness. `sanitizeIncomingFindings` in `src/core/researchRegister.ts` demotes an uncited claim to a *question* rather than recording it as evidence, so an analyst answering from memory produces a run in which nothing was recorded — and the surest way to get that wrong is for the model not to know the rule exists. Their prompts also fence fetched pages as REPORTED CONTENT: a competitor's marketing page is exactly as untrusted as a GitHub issue body, and "ignore your previous instructions" printed on one must read as something we found rather than as something we were told.
 
 The Security Reviewer's future durable output path is prepared separately by `SecurityReviewManager`. It stores bounded findings for secrets, runtime boundaries, dependencies, and permissions, but it does not invoke the agent or expand its tool access. Any future caller remains responsible for deliberate invocation and must pass the model response through the manager's defensive parser and sanitizers before persistence; the register itself does not certify the project or gate delivery.
 
@@ -116,6 +124,20 @@ AtlasMind ships a 23-methodology testing strategy registry, replacing the earlie
 | **Non-functional** | Performance, Security, Visual Regression |
 | **Exploratory** | Exploratory, Agile Testing |
 
+#### What an enabled methodology actually does
+
+Enabling a methodology has three effects, and until v0.221.0 only the first two existed — which is why a project could carry fourteen enabled methodologies and have tests for none of them.
+
+1. **It is stated to every agent that writes code.** On any turn whose task profile is `code` or `mixed`, the orchestrator injects `buildTestingObligationGuidance` — the *whole* enabled set, phrased as an obligation: a change that alters behaviour is not finished until it carries the evidence its policy names, and an agent that cannot produce that evidence must say so and say why. Previously, policy reached a prompt only when the task was **already** classified as testing or its text already contained a testing word, so the turns implementing features were precisely the ones told nothing.
+2. **It can select a model.** A methodology assigned to an agent, with a model override, prepends that model for a matching testing task.
+3. **It is expected to leave evidence.** The Testing page reports each enabled methodology as *Tested*, *No tests yet*, *Nothing found*, or *Practice*, and an unevidenced one becomes a tech-debt entry graded by the published rule table.
+
+Practices — V-Model, White-Box, Test Design Techniques, Black-Box, Gray-Box, Exploratory, Agile Testing — are ways of working that leave no artifact. They are named to the agent as context but never requested as files, and the Testing page never counts them as gaps.
+
+**A methodology can also hold work back — if you ask it to.** Each entry carries an optional `blocking` flag (schema version 2, off by default). When set on an enabled methodology, AtlasMind's write gate refuses non-test writes until a failing test has been observed. It is opt-in *per methodology* rather than a project-wide switch, because enabling a methodology is a statement of intent that should stay safe to make, whereas turning one into a gate changes how every task in the project runs. Declare the full standard you hold yourself to, and block on the one or two you are willing to stop work over. Where AtlasMind cannot read the config at all, the gate stays on.
+
+**Enabling a methodology you do not practise produces a permanent, visible gap.** That is the intended behaviour rather than a flaw: the alternative is a declaration that means nothing. Turn on what the project genuinely does, and add the rest deliberately.
+
 #### Configuration — Settings Panel → Testing
 
 Open **AtlasMind: Open Settings Panel** and navigate to the **Testing** tab. The methodology matrix shows all 23 rows grouped by category. Each row provides:
@@ -130,7 +152,9 @@ The **Auto-assess project** button scans the workspace — package.json dependen
 
 #### Project Dashboard — Testing page
 
-The **Project Dashboard → Testing** page includes a methodology toggle matrix with immediate save. Toggling a methodology writes directly to `project_memory/index/testing-config.json`. An **Open Testing Strategy →** link navigates to the Settings Panel for agent assignment and model overrides.
+An activated-testing repair remains one normal approval-gated task, but its lifecycle is now visible in the page: the host reports when routing begins, streams concise real orchestration/tool updates, and stores the final report or failure. The indicator is intentionally indeterminate because tool approval and test duration cannot support an honest percentage. A terminal task result is not a green claim; the current test evidence remains the source of truth. **Open result in Atlas Chat** sends no browser-supplied transcript: it opens the host-retained, redacted report as a reviewable fenced draft that the user may inspect or edit before sending.
+
+The **Project Dashboard → Testing** page includes a methodology toggle matrix with immediate save. Toggling a methodology writes directly to `project_memory/index/testing-config.json`. Each protocol has the same shared plain-English description, *When to use*, *Key tools*, and *Trade-offs* as Settings rather than a labels-only dashboard copy. Its **Fix activated testing** action gives the normal approval-gated Atlas task the host-derived enabled-policy coverage and report failures, so it can inspect, repair, and re-run the existing relevant test surfaces without inventing a command or silently weakening a test. An **Open Testing Strategy →** link navigates to the Settings Panel for agent assignment and model overrides.
 
 #### Agent Testing Roles
 
@@ -146,11 +170,11 @@ Website Studio is a planning and review boundary, not an execution shortcut. Imp
 
 #### Framework scaffolding (`src/core/testingScaffolder.ts`)
 
-The **Scaffold framework** button on the Settings → Testing page (command: `AtlasMind: Scaffold Testing Framework`) constructs a starter framework that fits the current project. `scaffoldTestingFramework` detects the project **language** — Node (JS/TS), Python, Rust, Go, .NET, or Java — from manifest fingerprints, plus a coarse **archetype** (web / api / cli / game / mobile / library / generic), then for each *enabled* methodology generates idiomatic starter files: Vitest/Jest specs, Playwright/Cypress e2e (or an API smoke test / CLI spawn harness depending on archetype), fast-check property tests, k6 load scripts and snapshot tests for Node; pytest + Hypothesis + Locust for Python; `cargo test` + proptest + criterion for Rust; `go test` + `testing/quick` + benchmarks for Go; xUnit for .NET; JUnit 5 for Java. It also writes a managed `project_memory/operations/testing-strategy.md` playbook with language-specific set-up commands, trade-offs, and starter-file references; unknown stacks degrade to playbook-only guidance. It is strictly **non-destructive**: files are created only when absent and never overwritten, no manifest is ever mutated (install commands are surfaced for the developer to run), and the action is confirmed via a modal dialog.
+The **Scaffold framework** button on the Settings → Testing page (command: `AtlasMind: Scaffold Testing Framework`) constructs a starter framework that fits the current project. `scaffoldTestingFramework` detects the project **language** — Node (JS/TS), Python, Rust, Go, .NET, or Java — from manifest fingerprints, plus a coarse **archetype** (web / api / cli / game / mobile / library / generic), then for each *enabled* methodology generates idiomatic starter files: Vitest/Jest specs, Playwright/Cypress e2e (or an API smoke test / CLI spawn harness depending on archetype), fast-check property tests, k6 load scripts and snapshot tests for Node; pytest + Hypothesis + Locust for Python; `cargo test` + proptest + criterion for Rust; `go test` + `testing/quick` + benchmarks for Go; xUnit for .NET; JUnit 5 for Java. It also writes a managed `project_memory/operations/testing-strategy.md` playbook with language-specific set-up commands, trade-offs, and starter-file references; unknown stacks degrade to playbook-only guidance. It is strictly **non-destructive**: files are created only when absent and never overwritten, no manifest is ever mutated (install commands are surfaced for the developer to run), and the action is confirmed via a modal dialog. After that confirmation it syncs the enabled protocol blocks to **existing** AI instruction files. If the project already has Vitest or Jest and a bounded scan finds a small module with a named export, AtlasMind then asks an agent to inspect and author exactly one focused first test through the normal approval path. The candidate is a lead, not proof: the agent may leave the source untouched. Its task may not add dependencies, alter a manifest, or edit production code; without both an existing runner and candidate it does not start a test-authoring task.
 
 #### Outbound protocol sync to external AI agents (`src/utils/testingProtocolSync.ts`)
 
-So that AI agents *outside* AtlasMind — Claude Code, GitHub Copilot, Cursor, Cline, Gemini, Windsurf, Aider, and Codex (`AGENTS.md`) — can discover and enact the same testing strategy, the **Sync to AI agents** button (command: `AtlasMind: Sync Testing Protocols to AI Agents`) writes the enabled protocols into the project's instruction files. Whereas `aiInstructionSync.ts` reads those files *into* AtlasMind, `syncTestingProtocols` does the reverse: it renders each enabled methodology (what, when to apply, key tools, owner agent, preferred model, project notes) into a delimited, AtlasMind-managed block (`<!-- atlasmind:testing-protocols:start -->` … `:end -->`) and upserts it into every *detected* (existing) markdown instruction file. The writer is non-destructive — it only touches its own block, preserves all surrounding content, writes only to files that already exist, and routes every path through the shared traversal guard. JSON-config tools (Continue) are reported as skipped. **Saving the Testing matrix auto-syncs**, keeping external agents continuously in step with the matrix.
+So that AI agents *outside* AtlasMind — Claude Code, GitHub Copilot, Cursor, Cline, Gemini, Windsurf, Aider, and Codex (`AGENTS.md`) — can discover and enact the same testing strategy, the **Sync to AI agents** button (command: `AtlasMind: Sync Testing Protocols to AI Agents`) writes the enabled protocols into the project's instruction files. Whereas `aiInstructionSync.ts` reads those files *into* AtlasMind, `syncTestingProtocols` does the reverse: it renders each enabled methodology (what, when to apply, key tools, owner agent, preferred model, project notes) into a delimited, AtlasMind-managed block (`<!-- atlasmind:testing-protocols:start -->` … `:end -->`) and upserts it into every *detected* (existing) markdown instruction file. The writer is non-destructive — it only touches its own block, preserves all surrounding content, writes only to files that already exist, and routes every path through the shared traversal guard. JSON-config tools (Continue) are reported as skipped. **Saving the Testing matrix auto-syncs**, and scaffold runs invoke this same sync before any eligible first-test task, keeping external agents continuously in step with the matrix.
 
 Freeform execution also now emits lightweight live progress updates while a response is still running. In the dedicated chat surface, AtlasMind shows interim thinking-style notes such as agent selection, tool rounds, workspace-investigation retries, and escalation or anti-churn nudges before the final answer replaces those transient updates.
 
@@ -442,6 +466,8 @@ atlas.skillsRegistry.register({
 
 The following skills are registered automatically at extension activation (`src/skills/`):
 
+Approval surfaces receive a bounded host-produced argument preview rather than serializing tool parameters in the webview. `toJsonPreview` applies secret redaction and a length cap to representable JSON; a non-empty object that collapses to `{}` is labelled `[unserializable arguments]` so the operator is not asked to approve a falsely empty parameter set.
+
 | Skill | Status | Description |
 |---|---|---|
 | `file-read` | ✅ Implemented | Read file contents (supports optional `startLine`/`endLine` range) |
@@ -498,6 +524,39 @@ AtlasMind can connect to any [Model Context Protocol](https://modelcontextprotoc
 **Source field**: `mcp://<serverId>/<toolName>`
 
 MCP skills are registered in `SkillsRegistry` when a server connects and automatically marked as scan-passed (external process; trust is delegated to the server operator by the user who explicitly configured the connection). They can be individually disabled from the Skills view.
+
+### ACP process lifetime does not widen ACP authority
+
+The routed ACP adapter may keep a successful agent session alive for 30 idle
+minutes, but every permission request in every turn still traverses the same
+`session/request_permission` policy. A live process does not retain an
+AtlasMind-side approval: `allow_always` is never selected, and a missing or
+throwing policy still denies. Enabling tools, changing the MCP allowlist, or
+crossing between completion-only isolation and delegated execution invalidates
+the session before another prompt is sent.
+
+Conversation reuse is exact, not inferred. AtlasMind records the outer
+transcript and sends only a suffix after proving the record is a byte-for-byte
+message prefix of the next request. A branch or edited instruction gets another
+session. A stable task identity lets concurrent calls for the same tool round
+share one `session/prompt` without merging separate chats whose words happen to
+match. ACP bypasses the generic transient-provider retry loop, so a failure
+after a prompt may have crossed stdio is never automatically resent. The outer
+provider timeout aborts the ACP attempt, sends `session/cancel`, and tears down
+the uncertain session. This matters for tools as much as cost — duplicating a
+prompt to an agent that may act can duplicate the requested operation even
+though each individual permission remains gated.
+
+On Windows, `atlasmind.acp.hideConsoleWindows` changes where the process tree's
+windows may appear, not what the process may do. The private desktop is neither
+a sandbox nor an authorization boundary; the agent retains the same user-level
+filesystem/network access. It is opt-in and disclosed because hidden desktops
+are also used by hVNC malware and can attract Defender/EDR detection. The same
+value is reachable from three places that all write it: the guided picker
+(**AtlasMind: Choose ACP Console Window Behaviour**), the *Delegated agents
+(ACP)* card on Settings → Safety & Verification, and VS Code's settings editor.
+The panel checkbox exists because the control was previously in VS Code's editor
+only, so searching the AtlasMind Settings panel for it found nothing.
 
 **Workspace-path defaulting**: Before dispatch, `McpClient.callTool` (`applyMcpWorkspacePathDefaults`) fills repo/working-directory parameters the model omitted with the current workspace folder, keyed off the tool's input schema. This prevents failures such as GitKraken `git_status` rejecting a call with "repoPath is required". Only string-typed, currently-empty params whose name denotes a repo/working path (`repoPath`, `projectPath`, `cwd`, `workingDirectory`, …) are defaulted; a bare `path`/`file` argument is untouched and explicit caller values are preserved.
 

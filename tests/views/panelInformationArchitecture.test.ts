@@ -267,55 +267,101 @@ describe('run center order', () => {
 describe('ideation workspace order', () => {
   const script = readFileSync(path.join(process.cwd(), 'media', 'projectIdeation.js'), 'utf8');
   const renderStart = script.indexOf('root.innerHTML =');
-  const template = script.slice(renderStart, script.indexOf("';", script.indexOf('ideation-process-section', renderStart)));
+  const template = script.slice(renderStart, script.indexOf("';", script.indexOf('ideation-stage-section', renderStart)));
   const at = (needle: string) => {
     const index = template.indexOf(needle);
     expect(index, `"${needle}" not found in the render template`).toBeGreaterThan(-1);
     return index;
   };
 
-  it('puts the board above the composer', () => {
-    // This is a whiteboard panel whose whiteboard was below the fold: a hero
-    // panel, a four-card process guide and a very tall composer came first,
-    // and .ideation-main-grid is a single column so the composer stacked on
-    // top of the canvas rather than beside it.
-    expect(at('renderBoard(snapshot)')).toBeLessThan(at('renderComposer(snapshot)'));
-  });
-
-  it('replaces the hero panel with a compact stat strip', () => {
+  it('keeps the board leading', () => {
+    // Three versions of this layout have been spent learning that the board is
+    // the point of the panel. It was once below a hero, a four-card guide and a
+    // very tall composer — roughly three screens — and everything since has
+    // been about keeping it first.
     expect(script).not.toContain('ideation-hero-grid');
     expect(at('ideation-stat-strip')).toBeLessThan(at('renderBoard(snapshot)'));
+    expect(at('renderBoard(snapshot)')).toBeLessThan(at('renderStage('));
   });
 
-  it('puts the staged-workflow guide directly above the canvas it describes', () => {
-    // This reverses the demotion the test above it was written alongside, and
-    // the reversal is only safe because of what changed in between.
-    //
-    // The guide was sent to the end because the canvas was below the fold —
-    // "a hero panel, a four-card process guide and a very tall composer came
-    // first". Two of those three are gone: the hero is a compact stat strip,
-    // and the guide is a `<details>` that is collapsed unless the board is
-    // empty. Collapsed it costs one summary line, not four cards; expanded, it
-    // only happens when there is no board content to push down anyway.
-    //
-    // So the fold argument no longer applies to it, and being above the thing
-    // it explains beats being the last section reached by somebody who has
-    // already had to work the board out unaided.
-    expect(at('ideation-process-section')).toBeGreaterThan(at('ideation-stat-strip'));
-    expect(at('ideation-process-section')).toBeLessThan(at('renderBoard(snapshot)'));
-    expect(script).toContain('ideation-process-details');
-    // Still open only while the board is empty — the property that makes the
-    // position above the canvas affordable.
-    expect(script).toContain("boardIsEmpty ? ' open' : ''");
+  it('makes the staged guide the navigation instead of a description of one', () => {
+    // The guide has been moved twice on the theory that placement was the
+    // problem. It was not: a guide that has to explain the layout is a symptom
+    // of the layout. Every stage is a control now, and the `<details>` panel it
+    // used to live in is gone rather than relocated.
+    expect(script).not.toContain('ideation-process-details');
+    expect(script).not.toContain('renderProcessGuide');
+    expect(at('renderModeBar(')).toBeGreaterThan(at('renderBoard(snapshot)'));
+    expect(at('renderModeBar(')).toBeLessThan(at('renderStage('));
+    expect(script).toContain("data-action=\"ideation-mode\"");
+  });
+
+  it('renders one stage at a time', () => {
+    // The actual fix. Five sections used to be on screen at once — composer,
+    // inspector, feedback, analytics and the guide explaining their order.
+    const stage = script.slice(script.indexOf('function renderStage('));
+    const body = stage.slice(0, stage.indexOf('\n  }'));
+    for (const [mode, renderer] of [
+      ["mode === 'frame'", 'renderComposer(snapshot)'],
+      ["mode === 'scaffold'", 'renderFeedback(snapshot)'],
+      ["mode === 'decide'", 'renderReadiness(snapshot)'],
+    ] as const) {
+      expect(body, `${mode} does not reach ${renderer}`).toContain(mode);
+      expect(body).toContain(renderer);
+    }
+    // Shape is the fall-through, so the board's own editing surfaces are what
+    // you get when nothing else was asked for.
+    expect(body.trimEnd().endsWith('renderInspector(snapshot, selectedCard, selectedLink) + renderAnalytics(snapshot);'))
+      .toBe(true);
+  });
+
+  it('derives the opening stage rather than storing it', () => {
+    // Storing the resolved value would freeze a first-time user on Frame the
+    // moment their board stopped being empty.
+    const resolve = script.slice(script.indexOf('function resolveMode('));
+    expect(resolve.slice(0, resolve.indexOf('\n  }'))).toContain("boardIsEmpty ? 'frame' : 'shape'");
+  });
+
+  it('offers starter frames only while the board is empty', () => {
+    // The frames append and never replace — but a picker that could touch a
+    // board with work on it is a picker somebody eventually clicks by accident.
+    const stage = script.slice(script.indexOf('function renderStage('));
+    expect(stage.slice(0, stage.indexOf('\n  }'))).toContain('boardIsEmpty ? renderStarterFrames(snapshot)');
+  });
+
+  it('publishes what a card kind commits to, where the kind is chosen', () => {
+    // `KIND_PREFIX` decided that a problem becomes "Fix: …" and a risk becomes
+    // "Mitigate: …" from the day it was written, and none of it reached the
+    // person picking the kind.
+    const inspector = script.slice(script.indexOf('function describeKindConsequence('));
+    const body = inspector.slice(0, inspector.indexOf('\n  }'));
+    expect(body).toContain('Fix:');
+    expect(body).toContain('Mitigate:');
+    expect(body).toContain('Trial:');
+    expect(script).toContain('describeKindConsequence(selectedCard.kind)');
+  });
+
+  it('publishes exactly the kinds the derivation actually prefixes', () => {
+    // The webview restates a rule that lives in `ideationDerivation.ts`. The
+    // wording is allowed to differ; the *set* is not, or the panel would promise
+    // a prefix the roadmap never adds.
+    const derivation = readFileSync(path.join(process.cwd(), 'src', 'core', 'ideationDerivation.ts'), 'utf8');
+    const table = derivation.slice(derivation.indexOf('const KIND_PREFIX'), derivation.indexOf('};', derivation.indexOf('const KIND_PREFIX')));
+    const prefixed = [...table.matchAll(/^\s*'?([a-z-]+)'?:\s*'([A-Z][a-z]+)',/gm)].map(match => [match[1]!, match[2]!]);
+    expect(prefixed.map(entry => entry[0]).sort()).toEqual(['experiment', 'problem', 'risk']);
+    const copy = script.slice(script.indexOf('function describeKindConsequence('));
+    const body = copy.slice(0, copy.indexOf('\n  }'));
+    for (const [kind, prefix] of prefixed) {
+      const branch = body.slice(body.indexOf(`case '${kind}':`));
+      expect(branch.slice(0, branch.indexOf('case ', 6)), kind).toContain(`${prefix}:`);
+    }
   });
 
   it('hides every non-board section in canvas focus mode', () => {
-    // The process guide was missing from this list, so it stayed on screen in
-    // what is meant to be a full-screen canvas.
     const panel = read('projectIdeationPanel.ts');
     const focusBlock = panel.slice(panel.indexOf('body.canvas-focus-mode .ideation-topbar'));
     const block = focusBlock.slice(0, focusBlock.indexOf('}'));
-    for (const section of ['ideation-stat-strip', 'ideation-composer-section', 'ideation-process-section', 'ideation-lower-grid', 'ideation-analytics-section']) {
+    for (const section of ['ideation-stat-strip', 'ideation-mode-section', 'ideation-stage-section']) {
       expect(block, `${section} is still visible in canvas focus mode`).toContain(section);
     }
   });

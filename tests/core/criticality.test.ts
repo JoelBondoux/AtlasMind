@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { assessCriticality, CriticalityLevel, Task } from './criticality';
+import { assessCriticality, CriticalityLevel } from '../../src/core/criticality.ts';
+import type { Task } from '../../src/core/criticality.ts';
 
 describe('assessCriticality', () => {
   it('should return UNKNOWN for an empty task', () => {
