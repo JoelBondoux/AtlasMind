@@ -123,6 +123,7 @@ AtlasMind/
 │   │   ├── lensCodeImpact.ts Deterministic caller/callee/reference change-impact projection
 │   │   ├── lensTestMap.ts Conservative test-path classification over source-backed links
 │   │   ├── lensDataTrust.ts Explicit field trust policy and connected-endpoint projection
+│   │   ├── lensStateMachine.ts Strict declared lifecycle model and reachability projection
 │   │   ├── lensContract.ts Contract fields, explicit mappings, suppressions, and wiring review
 │   │   ├── lensContractSources.ts Bounded TypeScript, OpenAPI/JSON Schema, and heuristic SQL adapters
 │   │   ├── lensContractDrift.ts Finding classes and active/suppressed severity summaries
@@ -140,13 +141,16 @@ AtlasMind/
 │   │   ├── lensJourneyPanel.ts Editor-hosted possible-flow graph and text alternative
 │   │   ├── lensImpactPanel.ts Editor-hosted code-impact map and text alternative
 │   │   ├── lensTestPanel.ts Editor-hosted test-evidence map and text alternative
+│   │   ├── lensStateCommand.ts Workspace/machine selection for declared lifecycles
+│   │   ├── lensStatePanel.ts Editor-hosted state lifecycle map and transition list
 │   │   ├── lensContractReviewCommand.ts Contract discovery, pair selection, and mapping load
 │   │   └── lensContractReviewPanel.ts Filterable Field Wiring review webview
 │   ├── voice/            TTS/STT: `voiceManager.ts` bridge, `hostSpeechSynthesizer.ts` (OS TTS), `localTranscriber.ts` (on-device Whisper STT)
 │   └── bootstrap/        Project bootstrapper
 ├── schemas/
 │   ├── lens-mappings.schema.json VS Code guidance for repository-authored Lens mappings
-│   └── lens-data-trust.schema.json VS Code guidance for explicit Lens field trust metadata
+│   ├── lens-data-trust.schema.json VS Code guidance for explicit Lens field trust metadata
+│   └── lens-state.schema.json VS Code guidance for declared Lens state machines
 ├── tests/                Vitest unit tests
 │   ├── core/             Core service unit tests
 │   ├── memory/           Memory manager and scanner tests
@@ -169,6 +173,8 @@ Graph adapters must finish at `normalizeLensGraph`; do not pass raw language-pro
 Contract adapters must emit complete `LensContract` records and pass them through `normalizeLensContract`; never silently discard malformed fields, because doing so can manufacture a false missing wire. Use `coverage: partial` or `unknown` when the source cannot prove completeness. Compare adjacent boundaries with `reviewLensContractWiring`. Exact compatible declarations may match automatically by field path, but drops, introductions, renames, transforms, and explicit inferences belong in `.atlasmind/lens-mappings.json`. Every mapping names both contract ids even when one field endpoint is absent, so the rule cannot apply to another boundary. The manifest-contributed schema is editing guidance; `normalizeLensContractMappingFile` remains the untrusted-file boundary. Suppressions stay attached to output as reviewable annotations rather than hiding wires.
 
 Data-trust metadata belongs in `.atlasmind/lens-data-trust.json`, not in source-name heuristics or sample values. Every rule must name one normalized contract id and field path; duplicate endpoints make the file invalid. Store classifications, declared control names, and bounded policy context only—never secret or personal data values. JSON Schema is editor guidance; `normalizeLensDataTrustPolicyFile` is the runtime boundary. A declared control records policy intent and must not be described as observed implementation or runtime verification.
+
+Lifecycle topology belongs in `.atlasmind/lens-state.json`. Keep machine, state, and transition ids unique and make every transition endpoint resolve inside its machine. `normalizeLensStateMachineFile` remains the runtime trust boundary even though the manifest contributes JSON Schema guidance. Optional source anchors must be root-relative and range-backed only when the location is defensible. Never import/evaluate a project state module to improve the map, and never describe declared event, guard, effect, reachability, or dead-end results as observed execution. Runtime comparison needs a separate explicit evidence adapter.
 
 The initial discovery command deliberately scans filename-signalled JSON (`schema`, `contract`, `openapi`, `swagger`), TypeScript (`dto`, `model`, `schema`, `type`, `entity`, `contract`, `interface`, `request`, `response`), plus SQL, with 200-file/200-contract and 2 MB per-source budgets. Keep JSON parsing strict and SQL/TypeScript extraction declaration-only; never execute SQL or import/evaluate project modules to improve coverage. The TypeScript syntax adapter must keep partial coverage and must not claim to resolve aliases, inheritance, mapped types, decorators, initializers, or runtime validators. New adapters must state `complete`, `partial`, or `unknown`, preserve source-kind/evidence, and attach a normalized source target only when the range is defensible. Keep base type separate from format or other constraints: one-sided evidence is unverified, while two contradictory declarations are incompatible. `LensContractReviewPanel` must receive only normalized/recomputed snapshots after its ready handshake, render untrusted text through DOM nodes, and resolve field/wire ids in the host. Do not render an Ask/Open affordance when no source anchor exists.
 

@@ -106,9 +106,11 @@ Trace data from collection through validation, transformation, storage, cache, q
 
 The v0.247 vertical slice integrates an explicit field-level Data Trust Map into Field Wiring. `.atlasmind/lens-data-trust.json` declares exact normalized contract-field classifications and consent, authorization, redaction, encryption, retention, and residency controls. Review follows the selected field and resolved wire endpoint, provides Open/Ask plus DOM-text rendering, reads no values/secrets, guesses nothing from names, and treats declared policy as intent rather than runtime verification. Collection/cache/queue/analytics/deletion stages, trust-boundary edges, live control evidence, and wider multi-hop journeys remain active Phase 6 work.
 
-### Phase 7 — State and Lifecycle Explorer
+### Phase 7 — State and Lifecycle Explorer (in progress, v0.248.0)
 
 Render application states, transitions, guards, effects, persistence, retry paths, cancellation, and terminal states for UI stores, workflows, jobs, agents, and protocols. Compare declared state machines with observed transitions when runtime evidence is available.
+
+The v0.248 vertical slice adds a repository-declared lifecycle explorer. `.atlasmind/lens-state.json` names bounded machines, states, transitions, event/guard/effect labels, and optional exact source anchors. Lens derives declared reachability, minimum transition depth, unreachable states, terminal states, and non-terminal dead ends; its sidebar command provides host-validated Open/Ask actions and a DOM-text transition view. It imports and executes no project code and never presents declared topology as observed behaviour. Framework adapters, persistence/retry/cancellation semantics, runtime transition evidence, and declared-versus-observed comparison remain active Phase 7 work.
 
 ### Phase 8 — Configuration Resolution Explorer
 
@@ -142,6 +144,7 @@ Turn a branch or pull request into a reviewable story: intent, changed component
 - [x] Open the first source-backed Change Impact Map from a selected symbol.
 - [x] Open the first conservative Test & Behaviour evidence map from a selected symbol.
 - [x] Integrate explicit field trust metadata into the first Data Trust Map.
+- [x] Open the first explicit State Lifecycle Explorer from a repository declaration.
 
 ## Out of scope for the foundation
 

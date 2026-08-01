@@ -92,6 +92,21 @@ describe('package manifest', () => {
     }));
   });
 
+  it('provides validation and editor guidance for Lens state-machine declarations', () => {
+    const validation = manifest.contributes?.jsonValidation ?? [];
+    const schemaPath = path.resolve(REPO_ROOT, 'schemas/lens-state.schema.json');
+    const schema = JSON.parse(readFileSync(schemaPath, 'utf8')) as Record<string, unknown>;
+
+    expect(validation).toContainEqual({
+      fileMatch: '**/.atlasmind/lens-state.json',
+      url: './schemas/lens-state.schema.json',
+    });
+    expect(schema).toEqual(expect.objectContaining({
+      title: 'AtlasMind Lens state-machine declarations',
+      additionalProperties: false,
+    }));
+  });
+
   it('keeps the README sales-led and free of competitor comparison charts', () => {
     const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
 
@@ -333,6 +348,7 @@ describe('package manifest', () => {
     expect(commands.map(entry => entry.command)).toEqual(expect.arrayContaining([
       'atlasmind.lens.filterSymbols',
       'atlasmind.lens.reviewContracts',
+      'atlasmind.lens.reviewState',
       'atlasmind.lens.moreTargetActions',
     ]));
     expect(titleMenus).toContainEqual(expect.objectContaining({
@@ -341,6 +357,10 @@ describe('package manifest', () => {
     }));
     expect(titleMenus).toContainEqual(expect.objectContaining({
       command: 'atlasmind.lens.reviewContracts',
+      when: 'view == atlasmind.lensView',
+    }));
+    expect(titleMenus).toContainEqual(expect.objectContaining({
+      command: 'atlasmind.lens.reviewState',
       when: 'view == atlasmind.lensView',
     }));
     expect(itemMenus).toContainEqual(expect.objectContaining({

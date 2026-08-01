@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.247.0",
+  "version": "0.248.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -53,6 +53,10 @@
       {
         "fileMatch": "**/.atlasmind/lens-data-trust.json",
         "url": "./schemas/lens-data-trust.schema.json"
+      },
+      {
+        "fileMatch": "**/.atlasmind/lens-state.json",
+        "url": "./schemas/lens-state.schema.json"
       }
     ],
     "chatParticipants": [
@@ -222,6 +226,11 @@
         "command": "atlasmind.lens.reviewContracts",
         "title": "AtlasMind: Lens: Review Contract Wiring",
         "icon": "$(type-hierarchy)"
+      },
+      {
+        "command": "atlasmind.lens.reviewState",
+        "title": "AtlasMind: Lens: Review State Lifecycle",
+        "icon": "$(circuit-board)"
       },
       {
         "command": "atlasmind.lens.openTarget",
@@ -629,9 +638,14 @@
           "group": "navigation@3"
         },
         {
-          "command": "atlasmind.openSettings",
+          "command": "atlasmind.lens.reviewState",
           "when": "view == atlasmind.lensView",
           "group": "navigation@4"
+        },
+        {
+          "command": "atlasmind.openSettings",
+          "when": "view == atlasmind.lensView",
+          "group": "navigation@5"
         },
         {
           "command": "atlasmind.openProjectDashboard",

@@ -19,6 +19,7 @@ AtlasMind is a VS Code extension built in TypeScript, and it now also ships a sm
 | **LensCodeImpact** | `src/core/lensCodeImpact.ts` | Deterministically projects a normalized Lens graph into bounded upstream-caller, downstream-callee, and source-consumer implications while retaining proximity, provider evidence, and named unknowns |
 | **LensTestMap** | `src/core/lensTestMap.ts` | Retains only language-service callers/references with explicit test-like paths, keeps path classification separate from link evidence, and never equates missing discovery with missing coverage |
 | **LensDataTrust** | `src/core/lensDataTrust.ts` | Normalizes explicit exact-field trust policy and projects it across selected normalized wires without reading values, guessing sensitivity, or claiming declared controls are runtime-verified |
+| **LensStateMachine** | `src/core/lensStateMachine.ts` | Strictly normalizes repository-declared state machines and derives declared reachability, transition depth, terminal states, and dead ends without importing or executing project code |
 | **LensContract** | `src/core/lensContract.ts` | Normalizes bounded contract fields and `.atlasmind/lens-mappings.json`, then deterministically labels adjacent field wires exact, transformed, dropped, introduced, incompatible, inferred, or unverified without treating missing evidence as a defect |
 | **MemoryScanner** | `src/memory/memoryScanner.ts` | Scans content for prompt injection and credential leakage |
 | **SecretRedactor** | `src/utils/secretRedactor.ts` | Pattern-based secret scanner applied to memory context and live evidence before LLM dispatch; covers API keys, tokens, PEM private keys, DB connection strings, and generic key/secret assignments |
@@ -189,6 +190,8 @@ The AtlasMind sidebar now starts with a composite Home webview that anchors majo
 **Contract/schema review now shares one normalized field model.** UI, API, validator, domain, persistence, database, and external declarations retain source kind, coverage, type, presence, nullability, evidence, and optional exact code targets. The pure contract reviewer automatically accepts only exact path/shape matches; incompatible declarations are named, and anything without enough evidence remains unverified. Deliberate equivalence, renames, transforms, drops, introductions, and inferences live in the versioned `.atlasmind/lens-mappings.json` file, with VS Code JSON Schema guidance. Every rule names its exact upstream/downstream contract pair. Suppressions annotate rather than erase review output, and no live database connection or project-schema write occurs in this foundation.
 
 **Field Wiring now integrates the first Data Trust Map.** `.atlasmind/lens-data-trust.json` attaches explicit classifications and declared consent/authorization/redaction/encryption/retention/residency controls to exact normalized contract fields. The host follows only the selected field and resolved wire endpoint, keeps absent metadata unknown, and exposes source-backed Open/Ask actions through bounded ids. It reads no values, secrets, database content, traffic, or telemetry; it never infers sensitivity from a name and never calls a policy declaration runtime verification.
+
+**Review State Lifecycle opens the first declared lifecycle explorer.** `.atlasmind/lens-state.json` supplies bounded machine/state/transition records plus optional exact source anchors. The core rejects duplicate ids, dangling endpoints, traversal paths, malformed ranges, and oversized records, then groups reachable states by minimum declared transition depth, separates unreachable states, and flags non-terminal dead ends. The CSP-protected panel renders labels through DOM text and returns only host-held state/transition ids for live-root-validated Open/Ask. AtlasMind imports and executes no project module; event, guard, and effect labels are declared topology rather than observed runtime behaviour.
 
 **The first Field Wiring board can inspect real workspace declarations.** The user-triggered **Review Contract Wiring** action scans a bounded set of filename-signalled TypeScript, OpenAPI/JSON Schema JSON, plus SQL files; extracts top-level interfaces/object type aliases, OpenAPI components, JSON Schema objects, and heuristic `CREATE TABLE` columns; and asks for one ordered same-root pair. TypeScript retains exact field locations, optional/null unions, scalars, arrays, literal enums, references, functions, and object records but reports syntax-only partial coverage; JSON types retain format separately; SQL fields carry exact line targets but also declare partial coverage. The editor webview filters every status, keeps suppressions/notices visible, and lets source-backed fields or individual wires open source or prepare an editable Ask Atlas draft. Discovery imports or executes no project module, runs no model or SQL, never connects to a database, and refuses a malformed mapping file. Webview actions return bounded ids resolved against the host snapshot, not browser-provided paths or prompts.
 
@@ -364,6 +367,7 @@ src/
 |  |- lensCodeImpact.ts  Caller/callee/reference change-impact projection
 |  |- lensTestMap.ts     Conservative test-evidence projection
 |  |- lensDataTrust.ts   Explicit field trust-policy projection
+|  |- lensStateMachine.ts Declared lifecycle normalization and reachability projection
 |  |- lensContract.ts    Contract fields, explicit mappings, and wiring review
 |  |- lensContractSources.ts TypeScript, OpenAPI/JSON Schema, and heuristic SQL adapters
 |  |- lensContractDrift.ts Contract finding classes and severity summary
@@ -416,7 +420,8 @@ src/
 |  `- index.ts           Provider barrel for the extension host
 |- schemas/
 |  |- lens-mappings.schema.json  Editor validation for Lens mapping files
-|  `- lens-data-trust.schema.json Editor validation for Lens trust metadata
+|  |- lens-data-trust.schema.json Editor validation for Lens trust metadata
+|  `- lens-state.schema.json Editor validation for Lens state machines
 |- runtime/
 |  |- core.ts            Shared runtime builder
 |  `- secrets.ts         Host-neutral secret access contract
@@ -443,6 +448,8 @@ src/
 |  |- lensJourneyPanel.ts Editor-hosted possible-flow graph and text alternative
 |  |- lensImpactPanel.ts Editor-hosted code-impact map and text alternative
 |  |- lensTestPanel.ts   Editor-hosted test-evidence map and text alternative
+|  |- lensStateCommand.ts Declared lifecycle workspace/machine selection
+|  |- lensStatePanel.ts  Editor-hosted state lifecycle map
 |  |- lensContractReviewCommand.ts Contract discovery and ordered pair selection
 |  |- lensContractReviewPanel.ts Filterable Field Wiring board
 |  |- chatPanel.ts       Dedicated AtlasMind session workspace webview

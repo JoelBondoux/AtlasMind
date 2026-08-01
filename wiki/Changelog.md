@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.248.0 — Lens visualizes declared state lifecycles
+
+**Review State Lifecycle now opens a repository-declared lifecycle map.** Bounded `.atlasmind/lens-state.json` machines show initial and terminal states, reachable depth, unreachable states, non-terminal dead ends, and event/guard/effect labels. Optional source anchors can open exactly or prepare an editable Ask draft.
+
+**Declared topology stays distinct from runtime evidence.** AtlasMind imports and executes no project module, rejects duplicate ids, dangling endpoints, unsafe paths, and malformed ranges, and resolves webview actions through host-held ids. Runtime transitions, persistence, and actual side effects remain unknown.
+
 ## v0.247.0 — Lens maps declared data trust
 
 **A Field Wiring field can now open a Data Trust Map across its normalized connection.** Exact `.atlasmind/lens-data-trust.json` rules declare public/internal/confidential/restricted classification and consent, authorization, redaction, encryption, retention, and residency controls; source-backed endpoints can open or prepare an editable Ask draft.

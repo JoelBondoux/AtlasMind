@@ -14,6 +14,7 @@ import { reviewWorkspaceContractWiring } from './lensContractReviewCommand.js';
 import { LensImpactPanel } from './lensImpactPanel.js';
 import { LensJourneyPanel } from './lensJourneyPanel.js';
 import { LensLanguageGraphAdapter } from './lensLanguageGraph.js';
+import { reviewWorkspaceStateLifecycle } from './lensStateCommand.js';
 import { LensTestPanel } from './lensTestPanel.js';
 
 const LENS_VIEW_ID = 'atlasmind.lensView';
@@ -287,6 +288,7 @@ export function registerLensTreeView(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('atlasmind.lens.refresh', () => provider.refresh()),
     vscode.commands.registerCommand('atlasmind.lens.filterSymbols', () => provider.chooseSymbolFilter()),
     vscode.commands.registerCommand('atlasmind.lens.reviewContracts', () => reviewWorkspaceContractWiring()),
+    vscode.commands.registerCommand('atlasmind.lens.reviewState', () => reviewWorkspaceStateLifecycle()),
     vscode.commands.registerCommand('atlasmind.lens.openTarget', (item?: unknown) => provider.openTarget(item)),
     vscode.commands.registerCommand('atlasmind.lens.askTarget', (item?: unknown) => provider.askAboutTarget(item)),
     vscode.commands.registerCommand('atlasmind.lens.moreTargetActions', (item?: unknown) => provider.runTargetAction(item)),

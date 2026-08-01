@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.248.0] - 2026-08-01
+
+### Added
+
+- **Lens can now open a declared State Lifecycle Explorer from its sidebar title bar.** A workspace-owned `.atlasmind/lens-state.json` file can describe bounded state machines, initial and terminal states, transitions, event/guard/effect labels, and optional exact source anchors. The explorer groups reachable states by minimum transition depth, separates unreachable states, flags non-terminal dead ends, and lets source-backed states or transitions open exactly or prepare an editable Ask Atlas draft.
+- **VS Code validates and completes lifecycle declaration files.** Multi-root workspaces choose the root before the machine, duplicate ids and dangling transition endpoints fail closed, and missing configuration is explained without creating files or changing the project.
+
+### Security
+
+- **Lifecycle review is declaration-only and non-executing.** AtlasMind neither imports/evaluates project modules nor runs events, guards, effects, jobs, or workflows. Repository labels are bounded/control-safe and rendered through DOM text after a ready handshake; webview actions return only a bounded host-held item id whose workspace identity and relative path are revalidated.
+- **A declared transition is not observed runtime behaviour.** Reachability and dead-end findings describe only the explicit file. Runtime comparison, retries not declared in the model, persistence behaviour, and actual side effects remain unknown rather than inferred.
+
 ## [0.247.0] - 2026-08-01
 
 ### Added
