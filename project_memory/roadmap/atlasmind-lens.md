@@ -118,9 +118,11 @@ Explain an effective setting from defaults through config files, environment var
 
 The v0.249 vertical slice visualizes an explicit `.atlasmind/lens-config.json` precedence declaration. One setting is rendered from low to high precedence across defaults, files, environment, VS Code scopes, feature flags, and runtime overrides; the highest applying source wins while lower applying and inactive sources remain visible. Source anchors offer exact Open/Ask, but chat targets omit values. A required per-setting policy makes masked sources structurally incapable of containing a value. The first slice reads no live environment, SecretStorage, remote flag service, or runtime process, so automatic source adapters and declared-versus-observed comparison remain active Phase 8 work.
 
-### Phase 9 — Change Story / PR Map
+### Phase 9 — Change Story / PR Map (in progress, v0.250.0)
 
 Turn a branch or pull request into a reviewable story: intent, changed components, affected journeys, contract/schema changes, tests, unresolved risks, and documentation. This is a review surface, not a replacement for the diff.
+
+The v0.250 vertical slice turns a committed local branch into a bounded Change Story. Lens asks for a Git-reported base, compares its merge-base to HEAD, lists commit-subject intent and top-level components, and groups NUL-delimited changed paths by conservative filename/folder signals. Existing paths have host-validated Open/Ask; deleted paths retain status without invalid navigation. Fixed read-only Git commands use no shell/network, dirty worktree changes are named but excluded, and the map repeatedly defers to the real diff. Remote PR metadata, linked issues, reviews, CI/checks, semantic diff analysis, affected Lens journeys/contracts/tests, and unresolved-risk correlation remain active Phase 9 work.
 
 ## Cross-cutting engineering work
 
@@ -148,6 +150,7 @@ Turn a branch or pull request into a reviewable story: intent, changed component
 - [x] Integrate explicit field trust metadata into the first Data Trust Map.
 - [x] Open the first explicit State Lifecycle Explorer from a repository declaration.
 - [x] Open the first secret-safe Configuration Resolution Explorer from an explicit precedence declaration.
+- [x] Open the first committed local-branch Change Story from bounded read-only Git evidence.
 
 ## Out of scope for the foundation
 

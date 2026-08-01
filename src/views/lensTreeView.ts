@@ -10,6 +10,7 @@ import {
 import type { LensTargetActionId } from '../core/lensTarget.js';
 import type { LensSourceRange, LensVisualTarget, LensWorkspaceIdentity } from '../types.js';
 import { revealPreferredChatSurface } from './chatPanel.js';
+import { reviewWorkspaceChangeStory } from './lensChangeStoryCommand.js';
 import { reviewWorkspaceConfiguration } from './lensConfigCommand.js';
 import { reviewWorkspaceContractWiring } from './lensContractReviewCommand.js';
 import { LensImpactPanel } from './lensImpactPanel.js';
@@ -291,6 +292,7 @@ export function registerLensTreeView(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('atlasmind.lens.reviewContracts', () => reviewWorkspaceContractWiring()),
     vscode.commands.registerCommand('atlasmind.lens.reviewState', () => reviewWorkspaceStateLifecycle()),
     vscode.commands.registerCommand('atlasmind.lens.reviewConfig', () => reviewWorkspaceConfiguration()),
+    vscode.commands.registerCommand('atlasmind.lens.reviewChangeStory', () => reviewWorkspaceChangeStory()),
     vscode.commands.registerCommand('atlasmind.lens.openTarget', (item?: unknown) => provider.openTarget(item)),
     vscode.commands.registerCommand('atlasmind.lens.askTarget', (item?: unknown) => provider.askAboutTarget(item)),
     vscode.commands.registerCommand('atlasmind.lens.moreTargetActions', (item?: unknown) => provider.runTargetAction(item)),

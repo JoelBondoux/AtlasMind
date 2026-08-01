@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "Developer-centric multi-agent orchestrator for VS Code with model routing, long-term memory, and skills registry.",
-  "version": "0.249.0",
+  "version": "0.250.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "MIT",
@@ -240,6 +240,11 @@
         "command": "atlasmind.lens.reviewConfig",
         "title": "AtlasMind: Lens: Review Configuration Resolution",
         "icon": "$(symbol-key)"
+      },
+      {
+        "command": "atlasmind.lens.reviewChangeStory",
+        "title": "AtlasMind: Lens: Review Branch Change Story",
+        "icon": "$(git-pull-request)"
       },
       {
         "command": "atlasmind.lens.openTarget",
@@ -655,6 +660,11 @@
           "command": "atlasmind.lens.reviewConfig",
           "when": "view == atlasmind.lensView",
           "group": "navigation@5"
+        },
+        {
+          "command": "atlasmind.lens.reviewChangeStory",
+          "when": "view == atlasmind.lensView",
+          "group": "8_lens@1"
         },
         {
           "command": "atlasmind.openSettings",

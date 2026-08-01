@@ -125,6 +125,7 @@ AtlasMind/
 │   │   ├── lensDataTrust.ts Explicit field trust policy and connected-endpoint projection
 │   │   ├── lensStateMachine.ts Strict declared lifecycle model and reachability projection
 │   │   ├── lensConfigResolution.ts Explicit configuration precedence and value-policy projection
+│   │   ├── lensChangeStory.ts Bounded committed-branch path/commit story projection
 │   │   ├── lensContract.ts Contract fields, explicit mappings, suppressions, and wiring review
 │   │   ├── lensContractSources.ts Bounded TypeScript, OpenAPI/JSON Schema, and heuristic SQL adapters
 │   │   ├── lensContractDrift.ts Finding classes and active/suppressed severity summaries
@@ -146,6 +147,8 @@ AtlasMind/
 │   │   ├── lensStatePanel.ts Editor-hosted state lifecycle map and transition list
 │   │   ├── lensConfigCommand.ts Workspace/setting selection for configuration resolution
 │   │   ├── lensConfigPanel.ts Editor-hosted configuration precedence chain
+│   │   ├── lensChangeStoryCommand.ts Read-only Git base/merge-base evidence collection
+│   │   ├── lensChangeStoryPanel.ts Editor-hosted branch Change Story
 │   │   ├── lensContractReviewCommand.ts Contract discovery, pair selection, and mapping load
 │   │   └── lensContractReviewPanel.ts Filterable Field Wiring review webview
 │   ├── voice/            TTS/STT: `voiceManager.ts` bridge, `hostSpeechSynthesizer.ts` (OS TTS), `localTranscriber.ts` (on-device Whisper STT)
@@ -181,6 +184,8 @@ Data-trust metadata belongs in `.atlasmind/lens-data-trust.json`, not in source-
 Lifecycle topology belongs in `.atlasmind/lens-state.json`. Keep machine, state, and transition ids unique and make every transition endpoint resolve inside its machine. `normalizeLensStateMachineFile` remains the runtime trust boundary even though the manifest contributes JSON Schema guidance. Optional source anchors must be root-relative and range-backed only when the location is defensible. Never import/evaluate a project state module to improve the map, and never describe declared event, guard, effect, reachability, or dead-end results as observed execution. Runtime comparison needs a separate explicit evidence adapter.
 
 Configuration precedence metadata belongs in `.atlasmind/lens-config.json`. Every setting/source id, key, and precedence level must be unique inside its scope. Use `valuePolicy: "masked"` for credentials or sensitive values: masked sources must omit `value` entirely and may record presence only. Display policy is limited to bounded control-safe scalars and must never be used for sensitive data. The schema is editing guidance; `normalizeLensConfigFile` is the runtime boundary. Open/Ask targets may name source kind, precedence, and resolution status, but must never carry any value. Do not read the live process environment, SecretStorage, runtime memory, or remote flag services as a side effect of opening the declared view.
+
+Change Story collection must remain read-only and shell-free. Keep the Git executable fixed, pass a fixed allow-list of read operations as argument arrays, choose bases only from bounded refs returned by the repository, require the workspace folder to be the repository root, and parse filename evidence with `-z`. Feed only normalized commit/path records to `buildLensChangeStory`; never post raw Git output or diff contents to the webview. Deleted paths cannot form live source targets. Detect and name a dirty worktree but do not silently mix uncommitted changes into a committed branch story. Filename categories are review navigation—not semantic, runtime, compatibility, test, or deployment proof. Remote PR bodies, issues, reviews, CI/checks, and runtime evidence require separate adapters.
 
 The initial discovery command deliberately scans filename-signalled JSON (`schema`, `contract`, `openapi`, `swagger`), TypeScript (`dto`, `model`, `schema`, `type`, `entity`, `contract`, `interface`, `request`, `response`), plus SQL, with 200-file/200-contract and 2 MB per-source budgets. Keep JSON parsing strict and SQL/TypeScript extraction declaration-only; never execute SQL or import/evaluate project modules to improve coverage. The TypeScript syntax adapter must keep partial coverage and must not claim to resolve aliases, inheritance, mapped types, decorators, initializers, or runtime validators. New adapters must state `complete`, `partial`, or `unknown`, preserve source-kind/evidence, and attach a normalized source target only when the range is defensible. Keep base type separate from format or other constraints: one-sided evidence is unverified, while two contradictory declarations are incompatible. `LensContractReviewPanel` must receive only normalized/recomputed snapshots after its ready handshake, render untrusted text through DOM nodes, and resolve field/wire ids in the host. Do not render an Ask/Open affordance when no source anchor exists.
 

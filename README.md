@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.249.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.250.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,11 +68,11 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.249.0
+## What's new in 0.250.0
 
 Since the last Marketplace publication, **v0.219.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
 
-- **Lens now explains configuration precedence without exposing secrets.** **Review Configuration Resolution** reads explicit `.atlasmind/lens-config.json` metadata, orders defaults, config files, environment, workspace/user settings, feature flags, and runtime overrides, and separates the winner from shadowed/inactive sources. Masked settings cannot contain values; source-backed Ask drafts carry provenance/status only. The view reads no live environment, SecretStorage, remote flag service, or runtime memory. The v0.248 State Lifecycle Explorer remains available.
+- **Lens now tells the review story of a committed local branch.** **Review Branch Change Story** compares an explicitly chosen base's merge-base with HEAD, groups changed paths conservatively, lists changed components and commit-subject intent, preserves rename/delete status, and makes existing paths openable/queryable. It runs fixed read-only Git commands, detects but excludes uncommitted work, reads no diff content or remote PR/CI data, and never substitutes filename signals for semantic impact. The actual diff remains authoritative. The v0.249 Configuration Resolution Explorer remains available.
 
 - **"Installed but not signed in" now names the command that signs you in, and offers a terminal with it typed.** The message used to say to run the agent once in a terminal without naming anything — and the command on screen at that moment is the one that cannot log you in: `gemini --acp`, `copilot --acp` and `qwen --acp` all start a JSON-RPC server, and `claude-agent-acp` uses the Claude CLI's credentials. The sign-in command is recorded separately, read from each vendor's own documentation. **Open a terminal with the command** types it and stops; AtlasMind never presses Enter and never sees the credential. An agent with no documented flow is reported as such rather than handed a guess.
 
@@ -374,6 +374,7 @@ The README keeps the map short; implementation details and data flows belong in 
 | `src/core/lensDataTrust.ts` | Explicit field trust-policy normalization and connected-endpoint projection |
 | `src/core/lensStateMachine.ts` | Strict declared lifecycle normalization and reachability/dead-end projection |
 | `src/core/lensConfigResolution.ts` | Explicit configuration precedence and masked/display value-policy projection |
+| `src/core/lensChangeStory.ts` | Bounded committed-branch path/commit story and conservative category projection |
 | `src/core/lensContract.ts` | Normalized contract fields, explicit mapping-file validation, and deterministic wiring review |
 | `src/core/lensContractSources.ts` | Bounded TypeScript, OpenAPI/JSON Schema, and heuristic SQL declaration adapters |
 | `src/core/lensContractDrift.ts` | Finding-oriented drift classification and active/suppressed severity summary |
@@ -395,6 +396,8 @@ The README keeps the map short; implementation details and data flows belong in 
 | `src/views/lensStatePanel.ts` | Secure editor-hosted lifecycle depth map and transition list |
 | `src/views/lensConfigCommand.ts` | Workspace and setting selection for declared configuration resolution |
 | `src/views/lensConfigPanel.ts` | Secure editor-hosted precedence chain and text resolution summary |
+| `src/views/lensChangeStoryCommand.ts` | Read-only Git base selection and merge-base evidence collection |
+| `src/views/lensChangeStoryPanel.ts` | Secure editor-hosted component/path/commit Change Story |
 | `src/views/lensContractReviewCommand.ts` | User-triggered contract discovery, pair selection, and mapping-file loading |
 | `src/views/lensContractReviewPanel.ts` | Filterable Field Wiring board with source-backed field and relation actions |
 | `schemas/lens-mappings.schema.json` | VS Code validation and completion for `.atlasmind/lens-mappings.json` |

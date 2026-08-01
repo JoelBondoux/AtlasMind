@@ -365,6 +365,7 @@ describe('package manifest', () => {
       'atlasmind.lens.reviewContracts',
       'atlasmind.lens.reviewState',
       'atlasmind.lens.reviewConfig',
+      'atlasmind.lens.reviewChangeStory',
       'atlasmind.lens.moreTargetActions',
     ]));
     expect(titleMenus).toContainEqual(expect.objectContaining({
@@ -381,6 +382,10 @@ describe('package manifest', () => {
     }));
     expect(titleMenus).toContainEqual(expect.objectContaining({
       command: 'atlasmind.lens.reviewConfig',
+      when: 'view == atlasmind.lensView',
+    }));
+    expect(titleMenus).toContainEqual(expect.objectContaining({
+      command: 'atlasmind.lens.reviewChangeStory',
       when: 'view == atlasmind.lensView',
     }));
     expect(itemMenus).toContainEqual(expect.objectContaining({

@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.250.0 — Lens tells a committed branch's Change Story
+
+**Review Branch Change Story now compares an explicitly selected base's merge-base with HEAD.** It shows commit-subject intent, changed components, and conservative source/test/contract-schema/config/migration/docs/automation path groups with rename/delete status and exact Open/Ask for existing paths.
+
+**The map is a read-only review aid, not a diff replacement.** Fixed shell-free Git calls read no patch content, network, remote PR/review/CI, or runtime evidence. Dirty work is named but excluded; filename signals never become semantic-impact claims, and missing test/contract paths remain missing evidence.
+
 ## v0.249.0 — Lens explains configuration precedence safely
 
 **Review Configuration Resolution now visualizes one explicit setting from low to high precedence.** Defaults, files, environment, workspace/user settings, feature flags, and runtime overrides retain winner, shadowed, or inactive status plus optional exact source Open/Ask actions.

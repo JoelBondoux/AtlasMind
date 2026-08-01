@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.250.0] - 2026-08-01
+
+### Added
+
+- **Lens now turns a committed local branch into a bounded Change Story.** **Review Branch Change Story** asks for an explicit local/remote base, compares its merge-base with HEAD through read-only Git commands, and shows the commit-subject intent trail, changed top-level components, and added/modified/deleted/renamed/copied/type-changed paths grouped as source, test, contract/schema, configuration, migration, documentation, automation, or other.
+- **Changed files are queryable without replacing the diff.** Existing/renamed paths can open or prepare an editable Ask Atlas draft carrying status, conservative category, previous path, and Git name/status evidence. Deleted paths remain visible without an invalid Open action, and a text-first commit/path account remains available.
+
+### Security
+
+- **The Change Story is local, read-only, and explicit about scope.** Git is invoked through argument arrays with a fixed read-only command set; the workspace folder must equal the repository root, the base is chosen from Git-reported refs, paths are NUL-delimited and re-normalized, and commits/paths are capped at 100/300. No network, GitHub API, model, checkout, source edit, or Git mutation occurs.
+- **Path classification is not semantic or runtime proof.** The map does not read diff contents, PR bodies/reviews, issues, CI, remote checks, or runtime evidence. Uncommitted work is detected but intentionally excluded and named. Missing test/contract-like paths never become claims of no test or contract impact, and the actual Git diff remains authoritative.
+
 ## [0.249.0] - 2026-08-01
 
 ### Added

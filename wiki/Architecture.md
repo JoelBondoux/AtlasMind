@@ -21,6 +21,7 @@ AtlasMind is a VS Code extension built in TypeScript, and it now also ships a sm
 | **LensDataTrust** | `src/core/lensDataTrust.ts` | Normalizes explicit exact-field trust policy and projects it across selected normalized wires without reading values, guessing sensitivity, or claiming declared controls are runtime-verified |
 | **LensStateMachine** | `src/core/lensStateMachine.ts` | Strictly normalizes repository-declared state machines and derives declared reachability, transition depth, terminal states, and dead ends without importing or executing project code |
 | **LensConfigResolution** | `src/core/lensConfigResolution.ts` | Resolves explicit configuration precedence while structurally excluding values from masked settings and all chat targets; it reads no live environment or secret store |
+| **LensChangeStory** | `src/core/lensChangeStory.ts` | Projects bounded local merge-base-to-HEAD commit/path evidence into a conservative branch story without reading patch contents or remote PR/CI state and without replacing the diff |
 | **LensContract** | `src/core/lensContract.ts` | Normalizes bounded contract fields and `.atlasmind/lens-mappings.json`, then deterministically labels adjacent field wires exact, transformed, dropped, introduced, incompatible, inferred, or unverified without treating missing evidence as a defect |
 | **MemoryScanner** | `src/memory/memoryScanner.ts` | Scans content for prompt injection and credential leakage |
 | **SecretRedactor** | `src/utils/secretRedactor.ts` | Pattern-based secret scanner applied to memory context and live evidence before LLM dispatch; covers API keys, tokens, PEM private keys, DB connection strings, and generic key/secret assignments |
@@ -195,6 +196,8 @@ The AtlasMind sidebar now starts with a composite Home webview that anchors majo
 **Review State Lifecycle opens the first declared lifecycle explorer.** `.atlasmind/lens-state.json` supplies bounded machine/state/transition records plus optional exact source anchors. The core rejects duplicate ids, dangling endpoints, traversal paths, malformed ranges, and oversized records, then groups reachable states by minimum declared transition depth, separates unreachable states, and flags non-terminal dead ends. The CSP-protected panel renders labels through DOM text and returns only host-held state/transition ids for live-root-validated Open/Ask. AtlasMind imports and executes no project module; event, guard, and effect labels are declared topology rather than observed runtime behaviour.
 
 **Review Configuration Resolution explains one explicit precedence chain.** `.atlasmind/lens-config.json` names bounded defaults, files, environment, workspace/user settings, feature flags, and runtime overrides. The highest applying source wins; shadowed and inactive sources remain visible in the low-to-high chain and text equivalent. Masked settings cannot contain values, while displayable metadata is scalar, bounded, and control-safe. Host-held Open/Ask targets include provenance/status but no value. The view reads no live process environment, SecretStorage, remote flag service, or runtime memory, so the result is declared intent rather than observed effective configuration.
+
+**Review Branch Change Story turns committed local Git evidence into a review surface.** The operator chooses a bounded Git-reported base; Lens compares its merge-base with HEAD through fixed read-only, shell-free commands and normalizes NUL-delimited commit/path records. The panel shows commit-subject intent, changed top-level components, and conservative path categories while preserving add/modify/delete/rename/copy/type status. Existing paths can Open/Ask through host-held ids; deleted paths cannot. Dirty worktree changes are detected but excluded. Patch content, PR bodies/issues/reviews, CI/checks, network, runtime, and semantic impact remain unread, filename categories remain signals only, and the actual Git diff remains authoritative.
 
 **The first Field Wiring board can inspect real workspace declarations.** The user-triggered **Review Contract Wiring** action scans a bounded set of filename-signalled TypeScript, OpenAPI/JSON Schema JSON, plus SQL files; extracts top-level interfaces/object type aliases, OpenAPI components, JSON Schema objects, and heuristic `CREATE TABLE` columns; and asks for one ordered same-root pair. TypeScript retains exact field locations, optional/null unions, scalars, arrays, literal enums, references, functions, and object records but reports syntax-only partial coverage; JSON types retain format separately; SQL fields carry exact line targets but also declare partial coverage. The editor webview filters every status, keeps suppressions/notices visible, and lets source-backed fields or individual wires open source or prepare an editable Ask Atlas draft. Discovery imports or executes no project module, runs no model or SQL, never connects to a database, and refuses a malformed mapping file. Webview actions return bounded ids resolved against the host snapshot, not browser-provided paths or prompts.
 
@@ -372,6 +375,7 @@ src/
 |  |- lensDataTrust.ts   Explicit field trust-policy projection
 |  |- lensStateMachine.ts Declared lifecycle normalization and reachability projection
 |  |- lensConfigResolution.ts Declared configuration precedence and masking policy
+|  |- lensChangeStory.ts Bounded committed-branch story projection
 |  |- lensContract.ts    Contract fields, explicit mappings, and wiring review
 |  |- lensContractSources.ts TypeScript, OpenAPI/JSON Schema, and heuristic SQL adapters
 |  |- lensContractDrift.ts Contract finding classes and severity summary
@@ -457,6 +461,8 @@ src/
 |  |- lensStatePanel.ts  Editor-hosted state lifecycle map
 |  |- lensConfigCommand.ts Declared setting selection
 |  |- lensConfigPanel.ts Editor-hosted configuration precedence chain
+|  |- lensChangeStoryCommand.ts Read-only local Git evidence collection
+|  |- lensChangeStoryPanel.ts Editor-hosted committed branch story
 |  |- lensContractReviewCommand.ts Contract discovery and ordered pair selection
 |  |- lensContractReviewPanel.ts Filterable Field Wiring board
 |  |- chatPanel.ts       Dedicated AtlasMind session workspace webview
