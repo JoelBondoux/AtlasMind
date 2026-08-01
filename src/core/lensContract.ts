@@ -23,6 +23,7 @@ export const LENS_CONTRACT_MAPPING_FILE = '.atlasmind/lens-mappings.json';
 export const LENS_CONTRACT_MAX_FIELDS = 500;
 export const LENS_CONTRACT_MAX_MAPPINGS = 500;
 export const LENS_CONTRACT_MAX_SUPPRESSIONS = 500;
+export const LENS_CONTRACT_MAX_WIRES = 1_000;
 
 const LAYERS = new Set<LensContractLayer>([
   'ui', 'api', 'validator', 'domain', 'persistence', 'database', 'external',
@@ -217,13 +218,18 @@ export function reviewLensContractWiring(
   }
 
   const reviewedWires = wires.map(wire => applySuppression(wire, mappingFile.suppressions));
+  const truncated = reviewedWires.length > LENS_CONTRACT_MAX_WIRES;
   return {
     version: 1,
     id: `lens-contract-review:${stableHash(`${upstream.id}:${downstream.id}`)}`,
     upstreamContractId: upstream.id,
     downstreamContractId: downstream.id,
-    wires: reviewedWires,
-    notices: [UNMATCHED_NOTICE],
+    wires: reviewedWires.slice(0, LENS_CONTRACT_MAX_WIRES),
+    notices: [
+      UNMATCHED_NOTICE,
+      ...(truncated ? [`The review exceeded ${LENS_CONTRACT_MAX_WIRES} wires and was truncated.`] : []),
+    ],
+    truncated,
   };
 }
 
@@ -235,6 +241,7 @@ function normalizeField(value: unknown): LensContractField | undefined {
   const path = boundedExactText(value.path, MAX_FIELD_PATH);
   const label = boundedText(value.label, MAX_LABEL);
   const dataType = boundedText(value.dataType, MAX_DATA_TYPE);
+  const format = boundedText(value.format, MAX_DATA_TYPE);
   const presence = enumValue(value.presence, PRESENCE);
   const nullability = enumValue(value.nullability, NULLABILITY);
   const target = value.target === undefined ? undefined : normalizeLensTarget(value.target);
@@ -250,6 +257,7 @@ function normalizeField(value: unknown): LensContractField | undefined {
     path,
     label,
     dataType,
+    ...(format ? { format } : {}),
     presence,
     nullability,
     ...(target ? { target } : {}),
@@ -399,6 +407,7 @@ function buildWire(input: Omit<LensFieldWire, 'id' | 'suppressed'>): LensFieldWi
 function compareFieldShape(from: LensContractField, to: LensContractField): 'exact' | 'incompatible' | 'unverified' {
   if (
     from.dataType.toLowerCase() !== to.dataType.toLowerCase() ||
+    (from.format && to.format && from.format.toLowerCase() !== to.format.toLowerCase()) ||
     (from.presence !== 'unknown' && to.presence !== 'unknown' && from.presence !== to.presence) ||
     (from.nullability !== 'unknown' && to.nullability !== 'unknown' && from.nullability !== to.nullability)
   ) {
@@ -409,6 +418,7 @@ function compareFieldShape(from: LensContractField, to: LensContractField): 'exa
     to.presence === 'unknown' ||
     from.nullability === 'unknown' ||
     to.nullability === 'unknown' ||
+    Boolean(from.format) !== Boolean(to.format) ||
     from.dataType.toLowerCase() === 'unknown' ||
     to.dataType.toLowerCase() === 'unknown'
   ) {
@@ -421,6 +431,9 @@ function describeIncompatibility(from: LensContractField, to: LensContractField)
   const differences: string[] = [];
   if (from.dataType.toLowerCase() !== to.dataType.toLowerCase()) {
     differences.push(`type ${from.dataType} → ${to.dataType}`);
+  }
+  if (from.format && to.format && from.format.toLowerCase() !== to.format.toLowerCase()) {
+    differences.push(`format ${from.format} → ${to.format}`);
   }
   if (from.presence !== 'unknown' && to.presence !== 'unknown' && from.presence !== to.presence) {
     differences.push(`presence ${from.presence} → ${to.presence}`);

@@ -317,10 +317,15 @@ describe('package manifest', () => {
 
     expect(commands.map(entry => entry.command)).toEqual(expect.arrayContaining([
       'atlasmind.lens.filterSymbols',
+      'atlasmind.lens.reviewContracts',
       'atlasmind.lens.moreTargetActions',
     ]));
     expect(titleMenus).toContainEqual(expect.objectContaining({
       command: 'atlasmind.lens.filterSymbols',
+      when: 'view == atlasmind.lensView',
+    }));
+    expect(titleMenus).toContainEqual(expect.objectContaining({
+      command: 'atlasmind.lens.reviewContracts',
       when: 'view == atlasmind.lensView',
     }));
     expect(itemMenus).toContainEqual(expect.objectContaining({

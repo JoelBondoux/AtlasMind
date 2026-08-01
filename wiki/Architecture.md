@@ -181,6 +181,8 @@ The AtlasMind sidebar now starts with a composite Home webview that anchors majo
 
 **Contract/schema review now shares one normalized field model.** UI, API, validator, domain, persistence, database, and external declarations retain source kind, coverage, type, presence, nullability, evidence, and optional exact code targets. The pure contract reviewer automatically accepts only exact path/shape matches; incompatible declarations are named, and anything without enough evidence remains unverified. Deliberate equivalence, renames, transforms, drops, introductions, and inferences live in the versioned `.atlasmind/lens-mappings.json` file, with VS Code JSON Schema guidance. Every rule names its exact upstream/downstream contract pair. Suppressions annotate rather than erase review output, and no live database connection or project-schema write occurs in this foundation.
 
+**The first Field Wiring board can inspect real workspace declarations.** The user-triggered **Review Contract Wiring** action scans a bounded set of filename-signalled OpenAPI/JSON Schema JSON plus SQL files, extracts OpenAPI components, JSON Schema objects, and heuristic `CREATE TABLE` columns, and asks for one ordered same-root pair. JSON types retain format separately; SQL fields carry exact line targets but always declare partial coverage. The editor webview filters every status, keeps suppressions/notices visible, and lets source-backed fields or individual wires open source or prepare an editable Ask Atlas draft. Discovery runs no model, project code, or SQL, never connects to a database, and refuses a malformed mapping file. Webview actions return bounded ids resolved against the host snapshot, not browser-provided paths or prompts.
+
 Concurrent chat surfaces keep their selected sessions pinned locally. Session-change refresh events update UI state without force-switching every open chat surface to the global active session.
 
 Project-run proposals cross the chat webview boundary as validated transcript metadata rather than browser-owned commands. Interactive chat renders **Start run**, **Save for later**, and **Cancel**; the extension host re-reads the pending proposal, accepts only those three actions, prevents double resolution, and sends saved proposals through Project Run Center preview persistence. Only Autopilot may bypass the card and auto-start when the matching setting permits it. Provider catalog refresh follows the same host-authoritative principle: successful live discovery replaces the prior list (including an empty result), while provider-confirmed removed/deprecated models keep a session tombstone that stale discovery cannot resurrect.
@@ -345,6 +347,7 @@ src/
 |  |- lensTarget.ts      Validated Lens source/evidence target contract
 |  |- lensGraph.ts       Bounded Lens graph/evidence trust boundary
 |  |- lensContract.ts    Contract fields, explicit mappings, and wiring review
+|  |- lensContractSources.ts OpenAPI/JSON Schema and heuristic SQL adapters
 |  |- websiteWorkspaceManager.ts  Website brief/design/hosting/platform/n8n SSOT
 |  |- planner.ts         Goal -> DAG decomposition
 |  |- taskScheduler.ts   DAG -> parallel batch execution
@@ -416,6 +419,8 @@ src/
 |  |- lensTreeView.ts    Active-file Code Explorer and Lens action menu
 |  |- lensLanguageGraph.ts VS Code call-hierarchy/reference adapter
 |  |- lensJourneyPanel.ts Editor-hosted possible-flow graph and text alternative
+|  |- lensContractReviewCommand.ts Contract discovery and ordered pair selection
+|  |- lensContractReviewPanel.ts Filterable Field Wiring board
 |  |- chatPanel.ts       Dedicated AtlasMind session workspace webview
 |  |- chatSlashRouting.ts   What a leading `/` means in the panel (pure)
 |  |- chatStreamCollector.ts Replays the participant's handlers into memory

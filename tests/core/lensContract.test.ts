@@ -94,4 +94,25 @@ describe('AtlasMind Lens contract wiring foundation', () => {
     const review = reviewLensContractWiring(upstream!, downstream!, mappingFile!);
     expect(review.wires.find(wire => wire.from?.fieldPath === 'legacyCode')?.status).toBe('unverified');
   });
+
+  it('treats one-sided format evidence as unknown and contradictory formats as incompatible', () => {
+    const upstream = normalizeLensContract(fixture['upstream'])!;
+    const downstream = normalizeLensContract(fixture['downstream'])!;
+    const withEmailFormat = normalizeLensContract({
+      ...upstream,
+      fields: upstream.fields.map(field => field.path === 'email' ? { ...field, format: 'email' } : field),
+    })!;
+    const unknownReview = reviewLensContractWiring(withEmailFormat, downstream);
+    expect(unknownReview.wires.find(wire => wire.from?.fieldPath === 'email')?.status).toBe('unverified');
+
+    const contradictory = normalizeLensContract({
+      ...downstream,
+      fields: downstream.fields.map(field => field.path === 'email' ? { ...field, format: 'uuid' } : field),
+    })!;
+    const incompatibleReview = reviewLensContractWiring(withEmailFormat, contradictory);
+    expect(incompatibleReview.wires.find(wire => wire.from?.fieldPath === 'email')).toEqual(expect.objectContaining({
+      status: 'incompatible',
+      reason: expect.stringContaining('format email → uuid'),
+    }));
+  });
 });

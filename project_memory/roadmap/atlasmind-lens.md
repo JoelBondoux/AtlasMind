@@ -53,7 +53,7 @@ Developers can set a bounded scenario—request parameters, feature flags, envir
 
 The first prototype starts from a language-service symbol selected in Code Explorer. It combines VS Code call hierarchy and references into a host-normalized **possible flow**, opens as an editor webview, and supports exact source and Ask Atlas actions on each node. It is intentionally not yet a framework-route detector, scenario evaluator, or runtime trace.
 
-### Phase 3 — Contract Map and Schema Wiring Review (in progress, v0.239.0)
+### Phase 3 — Contract Map and Schema Wiring Review (in progress, v0.239.0–v0.240.0)
 
 Review the full field journey across application and data boundaries:
 
@@ -77,6 +77,8 @@ Views:
 Finding classes remain explicit: definite conflict, likely drift, missing evidence, intentional transform, dead wire, dropped wire, and undocumented wire. Projects can declare mappings and suppressions so deliberate renames and transformations do not become permanent false positives. Missing evidence never becomes an automatic defect.
 
 The v0.239 foundation normalizes contract layers, source kinds, fields, evidence, coverage, and field-shape attributes, then compares adjacent named boundaries deterministically. `.atlasmind/lens-mappings.json` records boundary-scoped equivalence, renames, transforms, drops, introductions, inferences, and suppressions with shipped JSON Schema guidance. Unmatched fields remain `unverified`; adapters and review surfaces come next.
+
+The v0.240 vertical slice discovers bounded OpenAPI 3 component schemas, JSON Schema object declarations, and heuristic SQL `CREATE TABLE` declarations without executing project code or SQL. A user selects an ordered same-root pair and opens the first Field Wiring board, where every source-backed field and individual wire can be opened or queried. The SQL adapter declares partial coverage, format evidence is separate from base type, and a malformed mapping file stops the review. ORM, validator, GraphQL/protobuf, generated-client, relationship, drift, and change-impact adapters remain active Phase 3 work.
 
 ### Phase 4 — Change Impact Map
 

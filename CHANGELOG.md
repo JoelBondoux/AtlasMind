@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.240.0] - 2026-08-01
+
+### Added
+
+- **Lens can now run its first real field-wiring review from the workspace.** **AtlasMind: Lens: Review Contract Wiring** discovers bounded OpenAPI 3 component schemas, JSON Schema object declarations, and SQL `CREATE TABLE` declarations, asks for an ordered upstream/downstream pair in the same workspace root, applies `.atlasmind/lens-mappings.json`, and opens an editor-hosted Field Wiring board.
+- **Every visible field and connection is queryable.** The board filters exact, transformed, dropped, introduced, incompatible, unverified, and inferred wires; keeps suppressed records inspectable; opens source-backed fields; and prepares editable Ask Atlas drafts for a field or an individual relation. It never submits automatically. OpenAPI/JSON fields retain declared type/format/presence/nullability, while SQL columns retain line-backed targets and conservative partial-coverage evidence.
+
+### Security
+
+- **Contract discovery is local, bounded, and non-executing.** It inspects at most 200 candidate schema/contract/OpenAPI/Swagger JSON or SQL files, refuses sources larger than 2 MB, parses JSON strictly, and treats SQL extraction as a heuristic declaration reader—it never runs SQL, project code, or a model and never connects to a database. Cross-root pairs are not offered, and a malformed mapping file fails closed instead of being silently ignored.
+- **The Field Wiring webview receives normalized data only after a ready handshake.** Labels and paths are rendered as DOM text; messages carry bounded host-resolved field or wire ids. Source opening revalidates workspace name, root index, and root-relative path, while relation questions use a normalized source-anchored Lens target.
+
 ## [0.239.0] - 2026-08-01
 
 ### Added

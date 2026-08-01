@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.239.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.240.0</strong> · </sub></p>
 
 <p align="center">
   <strong>BETA</strong><br />
@@ -68,11 +68,11 @@ AtlasMind is designed to carry work forward while keeping the operator informed 
 
 ---
 
-## What's new in 0.239.0
+## What's new in 0.240.0
 
 Since the last Marketplace publication, **v0.219.0**, source builds have added the following. Everything earlier is already in the published build — the full history is in [CHANGELOG.md](CHANGELOG.md).
 
-- **AtlasMind Lens now has the contract/schema wiring foundation needed to find crossed and dropped wires.** Normalized UI, API, validator, domain, persistence, database, and external fields retain their source evidence, coverage, type, required/optional state, nullability, and optional code location. A deterministic reviewer labels exact, explicitly renamed/transformed, deliberately dropped/introduced, incompatible, inferred, and unverified connections. Repositories can document deliberate wiring and suppressions in `.atlasmind/lens-mappings.json`, with built-in JSON Schema completion and validation. Crucially, an unmatched field stays **unverified**—AtlasMind does not call it dropped merely because an adapter lacks evidence. The source-backed possible-flow journey from v0.238 remains available through **Trace possible flow**.
+- **AtlasMind Lens can now review real contract/schema wiring from the workspace.** Run **AtlasMind: Lens: Review Contract Wiring** (or use the Lens title action) to discover OpenAPI 3 components, JSON Schema objects, and SQL `CREATE TABLE` declarations; choose the upstream and downstream boundary; apply `.atlasmind/lens-mappings.json`; and open the Field Wiring board. Filter exact, transformed, dropped, introduced, incompatible, inferred, or unverified wires, retain declared suppressions, open source-backed fields, and ask Atlas about any field or connection through an editable draft. Discovery is local and bounded, never executes SQL or project code, never connects to a database, and labels SQL coverage heuristic/partial. An unmatched field still stays **unverified**, and static code journeys remain available through **Trace possible flow**.
 
 - **"Installed but not signed in" now names the command that signs you in, and offers a terminal with it typed.** The message used to say to run the agent once in a terminal without naming anything — and the command on screen at that moment is the one that cannot log you in: `gemini --acp`, `copilot --acp` and `qwen --acp` all start a JSON-RPC server, and `claude-agent-acp` uses the Claude CLI's credentials. The sign-in command is recorded separately, read from each vendor's own documentation. **Open a terminal with the command** types it and stops; AtlasMind never presses Enter and never sees the credential. An agent with no documented flow is reported as such rather than handed a guess.
 
@@ -290,6 +290,7 @@ Open the Command Palette with `Ctrl+Shift+P`.
 | `AtlasMind: Open Chat Panel` | Open the larger detached Atlas chat |
 | `AtlasMind: Lens: Refresh Active Outline` | Refresh the active-file symbols in Lens — Code Explorer |
 | `AtlasMind: Lens: Filter Symbols` | Show all symbols or focus the Code Explorer on types, callables, data, or containers |
+| `AtlasMind: Lens: Review Contract Wiring` | Discover supported OpenAPI, JSON Schema, and SQL declarations and compare one ordered field boundary |
 | `AtlasMind: Open a Setup Guide` | Start a setup walkthrough (`acp`, `buzz`) in a fresh chat session |
 | `AtlasMind: Focus Chat View` | Return focus to the sidebar chat |
 | `AtlasMind: Open Settings Panel` | Open the multi-page AtlasMind settings workspace |
@@ -369,6 +370,7 @@ The README keeps the map short; implementation details and data flows belong in 
 | `src/core/lensTarget.ts` | Host-neutral, validated visual targets shared by AtlasMind Lens surfaces and chat context |
 | `src/core/lensGraph.ts` | Versioned, bounded Lens graph normalization and evidence validation |
 | `src/core/lensContract.ts` | Normalized contract fields, explicit mapping-file validation, and deterministic wiring review |
+| `src/core/lensContractSources.ts` | Bounded OpenAPI/JSON Schema and heuristic SQL declaration adapters |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/providers/` | Provider adapters, catalogs, health, and local-model discovery |
 | `native/acp-private-desktop/` | Auditable Rust source for the optional Windows private-desktop launcher; the pinned release binary ships under `media/bin/` |
@@ -379,6 +381,8 @@ The README keeps the map short; implementation details and data flows belong in 
 | `src/views/lensTreeView.ts` | Active-file Lens outline, exact source navigation, and Lens action menu |
 | `src/views/lensLanguageGraph.ts` | VS Code reference and call-hierarchy adapter for static possible-flow journeys |
 | `src/views/lensJourneyPanel.ts` | Secure editor-hosted journey graph with exact source/chat actions and a text alternative |
+| `src/views/lensContractReviewCommand.ts` | User-triggered contract discovery, pair selection, and mapping-file loading |
+| `src/views/lensContractReviewPanel.ts` | Filterable Field Wiring board with source-backed field and relation actions |
 | `schemas/lens-mappings.schema.json` | VS Code validation and completion for `.atlasmind/lens-mappings.json` |
 | `src/mcp/` and `src/ard/` | MCP connectivity—including the bundled Buzz communications bridge—and Agentic Resource Discovery |
 | `src/voice/` and `src/remote/` | Voice backends and opt-in remote control |

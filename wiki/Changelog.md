@@ -6,6 +6,12 @@ This page highlights major releases. For the complete changelog, see [CHANGELOG.
 
 ---
 
+## v0.240.0 — Lens opens the Field Wiring board
+
+**Review Contract Wiring turns real OpenAPI, JSON Schema, and SQL declarations into an ordered field comparison.** Choose the two same-root boundaries, apply the repository mapping file, then filter exact, transformed, dropped, introduced, incompatible, inferred, or unverified wires. Source-backed fields and individual connections can open source or prepare an editable Ask Atlas draft.
+
+**Discovery is deliberately bounded and non-executing.** AtlasMind inspects at most 200 filename-signalled JSON/SQL files, refuses sources over 2 MB, parses JSON strictly, and labels SQL extraction heuristic/partial. It never runs SQL or project code, connects to a database, or invokes a model; malformed mapping files stop visibly, and webview actions resolve bounded ids in the host.
+
 ## v0.239.0 — Lens learns contract and schema wiring
 
 **AtlasMind now has a common field model for UI, API, validator, domain, persistence, database, and external declarations.** A deterministic review labels exact, explicitly renamed or transformed, deliberately dropped or introduced, incompatible, inferred, and unverified wires while retaining source evidence and completeness.

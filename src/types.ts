@@ -2288,6 +2288,7 @@ export interface LensContractField {
   path: string;
   label: string;
   dataType: string;
+  format?: string;
   presence: LensFieldPresence;
   nullability: LensFieldNullability;
   target?: LensVisualTarget;
@@ -2368,6 +2369,7 @@ export interface LensContractReview {
   downstreamContractId: string;
   wires: LensFieldWire[];
   notices: string[];
+  truncated: boolean;
 }
 
 // ── Memory / SSOT ───────────────────────────────────────────────

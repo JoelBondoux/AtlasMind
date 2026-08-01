@@ -1,0 +1,131 @@
+import { describe, expect, it, vi } from 'vitest';
+
+const {
+  createWebviewPanel,
+  postMessage,
+  showTextDocument,
+  revealPreferredChatSurface,
+  workspaceFolder,
+  messageHandlers,
+  panel,
+} = vi.hoisted(() => {
+  const messageHandlers: Array<(message: unknown) => void> = [];
+  const uri = (path: string) => ({ scheme: 'file', path, fsPath: path, toString: () => `file://${path}` });
+  const webview = {
+    html: '',
+    cspSource: 'vscode-webview:',
+    postMessage: vi.fn(),
+    onDidReceiveMessage: vi.fn((handler: (message: unknown) => void) => {
+      messageHandlers.push(handler);
+      return { dispose: vi.fn() };
+    }),
+  };
+  const panel = {
+    webview,
+    reveal: vi.fn(),
+    onDidDispose: vi.fn(() => ({ dispose: vi.fn() })),
+  };
+  return {
+    createWebviewPanel: vi.fn(() => panel),
+    postMessage: webview.postMessage,
+    showTextDocument: vi.fn(),
+    revealPreferredChatSurface: vi.fn(),
+    workspaceFolder: { name: 'atlasmind', index: 0, uri: uri('/workspace') },
+    messageHandlers,
+    panel,
+  };
+});
+
+vi.mock('vscode', () => ({
+  ViewColumn: { Beside: 2 },
+  Selection: class {
+    constructor(
+      public readonly startLine: number,
+      public readonly startColumn: number,
+      public readonly endLine: number,
+      public readonly endColumn: number,
+    ) {}
+  },
+  Uri: {
+    joinPath: (base: { path: string; fsPath: string }, ...parts: string[]) => ({
+      scheme: 'file',
+      path: `${base.path}/${parts.join('/')}`,
+      fsPath: `${base.fsPath}/${parts.join('/')}`,
+      toString: () => `file://${base.path}/${parts.join('/')}`,
+    }),
+  },
+  window: {
+    createWebviewPanel,
+    showTextDocument,
+    showWarningMessage: vi.fn(),
+  },
+  workspace: {
+    workspaceFolders: [workspaceFolder],
+    getWorkspaceFolder: vi.fn(() => workspaceFolder),
+    asRelativePath: vi.fn((uri: { path: string }) => uri.path.replace('/workspace/', '')),
+  },
+}));
+
+vi.mock('../../src/views/chatPanel', () => ({ revealPreferredChatSurface }));
+
+import { normalizeLensContract, normalizeLensContractMappingFile } from '../../src/core/lensContract';
+import { createSourceLensTarget } from '../../src/core/lensTarget';
+import { LensContractReviewPanel } from '../../src/views/lensContractReviewPanel';
+
+function contract(id: string, label: string, fieldId: string, fieldLabel: string) {
+  const target = createSourceLensTarget({
+    kind: 'code-range',
+    label: fieldLabel,
+    workspace: { name: 'atlasmind', index: 0 },
+    workspacePath: 'contracts/user.json',
+    range: { startLine: 3, startColumn: 2, endLine: 3, endColumn: 12 },
+  });
+  return normalizeLensContract({
+    version: 1,
+    id,
+    label,
+    layer: id.startsWith('api') ? 'api' : 'database',
+    sourceKind: id.startsWith('api') ? 'openapi' : 'sql',
+    coverage: 'complete',
+    target,
+    fields: [{
+      id: fieldId,
+      path: fieldLabel,
+      label: fieldLabel,
+      dataType: 'string',
+      presence: 'required',
+      nullability: 'non-null',
+      target,
+      evidence: { kind: 'declared', source: 'test fixture' },
+    }],
+  })!;
+}
+
+describe('Lens contract review panel', () => {
+  it('posts normalized review data after ready and resolves field/wire actions in the host', async () => {
+    const upstream = contract('api:user', 'User request', 'api:email', '</script><script>bad()</script>');
+    const downstream = contract('database:users', 'users', 'db:email', '</script><script>bad()</script>');
+    const mappingFile = normalizeLensContractMappingFile({ version: 1, mappings: [], suppressions: [] })!;
+
+    LensContractReviewPanel.createOrShow({ upstream, downstream, mappingFile, sourceNotices: [] });
+
+    expect(panel.webview.html).toContain('Field wiring');
+    expect(panel.webview.html).toContain('Content-Security-Policy');
+    expect(panel.webview.html).not.toContain('bad()');
+    const handleMessage = messageHandlers.at(-1);
+    handleMessage?.({ type: 'ready' });
+    expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'snapshot',
+      snapshot: expect.objectContaining({ review: expect.objectContaining({ wires: expect.any(Array) }) }),
+    }));
+
+    handleMessage?.({ type: 'openField', fieldId: 'api:email' });
+    await vi.waitFor(() => expect(showTextDocument).toHaveBeenCalled());
+    const snapshot = postMessage.mock.calls.at(-1)?.[0]?.snapshot;
+    const wireId = snapshot.review.wires[0].id as string;
+    handleMessage?.({ type: 'askWire', wireId });
+    await vi.waitFor(() => expect(revealPreferredChatSurface).toHaveBeenCalledWith(expect.objectContaining({
+      contextPatch: expect.objectContaining({ atlasmindLens: expect.any(Object) }),
+    })));
+  });
+});
